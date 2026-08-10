@@ -45,8 +45,15 @@ struct SidecarClientTests {
 
         do {
             let client = SidecarASRClient(launch: launchConfiguration(for: script))
-            let first = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
-            let second = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
+            // 15 s, not 2 s: this is the only budget CI proved too tight. The
+            // subject here is that two turns reuse one process, not how long a
+            // turn may take, and the first spawn on a cold 3-core runner pays
+            // python startup with an unwarmed filesystem cache. Every other
+            // budget in this file is left alone -- most of them are what ends
+            // their own test, and inflating those just makes a serialized suite
+            // wait out its own deadlines.
+            let first = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
+            let second = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
 
             #expect(first.transcript.text == "turn-1")
             #expect(second.transcript.text == "turn-2")
@@ -149,10 +156,38 @@ struct SidecarClientTests {
             in: temp
         )
 
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
-        let result = try await client.transcribe(sampleAudio(), timeoutMs: 3_000)
+        // The flood is captured, not forwarded. 256 KiB as one line with no
+        // newline stalls a CI log consumer; the stall backpressures through
+        // swiftpm's 64 KiB capture pipe and wedges the whole test binary, which
+        // is how this test used to take CI down -- measured: under a stalled
+        // consumer the run hung for a full 180 s and exactly 65,536 bytes
+        // escaped. Counting here is also stronger than spraying at fd 2: the
+        // drain is asserted to have kept up, not merely to have survived.
+        let forwarded = FloodCounter()
+        var launch = launchConfiguration(for: script)
+        launch.stderrSink = { [forwarded] bytes in forwarded.add(bytes.count) }
+
+        let client = SidecarASRClient(launch: launch)
+        let result = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
 
         #expect(result.transcript.text == "after-stderr-flood")
+        // More than one 64 KiB pipe buffer, which is the point: the drain kept
+        // draining while the child wrote, so the child never blocked and the
+        // reply arrived. Not the full 256 KiB -- the reply ends the session and
+        // teardown stops the source mid-flood by design, so an exact total would
+        // assert a race rather than the behaviour.
+        #expect(forwarded.total > 64 * 1024)
+    }
+
+    /// The stderr sink is called from the byte source's private queue, so the
+    /// count it accumulates needs a lock rather than a bare `var`.
+    private final class FloodCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+
+        var total: Int { lock.withLock { count } }
+
+        func add(_ bytes: Int) { lock.withLock { count += bytes } }
     }
 
     @Test func transcribeRequestEncodingCarriesProtocolModelTimeoutAndSnakeCaseAudio() async throws {

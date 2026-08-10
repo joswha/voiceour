@@ -5,11 +5,22 @@ struct SidecarLaunchConfiguration: Sendable {
     var executableURL: URL
     var arguments: [String]
     var environment: [String: String]
+    /// Where this sidecar's stderr is forwarded. Nil everywhere in production,
+    /// which forwards to the host's stderr; see `forwardStderrToHost`. Scoped to
+    /// one configuration rather than a process-wide override so a test that
+    /// installs one cannot swallow a concurrently running suite's diagnostics.
+    var stderrSink: (@Sendable (UnsafeRawBufferPointer) -> Void)?
 
-    init(executableURL: URL, arguments: [String], environment: [String: String] = [:]) {
+    init(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String] = [:],
+        stderrSink: (@Sendable (UnsafeRawBufferPointer) -> Void)? = nil
+    ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
+        self.stderrSink = stderrSink
     }
 
     static func uv(projectDirectory: URL, backend: String = "fake") -> SidecarLaunchConfiguration {
@@ -462,7 +473,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             }
 
             let stderrHandle = stderr.fileHandleForReading
-            let stderrSource = forwardStderrToHost(from: stderrHandle)
+            let stderrSource = forwardStderrToHost(from: stderrHandle, sink: launch.stderrSink)
 
             let stdoutHandle = stdout.fileHandleForReading
             let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceoour.sidecar.stdout")

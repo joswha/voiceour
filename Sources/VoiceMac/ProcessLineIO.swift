@@ -503,14 +503,26 @@ final class NDJSONLineReader: @unchecked Sendable {
     }
 }
 
-/// Forwards a child process's stderr to the host stderr until end of stream.
+/// Forwards a child process's stderr onward until end of stream.
 /// The caller owns the returned source and stops it at teardown.
-func forwardStderrToHost(from handle: FileHandle) -> PipeByteSource {
+///
+/// `sink` is a value seam in the shape AGENTS.md already sanctions for
+/// `GeneralPasteboard.writeOverride`: nil on every shipping path, so production
+/// forwards to the host's stderr exactly as before. It exists because a test
+/// that deliberately floods stderr must not put those bytes on the real
+/// descriptor. A single 256 KiB line with no newline stalls a CI log consumer,
+/// the stall backpressures through swiftpm's 64 KiB capture pipe, and the whole
+/// test binary wedges — measured: under a stalled consumer the run hung for the
+/// full 180 s and exactly 65,536 bytes escaped.
+func forwardStderrToHost(
+    from handle: FileHandle,
+    sink: (@Sendable (UnsafeRawBufferPointer) -> Void)? = nil
+) -> PipeByteSource {
     PipeByteSource(
         reading: handle,
         qos: .utility,
         label: "voiceoour.child.stderr",
-        onBytes: { writeToHostStderr($0) },
+        onBytes: sink ?? { writeToHostStderr($0) },
         onEnd: {}
     )
 }
