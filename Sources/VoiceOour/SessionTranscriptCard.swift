@@ -152,12 +152,12 @@ struct TranscriptCard: View {
                 onFixTeach: onFixTeachWord,
                 onSelectionChange: { selectedSurface = $0 }
             )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(key: TranscriptTextHeight.self, value: proxy.size.height)
-                    }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: TranscriptTextHeight.self, value: proxy.size.height)
                 }
+            }
         }
         .frame(height: viewportHeight)
         .onPreferenceChange(TranscriptTextHeight.self) { height in

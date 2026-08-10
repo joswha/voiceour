@@ -59,10 +59,12 @@ public enum CleanupEngine {
             for surface in [term.canonical] + Glossary.userAliases(for: term) {
                 let normalized = normalize(surface)
                 guard normalized.contains(" ") else { continue }
-                guard removeFillers(from: normalized, glossary: [], fragile: []) != normalized
-                    || collapseAdjacentRepeats(in: normalized, fragile: []) != normalized
+                guard
+                    removeFillers(from: normalized, glossary: [], fragile: []) != normalized
+                        || collapseAdjacentRepeats(in: normalized, fragile: []) != normalized
                 else { continue }
-                let words = normalized
+                let words =
+                    normalized
                     .split(separator: " ")
                     .map { strippedToken(String($0)).lowercased() }
                 guard !words.contains(where: \.isEmpty) else { continue }

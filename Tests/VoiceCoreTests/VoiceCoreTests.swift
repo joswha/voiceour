@@ -39,7 +39,8 @@ struct VoiceCoreTests {
         }
 
         let hesitation = taught("kubectl", "cube uh cuddle")
-        #expect(CleanupEngine.clean("please run cube uh cuddle now", glossary: [hesitation]) == "please run kubectl now")
+        #expect(
+            CleanupEngine.clean("please run cube uh cuddle now", glossary: [hesitation]) == "please run kubectl now")
 
         let wordStutter = taught("kubectl", "cube cube cuddle")
         #expect(CleanupEngine.clean("run cube cube cuddle now", glossary: [wordStutter]) == "run kubectl now")
