@@ -6,8 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
+  # macos-26, not macos-15: Sources/VoiceMac/AppleSpeech* uses SpeechAnalyzer,
+  # SpeechTranscriber, AnalyzerInput and AssetInventory, which macOS 26 added
+  # INSIDE the long-standing Speech framework. `#if canImport(Speech)` is
+  # therefore satisfied on an older SDK and the build fails to find the symbols,
+  # unlike FoundationModelsRefiner, whose whole framework is new and so compiles
+  # out cleanly. The runner has to carry the SDK the source actually targets.
   ci:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -77,12 +83,12 @@ jobs:
 
   # Not a required gate yet. The PNG-digest and flow-frame goldens were generated
   # on the maintainer's Apple Silicon Mac, and an offscreen AppKit render on a
-  # hosted runner may differ in display scale, font rasterisation, or AX frame
-  # geometry. The semantic flow gate is required above because it skips frame
-  # reconciliation; promote these visual gates only after two consecutive green
-  # runs on main.
+  # hosted runner may still differ in display scale, font rasterisation, or AX
+  # frame geometry even now that the OS matches. The semantic flow gate is
+  # required above because it skips frame reconciliation; promote these visual
+  # gates only after two consecutive green runs on main.
   ui-snapshots:
-    runs-on: macos-15
+    runs-on: macos-26
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
