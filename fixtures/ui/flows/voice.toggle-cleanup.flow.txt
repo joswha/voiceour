@@ -1,0 +1,8 @@
+flow: voice.toggle-cleanup
+title: Transcript cleanup can be switched off
+fixture: static
+transitions: idle
+PASS 1 enabled | value label="Clean up after capture" == "1" | "1"
+PASS 2 enabled | model cleanupEnabled == "true" | true
+PASS 3 disabled | value label="Clean up after capture" == "0" | "0"
+PASS 4 disabled | model cleanupEnabled == "false" | false

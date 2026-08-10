@@ -1,0 +1,10 @@
+flow: menu.copy-transcript
+title: The last transcript can be copied from its card
+fixture: static
+transitions: idle
+PASS 1 available | enabled(true) label="Copy last transcript" | true
+PASS 2 available | label label="Copy last transcript" == "Copy last transcript" | "Copy last transcript"
+PASS 3 available | role label="Copy last transcript" == AXButton | AXButton
+PASS 4 available | value label="Copy last transcript" == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 5 copied | model pasteboardText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 6 copied | model pasteboardWrites == "1" | 1

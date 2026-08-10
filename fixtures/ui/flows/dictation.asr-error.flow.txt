@@ -1,0 +1,8 @@
+flow: dictation.asr-error
+title: An ASR error is terminal and delivers nothing
+fixture: dictation-error-backend_unavailable
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error
+PASS 1 asr-error | state == error | error
+PASS 2 asr-error | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error
+PASS 3 asr-error | model deliveryCount == "0" | 0
+PASS 4 asr-error | model recentSessionCount == "0" | 0

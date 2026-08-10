@@ -1,0 +1,8 @@
+AXGroup subrole=AXHostingView [0,0 280x420]
+  AXStaticText value="IDLE" [12,12 48x24]
+  AXStaticText "Capture hotkey" value="Fn or Globe" [239,12 29x24]
+  AXStaticText value="Will copy for com.apple.dt.Xcode (codeEditor)" [12,44 191x30]
+  AXButton "START DICTATION" [12,90 256x40]
+  AXButton "Open Console" [12,138 256x32]
+  AXButton "Quit" [12,170 256x32]
+  AXStaticText value="9 SAVED SESSIONS" [12,210 112x13]

@@ -1,0 +1,7 @@
+flow: sessions.search.no-results
+title: A transcript search reaches the no-match state
+fixture: static
+transitions: idle
+PASS 1 no-results | text == "0 of 9 sessions match" exactly 1 | 1 match
+PASS 2 no-results | text == "Nothing matches “definitely-not-a-transcript”" exactly 1 | 1 match
+PASS 3 no-results | exists id=sessions.search.clear | 1 match

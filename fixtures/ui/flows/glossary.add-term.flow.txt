@@ -1,0 +1,8 @@
+flow: glossary.add-term
+title: A canonical term can be added through the ledger
+fixture: static
+transitions: idle
+PASS 1 empty | text == "No canonical terms yet" exactly 1 | 1 match
+PASS 2 added | exists value="FlowTerm" | 1 match
+PASS 3 added | exists id=remove.FlowTerm | 1 match
+PASS 4 added | model glossaryTermCount == "1" | 1

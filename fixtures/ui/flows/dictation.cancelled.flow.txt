@@ -1,0 +1,9 @@
+flow: dictation.cancelled
+title: Cancelling a live dictation delivers nothing
+fixture: dictation
+transitions: idle -> checkingPermissions -> recording -> cancelled -> idle
+PASS 1 recording | state == recording | recording
+PASS 2 recording | text == "LIVE" exactly 1 | 1 match
+PASS 3 cancelled | transitions exact [idle -> checkingPermissions -> recording -> cancelled -> idle] | idle -> checkingPermissions -> recording -> cancelled -> idle
+PASS 4 cancelled | model deliveryCount == "0" | 0
+PASS 5 cancelled | model recentSessionCount == "0" | 0

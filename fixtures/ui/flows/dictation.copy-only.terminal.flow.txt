@@ -1,0 +1,22 @@
+flow: dictation.copy-only.terminal
+title: A terminal target receives copy-only delivery
+fixture: dictation
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle
+PASS 1 checking-permissions | state == checkingPermissions | checkingPermissions
+PASS 2 checking-permissions | text == "WORKING" exactly 1 | 1 match
+PASS 3 live | state == recording | recording
+PASS 4 live | text == "LIVE" exactly 1 | 1 match
+PASS 5 live | exists label="STOP DICTATION" | 1 match
+PASS 6 finalizing-audio | state == finalizingAudio | finalizingAudio
+PASS 7 finalizing-audio | text == "WORKING" exactly 1 | 1 match
+PASS 8 transcribing | state == transcribing | transcribing
+PASS 9 transcribing | text == "WORKING" exactly 1 | 1 match
+PASS 10 ready-to-insert | state == readyToInsert | readyToInsert
+PASS 11 ready-to-insert | text == "WORKING" exactly 1 | 1 match
+PASS 12 delivered | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle
+PASS 13 delivered | model deliveredText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 14 delivered | model deliveryBundleID == "com.apple.Terminal" | "com.apple.Terminal"
+PASS 15 delivered | model deliveryDisposition == "copy" | "copy"
+PASS 16 delivered | model deliveryCount == "1" | 1
+PASS 17 delivered | model recentSessionCount == "1" | 1
+PASS 18 delivered | text == "COPIED ONLY" exactly 1 | 1 match

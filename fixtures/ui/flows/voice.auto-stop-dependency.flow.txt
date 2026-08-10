@@ -1,0 +1,8 @@
+flow: voice.auto-stop-dependency
+title: Auto-stop controls the silence field enablement
+fixture: static
+transitions: idle
+PASS 1 off | value label="Stop after silence" == "0" | "0"
+PASS 2 off | enabled(false) label="Auto-stop silence, milliseconds" | false
+PASS 3 on | value label="Stop after silence" == "1" | "1"
+PASS 4 on | enabled(true) label="Auto-stop silence, milliseconds" | true
