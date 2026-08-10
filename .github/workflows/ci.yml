@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv and cache Python dependencies
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: |
+            asr/pyproject.toml
+            asr/uv.lock
+            bench/pyproject.toml
+            bench/uv.lock
+
+      - name: Build
+        run: swift build -Xswiftc -warnings-as-errors
+
+      # Enabled only after the repo-wide formatting commit landed green, so this
+      # gate has never had to tolerate a pre-existing violation.
+      - name: Swift format check
+        run: make format-check
+
+      - name: Python lint
+        run: make lint-python
+
+      # -DUI_HARNESS: the offscreen harness and its two test suites are compiled
+      # out of a plain build, which is what keeps them out of the shipping binary.
+      - name: Swift tests
+        run: swift test -Xswiftc -warnings-as-errors -Xswiftc -DUI_HARNESS
+
+      # Flow journals, named expectations, and the coverage ledger are semantic,
+      # host-independent contracts, so they are required even though pixel and
+      # accessibility-frame goldens remain advisory on hosted runners below.
+      - name: Semantic UI flows
+        run: make ui-flow
+
+      - name: UI coverage ledger
+        run: make ui-coverage
+
+      - name: ASR sidecar tests
+        run: cd asr && uv --no-config run pytest
+
+      - name: Benchmark tests
+        run: cd bench && uv --no-config run pytest
+
+      - name: Fake app self-test
+        run: scripts/run_dev.sh --self-test
+
+      - name: Offline benchmark smoke
+        run: make bench-smoke
+
+      # VoiceOour deliberately exposes no local IPC surface. A socket that
+      # brokers this app's microphone and Accessibility grants to any same-uid
+      # process would launder a per-code-identity TCC decision, so there is no
+      # control plane and no terminal client, and this step keeps it that way.
+      - name: Assert no local control plane
+        run: |
+          set -euo pipefail
+          if [ -e tui ]; then echo "a terminal control client has appeared at tui/"; exit 1; fi
+          if [ -e fixtures/control ]; then echo "control-protocol fixtures have appeared"; exit 1; fi
+          if grep -rnE 'ControlService|ControlSocketServer|ControlProtocol|ControlTranscription|ControlServerDefaults|fileTranscriptionInFlight' Sources Tests; then
+            echo "control-plane symbols have appeared"; exit 1
+          fi
+
+  # Not a required gate yet. The PNG-digest and flow-frame goldens were generated
+  # on the maintainer's Apple Silicon Mac, and an offscreen AppKit render on a
+  # hosted runner may differ in display scale, font rasterisation, or AX frame
+  # geometry. The semantic flow gate is required above because it skips frame
+  # reconciliation; promote these visual gates only after two consecutive green
+  # runs on main.
+  ui-snapshots:
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Portable UI snapshots
+        run: make ui-snap
+      - name: Portable UI flow frames
+        run: make ui-flow-frames
