@@ -1,0 +1,77 @@
+[
+  {
+    "name": "filler_and_duplicate_preserve_url_flag_number",
+    "raw": "um the the API is at https://x.io/v1 --port 8080",
+    "expected": "the API is at https://x.io/v1 --port 8080"
+  },
+  {
+    "name": "adjacent_stopword_duplicate",
+    "raw": "I I want to to ship",
+    "expected": "I want to ship"
+  },
+  {
+    "name": "adjacent_non_stopword_duplicate",
+    "raw": "deploy deploy now",
+    "expected": "deploy now"
+  },
+  {
+    "name": "glossary_alias",
+    "raw": "send it with n s pasteboard",
+    "expected": "send it with NSPasteboard"
+  },
+  {
+    "name": "derived_glossary_alias",
+    "raw": "send it with ns pasteboard",
+    "expected": "send it with NSPasteboard"
+  },
+  {
+    "name": "path_preserved",
+    "raw": "open ~/src/VoiceOour/Package.swift",
+    "expected": "open ~/src/VoiceOour/Package.swift"
+  },
+  {
+    "name": "identifier_preserved",
+    "raw": "call AXUIElement and AVAudioEngine",
+    "expected": "call AXUIElement and AVAudioEngine"
+  },
+  {
+    "name": "number_preserved",
+    "raw": "set sample rate to 16000",
+    "expected": "set sample rate to 16000"
+  },
+  {
+    "name": "self_correction_not_rewritten",
+    "raw": "use terminal no use text edit",
+    "expected": "use terminal no use text edit"
+  },
+  {
+    "name": "filler_whitespace",
+    "raw": " uh  hello   world  ",
+    "expected": "hello world"
+  },
+  {
+    "name": "repeated_phrase_with_punctuation",
+    "raw": "it doesn't, it doesn't type as I speak",
+    "expected": "it doesn't type as I speak"
+  },
+  {
+    "name": "repeated_word_for",
+    "raw": "for for everyone involved",
+    "expected": "for everyone involved"
+  },
+  {
+    "name": "repeated_two_word_phrase",
+    "raw": "we should we should probably go",
+    "expected": "we should probably go"
+  },
+  {
+    "name": "repeated_protected_term",
+    "raw": "use NVIDIA Parakeet NVIDIA Parakeet today",
+    "expected": "use NVIDIA Parakeet today"
+  },
+  {
+    "name": "discourse_phrases_untouched",
+    "raw": "I like it, you know him",
+    "expected": "I like it, you know him"
+  }
+]
