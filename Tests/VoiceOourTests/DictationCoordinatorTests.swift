@@ -127,7 +127,10 @@ struct DictationCoordinatorTests {
         #expect(coordinator.state.isActive)
 
         gate.fire()
-        await waitUntil { coordinator.lastOutcome != nil }
+        // Same publish-before-completion race as the checkpoint test: the outcome
+        // is published while the session is still winding down, so asserting
+        // `!isActive` off that barrier is a coin flip on a loaded machine.
+        await waitUntil { !coordinator.isProcessingInFlight }
         #expect(!coordinator.state.isActive)
     }
 
@@ -1191,7 +1194,13 @@ struct DictationCoordinatorTests {
         coordinator.start()
         await waitUntil { coordinator.state == .recording }
         coordinator.stopAndProcess()
-        await waitUntil { coordinator.lastOutcome != nil }
+        // `lastOutcome != nil` is the wrong barrier here: the pipeline publishes
+        // the outcome BEFORE the durable checkpoint on purpose, so this test's
+        // read of the persisted store below was racing a `.utility` snapshot task
+        // that a loaded machine starves — 4/8 failures under a full parallel run,
+        // 10/10 in isolation. `isProcessingInFlight` clears only after
+        // `processStop` returns, i.e. strictly after that write.
+        await waitUntil { !coordinator.isProcessingInFlight }
 
         #expect(inserter.insertionCount == 1)
         #expect(coordinator.recentSessions.first?.outcome?.disposition == .pasteAttempted)
@@ -1785,9 +1794,15 @@ struct DictationCoordinatorTests {
 
 /// Yields the MainActor until `condition` holds or the deadline passes, so
 /// dispatched `Task { @MainActor }` continuations get to run between checks.
+///
+/// The ceiling is deliberately far larger than any wait this suite legitimately
+/// needs. It is a hang detector, not a performance assertion: every caller is
+/// waiting for something a fake will definitely deliver, so a slower or busier
+/// machine should take longer, never fail. At 3 s a fully loaded parallel run
+/// tripped it on correct code.
 @MainActor
 func waitUntil(
-    timeout: Duration = .seconds(3),
+    timeout: Duration = .seconds(30),
     _ condition: () -> Bool
 ) async {
     let deadline = ContinuousClock.now.advanced(by: timeout)
