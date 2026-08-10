@@ -16,12 +16,12 @@ private final class OmpProcessDiagnostics: @unchecked Sendable {
     private var stderrWasTruncated = false
     private var exitStatus: Int32?
 
-    func append(_ chunk: Data) {
+    func append(byteCount: Int) {
         lock.lock()
         defer { lock.unlock() }
         let remaining = max(Self.byteLimit - stderrBytes, 0)
-        stderrBytes += min(chunk.count, remaining)
-        if chunk.count > remaining {
+        stderrBytes += min(byteCount, remaining)
+        if byteCount > remaining {
             stderrWasTruncated = true
         }
     }
@@ -50,25 +50,30 @@ private final class OmpProcessDiagnostics: @unchecked Sendable {
     }
 }
 
-private func captureOmpStderr(from handle: FileHandle, diagnostics: OmpProcessDiagnostics) {
-    while true {
-        do {
-            guard let chunk = try handle.read(upToCount: 8_192), !chunk.isEmpty else { return }
-            diagnostics.append(chunk)
-        } catch {
-            return
-        }
-    }
+/// Counts the child's stderr without ever materialising it: the bytes are
+/// diagnostics metadata, and a refiner's stderr may carry provider secrets.
+private func captureOmpStderr(from handle: FileHandle, diagnostics: OmpProcessDiagnostics) -> PipeByteSource {
+    PipeByteSource(
+        reading: handle,
+        qos: .utility,
+        label: "voiceoour.omp.stderr",
+        onBytes: { [diagnostics] bytes in diagnostics.append(byteCount: bytes.count) },
+        onEnd: {}
+    )
 }
 actor OmpRpcRuntime {
     private struct RunningChild {
         let id: UUID
         let process: Process
         let stdin: FileHandle
+        /// Read ends the readers below own a duplicate of. Kept only to close
+        /// at teardown: both descriptions carry `O_NONBLOCK` now, so a read API
+        /// here would answer an empty pipe with empty data, which every caller
+        /// in this file reads as end of stream.
         let stdout: FileHandle
         let stdoutReader: NDJSONLineReader
         let stderr: FileHandle
-        let stderrTask: Task<Void, Never>
+        let stderrSource: PipeByteSource
         let diagnostics: OmpProcessDiagnostics
         var readerTask: Task<Void, Never>?
     }
@@ -77,10 +82,11 @@ actor OmpRpcRuntime {
         let id: UUID
         let process: Process
         let stdin: FileHandle
+        /// Close-only, for the reason spelled out on `RunningChild.stdout`.
         let stdout: FileHandle
         let stdoutReader: NDJSONLineReader
         let stderr: FileHandle
-        let stderrTask: Task<Void, Never>
+        let stderrSource: PipeByteSource
         let diagnostics: OmpProcessDiagnostics
         let readyTask: Task<Void, Error>
 
@@ -91,7 +97,7 @@ actor OmpRpcRuntime {
             stdout: FileHandle,
             stdoutReader: NDJSONLineReader,
             stderr: FileHandle,
-            stderrTask: Task<Void, Never>,
+            stderrSource: PipeByteSource,
             diagnostics: OmpProcessDiagnostics,
             readyTask: Task<Void, Error>
         ) {
@@ -101,7 +107,7 @@ actor OmpRpcRuntime {
             self.stdout = stdout
             self.stdoutReader = stdoutReader
             self.stderr = stderr
-            self.stderrTask = stderrTask
+            self.stderrSource = stderrSource
             self.diagnostics = diagnostics
             self.readyTask = readyTask
         }
@@ -441,14 +447,12 @@ actor OmpRpcRuntime {
         }
 
         let stderrHandle = stderr.fileHandleForReading
-        let stderrTask = Task.detached(priority: .utility) {
-            captureOmpStderr(from: stderrHandle, diagnostics: diagnostics)
-        }
+        let stderrSource = captureOmpStderr(from: stderrHandle, diagnostics: diagnostics)
 
         let stdoutHandle = stdout.fileHandleForReading
-        let stdoutReader = NDJSONLineReader(reading: stdoutHandle)
+        let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceoour.omp.stdout")
         let readyTask = Task.detached(priority: .userInitiated) { () throws -> Void in
-            while let line = try stdoutReader.nextLine() {
+            while let line = await stdoutReader.nextLine() {
                 guard
                     let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                     let type = object["type"] as? String
@@ -457,7 +461,11 @@ actor OmpRpcRuntime {
                     return
                 }
             }
-            await stderrTask.value
+            // Let stderr finish so the failure names everything the child said
+            // before it died. Bounded because end of stream is not guaranteed:
+            // a surviving grandchild can hold the write end open for as long as
+            // it likes.
+            await stderrSource.stopped(withinMilliseconds: 1_000)
             let detail = diagnostics.summary()
             throw OmpRpcError.notReady(
                 detail.isEmpty ? "stdout closed before ready" : "stdout closed before ready [\(detail)]"
@@ -471,7 +479,7 @@ actor OmpRpcRuntime {
             stdout: stdoutHandle,
             stdoutReader: stdoutReader,
             stderr: stderrHandle,
-            stderrTask: stderrTask,
+            stderrSource: stderrSource,
             diagnostics: diagnostics,
             readyTask: readyTask
         )
@@ -497,21 +505,17 @@ actor OmpRpcRuntime {
                 stdout: starting.stdout,
                 stdoutReader: starting.stdoutReader,
                 stderr: starting.stderr,
-                stderrTask: starting.stderrTask,
+                stderrSource: starting.stderrSource,
                 diagnostics: starting.diagnostics,
                 readerTask: nil
             )
             let reader = starting.stdoutReader
             let childId = starting.id
             child.readerTask = Task.detached(priority: .userInitiated) { [weak self] in
-                do {
-                    while let line = try reader.nextLine() {
-                        await self?.handleLine(line, childId: childId)
-                    }
-                    await self?.stdoutClosed(childId: childId)
-                } catch {
-                    await self?.stdoutFailed(childId: childId, error: error)
+                while let line = await reader.nextLine() {
+                    await self?.handleLine(line, childId: childId)
                 }
+                await self?.stdoutClosed(childId: childId)
             }
             self.starting = nil
             self.running = child
@@ -534,15 +538,6 @@ actor OmpRpcRuntime {
         stopRunning(terminate: true)
     }
 
-    private func stdoutFailed(childId: UUID, error: Error) {
-        guard let child = running, child.id == childId else { return }
-        failActiveTurn(
-            with: OmpRpcError.processExited(
-                "refiner stdout read failed: \(error.localizedDescription)\(diagnosticSuffix(child.diagnostics))"
-            ))
-        stopRunning(terminate: true)
-    }
-
     private func processTerminated(childId: UUID, status: Int32) {
         guard let child = running, child.id == childId else { return }
         failActiveTurn(
@@ -555,12 +550,15 @@ actor OmpRpcRuntime {
     private func stopRunning(terminate: Bool) {
         guard let child = running else { return }
         running = nil
+        // Stopping the readers is what ends them: each owns a duplicate of the
+        // descriptor it drains and closes that duplicate from its own cancel
+        // handler. Nothing below can pull a descriptor out from under a read
+        // any more, and nothing below ends a reader either.
         child.readerTask?.cancel()
-        child.stderrTask.cancel()
-        // Closing stdin asks a well-behaved child to exit. The child's death is
-        // what unblocks a reader parked in `read(2)`, so it must happen before
-        // we close our read ends: a handle closed under a blocked read leaves
-        // the reader on a dead or recycled descriptor.
+        child.stdoutReader.stop()
+        child.stderrSource.stop()
+        // Closing stdin still asks a well-behaved child to exit before we
+        // signal it.
         try? child.stdin.close()
         if terminate {
             OmpProcessTermination.terminateAndReap(child.process)
@@ -576,8 +574,9 @@ actor OmpRpcRuntime {
     }
 
     private func closeChild(_ starting: StartingChild) {
-        starting.stderrTask.cancel()
         starting.readyTask.cancel()
+        starting.stdoutReader.stop()
+        starting.stderrSource.stop()
         try? starting.stdin.close()
         OmpProcessTermination.terminateAndReap(starting.process)
         try? starting.stdout.close()

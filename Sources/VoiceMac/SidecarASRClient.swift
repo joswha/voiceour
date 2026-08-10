@@ -246,10 +246,14 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         let id: UUID
         let process: Process
         let stdin: FileHandle
+        /// Read ends the readers below own a duplicate of. Kept only to close
+        /// at teardown: both descriptions carry `O_NONBLOCK` now, so a read API
+        /// here would answer an empty pipe with empty data, which every caller
+        /// in this file reads as end of stream.
         let stdout: FileHandle
         let stdoutReader: NDJSONLineReader
         let stderr: FileHandle
-        let stderrTask: Task<Void, Never>
+        let stderrSource: PipeByteSource
         let helloTask: Task<ASRHello, Error>
 
         init(
@@ -259,7 +263,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             stdout: FileHandle,
             stdoutReader: NDJSONLineReader,
             stderr: FileHandle,
-            stderrTask: Task<Void, Never>,
+            stderrSource: PipeByteSource,
             helloTask: Task<ASRHello, Error>
         ) {
             self.id = id
@@ -268,7 +272,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             self.stdout = stdout
             self.stdoutReader = stdoutReader
             self.stderr = stderr
-            self.stderrTask = stderrTask
+            self.stderrSource = stderrSource
             self.helloTask = helloTask
         }
     }
@@ -277,11 +281,12 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         let id: UUID
         let process: Process
         let stdin: FileHandle
+        /// Close-only, for the reason spelled out on `StartingSidecar.stdout`.
         let stdout: FileHandle
         let stdoutReader: NDJSONLineReader
         let stderr: FileHandle
         let hello: ASRHello
-        let stderrTask: Task<Void, Never>
+        let stderrSource: PipeByteSource
         var readerTask: Task<Void, Never>?
 
         init(starting: StartingSidecar, hello: ASRHello) {
@@ -292,7 +297,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             self.stdoutReader = starting.stdoutReader
             self.stderr = starting.stderr
             self.hello = hello
-            self.stderrTask = starting.stderrTask
+            self.stderrSource = starting.stderrSource
         }
     }
 
@@ -457,14 +462,12 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             }
 
             let stderrHandle = stderr.fileHandleForReading
-            let stderrTask = Task.detached(priority: .utility) {
-                drainStderrToHost(from: stderrHandle)
-            }
+            let stderrSource = forwardStderrToHost(from: stderrHandle)
 
             let stdoutHandle = stdout.fileHandleForReading
-            let stdoutReader = NDJSONLineReader(reading: stdoutHandle)
+            let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceoour.sidecar.stdout")
             let helloTask = Task.detached(priority: .userInitiated) { () throws -> ASRHello in
-                guard let helloLine = try stdoutReader.nextLine() else {
+                guard let helloLine = await stdoutReader.nextLine() else {
                     throw SidecarASRClientError.noHello
                 }
                 let hello = try ASRWire.decode(ASRHello.self, from: Data(helloLine.utf8))
@@ -484,7 +487,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
                 stdout: stdoutHandle,
                 stdoutReader: stdoutReader,
                 stderr: stderrHandle,
-                stderrTask: stderrTask,
+                stderrSource: stderrSource,
                 helloTask: helloTask
             )
         }
@@ -518,14 +521,10 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             let reader = running.stdoutReader
             let sidecarId = running.id
             running.readerTask = Task.detached(priority: .userInitiated) { [weak self] in
-                do {
-                    while let line = try reader.nextLine() {
-                        await self?.handleLine(line, sidecarId: sidecarId)
-                    }
-                    await self?.stdoutClosed(sidecarId: sidecarId)
-                } catch {
-                    await self?.stdoutFailed(sidecarId: sidecarId, error: error)
+                while let line = await reader.nextLine() {
+                    await self?.handleLine(line, sidecarId: sidecarId)
                 }
+                await self?.stdoutClosed(sidecarId: sidecarId)
             }
         }
 
@@ -582,17 +581,6 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             )
         }
 
-        private func stdoutFailed(sidecarId: UUID, error: Error) {
-            guard running?.id == sidecarId else { return }
-            failAllAndStop(
-                requestId: nil,
-                requestError: nil,
-                otherError: SidecarASRClientError.processExited(
-                    "sidecar stdout read failed: \(error.localizedDescription)"),
-                terminate: true
-            )
-        }
-
         private func processTerminated(sidecarId: UUID, status: Int) {
             if running?.id == sidecarId {
                 failAllAndStop(
@@ -611,8 +599,16 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             let pendingRequests = pending
             pending.removeAll()
 
-            if terminate, let sidecar {
-                terminateRunning(sidecar)
+            if let sidecar {
+                if terminate {
+                    terminateRunning(sidecar)
+                } else {
+                    // The sidecar is abandoned rather than signalled, so its
+                    // handles stay as they were -- but nothing will read them
+                    // again, and a reader left running holds a duplicated
+                    // descriptor and a task suspended in `nextLine()`.
+                    stopReaders(of: sidecar)
+                }
             }
 
             for (pendingRequestId, continuation) in pendingRequests {
@@ -625,14 +621,24 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         }
 
         private func terminateRunning(_ sidecar: RunningSidecar) {
-            sidecar.readerTask?.cancel()
-            sidecar.stderrTask.cancel()
+            stopReaders(of: sidecar)
             try? sidecar.stdin.close()
             try? sidecar.stdout.close()
             try? sidecar.stderr.close()
             if sidecar.process.isRunning {
                 sidecar.process.terminate()
             }
+        }
+
+        /// Stopping a reader is what ends it: each owns a duplicate of the
+        /// descriptor it drains and closes that duplicate from its own cancel
+        /// handler, so the closes above no longer race a read -- and no longer
+        /// end one either. Cancelling the reader task only releases the pull it
+        /// is suspended in; the source stop is what retires the descriptor.
+        private func stopReaders(of sidecar: RunningSidecar) {
+            sidecar.readerTask?.cancel()
+            sidecar.stdoutReader.stop()
+            sidecar.stderrSource.stop()
         }
 
         private func terminateStarting() {
@@ -642,7 +648,12 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         }
 
         private func closeStarting(_ starting: StartingSidecar) {
-            starting.stderrTask.cancel()
+            // Cancelling the hello task resumes its pull immediately. Without
+            // it an abandoned startup left that task waiting on a close that
+            // no longer ends the reader at all.
+            starting.helloTask.cancel()
+            starting.stdoutReader.stop()
+            starting.stderrSource.stop()
             try? starting.stdin.close()
             try? starting.stdout.close()
             try? starting.stderr.close()

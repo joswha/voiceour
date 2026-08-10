@@ -2,6 +2,35 @@ import Darwin
 import Dispatch
 import Foundation
 
+/// Runs a blocking body on a thread of its own and suspends the caller until it
+/// finishes.
+///
+/// Swift's cooperative pool is a fixed number of threads, so a blocking syscall
+/// parked on one of them is never rescheduled elsewhere: park enough and the
+/// pool stops running anything, including the sibling `Task.sleep` that
+/// enforces this call's own timeout. `OmpProcessInvocation.runBlocking` polls
+/// the child for its entire lifetime, so it gets a thread that is ours to park.
+/// The continuation is resumed exactly once, by the thread body; cancellation
+/// reaches the child through `invocation.terminate()`, which is what ends the
+/// poll loop.
+private func withDedicatedThread<T: Sendable>(
+    name: String,
+    _ body: @escaping @Sendable () throws -> T
+) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        let thread = Thread {
+            do {
+                continuation.resume(returning: try body())
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        thread.name = name
+        thread.stackSize = 512 << 10
+        thread.start()
+    }
+}
+
 enum OmpProcess {
     static func run(
         executableURL: URL,
@@ -21,7 +50,9 @@ enum OmpProcess {
         )
 
         return try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask { try invocation.runBlocking() }
+            group.addTask {
+                try await withDedicatedThread(name: "voiceoour.omp.run") { try invocation.runBlocking() }
+            }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(max(timeoutMs, 1)) * 1_000_000)
                 invocation.terminate()
