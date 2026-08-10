@@ -6,6 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "VoiceOour", targets: ["VoiceOour"]),
+        .executable(name: "voiceoour-bench", targets: ["VoiceOourBench"]),
+        .executable(name: "voiceoour-capture-bench", targets: ["VoiceOourCaptureBench"]),
         .library(name: "VoiceCore", targets: ["VoiceCore"]),
         .library(name: "VoiceMac", targets: ["VoiceMac"])
     ],
@@ -21,6 +23,14 @@ let package = Package(
         .target(
             name: "VoiceMac",
             dependencies: ["VoiceCore"]
+        ),
+        .executableTarget(
+            name: "VoiceOourBench",
+            dependencies: ["VoiceCore", "VoiceMac"]
+        ),
+        .executableTarget(
+            name: "VoiceOourCaptureBench",
+            dependencies: ["VoiceCore", "VoiceMac"]
         ),
         .testTarget(
             name: "VoiceCoreTests",

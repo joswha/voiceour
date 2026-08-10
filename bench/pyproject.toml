@@ -1,0 +1,37 @@
+[project]
+name = "voiceoour-bench"
+version = "0.1.0"
+description = "VoiceOour production-path benchmark tooling"
+authors = [
+    { name = "VoiceOour contributors" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "datasets>=5.0.0",
+    "jiwer>=4.0.0",
+    "soundfile>=0.14.0",
+    "whisper-normalizer>=0.1.12",
+]
+
+[project.scripts]
+voiceoour-bench-python = "voiceoour_bench.run:main"
+voiceoour-bench-compare = "voiceoour_bench.compare:main"
+
+[build-system]
+requires = ["uv_build>=0.9.2,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Pyflakes, pycodestyle, isort, bugbear, comprehensions, pyupgrade. Deliberately
+# narrow: a linter that fires on correct code trains everyone to ignore it.
+select = ["F", "E", "W", "I", "B", "C4", "UP"]
