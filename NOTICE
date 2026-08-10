@@ -1,0 +1,32 @@
+VoiceOour notices
+
+VoiceOour source code is licensed under the MIT License.
+
+Third-party components and model artifacts used by v0:
+
+- Swift Testing — Apache-2.0 with Runtime Library Exception — https://github.com/swiftlang/swift-testing
+- NVIDIA Parakeet TDT 0.6B v3, converted by mlx-community — CC-BY-4.0 model license — https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3
+- parakeet-mlx — Apache-2.0 License — https://github.com/senstella/parakeet-mlx
+- MLX — MIT License — https://github.com/ml-explore/mlx
+- huggingface_hub — Apache-2.0 License — https://github.com/huggingface/huggingface_hub
+- Pydantic — MIT License — https://github.com/pydantic/pydantic
+- NumPy — BSD-3-Clause License — https://numpy.org
+- SoundFile — BSD-3-Clause License — https://python-soundfile.readthedocs.io
+
+Benchmark-only dependencies (`bench/`; not shipped in the app):
+
+- datasets — Apache-2.0 License — https://github.com/huggingface/datasets
+- jiwer — Apache-2.0 License — https://github.com/jitsi/jiwer
+- whisper-normalizer — MIT License — https://github.com/kurianbenoy/whisper_normalizer
+
+Model chain:
+
+The real ASR path loads `mlx-community/parakeet-tdt-0.6b-v3`, pinned at revision
+`ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15` and licensed CC-BY-4.0
+(https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3). Its `base_model` is
+`nvidia/parakeet-tdt-0.6b-v3`, also CC-BY-4.0
+(https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3). Weights are downloaded and
+cached at runtime on first use; they are not bundled with the app or committed to
+this repository.
+
+KeyboardShortcuts 2.x was evaluated for v0 but is not linked in this build because the available Command Line Tools cannot compile its SwiftUI preview macros. The app currently uses a small first-party Carbon hotkey binder.

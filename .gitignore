@@ -1,0 +1,23 @@
+.build/
+.omp/
+*.app/
+*.dmg
+*.zip
+fixtures/audio/
+asr/.venv/
+asr/.pytest_cache/
+asr/.ruff_cache/
+.DS_Store
+__pycache__/
+*.py[cod]
+.cache/
+models/
+model-cache/
+asr/model-cache/
+omp-session-*.html
+
+# Local secrets: refiner API keys (GEMINI_API_KEY, OPENROUTER_API_KEY)
+.env
+.env.*
+benchmarks/data/
+benchmarks/results/
