@@ -1,0 +1,2323 @@
+import Dispatch
+import Foundation
+import Testing
+
+@testable import VoiceCore
+@testable import VoiceMac
+@testable import VoiceOour
+
+/// Covers DictationCoordinator behaviour through injected fakes: stale-generation
+/// guards, temp-audio cleanup on every exit path, refiner prewarm, late-resolved
+/// insertion targets, suggestion surfacing, hard-capped vocabulary snapshots,
+/// gated MLX end-to-end telemetry, and recent-session persistence/termination
+/// ordering. The coordinator is @MainActor and fully DI-injected; the ASR fake
+/// can block on a gate so a test can inject a cancel/restart mid-transcription.
+@Suite("DictationCoordinator", .serialized)
+@MainActor
+struct DictationCoordinatorTests {
+    // MARK: Stale-generation guards
+
+    @Test func staleTranscriptionResultDoesNotChangeStateAfterNewerSessionStarted() async {
+        let gate = TestGate()
+        let recorder = FakeRecorder()
+        let asr = FakeASR(behavior: .gatedText(gate, "stale transcript"))
+        let coordinator = makeCoordinator(recorder: recorder, asr: asr)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+
+        coordinator.cancel()
+        await waitUntil { coordinator.state == .idle }
+        #expect(coordinator.isProcessingInFlight)
+
+        coordinator.start()
+        #expect(recorder.startCount == 1)
+        #expect(coordinator.state == .idle)
+
+        gate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+        #expect(coordinator.lastTranscript == "")
+        #expect(coordinator.lastOutcome == nil)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        #expect(recorder.startCount == 2)
+        #expect(coordinator.lastTranscript == "")
+        #expect(coordinator.lastOutcome == nil)
+    }
+
+    @Test func cancelledSessionLateResultDoesNotResurrectState() async {
+        let gate = TestGate()
+        let asr = FakeASR(behavior: .gatedText(gate, "late transcript"))
+        let coordinator = makeCoordinator(asr: asr)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+
+        coordinator.cancel()
+        await waitUntil { coordinator.state == .idle }
+
+        gate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(coordinator.state == .idle)
+        #expect(coordinator.lastOutcome == nil)
+        #expect(coordinator.lastTranscript == "")
+    }
+
+    @Test func recordingStopPrewarmsWithoutBlockingTranscription() async {
+        let warmUpGate = TestGate()
+        let transcriptionGate = TestGate()
+        let refiner = BlockingWarmUpRefiner(gate: warmUpGate)
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .gatedText(transcriptionGate, "hello world")),
+            refiner: refiner,
+            settings: settings
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil {
+            coordinator.state == .transcribing && refiner.warmUpCount > 0
+        }
+
+        #expect(coordinator.state == .transcribing)
+        #expect(refiner.warmUpCount > 0)
+
+        warmUpGate.fire()
+        transcriptionGate.fire()
+        await waitUntil { coordinator.lastOutcome != nil }
+    }
+
+    @Test func disabledRefinerIsNotPrewarmed() async {
+        let refiner = BlockingWarmUpRefiner(gate: TestGate())
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("hello world")),
+            refiner: refiner
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(refiner.warmUpCount == 0)
+    }
+
+    /// The backend-restart affordance in `VoicePane` and the guard in
+    /// `VoiceOourAppDelegate.restartApplication()` are both `!state.isActive`.
+    /// They must agree, or the button offers a restart the delegate refuses.
+    @Test func restartIsRefusedWhileASessionIsActiveAndAllowedAtIdle() async {
+        let gate = TestGate()
+        let coordinator = makeCoordinator(asr: FakeASR(behavior: .gatedText(gate, "restart boundary")))
+
+        #expect(!coordinator.state.isActive)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        #expect(coordinator.state.isActive)
+
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+        #expect(coordinator.state.isActive)
+
+        gate.fire()
+        await waitUntil { coordinator.lastOutcome != nil }
+        #expect(!coordinator.state.isActive)
+    }
+
+    @Test func defaultCoordinatorDoesNotProbeLoginKeychain() {
+        let coordinator = makeCoordinator(asr: FakeASR(behavior: .text("unused")))
+
+        #expect(coordinator.refinerKeySource == .none)
+    }
+
+    @Test func runtimeRefinerBindingTracksEnableProviderEndpointModelAndTimeout() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = false
+        settings.refinerProvider = .omp
+        settings.refinerModel = "model-a"
+        settings.refinerTimeoutMs = 1_500
+        let factory = RefinerFactorySpy()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
+            refinerFactory: { factory.make(settings: $0) },
+            settings: settings,
+            keySourceProvider: { _ in .keychain }
+        )
+
+        coordinator.settings.refinerEnabled = true
+        await driveUtterance(coordinator)
+        #expect(factory.settingsSnapshots.last?.refinerModel == "model-a")
+
+        coordinator.settings.cleanupEnabled.toggle()
+        await driveUtterance(coordinator)
+        #expect(factory.refiners.first?.refinementCount == 2)
+
+        coordinator.settings.refinerModel = "model-b"
+        coordinator.settings.refinerTimeoutMs = 2_500
+        await driveUtterance(coordinator)
+        #expect(factory.settingsSnapshots.map(\.refinerModel) == ["model-a", "model-b"])
+        #expect(factory.settingsSnapshots.last?.refinerTimeoutMs == 2_500)
+
+        var custom = coordinator.settings
+        custom.refinerProvider = .custom
+        custom.refinerBaseURL = "https://local.example/v1"
+        custom.refinerModel = "custom-model"
+        coordinator.settings = custom
+        await driveUtterance(coordinator)
+
+        #expect(factory.settingsSnapshots.map(\.refinerProvider) == [.omp, .omp, .custom])
+        #expect(
+            factory.settingsSnapshots.last.map { RefinerResolved.baseURL($0) }
+                == "https://local.example/v1"
+        )
+        #expect(factory.refiners.map(\.refinementCount) == [2, 1, 1])
+    }
+
+    @Test func staleReachabilityResultDoesNotOverwriteNewerConfiguration() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.refinerModel = "old-model"
+        let oldProbeGate = TestGate()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            settings: settings,
+            keySourceProvider: { _ in .keychain },
+            ompModelsProbe: { _, _, _, _ in
+                await oldProbeGate.wait()
+                return .failed("stale failure")
+            },
+            cloudReachabilityProbe: { _, _, _, _ in .ok(models: 7) }
+        )
+
+        let staleCheck = Task { await coordinator.checkRefinerReachability() }
+        await waitUntil { coordinator.refinerReachability == .checking }
+
+        var current = coordinator.settings
+        current.refinerProvider = .custom
+        current.refinerBaseURL = "https://current.example/v1"
+        current.refinerModel = "current-model"
+        coordinator.settings = current
+        let currentCommitted = await coordinator.checkRefinerReachability()
+        #expect(currentCommitted)
+        #expect(coordinator.refinerReachability == .ok(models: 7))
+
+        oldProbeGate.fire()
+        let staleCommitted = await staleCheck.value
+        #expect(!staleCommitted)
+        #expect(coordinator.refinerReachability == .ok(models: 7))
+    }
+
+    @Test func ompOnboardingTracksTerminalAndSelectsSubscriptionModel() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.refinerModel = "anthropic/claude-haiku-4-5"
+        let startGate = TestGate()
+        let finishGate = TestGate()
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceoour-onboarding-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let session = OmpOnboardingSession(
+            subscription: .chatGPT,
+            directoryURL: scratch,
+            scriptURL: scratch.appendingPathComponent("login.command"),
+            resultURL: scratch.appendingPathComponent("result"),
+            executableURL: URL(fileURLWithPath: "/tmp/fake-omp"),
+            argumentPrefix: [],
+            profileDirectory: nil
+        )
+        let models = [
+            OmpAvailableModel(
+                provider: "anthropic",
+                selector: "anthropic/claude-haiku-4-5",
+                name: "Claude Haiku 4.5"
+            ),
+            OmpAvailableModel(
+                provider: "openai-codex",
+                selector: "openai-codex/gpt-5.5",
+                name: "GPT-5.5"
+            ),
+        ]
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            settings: settings,
+            settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
+            ompOnboardingStart: { subscription in
+                #expect(subscription == .chatGPT)
+                await startGate.wait()
+                return session
+            },
+            ompOnboardingFinish: { received in
+                #expect(received == session)
+                await finishGate.wait()
+                return .signedIn(models: models, catalogWarning: nil)
+            }
+        )
+
+        let onboarding = Task { await coordinator.startOmpOnboarding(.chatGPT) }
+        await waitUntil { coordinator.ompOnboardingState == .opening(.chatGPT) }
+        startGate.fire()
+        await waitUntil { coordinator.ompOnboardingState == .terminalOpen(.chatGPT) }
+        finishGate.fire()
+
+        #expect(await onboarding.value)
+        #expect(coordinator.settings.refinerModel == "openai-codex/gpt-5.5")
+        #expect(coordinator.refinerReachability == .ok(models: 2))
+        #expect(
+            coordinator.ompOnboardingState
+                == .signedIn(
+                    .chatGPT,
+                    model: "openai-codex/gpt-5.5",
+                    detail: "ChatGPT sign-in completed in Oh My Pi. Model set to openai-codex/gpt-5.5."
+                ))
+        #expect(coordinator.ompProviderStatusState == .loaded)
+    }
+
+    @Test func ompOnboardingLaunchFailureIsUserVisible() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            settings: settings,
+            ompOnboardingStart: { _ in
+                throw OmpOnboardingError.cannotOpenTerminal
+            }
+        )
+
+        let started = await coordinator.startOmpOnboarding(.gemini)
+        #expect(!started)
+        #expect(
+            coordinator.ompOnboardingState
+                == .failed(
+                    .gemini,
+                    "Could not open the temporary Oh My Pi sign-in in Terminal."
+                ))
+        #expect(coordinator.refinerReachability == .unknown)
+    }
+
+    @Test func ompProviderStatusRefreshPublishesCheckingAndCounts() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let probeGate = TestGate()
+        let snapshot = OmpProviderStatusSnapshot(connections: [
+            OmpProviderConnection(
+                providerID: "anthropic",
+                displayName: "Anthropic",
+                activeAccounts: 2,
+                reportingAccounts: 1,
+                disabledAccounts: 0
+            )
+        ])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            settings: settings,
+            ompProviderStatusProbe: { _, _, timeoutMs in
+                #expect(timeoutMs == 1_234)
+                await probeGate.wait()
+                return snapshot
+            }
+        )
+
+        let refresh = Task { await coordinator.refreshOmpProviderStatuses(timeoutMs: 1_234) }
+        await waitUntil { coordinator.ompProviderStatusState == .checking }
+        probeGate.fire()
+
+        #expect(await refresh.value)
+        #expect(coordinator.ompProviderStatusState == .loaded)
+        #expect(coordinator.ompProviderConnections == snapshot.connections)
+    }
+
+    @Test func inFlightBackendKeepsItsTraceAndCannotDemoteNewerConfiguration() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .openAI
+        settings.refinerModel = "old-model"
+        let refinementGate = TestGate()
+        let oldRefiner = BlockingOutcomeRefiner(
+            gate: refinementGate,
+            outcome: .fellBack("ignored backend fallback", reason: "http_401")
+        )
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
+            refinerFactory: { _ in oldRefiner },
+            settings: settings,
+            keySourceProvider: { _ in .keychain },
+            cloudReachabilityProbe: { _, _, _, _ in .ok(models: 3) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .refining && oldRefiner.refinementCount == 1 }
+
+        var current = coordinator.settings
+        current.refinerProvider = .custom
+        current.refinerBaseURL = "https://new.example/v1"
+        current.refinerModel = "new-model"
+        coordinator.settings = current
+        let currentReachabilityCommitted = await coordinator.checkRefinerReachability()
+        #expect(currentReachabilityCommitted)
+        #expect(coordinator.refinerReachability == .ok(models: 3))
+
+        refinementGate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(coordinator.recentSessions.first?.refinement?.provider == "openAI:old-model")
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "http_401")
+        #expect(coordinator.refinerReachability == .ok(models: 3))
+    }
+
+    @Test func currentCloudAuthenticationFailureDemotesReachability() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .openAI
+        settings.refinerModel = "gpt-test"
+        let refiner = CapturingRefiner(
+            outcome: .fellBack("ignored backend fallback", reason: "http_403")
+        )
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
+            refiner: refiner,
+            settings: settings,
+            keySourceProvider: { _ in .keychain },
+            cloudReachabilityProbe: { _, _, _, _ in .ok(models: 2) }
+        )
+
+        let reachabilityCommitted = await coordinator.checkRefinerReachability()
+        #expect(reachabilityCommitted)
+        #expect(coordinator.refinerReachability == .ok(models: 2))
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.refinerReachability == .unauthorized)
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "http_403")
+    }
+
+    @Test func directCloudProbeUsesSelectedModelExceptForCustomAliases() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .gemini
+        settings.refinerModel = "gemini-selected"
+        let capture = CloudProbeCapture()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            settings: settings,
+            keySourceProvider: { _ in .keychain },
+            cloudReachabilityProbe: { _, _, model, _ in
+                capture.record(model: model)
+                return .ok(models: 4)
+            }
+        )
+
+        let builtInCommitted = await coordinator.checkRefinerReachability()
+        #expect(builtInCommitted)
+
+        var custom = coordinator.settings
+        custom.refinerProvider = .custom
+        custom.refinerBaseURL = "https://custom.example/v1"
+        custom.refinerModel = "server-defined-alias"
+        coordinator.settings = custom
+        let customCommitted = await coordinator.checkRefinerReachability()
+        #expect(customCommitted)
+
+        #expect(capture.models == ["gemini-selected", nil])
+    }
+
+    @Test func currentCloudRequestFailuresReplaceTheCachedGreenVerdict() async {
+        for (reason, expectedVerdict) in [
+            ("http_400", RefinerReachability.failed("HTTP 400")),
+            ("http_404", RefinerReachability.failed("HTTP 404")),
+        ] {
+            var settings = VoiceCore.Settings()
+            settings.refinerEnabled = true
+            settings.refinerProvider = .openAI
+            settings.refinerModel = "gpt-test"
+            let coordinator = makeCoordinator(
+                asr: FakeASR(
+                    behavior: .text("Please send the draft, no wait, send the updated note.")
+                ),
+                refiner: CapturingRefiner(
+                    outcome: .fellBack("ignored backend fallback", reason: reason)
+                ),
+                settings: settings,
+                keySourceProvider: { _ in .keychain },
+                cloudReachabilityProbe: { _, _, _, _ in .ok(models: 2) }
+            )
+
+            let probeCommitted = await coordinator.checkRefinerReachability()
+            #expect(probeCommitted)
+            await driveUtterance(coordinator)
+
+            #expect(coordinator.refinerReachability == expectedVerdict)
+            #expect(coordinator.recentSessions.first?.refinement?.reason == reason)
+        }
+    }
+
+    // MARK: Temp-audio cleanup
+
+    @Test func tempAudioRemovedOnSuccessPath() async {
+        let recorder = FakeRecorder()
+        let inserter = FakeInserter(outcome: .pasteAttempted)
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("hello world")),
+            inserter: inserter
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        let produced = recorder.producedURL
+        #expect(produced != nil)
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+        #expect(!fileExists(produced))
+    }
+
+    @Test func tempAudioRemovedBeforeRefinementCompletes() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let recorder = FakeRecorder()
+        let refinementGate = TestGate()
+        let refiner = BlockingRefinementRefiner(gate: refinementGate)
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
+            refiner: refiner,
+            settings: settings
+        )
+        defer { refinementGate.fire() }
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil {
+            coordinator.state == .refining && refiner.refinementCount == 1
+        }
+
+        #expect(recorder.producedURL != nil)
+        #expect(!fileExists(recorder.producedURL))
+
+        refinementGate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+    }
+
+    @Test func tempAudioRemovalRetriesTransientFailureOnSuccessPath() async {
+        let recorder = FakeRecorder()
+        let remover = TransientFailingAudioRemover()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("hello world")),
+            temporaryAudioRemover: { try remover.remove($0) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+        #expect(remover.callCount == 2)
+        #expect(!fileExists(recorder.producedURL))
+    }
+
+    @Test func tempAudioRemovedOnCancellation() async {
+        let gate = TestGate()
+        let recorder = FakeRecorder()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .gatedText(gate, "x"))
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+
+        // Recorder has finalized its file; it exists until the cancel path removes it.
+        #expect(fileExists(recorder.producedURL))
+
+        coordinator.cancel()
+        await waitUntil { coordinator.state == .idle }
+        gate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(!fileExists(recorder.producedURL))
+    }
+
+    @Test func tempAudioRemovedOnErrorPath() async {
+        let recorder = FakeRecorder()
+        let error = ASRErrorMessage(
+            requestId: "req",
+            code: .internalError,
+            category: "backend",
+            retryable: false,
+            userMessageKey: "asr_error",
+            detail: "boom"
+        )
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .throwError(error))
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil {
+            if case .error = coordinator.state { return true }
+            return false
+        }
+
+        #expect(recorder.producedURL != nil)
+        #expect(!fileExists(recorder.producedURL))
+        #expect(coordinator.state == .error(.internalError))
+    }
+
+    @Test func focusSwitchDuringTranscriptionUsesLatestTargetForInsertion() async {
+        let originalTarget = TargetSnapshot(
+            bundleId: "com.example.app-a",
+            pid: 101,
+            safety: .normalText
+        )
+        let latestTarget = TargetSnapshot(
+            bundleId: "com.example.app-b",
+            pid: 202,
+            safety: .normalText
+        )
+        let gate = TestGate()
+        let tracker = MutableTracker(snapshot: originalTarget)
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .gatedText(gate, "message for the latest app")),
+            tracker: tracker,
+            inserter: inserter
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+
+        tracker.setSnapshot(latestTarget)
+        gate.fire()
+        await waitUntil { coordinator.lastOutcome != nil }
+
+        #expect(inserter.insertedTarget == latestTarget)
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+    }
+
+    @Test func suggestionAppearsAfterCompletionWithoutBlockingCompletion() async {
+        var settings = VoiceCore.Settings()
+        settings.glossary = [
+            ProtectedTerm(canonical: "kubectl", spokenAliases: ["cube cuddle"])
+        ]
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("Please run cube cuttle now.")),
+            settings: settings
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.lastOutcome != nil }
+        await waitUntil { !coordinator.pendingSuggestions.isEmpty }
+
+        #expect(
+            coordinator.pendingSuggestions.contains { suggestion in
+                suggestion.canonical == "kubectl"
+            })
+    }
+
+    @Test func stopPathUsesOneHardCappedVocabularySnapshot() async {
+        var terms = [
+            ProtectedTerm(
+                canonical: "NeuroDock",
+                spokenAliases: ["neuro dock"],
+                protected: true,
+                termId: "retained-neurodock",
+                source: .bundled
+            )
+        ]
+        // Confirmed aliases on the first ten reserved terms push the derived
+        // phrase list past 100, so the surviving cap is observable rather than
+        // an accident of the snapshot already being 100 terms long.
+        terms.append(
+            contentsOf: (1..<150).map { index in
+                ProtectedTerm(
+                    canonical: "ReservedVocabularyTerm\(index)",
+                    spokenAliases: [],
+                    protected: true,
+                    termId: "term-\(index)",
+                    source: .bundled,
+                    labeledAliases: index <= 10
+                        ? [AliasLabel(surface: "reserved alias \(index)", confirmedAt: Date())]
+                        : []
+                )
+            })
+        var settings = VoiceCore.Settings()
+        settings.glossary = terms
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.automaticTermCorrectionEnabled = true
+        // The ASR bias list is only compiled when this is on, so without it the
+        // cap this test is named for cannot be observed at all.
+        settings.decoderBiasEnabled = true
+
+        let raw = "Please use neuro dock, no wait, use neuro dock tomorrow."
+        let expectedVocabulary = VocabularyCompiler.compile(
+            persistent: terms,
+            ephemeral: [],
+            capturedBundleId: "com.apple.TextEdit",
+            activeProjectId: nil
+        )
+        let expectedDeterministic = CleanupEngine.clean(raw, glossary: expectedVocabulary.terms)
+        let asrResult = ASRResult(
+            requestId: "vocabulary-snapshot",
+            backendId: "fake",
+            modelId: "fake",
+            modelRevision: "dev",
+            transcript: ASRTranscript(
+                text: raw,
+                language: "en",
+                segments: nil,
+                confidence: 0.99,
+                confidenceMode: .greedyEntropy
+            ),
+            timingsMs: ASRTimings(load: 0, inference: 0, total: 0),
+            hypotheses: [
+                ASRHypothesis(rank: 0, text: expectedDeterministic, score: 1.0, rawScore: 1.0)
+            ],
+            decoder: ASRDecoderInfo(mode: "greedy", biasEnabled: false)
+        )
+        let refiner = CapturingRefiner(output: "Refined output without the protected term.")
+        let asr = FakeASR(behavior: .custom(asrResult))
+        let coordinator = makeCoordinator(asr: asr, refiner: refiner, settings: settings)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.lastOutcome != nil }
+
+        // Every surface the one snapshot could legitimately contribute to the
+        // decoder-bias list: canonical plus the surfaces the user authored or
+        // confirmed. A term's typed aliases bias the decoder for the same reason
+        // its confirmed mishearings do, so both stores feed this through the one
+        // `Glossary.userAliases` accessor the rest of the app reads.
+        let snapshotSurfaces = Set(
+            expectedVocabulary.terms.flatMap { term in
+                [term.renderedCanonical] + Glossary.userAliases(for: term)
+            }.map { $0.lowercased() }
+        )
+        let biasTexts = asr.receivedBiasPhrases.map(\.text)
+
+        #expect(expectedVocabulary.terms.count == 100)
+        #expect(snapshotSurfaces.count > 100, "the phrase list must exceed the cap for it to be observable")
+        // One snapshot means one cap, and the ASR bias list and the refiner's
+        // terms are both drawn from it rather than from two separate compiles.
+        #expect(biasTexts.count == 100)
+        #expect(Set(biasTexts.map { $0.lowercased() }).isSubset(of: snapshotSurfaces))
+        #expect(refiner.termIDs == expectedVocabulary.terms.map(\.termId))
+        #expect(refiner.raw == expectedDeterministic)
+        #expect(coordinator.lastTranscript == expectedDeterministic)
+        #expect(coordinator.recentSessions.first?.refinement?.kind == .fellBack)
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "guard_rejected")
+    }
+
+    @Test func compiledOutVocabularyDoesNotRouteCleanTranscriptToRefiner() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.glossary = [
+            ProtectedTerm(
+                canonical: "NVIDIA Parakeet",
+                spokenAliases: [],
+                scope: .bundleID("com.apple.mail")
+            )
+        ]
+        let refiner = CapturingRefiner(echoing: ())
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("Use Parakeet for this recording.")),
+            refiner: refiner,
+            settings: settings
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(refiner.refinementCount == 0)
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "clean_transcript")
+    }
+
+    @Test func cloudInputExcludesLocalTermsWhileFullGuardStillProtectsThem() async {
+        let localTerm = ProtectedTerm(
+            canonical: "ACME-ULTRA-SECRET",
+            spokenAliases: [],
+            termId: "local-project-term",
+            scope: .bundleID("com.apple.TextEdit"),
+            cloudEligible: false,
+            labeledAliases: [
+                AliasLabel(surface: "project falcon", confirmedAt: Date(timeIntervalSince1970: 1))
+            ]
+        )
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.glossary = [localTerm]
+        let refiner = GuardingCapturingRefiner(candidate: "Use the project today.")
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("um um use project falcon today")),
+            refiner: refiner,
+            settings: settings
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(refiner.raw?.contains("project falcon") == true)
+        #expect(refiner.raw?.contains("ACME-ULTRA-SECRET") == false)
+        #expect(refiner.termIDs.contains(localTerm.termId))
+        #expect(refiner.serializedPrompt?.contains("ACME-ULTRA-SECRET") == false)
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "guard_rejected")
+        #expect(coordinator.lastTranscript.contains("ACME-ULTRA-SECRET"))
+    }
+
+    @Test func cloudAutomaticCorrectionReachesProviderBeforeFullTermLock() async {
+        let cloudTerm = ProtectedTerm(
+            canonical: "NeuroDock",
+            spokenAliases: ["neuro dock"],
+            termId: "cloud-neurodock",
+            cloudEligible: true
+        )
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.automaticTermCorrectionEnabled = true
+        settings.glossary = [cloudTerm]
+        let raw = "Please use neuro doc, no wait, use neuro doc tomorrow."
+        let result = ASRResult(
+            requestId: "cloud-automatic-correction",
+            backendId: "fake",
+            modelId: "fake",
+            modelRevision: "dev",
+            transcript: ASRTranscript(
+                text: raw,
+                language: "en",
+                segments: nil,
+                confidence: 0.99,
+                confidenceMode: .greedyEntropy
+            ),
+            timingsMs: ASRTimings(load: 0, inference: 0, total: 0),
+            hypotheses: [
+                ASRHypothesis(rank: 0, text: raw, score: 1.0, rawScore: 1.0)
+            ],
+            decoder: ASRDecoderInfo(mode: "greedy", biasEnabled: false)
+        )
+        let refiner = CapturingRefiner(echoing: ())
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .custom(result)),
+            refiner: refiner,
+            settings: settings
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(refiner.raw?.contains("NeuroDock") == true)
+        #expect(refiner.raw?.contains("neuro doc") == false)
+        #expect(coordinator.lastTranscript.contains("NeuroDock"))
+        #expect(coordinator.recentSessions.first?.refinement?.kind == .refined)
+    }
+
+    @Test func backendFallbackUsesCurrentFullVocabularyText() async {
+        let currentTerm = ProtectedTerm(
+            canonical: "NeuroDock",
+            spokenAliases: ["neuro dock"],
+            termId: "current-term"
+        )
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let refiner = CapturingRefiner(
+            outcome: .fellBack("launch-time stale text", reason: "timed_out")
+        )
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("um um use neuro dock today")),
+            refiner: refiner,
+            settings: settings
+        )
+        coordinator.settings.glossary = [currentTerm]
+
+        await driveUtterance(coordinator)
+
+        let activeTerms = VocabularyCompiler.compile(
+            persistent: [currentTerm],
+            ephemeral: [],
+            capturedBundleId: "com.apple.TextEdit",
+            activeProjectId: nil
+        ).terms
+        let expected = CleanupEngine.clean("um um use neuro dock today", glossary: activeTerms)
+        #expect(coordinator.lastTranscript == expected)
+        #expect(coordinator.lastTranscript != "launch-time stale text")
+        #expect(coordinator.recentSessions.first?.refinement?.kind == .fellBack)
+    }
+
+    @Test func refinementCapturesStyleAndSafetyFromTheRecordingTarget() async {
+        let captureTarget = TargetSnapshot(
+            bundleId: "com.apple.mail",
+            pid: 10,
+            safety: .normalText
+        )
+        let laterTarget = TargetSnapshot(
+            bundleId: "com.hnc.Discord",
+            pid: 11,
+            safety: .unknownRisky
+        )
+        let transcriptionGate = TestGate()
+        let tracker = MutableTracker(snapshot: captureTarget)
+        let refiner = CapturingRefiner(echoing: ())
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let coordinator = makeCoordinator(
+            asr: FakeASR(
+                behavior: .gatedText(
+                    transcriptionGate,
+                    "Please send the draft, no wait, send the updated note."
+                )
+            ),
+            tracker: tracker,
+            refiner: refiner,
+            settings: settings
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+        tracker.setSnapshot(laterTarget)
+        transcriptionGate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(refiner.safety == .normalText)
+        #expect(refiner.style == .formal)
+    }
+
+    @Test func mlxSessionPersistsEndToEndTelemetry() async throws {
+        guard ProcessInfo.processInfo.environment["VOICEOOUR_MLX_INTEGRATION"] != nil else { return }
+
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let recorder = FixtureRecorder(
+            sourceURL: URL(fileURLWithPath: "fixtures/audio/hello_16k_mono.wav"),
+            directory: fixture.directory
+        )
+        let asr = SidecarASRClient(
+            asrDirectory: URL(fileURLWithPath: "asr"),
+            backend: "mlx"
+        )
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: asr,
+            recentSessionStore: fixture.store
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil(timeout: .seconds(45)) {
+            coordinator.lastOutcome != nil
+                || {
+                    if case .error = coordinator.state { return true }
+                    return false
+                }()
+        }
+
+        let sessions = try fixture.store.load()
+        let session = try #require(sessions.first)
+        let stages = try #require(session.stages)
+        let endToEndMs = try #require(stages.stopReleaseToInsertionOutcomeMs)
+        let hostASRMs = try #require(stages.asrMs)
+        let insertMs = try #require(stages.insertMs)
+
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+        #expect(stages.asrBackendId == "parakeet-mlx")
+        #expect((stages.asrInferenceMs ?? 0) > 0)
+        #expect((stages.asrTotalMs ?? 0) >= (stages.asrInferenceMs ?? 0))
+        #expect(endToEndMs >= hostASRMs + insertMs)
+        #expect(!fileExists(recorder.producedURL))
+        print(
+            "mlx coordinator telemetry: endToEnd=\(endToEndMs)ms "
+                + "hostASR=\(hostASRMs)ms insert=\(insertMs)ms "
+                + "backend=\(stages.asrBackendId ?? "nil") "
+                + "load=\(stages.asrLoadMs ?? -1)ms "
+                + "inference=\(stages.asrInferenceMs ?? -1)ms "
+                + "total=\(stages.asrTotalMs ?? -1)ms"
+        )
+    }
+
+    // MARK: Recent-session persistence
+
+    @Test func firstSessionCheckpointPublishesImmediatelyAndPrecedesInsertion() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("checkpointed transcript")),
+            inserter: inserter,
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+
+        #expect(coordinator.recentSessions.map(\.text) == ["checkpointed transcript"])
+        #expect(inserter.insertionCount == 0)
+        writer.release(call: 1)
+        await waitUntil { writer.snapshotCount == 2 }
+        await waitUntil { coordinator.lastOutcome != nil }
+
+        #expect(inserter.insertionCount == 1)
+        #expect(writer.snapshots[0].first?.outcome == nil)
+        #expect(writer.snapshots[0].first?.stages?.insertMs == nil)
+        #expect(writer.snapshots[0].first?.stages?.stopReleaseToInsertionOutcomeMs == nil)
+        #expect(writer.snapshots[0].first?.stages?.asrBackendId == "fake")
+        #expect(writer.snapshots[0].first?.stages?.asrLoadMs == 7)
+        #expect(writer.snapshots[0].first?.stages?.asrInferenceMs == 31)
+        #expect(writer.snapshots[0].first?.stages?.asrTotalMs == 38)
+        #expect(writer.snapshots[1].first?.outcome?.disposition == .pasteAttempted)
+        #expect(writer.snapshots[1].first?.stages?.insertMs != nil)
+        #expect(writer.snapshots[1].first?.stages?.stopReleaseToInsertionOutcomeMs != nil)
+    }
+
+    @Test func cancellationDuringFirstCheckpointNeverInserts() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("cancel before insertion")),
+            inserter: inserter,
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+        coordinator.cancel()
+        writer.release(call: 1)
+        await drain()
+
+        #expect(inserter.insertionCount == 0)
+        #expect((try? fixture.store.load().map(\.text)) == ["cancel before insertion"])
+    }
+
+    @Test func completedInsertionOutcomePersistsWhenSessionIsCancelledBeforeReturn() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let insertionReturnGate = TestGate()
+        let inserter = GatedInserter(returned: insertionReturnGate)
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("persist the completed paste")),
+            inserter: inserter,
+            recentSessionStore: fixture.store
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { inserter.sideEffectCount == 1 }
+
+        coordinator.cancel()
+        insertionReturnGate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+        #expect(coordinator.lastOutcome == nil)
+        #expect(coordinator.recentSessions.first?.outcome?.disposition == .pasteAttempted)
+
+        // A later checkpoint must retain the cancelled session's completed
+        // side effect instead of rebuilding history from stale in-memory data.
+        await driveUtterance(coordinator)
+        await coordinator.prepareForTermination()
+
+        let persisted = try fixture.store.load()
+        #expect(persisted.count == 2)
+        #expect(persisted.last?.outcome?.disposition == .pasteAttempted)
+        #expect(persisted.last?.stages?.insertMs != nil)
+        #expect(persisted.last?.stages?.stopReleaseToInsertionOutcomeMs != nil)
+    }
+
+    @Test func outcomeIsVisibleWhileSecondCheckpointIsPending() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [2])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("outcome checkpoint")),
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 2 }
+
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+        #expect(coordinator.recentSessions.first?.outcome?.disposition == .pasteAttempted)
+        #expect(coordinator.recentSessions.first?.stages?.insertMs != nil)
+        #expect(coordinator.state == .readyToInsert)
+        writer.release(call: 2)
+        await waitUntil { coordinator.state != .readyToInsert }
+
+        let reloaded = try? fixture.store.load()
+        #expect(reloaded?.first?.outcome == coordinator.recentSessions.first?.outcome)
+        #expect(reloaded?.first?.stages?.insertMs == coordinator.recentSessions.first?.stages?.insertMs)
+    }
+
+    @Test func deleteQueuedBehindPendingCheckpointCannotResurrectSession() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1, 2])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("history to delete")),
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+        let id = coordinator.recentSessions[0].id
+        var deletionCompleted = false
+        let deletion = Task { @MainActor in
+            let durable = await coordinator.deleteRecentSession(id: id)
+            deletionCompleted = true
+            return durable
+        }
+
+        await waitUntil { coordinator.recentSessions.isEmpty }
+        #expect(!deletionCompleted)
+        writer.release(call: 1)
+        await waitUntil { writer.snapshotCount == 2 }
+        #expect(!deletionCompleted)
+        writer.release(call: 2)
+        #expect(await deletion.value)
+        #expect(deletionCompleted)
+        await coordinator.prepareForTermination()
+
+        #expect((try? fixture.store.load()) == [])
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+    }
+
+    @Test func clearQueuedBehindPendingCheckpointCannotResurrectHistory() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1, 2])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("history to clear")),
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+        var clearCompleted = false
+        let clear = Task { @MainActor in
+            let durable = await coordinator.clearRecentSessions()
+            clearCompleted = true
+            return durable
+        }
+
+        await waitUntil { coordinator.recentSessions.isEmpty }
+        #expect(!clearCompleted)
+        writer.release(call: 1)
+        await waitUntil { writer.snapshotCount == 2 }
+        #expect(!clearCompleted)
+        writer.release(call: 2)
+        #expect(await clear.value)
+        #expect(clearCompleted)
+        await coordinator.prepareForTermination()
+
+        #expect((try? fixture.store.load()) == [])
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+    }
+
+    @Test func failedDestructiveSnapshotIsNotAcknowledgedAsDurable() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let session = RecentSession(text: "must remain durable")
+        try fixture.store.save([session])
+        let writer = SessionSnapshotWriterSpy(failingCalls: [1])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        let isDurable = await coordinator.deleteRecentSession(id: session.id)
+
+        #expect(!isDurable)
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(try fixture.store.load().map(\.text) == ["must remain durable"])
+    }
+
+    @Test func failedCheckpointDoesNotPoisonLaterSnapshotOrInsertion() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(failingCalls: [1])
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("survives persistence failure")),
+            inserter: inserter,
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.lastOutcome != nil }
+
+        #expect(inserter.insertionCount == 1)
+        #expect(coordinator.recentSessions.first?.outcome?.disposition == .pasteAttempted)
+        #expect((try? fixture.store.load().first?.outcome?.disposition) == .pasteAttempted)
+
+        let clearWasDurable = await coordinator.clearRecentSessions()
+        #expect(clearWasDurable)
+        await coordinator.prepareForTermination()
+        #expect(writer.snapshotCount == 3)
+        #expect((try? fixture.store.load()) == [])
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+    }
+
+    @Test func terminationWaitsForPendingSessionCheckpoint() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("durable before exit")),
+            inserter: inserter,
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+
+        var terminationCompleted = false
+        let termination = Task { @MainActor in
+            await coordinator.prepareForTermination()
+            terminationCompleted = true
+        }
+        await drain()
+        #expect(!terminationCompleted)
+
+        writer.release(call: 1)
+        await termination.value
+        #expect(terminationCompleted)
+        #expect(inserter.insertionCount == 0)
+        #expect((try? fixture.store.load().map(\.text)) == ["durable before exit"])
+    }
+
+    @Test func terminationRejectsDirectAndHotkeyStartsAfterCapturingPersistenceTail() async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let recorder = FakeRecorder()
+        let hotkey = FakeHotkey()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("termination boundary")),
+            hotkey: hotkey,
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+
+        var terminationCompleted = false
+        let termination = Task { @MainActor in
+            await coordinator.prepareForTermination()
+            terminationCompleted = true
+        }
+        await drain()
+        #expect(!terminationCompleted)
+
+        coordinator.start()
+        hotkey.trigger()
+        await drain()
+        #expect(recorder.startCount == 1)
+        #expect(coordinator.state == .cancelled)
+
+        writer.release(call: 1)
+        await termination.value
+        await drain()
+        #expect(terminationCompleted)
+        #expect(recorder.startCount == 1)
+        #expect((try? fixture.store.load().map(\.text)) == ["termination boundary"])
+    }
+
+    @Test func escapeCancelsALiveSessionAndIsArmedOnlyWhileOneRuns() async {
+        let hotkey = FakeHotkey()
+        let recorder = FakeRecorder()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("discarded by escape")),
+            hotkey: hotkey
+        )
+
+        #expect(!hotkey.isCancelArmed)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        #expect(hotkey.isCancelArmed)
+
+        hotkey.triggerCancel()
+        await waitUntil { coordinator.state == .idle }
+        #expect(recorder.startCount == 1)
+        #expect(coordinator.lastTranscript.isEmpty)
+        #expect(!hotkey.isCancelArmed)
+    }
+
+    /// The armed flag lives in the binder, so a keypress that races a session
+    /// ending can still arrive at an idle coordinator. It must not flash `.cancelled`.
+    @Test func escapeFromIdleIsANoOp() async {
+        let hotkey = FakeHotkey()
+        let coordinator = makeCoordinator(asr: FakeASR(behavior: .text("unused")), hotkey: hotkey)
+
+        hotkey.triggerCancel()
+        await drain()
+
+        #expect(coordinator.state == .idle)
+    }
+
+    // MARK: Recording session
+
+    /// The fake backend bypasses the microphone check entirely, so this needs a
+    /// non-fake `activeASRBackend` to reach the permission branch at all.
+    @Test func deniedMicrophonePermissionNeverStartsTheRecorder() async {
+        let recorder = FakeRecorder()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("never recorded")),
+            permissions: DeniedMicrophonePermissions(),
+            activeASRBackend: "mlx"
+        )
+
+        coordinator.start()
+        await drain()
+
+        #expect(recorder.startCount == 0)
+        // The reason survives the reset, but the session returns to idle: nothing
+        // was captured, so parking the coordinator in .error would leave the
+        // menu-bar dot crimson long after the user granted permission.
+        #expect(coordinator.errorMessage == "Microphone permission denied.")
+        await waitUntil { coordinator.state == .idle }
+        #expect(coordinator.state == .idle)
+    }
+
+    @Test func inputMeterPublishesWhileRecordingAndStopsAfterFinalize() async {
+        let recorder = MeteringRecorder(level: 0.6)
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("metered utterance"))
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        await waitUntil { coordinator.inputMeter.level > 0 }
+
+        #expect(coordinator.inputMeter.live)
+        #expect(coordinator.inputMeter.level > 0)
+
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        // Metering is torn down on the stop path, so the published level resets
+        // rather than freezing at the last sample.
+        #expect(coordinator.inputMeter.level == 0)
+        #expect(!coordinator.inputMeter.live)
+    }
+
+    @Test func systemAudioIsMutedForTheRecordingAndRestoredExactlyOnceOnEveryExitPath() async {
+        var settings = VoiceCore.Settings()
+        settings.muteSystemAudioDuringCapture = true
+
+        let onSuccess = CountingAudioMuter()
+        let success = makeCoordinator(
+            asr: FakeASR(behavior: .text("muted utterance")),
+            audioMuter: onSuccess,
+            settings: settings
+        )
+        success.start()
+        await waitUntil { success.state == .recording }
+        #expect(success.isSystemAudioMuted)
+        success.stopAndProcess()
+        await waitUntil { !success.isProcessingInFlight }
+        #expect(onSuccess.muteCount == 1)
+        #expect(onSuccess.restoreCount == 1)
+        #expect(!success.isSystemAudioMuted)
+
+        let onCancel = CountingAudioMuter()
+        let cancelled = makeCoordinator(
+            asr: FakeASR(behavior: .text("cancelled utterance")),
+            audioMuter: onCancel,
+            settings: settings
+        )
+        cancelled.start()
+        await waitUntil { cancelled.state == .recording }
+        cancelled.cancel()
+        await waitUntil { !cancelled.isSystemAudioMuted }
+        #expect(onCancel.muteCount == 1)
+        #expect(onCancel.restoreCount == 1)
+
+        // Cancelling AFTER stopAndProcess is the case a local flag cannot cover:
+        // cancel() restores on its own task while the cancelled stop pipeline
+        // restores in its catch. Two owners, one session, still exactly one restore.
+        let onLateCancel = CountingAudioMuter()
+        let transcriptionGate = TestGate()
+        let lateCancelled = makeCoordinator(
+            asr: FakeASR(behavior: .gatedText(transcriptionGate, "cancelled mid-transcription")),
+            audioMuter: onLateCancel,
+            settings: settings
+        )
+        lateCancelled.start()
+        await waitUntil { lateCancelled.state == .recording }
+        lateCancelled.stopAndProcess()
+        await waitUntil { lateCancelled.state == .transcribing }
+        lateCancelled.cancel()
+        transcriptionGate.fire()
+        await waitUntil { !lateCancelled.isProcessingInFlight }
+        await drain()
+        #expect(onLateCancel.muteCount == 1)
+        #expect(onLateCancel.restoreCount == 1)
+        #expect(!lateCancelled.isSystemAudioMuted)
+
+        let onError = CountingAudioMuter()
+        let asrError = ASRErrorMessage(
+            requestId: "req",
+            code: .internalError,
+            category: "backend",
+            retryable: false,
+            userMessageKey: "asr_error",
+            detail: "boom"
+        )
+        let failed = makeCoordinator(
+            asr: FakeASR(behavior: .throwError(asrError)),
+            audioMuter: onError,
+            settings: settings
+        )
+        failed.start()
+        await waitUntil { failed.state == .recording }
+        failed.stopAndProcess()
+        await waitUntil { !failed.isProcessingInFlight }
+        #expect(onError.muteCount == 1)
+        // Exactly one, on the error path too: the stop path restores as soon as
+        // capture ends, and the catch blocks only restore when that point was
+        // never reached. An ASR failure used to restore twice.
+        #expect(onError.restoreCount == 1)
+        #expect(!failed.isSystemAudioMuted)
+    }
+
+    /// The window that a `guard isSystemAudioMuted` dedupe got wrong: the device is
+    /// already muted, but `beginRecording` publishes the flag only after awaiting
+    /// the mute task. A quit landing here used to skip the restore entirely, and
+    /// `applicationShouldTerminate` calls `Darwin.exit` the moment
+    /// `prepareForTermination()` returns — so the user's audio stayed muted until
+    /// the next launch recovered durable ownership.
+    @Test func terminationDuringAnInFlightMuteStillRestoresSystemAudio() async {
+        var settings = VoiceCore.Settings()
+        settings.muteSystemAudioDuringCapture = true
+
+        let muteGate = TestGate()
+        let muter = GatedAudioMuter(muteGate: muteGate)
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("quit mid-mute")),
+            audioMuter: muter,
+            settings: settings
+        )
+
+        coordinator.start()
+        // Wait on the device, not on `.recording`: the state publishes before the
+        // mute lands, so only this is deterministic about being inside the window.
+        await waitUntil { muter.isMuted }
+        #expect(!coordinator.isSystemAudioMuted, "the flag publishes only after the mute resolves")
+
+        var terminationCompleted = false
+        let termination = Task { @MainActor in
+            await coordinator.prepareForTermination()
+            terminationCompleted = true
+        }
+        await drain()
+        #expect(!terminationCompleted, "termination must not return while the mute is in flight")
+
+        muteGate.fire()
+        await termination.value
+        #expect(terminationCompleted)
+
+        // The invariant that matters is the device, not the published flag.
+        #expect(!muter.isMuted, "quitting must never leave the user's audio muted")
+        #expect(muter.muteCount == 1)
+        #expect(muter.restoreCount == 1)
+        #expect(!coordinator.isSystemAudioMuted)
+    }
+
+    /// And when another path claimed the restore first, termination must await that
+    /// same restore rather than observing "someone else is doing it" and returning
+    /// into `Darwin.exit`.
+    @Test func terminationWaitsForARestoreAnotherPathAlreadyClaimed() async {
+        var settings = VoiceCore.Settings()
+        settings.muteSystemAudioDuringCapture = true
+
+        let muteGate = TestGate()
+        let muter = GatedAudioMuter(muteGate: muteGate)
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("cancel then quit")),
+            audioMuter: muter,
+            settings: settings
+        )
+
+        coordinator.start()
+        await waitUntil { muter.isMuted }
+
+        // cancel() claims the restore and blocks behind the gated mute.
+        coordinator.cancel()
+        await drain()
+        #expect(muter.restoreCount == 0, "the claimed restore is still behind the mute")
+
+        var terminationCompleted = false
+        let termination = Task { @MainActor in
+            await coordinator.prepareForTermination()
+            terminationCompleted = true
+        }
+        await drain()
+        // The assertion the test is named for: without it, termination returning
+        // early would still leave the audio restored by the time the gate fired,
+        // and this would pass on scheduler timing alone.
+        #expect(!terminationCompleted, "termination returned before the claimed restore ran")
+        #expect(muter.restoreCount == 0)
+
+        muteGate.fire()
+        await termination.value
+
+        #expect(terminationCompleted)
+        #expect(!muter.isMuted)
+        #expect(muter.muteCount == 1)
+        #expect(muter.restoreCount == 1)
+    }
+
+    // MARK: Vocabulary teaching and clearing
+
+    /// Teaching a mishearing onto a shipped term makes the alias the user's, not
+    /// the term. Rewriting provenance here handed the whole bundled entry to
+    /// `clearLearnedVocabulary`, which deleted a default the user only ever added
+    /// a surface to.
+    @Test func teachingASurfaceOntoABundledTermKeepsItBundled() throws {
+        let store = temporarySettingsStore()
+        var settings = VoiceCore.Settings()
+        settings.glossary = Settings.defaultGlossary
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("")),
+            settings: settings,
+            settingsStore: store
+        )
+
+        #expect(!coordinator.hasLearnedVocabulary)
+        coordinator.teachCorrection(canonical: "kubectl", misheard: "cube control", scope: .global)
+
+        let taught = try #require(coordinator.settings.glossary.first { $0.canonical == "kubectl" })
+        #expect(taught.source == .bundled)
+        #expect(Glossary.userAliases(for: taught).contains("cube control"))
+        // The term stayed bundled, so a `source` test would now leave the
+        // Diagnostics clear disabled with learned vocabulary still on disk.
+        #expect(coordinator.hasLearnedVocabulary)
+    }
+
+    /// The clear promises the shipped defaults survive and everything the user
+    /// added does not. Both halves are load-bearing: filtering on `source` alone
+    /// used to leave a taught mishearing welded to a bundled term forever.
+    @Test func clearingLearnedVocabularyRestoresBundledSurfacesAndDropsLearnedTerms() throws {
+        let store = temporarySettingsStore()
+        var settings = VoiceCore.Settings()
+        settings.glossary =
+            Settings.defaultGlossary + [
+                ProtectedTerm(canonical: "NeuroDock", spokenAliases: ["neuro dock"], source: .explicitCorrection),
+                ProtectedTerm(canonical: "ProjectTerm", spokenAliases: [], source: .manualImport),
+            ]
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("")),
+            settings: settings,
+            settingsStore: store
+        )
+        coordinator.teachCorrection(canonical: "kubectl", misheard: "cube control", scope: .global)
+
+        coordinator.clearLearnedVocabulary()
+
+        let canonicals = coordinator.settings.glossary.map(\.canonical)
+        #expect(!canonicals.contains("NeuroDock"))
+        #expect(!canonicals.contains("ProjectTerm"))
+        #expect(canonicals == Settings.defaultGlossary.map(\.canonical))
+
+        let kubectl = try #require(coordinator.settings.glossary.first { $0.canonical == "kubectl" })
+        #expect(!Glossary.userAliases(for: kubectl).contains("cube control"))
+        #expect(kubectl.labeledAliases.isEmpty)
+        // The shipped surfaces are restored, not merely stripped alongside the
+        // taught one.
+        #expect(kubectl.spokenAliases == ["cube cuddle", "kube cuddle"])
+        #expect(!coordinator.hasLearnedVocabulary)
+    }
+
+    /// A default the user deleted from the ledger stays deleted: the clear
+    /// restores surfaces on rows that survive, it does not resurrect rows.
+    @Test func clearingLearnedVocabularyDoesNotResurrectARemovedDefault() {
+        let store = temporarySettingsStore()
+        var settings = VoiceCore.Settings()
+        settings.glossary = Settings.defaultGlossary.filter { $0.canonical != "CGEvent" }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("")),
+            settings: settings,
+            settingsStore: store
+        )
+
+        coordinator.clearLearnedVocabulary()
+
+        #expect(!coordinator.settings.glossary.contains { $0.canonical == "CGEvent" })
+    }
+
+    /// The whole feature, end to end, on the surfaces the user actually touches:
+    /// teach a mishearing off a transcript, dictate it again and get the canonical;
+    /// edit the glossary row and it still matches; clear the row and it stops. The
+    /// two alias stores meet in every one of those hops, and the reported bug was
+    /// that they disagreed.
+    @Test func aTaughtSurfaceSurvivesTheGlossaryRowRoundTrip() async throws {
+        let store = temporarySettingsStore()
+        var settings = VoiceCore.Settings()
+        settings.glossary = []
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("please run cube uh cuddle on the pod")),
+            settings: settings,
+            settingsStore: store
+        )
+
+        coordinator.teachCorrection(canonical: "kubectl", misheard: "cube uh cuddle", scope: .global)
+        await driveUtterance(coordinator)
+        #expect(coordinator.lastTranscript == "please run kubectl on the pod")
+
+        // What the ledger row shows is what the engines match on.
+        let taught = try #require(coordinator.settings.glossary.first)
+        #expect(Glossary.userAliases(for: taught) == ["cube uh cuddle"])
+
+        // Committing the row unchanged must not quietly reject the taught surface.
+        coordinator.settings.glossary[0] = TermMutation.settingAliases(
+            Glossary.userAliases(for: taught),
+            on: taught
+        )
+        await driveUtterance(coordinator)
+        #expect(coordinator.lastTranscript == "please run kubectl on the pod")
+
+        // Clearing the field has to actually stop it matching, not just stop
+        // showing it.
+        coordinator.settings.glossary[0] = TermMutation.settingAliases(
+            [],
+            on: coordinator.settings.glossary[0]
+        )
+        await driveUtterance(coordinator)
+        #expect(coordinator.lastTranscript == "please run cube cuddle on the pod")
+    }
+
+    // MARK: Helpers
+
+    private func makeCoordinator(
+        recorder: AudioRecording = FakeRecorder(),
+        asr: ASRClienting,
+        tracker: TargetTracking = FakeTracker(),
+        inserter: TextInserting = FakeInserter(outcome: .pasteAttempted),
+        refiner: TranscriptRefining = FakeRefiner(),
+        permissions: PermissionsChecking = FakePermissions(),
+        activeASRBackend: String = "fake",
+        audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
+        refinerFactory: DictationCoordinator.RefinerFactory? = nil,
+        settings: VoiceCore.Settings = VoiceCore.Settings(),
+        settingsStore: SettingsStore? = nil,
+        hotkey: HotkeyBinding = FakeHotkey(),
+        // This default must never be nil: nil lets swift test read and mutate the
+        // developer's real login Keychain.
+        keySourceProvider: ((RefinerProvider) -> RefinerKeySource)? = { _ in .none },
+        refinerAPIKeyProvider: @escaping (RefinerProvider) -> String? = { _ in nil },
+        ompModelsProbe: @escaping DictationCoordinator.OmpModelsProbeFunction = {
+            executableURL,
+            argumentPrefix,
+            model,
+            timeoutMs in
+            await OmpModelsProbe.check(
+                executableURL: executableURL,
+                argumentPrefix: argumentPrefix,
+                model: model,
+                timeoutMs: timeoutMs
+            )
+        },
+        ompProviderStatusProbe: @escaping DictationCoordinator.OmpProviderStatusProbeFunction = {
+            _,
+            _,
+            _ in
+            OmpProviderStatusSnapshot(connections: [])
+        },
+        ompOnboardingStart: @escaping DictationCoordinator.OmpOnboardingStartFunction = { _ in
+            throw CancellationError()
+        },
+        ompOnboardingFinish: @escaping DictationCoordinator.OmpOnboardingFinishFunction = { _ in
+            .cancelled
+        },
+        cloudReachabilityProbe: @escaping DictationCoordinator.CloudReachabilityProbeFunction = {
+            baseURL,
+            apiKey,
+            model,
+            timeoutMs in
+            await RefinerReachabilityProbe.check(
+                baseURL: baseURL,
+                apiKey: apiKey,
+                model: model,
+                timeoutMs: timeoutMs
+            )
+        },
+        recentSessionStore: RecentSessionStore? = nil,
+        recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
+            store, sessions in
+            try store.save(sessions)
+        },
+        temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
+            try FileManager.default.removeItem(at: url)
+        }
+    ) -> DictationCoordinator {
+        DictationCoordinator(
+            recorder: recorder,
+            asr: asr,
+            tracker: tracker,
+            inserter: inserter,
+            permissions: permissions,
+            hotkey: hotkey,
+            refiner: refiner,
+            refinerFactory: refinerFactory,
+            settings: settings,
+            activeASRBackend: activeASRBackend,
+            settingsStore: settingsStore ?? SettingsStore(),
+            recentSessionStore: recentSessionStore
+                ?? RecentSessionStore(
+                    url: FileManager.default.temporaryDirectory
+                        .appendingPathComponent("voiceoour-coordinator-tests-\(UUID().uuidString)")
+                        .appendingPathComponent("recent-sessions.json")
+                ),
+            recentSessionSnapshotSave: recentSessionSnapshotSave,
+            keySourceProvider: keySourceProvider,
+            refinerAPIKeyProvider: refinerAPIKeyProvider,
+            ompModelsProbe: ompModelsProbe,
+            ompProviderStatusProbe: ompProviderStatusProbe,
+            ompOnboardingStart: ompOnboardingStart,
+            ompOnboardingFinish: ompOnboardingFinish,
+            cloudReachabilityProbe: cloudReachabilityProbe,
+            audioMuter: audioMuter,
+            temporaryAudioRemover: temporaryAudioRemover
+        )
+    }
+
+    private func temporarySessionStore(limit: Int = 500) -> (
+        directory: URL,
+        store: RecentSessionStore
+    ) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceoour-session-writer-tests-\(UUID().uuidString)", isDirectory: true)
+        return (
+            directory,
+            RecentSessionStore(url: directory.appendingPathComponent("recent-sessions.json"), limit: limit)
+        )
+    }
+
+    /// `SettingsStore()` defaults to the real Application Support path, so any
+    /// test that reaches `saveSettings()` would rewrite the developer's own
+    /// glossary. Every vocabulary test takes its own throwaway file.
+    private func temporarySettingsStore() -> SettingsStore {
+        SettingsStore(
+            url: FileManager.default.temporaryDirectory
+                .appendingPathComponent("voiceoour-vocabulary-tests-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("settings.json")
+        )
+    }
+
+    private func driveUtterance(_ coordinator: DictationCoordinator) async {
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+    }
+
+    private func fileExists(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// Fixed settle so a released stale task gets a chance to (wrongly) mutate
+    /// state before we assert it did not.
+    private func drain() async {
+        for _ in 0..<20 { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+}
+
+/// Yields the MainActor until `condition` holds or the deadline passes, so
+/// dispatched `Task { @MainActor }` continuations get to run between checks.
+@MainActor
+func waitUntil(
+    timeout: Duration = .seconds(3),
+    _ condition: () -> Bool
+) async {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while !condition() && ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    if !condition() {
+        Issue.record("Timed out after \(timeout) waiting for condition")
+    }
+}
+
+// MARK: - Fakes
+
+private struct DeniedMicrophonePermissions: PermissionsChecking {
+    func microphone() -> PermissionState { .denied }
+    func synthPaste() -> PermissionState { .granted }
+    func accessibility() -> PermissionState { .granted }
+}
+
+/// A recorder that reports a steady non-zero input level and a live capture, so
+/// the metering loop has something to publish.
+private final class MeteringRecorder: AudioRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private let level: Float
+    private let directory: URL
+    private var producedURL: URL?
+
+    init(level: Float) {
+        self.level = level
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceoour-metering-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    func start() throws {}
+
+    func stop() async throws -> RecordedAudio {
+        let url = directory.appendingPathComponent("\(UUID().uuidString).wav")
+        FileManager.default.createFile(atPath: url.path, contents: Data([0, 1, 2, 3]))
+        lock.withLock { producedURL = url }
+        return RecordedAudio(
+            url: url,
+            meta: ASRAudioMeta(
+                path: url.path,
+                format: "wav",
+                sampleRateHz: 16_000,
+                channels: 1,
+                durationMs: 100,
+                byteCount: 4
+            )
+        )
+    }
+
+    func discardRecording() async {
+        if let url = lock.withLock({ producedURL }) { try? FileManager.default.removeItem(at: url) }
+    }
+
+    func currentInputLevel() -> Float? { level }
+    func captureIsLive() -> Bool { true }
+}
+
+private final class CountingAudioMuter: SystemAudioMuting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var mutes = 0
+    private var restores = 0
+
+    var muteCount: Int { lock.withLock { mutes } }
+    var restoreCount: Int { lock.withLock { restores } }
+
+    func mute(scope: MuteScope) async -> Bool {
+        lock.withLock { mutes += 1 }
+        return true
+    }
+
+    func restore() async {
+        lock.withLock { restores += 1 }
+    }
+}
+
+/// A muter whose `mute` blocks until a gate fires, so a test can occupy the window
+/// where the device is muted but `isSystemAudioMuted` has not been published yet.
+/// `isMuted` tracks the device, which is the invariant that actually matters: the
+/// user's audio must not stay muted after the app exits.
+private final class GatedAudioMuter: SystemAudioMuting, @unchecked Sendable {
+    private let lock = NSLock()
+    private let muteGate: TestGate
+    private var mutes = 0
+    private var restores = 0
+    private var muted = false
+
+    init(muteGate: TestGate) {
+        self.muteGate = muteGate
+    }
+
+    var muteCount: Int { lock.withLock { mutes } }
+    var restoreCount: Int { lock.withLock { restores } }
+    var isMuted: Bool { lock.withLock { muted } }
+
+    func mute(scope: MuteScope) async -> Bool {
+        // The device is muted first, then the caller is released -- exactly the
+        // ordering that makes the publication window observable.
+        lock.withLock {
+            mutes += 1
+            muted = true
+        }
+        await muteGate.wait()
+        return true
+    }
+
+    func restore() async {
+        lock.withLock {
+            restores += 1
+            muted = false
+        }
+    }
+}
+
+private final class FixtureRecorder: AudioRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private let sourceURL: URL
+    private let directory: URL
+    private var recordedURL: URL?
+
+    init(sourceURL: URL, directory: URL) {
+        self.sourceURL = sourceURL
+        self.directory = directory
+    }
+
+    var producedURL: URL? {
+        lock.withLock { recordedURL }
+    }
+
+    func start() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    func stop() async throws -> RecordedAudio {
+        let destination = directory.appendingPathComponent("\(UUID().uuidString).wav")
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        lock.withLock { recordedURL = destination }
+        let attributes = try FileManager.default.attributesOfItem(atPath: destination.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        return RecordedAudio(
+            url: destination,
+            meta: ASRAudioMeta(
+                path: destination.path,
+                format: "wav",
+                sampleRateHz: 16_000,
+                channels: 1,
+                durationMs: 3_242,
+                byteCount: byteCount
+            )
+        )
+    }
+
+    func discardRecording() async {
+        if let producedURL {
+            try? FileManager.default.removeItem(at: producedURL)
+        }
+    }
+
+    func currentInputLevel() -> Float? { nil }
+    func captureIsLive() -> Bool { true }
+}
+
+private final class TransientFailingAudioRemover: @unchecked Sendable {
+    enum RemovalError: Error {
+        case injected
+    }
+
+    private let lock = NSLock()
+    private var calls = 0
+
+    var callCount: Int {
+        lock.withLock { calls }
+    }
+
+    func remove(_ url: URL) throws {
+        let shouldFail = lock.withLock {
+            calls += 1
+            return calls == 1
+        }
+        if shouldFail {
+            throw RemovalError.injected
+        }
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
+private final class MutableTracker: TargetTracking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var currentSnapshot: TargetSnapshot
+
+    init(snapshot: TargetSnapshot) {
+        currentSnapshot = snapshot
+    }
+
+    func setSnapshot(_ snapshot: TargetSnapshot) {
+        lock.withLock {
+            currentSnapshot = snapshot
+        }
+    }
+
+    func snapshot() -> TargetSnapshot {
+        lock.withLock { currentSnapshot }
+    }
+
+    func stillMatches(_ snap: TargetSnapshot) -> Bool {
+        lock.withLock { currentSnapshot == snap }
+    }
+}
+
+private final class CapturingInserter: TextInserting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var target: TargetSnapshot?
+    private var count = 0
+
+    var insertedTarget: TargetSnapshot? {
+        lock.withLock { target }
+    }
+
+    var insertionCount: Int {
+        lock.withLock { count }
+    }
+
+    func insert(_ text: String, into target: TargetSnapshot) async -> InsertionOutcome {
+        lock.withLock {
+            self.target = target
+            count += 1
+        }
+        return .pasteAttempted
+    }
+}
+
+private final class CapturingRefiner: TranscriptRefining, @unchecked Sendable {
+    private let lock = NSLock()
+    private let outcomeProvider: @Sendable (String) -> RefineOutcome
+    private var capturedRaw: String?
+    private var capturedTermIDs: [String] = []
+    private var capturedSafety: TargetSafetyClass?
+    private var capturedStyle: RefinementStyle?
+    private var refinements = 0
+
+    init(output: String) {
+        outcomeProvider = { _ in .refined(output) }
+    }
+
+    init(outcome: RefineOutcome) {
+        outcomeProvider = { _ in outcome }
+    }
+
+    init(echoing: Void) {
+        outcomeProvider = { .refined($0) }
+    }
+
+    var raw: String? {
+        lock.withLock { capturedRaw }
+    }
+
+    var termIDs: [String] {
+        lock.withLock { capturedTermIDs }
+    }
+
+    var safety: TargetSafetyClass? {
+        lock.withLock { capturedSafety }
+    }
+
+    var style: RefinementStyle? {
+        lock.withLock { capturedStyle }
+    }
+
+    var refinementCount: Int {
+        lock.withLock { refinements }
+    }
+
+    func refine(
+        _ raw: String,
+        glossary: [ProtectedTerm],
+        safety: TargetSafetyClass,
+        style: RefinementStyle
+    ) async -> RefineOutcome {
+        lock.withLock {
+            capturedRaw = raw
+            capturedTermIDs = glossary.map(\.termId)
+            capturedSafety = safety
+            capturedStyle = style
+            refinements += 1
+        }
+        return outcomeProvider(raw)
+    }
+}
+
+private final class GuardingCapturingRefiner: TranscriptRefining, @unchecked Sendable {
+    private let lock = NSLock()
+    private let candidate: String
+    private var capturedRaw: String?
+    private var capturedTermIDs: [String] = []
+    private var capturedSerializedPrompt: String?
+
+    init(candidate: String) {
+        self.candidate = candidate
+    }
+
+    var raw: String? {
+        lock.withLock { capturedRaw }
+    }
+
+    var termIDs: [String] {
+        lock.withLock { capturedTermIDs }
+    }
+
+    var serializedPrompt: String? {
+        lock.withLock { capturedSerializedPrompt }
+    }
+
+    func refine(
+        _ raw: String,
+        glossary: [ProtectedTerm],
+        safety: TargetSafetyClass,
+        style: RefinementStyle
+    ) async -> RefineOutcome {
+        let prompt = RefinerPolicy.llmUserMessage(
+            raw: raw,
+            glossary: RefinerPolicy.cloudEligible(glossary),
+            style: style
+        )
+        lock.withLock {
+            capturedRaw = raw
+            capturedTermIDs = glossary.map(\.termId)
+            capturedSerializedPrompt = prompt
+        }
+        return RefinerPolicy.guardedOutcome(
+            original: raw,
+            candidate: candidate,
+            glossary: glossary,
+            fallback: raw
+        )
+    }
+}
+
+private final class BlockingWarmUpRefiner: TranscriptRefining, @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate: TestGate
+    private var warmUps = 0
+
+    init(gate: TestGate) {
+        self.gate = gate
+    }
+
+    var warmUpCount: Int {
+        lock.withLock { warmUps }
+    }
+
+    func warmUp() async {
+        lock.withLock { warmUps += 1 }
+        await gate.wait()
+    }
+
+    func refine(
+        _ raw: String,
+        glossary: [ProtectedTerm],
+        safety: TargetSafetyClass,
+        style: RefinementStyle
+    ) async -> RefineOutcome {
+        .skipped(reason: "test")
+    }
+}
+
+private final class BlockingRefinementRefiner: TranscriptRefining, @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate: TestGate
+    private var refinements = 0
+
+    init(gate: TestGate) {
+        self.gate = gate
+    }
+
+    var refinementCount: Int {
+        lock.withLock { refinements }
+    }
+
+    func refine(
+        _ raw: String,
+        glossary: [ProtectedTerm],
+        safety: TargetSafetyClass,
+        style: RefinementStyle
+    ) async -> RefineOutcome {
+        lock.withLock { refinements += 1 }
+        await gate.wait()
+        return .refined(raw)
+    }
+}
+
+private final class BlockingOutcomeRefiner: TranscriptRefining, @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate: TestGate
+    private let outcome: RefineOutcome
+    private var refinements = 0
+
+    init(gate: TestGate, outcome: RefineOutcome) {
+        self.gate = gate
+        self.outcome = outcome
+    }
+
+    var refinementCount: Int {
+        lock.withLock { refinements }
+    }
+
+    func refine(
+        _ raw: String,
+        glossary: [ProtectedTerm],
+        safety: TargetSafetyClass,
+        style: RefinementStyle
+    ) async -> RefineOutcome {
+        lock.withLock { refinements += 1 }
+        await gate.wait()
+        return outcome
+    }
+}
+
+private final class RefinerFactorySpy: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedSettings: [VoiceCore.Settings] = []
+    private var createdRefiners: [CapturingRefiner] = []
+
+    var settingsSnapshots: [VoiceCore.Settings] {
+        lock.withLock { capturedSettings }
+    }
+
+    var refiners: [CapturingRefiner] {
+        lock.withLock { createdRefiners }
+    }
+
+    func make(settings: VoiceCore.Settings) -> TranscriptRefining {
+        let refiner = CapturingRefiner(echoing: ())
+        lock.withLock {
+            capturedSettings.append(settings)
+            createdRefiners.append(refiner)
+        }
+        return refiner
+    }
+}
+
+private final class CloudProbeCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedModels: [String?] = []
+
+    var models: [String?] {
+        lock.withLock { capturedModels }
+    }
+
+    func record(model: String?) {
+        lock.withLock { capturedModels.append(model) }
+    }
+}
+
+private final class GatedInserter: TextInserting, @unchecked Sendable {
+    private let lock = NSLock()
+    private let returned: TestGate
+    private var sideEffects = 0
+
+    init(returned: TestGate) {
+        self.returned = returned
+    }
+
+    var sideEffectCount: Int {
+        lock.withLock { sideEffects }
+    }
+
+    func insert(_ text: String, into target: TargetSnapshot) async -> InsertionOutcome {
+        lock.withLock { sideEffects += 1 }
+        await returned.wait()
+        return .pasteAttempted
+    }
+}
+
+private final class SessionSnapshotWriterSpy: @unchecked Sendable {
+    enum SaveError: Error {
+        case injected
+    }
+
+    private let lock = NSLock()
+    private let blockingCalls: Set<Int>
+    private let failingCalls: Set<Int>
+    private var gates: [Int: DispatchSemaphore] = [:]
+    private var savedSnapshots: [[RecentSession]] = []
+    private var activeCalls = 0
+    private var maxActiveCalls = 0
+
+    init(blockingCalls: Set<Int> = [], failingCalls: Set<Int> = []) {
+        self.blockingCalls = blockingCalls
+        self.failingCalls = failingCalls
+        for call in blockingCalls {
+            gates[call] = DispatchSemaphore(value: 0)
+        }
+    }
+
+    var snapshotCount: Int {
+        lock.withLock { savedSnapshots.count }
+    }
+
+    var snapshots: [[RecentSession]] {
+        lock.withLock { savedSnapshots }
+    }
+
+    var maximumConcurrency: Int {
+        lock.withLock { maxActiveCalls }
+    }
+
+    func release(call: Int) {
+        lock.withLock { gates[call] }?.signal()
+    }
+
+    func save(store: RecentSessionStore, sessions: [RecentSession]) throws {
+        let call = lock.withLock { () -> Int in
+            activeCalls += 1
+            maxActiveCalls = max(maxActiveCalls, activeCalls)
+            savedSnapshots.append(sessions)
+            return savedSnapshots.count
+        }
+        defer {
+            lock.withLock { activeCalls -= 1 }
+        }
+
+        if blockingCalls.contains(call) {
+            lock.withLock { gates[call] }?.wait()
+        }
+        if failingCalls.contains(call) {
+            throw SaveError.injected
+        }
+        try store.save(sessions)
+    }
+}

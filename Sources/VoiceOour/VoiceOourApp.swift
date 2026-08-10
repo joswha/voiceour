@@ -1,0 +1,60 @@
+import AppKit
+import Darwin
+import SwiftUI
+import VoiceMac
+
+@main
+struct VoiceOourApp: App {
+    @NSApplicationDelegateAdaptor(VoiceOourAppDelegate.self) private var appDelegate
+    @State private var coordinator: DictationCoordinator
+    private let recordingOverlay: RecordingOverlayController
+
+    init() {
+        // First statement in the process, before any side effect: the offscreen UI
+        // harness must not mute audio, build a coordinator, or claim an activation
+        // policy. `UIHarnessRequest` is nil unless `--ui-harness` is present, so a
+        // normal launch falls straight through.
+        //
+        // Compiled out of the shipping bundle entirely. `scripts/bundle.sh` is the
+        // only build that omits `-DUI_HARNESS`, so the harness objects never link
+        // into the release binary.
+        #if UI_HARNESS
+            if CommandLine.arguments.contains(UIHarnessRequest.flag) {
+                guard let request = UIHarnessRequest(arguments: CommandLine.arguments) else {
+                    fputs(UIHarnessRequest.usage + "\n", stderr)
+                    Darwin.exit(2)
+                }
+                Darwin.exit(UIHarnessMain.run(request) ? 0 : 1)
+            }
+        #endif
+        SystemAudioMuter.recoverDurableOwnershipIfNeeded()
+        if CommandLine.arguments.contains("--self-test") {
+            let ok = VoiceOourSelfTest.run()
+            Darwin.exit(ok ? 0 : 1)
+        }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let liveCoordinator = DictationCoordinator.live()
+        let recordingOverlay = RecordingOverlayController(coordinator: liveCoordinator)
+        recordingOverlay.bind(to: liveCoordinator.statePublisher)
+        _coordinator = State(initialValue: liveCoordinator)
+        self.recordingOverlay = recordingOverlay
+        appDelegate.coordinator = liveCoordinator
+    }
+
+    var body: some Scene {
+        MenuBarExtra {
+            MenuView(coordinator: coordinator)
+        } label: {
+            MenuBarLabel(coordinator: coordinator)
+        }
+        .menuBarExtraStyle(.window)
+
+        Window("VoiceOour", id: "main") {
+            ConsoleView(coordinator: coordinator, initialSection: LaunchOptions.consoleSection)
+        }
+        .defaultSize(
+            width: VoiceOourMetrics.Window.defaultWidth,
+            height: VoiceOourMetrics.Window.defaultHeight
+        )
+    }
+}
