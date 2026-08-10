@@ -1,0 +1,105 @@
+.PHONY: build test bundle verify-bundle fixture dev python-test asr-sync format format-check lint-python
+
+build:
+	swift build
+
+# UISceneCatalogTests and UILintTests exercise the harness, which is compiled out
+# unless UI_HARNESS is defined. `swift test` on its own will not find them.
+test:
+	swift test -Xswiftc -DUI_HARNESS
+
+python-test:
+	cd asr && uv --no-config run pytest
+
+# swift-format ships with the Swift 6 toolchain, so a contributor installs nothing.
+# Configuration is .swift-format at the repo root.
+format:
+	swift format --in-place --recursive Sources Tests
+
+format-check:
+	swift format lint --strict --recursive Sources Tests
+
+lint-python:
+	cd asr && uv --no-config run ruff check .
+	cd bench && uv --no-config run ruff check .
+
+asr-sync:
+	cd asr && uv --no-config sync
+
+bundle:
+	scripts/bundle.sh
+
+verify-bundle:
+	scripts/verify_bundle.sh
+
+fixture:
+	scripts/make_fixture.sh
+
+dev:
+	scripts/run_dev.sh
+
+.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-all
+
+# The portable gate. Runs on any host: every scene is pinned to the painted
+# path by `UIHarnessSeams.forceLegacyGlass`, so these goldens are the ones CI
+# and a macOS 14/15 machine can both reproduce.
+ui-snap:
+	scripts/ui_harness.sh --except os26
+
+# The native Liquid Glass gate. Renders real system glass, so it only works on
+# a macOS 26 host and its goldens are excluded from `ui-snap` above.
+ui-snap-os26:
+	scripts/ui_harness.sh --only os26
+
+ui-update:
+	scripts/ui_harness.sh --update --except os26
+
+ui-update-os26:
+	scripts/ui_harness.sh --update --only os26
+
+ui-list:
+	scripts/ui_harness.sh --list
+
+# The required semantic flow gate skips host-sensitive frame reconciliation;
+# journals and named expectations are deterministic across hosted runners.
+ui-flow:
+	scripts/ui_harness.sh --mode flow-check --except os26 --no-frames
+
+# Frame rasters and accessibility geometry share the snapshot gate's display
+# scale and font-rasterisation sensitivity, but remain valuable on known hosts.
+ui-flow-frames:
+	scripts/ui_harness.sh --mode flow-check --except os26
+
+# Flow updates bless journals and frame goldens together so review sees one
+# intentional semantic and visual cutover.
+ui-flow-update:
+	scripts/ui_harness.sh --mode flow-update --except os26
+
+ui-flow-list:
+	scripts/ui_harness.sh --mode flow-list
+
+# Coverage is a pure declaration/claim ledger and never hosts or renders views.
+ui-coverage:
+	scripts/ui_harness.sh --mode coverage
+
+# The complete local UI gate includes both scene and flow-frame goldens.
+ui-all: ui-snap ui-flow-frames
+
+.PHONY: bench-smoke bench-stt bench-refine bench-e2e bench-techterms
+
+N ?= 200
+
+bench-smoke:
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode e2e --backend fake
+
+bench-stt:
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend mlx --n $(N)
+
+bench-refine:
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode refine --refine deterministic
+
+bench-e2e:
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier fleurs --mode e2e --backend mlx --n $(N)
+
+bench-techterms:
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend mlx
