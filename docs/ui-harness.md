@@ -33,12 +33,14 @@ make ui-flow-frames                            # run flows and compare their cap
 make ui-flow-update                            # rewrite intended flow goldens and the coverage baseline
 make ui-flow-list                              # print the flow catalog as one JSON object
 make ui-coverage                               # validate coverage declarations and the baseline without hosting a window
+make ui-film                                   # record the README's recording-island GIF; media, not a golden
 make ui-all                                    # run ui-snap, then ui-flow-frames
 
 scripts/ui_harness.sh --only console           # ids containing, or tags exactly matching, "console"
 scripts/ui_harness.sh --only console,overlay   # comma-separated, OR-ed
 scripts/ui_harness.sh --except os26             # exclude ids/tags after applying --only
 scripts/ui_harness.sh --mode flow-check         # run selected flows
+scripts/ui_harness.sh --mode film               # record the selected media reels frame by frame
 scripts/ui_harness.sh --scale 2                 # 2x raster
 scripts/ui_harness.sh --stdout --no-sheet       # NDJSON manifest on stdout, skip the scene contact sheet
 scripts/ui_harness.sh --help
@@ -53,9 +55,10 @@ scripts/ui_harness.sh --help
 | `--ui-harness` | required; selects the harness instead of the app. Its absence changes nothing about a normal launch. |
 | `--list`, `--update` | shorthand for the matching scene `--mode`. |
 | `--flow-list`, `--flow-check`, `--flow-update`, `--coverage` | shorthand for the matching flow or coverage `--mode`. |
-| `--mode list\|check\|update\|flow-list\|flow-check\|flow-update\|coverage` | select the operation; default `check`. An unrecognised value exits 2 with usage. |
-| `--only a,b` | substring match on scene or flow id, or exact match on a tag. Empty means the entire selected catalog. |
-| `--except a,b` | substring match on scene or flow id, or exact match on a tag. Applied after `--only`. An unfiltered non-list run defaults to excluding `os26`; explicit filters and list modes do not add that default. |
+| `--film` | shorthand for `--mode film`. |
+| `--mode list\|check\|update\|flow-list\|flow-check\|flow-update\|coverage\|film` | select the operation; default `check`. An unrecognised value exits 2 with usage. |
+| `--only a,b` | substring match on scene, flow or reel id, or exact match on a tag. Empty means the entire selected catalog. |
+| `--except a,b` | substring match on scene, flow or reel id, or exact match on a tag. Applied after `--only`. An unfiltered non-list run defaults to excluding `os26`; explicit filters and list modes do not add that default. |
 | `--out DIR` | artifact directory. Default `<repo>/.build/ui-harness`. |
 | `--golden DIR` | golden directory. Default `<repo>/fixtures/ui`. |
 | `--scale 1\|2` | raster scale. Default 1. Any other value is ignored and 1 is used. Scale 2 uses its own `@2x` artifacts and goldens. |
@@ -65,7 +68,7 @@ scripts/ui_harness.sh --help
 | `--repo-root DIR` | resolves the default `--out` and `--golden`. Also readable from `VOICEOOUR_REPO_ROOT`; defaults to the working directory. |
 | `--help`, `-h` | print usage and exit 0. |
 
-Exit codes: `0` success; `1` a scene or flow changed, is missing a golden, failed, produced an `error`-severity finding, or the coverage ledger has a regression, stale baseline entry, broken declaration or undeclared claim; `2` a malformed `--ui-harness` invocation.
+Exit codes: `0` success; `1` a scene or flow changed, is missing a golden, failed, produced an `error`-severity finding, the coverage ledger has a regression, stale baseline entry, broken declaration or undeclared claim, or a film reel failed to record; `2` a malformed `--ui-harness` invocation.
 
 `--no-activate` is a separate, app-level flag (see [Activation](#activation)); the harness does not need it.
 
@@ -107,6 +110,9 @@ reproduces byte-for-byte on any machine.
     <flow-id>.<frame>.ax.txt             named frame accessibility dump
     <flow-id>.<frame>.ax.diff            frame dump diff, golden -> current
     manifest.jsonl                       flow and coverage manifest
+  film/
+    <reel-id>/frame-0000.png             one reel frame, zero-padded and gapless
+    <reel-id>/reel.json                  reel id, title, frame count, delay, pixel size, scale
 fixtures/ui/
   coverage-baseline.txt                 required coverage keys currently unclaimed by passing flows
   <scene-id>.png.sha256                  scene raster digest golden
@@ -254,6 +260,65 @@ At `--scale 2`, flow frame artifacts and goldens use the same `<flow-id>.<frame>
 | `ui_coverage` | key, kind, surface, title, status, disposition, claimants, limitation and declaration problem |
 
 `--flow-list` prints one sorted-key `ui_flow_catalog` JSON object containing each flow's id, title, tags, coverage keys, checkpoint count and expectation count. It does not host a window.
+
+## Film reels
+
+A reel is one media clip: an id, a title, a logical size, a forced colour scheme, a per-frame
+delay, and a stage — the real hosted view plus a script that mutates the real observable model
+the view watches. The types are `UIFilmReel`, `UIFilmStage` and `UIFilmRecorder` in
+`Sources/VoiceOour/UIHarness/UIFilmCatalog.swift`, and the catalog is `UIFilmCatalog`.
+
+**Reels are media, and they are deliberately outside every gate.** Nothing diffs a frame,
+digests it, lints it, or declares coverage for it, and no `make` gate runs `film`. That is not
+an oversight: the reel's whole subject is the animation a golden may never contain. The
+processing states draw `FrostedCometIndicator`, a `TimelineView(.animation)` whose orbit phase
+comes from the wall clock, which is exactly why no *scene* renders a processing overlay. A reel
+wants that motion, so it gives up reproducibility to get it, and pays nothing for the trade
+because no committed artifact depends on the bytes.
+
+Frames land in `.build/ui-harness/film/<reel-id>/` as `frame-0000.png`, `frame-0001.png`, …
+beside a `reel.json` carrying `id`, `title`, `frame_count`, `frame_milliseconds`, pixel `width`
+and `height`, and `scale`. The directory is recreated from empty on every run: a reel that got
+shorter would otherwise leave the previous run's trailing frames behind, and ffmpeg's
+`frame-%04d.png` pattern would splice those orphans onto the end of the GIF.
+
+```sh
+make ui-film                                    # frames, then the committed GIF
+scripts/make_readme_gif.sh --width 480          # the same frames at another width
+scripts/ui_harness.sh --mode film --scale 2     # frames only, no ffmpeg
+```
+
+`scripts/make_readme_gif.sh` runs the harness at `--scale 2`, reads `frame_milliseconds` out of
+`reel.json` to derive the frame rate, and assembles `docs/media/<reel-id>.gif` with a two-pass
+ffmpeg palette (`palettegen stats_mode=diff` then `paletteuse dither=bayer`). It needs `ffmpeg`
+and `ffprobe` on `PATH` and nothing else — no jq. The committed GIF is reviewed as media: a
+diff on it means someone re-recorded it, not that a gate moved.
+
+The one reel today is `dictation-island`, 400x120 pt dark, 60 ms per frame, 99 frames — about
+5.9 s. It hosts the real `RecordingOverlayView` on a flat `Ink.void` backdrop (flat, not a
+gradient: a GIF holds 256 colours and a gradient bands) and drives the real
+`RecordingOverlayModel` through the real `SessionState` sequence one dictation walks:
+
+| phase | state | frames |
+| --- | --- | --- |
+| warm-up | `.recording`, capture not yet live | 5 |
+| live speech | `.recording`, one meter sample per frame | 44 |
+| finalizing | `.finalizingAudio` | 7 |
+| transcribing | `.transcribing` | 12 |
+| cleaning | `.cleaning` | 7 |
+| refining | `.refining` | 14 |
+| ready | `.readyToInsert` | 10 |
+
+The 44 meter levels are **one synthetic utterance envelope, not recorded audio**: a committed
+`[Float]` literal indexed by frame, with no `Date()` and no `.random`, shaped like a spoken
+sentence — attack, syllable dips, a breath, an emphasised run, a decay. No microphone is opened
+and no audio file exists.
+
+Be honest about what the GIF shows. `cacheDisplay` drops `.blur(radius:)` and `.shadow(...)`,
+and an offscreen window has no desktop for the island's glass to sample, so the pill reads
+flatter in the GIF than it does on a real display: the recorded capsule is the painted fallback
+surface without its shadow bleed or backdrop refraction. Every control, glyph, label and
+waveform bar is the real thing at the real measure; the material around them is not.
 
 ## Coverage ledger
 

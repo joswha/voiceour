@@ -29,6 +29,11 @@ The `Makefile` wraps the common commands: `make build`, `make test`, `make pytho
 `make bench-smoke`, `make ui-snap`, `make ui-flow`, `make ui-flow-update`, `make ui-coverage`,
 `make ui-all`, `make format`, `make format-check`, and `make lint-python`.
 
+`make ui-film` is not a check. It re-records the recording-island GIF at the top of `README.md`
+from the real SwiftUI overlay through the harness and rewrites `docs/media/dictation-island.gif`.
+Run it only when the overlay's appearance actually changed, and review the result by eye — a reel
+is media, so no gate diffs it. It needs `ffmpeg` on `PATH`. See `docs/ui-harness.md`.
+
 ## Test tiers
 
 - PR gate: Swift unit tests and Python sidecar tests, fake-backed and TCC-free.

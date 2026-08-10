@@ -130,6 +130,7 @@ Use the smallest command that verifies the change.
 | List UI flows | `make ui-flow-list` |
 | UI coverage ledger | `make ui-coverage` |
 | Full scene and flow-frame gate | `make ui-all` |
+| Re-record the README GIF (media, not a gate) | `make ui-film` |
 | Python sidecar sync | `cd asr && uv --no-config sync` |
 | Python sidecar tests | `cd asr && uv --no-config run pytest` |
 | Fake app self-test | `scripts/run_dev.sh --self-test` |
@@ -172,6 +173,8 @@ Each invariant below was measured. Breaking one silently puts a window on the us
 - Keep lint rules quiet on correct UI. The first rule set produced 173 findings of which 172 were false, and a rule that cries wolf trains every later agent to ignore the harness.
 
 Scene goldens are the accessibility dump plus a PNG digest, never the images: committing the renders is 7.6 MB and rewrites half-megabyte binaries on every update. Flow goldens add a host-independent semantic journal and optional named-frame dump/digest pairs. Read `.build/ui-harness/<scene>.ax.diff` before `make ui-update` and `.build/ui-harness/flows/<flow>.flow.diff` before `make ui-flow-update`, then commit the corresponding files under `fixtures/ui/`.
+
+`docs/media/` is the one place rendered images are committed, and it is not a golden set. `make ui-film` records the harness's `dictation-island` reel frame by frame and assembles `docs/media/dictation-island.gif`; the two console/menu stills beside it were exported from ordinary scene renders. Film reels are deliberately outside the scene, flow, lint and coverage gates — the reel's subject is a wall-clock-driven animation, which is exactly what a reproducible golden may never contain. Declare a reel in `UIFilmCatalog` only, never in `UISceneCatalog`, and never let a `make` gate depend on one.
 
 Behind-window glass is the one thing the harness cannot show: an offscreen window has no desktop to sample, so `FrostedGlassBackground` rasterises as a flat tint. Use `scripts/console_shot.sh` when the composited glass itself is the subject.
 

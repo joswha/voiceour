@@ -11,6 +11,7 @@
 
     import Dispatch
     import Foundation
+    import SwiftUI
     // CLI driver for the offscreen UI harness.
     //
     // Renders every catalog scene into a borderless window parked far offscreen, dumps the
@@ -39,7 +40,7 @@
                 return emitFlowCatalog(request)
             case .coverage:
                 return reportCoverage(request)
-            case .list, .check, .update, .flowCheck, .flowUpdate:
+            case .list, .check, .update, .flowCheck, .flowUpdate, .film:
                 break
             }
 
@@ -56,6 +57,8 @@
                 return runScenes(request)
             case .flowCheck, .flowUpdate:
                 return runFlows(request)
+            case .film:
+                return runFilm(request)
             case .flowList, .coverage:
                 preconditionFailure("pure-data harness mode reached the hosting dispatch")
             }
@@ -150,6 +153,150 @@
             covers = flow.covers.map(\.description)
             checkpoints = flow.checkpointCount
             expectations = flow.expectationCount
+        }
+    }
+
+    // MARK: - Film run
+
+    extension UIHarnessMain {
+        private static func runFilm(_ request: UIHarnessRequest) -> Bool {
+            let reels = UIFilmCatalog.all(request: request)
+            guard !reels.isEmpty else {
+                return report("no film reel matched the request filters")
+            }
+            var ok = true
+            for reel in reels {
+                ok = record(reel, request: request) && ok
+            }
+            return ok
+        }
+
+        /// Records one reel and writes its `reel.json` sidecar.
+        ///
+        /// No golden, no digest, no lint: a reel is media. The failure modes it does own --
+        /// a capture that throws, a frame that cannot be written -- return false so the
+        /// process exits 1 rather than leaving a half-written reel to be turned into a GIF.
+        private static func record(_ reel: UIFilmReel, request: UIHarnessRequest) -> Bool {
+            let directory =
+                request.outputDirectory
+                .appendingPathComponent("film", isDirectory: true)
+                .appendingPathComponent(reel.id, isDirectory: true)
+            guard prepareReelDirectory(directory) else { return false }
+
+            // The stage is built before hosting so the script and the hierarchy share one
+            // observable model. The builder is hoisted out of the call because `withLiveScene`
+            // already takes a trailing closure.
+            let stage = reel.stage()
+            let build: @MainActor () -> AnyView = { stage.view }
+            var frameCount = 0
+            do {
+                try UIHarnessRuntime.withLiveScene(
+                    size: reel.size,
+                    colorScheme: reel.colorScheme,
+                    scale: request.scale,
+                    build: build
+                ) { view, _ in
+                    let recorder = UIFilmRecorder(view: view, scale: request.scale, directory: directory)
+                    try stage.script(recorder)
+                    frameCount = recorder.frameCount
+                }
+            } catch {
+                return report("failed \(reel.id): \(describe(error))")
+            }
+
+            guard writeReelDocument(reel, request: request, frameCount: frameCount, directory: directory) else {
+                return false
+            }
+            let pixels = pixelSize(of: reel, scale: request.scale)
+            note(
+                "\(tool): film \(reel.id) \(frameCount) frames, \(pixels.width)x\(pixels.height) px, "
+                    + "\(reel.frameMilliseconds) ms/frame",
+                machineMode: request.stdoutManifest
+            )
+            note("\(tool): artifacts \(directory.path)", machineMode: request.stdoutManifest)
+            return true
+        }
+
+        /// Recreated from empty on every run. A reel that gets shorter would otherwise leave
+        /// the previous run's trailing `frame-NNNN.png` behind, and ffmpeg's `frame-%04d.png`
+        /// pattern would splice those orphans onto the end of the GIF.
+        private static func prepareReelDirectory(_ directory: URL) -> Bool {
+            let fileManager = FileManager.default
+            do {
+                if fileManager.fileExists(atPath: directory.path) {
+                    try fileManager.removeItem(at: directory)
+                }
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            } catch {
+                return report("cannot prepare \(directory.path): \(describe(error))")
+            }
+            return true
+        }
+
+        private static func writeReelDocument(
+            _ reel: UIFilmReel,
+            request: UIHarnessRequest,
+            frameCount: Int,
+            directory: URL
+        ) -> Bool {
+            let pixels = pixelSize(of: reel, scale: request.scale)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            var blob = Data()
+            do {
+                blob.append(
+                    try encoder.encode(
+                        UIFilmReelRow(
+                            id: reel.id,
+                            title: reel.title,
+                            frameCount: frameCount,
+                            frameMilliseconds: reel.frameMilliseconds,
+                            width: pixels.width,
+                            height: pixels.height,
+                            scale: request.scale
+                        )))
+                blob.append(0x0A)
+            } catch {
+                return report("cannot encode \(reel.id): \(describe(error))")
+            }
+            if request.stdoutManifest {
+                print(String(decoding: blob, as: UTF8.self), terminator: "")
+            }
+            do {
+                try blob.write(to: directory.appendingPathComponent("reel.json"), options: .atomic)
+            } catch {
+                return report("cannot write \(reel.id) reel.json: \(describe(error))")
+            }
+            return true
+        }
+
+        /// PIXEL dimensions, matching what every frame's PNG IHDR carries, so the GIF
+        /// assembler never has to multiply by the scale itself.
+        private static func pixelSize(of reel: UIFilmReel, scale: Int) -> (width: Int, height: Int) {
+            let clamped = CGFloat(max(1, scale))
+            return (Int((reel.size.width * clamped).rounded()), Int((reel.size.height * clamped).rounded()))
+        }
+    }
+
+    private struct UIFilmReelRow: Encodable {
+        let type = "ui_film_reel"
+        let id: String
+        let title: String
+        let frameCount: Int
+        let frameMilliseconds: Int
+        let width: Int
+        let height: Int
+        let scale: Int
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case id
+            case title
+            case frameCount = "frame_count"
+            case frameMilliseconds = "frame_milliseconds"
+            case width
+            case height
+            case scale
         }
     }
     // MARK: - Scene run

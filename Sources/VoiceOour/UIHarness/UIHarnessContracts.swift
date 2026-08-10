@@ -256,6 +256,8 @@
             case flowUpdate = "flow-update"
             /// Evaluate the declared UI coverage ledger without hosting views.
             case coverage = "coverage"
+            /// Render a media reel frame by frame. Media, never a golden.
+            case film = "film"
 
             /// Whether this mode blesses goldens instead of failing on a difference.
             ///
@@ -265,7 +267,7 @@
             var writesGoldens: Bool {
                 switch self {
                 case .update, .flowUpdate: return true
-                case .list, .check, .flowList, .flowCheck, .coverage: return false
+                case .list, .check, .flowList, .flowCheck, .coverage, .film: return false
                 }
             }
         }
@@ -330,6 +332,8 @@
                 mode = .flowUpdate
             } else if arguments.contains("--coverage") {
                 mode = .coverage
+            } else if arguments.contains("--film") {
+                mode = .film
             }
 
             let rawOnly = Self.value(for: "--only", in: arguments)
@@ -360,10 +364,16 @@
         }
 
         func matches(_ scene: UIScene) -> Bool {
-            guard !excludes(scene.id, tags: scene.tags) else { return false }
+            matches(id: scene.id, tags: scene.tags)
+        }
+
+        /// The one spelling of `--only`/`--except` matching, so every catalog resolves a
+        /// selection identically: `--except` first, then OR-ed substring-or-tag `--only`.
+        func matches(id: String, tags: [String]) -> Bool {
+            guard !excludes(id, tags: tags) else { return false }
             guard !only.isEmpty else { return true }
             return only.contains { needle in
-                scene.id.contains(needle) || scene.tags.contains(needle)
+                id.contains(needle) || tags.contains(needle)
             }
         }
 
@@ -376,7 +386,7 @@
 
     extension UIHarnessRequest {
         static let usage = """
-            usage: VoiceOour --ui-harness [--list | --update | --flow-list | --flow-check | --flow-update | --coverage] [options]
+            usage: VoiceOour --ui-harness [--list | --update | --flow-list | --flow-check | --flow-update | --coverage | --film] [options]
 
               --list             print the scene catalog as JSON and exit
               --update           rewrite scene goldens instead of failing on a difference
@@ -384,9 +394,10 @@
               --flow-check       run flows and compare against goldens
               --flow-update      run flows and rewrite goldens instead of failing on a difference
               --coverage         evaluate the UI coverage ledger without hosting views
-              --mode MODE        list|check|update|flow-list|flow-check|flow-update|coverage (default check)
-              --only a,b         only scenes or flows whose id contains, or whose tags include, a or b
-              --except a,b       exclude scenes or flows whose id contains, or whose tags include, a or b; applied after --only
+              --film             record the selected media reels frame by frame; writes no golden
+              --mode MODE        list|check|update|flow-list|flow-check|flow-update|coverage|film (default check)
+              --only a,b         only scenes, flows or reels whose id contains, or whose tags include, a or b
+              --except a,b       exclude scenes, flows or reels whose id contains, or whose tags include, a or b; applied after --only
               --out DIR          artifact directory (default <repo>/.build/ui-harness)
               --golden DIR       golden directory (default <repo>/fixtures/ui)
               --repo-root DIR    resolves default --out/--golden (also VOICEOOUR_REPO_ROOT)

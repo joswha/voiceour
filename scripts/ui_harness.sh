@@ -8,7 +8,7 @@
 # app's real machinery: the harness exits from the first statement of VoiceOourApp.init,
 # before the audio muter, the dictation coordinator or the menu bar item exist.
 #
-# Usage: scripts/ui_harness.sh [--list | --update | --flow-list | --flow-check | --flow-update | --coverage] [options]
+# Usage: scripts/ui_harness.sh [--list | --update | --flow-list | --flow-check | --flow-update | --coverage | --film] [options]
 #   scripts/ui_harness.sh                      # render every scene, check against fixtures/ui
 #   scripts/ui_harness.sh --only console       # just the scenes tagged/named console
 #   scripts/ui_harness.sh --update             # rewrite the goldens after an intended change
@@ -17,6 +17,7 @@
 #   scripts/ui_harness.sh --flow-update        # rewrite flow journals and frame goldens
 #   scripts/ui_harness.sh --flow-list          # print the flow catalog as one JSON object
 #   scripts/ui_harness.sh --coverage           # evaluate declared UI coverage without rendering
+#   scripts/ui_harness.sh --film               # record the media reels frame by frame
 #
 # Artifacts land in .build/ui-harness/: <scene>.png, <scene>.ax.txt, <scene>.ax.diff,
 # manifest.jsonl and contact-sheet.png. Run with --help for the full option list.

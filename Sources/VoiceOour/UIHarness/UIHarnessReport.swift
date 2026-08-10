@@ -86,7 +86,9 @@
             status == .missingGolden ? "missing-golden" : status.rawValue
         }
 
-        private static func note(_ message: String, machineMode: Bool) {
+        /// `--stdout` hands stdout to the machine, so prose moves to stderr. Shared by every
+        /// mode's summary rather than respelled per mode.
+        static func note(_ message: String, machineMode: Bool) {
             if machineMode {
                 fputs("\(message)\n", stderr)
             } else {

@@ -38,7 +38,7 @@ fixture:
 dev:
 	scripts/run_dev.sh
 
-.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-all
+.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-film ui-all
 
 # The portable gate. Runs on any host: every scene is pinned to the painted
 # path by `UIHarnessSeams.forceLegacyGlass`, so these goldens are the ones CI
@@ -81,6 +81,11 @@ ui-flow-list:
 # Coverage is a pure declaration/claim ledger and never hosts or renders views.
 ui-coverage:
 	scripts/ui_harness.sh --mode coverage
+
+# Media, never a golden: this records the README's recording-island GIF and
+# nothing diffs, lints or gates its output. Needs ffmpeg on PATH.
+ui-film:
+	scripts/make_readme_gif.sh
 
 # The complete local UI gate includes both scene and flow-frame goldens.
 ui-all: ui-snap ui-flow-frames
