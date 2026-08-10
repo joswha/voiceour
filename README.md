@@ -1,170 +1,329 @@
-# VoiceOour
+<div align="center">
 
-VoiceOour is a minimalist macOS menu-bar dictation app. Tap Fn/Globe by itself, speak one utterance, transcribe locally with NVIDIA Parakeet through a Python sidecar, clean protected technical terms, then paste or copy the result into whichever app is focused when insertion begins. With Accessibility permission, an active event tap captures and consumes the standalone Fn/Globe tap before macOS can show its emoji/dictation popup; without it, a passive monitor still toggles recording but macOS may also react.
+# 👽 VoiceOour
 
-v0 is local-first:
+### Tap `fn`. Say the thing. It lands where your cursor already was.
 
-- ASR defaults to the fake backend for development and tests.
-- Real ASR uses `parakeet-mlx` with `mlx-community/parakeet-tdt-0.6b-v3` pinned at `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`. The sidecar is a persistent process: the model loads once per app run (preloading starts at launch), so dictation latency is inference-only after warm-up.
-- Deterministic cleanup and the protected glossary run locally.
-- The provider-based network refiner is opt-in, disabled by default, defaults to Gemini, and uses the network only after it is enabled and configured.
-- Recent transcripts are stored locally for the dedicated Sessions view, can be cleared there, and audio history is not persisted.
-- Terminal, code editor, secure, and unknown-risky targets degrade to copy-only.
+**Local-first dictation for macOS.** The alien lives in your menu bar, wakes on one keystroke,
+transcribes on your own silicon, and never phones home.
 
-## Requirements
+<br>
 
-- macOS 14 or newer. Apple Silicon is required for the real MLX backend; the fake backend runs anywhere.
-- Command Line Tools: `xcode-select --install`. Full Xcode is not required.
-- Swift 5.9 or newer (`Package.swift` declares `swift-tools-version: 5.9`). Check with `swift --version`.
-- `uv` for the Python sidecar, from the official installer: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
-- Optional: Developer ID certificate and notary credentials, for release signing only.
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?style=for-the-badge&logo=apple&logoColor=white)
+![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138?style=for-the-badge&logo=swift&logoColor=white)
+![Runs offline](https://img.shields.io/badge/cloud-opt--in%20only-2ea043?style=for-the-badge)
+![License MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
 
-## Quick start
+[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
-```sh
-swift build
-make test          # swift test with the offscreen UI harness compiled in
-(cd asr && uv --no-config run pytest)
-scripts/run_dev.sh --self-test
-make bench-smoke   # offline benchmark smoke: fake backend end-to-end
+<br>
+
+<img src="docs/media/dictation-island.gif" width="720"
+     alt="The VoiceOour recording island: a graphite pill with a cancel disc on the left, a live cyan waveform in the middle and a green finish disc on the right, moving through recording, finalizing, transcribing, cleaning, refining and ready to insert.">
+
+<sub><i>The island, rendered frame by frame from the app's real SwiftUI views by the offscreen UI harness —<br>
+no screen recording, no faked mockup. Real glass looks glassier than an offscreen raster can show.</i></sub>
+
+</div>
+
+---
+
+## 👽 What happens when you tap `fn`
+
+```text
+   👆  TAP       One standalone tap of Fn / 🌐. Not held, not a chord.
+   ┃             With Accessibility granted the tap is eaten, so macOS
+   ┃             never gets to pop its own emoji picker over your work.
+   ┃
+   🎤  SPEAK     A graphite pill appears next to whatever you are typing in
+   ┃             and draws your voice, live, while it listens.
+   ┃             ✓ finishes · ✕ discards · Esc discards · drag it anywhere.
+   ┃
+   👽  DECODE    Parakeet TDT 0.6B runs on your own Apple silicon through a
+   ┃             persistent Python sidecar. ~347 ms median on an M4 Pro.
+   ┃             Airplane mode is a supported configuration.
+   ┃
+   🧼  CLEAN     Fillers out. Protected terms in — kubectl, --no-config, p95,
+   ┃             that internal codename you taught it last Tuesday — kept
+   ┃             character for character, before and after every later stage.
+   ┃
+   ✨  REFINE    Optional. Off by default. The only stage that can reach a
+   ┃             network at all, and only after you switch it on, pick a
+   ┃             provider and give it a key. On-device refiners exist too.
+   ┃
+   📋  DELIVER   Cmd-V into the app you were already in. Terminal, code editor
+                 or password field? Copy-only, on purpose. See the table below.
 ```
 
-Nothing above downloads a model, opens the microphone, or reaches the network.
+No wake word. No "start listening" button. No modal telling you your privacy matters.
+One key, one utterance, text.
 
-## Source map
+---
 
-`Sources/VoiceOour/VoiceOourApp.swift` is the entry point; it builds a
-`DictationCoordinator`, which owns one utterance end to end — permissions,
-recording, transcription, cleanup, optional refinement, insertion, history.
-Everything the coordinator needs is injected, which is why the fake path needs no
-hardware.
+## ⚡ Sixty-second start
 
-Below it, `Sources/VoiceCore` is pure Swift and Foundation: models, session state,
-settings, deterministic cleanup, the glossary, wire types, and target-safety
-classification. `Sources/VoiceMac` holds every macOS adapter — audio, pasteboard,
-permissions, hotkey, Keychain, process management, and the optional refiner
-backends. `asr/` is the Python sidecar that speaks the transcription protocol over
-stdio.
-
-Reading order for a first change: the coordinator, then the port protocols in
-`Sources/VoiceCore/CorePorts.swift`, then whichever adapter you are touching.
-
-## Test suites
-
-| Command | Covers | Needs | CI |
-|---|---|---|---|
-| `swift build` | compiles the package, warnings as errors in CI | nothing | enforced |
-| `make test` | Swift unit tests, fake-backed, including the UI harness suites | nothing | enforced |
-| `cd asr && uv --no-config run pytest` | sidecar protocol, cache manifest, process behaviour | nothing | enforced |
-| `cd bench && uv --no-config run pytest` | benchmark scoring and reporting logic | nothing | enforced |
-| `scripts/run_dev.sh --self-test` | app smoke: cleanup and safety classification | nothing | enforced |
-| `make bench-smoke` | end-to-end benchmark on the fake backend | nothing | enforced |
-| `make ui-snap` | 36 portable offscreen UI scenes against committed goldens | nothing | non-blocking job |
-| `make ui-snap-os26` | 12 native Liquid Glass scenes | macOS 26 host | local only |
-| `make ui-flow` | deterministic interactive journeys and host-independent semantic journals | nothing | enforced |
-| `make ui-coverage` | required UI surface, state, and journey coverage ledger | nothing | enforced |
-| `make ui-flow-frames` | flow capture rasters and AX dumps against committed goldens | nothing | non-blocking job |
-| `make ui-all` | portable scenes followed by flows with captured-frame reconciliation | nothing | local full gate |
-| `VOICEOOUR_MLX_INTEGRATION=1 swift test` | real MLX sidecar | model download | local only |
-| `VOICEOOUR_OMP_INTEGRATION=1 swift test` | real Oh My Pi RPC refiner | `omp` installed and signed in | local only |
-| `VOICEOOUR_FM_INTEGRATION=1 swift test` | Apple on-device refiner | macOS 26, Apple Intelligence on | local only |
-| `VOICEOOUR_APPLE_SPEECH_INTEGRATION=1 swift test` | Apple SpeechAnalyzer backend | macOS 26 | local only |
-| `make bench-stt` / `bench-e2e` | accuracy and latency on real corpora | model download, datasets | local only |
-| `scripts/sign_notarize.sh` | signed and notarized release | Developer ID credentials | local only |
-
-The env-gated integration tests are deliberately **not** in CI: each needs a
-credential, a model download, or a newer OS than the runner has. They are skipped,
-not failed, when their variable is unset.
-
-Accuracy and speed benchmarks (WER/RTFx/latency on LibriSpeech and FLEURS, refinement quality on curated cases) run through the production pipeline via `voiceoour-bench` — see `docs/benchmarks.md`.
-
-Run the menu-bar app in fake-ASR development mode:
+Nothing here downloads a model, opens your microphone, or needs an API key. The default
+ASR backend is a deterministic fake — it is the only backend that works on a machine that
+has never run this app.
 
 ```sh
-scripts/run_dev.sh
+git clone https://github.com/joswha/vociea.git voiceoour && cd voiceoour
+
+scripts/run_dev.sh --self-test   # build + smoke the whole pipeline
+scripts/run_dev.sh               # put the alien in your menu bar
 ```
 
-This is the fake dev launch: it avoids microphone/model requirements for the first run. It records a synthetic short WAV, asks the fake sidecar for a canned transcript, cleans it, then uses the same insertion path as the real backend.
+You need macOS 14+, Command Line Tools (`xcode-select --install`), and
+[`uv`](https://docs.astral.sh/uv/) for the Python sidecar. Full Xcode is not required.
 
-Run the real Parakeet app interactively:
+<details>
+<summary><b>Then: real speech, real model</b></summary>
+
+<br>
+
+Real ASR is `parakeet-mlx` running `mlx-community/parakeet-tdt-0.6b-v3`, pinned at revision
+`ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`. Apple silicon required. The first launch downloads
+and caches the model; after the cache manifest exists the sidecar loads with `HF_HUB_OFFLINE=1`.
 
 ```sh
-scripts/run_real.sh
+scripts/setup_local_signing.sh   # once — a stable identity keeps your TCC grants alive
+scripts/run_real.sh              # bundles, then opens .build/VoiceOour.app with --asr-backend mlx
 ```
 
-`scripts/run_real.sh` is the recommended interactive test path for real ASR. It launches the `.app` bundle with microphone metadata and passes `--repo-root`, `--asr-dir`, and `--asr-backend mlx` through `open --args`, so macOS can attribute any microphone prompt to VoiceOour and the sidecar uses the MLX backend. The macOS microphone prompt may appear when you first start a real recording, not merely when the app launches; Parakeet may cold-load on first use, and the model and inference remain local.
+`run_real.sh` launches the real `.app` bundle so macOS can attribute the microphone prompt to
+VoiceOour. That prompt appears when you first *record*, not when the app launches. The sidecar is
+a persistent process: the model loads once per app run and preloading starts at launch, so
+dictation latency after warm-up is inference only.
 
-Backend changes in the Voice pane are applied with its one-click `RESTART TO APPLY` action; it preserves the current launch context while resolving the newly saved backend.
+Already granted permissions and just want the existing bundle back?
+`scripts/restart_real.sh` reopens it without rebuilding, which avoids invalidating the local
+macOS TCC entry. Add `--debug` to reveal the machine-facing Diagnostics pane.
 
-Optional network refinement is configured from the Refinement pane. Pick a provider (Gemini by default; **OpenRouter** for the fastest models, e.g. `meta-llama/llama-3.3-70b-instruct` routed to Groq; **Oh My Pi** for subscription-backed refinement through the installed `omp` CLI), then paste an API key or use the provider environment variable (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) for direct-API providers. VoiceOour derives the base URL for Gemini, OpenAI, and OpenRouter; only `Custom` asks for an OpenAI-compatible base URL.
+</details>
 
-For Oh My Pi, the Refinement pane groups connected providers first and keeps ChatGPT, Claude, Gemini, and Kimi visible even when disconnected. **CONNECT** and **RECONNECT** open OMP's own interactive login in a temporary Terminal window; **ADD** adds another account, and **BROWSE** delegates to OMP's full live provider list. After sign-in, VoiceOour selects a matching `provider/model`. **REFRESH** reads only aggregate provider/account status from `omp usage --json --redact`; OMP stores and refreshes every credential in its own vault, and VoiceOour never reads OAuth tokens, API keys, or account identities from that flow. Oh My Pi reuses a persistent `omp --mode rpc` child process for a warm refine of about 1.4–2.7s depending on the model. Manual fallback: `omp auth-broker login <provider>`.
+<details>
+<summary><b>Prove the model works without any GUI at all</b></summary>
 
-While recording, VoiceOour shows a compact draggable graphite pill with cancel/check discs. The island opens on the focused target window's display and follows app, display, and Space focus changes during the active session; a manual drag position is transferred relatively between displays instead of pinning the island to one monitor. Dragging the body repositions the island. Escape discards the session from wherever you are typing — the same action as the pill's cancel disc — and is claimed only while the island is on screen. Recording shows the live waveform, initially flat until levels arrive; processing shows an uppercase state label and comet. There is no transcript preview; the last transcript is available in the menu popover and Sessions view. In real recording, the waveform is driven by live microphone levels: silence should keep the bars low, and speaking should raise and move them. After you finish, the island stays open during finalization/transcription/cleanup/refinement and keeps showing processing state until insertion finishes. If a transcript for a normal text target only lands on the clipboard, grant the macOS Accessibility permission VoiceOour requests for synthetic paste and Fn/Globe capture, then retry. Copy-only remains expected for terminal, code-editor, secure, unknown-risky, and post-snapshot focus-race cases.
-
-If you are only restarting the already-built test app after granting Accessibility/event-post permission, use:
-
-```sh
-scripts/restart_real.sh
-```
-
-That reopens the existing signed `.build/VoiceOour.app` without rebuilding it, which avoids invalidating the local macOS TCC permission entry during repeated tests.
-
-The Diagnostics pane reports machine-facing install evidence rather than anything the user configures, so it is hidden from the console rail unless the app is launched with `--debug`; `scripts/restart_real.sh --debug` passes the argument through.
-
-## Vocabulary and technical terms
-
-VoiceOour keeps a local vocabulary of protected technical terms so recognized commands, flags, paths, versions, and product names survive cleanup and refinement. You teach and correct it from the app; none of this is required for basic dictation.
-
-- **Fix and Teach (Sessions).** From the Sessions view, select the mangled words in a transcript and the TEACH bar appears under it; teach the term by entering its canonical spelling, optionally the DETECTED AS surface it should replace, and a scope: Global, This app, or This project. Right-clicking a word still works, and so does the FIX / TEACH button when nothing is selected. Taught terms are protected in future dictation for the chosen scope.
-- **Suggestion accept/reject.** When VoiceOour proposes a correction, accepting it teaches the term for future dictation only — it never edits text that was already pasted or copied. Rejecting drops the suggestion.
-- **Project-lexicon import.** Settings > Glossary imports a project lexicon from a file (a plain one-term-per-line list or JSON). Imported terms are sanitized, scoped to the active project, and kept local — they are ineligible for the cloud refiner.
-- **Clear vocabulary.** System offers "Clear vocabulary", which after a type-`CLEAR` confirmation removes the terms you added and puts the bundled defaults back to their shipped surfaces — including any DETECTED AS surface you taught onto one of them. Bundled default terms themselves are kept.
-- **Literal spoken composition.** Spoken directives expand to exact orthography before cleanup: say "spell that" or "literal" to dictate letters verbatim, "snake case" or "dash dash" to join words, and "capital X" to force casing, producing the literal string you spoke rather than cleaned prose.
-
-Only cloud-eligible, non-project-scoped terms are ever sent to the optional network refiner; project-scoped and imported terms stay local. Local backends always see the full active vocabulary.
-
-Automatic term correction and decoder biasing are experimental and OFF by default: automatic replacement (`Settings.automaticTermCorrectionEnabled`) and decoder bias (`Settings.decoderBiasEnabled`) both stay disabled pending calibration against real-speaker data. Any accuracy gains from them are unproven so far — current measurements come from a text-to-speech smoke tier only, on which unconditional biasing showed no recall gain. Fix/Teach, import, and suggestions above work regardless of these settings.
-
-## Real ASR proof (non-interactive)
+<br>
 
 ```sh
 scripts/make_fixture.sh
 cd asr && uv --no-config run python ../scripts/phase0_asr_proof.py ../fixtures/audio/hello_16k_mono.wav
 ```
 
-Example output on Apple Silicon after downloading the model:
+Example output on Apple silicon after the model downloads:
 
 ```text
 transcript=Hello world testing NVIDIA Parakeet NN Spaceport.
 cold_load_ms=193738 warm_inference_ms=4360 rss_kb=1743880192
 ```
 
-The transcript is non-empty and contains the required `hello`/`world` proof terms.
+</details>
 
-## Measured performance
+---
 
-All figures below were measured on an Apple M4 Pro (10P+4E, 24 GB) running macOS 26.5.2, with
-`mlx 0.31.2` / `parakeet-mlx 0.5.2` and Apple's on-device Foundation Models. Latency percentiles come
-from 353 real dictation sessions; the controlled A/B numbers come from ~1,240 timed on-device model
-calls. Full methodology, the dead ends, and the statistics are in [`docs/performance-roadmap.md`](docs/performance-roadmap.md).
+## 🎛 The three surfaces
 
-These are one machine's observed numbers, recorded to justify specific engineering decisions. They are
-not a specification, a guarantee, or a target: your hardware, OS version, refiner provider, and speech
-length will all move them.
+|  | Surface | What it is |
+|---|---|---|
+| 👽 | **Menu bar** | The alien itself. A cyan dot means working, a pulsing cyan dot means recording, crimson means something broke. Click it for the last transcript (click to copy), the current target, `START DICTATION`, and how many sessions you have saved. |
+| 🎤 | **The island** | The pill in the GIF above. Appears on the focused window's display, follows app/display/Space changes mid-session, and remembers a manual drag *relative* to a display instead of pinning itself to one monitor. |
+| 🖥️ | **The console** | Seven panes: **Home**, **Sessions**, **Voice**, **Glossary**, **Refinement**, **System**, and **Diagnostics** (hidden unless you launch with `--debug`). |
 
-### Stage latencies from real sessions
+<div align="center">
+<img src="docs/media/console-home.png" width="820"
+     alt="The VoiceOour console, Home pane: time saved, speaking versus typing speed, all-time counters, dictation charts, top apps and personal records.">
+<br>
+<sub><i>Home keeps score: words dictated, time saved against your typing speed, busiest hours, top destinations.</i></sub>
+</div>
+
+<br>
+
+<div align="center">
+<img src="docs/media/menu.png" width="280"
+     alt="The VoiceOour menu bar popover: a PASTE ATTEMPTED chip, the Fn keycap, the last transcript with CLICK TO COPY, the delivery outcome, START DICTATION, Open Console and Quit.">
+<br>
+<sub><i>The popover, at its true 280 pt width. The <code>Fn</code> keycap is a reminder, not a button.<br>
+Every image on this page is an offscreen harness render of the real views — none of them is a mockup.</i></sub>
+</div>
+
+---
+
+## 🚦 Where your text is allowed to go
+
+VoiceOour looks at what is focused *immediately before* it delivers, and refuses to paste into
+places where a stray `Cmd-V` would be a bad day. Refusing is a feature, not a failure — the text
+is on your clipboard either way.
+
+| | Target | Paste | Refine | Why |
+|---|---|---|---|---|
+| ✅ | Normal text field | yes | yes | Nothing to be careful about. |
+| 🖥️ | Terminal | **copy only** | yes | A pasted newline executes a command. VoiceOour also strips exactly one trailing newline so a copied command cannot run itself. |
+| 👨‍💻 | Code editor | **copy only** | **never** | Your code is not prose and must not be "improved" by a language model. |
+| 🔐 | Secure field | **copy only** | no | Password managers, secure keyboard entry. Detected via Accessibility *and* `IsSecureEventInputEnabled()`, because AX cannot see every one of them. |
+| ❓ | Unknown | **copy only** | no | If we cannot classify it, we do not type into it. |
+
+Copy-only text is flagged `org.nspasteboard.ConcealedType`; pasted text is flagged
+`org.nspasteboard.TransientType`, so your clipboard-history manager can skip both. The plain
+`.string` type is always written too, because that is how pasting works.
+
+---
+
+## 🔒 House rules
+
+These are enforced in code and in review, not aspirations in a marketing page.
+
+- 🚫 **Your old clipboard is never read, snapshotted, restored, or inspected.** Not once, not to
+  "be helpful". VoiceOour writes the dictated text and nothing else.
+- 🧹 **After a successful paste the dictated text is cleared from the clipboard about a second
+  later** — unless you copied something else in the meantime, which is detected by pasteboard
+  *change count*, never by reading contents.
+- 📡 **The network is reachable in exactly two situations:** the first model download, and an
+  optional refiner you explicitly enabled and configured. There is no telemetry, no analytics,
+  no crash reporter, no account.
+- 🗂️ **Recent transcripts stay on your Mac**, live in the Sessions pane, and are wiped by
+  System ▸ Clear history. **Audio is never persisted** — temp files are deleted on success,
+  cancel and error alike.
+- 🔤 **Only cloud-eligible, non-project-scoped glossary terms** are ever put in a network
+  refiner's prompt. Project-scoped and imported terms never leave the machine. On-device
+  refiners get the full set.
+- ⌨️ **Insertion is pasteboard + synthetic `Cmd-V`**, never Accessibility text mutation. If the
+  event-post permission is missing, you get copy-only and a reason — not a silent no-op.
+
+---
+
+## 🧠 Under the hood
+
+```mermaid
+flowchart TB
+    subgraph mac["🖥️  your Mac — everything below this line is local"]
+        direction TB
+        APP["VoiceOour · SwiftUI<br/>MenuBarExtra · console · island<br/>DictationCoordinator owns one utterance end to end"]
+        CORE["VoiceCore · pure Swift + Foundation<br/>session state · settings · deterministic cleanup<br/>glossary · wire types · target-safety policy"]
+        MAC["VoiceMac · macOS adapters<br/>audio · pasteboard · CGEventTap hotkey<br/>permissions · Keychain · refiner backends"]
+        ASR["asr/ · Python sidecar<br/>👽 Parakeet TDT 0.6B via MLX<br/>NDJSON over stdio, one persistent process"]
+        APP --> CORE
+        APP --> MAC
+        MAC -->|"spawn once · keep warm · multiplex by request_id"| ASR
+    end
+    NET["☁️  optional refiner<br/>Gemini · OpenAI · OpenRouter · Oh My Pi<br/>OFF BY DEFAULT"]
+    APP -. "only if you turn it on" .-> NET
+```
+
+`VoiceCore` imports no AppKit, no AVFoundation, no Accessibility, no pasteboard and no
+process-launch APIs — which is why the fake path needs no hardware and the tests need no
+permissions. Everything the coordinator touches is injected.
+
+The session is a state machine, and every arrow is observable in the UI:
+
+```text
+idle → checkingPermissions → recording → finalizingAudio → transcribing
+     → cleaning → refining → readyToInsert → pasteAttempted / copiedOnly → idle
+```
+
+**Reading order for a first change:** `Sources/VoiceOour/DictationCoordinator.swift`, then the
+port protocols in `Sources/VoiceCore/CorePorts.swift`, then whichever adapter you are touching.
+
+<details>
+<summary><b>The ASR wire protocol</b></summary>
+
+<br>
+
+Newline-delimited JSON over stdio, `protocol_version: 1`.
+
+- **stdout is protocol-only.** No logs, no progress bars, no tracebacks, no dependency chatter.
+  Diagnostics go to stderr.
+- Startup emits `hello`. Requests are `health`, `transcribe`, `cancel`.
+- Every `transcribe` produces exactly one terminal `result`, `error` or `cancelled`.
+- Python runs `transcribe` on a worker thread, so `cancel` is actionable mid-request.
+- `VOICEOOUR_PRELOAD=1` preloads the model after `hello` and runs one warm-up inference, so the
+  first dictation skips MLX lazy kernel compilation.
+- Wire changes land in Swift models, Python models and `fixtures/protocol/` **in one commit**;
+  both test suites decode the same fixtures.
+
+</details>
+
+<details>
+<summary><b>Teaching it your vocabulary</b></summary>
+
+<br>
+
+VoiceOour keeps a local vocabulary of protected technical terms so commands, flags, paths,
+versions and product names survive cleanup *and* refinement. None of it is required for basic
+dictation.
+
+- **Fix and Teach.** In Sessions, select the mangled words in a transcript and a TEACH bar
+  appears. Give the canonical spelling, optionally the `DETECTED AS` surface it should replace,
+  and a scope: Global, This app, or This project. Right-click works too.
+- **Suggestions.** Accepting one teaches the term for *future* dictation. It never edits text
+  that was already pasted.
+- **Project lexicons.** Glossary ▸ `IMPORT WORD LIST…` takes a one-term-per-line file or JSON.
+  Imported terms are sanitized, scoped to the active project and cloud-ineligible.
+- **Literal composition.** Say "spell that" or "literal" to dictate letters verbatim, "snake
+  case" or "dash dash" to join words, "capital X" to force casing.
+- **Clear vocabulary** (System, type-to-confirm) removes what you added and restores the bundled
+  defaults, including any `DETECTED AS` surface you taught onto one of them.
+
+Automatic term correction and decoder biasing are **experimental and off**
+(`Settings.automaticTermCorrectionEnabled`, `Settings.decoderBiasEnabled`). Their gains are
+unproven: the only measurements so far come from a text-to-speech smoke tier, on which
+unconditional biasing showed no recall gain. Everything above works regardless.
+
+</details>
+
+<details>
+<summary><b>Turning on the optional refiner</b></summary>
+
+<br>
+
+Refinement ▸ `Enable refiner`, then pick a provider:
+
+| Provider | Notes |
+|---|---|
+| **Google Gemini** | Default. `GEMINI_API_KEY` or paste a key. |
+| **OpenAI** | `OPENAI_API_KEY`. |
+| **OpenRouter** | Fastest models in practice — e.g. `meta-llama/llama-3.3-70b-instruct` routed to Groq. `OPENROUTER_API_KEY`. |
+| **Oh My Pi** | Subscription-backed refinement through the installed `omp` CLI. |
+| **Apple on-device** | macOS 26 + Apple Intelligence. Local, no key. |
+| **Custom** | The only provider that asks for a base URL; must be OpenAI-compatible. |
+
+Base URLs for Gemini, OpenAI and OpenRouter are derived, not typed. Keys go to the Keychain.
+
+For Oh My Pi, the pane groups connected providers first and keeps ChatGPT, Claude, Gemini and
+Kimi visible even when disconnected. `CONNECT` / `RECONNECT` open OMP's own interactive login in
+a temporary Terminal window; `ADD` adds another account; `BROWSE` delegates to OMP's live
+provider list. `REFRESH` reads only aggregate provider/account status from
+`omp usage --json --redact` — OMP keeps every credential in its own vault and VoiceOour never
+reads OAuth tokens, API keys or account identities from that flow. A persistent `omp --mode rpc`
+child gives a warm refine of roughly 1.4–2.7 s depending on model.
+
+Backend changes in the Voice pane apply through its one-click `RESTART TO APPLY` action, which
+preserves the current launch context.
+
+</details>
+
+---
+
+## 📈 Numbers, measured
+
+One Apple M4 Pro (10P+4E, 24 GB), macOS 26.5.2, `mlx 0.31.2` / `parakeet-mlx 0.5.2`, Apple
+on-device Foundation Models. Latency percentiles from **353 real dictation sessions**; the
+controlled A/B numbers from **~1,240 timed on-device model calls**. Full methodology, the dead
+ends and the statistics live in [`docs/performance-roadmap.md`](docs/performance-roadmap.md).
+
+These are one machine's observations, recorded to justify specific engineering decisions. They
+are not a specification, a guarantee, or a target.
 
 | stage | p50 | p90 | p95 | n |
 |---|---:|---:|---:|---:|
-| ASR | 347 ms | 843 ms | 1052 ms | 167 |
+| ASR | **347 ms** | 843 ms | 1052 ms | 167 |
 | refinement | 2257 ms | 3995 ms | 5426 ms | 155 |
-| insertion | 4 ms | 32 ms | 43 ms | 188 |
-| start latency (hotkey → capture) | 188 ms | 219 ms | 231 ms | 43 |
+| insertion | **4 ms** | 32 ms | 43 ms | 188 |
+| start latency (hotkey → capture) | **188 ms** | 219 ms | 231 ms | 43 |
 
-Refinement is roughly 87% of post-speech latency. Note that this is a sum of independently measured
-stage medians, not a single stopwatch span — these sessions predate the per-session end-to-end
-`stopReleaseToInsertionOutcomeMs` timing the app now records.
+Refinement is roughly 87% of post-speech latency — which is exactly why it is optional. Note this
+is a sum of independently measured stage medians, not one stopwatch span; those sessions predate
+the per-session `stopReleaseToInsertionOutcomeMs` timing the app now records.
 
 ### Accuracy
 
@@ -176,25 +335,28 @@ stage medians, not a single stopwatch span — these sessions predate the per-se
 | TechTerms — *TTS, inadmissible* | U-WER | 6.731% | 13.462% |
 | TechTerms — *TTS, inadmissible* | canonical-term recall | 63.6% | 27.3% |
 
-LibriSpeech figures are reports `20260717T132024Z` (mlx) and `20260717T132040Z` (apple-speech): a
-**+0.2247 pp** U-WER delta against this project's +0.35 pp gate. The two runs are not row-matched
-(128 vs 64 rows), so treat the delta as indicative rather than a clean paired result.
+LibriSpeech figures are reports `20260717T132024Z` (mlx) and `20260717T132040Z` (apple-speech):
+a **+0.2247 pp** U-WER delta against this project's +0.35 pp gate. The runs are not row-matched
+(128 vs 64), so treat the delta as indicative.
 
-The TechTerms rows are recorded for completeness but **carry no weight**: that tier is entirely
-`macos-say` TTS, and [`docs/benchmarks.md`](docs/benchmarks.md) states such rows "must not be used as
-evidence for … technical term accuracy, or the production gate". The gap is 7/11 vs 3/11 utterances
+The TechTerms rows **carry no weight**: that tier is entirely `macos-say` TTS, and
+[`docs/benchmarks.md`](docs/benchmarks.md) states such rows "must not be used as evidence for …
+technical term accuracy, or the production gate". The gap is 7/11 vs 3/11 utterances
 (exact McNemar p ≥ 0.125).
 
-So: **`mlx` remains the default as status quo, not as a demonstrated accuracy win.** Apple's fused
+So: **`mlx` is the default as status quo, not as a demonstrated accuracy win.** Apple's fused
 engine is markedly faster post-stop (**15.9 ms vs 119 ms** on identical 10.56 s audio, because it
-transcribes *during* capture). Which backend should be default is **unsettled** pending the consented
-real-speaker corpus that `docs/benchmarks.md` records as not yet existing.
+transcribes *during* capture). Which backend should be default is **unsettled**, pending the
+consented real-speaker corpus `docs/benchmarks.md` records as not yet existing.
 
-### Refiner: prewarm placement
+<details>
+<summary><b>Where the cost actually is, and what we tried and threw away</b></summary>
+
+<br>
 
 Apple's on-device model benefits from a session prewarmed shortly before use. Holding idle time
-constant at 30 s and varying only *when* the prewarm happens (240 accepted trials, globally shuffled
-schedule, 8 per transcript × arm):
+constant at 30 s and varying only *when* the prewarm happens (240 accepted trials, globally
+shuffled, 8 per transcript × arm):
 
 | prewarm placement | median |
 |---|---:|
@@ -202,10 +364,9 @@ schedule, 8 per transcript × arm):
 | **after the idle, ~400 ms before use (current)** | **1455.6 ms** |
 | never | 1888.0 ms |
 
-**−383.5 ms paired median** (95% CI [−399.0, −361.6], 10/10 transcripts, sign p = 0.002). VoiceOour
-therefore prewarms at recording stop, where recorder finalization plus ASR supply the lead time.
-
-### Where the cost actually is
+**−383.5 ms paired median** (95% CI [−399.0, −361.6], 10/10 transcripts, sign p = 0.002).
+VoiceOour therefore prewarms at recording stop, where recorder finalization plus ASR supply the
+lead time.
 
 | quantity | value |
 |---|---:|
@@ -217,12 +378,10 @@ therefore prewarms at recording stop, where recorder finalization plus ASR suppl
 | refines returning byte-identical text | **29.2%** |
 | emitted words that differ from the model's input | **8.56%** |
 
-The bottleneck is prefill, not generation: ~1,762 tokens in to produce ~59 out. Decode itself runs at
+The bottleneck is prefill, not generation: ~1,762 tokens in for ~59 out. Decode runs at
 ~131 tok/s and ASR at RTFx 44 — the model math is not the limiting factor.
 
-### Things that were measured and rejected
-
-Kept here because negative results are load-bearing:
+Negative results are load-bearing, so they are kept:
 
 | idea | measured result |
 |---|---|
@@ -237,7 +396,118 @@ Kept here because negative results are load-bearing:
 | Replacing the Python sidecar IPC | total non-inference overhead is only 1.2–1.6 ms |
 | Rust or hand-written Metal kernels | no viable path; see the roadmap for why |
 
-## Build an app bundle
+</details>
+
+---
+
+## 🧪 How this repo is verified
+
+Everything in the top block is fake-backed: no model, no microphone, no TCC grant, no credential.
+
+| Command | Covers | CI |
+|---|---|---|
+| `swift build` | compiles the package, warnings as errors | ✅ enforced |
+| `make test` | Swift unit tests including the UI harness suites | ✅ enforced |
+| `cd asr && uv --no-config run pytest` | sidecar protocol, cache manifest, process behaviour | ✅ enforced |
+| `cd bench && uv --no-config run pytest` | benchmark scoring and reporting logic | ✅ enforced |
+| `scripts/run_dev.sh --self-test` | app smoke: cleanup and safety classification | ✅ enforced |
+| `make bench-smoke` | end-to-end benchmark on the fake backend | ✅ enforced |
+| `make ui-flow` | deterministic interactive journeys, host-independent journals | ✅ enforced |
+| `make ui-coverage` | required UI surface / state / journey coverage ratchet | ✅ enforced |
+| `make ui-snap` | 36 portable offscreen UI scenes against committed goldens | 🟡 non-blocking |
+| `make ui-flow-frames` | flow rasters and AX dumps against committed goldens | 🟡 non-blocking |
+| `make ui-all` | portable scenes then flows with frame reconciliation | local full gate |
+| `make ui-snap-os26` | 12 native Liquid Glass scenes | macOS 26 host |
+| `make ui-film` | rebuilds the GIF at the top of this README | local media |
+| `VOICEOOUR_MLX_INTEGRATION=1 swift test` | real MLX sidecar | needs model download |
+| `VOICEOOUR_OMP_INTEGRATION=1 swift test` | real Oh My Pi RPC refiner | needs `omp` signed in |
+| `VOICEOOUR_FM_INTEGRATION=1 swift test` | Apple on-device refiner | macOS 26 + Apple Intelligence |
+| `VOICEOOUR_APPLE_SPEECH_INTEGRATION=1 swift test` | Apple SpeechAnalyzer backend | macOS 26 |
+| `make bench-stt` / `bench-e2e` | accuracy and latency on real corpora | model + datasets |
+| `scripts/sign_notarize.sh` | signed and notarized release | Developer ID credentials |
+
+The env-gated integration tests are deliberately **not** in CI: each needs a credential, a model
+download, or a newer OS than the runner has. They skip, they do not fail.
+
+### 👀 Look at the UI without a window ever appearing
+
+```sh
+make ui-snap     # render every scene offscreen, diff against fixtures/ui/
+make ui-flow     # drive real journeys through the real coordinator
+make ui-film     # re-record the GIF at the top of this file
+```
+
+`VoiceOour --ui-harness` renders SwiftUI into a borderless window parked at −30000,−30000, dumps
+the in-process accessibility tree, lints both and diffs against goldens. No Screen Recording
+permission, no Accessibility permission, no window on your display, no change to the frontmost
+app. It is how the GIF above was made and it is the intended way to review UI changes.
+Full reference: [`docs/ui-harness.md`](docs/ui-harness.md).
+
+---
+
+## 🙋 Questions people actually ask
+
+<details>
+<summary><b>Does it work with no internet?</b></summary>
+<br>
+Yes, once the model is cached. After the cache manifest exists the sidecar loads with
+<code>HF_HUB_OFFLINE=1</code>. The refiner is the only networked stage and it is off by default.
+</details>
+
+<details>
+<summary><b>Why did my text only get copied instead of pasted?</b></summary>
+<br>
+Either the focused target is a terminal, code editor, secure or unclassifiable target — which is
+deliberate, see the table above — or the macOS event-post/Accessibility permission is missing.
+Grant it in System Settings ▸ Privacy & Security ▸ Accessibility and retry. The menu popover and
+Sessions history both tell you which one happened.
+</details>
+
+<details>
+<summary><b>macOS keeps opening its emoji picker when I tap Fn.</b></summary>
+<br>
+That is the passive fallback. Without Accessibility permission VoiceOour can observe the Fn tap
+but cannot consume it, so macOS reacts too. With permission, the active
+<code>CGEventTap</code> eats the Globe "assigned action" key event and the picker never appears.
+Fn combined with any other key is always passed straight through.
+</details>
+
+<details>
+<summary><b>Do I need an API key?</b></summary>
+<br>
+No. Keys exist only for the optional network refiner. Transcription itself never uses one.
+</details>
+
+<details>
+<summary><b>Is my audio uploaded or stored?</b></summary>
+<br>
+Neither. Inference is local, and temporary audio files are deleted on success, cancellation and
+error paths alike. Only text transcripts are kept, locally, and Sessions can wipe them.
+</details>
+
+<details>
+<summary><b>Can I change the hotkey?</b></summary>
+<br>
+Not yet — the Voice pane shows <code>STANDALONE TAP</code> read-only, with reassignment reserved
+for a later release. The binder is a small first-party Carbon/<code>CGEventTap</code>
+implementation and is intentionally replaceable.
+</details>
+
+<details>
+<summary><b>Why a Python sidecar instead of pure Swift?</b></summary>
+<br>
+Because MLX + Parakeet lives in Python and the IPC is not the bottleneck: total non-inference
+overhead was measured at 1.2–1.6 ms. Replacing it was evaluated and rejected on those numbers.
+</details>
+
+---
+
+## 🧰 Shipping it
+
+<details>
+<summary><b>Build an app bundle</b></summary>
+
+<br>
 
 ```sh
 scripts/bundle.sh
@@ -245,63 +515,92 @@ scripts/verify_bundle.sh
 open .build/VoiceOour.app
 ```
 
-The bundle uses `Resources/Info.plist` with `LSUIElement=true` and the microphone usage string, plus `Resources/VoiceOour.entitlements` with audio input only. For password-free local rebuilds, run `scripts/setup_local_signing.sh` once; it creates a dedicated `voiceoour-dev` identity that `scripts/bundle.sh` prefers automatically. An explicit `VOICEOOUR_CODESIGN_IDENTITY` still overrides the local identity, and the bundler falls back to ad-hoc signing when neither is available. Run `scripts/verify_bundle.sh` after bundling for a non-credentialed local check of plist values, signature validity, and shipped entitlements. The stable local identity keeps the macOS Accessibility/TCC designated requirement unchanged across rebuilds; ad-hoc signing does not. It is not sandboxed.
+The bundle uses `Resources/Info.plist` with `LSUIElement=true` and the microphone usage string,
+plus `Resources/VoiceOour.entitlements` with audio input only — it is deliberately not sandboxed.
 
-## Release signing
+Run `scripts/setup_local_signing.sh` once for password-free local rebuilds; it creates a
+dedicated `voiceoour-dev` identity that `scripts/bundle.sh` prefers automatically. An explicit
+`VOICEOOUR_CODESIGN_IDENTITY` overrides it, and the bundler falls back to ad-hoc signing when
+neither exists. The stable identity is what keeps the macOS Accessibility/TCC designated
+requirement unchanged across rebuilds; ad-hoc signing does not.
 
-`scripts/sign_notarize.sh` builds the bundle with the configured Developer ID identity, signs it with hardened runtime, verifies signature and entitlements, submits it to notarytool, staples and validates the result, assesses Gatekeeper, writes `.build/VoiceOour-release-manifest.txt`, and prints a SHA-256 checksum. The preferred flow stores notary credentials in the login keychain. Run once; `notarytool` prompts for the credentials:
+`scripts/verify_bundle.sh` is a non-credentialed local check of plist values, signature validity
+and shipped entitlements.
+
+</details>
+
+<details>
+<summary><b>Release signing and notarization</b></summary>
+
+<br>
+
+`scripts/sign_notarize.sh` builds with the configured Developer ID identity, signs with hardened
+runtime, verifies signature and entitlements, submits to notarytool, staples and validates,
+assesses Gatekeeper, writes `.build/VoiceOour-release-manifest.txt` and prints a SHA-256.
+
+Preferred flow — store notary credentials in the login keychain once:
 
 ```sh
 xcrun notarytool store-credentials "VoiceOour-notary"
-```
 
-Then release with the keychain profile:
-
-```sh
 export DEVELOPER_ID_APPLICATION="Developer ID Application: ..."
 export NOTARY_KEYCHAIN_PROFILE="VoiceOour-notary"
 scripts/sign_notarize.sh
 ```
 
-Direct `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` credentials remain supported for existing release environments, but expose the app-specific password in the process table while `notarytool` runs.
+Direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_SPECIFIC_PASSWORD` credentials still work, but
+expose the app-specific password in the process table while `notarytool` runs.
 
-```sh
-export DEVELOPER_ID_APPLICATION="Developer ID Application: ..."
-export APPLE_ID="..."
-export APPLE_TEAM_ID="..."
-export APPLE_APP_SPECIFIC_PASSWORD="..."
-scripts/sign_notarize.sh
-```
+Signing is the only v0 task intentionally gated on credentials.
 
-Signing/notarization is the only v0 task intentionally gated on credentials.
+</details>
 
-## Dependency note
+<details>
+<summary><b>Why a hand-rolled hotkey binder</b></summary>
 
-`sindresorhus/KeyboardShortcuts` 2.x was evaluated but cannot compile under the command-line toolchain because its SwiftUI `#Preview` macro requires a missing `PreviewsMacros` plugin, so VoiceOour uses a small first-party Carbon/`CGEventTap` binder instead: an active session-level `CGEventTap` (`.cgSessionEventTap`) with pure detectors covered by tests. When Accessibility is granted, it toggles on a standalone Fn/Globe tap and consumes the Globe "assigned action" key event so macOS never shows its emoji/dictation popup, while Fn+other-key combinations pass through untouched. While a session is live it also claims an unmodified, non-repeating Escape to discard that session, swallowing both the keyDown and its keyUp so the focused app never sees the press; modified Escape, held Escape, and every Escape outside a session pass straight through. A session tap is used rather than the HID tap because a non-root process can only actively consume events at the session tap. If Accessibility is missing, VoiceOour falls back to a passive monitor: the toggle and the Escape cancel still work, but macOS may also show its Fn/Globe popup and the focused app also receives the Escape. Tests use the Swift Testing package pinned to the recorded `swiftlang/swift-testing` Git revision because command-line toolchains without Xcode ship neither XCTest nor the built-in Testing module.
+<br>
 
-## Security and privacy
+`sindresorhus/KeyboardShortcuts` 2.x was evaluated and cannot compile under the command-line
+toolchain: its SwiftUI `#Preview` macro requires a missing `PreviewsMacros` plugin. VoiceOour
+therefore uses a small first-party Carbon/`CGEventTap` binder — an active session-level
+`CGEventTap` (`.cgSessionEventTap`) with pure, unit-tested detectors.
 
-- The app writes dictated text to the general pasteboard and posts Cmd-V for eligible targets after the macOS event-post/Accessibility synthetic-paste permission is available.
-- It never reads or restores the previous clipboard.
-- After a successful synthetic paste, the dictated text is cleared from the clipboard about a second later, unless something else was copied in the meantime (checked via pasteboard change count, never by reading contents). Copy-only outcomes keep the text on the clipboard, since that is the delivery mechanism.
-- It strips one trailing newline for terminal copy-only targets.
-- It does not use Accessibility mutation for insertion.
-- Network access happens only when real model download is needed or when the optional refiner is explicitly enabled/configured; Gemini/OpenAI/OpenRouter refiner endpoints are provider-derived, and only Custom uses a typed base URL.
+With Accessibility granted it toggles on a standalone Fn/Globe tap and consumes the Globe
+"assigned action" key event, so macOS never shows its emoji/dictation popup, while Fn+other-key
+combinations pass through untouched. While a session is live it also claims an unmodified,
+non-repeating Escape to discard that session, swallowing both the keyDown and its keyUp so the
+focused app never sees the press; modified, repeating and orphan Escapes are left alone. Without
+Accessibility it falls back to a passive monitor that still toggles but cannot suppress.
 
-## Documentation
+Do not add `KeyboardShortcuts` back without first verifying that toolchain issue is resolved.
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — contributor workflow, local checks, and subsystem rules.
-- [SECURITY.md](SECURITY.md) — supported versions and how to report a vulnerability.
-- [docs/architecture.md](docs/architecture.md) — design contracts and layering boundaries.
-- [docs/developer-setup.md](docs/developer-setup.md) — setup and run instructions.
-- [docs/ui-harness.md](docs/ui-harness.md) — the offscreen SwiftUI harness and its goldens.
-- [docs/permissions.md](docs/permissions.md) — macOS microphone and Accessibility permissions.
-- [docs/benchmarks.md](docs/benchmarks.md) — accuracy and latency benchmarks.
-- [docs/performance-roadmap.md](docs/performance-roadmap.md) — measured performance state, ranked candidates, and rejected optimizations.
-- [docs/v0-non-goals.md](docs/v0-non-goals.md) — v0 scope and non-goals.
-- [docs/archive/keyword-comprehension-exploration.md](docs/archive/keyword-comprehension-exploration.md) — research notes on technical-keyword comprehension.
-- [docs/archive/refinement-exploration.md](docs/archive/refinement-exploration.md) — research notes on refiner latency and quality.
+</details>
+
+---
+
+## 📚 Docs
+
+| | |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | contributor workflow, local checks, subsystem rules |
+| [SECURITY.md](SECURITY.md) | supported versions and how to report a vulnerability |
+| [docs/architecture.md](docs/architecture.md) | design contracts and layering boundaries |
+| [docs/developer-setup.md](docs/developer-setup.md) | setup and run instructions |
+| [docs/ui-harness.md](docs/ui-harness.md) | the offscreen SwiftUI harness, its goldens and film reels |
+| [docs/permissions.md](docs/permissions.md) | macOS microphone and Accessibility permissions |
+| [docs/benchmarks.md](docs/benchmarks.md) | accuracy and latency benchmarks |
+| [docs/performance-roadmap.md](docs/performance-roadmap.md) | measured state, ranked candidates, rejected optimizations |
+| [docs/design-bible.md](docs/design-bible.md) | the visual language the UI is held to |
+| [docs/v0-non-goals.md](docs/v0-non-goals.md) | what v0 deliberately does not do |
+
+---
 
 ## License
 
-VoiceOour is released under the MIT License; see [LICENSE](LICENSE). Third-party components and model artifacts are attributed in [NOTICE](NOTICE).
+MIT — see [LICENSE](LICENSE). Third-party components and model artifacts are attributed in
+[NOTICE](NOTICE).
+
+<div align="center">
+<br>
+<sub>👽 built to be boring, local, and fast — in that order</sub>
+</div>
