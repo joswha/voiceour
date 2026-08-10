@@ -1,0 +1,10 @@
+{
+  "type": "hello",
+  "protocol_version": 1,
+  "sidecar_version": "0.1.0",
+  "backend_id": "parakeet-mlx",
+  "backend_status": "ready",
+  "capabilities": {
+    "final_utterance": true
+  }
+}

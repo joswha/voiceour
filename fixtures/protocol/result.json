@@ -1,0 +1,22 @@
+{
+  "type": "result",
+  "protocol_version": 1,
+  "request_id": "00000000-0000-0000-0000-000000000002",
+  "backend_id": "parakeet-mlx",
+  "model_id": "mlx-community/parakeet-tdt-0.6b-v3",
+  "model_revision": "0000000000000000000000000000000000000000",
+  "transcript": {
+    "text": "raw asr text",
+    "language": "en",
+    "segments": null,
+    "confidence": null,
+    "confidence_mode": null
+  },
+  "timings_ms": {
+    "load": 0,
+    "inference": 850,
+    "total": 920
+  },
+  "hypotheses": null,
+  "decoder": null
+}

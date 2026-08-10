@@ -1,0 +1,20 @@
+{
+  "type": "transcribe",
+  "protocol_version": 1,
+  "request_id": "00000000-0000-0000-0000-000000000002",
+  "audio": {
+    "path": "/tmp/voiceoour/00000000-0000-0000-0000-000000000002.wav",
+    "format": "wav",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "duration_ms": 5400,
+    "byte_count": 172800
+  },
+  "expected_model": {
+    "model_id": "mlx-community/parakeet-tdt-0.6b-v3",
+    "revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15"
+  },
+  "timeout_ms": 30000,
+  "bias_phrases": null,
+  "bias_snapshot_id": null
+}

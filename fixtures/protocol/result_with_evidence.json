@@ -1,0 +1,62 @@
+{
+  "type": "result",
+  "protocol_version": 1,
+  "request_id": "00000000-0000-0000-0000-000000000003",
+  "backend_id": "parakeet-mlx",
+  "model_id": "mlx-community/parakeet-tdt-0.6b-v3",
+  "model_revision": "0000000000000000000000000000000000000000",
+  "transcript": {
+    "text": "get status",
+    "language": "en",
+    "segments": [
+      {
+        "start_ms": 0,
+        "end_ms": 620,
+        "text": "get status",
+        "words": [
+          {
+            "text": "get",
+            "start_ms": 0,
+            "end_ms": 300,
+            "confidence": 0.82
+          },
+          {
+            "text": "status",
+            "start_ms": 320,
+            "end_ms": 620,
+            "confidence": 0.91
+          }
+        ]
+      }
+    ],
+    "confidence": 0.865,
+    "confidence_mode": "beam_logprob"
+  },
+  "timings_ms": {
+    "load": 0,
+    "inference": 640,
+    "total": 705
+  },
+  "hypotheses": [
+    {
+      "rank": 0,
+      "text": "get status",
+      "score": -3.21,
+      "raw_score": -3.21,
+      "transcript": null
+    },
+    {
+      "rank": 1,
+      "text": "git status",
+      "score": -3.94,
+      "raw_score": -3.94,
+      "transcript": null
+    }
+  ],
+  "decoder": {
+    "mode": "beam",
+    "beam_size": 5,
+    "bias_enabled": false,
+    "bias_snapshot_id": null
+  }
+}

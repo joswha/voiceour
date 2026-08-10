@@ -1,0 +1,36 @@
+[project]
+name = "voiceoour-asr"
+version = "0.1.0"
+description = "VoiceOour local ASR sidecar"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "parakeet-mlx==0.5.2",
+    "huggingface_hub",
+    "pydantic>=2",
+]
+
+[tool.uv]
+constraint-dependencies = [
+    "numba>=0.61",  # Python 3.12+ compatibility floor for parakeet-mlx/librosa.
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Pyflakes, pycodestyle, isort, bugbear, comprehensions, pyupgrade. Deliberately
+# narrow: a linter that fires on correct code trains everyone to ignore it.
+select = ["F", "E", "W", "I", "B", "C4", "UP"]

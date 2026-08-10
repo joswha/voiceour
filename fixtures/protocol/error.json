@@ -1,0 +1,10 @@
+{
+  "type": "error",
+  "protocol_version": 1,
+  "request_id": null,
+  "code": "model_not_installed",
+  "category": "setup",
+  "retryable": false,
+  "user_message_key": "asr.model_missing",
+  "detail": "redacted"
+}
