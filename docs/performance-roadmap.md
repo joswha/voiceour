@@ -227,9 +227,16 @@ sidecar on an identical 10.56 s WAV (86.6% lower), because it transcribes during
 It stays opt-in anyway, but the evidence is weaker than it first appeared and this document will not
 overstate it:
 
-- LibriSpeech head-to-head is **+0.2247 pp U-WER** (`20260717T132024Z` mlx, 2.845%, 128 rows vs
-  `20260717T132040Z` apple-speech, 3.070%, 64 rows) against a +0.35 pp gate. That is a pass, but the
-  runs are not row-matched and the delta is inside noise at that sample size.
+- LibriSpeech head-to-head, **row-matched** at n=128 (2026-08-11, `20260811T114019Z` mlx 2.845% vs
+  `20260811T114143Z` apple-speech 3.133%): **+0.288 pp U-WER**, a pass against the +0.35 pp gate.
+  This replaces the 2026-07-17 pass, which compared 128 mlx rows against 64 Apple rows.
+- FLEURS, row-matched at n=64 (`20260811T114301Z` mlx vs `20260811T114320Z` apple-speech): **+1.71 pp
+  U-WER** (4.416% vs 6.125%), F-WER 10.284% vs 12.997%, case F1 0.921 vs 0.848 — a clear fail against
+  the same gate, and a reversal of the n=8 FLEURS result that previously read as an Apple win.
+  Punctuation micro-F1 is the one axis Apple still takes, 0.870 vs 0.833.
+- Apple's batch-latency advantage has **evaporated**: ASR p95 is now 348 ms (mlx) vs 802 ms (Apple) on
+  LibriSpeech and 167 ms vs 236 ms on FLEURS. The 2327 ms Parakeet tail recorded in July predates the
+  persistent preloaded sidecar; measuring it again is the only way that claim stays true.
 - The TechTerms regression (+6.73 pp, canonical-term recall 7/11 → 3/11) is **inadmissible under the
   repo's own policy**: `docs/benchmarks.md` states TTS rows "must not be used as evidence for …
   technical term accuracy, or the production gate", and exact McNemar on a 4-utterance difference
@@ -238,10 +245,12 @@ overstate it:
   must not be repeated**: those 43 sessions record no `captureMs`, average 19 words vs 40, and come
   from a 3-day July evaluation window.
 
-So: keep `mlx` as **status quo, not as a demonstrated accuracy win** — the only admissible comparison
-is a non-row-matched LibriSpeech pass inside noise, and the jargon evidence that would actually
-justify a preference is inadmissible. Treat the default question as **unsettled pending the consented
-real-speaker TechTerms corpus** that `docs/benchmarks.md` already says does not exist.
+So: keep `mlx`, now on **row-matched read-speech evidence** rather than status quo alone — it wins
+U-WER, CER, F-WER, case F1 and batch latency on both tiers, and loses only punctuation micro-F1. What
+is still missing is the axis that actually decides a dictation default: neither tier is real-speaker
+dictation audio, and the jargon evidence that would settle it remains inadmissible. Treat *jargon and
+real-speaker accuracy* as **unsettled pending the consented real-speaker TechTerms corpus** that
+`docs/benchmarks.md` already says does not exist.
 
 
 

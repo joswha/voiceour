@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tier", choices=("smoke", "librispeech", "fleurs", "techterms"), required=True)
     parser.add_argument("--mode", choices=("stt", "refine", "e2e"), required=True)
     parser.add_argument("--n", type=int, default=None, help="first-N rows for HF-backed tiers")
-    parser.add_argument("--backend", choices=("fake", "mlx"), default="mlx")
+    parser.add_argument("--backend", choices=("fake", "mlx", "apple"), default="mlx")
     parser.add_argument(
         "--decoding",
         choices=("greedy", "beam"),

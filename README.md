@@ -331,25 +331,35 @@ the per-session `stopReleaseToInsertionOutcomeMs` timing the app now records.
 
 | tier | metric | Parakeet TDT 0.6B v3 (default) | Apple SpeechTranscriber (opt-in) |
 |---|---|---:|---:|
-| LibriSpeech | U-WER | **2.845%** (n=128) | 3.070% (n=64) |
-| LibriSpeech | CER | **0.920%** | 1.106% |
-| LibriSpeech | RTFx | 44.6x | — |
+| LibriSpeech (n=128) | U-WER | **2.845%** | 3.133% |
+| LibriSpeech | CER | **0.920%** | 1.137% |
+| LibriSpeech | ASR p95 | **348 ms** | 802 ms |
+| LibriSpeech | RTFx | **85.6x** | 48.3x |
+| FLEURS (n=64) | U-WER | **4.416%** | 6.125% |
+| FLEURS | F-WER | **10.284%** | 12.997% |
+| FLEURS | punctuation micro-F1 | 0.833 | **0.870** |
+| FLEURS | case F1 | **0.921** | 0.848 |
 | TechTerms — *TTS, inadmissible* | U-WER | 6.731% | 13.462% |
 | TechTerms — *TTS, inadmissible* | canonical-term recall | 63.6% | 27.3% |
 
-LibriSpeech figures are reports `20260717T132024Z` (mlx) and `20260717T132040Z` (apple-speech):
-a **+0.2247 pp** U-WER delta against this project's +0.35 pp gate. The runs are not row-matched
-(128 vs 64), so treat the delta as indicative.
+Both tiers are **row-matched**: each backend transcribed the identical manifest rows on the same
+machine with the same scorer (2026-08-11, reports `20260811T114019Z`/`20260811T114143Z` for
+LibriSpeech and `20260811T114301Z`/`20260811T114320Z` for FLEURS). The LibriSpeech delta is
+**+0.288 pp** U-WER, inside this project's +0.35 pp gate; the FLEURS delta is **+1.71 pp**, well
+outside it. These supersede the 2026-07-17 runs, which compared 128 mlx rows against 64 Apple rows
+and put FLEURS at n=8 — at n=64 the FLEURS verdict reverses.
 
 The TechTerms rows **carry no weight**: that tier is entirely `macos-say` TTS, and
 [`docs/benchmarks.md`](docs/benchmarks.md) states such rows "must not be used as evidence for …
 technical term accuracy, or the production gate". The gap is 7/11 vs 3/11 utterances
 (exact McNemar p ≥ 0.125).
 
-So: **`mlx` is the default as status quo, not as a demonstrated accuracy win.** Apple's fused
-engine is markedly faster post-stop (**15.9 ms vs 119 ms** on identical 10.56 s audio, because it
-transcribes *during* capture). Which backend should be default is **unsettled**, pending the
-consented real-speaker corpus `docs/benchmarks.md` records as not yet existing.
+So: on row-matched read speech **`mlx` now wins every content axis on both tiers**, and its former
+latency tail is gone. Apple keeps two advantages: punctuation micro-F1 (0.870 vs 0.833), and a
+fused live engine that is markedly faster post-stop (**15.9 ms vs 119 ms** on identical 10.56 s
+audio, because it transcribes *during* capture). Neither tier is real-speaker dictation audio, so
+the default stands on read-speech evidence plus status quo, pending the consented corpus
+`docs/benchmarks.md` records as not yet existing.
 
 <details>
 <summary><b>Where the cost actually is, and what we tried and threw away</b></summary>
