@@ -200,4 +200,55 @@ struct FoundationModelsRefinerTests {
         #expect(snapshot.state == .ready)
     }
 
+    /// Pins the two semantic behaviours the shared-rules exemplars buy, against
+    /// the real model.
+    ///
+    /// `SystemLanguageModel` is a moving target: Apple swaps it on OS updates
+    /// (26.0-26.3, 26.4, 27.0 so far) and publishes no API to pin or even
+    /// report a model version — `variant` only distinguishes AFM 3 Core from
+    /// Core Advanced. So a macOS 27 upgrade silently replaces the model this
+    /// prompt was tuned against, and Apple's own guidance is to diff prompt
+    /// output across versions. This test is that diff.
+    ///
+    /// Both cases were measured wrong before the exemplars landed, and the
+    /// faithfulness guards passed both: a short rewrite that inverts intent is
+    /// lexically almost identical to the transcript, so nothing downstream can
+    /// catch it. A failure here means the refined text is confidently wrong,
+    /// not merely unpolished.
+    @Test func foundationModelsPreservesDictatedIntentIntegration() async {
+        guard ProcessInfo.processInfo.environment["VOICEOOUR_FM_INTEGRATION"] != nil else { return }
+        guard #available(macOS 26.0, *) else { return }
+        guard FoundationModelsAvailability.summary().available else {
+            Issue.record("Apple Intelligence unavailable; enable it before running the FM integration test")
+            return
+        }
+
+        let refiner = FoundationModelsRefiner(
+            configuration: FoundationModelsRefinerConfiguration(enabled: true, timeoutMs: 15_000),
+            deterministicFallback: { $0 }
+        )
+
+        // A self-correction must resolve to the LAST alternative. Measured
+        // failure: "Use terminal." — the alternative the speaker rejected.
+        let corrected = await refiner.refine(
+            "use terminal no use text edit", glossary: [], safety: .normalText, style: .standard)
+        if case .refined(let text) = corrected {
+            let lowered = text.lowercased()
+            #expect(lowered.contains("textedit") || lowered.contains("text edit"))
+            #expect(!lowered.contains("terminal"))
+        } else {
+            Issue.record("self-correction case must refine, got: \(corrected)")
+        }
+
+        // Framing words that mark the transcript as dictated text must survive.
+        // Measured failure: "git status into the note" — "type the words" gone.
+        let framed = await refiner.refine(
+            "type the words git status into the note", glossary: [], safety: .normalText, style: .standard)
+        if case .refined(let text) = framed {
+            #expect(text.lowercased().contains("type the words"))
+        } else {
+            Issue.record("instruction-framing case must refine, got: \(framed)")
+        }
+    }
+
 }
