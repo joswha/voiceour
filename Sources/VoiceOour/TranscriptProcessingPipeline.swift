@@ -370,6 +370,10 @@ extension DictationCoordinator {
                     style: style
                 )
                 let latencyMs = Int(runtime.now().timeIntervalSince(started) * 1000)
+                // Read straight after the call, before anything else can refine:
+                // this is the model that produced THIS candidate, which the
+                // configured label cannot say for the on-device provider.
+                let modelIdentity = binding.backend.lastModelIdentity()
                 switch outcome {
                 case .refined(let text):
                     finalText =
@@ -379,6 +383,7 @@ extension DictationCoordinator {
                     trace = RefinementTrace(
                         kind: .refined,
                         provider: binding.identity.label,
+                        model: modelIdentity,
                         reason: nil,
                         latencyMs: latencyMs
                     )
@@ -387,6 +392,7 @@ extension DictationCoordinator {
                     trace = RefinementTrace(
                         kind: .fellBack,
                         provider: binding.identity.label,
+                        model: modelIdentity,
                         reason: reason,
                         latencyMs: latencyMs
                     )

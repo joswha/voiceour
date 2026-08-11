@@ -78,6 +78,47 @@ struct FoundationModelsRefinerTests {
             Issue.record("FM integration must not skip: \(reason)")
         }
         #expect(ms < 10_000)
+
+        // The recorded identity is what makes a post-OS-update refinement
+        // regression attributable: the configured model is the constant
+        // `on-device`, so only this distinguishes one system model from its
+        // successor. Asserted structurally, never against a literal id — the id
+        // is expected to change, and pinning it would fail on the very update
+        // this field exists to detect.
+        let identity = refiner.lastModelIdentity()
+        print("fm integration model identity: \(identity ?? "nil")")
+        #expect(identity != nil)
+        #expect(identity?.contains("com.apple.fm.") == true)
+    }
+
+    @Test func assetIdentityIsSortedJoinedAndAbsentWhenEmpty() {
+        #expect(foundationModelsAssetIdentity([]) == nil)
+        #expect(foundationModelsAssetIdentity(["", ""]) == nil)
+        #expect(foundationModelsAssetIdentity(["only"]) == "only")
+        // Sorted so two runs of the same model produce byte-identical strings
+        // whatever order the framework hands the assets back in.
+        #expect(foundationModelsAssetIdentity(["b", "a", "c"]) == "a b c")
+        #expect(foundationModelsAssetIdentity(["b", "", "a"]) == "a b")
+    }
+
+    /// A refine call that never reaches the model must not report an identity.
+    /// Both gates run before any generation, so this holds with or without
+    /// Apple Intelligence on the host.
+    @Test func modelIdentityStaysAbsentWhenNoModelRuns() async {
+        guard #available(macOS 26.0, *) else { return }
+        let disabled = FoundationModelsRefiner(
+            configuration: FoundationModelsRefinerConfiguration(enabled: false),
+            deterministicFallback: { $0 }
+        )
+        _ = await disabled.refine("anything", glossary: [], safety: .normalText, style: .standard)
+        #expect(disabled.lastModelIdentity() == nil)
+
+        let unsafe = FoundationModelsRefiner(
+            configuration: FoundationModelsRefinerConfiguration(enabled: true),
+            deterministicFallback: { $0 }
+        )
+        _ = await unsafe.refine("anything", glossary: [], safety: .secure, style: .standard)
+        #expect(unsafe.lastModelIdentity() == nil)
     }
 
     @Test func foundationModelsAdaptiveTimeoutAllowsLongTranscript() async {

@@ -34,12 +34,34 @@ public struct RefinementTrace: Codable, Equatable, Sendable {
 
     public var kind: Kind
     public var provider: String?
+    /// The model that actually produced this text, as the backend identifies it
+    /// — not the configured selector, which `provider` already carries.
+    ///
+    /// It exists for Apple's on-device provider, whose configured model is the
+    /// constant `on-device` while the model behind it is swapped by the OS:
+    /// Apple changed it in macOS 26.4 and changes it again in macOS 27, and
+    /// documents both as a reason to re-test prompts. Without a recorded
+    /// identity every session before and after such an update reads the same,
+    /// and a refinement regression cannot be attributed to the swap. The
+    /// on-device refiner reports the response's model asset ids verbatim
+    /// (`com.apple.fm.language.instruct_3b.…`), which change with the model.
+    ///
+    /// Absent for traces recorded before this field existed, for skipped
+    /// traces, and for any backend whose configured model is already exact.
+    public var model: String?
     public var reason: String?
     public var latencyMs: Int?
 
-    public init(kind: Kind, provider: String? = nil, reason: String? = nil, latencyMs: Int? = nil) {
+    public init(
+        kind: Kind,
+        provider: String? = nil,
+        model: String? = nil,
+        reason: String? = nil,
+        latencyMs: Int? = nil
+    ) {
         self.kind = kind
         self.provider = provider
+        self.model = model
         self.reason = reason
         self.latencyMs = latencyMs
     }

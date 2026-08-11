@@ -43,10 +43,13 @@ extension RefinementTrace {
     }
 
     /// The provider is genuinely absent for a skipped trace, so it is omitted
-    /// rather than joined in as an em dash that reads like a value.
+    /// rather than joined in as an em dash that reads like a value. `model` is
+    /// only ever present when it says something `provider` does not — the
+    /// on-device model's asset ids — so it is shown whenever it is recorded.
     var detailLine: String {
         var parts: [String] = []
         if let provider, !provider.isEmpty { parts.append(provider) }
+        if let model, !model.isEmpty { parts.append(model) }
         if let latencyMs { parts.append("\(latencyMs) ms") }
         if let reason, !reason.isEmpty { parts.append(reason) }
         return parts.joined(separator: " · ")

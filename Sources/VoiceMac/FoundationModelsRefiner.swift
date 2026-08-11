@@ -375,6 +375,18 @@ final class SingleUsePrewarmedSessionSlot<Session: Sendable>: @unchecked Sendabl
     }
 }
 
+/// Compacts one response's model asset ids into a single identity string.
+///
+/// Apple documents no format for these ids, so nothing is parsed out of them:
+/// they are sorted for determinism and joined verbatim. A parser would be one
+/// more thing to break in exactly the OS release whose model swap this identity
+/// exists to catch.
+func foundationModelsAssetIdentity(_ assetIDs: [String]) -> String? {
+    let ids = assetIDs.filter { !$0.isEmpty }
+    guard !ids.isEmpty else { return nil }
+    return ids.sorted().joined(separator: " ")
+}
+
 #if canImport(FoundationModels)
     /// Refines transcripts with Apple's on-device system model (macOS 26+).
     ///
@@ -390,6 +402,8 @@ final class SingleUsePrewarmedSessionSlot<Session: Sendable>: @unchecked Sendabl
         private let deterministicFallback: ((String) -> String)?
         private let model: SystemLanguageModel
         private let sessionSlot: SingleUsePrewarmedSessionSlot<LanguageModelSession>
+        private let identityLock = NSLock()
+        private var lastAssetIdentity: String?
 
         public init(
             configuration: FoundationModelsRefinerConfiguration,
@@ -429,6 +443,10 @@ final class SingleUsePrewarmedSessionSlot<Session: Sendable>: @unchecked Sendabl
         public func refine(_ raw: String, glossary: [ProtectedTerm], safety: TargetSafetyClass, style: RefinementStyle)
             async -> RefineOutcome
         {
+            // Cleared before every attempt: a preflight skip, an unavailable
+            // model, or a thrown generation must never let the PREVIOUS
+            // session's identity be attributed to this one.
+            setLastModelIdentity(nil)
             let fallback = RefinerPolicy.deterministicFallback(for: raw, using: deterministicFallback)
             if let reason = RefinerPolicy.preflightSkipReason(
                 enabled: configuration.enabled,
@@ -461,6 +479,24 @@ final class SingleUsePrewarmedSessionSlot<Session: Sendable>: @unchecked Sendabl
             sessionSlot.snapshot()
         }
 
+        public func lastModelIdentity() -> String? {
+            identityLock.withLock { lastAssetIdentity }
+        }
+
+        private func setLastModelIdentity(_ identity: String?) {
+            identityLock.withLock { lastAssetIdentity = identity }
+        }
+
+        /// The model asset ids carried by one response's own transcript entries.
+        static func assetIdentity(of entries: ArraySlice<Transcript.Entry>) -> String? {
+            for entry in entries.reversed() {
+                if case .response(let response) = entry {
+                    return foundationModelsAssetIdentity(response.assetIDs)
+                }
+            }
+            return nil
+        }
+
         private func respondWithTimeout(_ message: String, transcript: String) async throws -> String {
             let checkout = sessionSlot.checkout()
             let session = checkout.session
@@ -469,8 +505,12 @@ final class SingleUsePrewarmedSessionSlot<Session: Sendable>: @unchecked Sendabl
             return try await withFoundationModelsResponseTimeout(
                 configuredTimeoutMs: configuration.timeoutMs,
                 transcript: transcript,
-                response: {
-                    try await session.respond(to: message, options: options).content
+                response: { [weak self] in
+                    // `transcriptEntries` is this response's own slice, so the
+                    // identity cannot be read off a neighbouring turn.
+                    let response = try await session.respond(to: message, options: options)
+                    self?.setLastModelIdentity(Self.assetIdentity(of: response.transcriptEntries))
+                    return response.content
                 }
             )
         }
