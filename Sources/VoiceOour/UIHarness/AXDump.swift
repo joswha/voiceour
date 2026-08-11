@@ -139,6 +139,7 @@
                 identifier: reader.identifier(),
                 help: reader.help(),
                 enabled: reader.enabled(role: role),
+                selected: reader.selected(),
                 frame: converter.windowLocal(reader.screenFrame()),
                 children: childNodes(of: reader, converter: converter, depth: depth, budget: budget)
             )
@@ -181,6 +182,7 @@
                     identifier: nil,
                     help: nil,
                     enabled: nil,
+                    selected: nil,
                     frame: .zero,
                     children: []
                 )
@@ -199,6 +201,7 @@
                 identifier: nil,
                 help: nil,
                 enabled: nil,
+                selected: nil,
                 frame: .zero,
                 children: []
             )
@@ -275,6 +278,7 @@
         func accessibilityIdentifier() -> String?
         func accessibilityHelp() -> String?
         func isAccessibilityEnabled() -> Bool
+        func isAccessibilitySelected() -> Bool
         func accessibilityFrame() -> NSRect
         func accessibilityChildren() -> [Any]?
     }
@@ -388,6 +392,19 @@
             if answers(AXSelectors.enabled) { return modern.isAccessibilityEnabled() }
             if let flag = legacyAttribute(AXLegacyKey.enabled) as? NSNumber { return flag.boolValue }
             return nil
+        }
+
+        /// The `.isSelected` trait, modern accessor only.
+        ///
+        /// Measured on this SDK with a standalone probe of the rail's exact composition
+        /// (`Button` + `.accessibilityElement(children: .combine)` + `.accessibilityLabel` +
+        /// `.accessibilityAddTraits(.isSelected)`): `isAccessibilitySelected` answers `true`
+        /// on the selected row and `false` on its siblings, while the legacy `AXSelected`
+        /// attribute is not answered at all. So there is no legacy fallback to wire, unlike
+        /// every sibling accessor above.
+        func selected() -> Bool? {
+            guard answers(AXSelectors.selected) else { return nil }
+            return modern.isAccessibilitySelected()
         }
 
         /// Screen coordinates, bottom-left origin. `AXFrameConverter` makes them window-local.
@@ -515,6 +532,7 @@
         static let identifier = NSSelectorFromString("accessibilityIdentifier")
         static let help = NSSelectorFromString("accessibilityHelp")
         static let enabled = NSSelectorFromString("isAccessibilityEnabled")
+        static let selected = NSSelectorFromString("isAccessibilitySelected")
         static let frame = NSSelectorFromString("accessibilityFrame")
         static let children = NSSelectorFromString("accessibilityChildren")
         static let legacyAttributeValue = NSSelectorFromString("accessibilityAttributeValue:")

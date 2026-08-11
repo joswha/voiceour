@@ -101,7 +101,9 @@ The canonical vocabulary lives in:
 
 ```text
 Sources/VoiceOour/DesignTokens.swift
-Sources/VoiceOour/GlassKit.swift
+Sources/VoiceOour/GlassWindowChrome.swift
+Sources/VoiceOour/GlassSurfaces.swift
+Sources/VoiceOour/GlassMarks.swift
 Sources/VoiceOour/SettingsBindings.swift
 Sources/VoiceOour/SettingsPaneScroll.swift
 Sources/VoiceOour/ContentCard.swift
@@ -201,7 +203,7 @@ Audio mute uses the cyan/amber family; there is no separate mute palette. Muting
 
 VoiceOour keeps its `.macOS(.v14)` deployment floor and has one dual-path architecture:
 
-- On macOS 26, functional glass uses public SwiftUI Liquid Glass APIs behind `if #available(macOS 26.0, *)`: `.glassEffect` at the window ground and the recording-overlay island, the standard popover's own system chrome, and scroll-edge effects. The nav selection, segmented selection, overlay control discs, and menu primary action are painted on this path too. A second glass material on glass measurably erased the selected control's own content (see §5.3), so anything that sits on glass remains paint.
+- On macOS 26, functional glass uses public SwiftUI Liquid Glass APIs behind `if #available(macOS 26.0, *)`: `.glassEffect` at the window ground and the recording-overlay island, the standard popover's own system chrome, and scroll-edge effects. The nav selection, segmented selection, overlay control discs, and menu primary action are painted on this path too. Controls that sit on glass are painted by choice, not by rendering necessity: the erasure that once justified the rule was produced by the offscreen harness's `cacheDisplay(in:to:)` capture, which does not rasterise `.glassEffect` at all, and a real onscreen window renders the same nested stack completely (§5.2). The choice has a stated cost — the app forgoes system glass, its lensing, and its morphing on every one of its controls, and buys a restrained, uniformly legible instrument with it.
 - On macOS 14 and 15, the same call sites use the public AppKit/painted implementation: `NSVisualEffectView` at the window or overlay ground, the shared tint and rims, and painted plates for controls. Controls that sit on glass are painted on macOS 26 as well.
 
 `RenderOverrides.forceLegacyGlass` forces the legacy branch in committed harness scenes. This seam exists because `#available` follows the **runtime OS**, not the package deployment floor: a harness running on macOS 26 would otherwise silently render the modern path and make goldens depend on the host. Production leaves the seam false.
@@ -217,7 +219,11 @@ ground  ─┬─ functional glass ─── plate | well | mark
          └─ content surface  ─── plate | well ─── mark
 ```
 
-A glass element never sits on a second independently composited glass material. Each shipped functional surface owns its material independently; the console has no coordinating glass container or shared namespace, and controls above its ground are paint. This is a rendering-safety rule, not only a hierarchy preference: on macOS 26, a glass nav selection on the glass window ground erased the contiguous rail band above it, while its accessibility tree remained byte-identical to the correct painted render. Pixel inspection of an `os26` harness scene is therefore mandatory for every glass-path change; AX output alone cannot gate this defect class. A content surface never contains another content surface. A bounded nested reading region is a well; an interactive region is a plate. A segment group is the one two-level plate case: the group has a clear fill and owns only its boundary, while its segments derive their radius inside it.
+A glass element never sits on a second independently composited glass material. Each shipped functional surface owns its material independently; the console has no coordinating glass container or shared namespace, and controls above its ground are paint. This is a hierarchy rule. A content surface never contains another content surface. A bounded nested reading region is a well; an interactive region is a plate. A segment group is the one two-level plate case: the group has a clear fill and owns only its boundary, while its segments derive their radius inside it.
+
+That rule was once written here as a rendering-safety requirement, on the strength of an `os26` harness render in which a glass nav selection on the glass window ground erased the contiguous rail band above it while its accessibility tree stayed byte-identical to the painted render. That reading is retracted. The lost band was real in that render and misattributed: `NSHostingView.cacheDisplay(in:to:)` does not rasterise `.glassEffect`, so the harness photographs the absence of the material rather than a renderer defect. A standalone probe of that exact nested stack — tinted interactive glass selection, `glassEffectID`, matched-geometry transition, inside a `GlassEffectContainer`, on a glass ground — lost four of seven rail rows offscreen and lost nothing in a real onscreen window, where the nested pill visibly lenses the desktop a second time; deleting the `GlassEffectContainer` produced a byte-identical offscreen PNG, so the container was never even a contributing factor. The `MenuBarExtra` popover nesting was measured separately and behaves the same way: `.glassProminent` renders correctly in the live popover and vanishes only through `cacheDisplay` (§19.4, §22.1). What both probes covered is one host, dark appearance, 2x, static frames, no Reduce Transparency, no Increase Contrast. Animated morph, light appearance, Reduce Transparency, and Increase Contrast remain unmeasured, so this is not a licence for nested glass everywhere.
+
+What survives is narrower and not about glass at all: an accessibility golden cannot gate a visual regression of any kind, so AX parity is never evidence that a render is correct. An `os26` harness scene cannot gate the system material either — the material is absent from that render, and `overlay.island.recording.os26.png` is 0.0% opaque for exactly that reason. An `os26` scene verifies the app's own painted content, geometry, control boundaries, and accessibility tree on the native code branch, which is worth having. Composited glass is visible in one place only: `scripts/console_shot.sh` against a real onscreen window.
 
 ### 5.3 Ground and functional glass
 
@@ -230,7 +236,7 @@ The console ground is functional glass. On the legacy path `GlassSurface` paints
 
 The console window forces `NSAppearance(named: .vibrantDark)` and SwiftUI forces the dark color scheme. The legacy console root and recording overlay are the entire `NSVisualEffectView` budget; no content card creates another instance.
 
-On the modern path the root uses system regular glass. Functional glass is otherwise restricted to the named scroll-edge treatments, the recording-overlay island, and the menu-bar popover's host material. The rail selection, overlay control discs, and menu primary action are painted overlays because each sits on glass; segmented selection is painted inside its content surface. Nothing else is glass.
+On the modern path the root uses system regular glass. Functional glass is otherwise restricted to the named scroll-edge treatments, the recording-overlay island, and the menu-bar popover's host material. The rail selection, overlay control discs, and menu primary action are painted overlays under the layer discipline above, and each additionally has its own standing reason to stay paint (§19.4, §21.3 rule 4, §22.1); segmented selection is painted inside its content surface. Nothing else is glass.
 
 The former interior-glass exception is resolved. Settings sections, ledger cards, Home dashboard cells, the Glossary table, and Sessions' TOTALS / SESSIONS / SESSION regions are `ContentCard` surfaces: opaque `Ink.surface`, one `Line.edge` rim, `Radius.card`, and no tint, specular rim, shadow, vibrancy, or offscreen compositing group.
 
@@ -312,6 +318,8 @@ Only the recording-overlay island casts a shadow:
 Shadow.overlayOuter = (black opacity 0.26, radius 18, y 6)
 Shadow.overlayInner = (black opacity 0.18, radius 4,  y 1)
 ```
+
+Both layers are carried on both island render paths — the macOS 26 `.glassEffect` capsule and the legacy painted capsule — and both paths drop to the outer layer alone under Reduce Transparency (§21.4). The shadow belongs to the island, not to either material recipe; the system glass does not supply one.
 
 No content surface, plate, well, control, rail item, or console scaffold gets a shadow. If an interior component needs a shadow to read, repair its spacing, fill, or boundary instead.
 
@@ -501,7 +509,7 @@ No underline or independent hero band belongs under the header. Spacing, type, a
 ---
 ## 12. The Manifest Grid
 
-The Manifest Grid is the canonical layout for settings and ledger panes. Its shared primitives live in `SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, `SegmentControl.swift`, and `PropertyKit.swift`; their chrome comes from `GlassKit.swift`.
+The Manifest Grid is the canonical layout for settings and ledger panes. Its shared primitives live in `SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, `SegmentControl.swift`, and `PropertyKit.swift`; their chrome comes from `GlassSurfaces.swift` and the control styles beside it.
 
 ### 12.1 `SettingsPaneScroll`
 
@@ -833,7 +841,11 @@ Disabled buttons use clear fill, `Line.rule`, and `Text.low`. Focus uses `Line.f
 
 The pane's single floating primary action is a 40pt capsule. The shipping call site is Menu `Start Dictation`; in-content affirmative actions use `.accent` instead.
 
-The action uses the painted cyan capsule on every OS path: rest fill 0.08 and rim 0.42, hover fill 0.14 and rim 0.62, pressed `Signal.cyanDeep` fill 0.22 and cyan rim 0.62. It must not adopt the system prominent glass style because its only call site is already inside the glass menu popover. It uses the same disabled, focus, pressed-scale, Reduce Motion, Increase Contrast, and Differentiate Without Color behavior as the shared ladder.
+The action uses the painted cyan capsule on every OS path: rest fill 0.08 and rim 0.42, hover fill 0.14 and rim 0.62, pressed `Signal.cyanDeep` fill 0.22 and cyan rim 0.62. It does not adopt the system prominent glass style — but not for the reason recorded here before. That reason, a second glass material inside the glass popover erasing the capsule and changing its intrinsic control height, is retracted: it came from the offscreen harness, which does not rasterise `.glassEffect` at all (§5.2). Measured in the live `MenuBarExtra` popover on macOS 26.5.2, `.glassProminent` renders correctly — a solid accent capsule at mean luminance 152.2 against 65.5 for the bare host material, label legible, nothing erased, and more visually present than the painted capsule. The identical content through the offscreen `cacheDisplay` path measures 7.3 against a 7.7 backdrop and vanishes, leaving a bare label: the postmortem verbatim, the same rasterisation gap as the rail.
+
+Two reasons for staying painted survive that measurement. macOS 14 needs the painted capsule regardless, so adopting the system style would add a second path rather than replace one. And the system prominent style paints the **system accent colour**, discarding the cyan `Signal` that §4.4 makes load-bearing — here cyan is state, not decoration, and the primary action is the app's one live affordance. The style otherwise uses the same disabled, focus, pressed-scale, Reduce Motion, Increase Contrast, and Differentiate Without Color behavior as the shared ladder.
+
+The geometry is a cost on top of those two, and it runs opposite to the old claim: the system style does not inflate the control, it shrinks it by 19pt. Measured two independent ways, a `GeometryReader` and an in-process accessibility walk: the painted capsule is `256x40`; `.glassProminent` is naturally **21pt**; `.glassProminent` plus `.frame(height: VoiceOourMetrics.Control.large)` keeps the 40pt layout slot but centres a 21pt control, AX `[12,80 256x21]`; `.controlSize(.extraLarge)` with `.buttonBorderShape(.capsule)` reaches **33pt**; only growing the label — `.frame(maxWidth: .infinity, minHeight: 32)` — restores a true `256x40`. Taking the natural height would move every AX frame below the primary action up by 19pt. A future adoption pays that deliberately or not at all.
 
 ### 19.5 `GlassTextFieldStyle`
 
@@ -892,7 +904,7 @@ The recording-overlay comet remains the intentional product exception to the one
 ---
 ## 21. Recording Overlay
 
-This section reflects the complete implementation in `Sources/VoiceOour/RecordingOverlay.swift`.
+This section reflects the complete implementation in `Sources/VoiceOour/RecordingOverlay{View,Controller,Panel,Layout,Buttons,Waveform,Comet,Model,Placement}.swift`.
 
 ### 21.1 Architecture
 
@@ -909,14 +921,18 @@ Recording gets the live waveform. The other six active states share the comet pl
 ### 21.3 Rules
 
 1. Do not redesign this surface's glass/waveform/comet vocabulary independently of a specific, scoped need — it is intentionally allowed richer motion than the console (§1 rule 7).
-2. Overlay pill keeps its `Capsule` shape and its existing two-layer shadow, `VoiceOourMetrics.Shadow.overlayOuter`/`.overlayInner` (`black.opacity(0.26)`/`0.18).
+2. Overlay pill keeps its `Capsule` shape and its two-layer shadow, `VoiceOourMetrics.Shadow.overlayOuter`/`.overlayInner` (`black.opacity(0.26)`/`0.18`), on both render paths; Reduce Transparency keeps the outer layer alone on both (§6.4, §21.4).
 3. **Never render audio-mute glyphs, labels, badges, or controls inside the recorder pill.** When recording and `isSystemAudioMuted == true`, the overlay still shows only the waveform. Mute state belongs in `MenuBarExtra`, System, Diagnostics, and session metadata — not here. This exclusion is deliberate and was verified as correctly honored in the current implementation, not a gap.
-4. Control glyphs (`RecordingOverlayButton`, 22x22) are intentionally heavier-weight than `RowIconButton` — permanent fill+stroke at rest rather than hover-only — because the discs sit on the island's glass and the pill floats over arbitrary desktop content with no window chrome to lean on for legibility. They remain painted on macOS 26; applying another glass material would be glass-on-glass. Do not "fix" this into `RowIconButton`'s ghost style; document the divergence, don't collapse it.
+4. Control glyphs (`RecordingOverlayButton`, 22x22) are intentionally heavier-weight than `RowIconButton` — permanent fill+stroke at rest rather than hover-only — because the discs sit on the island's glass and the pill floats over arbitrary desktop content with no window chrome to lean on for legibility. They remain painted on macOS 26 for that reason alone: a 22pt disc over an unpredictable backdrop needs permanent chrome, and paint is the only way to guarantee it at every state. The former second reason — that another glass material here would misrender as glass on glass — is retracted in §5.2. Do not "fix" this into `RowIconButton`'s ghost style; document the divergence, don't collapse it.
 
 
 ### 21.4 Glass Recipe (Divergent, By Necessity)
 
 On macOS 26 the island uses system `.glassEffect(.regular, in: .capsule)`. On macOS 14/15 and under `forceLegacyGlass`, it reproduces the shared four-layer legacy recipe for a capsule: `FrostedGlassBackground`, `glassTint`, `specularRim`, and `Ink.rimDark`. The legacy branch reads Increase Contrast for its strokes and Reduce Transparency replaces material/tint/specular layers with opaque `Ink.void` and `Line.edge`.
+
+Both branches carry §6.4's two-layer island shadow, `Shadow.overlayOuter` plus `Shadow.overlayInner`, applied to the island surface before the control discs are overlaid, so the discs cast nothing. Both drop to the outer layer alone under Reduce Transparency. The shadow is a property of the island rather than of either material recipe: it is what separates a 34pt capsule from arbitrary desktop content, the system glass does not supply one, and the 260×80 panel exists to give `Shadow.overlayOuter` room to draw without clipping.
+
+Neither the modern material nor its shadow is visible in `overlay.island.recording.os26.png` — that render is 0.0% opaque because `cacheDisplay` does not rasterise `.glassEffect` (§5.2). The modern island can only be judged onscreen.
 
 The legacy duplication is warranted because `GlassSurface` is rounded-rectangle-specific; all values still come from shared tokens.
 
@@ -933,7 +949,7 @@ The legacy duplication is warranted because `GlassSurface` is rounded-rectangle-
 
 ### 22.1 Material paths
 
-On macOS 26 the standard `MenuBarExtra` host owns its system material; the content adds no custom glass background. Every child control is paint over that material, including the primary action: `PrimaryActionButtonStyle` uses the same full-width cyan capsule on every OS path rather than a prominent glass control, because a second glass material inside the glass popover can erase the capsule and change its intrinsic control height. On the legacy/harness path `PopoverChromeConfigurator` touches only `backgroundColor`, `isOpaque`, and `appearance`, then one `Radius.window` shape paints opaque `Ink.void` with a contrast-aware `Line.edge`. It never reuses the console window configurator.
+On macOS 26 the standard `MenuBarExtra` host owns its system material; the content adds no custom glass background. Every child control is paint over that material, including the primary action: `PrimaryActionButtonStyle` uses the same full-width cyan capsule on every OS path rather than a prominent glass control. The reason recorded here — a second glass material inside the glass popover erasing the capsule and changing its intrinsic control height — is retracted. It came from the offscreen harness, which does not rasterise `.glassEffect` at all (§5.2). In the live popover on macOS 26.5.2 `.glassProminent` renders a correct solid accent capsule, mean luminance 152.2 against 65.5 for the bare host material, more present than the painted capsule; the same content through `cacheDisplay` measures 7.3 against a 7.7 backdrop and disappears. The capsule stays painted for two reasons that survive that measurement: macOS 14 needs the painted path anyway, so glass would add a second one rather than replace it; and the system prominent style paints the system accent colour, discarding the cyan `Signal` that §4.4 makes load-bearing. The system style is also 19pt shorter than the pinned 40pt, so its `256x40` AX geometry has to be rebuilt around the label rather than inherited — a cost any adoption pays deliberately (§19.4). On the legacy/harness path `PopoverChromeConfigurator` touches only `backgroundColor`, `isOpaque`, and `appearance`, then one `Radius.window` shape paints opaque `Ink.void` with a contrast-aware `Line.edge`. It never reuses the console window configurator.
 
 ### 22.2 Content
 
@@ -1054,7 +1070,14 @@ The UI is split by pane; there is no monolithic settings file.
 
 ```text
 DesignTokens.swift      palette, text roles, metrics, state resolver, motion
-GlassKit.swift           accessibility resolver; glass, plate, mark, and control primitives
+GlassWindowChrome.swift  accessibility resolver and NSWindow chrome bridge
+GlassSurfaces.swift      glass ground, scroll-edge treatments, plate surfaces
+GlassMarks.swift         hairline divider, status chip, key cap, row icon button
+GlassButtonStyle.swift   .ghost/.accent/.danger painted buttons
+PrimaryActionButtonStyle.swift painted primary capsule
+PlateButtonStyle.swift   painted plate button
+GlassToggleStyle.swift   painted toggle
+GlassTextFieldStyle.swift painted field
 SettingsBindings.swift   persisted settings bindings
 SettingsPaneScroll.swift centred settings pane shell
 ContentCard.swift        shared content surface
@@ -1107,11 +1130,21 @@ SessionFixTeach.swift    Fix/Teach and pending suggestions
 EmptyState.swift         shared empty-state primitive
 MenuView.swift           menu-bar popover state and block composition
 PopoverChromeConfigurator.swift legacy popover host configuration
-RecordingOverlay.swift   overlay panel, model, material, controls, waveform, comet
+RecordingOverlayController.swift overlay lifecycle and panel ownership
+RecordingOverlayPanel.swift  borderless non-activating NSPanel host
+RecordingOverlayView.swift   island material, shadow, and state routing
+RecordingOverlayLayout.swift island, disc, and window geometry
+RecordingOverlayButtons.swift control discs
+RecordingOverlayWaveform.swift live-level waveform
+RecordingOverlayComet.swift  processing comet
+RecordingOverlayModel.swift  presentation derived from SessionState
+RecordingOverlaySessionState.swift overlay visibility and processing predicates
+RecordingOverlayPlacement.swift pure frame placement
+RecordingOverlayFocusTracker.swift screen/space change tracking
 UIHarness/               deterministic fixtures, scene catalog, render/runtime seams
 ```
 
-View files compose the vocabulary of `DesignTokens`, `GlassKit`, the settings primitives above, and `PropertyKit` instead of inventing parallel colors, geometry, or control states.
+View files compose the vocabulary of `DesignTokens`, the glass and mark primitives, the settings primitives above, and `PropertyKit` instead of inventing parallel colors, geometry, or control states.
 
 ---
 ## 27. Persistence and Save UX

@@ -2,7 +2,7 @@
 
 The UI harness renders VoiceOour's SwiftUI views into a borderless window parked far offscreen, dumps the in-process accessibility tree, lints both, and diffs the result against committed goldens. It exists so a coding agent can see and check the UI without a window ever appearing on your display and without the frontmost application changing.
 
-It replaces `scripts/console_shot.sh` for everything except real behind-window glass. `console_shot.sh` launches the real app, opens a visible 1164x820 console on your main display and screenshots it; the harness never does either.
+It replaces `scripts/console_shot.sh` for everything except the glass materials themselves — neither the legacy behind-window tint nor modern `.glassEffect` survives an offscreen capture (see [Limitations](#limitations)). `console_shot.sh` launches the real app, opens a visible 1164x820 console on your main display and screenshots it; the harness never does either.
 
 What it gives you per scene:
 
@@ -24,11 +24,12 @@ It is compiled only when `UI_HARNESS` is defined. Every developer entry point de
 
 ```sh
 make ui-snap                                   # render portable scenes; excludes tag os26
-make ui-snap-os26                              # render native Liquid Glass scenes on macOS 26
+make ui-snap-os26                              # render the native macOS 26 branch scenes on macOS 26
 make ui-update                                 # rewrite portable scene goldens after an intended change
 make ui-update-os26                            # rewrite native scene goldens; needs a macOS 26 host
 make ui-list                                   # print the scene catalog as one JSON object
 make ui-flow                                   # required semantic flow gate; skip host-sensitive frame comparison
+make ui-flow-os26                              # native interactive gate; drives the macOS 26 branch
 make ui-flow-frames                            # run flows and compare their captured-frame goldens
 make ui-flow-update                            # rewrite intended flow goldens and the coverage baseline
 make ui-flow-list                              # print the flow catalog as one JSON object
@@ -72,14 +73,20 @@ Exit codes: `0` success; `1` a scene or flow changed, is missing a golden, faile
 
 `--no-activate` is a separate, app-level flag (see [Activation](#activation)); the harness does not need it.
 
-### `os26` scenes and the host OS
+### `os26` scenes and flows, and the host OS
 
-Scenes tagged `os26` render **real system Liquid Glass**, so they only mean anything on macOS 26.
-`#available` resolves against the running OS, not the package's deployment floor, so on macOS 14 or
-15 every one of them would silently take the painted fallback branch and render something the scene
-does not exist to show. In `check` mode that is a confusing failure; in `--update` it would
-overwrite the native goldens with fallback renders, and the corruption would only surface on the
-next Tahoe machine.
+Scenes tagged `os26` render the **native `#available(macOS 26, *)` branch** — not the system material
+that branch asks for. `cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all, so the glass is
+absent from the capture and its area comes out fully transparent; what an `os26` PNG actually shows is
+the branch's own painted content, geometry and control boundaries, alongside its accessibility tree.
+See [Limitations](#limitations).
+
+The tag still has to exist, because the alternative render is worse. `#available` resolves against the
+running OS, not the package's deployment floor, so on macOS 14 or 15 every one of these scenes would
+silently take the painted fallback branch — a different render, equally not the one the scene exists to
+show, and one that looks entirely plausible. In `check` mode that is a confusing failure; in `--update`
+it would overwrite the native goldens with fallback renders, and the corruption would only surface on
+the next Tahoe machine.
 
 The harness therefore refuses to render them below macOS 26, and does so *before* writing anything:
 
@@ -93,6 +100,12 @@ The harness therefore refuses to render them below macOS 26, and does so *before
 On a macOS 26 host neither branch fires and every scene renders. The committed portable goldens are
 pinned to the painted path by `RenderOverrides.forceLegacyGlass` regardless of host, so `make ui-snap`
 reproduces byte-for-byte on any machine.
+
+Flows tagged `os26` are gated the same way, for the same reason. They release `forceLegacyGlass` so
+the script drives the native branch, so below macOS 26 every one of them would re-run the painted
+path a portable flow already covers while claiming native-branch coverage. `make ui-flow-os26` runs
+them and `make ui-flow` excludes them; on an older host a mixed selection skips them with a count,
+and a selection that resolves to `os26` flows only fails with the same `--except os26` pointer.
 
 ## Artifacts
 
@@ -182,18 +195,18 @@ A step that cannot find its target does not abort the scene; it records a warnin
 
 A scene answers whether one state still renders, reads and lints correctly. A `UIFlow` answers whether a real journey still works. It hosts a real app view with an inert `UIFlowFixture`, drives the real `DictationCoordinator` through an ordered script, and checks named semantic expectations at each checkpoint. Its stable id is the artifact basename; its title, tags and `covers` keys make the journey discoverable and connect it to the coverage ledger.
 
-The current catalog has 18 flows, in `UIFlowCatalog.everything()` execution order:
+The current catalog has 20 flows — 18 portable and two tagged `os26` — in `UIFlowCatalog.everything()` execution order:
 
 - Home: `home.empty-to-populated`
 - Sessions: `sessions.search.no-results`, `sessions.search.clear`
 - Voice: `voice.toggle-cleanup`, `voice.auto-stop-dependency`
 - Glossary: `glossary.add-term`, `glossary.remove-term`
 - Refinement: `refinement.enable-and-check`
-- System: `system.recheck-backend`
-- Diagnostics: `diagnostics.clear-history.confirm`
+- System: `system.recheck-backend`, `system.clear-history.confirm`
 - Menu and dictation: `menu.copy-transcript`, `dictation.paste.delivered`, `dictation.copy-only.terminal`, `dictation.refinement-skipped.code-editor`, `dictation.cancelled`, `dictation.asr-error`
 - Overlay: `overlay.recording.controls`
 - Atoms: `atoms.confirm-row`
+- Native macOS 26: `console.rail.navigation.os26`, `menu.primary-action.os26`
 
 The script vocabulary is closed:
 
@@ -205,7 +218,7 @@ The script vocabulary is closed:
 | `check` | evaluate every expectation at a named checkpoint; one failure does not short-circuit the remaining checks |
 | `capture` | write and lint a named raster and accessibility frame, with optional golden reconciliation |
 
-The expectation vocabulary is also closed: `exists`, `absent`, `count`, `enabled`, `value`, `label`, `role`, visible `text`, coordinator `state`, ordered `transitions`, a closed `model` probe, `warnings`, and `lintClean`. Count rules are `exactly`, `atLeast`, `atMost` and `between`; text rules are equality, containment, prefix, suffix, empty and non-empty. Transition checks can require an exact sequence, a contiguous run, or an ordered subsequence.
+The expectation vocabulary is also closed: `exists`, `absent`, `count`, `enabled`, `selected`, `value`, `label`, `role`, visible `text`, coordinator `state`, ordered `transitions`, a closed `model` probe, `warnings`, and `lintClean`. Count rules are `exactly`, `atLeast`, `atMost` and `between`; text rules are equality, containment, prefix, suffix, empty and non-empty. Transition checks can require an exact sequence, a contiguous run, or an ordered subsequence.
 
 State expectations match the coordinator case, not associated payloads: `idle`, `checkingPermissions`, `recording`, `finalizingAudio`, `transcribing`, `cleaning`, `refining`, `readyToInsert`, `pasteAttempted`, `copiedOnly`, `insertFailed`, `error`, or `cancelled`. Model probes are limited to `transcript`, `outcome`, `errorMessage`, `targetLabel`, `recentSessionCount`, `glossaryTermCount`, `refinementEnabled`, `cleanupEnabled`, `activeBackend`, `processingInFlight`, `deliveredText`, `deliveryBundleID`, `deliveryDisposition`, and `deliveryCount`. The closed sets keep journal rendering exhaustive and stable.
 
@@ -322,7 +335,7 @@ waveform bar is the real thing at the real measure; the material around them is 
 
 ## Coverage ledger
 
-`UICoverageRegistry` declares every UI surface, state and journey independently of the scenes and flows that may verify it. The current registry contains 175 requirements: 107 required, 60 snapshot-only and 8 not-verifiable. The three dispositions mean:
+`UICoverageRegistry` declares every UI surface, state and journey independently of the scenes and flows that may verify it. The current registry contains 182 requirements: 109 required, 63 snapshot-only and 10 not-verifiable. The three dispositions mean:
 
 - `required`: a passing flow must claim the key;
 - `snapshotOnly(sceneID:)`: static evidence is sufficient, and the named scene must exist in `UISceneCatalog`;
@@ -353,7 +366,7 @@ Every rule is evaluated per scene against the accessibility tree, the capture, o
 | `text-contrast` | error | a readable `AXStaticText`'s harness-recorded foreground and its resolved paint stack fall below WCAG AA: 4.5:1 for normal text, or 3:1 at 18 pt regular / 14 pt bold. Each surface installs the same opaque or translucent colour it fills beneath its content; the recorder composites those `surfaceGround` layers in paint order, then joins an explicitly recorded text sample to an AX node only when their frames overlap by >=50% of the smaller frame. Unmeasurable or unmatched samples are unknown data and stay silent. |
 | `out-of-bounds` | error | a node frame leaves the scene rect by more than 0.5 pt: content pushed outside the window is cropped away and unreachable while the screenshot merely looks tight. Nodes with an `AXScrollArea` ancestor are exempt — scrolled content below the fold is the mechanism, not a defect. |
 | `clipped-child` | warning | a node frame escapes its parent's frame by more than 0.5 pt: truncation or overflow, e.g. a label wider than its container or a row taller than its list. Children of a scroll viewport are exempt for the same reason: the viewport publishes its clip rect while its children publish document positions. |
-| `tiny-hit-target` | warning | an interactive node is under 484 sq pt (`GlassKit`'s own 22x22 `RowIconButton` footprint) or thinner than 8 pt on either edge: an icon shrank, or `.frame` landed on the label instead of the button. Tested by area, not per-edge, because a full-width 528x18 `GlassToggleStyle` row is twenty times easier to hit than the reference. |
+| `tiny-hit-target` | warning | an interactive node is under 484 sq pt (the 22x22 `RowIconButton` footprint in `GlassMarks.swift`, our own smallest deliberate affordance) or thinner than 8 pt on either edge: an icon shrank, or `.frame` landed on the label instead of the button. Tested by area, not per-edge, because a full-width 528x18 `GlassToggleStyle` row is twenty times easier to hit than the reference. |
 | `unlabeled-control` | error | an interactive node with a real frame has no label, value, placeholder, identifier or help: unannounced to VoiceOver, and unaddressable by `AXDump.find`, so no step can exercise it. |
 | `overlapping-controls` | warning | two unrelated interactive nodes intersect over more than 25% of the smaller frame: a `ZStack` ordering mistake, or an overlay missing `.allowsHitTesting(false)`. One swallows the other's clicks. Capped at 20 findings per scene. |
 | `duplicate-identifier` | warning | two or more nodes share both an identifier **and** a label, so `find()` cannot tell them apart and `press("x")` can silently retarget. The label must collide too: SwiftUI auto-stamps `Image(systemName:)` names as identifiers, so eight `xmark` remove buttons on one pane are normal and each stays addressable by its own label. |
@@ -477,10 +490,11 @@ These are measured properties of offscreen rendering on this machine, not bugs t
 
 A flow inherits every scene limitation and additionally cannot verify the contents of the real pasteboard, real CGEvent delivery, real TCC prompts, `NSOpenPanel`, list-row selection, key equivalents, or pointer hover. Its fixtures record the insertion effect the app requested without touching the user's clipboard or posting a real event. Claims about those real system effects require the live app, not a flow golden.
 
-- **AX can stay byte-identical while Liquid Glass erases visible content.** This happened on macOS 26 when a glass nav selection sat on the glass window ground: the selected material erased a contiguous rail band, but every button, label, value, and frame in the AX dump matched the correct legacy render byte for byte. An `ax_status` of `ok` is therefore not evidence that a Liquid Glass scene is visible. Every modern glass consumer needs an `os26` scene, and reviewers must inspect its PNG beside the corresponding legacy PNG for every label, glyph, control boundary, and control size.
+- **An `ax_status` of `ok` is not evidence that a scene is visible.** The dump is built from the view hierarchy, so a node reports correctly whether or not anything rasterised at its frame — accessibility can never gate a pixel defect. Worked example: on macOS 26 a glass nav selection sitting on the glass window ground lost a contiguous rail band from the render, while every button, label, value, and frame in the AX dump matched the correct legacy render byte for byte. The band was lost because `cacheDisplay` skipped the nested glass layer group, not because the material erased anything: the same view renders 7 of 7 rail rows in a real onscreen window. Every modern glass consumer still needs an `os26` scene, and reviewers still inspect its PNG beside the corresponding legacy PNG — for the native branch's own labels, glyphs, control boundaries, and control sizes. An `os26` PNG cannot show the material; use `scripts/console_shot.sh` when the material itself is the subject.
 - **The menu harness does not reproduce `MenuBarExtra` host chrome.** `menu.*` scenes host `MenuView` in a generic borderless window. The `*.os26` variants gate the content and ensure it adds no nested custom glass, but only the real system popover supplies its outer material and dismissal behavior.
-- **System glass in the transparent overlay panel has no offscreen backdrop.** In the `overlay.*.os26` PNGs the raw island material captures as transparent because `cacheDisplay` never asks WindowServer to composite a desktop behind the clear panel. Those scenes still gate the waveform and both painted control discs — including their glyphs, boundaries, sizes, and positions — but not the island's live backdrop refraction.
-- **Behind-window glass renders as a flat tint.** `GlassKit`'s `FrostedGlassBackground` is an `NSVisualEffectView` with `blendingMode = .behindWindow`: the WindowServer composites it from the actual desktop behind a real onscreen window. There is no desktop behind an offscreen window, so it rasterises as a single opaque fill — measured as exactly one distinct colour over the sampled area. Placing an opaque window behind it does not help. This is also a determinism *win*: changing your wallpaper cannot perturb a golden. To see real glass you still need `scripts/console_shot.sh`.
+- **`cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all.** The modern material is absent from the capture, not flattened: its area comes out fully transparent. Measured over the committed goldens, `overlay.island.recording.os26.png` is 0.0% opaque and 59.3% fully transparent and `console.voice.os26.png` is 37.6% fully transparent, against 100% opaque for the painted `console.home.populated.png`; every non-transparent pixel in an `os26` console golden is the app's own paint (`a=255`) or its own `GroundScrim.ink = Ink.void.opacity(0.88)` scrim (`a=224`). An `os26` scene therefore verifies the native branch's own painted content, geometry, control boundaries and accessibility tree, and never the material — `UIKnownLimitation.systemGlassMaterial` is the coverage vocabulary for the part it cannot reach. Deleting the `GlassEffectContainer` from a nested glass stack was measured to leave the PNG byte-identical, so a glass change can be invisible to this gate in both directions. `scripts/console_shot.sh` is the only way to see composited glass.
+- **The transparent overlay panel additionally has no offscreen backdrop.** Over and above the missing material, `cacheDisplay` never asks WindowServer to composite a desktop behind the clear panel, so there is nothing for the island to refract even where it does paint. The `overlay.*.os26` scenes still gate the waveform and both painted control discs — including their glyphs, boundaries, sizes, and positions — but never the island's live backdrop refraction.
+- **Legacy behind-window glass renders as a flat tint.** This is the `NSVisualEffectView` path only, not modern `.glassEffect`. `FrostedGlassBackground` in `Sources/VoiceOour/GlassSurfaces.swift` sets `blendingMode = .behindWindow`: the WindowServer composites it from the actual desktop behind a real onscreen window. There is no desktop behind an offscreen window, so it rasterises as a single opaque fill — measured as exactly one distinct colour over the sampled area. Placing an opaque window behind it does not help. This is also a determinism *win*: changing your wallpaper cannot perturb a golden. To see the composited effect you still need `scripts/console_shot.sh`.
 - **`cacheDisplay` drops `.blur(radius:)` and `.shadow(...)`.** Those are Core Animation filters and are not composited by the capture path. A scene whose entire point is a blur or a drop shadow cannot be verified here.
 - **`NSColor.controlAccentColor` is machine-dependent.** It resolves to the user's System Settings accent colour and no environment key overrides it. A golden containing the system accent will not port between machines. Use SwiftUI's `Color.accentColor`, which is machine-independent.
 - **List row selection cannot be driven by a synthetic click.** `NSTableView` row selection requires the application to be active, and the harness is deliberately never active. Drive list selection through the model instead, or expose it as a separate scene with the selection already applied.

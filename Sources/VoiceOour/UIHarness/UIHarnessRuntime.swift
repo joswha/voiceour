@@ -80,9 +80,18 @@
     /// Known and accepted limitations of this rasterisation path, all measured:
     /// - `cacheDisplay` silently drops `.blur(radius:)` and `.shadow(...)`; Core Animation
     ///   filters are not composited by it. There is no workaround — do not add one.
-    /// - A behind-window `NSVisualEffectView` renders as a flat opaque fill because there is
-    ///   no desktop behind an offscreen window to sample. That is also a determinism win:
-    ///   the user's wallpaper cannot perturb a golden.
+    /// - A legacy behind-window `NSVisualEffectView` renders as a flat opaque fill because
+    ///   there is no desktop behind an offscreen window to sample. That is also a
+    ///   determinism win: the user's wallpaper cannot perturb a golden.
+    /// - `cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all. That is different
+    ///   in kind from the bullet above: the legacy material rasterises as a flat fill, the
+    ///   modern one is absent and its area captures fully transparent.
+    ///   `overlay.island.recording.os26.png` captures 0.0% opaque and 59.3% fully
+    ///   transparent, and `console.voice.os26.png` 37.6% fully transparent, against 100%
+    ///   opaque for the painted `console.home.populated.png`. An `os26` scene therefore
+    ///   verifies the native branch's own painted content, geometry, control boundaries and
+    ///   accessibility tree; it never verifies the material. `scripts/console_shot.sh` is
+    ///   the only way to see composited glass.
     /// - `NSColor.controlAccentColor` resolves to the user's system accent colour and no
     ///   environment key overrides it. A golden that shows the system accent will not port
     ///   between machines; SwiftUI's `Color.accentColor` is safe.

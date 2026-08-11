@@ -302,75 +302,81 @@
         }
 
         /// One representative state for every console section on the native macOS 26
-        /// material path. These are intentionally separate from the portable scenes:
+        /// render path. These are intentionally separate from the portable scenes:
         /// they have no meaning on a host where the SDK symbols cannot execute.
+        ///
+        /// What they verify is the app's own painted content, geometry, control
+        /// boundaries and accessibility tree on that branch -- NOT the system material.
+        /// `cacheDisplay` does not rasterise SwiftUI `.glassEffect`, so the material is
+        /// absent from these captures rather than flattened, and `scripts/console_shot.sh`
+        /// stays the only way to see it composited.
         private static var systemGlassScenes: [UISceneDescriptor] {
             [
                 systemConsole(
                     "console.home.os26",
-                    "Home dashboard on system glass",
+                    "Home dashboard on the native branch",
                     section: .home,
                     fixture: .populated
                 ),
                 systemConsole(
                     "console.sessions.os26",
-                    "Sessions on system glass",
+                    "Sessions on the native branch",
                     section: .sessions,
                     fixture: .populated
                 ),
                 systemConsole(
                     "console.voice.os26",
-                    "Voice settings on system glass",
+                    "Voice settings on the native branch",
                     section: .voice,
                     fixture: .populated
                 ),
                 systemConsole(
                     "console.glossary.os26",
-                    "Glossary on system glass",
+                    "Glossary on the native branch",
                     section: .glossary,
                     fixture: .populated
                 ),
                 systemConsole(
                     "console.refinement.os26",
-                    "Configured refinement on system glass",
+                    "Configured refinement on the native branch",
                     section: .refinement,
                     fixture: .refinerConfigured
                 ),
                 systemConsole(
                     "console.system.os26",
-                    "Granted system access on system glass",
+                    "Granted system access on the native branch",
                     section: .system,
                     fixture: .backendReady
                 ),
                 systemConsole(
                     "console.diagnostics.os26",
-                    "Healthy diagnostics on system glass",
+                    "Healthy diagnostics on the native branch",
                     section: .diagnostics,
                     fixture: .backendReady
                 ),
                 systemMenu(
                     "menu.idle.os26",
-                    "Menu bar popover at rest on system glass",
+                    "Menu bar popover at rest on the native branch",
                     fixture: .populated
                 ),
                 systemMenu(
                     "menu.error.os26",
-                    "Menu bar popover after a failed start on system glass",
+                    "Menu bar popover after a failed start on the native branch",
                     fixture: .micDenied
                 ),
                 systemMenu(
                     "menu.transcript.os26",
-                    "Menu bar popover with the last transcript on system glass",
+                    "Menu bar popover with the last transcript on the native branch",
                     fixture: .completedDictation
                 ),
                 systemOverlay(
                     "overlay.panel.recording.os26",
-                    "Recording overlay panel, listening on system glass",
+                    "Recording overlay panel, listening on the native branch",
                     size: CGSize(width: 260, height: 80)
                 ),
                 systemOverlay(
                     "overlay.island.recording.os26",
-                    "Recording overlay island, listening on system glass",
+                    "Recording overlay island, listening on the native branch",
                     size: CGSize(width: 180, height: 34),
                     islandOnly: true
                 ),
@@ -485,7 +491,7 @@
             [
                 sheet(
                     "atom.controls",
-                    "GlassKit control atoms in every mode",
+                    "GlassMarks control atoms in every mode",
                     size: CGSize(width: 760, height: 620)
                 ) {
                     ControlAtomSheet()
@@ -835,7 +841,7 @@
         }
     }
 
-    /// Every `GlassKit` control atom in every mode it ships, on one deterministic
+    /// Every `GlassMarks` control atom in every mode it ships, on one deterministic
     /// grid. Pure-value views: no coordinator, no app state, nothing to settle.
     private struct ControlAtomSheet: View {
         var body: some View {

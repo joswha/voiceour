@@ -54,17 +54,57 @@ struct RecordingOverlayView: View {
                 legacyIsland
             } else {
                 islandControls(
-                    centerSlot
-                        .padding(.horizontal, RecordingOverlayMetrics.controlSlot)
-                        .frame(
-                            width: RecordingOverlayMetrics.islandSize.width,
-                            height: RecordingOverlayMetrics.islandSize.height
-                        )
-                        .glassEffect(.regular, in: .capsule)
+                    islandShadow(
+                        centerSlot
+                            .padding(.horizontal, RecordingOverlayMetrics.controlSlot)
+                            .frame(
+                                width: RecordingOverlayMetrics.islandSize.width,
+                                height: RecordingOverlayMetrics.islandSize.height
+                            )
+                            // Plain `.regular`, measured rather than assumed:
+                            // `.interactive()` is inert on this surface. Every press
+                            // outside the two control rects leaves
+                            // `RecordingOverlayHostingView.mouseDown` for
+                            // `window.performDrag` without calling super, so SwiftUI
+                            // never sees the press the modifier animates, and the two
+                            // discs are `.overlay` siblings above this glass rather
+                            // than descendants of it. Holding a real mouse-down on the
+                            // live pill over a bright backdrop (one host, dark
+                            // appearance, 2x) left the surface pixel-identical to
+                            // `.regular` everywhere but the animating waveform row,
+                            // and the drag still landed to the pixel. It does not
+                            // fight the drag; it just buys nothing.
+                            .glassEffect(.regular, in: .capsule)
+                    )
                 )
             }
         } else {
             legacyIsland
+        }
+    }
+
+    /// Bible §6.4 — the island is the only thing in the app that casts a shadow — and
+    /// §21.3 rule 2 keeps that shadow two-layer. The system glass brings none of its own
+    /// and the panel is `hasShadow = false` (RecordingOverlayController.makePanel), so
+    /// the macOS 26 branch has to spend the same two tokens `capsuleSurface` spends,
+    /// and drop the tight inner one under Reduce Transparency for the same reason it
+    /// does there. Applied to the capsule, inside the controls: the two discs are
+    /// overlaid on top of this and cast nothing, exactly as on the legacy path.
+    @ViewBuilder
+    private func islandShadow<Surface: View>(_ surface: Surface) -> some View {
+        let outer = surface.shadow(
+            color: VoiceOourMetrics.Shadow.overlayOuter.color,
+            radius: VoiceOourMetrics.Shadow.overlayOuter.radius,
+            y: VoiceOourMetrics.Shadow.overlayOuter.y
+        )
+        if a11y.reduceTransparency {
+            outer
+        } else {
+            outer.shadow(
+                color: VoiceOourMetrics.Shadow.overlayInner.color,
+                radius: VoiceOourMetrics.Shadow.overlayInner.radius,
+                y: VoiceOourMetrics.Shadow.overlayInner.y
+            )
         }
     }
 

@@ -85,26 +85,33 @@ struct RailItem: View {
     }
 
     /// One body on both paths. The rail is a region of the window ground, and the
-    /// ground is already this app's one glass surface — so a second `.glassEffect`
-    /// on the selected pill is glass on glass, which WWDC219 forbids outright and
-    /// which the renderer punishes rather than merely discouraging.
+    /// ground is already this app's one glass surface, so a second `.glassEffect`
+    /// on the selected pill is glass on glass.
     ///
-    /// Measured on this macOS 26 host before removing it: the effect erased a
-    /// contiguous band from the rail's top edge down to the selected item's bottom
-    /// edge, growing monotonically with selection index — `console.home.os26` lost
-    /// Home, `console.voice.os26` lost Home/Sessions/Voice, `console.diagnostics.os26`
-    /// lost all seven. Dropping `.glassEffectID` and `.glassEffectTransition` while
-    /// keeping `.glassEffect` reproduced the erasure byte for byte, so the effect
-    /// itself is the cause, not the transition keying. Throughout, the accessibility
-    /// tree stayed byte-identical to the legacy render, so an AX golden reported no
-    /// change while up to seven nav items were invisible.
+    /// That stack was removed after it erased the rail in the harness, and the
+    /// erasure reproduces exactly: a contiguous band from the rail's top edge down
+    /// to the selected item's bottom edge, growing monotonically with selection
+    /// index — `console.home.os26` lost Home, `console.voice.os26` lost
+    /// Home/Sessions/Voice, `console.diagnostics.os26` lost all seven. The cause is
+    /// the capture, not the renderer: `cacheDisplay(in:to:)` does not rasterise
+    /// `.glassEffect` at all, so the band came back fully transparent rather than
+    /// flattened. Every collateral result follows from that. Dropping
+    /// `.glassEffectID` and `.glassEffectTransition` reproduced the erasure byte
+    /// for byte, and so did removing `GlassEffectContainer`, because none of the
+    /// three was ever implicated. A standalone probe of the same stack in a real
+    /// onscreen window rendered 7 of 7 rows, the nested pill visibly lensing the
+    /// desktop a second time. There is no shipping renderer defect here. The
+    /// accessibility tree stayed byte-identical throughout, which a rasterisation
+    /// gap by definition will: an AX golden cannot gate a visual regression.
     ///
-    /// Selection is therefore a fill-and-rim overlay on the ground, which is what
-    /// `SegmentOption` independently concluded for the same question, and what the
-    /// menu's primary action concluded after `.glassProminent` inside the popover's
-    /// own glass lost its entire capsule and left a bare label. Functional glass is
-    /// now only the window ground, the overlay island, the system popover chrome and
-    /// the scroll-edge effects — every control that sits on glass is painted.
+    /// Selection therefore stays a fill-and-rim overlay on the ground as a
+    /// deliberate, revisitable choice — the same one `SegmentOption` reached
+    /// independently for the same question — and not because the renderer forbids
+    /// glass here. Restoring it needs evidence that probe did not collect: an
+    /// onscreen capture of the animated selection change, plus Reduce Transparency,
+    /// Increase Contrast and light appearance. Until then functional glass is the
+    /// window ground, the overlay island, the system popover chrome and the
+    /// scroll-edge effects, and every control that sits on glass is painted.
     var body: some View {
         railButton
             .buttonStyle(PlateButtonStyle(isSelected: isSelected))

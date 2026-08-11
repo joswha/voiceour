@@ -1,10 +1,34 @@
 import SwiftUI
 
-/// The popover's primary action. It is a painted capsule on every OS path:
-/// `MenuView` sits inside the popover's glass chrome on macOS 26, so applying
-/// `.glassProminent` here would create an independently composited glass
-/// material on glass and can erase the capsule while inflating its hit frame.
-/// Large controls keep the capsule geometry used for spacious emphasis.
+/// The popover's primary action: a painted capsule on every OS path, keeping the
+/// capsule geometry this project uses for spacious emphasis.
+///
+/// This comment used to say that `.glassProminent` here erases the capsule while
+/// inflating its hit frame. Measured in a real `MenuBarExtra` host on macOS 26.5.2,
+/// it does neither. It draws a solid accent capsule at mean luminance 152.2 against
+/// the bare host material's 65.5 — more visually present than the painted capsule
+/// it would replace, which measures 81.5. The erasure was `cacheDisplay`: the same
+/// content through the offscreen harness path measures 7.3 against a 7.7 backdrop
+/// and vanishes, leaving exactly the bare label described here. It is the
+/// rasterisation gap `RailItem` documents, not a renderer defect.
+///
+/// Painted still ships, for the three reasons that survive that measurement.
+///
+/// 1. macOS 14 is the deployment floor, so this capsule is built either way.
+///    `.glassProminent` would only add a second path, not replace one.
+/// 2. The system prominent style paints the system accent colour — green on this
+///    host — discarding the app's cyan `Signal` semantic and the rim-contrast
+///    ladder measured against it. That is a design cost, not a rendering one.
+/// 3. Its natural height is 21pt, and 33pt at `.controlSize(.extraLarge)` with
+///    `.buttonBorderShape(.capsule)`, against the 40pt `Control.large` this action
+///    pins. `.frame(height: 40)` sizes the slot rather than the control: the 21pt
+///    capsule centres inside it, so the AX golden's `START DICTATION
+///    [12,90 256x40]` becomes 256x21 ten points lower, and tightening the frame
+///    only fits the slot to the same capsule. Left at its natural height it
+///    shrinks the popover from 215 to 196 and lifts every AX frame below this one
+///    by 19pt. A true 40 is reachable — `.glassProminent` with
+///    `.frame(maxWidth: .infinity, minHeight: 32)` on the LABEL measures 256x40
+///    exactly — but only as a deliberate choice, never as a drop-in.
 struct PrimaryActionButtonStyle: PrimitiveButtonStyle {
     var isInFlight: Bool = false
     var harnessState: ControlState? = nil

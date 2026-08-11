@@ -6,7 +6,8 @@ import SwiftUI
 /// SwiftUI's `Text.textSelection` exposes neither the selected substring nor
 /// an extensible selection menu on
 /// the macOS 14 deployment target, so this wraps `NSTextView` directly, matching
-/// the `NSViewRepresentable` shape used by `FrostedGlassBackground` in GlassKit.
+/// the `NSViewRepresentable` shape used by `FrostedGlassBackground` in
+/// `GlassSurfaces.swift`.
 /// Styling mirrors `VoiceOourTypography.body`, `VoiceOourPalette.Text.high`, and
 /// `VoiceOourMetrics.Space.hair` line spacing so it reads identically to the
 /// SwiftUI `Text` it replaces.

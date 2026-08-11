@@ -114,8 +114,12 @@
         case pointerHover
         /// `MenuBarExtra` host chrome and dismissal are supplied by the system popover.
         case menuHostChrome
-        /// Behind-window glass has no desktop to sample offscreen; it rasterises flat.
+        /// Legacy behind-window `NSVisualEffectView` glass has no desktop to sample
+        /// offscreen; it rasterises flat.
         case behindWindowGlass
+        /// `cacheDisplay` does not rasterise SwiftUI `.glassEffect`; the modern material is
+        /// absent from the capture rather than flattened.
+        case systemGlassMaterial
         /// `cacheDisplay` does not composite Core Animation `.blur`/`.shadow` filters.
         case coreAnimationFilter
         /// The subject is a `.repeatForever` animation whose phase is wall-clock driven.

@@ -181,6 +181,14 @@
         var help: String?
         /// Only meaningful for control roles; `nil` for containers that never model it.
         var enabled: Bool?
+        /// The `.isSelected` accessibility trait, measured through `isAccessibilitySelected`.
+        ///
+        /// Deliberately NOT printed by `AXDump.text`. Selection is the one rail fact the
+        /// committed dumps never recorded -- `console.home.populated` and
+        /// `console.voice.default` carry byte-identical rail blocks -- which is exactly the
+        /// blind spot that let a rasterisation gap read as "the accessibility tree stayed
+        /// byte-identical". Flows can assert it; no golden moves.
+        var selected: Bool?
         var frame: CGRect
         var children: [AXNode]
     }

@@ -5,13 +5,12 @@ struct ConsoleScaffold: View {
     var coordinator: DictationCoordinator
 
     /// No `GlassEffectContainer` here. A container exists to combine and morph
-    /// several descendant glass shapes, and after the nav pill and the primary
-    /// action were both found erasing their own content on glass, this window has
-    /// exactly one: the ground itself, applied by `glassSurface` below. Wrapping a
-    /// single effect combines nothing, and Apple warns that superfluous containers
-    /// cost rendering performance. Reinstate one here — not anywhere else — if the
-    /// console ever floats a second genuinely-functional glass element above the
-    /// ground.
+    /// several descendant glass shapes, and this window has exactly one: the
+    /// ground itself, applied by `glassSurface` below. A container wrapping a
+    /// single effect has nothing to combine. Add one here — not anywhere else —
+    /// the moment the console floats a second genuinely-functional glass element
+    /// above the ground: grouping nearby glass so it can merge and morph as one
+    /// is a correctness requirement, not organisation.
     var body: some View {
         scaffold
     }

@@ -265,6 +265,11 @@
         case count(UIQuery, UICount)
         /// The single matching node is enabled (or not).
         case enabled(UIQuery, Bool)
+        /// The single matching node publishes the `.isSelected` accessibility trait (or not).
+        ///
+        /// `AXDump` never prints this, so it is a flow-only contract: the committed dumps
+        /// record a rail whose selected row is indistinguishable from its siblings.
+        case selected(UIQuery, Bool)
         /// The single matching node's value satisfies the text rule.
         case value(UIQuery, UIText)
         /// The single matching node's label satisfies the text rule.
@@ -291,6 +296,7 @@
             case .absent(let query): return "absent \(query)"
             case .count(let query, let count): return "count \(query) \(count)"
             case .enabled(let query, let flag): return "enabled(\(flag)) \(query)"
+            case .selected(let query, let flag): return "selected(\(flag)) \(query)"
             case .value(let query, let text): return "value \(query) \(text)"
             case .label(let query, let text): return "label \(query) \(text)"
             case .role(let query, let role): return "role \(query) == \(role)"
@@ -309,7 +315,7 @@
         var selector: UIQuery? {
             switch self {
             case .exists(let query), .absent(let query): return query
-            case .count(let query, _), .enabled(let query, _): return query
+            case .count(let query, _), .enabled(let query, _), .selected(let query, _): return query
             case .value(let query, _), .label(let query, _), .role(let query, _): return query
             case .text, .state, .transitions, .model, .warnings, .lintClean: return nil
             }

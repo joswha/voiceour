@@ -29,6 +29,20 @@
             RenderOverrides.textRoleRecorder = recorder
             defer { RenderOverrides.textRoleRecorder = previousRecorder }
 
+            // `makeContext()` above pinned every process seam, including
+            // `forceLegacyGlass = true`, so a flow drives the painted path on any host. An
+            // `os26` flow exists to drive the OTHER branch, and this is the flow-layer twin
+            // of `UIHarnessSystemGlassScope`: release the seam after the fixture is built,
+            // because coordinator construction re-pins it, and restore it here rather than
+            // leaving the native path to contaminate a portable flow later in the same
+            // process.
+            let releasesLegacyGlass = flow.tags.contains("os26")
+            let previousForceLegacyGlass = RenderOverrides.forceLegacyGlass
+            if releasesLegacyGlass { RenderOverrides.forceLegacyGlass = false }
+            defer {
+                if releasesLegacyGlass { RenderOverrides.forceLegacyGlass = previousForceLegacyGlass }
+            }
+
             let host = resolve(flow.host, context: context)
             var lines: [UIExpectationLine] = []
             var frames: [UIFlowFrame] = []

@@ -63,6 +63,15 @@
                     )
                 }
 
+            case .selected(let query, let expected):
+                result = evaluateUnique(query, in: tree) { node in
+                    let actual = node.selected
+                    return Evaluation(
+                        passed: actual == expected,
+                        observed: actual.map { String(describing: $0) } ?? "unknown"
+                    )
+                }
+
             case .value(let query, let rule):
                 result = evaluateUnique(query, in: tree) { node in
                     let actual = node.value ?? ""

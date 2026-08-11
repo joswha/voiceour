@@ -1,0 +1,21 @@
+flow: menu.primary-action.os26
+title: The menu primary action drives a dictation on the native render path
+fixture: dictation
+transitions: idle -> checkingPermissions -> recording -> cancelled -> idle
+PASS 1 idle | role label="START DICTATION" == AXButton | AXButton
+PASS 2 idle | label label="START DICTATION" == "START DICTATION" | "START DICTATION"
+PASS 3 idle | enabled(true) label="START DICTATION" | true
+PASS 4 idle | lint clean | no error findings
+PASS 5 live | state == recording | recording
+PASS 6 live | transitions exact [idle -> checkingPermissions -> recording] | idle -> checkingPermissions -> recording
+PASS 7 live | absent label="START DICTATION" | 0 matches
+PASS 8 live | role label="STOP DICTATION" == AXButton | AXButton
+PASS 9 live | label label="STOP DICTATION" == "STOP DICTATION" | "STOP DICTATION"
+PASS 10 live | enabled(true) label="STOP DICTATION" | true
+PASS 11 live | text == "LIVE" exactly 1 | 1 match
+PASS 12 idle-again | state == idle | idle
+PASS 13 idle-again | transitions exact [idle -> checkingPermissions -> recording -> cancelled -> idle] | idle -> checkingPermissions -> recording -> cancelled -> idle
+PASS 14 idle-again | absent label="STOP DICTATION" | 0 matches
+PASS 15 idle-again | label label="START DICTATION" == "START DICTATION" | "START DICTATION"
+PASS 16 idle-again | enabled(true) label="START DICTATION" | true
+PASS 17 idle-again | model deliveryCount == "0" | 0

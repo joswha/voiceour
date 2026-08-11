@@ -280,6 +280,46 @@
                 scene: "atom.properties"
             ),
             journey(.atoms, "confirm-row", "ConfirmActionRow state machine end to end"),
+
+            // Modern render path (macOS 26)
+            //
+            // The twelve `os26` scenes used to claim nothing, so the ledger could go green
+            // while no requirement referenced the native branch at all. These entries split
+            // that branch into the two halves the harness can and cannot see. The content
+            // entries are claimed by `os26` scenes and flows: on the native code branch the
+            // app's own paint, geometry, control boundaries and accessibility tree are all
+            // verified. The `.systemGlassMaterial` entries exist precisely so the ledger
+            // RECORDS that nothing verifies the material itself -- `cacheDisplay` does not
+            // rasterise SwiftUI `.glassEffect`, so the material is absent from every capture
+            // rather than flattened, and `scripts/console_shot.sh` remains the only way to see
+            // it composited. A silent ledger would read as coverage.
+            state(
+                .home,
+                "modern-branch-content",
+                "Native-branch console content and geometry",
+                scene: "console.home.os26"
+            ),
+            state(
+                .home,
+                "modern-ground-material",
+                "System Liquid Glass window ground",
+                limitation: .systemGlassMaterial
+            ),
+            state(.menu, "modern-branch-content", "Native-branch menu content and geometry", scene: "menu.idle.os26"),
+            state(
+                .overlay,
+                "modern-branch-content",
+                "Native-branch island content and geometry",
+                scene: "overlay.island.recording.os26"
+            ),
+            state(
+                .overlay,
+                "modern-island-material",
+                "System Liquid Glass island material",
+                limitation: .systemGlassMaterial
+            ),
+            journey(.home, "modern-rail-navigation", "Navigate the rail on the native render path"),
+            journey(.menu, "modern-primary-action", "Drive the menu primary action on the native render path"),
         ]
 
         private static func surface(_ surface: UISurface, _ title: String, _ sceneID: String) -> UICoverageRequirement {

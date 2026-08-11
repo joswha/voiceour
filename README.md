@@ -22,7 +22,8 @@ transcribes on your own silicon, and never phones home.
      alt="The VoiceOour recording island: a graphite pill with a cancel disc on the left, a live cyan waveform in the middle and a green finish disc on the right, moving through recording, finalizing, transcribing, cleaning, refining and ready to insert.">
 
 <sub><i>The island, rendered frame by frame from the app's real SwiftUI views by the offscreen UI harness —<br>
-no screen recording, no faked mockup. Real glass looks glassier than an offscreen raster can show.</i></sub>
+no screen recording, no faked mockup. These frames are the app's painted path: offscreen capture does not<br>
+rasterise system Liquid Glass at all. On macOS 26 the real island lenses your desktop.</i></sub>
 
 </div>
 
@@ -144,7 +145,7 @@ cold_load_ms=193738 warm_inference_ms=4360 rss_kb=1743880192
      alt="The VoiceOour menu bar popover: a PASTE ATTEMPTED chip, the Fn keycap, the last transcript with CLICK TO COPY, the delivery outcome, START DICTATION, Open Console and Quit.">
 <br>
 <sub><i>The popover, at its true 280 pt width. The <code>Fn</code> keycap is a reminder, not a button.<br>
-Every image on this page is an offscreen harness render of the real views — none of them is a mockup.</i></sub>
+Every image on this page is an offscreen harness render of the real views, painted path only — none of them is a mockup.</i></sub>
 </div>
 
 ---
@@ -417,7 +418,8 @@ Everything in the top block is fake-backed: no model, no microphone, no TCC gran
 | `make ui-snap` | 36 portable offscreen UI scenes against committed goldens | 🟡 non-blocking |
 | `make ui-flow-frames` | flow rasters and AX dumps against committed goldens | 🟡 non-blocking |
 | `make ui-all` | portable scenes then flows with frame reconciliation | local full gate |
-| `make ui-snap-os26` | 12 native Liquid Glass scenes | macOS 26 host |
+| `make ui-snap-os26` | 12 scenes on the native macOS 26 code branch; its glass never rasterises offscreen | macOS 26 host |
+| `make ui-flow-os26` | interactive journeys on the native macOS 26 code branch | macOS 26 host |
 | `make ui-film` | rebuilds the GIF at the top of this README | local media |
 | `VOICEOOUR_MLX_INTEGRATION=1 swift test` | real MLX sidecar | needs model download |
 | `VOICEOOUR_OMP_INTEGRATION=1 swift test` | real Oh My Pi RPC refiner | needs `omp` signed in |

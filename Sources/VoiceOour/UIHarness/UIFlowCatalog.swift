@@ -82,12 +82,26 @@
             static let confirmArm = UIQuery.id("flow.confirm.arm")
             static let confirmField = UIQuery.id("flow.confirm.confirmation")
             static let confirmButton = UIQuery.id("flow.confirm.confirm")
+
+            /// One rail row. Addressed by role AND label because every pane publishes an
+            /// `AXHeading` carrying its section's label too -- `fixtures/ui/
+            /// console.diagnostics.healthy.ax.txt:2-8` for the rows, `:11` for the heading --
+            /// so a bare label query would match two nodes and fail as ambiguous.
+            static func railItem(_ section: ConsoleSection) -> UIQuery {
+                .all([.role("AXButton"), .label(section.label)])
+            }
+
+            /// The pane heading a rail selection lands on. The one bounded signal that the
+            /// selection change finished, rather than a settle count guessed at.
+            static func paneHeading(_ section: ConsoleSection) -> UIQuery {
+                .all([.role("AXHeading"), .label(section.label)])
+            }
         }
 
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
             homeFlows + sessionFlows + voiceFlows + glossaryFlows + refinementFlows + systemFlows
-                + menuFlows + overlayFlows + atomFlows
+                + menuFlows + overlayFlows + atomFlows + modernFlows
         }
 
         /// Mirrors `UISceneCatalog`: `--only` is OR-ed substring-or-tag matching and
@@ -816,6 +830,151 @@
                     ]
                 )
             ]
+        }
+
+        // MARK: Modern render path (macOS 26)
+
+        /// The only flows that drive the native branch.
+        ///
+        /// Every other flow runs with `RenderOverrides.forceLegacyGlass` pinned true by
+        /// `UIFixtures.pinProcessSeams()`, so until these landed the repo exercised no
+        /// interactive behaviour on the macOS 26 code path anywhere. The `os26` tag is what
+        /// releases the seam (`UIFlowRunner.run`) and what excludes them from `make ui-flow`.
+        ///
+        /// Neither flow captures a frame. `cacheDisplay` does not rasterise SwiftUI
+        /// `.glassEffect`, so a native-branch frame golden would record the absence of the
+        /// material as stably as its presence; what these flows assert is what the native
+        /// branch really does publish -- content, labels, roles, selection and state.
+        private static var modernFlows: [UIFlow] {
+            [
+                UIFlow(
+                    id: "console.rail.navigation.os26",
+                    title: "Rail navigation keeps every row on the native render path",
+                    tags: ["console", "rail", "navigation", "os26"],
+                    covers: [.journey(.home, "modern-rail-navigation")],
+                    // Diagnostics is a debug pane: `ConsoleRailSections.swift:44-50` keeps it
+                    // on the rail only while it is the open pane, so opening it is the only way
+                    // to assert the full seven-row inventory. It is also the exact scene the
+                    // retracted postmortem said had lost ALL SEVEN rows to nested glass, which
+                    // makes it the row set worth driving.
+                    host: .console(.diagnostics),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "diagnostics",
+                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system, .diagnostics])
+                                + [
+                                    .selected(Selector.railItem(.diagnostics), true),
+                                    .selected(Selector.railItem(.home), false),
+                                ]
+                        ),
+                        .act(.navigate(.voice)),
+                        .wait(.element(Selector.paneHeading(.voice))),
+                        .check(
+                            "voice",
+                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system])
+                                + [
+                                    // The seventh row leaves with the pane, by design. Asserted
+                                    // rather than ignored: a row that lingered here would be the
+                                    // rail lying about where the reader is.
+                                    .absent(Selector.railItem(.diagnostics)),
+                                    .selected(Selector.railItem(.voice), true),
+                                    .selected(Selector.railItem(.home), false),
+                                ]
+                        ),
+                        .act(.navigate(.glossary)),
+                        .wait(.element(Selector.paneHeading(.glossary))),
+                        .check(
+                            "glossary",
+                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system])
+                                + [
+                                    .selected(Selector.railItem(.glossary), true),
+                                    .selected(Selector.railItem(.voice), false),
+                                ]
+                        ),
+                        .act(.navigate(.home)),
+                        .wait(.element(Selector.paneHeading(.home))),
+                        .check(
+                            "home",
+                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system])
+                                + [
+                                    .selected(Selector.railItem(.home), true),
+                                    .selected(Selector.railItem(.glossary), false),
+                                ]
+                        ),
+                    ]
+                ),
+                UIFlow(
+                    id: "menu.primary-action.os26",
+                    title: "The menu primary action drives a dictation on the native render path",
+                    tags: ["menu", "dictation", "os26"],
+                    covers: [.journey(.menu, "modern-primary-action")],
+                    host: .menu,
+                    // Modelled on `dictation.cancelled`: cancelling from `.recording` never
+                    // reaches the later boundaries, so arming them would leave gates no script
+                    // can release.
+                    fixture: .dictation(
+                        transcript: dictatedText,
+                        refined: dictatedText,
+                        outcome: .pasteAttempted,
+                        targetBundleID: pasteBundleID,
+                        targetSafety: .normalText,
+                        reaches: [.permission]
+                    ),
+                    steps: [
+                        // `.lintClean` is affordable here and nowhere else on the native path:
+                        // the menu host paints `Ink.void` behind `MenuView`, so the raster the
+                        // geometry and contrast rules read is real paint rather than the
+                        // unrasterised window ground an `os26` console render leaves behind.
+                        .check(
+                            "idle",
+                            [
+                                .role(Selector.startDictation, "AXButton"),
+                                .label(Selector.startDictation, .equals("START DICTATION")),
+                                .enabled(Selector.startDictation, true),
+                                .lintClean,
+                            ]
+                        ),
+                        .act(.press(Selector.startDictation)),
+                        .wait(.state(.checkingPermissions)),
+                        .release(.permission),
+                        .wait(.state(.recording)),
+                        .check(
+                            "live",
+                            [
+                                .state(.recording),
+                                .transitions([.idle, .checkingPermissions, .recording], .exact),
+                                // MenuView.swift:155-157: one capsule, two labels.
+                                .absent(Selector.startDictation),
+                                .role(Selector.stopDictation, "AXButton"),
+                                .label(Selector.stopDictation, .equals("STOP DICTATION")),
+                                .enabled(Selector.stopDictation, true),
+                                .text(.equals("LIVE"), .exactly(1)),
+                            ]
+                        ),
+                        .act(.dictate(.cancel)),
+                        .wait(.state(.idle)),
+                        .check(
+                            "idle-again",
+                            [
+                                .state(.idle),
+                                .transitions([.idle, .checkingPermissions, .recording, .cancelled, .idle], .exact),
+                                .absent(Selector.stopDictation),
+                                .label(Selector.startDictation, .equals("START DICTATION")),
+                                .enabled(Selector.startDictation, true),
+                                .model(.deliveryCount, .equals("0")),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        }
+
+        /// One expectation per rail row rather than one count over all of them: a count that
+        /// drops from seven to three names no row, and naming the row that vanished is the
+        /// entire point of this assertion.
+        private static func railRows(_ sections: [ConsoleSection]) -> [UIExpectation] {
+            sections.map { .role(Selector.railItem($0), "AXButton") }
         }
     }
 

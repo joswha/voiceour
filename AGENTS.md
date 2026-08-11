@@ -147,7 +147,7 @@ Do not use real-ASR or GUI/manual flows as routine verification unless the chang
 ## Fast Iteration Runtime
 
 - For Swift app behavior or bundled-resource changes, do not stop at source edits or tests. Rebuild and restart the running menu-bar app before yielding so the user never tests a stale binary.
-- For UI changes, verify offscreen with `make ui-snap` first. Relaunching the app takes over the user's screen, so reserve it for changes that genuinely need the live app: menu-bar item behavior, hotkeys, real insertion, permission prompts, or behind-window glass.
+- For UI changes, verify offscreen with `make ui-snap` first. Relaunching the app takes over the user's screen, so reserve it for changes that genuinely need the live app: menu-bar item behavior, hotkeys, real insertion, permission prompts, or either glass material — the offscreen capture shows neither the legacy behind-window tint nor modern `.glassEffect`.
 - Prefer the fake path for fast iteration when real ASR is not required: `scripts/run_dev.sh --self-test` for smoke verification and `scripts/run_dev.sh` for an interactive fake launch.
 - If `.build/VoiceOour.app` or a real-ASR instance is running, rebuild the bundle with `scripts/bundle.sh`, quit existing `VoiceOour` processes, then reopen with the correct launch path (`scripts/restart_real.sh` for MLX/real-bundle testing, `scripts/run_dev.sh` for fake development).
 - When a user reports stale UI or behavior, confirm the active `VoiceOour` process path/arguments after relaunch before declaring the fix visible.
@@ -176,7 +176,7 @@ Scene goldens are the accessibility dump plus a PNG digest, never the images: co
 
 `docs/media/` is the one place rendered images are committed, and it is not a golden set. `make ui-film` records the harness's `dictation-island` reel frame by frame and assembles `docs/media/dictation-island.gif`; the two console/menu stills beside it were exported from ordinary scene renders. Film reels are deliberately outside the scene, flow, lint and coverage gates — the reel's subject is a wall-clock-driven animation, which is exactly what a reproducible golden may never contain. Declare a reel in `UIFilmCatalog` only, never in `UISceneCatalog`, and never let a `make` gate depend on one.
 
-Behind-window glass is the one thing the harness cannot show: an offscreen window has no desktop to sample, so `FrostedGlassBackground` rasterises as a flat tint. Use `scripts/console_shot.sh` when the composited glass itself is the subject.
+The harness cannot show glass, and for two separate measured reasons. Legacy behind-window glass: an offscreen window has no desktop to sample, so `FrostedGlassBackground` rasterises as a flat opaque tint. Modern system glass: `cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all — the material is absent rather than flattened, and its area captures fully transparent (`overlay.island.recording.os26.png` is 0.0% opaque and 59.3% fully transparent, `console.voice.os26.png` 37.6% fully transparent, against 100% opaque for the painted `console.home.populated.png`). An `os26` scene therefore gates the native `#available(macOS 26, *)` branch's own painted content, geometry, control boundaries and accessibility tree, never the material. Use `scripts/console_shot.sh` when the composited glass itself is the subject.
 
 ## macOS Permissions and Signing
 

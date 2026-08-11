@@ -34,6 +34,7 @@
                 identifier: identifier,
                 help: nil,
                 enabled: true,
+                selected: nil,
                 frame: frame,
                 children: children
             )

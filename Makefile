@@ -38,7 +38,7 @@ fixture:
 dev:
 	scripts/run_dev.sh
 
-.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-film ui-all
+.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-film ui-all
 
 # The portable gate. Runs on any host: every scene is pinned to the painted
 # path by `UIHarnessSeams.forceLegacyGlass`, so these goldens are the ones CI
@@ -64,6 +64,12 @@ ui-list:
 # journals and named expectations are deterministic across hosted runners.
 ui-flow:
 	scripts/ui_harness.sh --mode flow-check --except os26 --no-frames
+
+# The native gate for interactive behaviour. These flows release
+# `RenderOverrides.forceLegacyGlass`, so they drive the native macOS 26 branch and
+# only mean anything on a macOS 26 host; they are excluded from `ui-flow` above.
+ui-flow-os26:
+	scripts/ui_harness.sh --mode flow-check --only os26 --no-frames
 
 # Frame rasters and accessibility geometry share the snapshot gate's display
 # scale and font-rasterisation sensitivity, but remain valuable on known hosts.
