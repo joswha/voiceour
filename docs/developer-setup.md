@@ -70,20 +70,19 @@ scripts/restart_real.sh
 
 Use this for repeated local tests. `scripts/restart_real.sh` enforces one running `.build/VoiceOour.app` instance for this repo before reopening the bundle. Before the first permission-sensitive build, run `scripts/setup_local_signing.sh` once. It creates a dedicated password-free `voiceoour-dev` keychain and identity; `scripts/bundle.sh` then unlocks and selects that identity without touching unrelated signing keychains. Grant Accessibility once to the resulting app. Its designated requirement remains stable across later rebuilds, so macOS keeps the grant. An explicit `VOICEOOUR_CODESIGN_IDENTITY` remains available for other identities; without either identity, the bundle is ad-hoc signed and requires a new grant after the code changes.
 
-## Configure the network refiner
+## Configure the refiner
 
-Refinement is opt-in and disabled by default. To use the default Gemini flash-lite refiner locally, open the Refinement pane, choose the Gemini provider (the default), paste an API key or launch with `GEMINI_API_KEY`, keep or choose a suggested Gemini model such as `gemini-2.5-flash-lite`, and enable refinement. VoiceOour stores the pane's API key in the macOS Keychain through `KeychainRefinerAPIKeyStore`.
+Refinement is opt-in and disabled by default, and the Refinement pane offers exactly two providers: **Oh My Pi**, which hands the request to the locally installed `omp` CLI, and **Apple On-Device**. Neither takes a credential from VoiceOour, so there is no key to paste and no credential variable to export — enable the refiner, pick a model, and dictate.
 
 ```sh
-export GEMINI_API_KEY="..."
 scripts/run_real.sh
 ```
 
-VoiceOour derives the base URL for Gemini, OpenAI, and OpenRouter providers and appends `/chat/completions` when sending refinement requests; only the Custom provider asks for an OpenAI-compatible base URL. Network refinement runs only when refinement is enabled and configured, and it is skipped for terminal, code-editor, and secure targets.
+The Model field is a picker over `omp models --json`, not a free-text id: it starts on the provider default (`anthropic/claude-haiku-4-5`), **REFRESH** reloads the catalog after you connect an account, and the filter field narrows a long list. Network refinement runs only when refinement is enabled and configured, and it is skipped for terminal, code-editor, and secure targets.
 
-Gemini direct (`gemini-2.5-flash-lite`) is the shipped default: one provider, the already-working `GEMINI_API_KEY`, currently faster at equal accuracy. The **OpenRouter** provider with `meta-llama/llama-3.3-70b-instruct` (routed to Groq) is a latency-comparable alternative — both sit around 0.8–1s p50 with occasional spikes and trade places run to run (see `docs/archive/refinement-exploration.md`) — and is the one-tap fallback for when Gemini degrades. Set `OPENROUTER_API_KEY` in `.env` (or the environment); `scripts/run_real.sh` and `scripts/restart_real.sh` source `.env` so the bundled app inherits it. Keychain keys are stored per provider and take precedence; Custom keys are further scoped to the normalized endpoint. Without a Keychain key, the selected provider variable (`GEMINI_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`) is checked first, followed by the provider-independent `VOICEOOUR_REFINER_API_KEY`; Custom uses only `VOICEOOUR_REFINER_API_KEY` for environment lookup.
+A `settings.json` written by an older build that named `gemini`, `openAI`, `openRouter`, or `custom` loads as `omp` with `refiner_model` cleared and `refiner_enabled` forced back to `false`. Re-enable refinement after choosing an OMP model; the app will not silently point a live refiner at a different network destination.
 
-### Oh My Pi refiner (optional)
+### Oh My Pi refiner (the default provider)
 
 Oh My Pi is the subscription-backed refiner provider. When OMP refinement is enabled and configured, VoiceOour starts one persistent `omp --mode rpc` child lazily from recording-stop warm-up (or the first direct refine) and reuses it for subsequent refines. The app needs no API key.
 

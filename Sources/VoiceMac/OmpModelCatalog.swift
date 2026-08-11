@@ -95,10 +95,15 @@ enum OmpModelCatalogError: Error, Equatable {
     }
 }
 
-/// Shared OMP model loader used by both reachability and onboarding. The
-/// profile/environment path is the same one used for actual refinement, so a
-/// successful result proves the subscription-backed path rather than an API key
-/// inherited from the launching shell.
+/// Shared OMP model loader used by the Model picker, reachability and
+/// onboarding. It runs in the same hermetic profile as refinement, so the list
+/// is the one the subscription-backed path can serve rather than anything an
+/// API key inherited from the launching shell would add.
+///
+/// It is the one omp call that deliberately runs without the credential
+/// tombstones: omp advertises a provider whenever its variable is *set*, so a
+/// shadowed query answers with 50 providers the refiner cannot reach, and with
+/// `GITLAB_TOKEN=" "` it never answers at all. See `OmpEnvironment.augmented`.
 public enum OmpModelCatalog {
     public static func load(
         executableURL: URL,
@@ -139,7 +144,8 @@ public enum OmpModelCatalog {
             arguments: arguments,
             timeoutMs: remainingMs,
             environment: environment,
-            currentDirectoryURL: profileDirectory
+            currentDirectoryURL: profileDirectory,
+            shadowCredentials: false
         )
         guard
             let envelope = try? JSONDecoder().decode(

@@ -14,7 +14,6 @@ struct RefinerProviderRegistryTests {
     private func registry() -> RefinerProviderRegistry {
         RefinerProviderRegistry.live(
             environment: [:],
-            apiKeyProvider: { _ in StaticRefinerAPIKeyProvider("token") },
             deterministicFallback: { "DET:\($0)" }
         )
     }
@@ -41,23 +40,14 @@ struct RefinerProviderRegistryTests {
         for provider in RefinerProvider.allCases {
             let descriptor = try #require(registry.descriptor(for: provider))
             #expect(descriptor.displayName == provider.displayName)
-            #expect(descriptor.defaultBaseURL == RefinerResolved.defaultBaseURL(provider))
-            #expect(descriptor.suggestedModels == provider.suggestedModels)
-            #expect(descriptor.apiKeyURL == provider.apiKeyURL)
-            #expect(descriptor.apiKeyEnvName == provider.apiKeyEnvName)
+            #expect(descriptor.defaultModel == provider.defaultModel)
         }
     }
 
-    @Test func directProvidersBuildTheHTTPRefinerAndOmpBuildsTheRpcRefiner() {
-        let registry = registry()
-
-        for provider in [RefinerProvider.gemini, .openAI, .openRouter, .custom] {
-            #expect(
-                registry.make(settings: settings(provider)) is LLMRefiner,
-                "\(provider.rawValue) should build the OpenAI-compatible refiner"
-            )
-        }
-        #expect(registry.make(settings: settings(.omp)) is OmpRpcRefiner)
+    /// OMP is the only network destination left, and it is reached by spawning
+    /// the local CLI rather than by an HTTP client this app owns.
+    @Test func ompBuildsTheRpcRefiner() {
+        #expect(registry().make(settings: settings(.omp)) is OmpRpcRefiner)
     }
 
     /// Below macOS 26 the on-device provider reports the reason rather than

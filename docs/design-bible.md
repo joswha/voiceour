@@ -559,7 +559,7 @@ Two declarative slots replace the stacks call sites used to hand-roll:
 
 A caption hung after a trailing chip wraps against the chip instead of the column, which is why the footer slot exists and why call sites no longer build `VStack { control; caption }` compositions themselves. Overloads keep every existing two-argument caller compiling.
 
-The six-provider Refinement picker did **not** fit this measure. Its intrinsic group was 649pt, expanded the card by about 121pt, and put the final segment about 101pt past the 760pt cap. `SegmentGroup(rows: 2)` now lays it out as two rows of three: 323pt and 314pt before the group's 8pt horizontal padding, both within the 528pt inner group width. Do not flatten it back to one row or describe the overflow as margin.
+A two-option group like the Refinement provider picker fits this measure in one row. `SegmentGroup` takes a row count because a six-option group did not: the retired six-provider Refinement picker measured 649pt intrinsic, expanded the card by about 121pt, and put its final segment about 101pt past the 760pt cap, so it was laid out as two rows of three at 323pt and 314pt, both inside the 528pt inner group width. Wrap any group that overflows the cap by row count; never describe such an overflow as margin.
 
 ### 12.4 `CaptionText`
 
@@ -726,20 +726,29 @@ Refinement is optional and off by default, and the pane says so structurally: th
 | section | rows |
 |---|---|
 | `ON-DEVICE REFINER` / `NETWORK REFINER` — the eyebrow follows the provider | **Opt in**: toggle, readiness chip, and two stacked footer captions — the destination advisory and the next-launch note |
-| PROVIDER | **Provider** (`SegmentGroup(rows: 2)`), then whichever the provider needs: **On-device** or **Sign-in** as a prose-only row, **Base URL**, **Endpoint**, **Model** |
-| CREDENTIALS — only when the provider takes a key | **API key**: secure field, SAVE, GET API KEY, the key-source chip, and up to two footer captions; **Clear key** when the Keychain owns it |
+| PROVIDER | **Provider** (one-row `SegmentGroup`), then what that provider needs: for Oh My Pi the **Connections** card and the **Model** picker; for Apple On-Device the valueless **On-device** row and nothing else |
 | REQUEST | **Timeout**: `Field.short` 120, milliseconds |
 | CONNECTION | **Status**: the CHECK action, the reachability chip, and two footer captions — the probe result and the permanent explanation |
 
 The dependent group wraps PROVIDER through CONNECTION. The opt-in section stays outside it, because the control that turns the feature on cannot be disabled by the feature being off.
 
-Readiness reads OFF / NEEDS BASE URL / NEEDS MODEL / NEEDS KEY / READY; key source reads NO KEY / KEY SAVED / KEY VIA ENV; reachability reads NOT CHECKED / CHECKING… / AVAILABLE / REACHABLE · N MODELS / BAD KEY / UNREACHABLE. Every one of them is a `StatusChip(.compact)` in a row's status slot, and every explanatory sentence is a footer caption at the value origin. The pane hand-rolls no chip-then-caption stack at all; where two notes are true at once — a Keychain error beside the environment-variable guidance, a probe result above the permanent explanation — they stack as two captions in one footer. When the group is disabled, chips and captions recede on their own (§12.7).
+There is no CREDENTIALS section, no **Base URL** row and no **Endpoint** row, and that is a structural fact rather than a trimmed one: both providers are reached without a credential from this app — OMP holds its own and the system model needs none — so there is nothing to type, save, clear, or resolve into a URL to display.
 
-The prose-only rows are valueless `PropertyRow`s so that the on-device explanation and the sign-in copy share the label tone of the controls above them. **Endpoint** is a `PropertyRow` with a `.mono` value: a resolved URL is a machine string to read and copy, not a field to edit. **Clear key** is a `ConfirmActionRow` (§12.8) on `refinement.key`, present only for a Keychain-owned key, because that is the only key this app can delete.
+Readiness reads OFF / NEEDS MODEL / READY; reachability reads NOT CHECKED / CHECKING… / AVAILABLE / REACHABLE · N MODELS / UNREACHABLE. Each is a `StatusChip(.compact)` in a row's status slot, and every explanatory sentence is a footer caption at the value origin. The pane hand-rolls no chip-then-caption stack at all; where two notes are true at once — a probe result above the permanent explanation — they stack as two captions in one footer. When the group is disabled, chips and captions recede on their own (§12.7).
 
-The provider picker has six options and uses `SegmentGroup(rows: 2)`: GOOGLE GEMINI / OPENAI / OPENROUTER, then OH MY PI / APPLE ON-DEVICE / CUSTOM. This wrap is required by the 536pt row content slot (§12.3).
+The provider picker has two options in one row: OH MY PI / APPLE ON-DEVICE. **On-device** is a valueless `PropertyRow` so the explanation carries the label tone of the controls above it; Apple's model has no endpoint, no credential and no model id, so it gets no Model row at all.
 
-Changing the provider resets key entry. The reachability fingerprint is captured before the probe and its result is shown only while it still matches the live configuration — an answer about a configuration the user has since changed is discarded, not displayed.
+### 16.1 The Model picker
+
+For Oh My Pi, **Model** is a picker over OMP's own catalog, never a text field: OMP already knows which models this Mac can reach, and any id the user could type is either in that list or a typo whose only symptom is a failed CHECK. The row is a filter `TextField` (`refinement.model.filter`), the catalog chip, and REFRESH (`refinement.model.refresh`) on the control line, above one `.well` plate holding the options, with the withheld-count caption below it.
+
+- The catalog chip reads NOT LOADED / LOADING… / N MODELS / NO MODELS / CATALOG UNAVAILABLE / CATALOG STALE. A failed load that still has a previous catalog is stale, not empty, so the list stays usable.
+- **Provider default** is always the first option and always present, so a user who picked a model has a way back to the app's own choice.
+- Options are grouped CONNECTED PROVIDERS before OTHER PROVIDERS, separated by `HairlineDivider`s, because a model whose provider has a live OMP account is the one that will answer.
+- The plate shows at most eight option rows and states what it withheld in its caption. A list that silently stops is a list the user believes is complete; past the cap the filter is the interaction.
+- Each option is one full-width selectable row carrying `.isSelected`, identifier `refinement.model.option.<selector>` (`.default` for the default row), and an accessibility label naming the model and its selector. The plate itself is a container labelled "Oh My Pi models".
+
+Changing the provider resets nothing, because no field holds a secret and no field holds a typed id: a model chosen for OMP survives a round trip through the Apple provider, which resolves to its one on-device model whatever the stored selection says. The reachability fingerprint — provider plus resolved model — is captured before the probe and its result is shown only while it still matches the live configuration, so an answer about a configuration the user has since changed is discarded rather than displayed.
 
 ---
 ## 17. System Pane
@@ -1113,8 +1122,8 @@ GlossaryTermRow.swift    protected-term rows
 GlossaryModelDisplayAdapters.swift scope labels
 RefinementPane.swift     opt-in/dependent-group orchestration
 RefinementOptInSection.swift local/cloud boundary and opt-in
-RefinementProviderSection.swift provider selection
-RefinementCredentialsSection.swift provider credentials
+RefinementProviderSection.swift provider selection, OMP connections, and model row
+OmpModelPickerView.swift  OMP model picker row and its option rows
 RefinementRequestSection.swift request settings
 RefinementConnectionSection.swift provider connection state
 SystemPane.swift         capability ledger: readiness, capture, audio, privacy, guarded erase flows

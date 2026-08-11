@@ -65,9 +65,23 @@
             // fixtures/ui/console.system.granted.ax.txt:17
             static let backendReady = UIQuery.label("Backend")
 
-            // fixtures/ui/console.refinement.off.ax.txt:18,47
+            // fixtures/ui/console.refinement.off.ax.txt. Line numbers are omitted for
+            // this pane alone: every refinement golden is being regenerated with the
+            // provider set, so a cited line would be wrong before it was reviewed.
             static let enableRefiner = UIQuery.label("Enable refiner")
             static let checkRefiner = UIQuery.label("CHECK")
+
+            // The Model picker's rows are formed in OmpModelPickerView; the option
+            // identifier is `refinement.model.option.` plus the model's OMP selector
+            // verbatim. No committed golden holds a loaded catalog yet, so these are
+            // derived from that source rather than read off a dump.
+            static let modelFilter = UIQuery.id("refinement.model.filter")
+            static let modelRefresh = UIQuery.id("refinement.model.refresh")
+            static let defaultModel = UIQuery.id("refinement.model.option.default")
+
+            static func model(_ selector: String) -> UIQuery {
+                .id("refinement.model.option.\(selector)")
+            }
 
             // fixtures/ui/menu.transcript.ax.txt:4
             static let copyLastTranscript = UIQuery.label("Copy last transcript")
@@ -342,9 +356,10 @@
             [
                 UIFlow(
                     id: "refinement.enable-and-check",
-                    title: "Enable a configured refiner and check reachability",
+                    title: "Enable the Oh My Pi refiner and check reachability",
                     tags: ["refinement", "console", "settings"],
                     covers: [
+                        .state(.refinement, "reachability-checking"),
                         .state(.refinement, "check-success"),
                         .journey(.refinement, "enable-and-check"),
                     ],
@@ -369,11 +384,101 @@
                             ]
                         ),
                         .act(.press(Selector.checkRefiner)),
-                        // RefinementConnectionSection.swift:81-88 defines this source-only post-CHECK verdict.
+                        // RefinementConnectionSection.swift:39,78: while the probe is parked
+                        // on its gate the button's own title becomes the verdict, so the
+                        // CHECK label going away is the bounded signal that it started.
+                        .wait(.absent(Selector.checkRefiner)),
+                        .check(
+                            "checking",
+                            [
+                                .text(.equals("CHECKING…"), .atLeast(1)),
+                                .absent(Selector.checkRefiner),
+                            ]
+                        ),
+                        .release(.refinement),
+                        // RefinementConnectionSection.swift:79-82 defines this post-CHECK verdict.
                         .wait(.element(.value("REACHABLE · 3 MODELS"))),
-                        .check("reachable", [.text(.equals("REACHABLE · 3 MODELS"), .exactly(1))]),
+                        .check(
+                            "reachable",
+                            [
+                                .text(.equals("REACHABLE · 3 MODELS"), .exactly(1)),
+                                .enabled(Selector.checkRefiner, true),
+                            ]
+                        ),
                     ]
-                )
+                ),
+                UIFlow(
+                    id: "refinement.select-model",
+                    title: "Load the Oh My Pi model catalog, filter it and pick a model",
+                    tags: ["refinement", "console", "settings"],
+                    covers: [
+                        .state(.refinement, "model-catalog-loading"),
+                        .state(.refinement, "model-selected"),
+                        .journey(.refinement, "select-model"),
+                    ],
+                    host: .tallConsole(.refinement),
+                    fixture: .modelCatalog(),
+                    steps: [
+                        // RefinementPane.swift:82-93 asks OMP for the catalog on entry, so
+                        // the load is already parked on its gate by the time the first
+                        // checkpoint runs. Waiting on the chip is what makes that a fact
+                        // rather than an assumption about when the task was scheduled.
+                        .wait(.element(.value("LOADING…"))),
+                        .check(
+                            "loading",
+                            [
+                                .exists(Selector.modelFilter),
+                                .label(Selector.modelRefresh, .equals("Refresh Oh My Pi models")),
+                                .text(.equals("LOADING…"), .exactly(1)),
+                                .selected(Selector.defaultModel, true),
+                                .absent(Selector.model(UIFixtures.selectedModel)),
+                            ]
+                        ),
+                        .release(.refinement),
+                        .wait(.element(Selector.model(UIFixtures.selectedModel))),
+                        // One row per model and one row per provider group: the catalog
+                        // spans three providers precisely so a load that dropped a group
+                        // would fail here rather than look like a shorter list.
+                        .check(
+                            "loaded",
+                            [
+                                .text(.equals("7 MODELS"), .exactly(1)),
+                                .exists(Selector.model("anthropic/claude-haiku-4-5")),
+                                .exists(Selector.model("anthropic/claude-sonnet-4-5")),
+                                .exists(Selector.model("openai-codex/gpt-5.5")),
+                                .exists(Selector.model("google-gemini-cli/gemini-2.5-flash")),
+                                .selected(Selector.defaultModel, true),
+                            ]
+                        ),
+                        .act(.type(UIFixtures.modelFilter, into: Selector.modelFilter)),
+                        // The two non-Anthropic providers leaving the list is what makes
+                        // the filter observable; the Anthropic rows staying is what makes
+                        // it a filter rather than an empty result.
+                        .wait(.absent(Selector.model("google-gemini-cli/gemini-2.5-flash"))),
+                        .check(
+                            "filtered",
+                            [
+                                .exists(Selector.model("anthropic/claude-haiku-4-5")),
+                                .exists(Selector.model(UIFixtures.selectedModel)),
+                                .absent(Selector.model("openai-codex/gpt-5.5")),
+                                .absent(Selector.model("google-gemini-cli/gemini-2.5-flash")),
+                            ]
+                        ),
+                        .act(.press(Selector.model(UIFixtures.selectedModel))),
+                        // `selectRefinerModel` writes `settings.refinerModel`, and the
+                        // provider-default row exists only while that string is empty, so
+                        // its disappearance is the bounded proof that the write landed.
+                        .wait(.absent(Selector.defaultModel)),
+                        .check(
+                            "selected",
+                            [
+                                .selected(Selector.model(UIFixtures.selectedModel), true),
+                                .absent(Selector.defaultModel),
+                                .exists(Selector.model("anthropic/claude-haiku-4-5")),
+                            ]
+                        ),
+                    ]
+                ),
             ]
         }
 

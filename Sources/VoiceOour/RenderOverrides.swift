@@ -49,12 +49,11 @@ enum RenderOverrides {
     static var cometHead: CometEmoji?
 
     /// Pins the verdict the Refinement pane's Status row reports. Reaching it
-    /// for real means a network round trip, an `omp` subprocess, this Mac's
-    /// Apple Intelligence state, or a refine that actually failed, so the
-    /// harness states the answer instead — and can therefore render the
-    /// reachable, in-flight, unauthorized and failed treatments that one
-    /// machine could never show at once. Production reads the coordinator's
-    /// own measurement.
+    /// for real means an `omp` subprocess, this Mac's Apple Intelligence
+    /// state, or a refine that actually failed, so the harness states the
+    /// answer instead — and can therefore render the reachable, in-flight and
+    /// failed treatments that one machine could never show at once. Production
+    /// reads the coordinator's own measurement.
     static var refinerReachability: RefinerReachability?
 
     /// Pins OMP onboarding progress/failure without opening Terminal or reading
@@ -65,6 +64,12 @@ enum RenderOverrides {
     /// not spawn `omp usage` or encode the developer's actual subscriptions.
     static var ompProviderConnections: [OmpProviderConnection]?
     static var ompProviderStatusState: OmpProviderStatusState?
+
+    /// Pins the model list the Refinement pane inherits from OMP. The real one
+    /// comes from `omp models --json`, so it follows whichever providers the
+    /// developer happens to have signed into and how many models each vends.
+    static var ompModels: [OmpAvailableModel]?
+    static var ompModelCatalogState: OmpModelCatalogState?
 
     /// Pins the Apple Intelligence readiness sentence the same pane's
     /// on-device row appends, for the same reason: availability follows the

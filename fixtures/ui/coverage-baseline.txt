@@ -9,7 +9,6 @@
 journey:glossary:edit-alias
 journey:home:inspect-and-pin-chart
 journey:menu:open-console
-journey:refinement:configure-network-provider
 journey:sessions:search-select-copy-delete
 journey:sessions:teach-correction
 journey:system:clear-vocabulary
@@ -45,10 +44,6 @@ state:menu:muted-header
 state:overlay:cancel-dictation-label
 state:overlay:idle
 state:overlay:processing
-state:refinement:key-delete-failure
-state:refinement:key-save-failure
-state:refinement:key-source-environment
-state:refinement:key-source-none
 state:refinement:omp-no-accounts
 state:refinement:omp-status-checking
 state:refinement:omp-status-failed

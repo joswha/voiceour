@@ -9,52 +9,51 @@ import Testing
 extension OmpSuites {
     @Suite("RPC Refiner", .serialized)
     struct RpcRefiner {
-        @Test func ompRpcRefinerSkipsDisabledConfiguration() async {
-            let refiner = OmpRpcRefiner(
-                configuration: OmpRpcRefinerConfiguration(
-                    enabled: false,
-                    executableURL: URL(fileURLWithPath: "/nonexistent/voiceoour-disabled-omp"),
-                    model: "test"
-                ),
-                environment: [:],
-                deterministicFallback: { "CLEAN:\($0)" }
-            )
+        /// Every preflight gate, proven at the backend boundary rather than at
+        /// `RefinerPolicy`: the refuse decision has to land before OMP is
+        /// launched, so the recorded pid list must stay empty. A backend that
+        /// spawned first and refused afterwards would still put the transcript
+        /// in front of a subprocess.
+        @Test func preflightSkipMatrixReturnsReasonsWithoutSpawningOmp() async throws {
+            let fixture = try makeExecutableScript(
+                """
+                printf '%s\\n' "$$" >> "$0.pids"
+                printf '%s\\n' '{"type":"ready"}'
+                while IFS= read -r line; do :; done
+                """)
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            let pidFile = fixture.url.appendingPathExtension("pids")
+
+            func refiner(enabled: Bool, model: String) -> OmpRpcRefiner {
+                OmpRpcRefiner(
+                    configuration: OmpRpcRefinerConfiguration(
+                        enabled: enabled,
+                        executableURL: fixture.url,
+                        argumentPrefix: [],
+                        model: model,
+                        timeoutMs: 4000
+                    ),
+                    environment: [:],
+                    deterministicFallback: { "CLEAN:\($0)" }
+                )
+            }
 
             #expect(
-                await refiner.refine("hello", glossary: [], safety: .normalText, style: .standard)
+                await refiner(enabled: false, model: "test")
+                    .refine("hello", glossary: [], safety: .normalText, style: .standard)
                     == .skipped(reason: "disabled"))
-        }
-
-        @Test func ompRpcRefinerSkipsUnsafeTargets() async {
-            let refiner = OmpRpcRefiner(
-                configuration: OmpRpcRefinerConfiguration(
-                    enabled: true,
-                    executableURL: URL(fileURLWithPath: "/nonexistent/voiceoour-unsafe-target-omp"),
-                    model: "test"
-                ),
-                environment: [:],
-                deterministicFallback: { "CLEAN:\($0)" }
-            )
-
             #expect(
-                await refiner.refine("hello", glossary: [], safety: .terminal, style: .standard)
-                    == .skipped(reason: "unsafe_target"))
-        }
-
-        @Test func ompRpcRefinerSkipsEmptyModel() async {
-            let refiner = OmpRpcRefiner(
-                configuration: OmpRpcRefinerConfiguration(
-                    enabled: true,
-                    executableURL: URL(fileURLWithPath: "/nonexistent/voiceoour-unconfigured-omp"),
-                    model: ""
-                ),
-                environment: [:],
-                deterministicFallback: { "CLEAN:\($0)" }
-            )
-
-            #expect(
-                await refiner.refine("hello", glossary: [], safety: .normalText, style: .standard)
+                await refiner(enabled: true, model: "")
+                    .refine("hello", glossary: [], safety: .normalText, style: .standard)
                     == .skipped(reason: "unconfigured"))
+            for safety in [TargetSafetyClass.terminal, .codeEditor, .secure] {
+                #expect(
+                    await refiner(enabled: true, model: "test")
+                        .refine("hello", glossary: [], safety: safety, style: .standard)
+                        == .skipped(reason: "unsafe_target"))
+            }
+
+            #expect(processIDs(in: pidFile).isEmpty)
         }
 
         /// RPC stub speaking the omp `--mode rpc` JSONL protocol: ready banner, prompt
@@ -142,10 +141,34 @@ extension OmpSuites {
                 deterministicFallback: { "CLEAN:\($0)" }
             )
 
+            // The reason is asserted, not just the text: `guard_rejected` is what
+            // distinguishes a refusal the guards made from a backend failure, and
+            // it is the string the session trace and the UI report.
             #expect(
-                fellBackText(
-                    await refiner.refine("the budget is 15000", glossary: [], safety: .normalText, style: .standard))
-                    == "CLEAN:the budget is 15000")
+                await refiner.refine("the budget is 15000", glossary: [], safety: .normalText, style: .standard)
+                    == .fellBack("CLEAN:the budget is 15000", reason: "guard_rejected"))
+        }
+
+        /// A reply that carries no usable text must not be delivered as an empty
+        /// transcript. Whitespace is the case that gets through a naive nil check.
+        @Test func ompRpcRefinerFallsBackWhenReplyIsOnlyWhitespace() async throws {
+            let fixture = try makeRpcStubScript(reply: "   ")
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            let refiner = OmpRpcRefiner(
+                configuration: OmpRpcRefinerConfiguration(
+                    enabled: true,
+                    executableURL: fixture.url,
+                    argumentPrefix: [],
+                    model: "test",
+                    timeoutMs: 4000
+                ),
+                environment: [:],
+                deterministicFallback: { "CLEAN:\($0)" }
+            )
+
+            #expect(
+                await refiner.refine("raw transcript", glossary: [], safety: .normalText, style: .standard)
+                    == .fellBack("CLEAN:raw transcript", reason: "empty_output"))
         }
 
         @Test func ompRpcRefinerFallsBackWhenLaunchFails() async {
@@ -237,6 +260,7 @@ extension OmpSuites {
             )
 
             let outcomeBox = RefineOutcomeBox()
+            let started = ContinuousClock.now
             let refineTask = Task {
                 let outcome = await refiner.refine("hello", glossary: [], safety: .normalText, style: .standard)
                 outcomeBox.publish(outcome)
@@ -245,6 +269,7 @@ extension OmpSuites {
             while outcomeBox.value == nil, Date() < watchdogDeadline {
                 try? await Task.sleep(nanoseconds: 20_000_000)
             }
+            let elapsed = ContinuousClock.now - started
             guard let outcome = outcomeBox.value else {
                 Issue.record("OMP refinement did not honor its configured 300 ms timeout within the 2 s watchdog")
                 refineTask.cancel()
@@ -258,7 +283,11 @@ extension OmpSuites {
                 return
             }
 
-            #expect(fellBackText(outcome) == "CLEAN:hello")
+            // The deadline is wall clock, not a token or read budget: a backend
+            // that keeps the turn open indefinitely still has to release the
+            // caller, with the deterministic text and the timeout reason.
+            #expect(outcome == .fellBack("CLEAN:hello", reason: "omp timed out"))
+            #expect(elapsed < .seconds(1))
             #expect(FileManager.default.fileExists(atPath: firstRunMarker.path))
             let firstPID = try #require(processIDs(in: pidFile).first)
             guard await waitForProcessExit(firstPID) else {

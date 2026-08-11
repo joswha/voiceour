@@ -66,7 +66,7 @@ is media, so no gate diffs it. It needs `ffmpeg` on `PATH`. See `docs/ui-harness
 
 ### Vocabulary trust boundaries
 
-- Only cloud-eligible, non-tombstoned, non-project-scoped terms may reach the cloud refiner (`LLMRefiner`, `OmpRpcRefiner`) prompts; the on-device backend (`FoundationModelsRefiner`) keeps the full active set. Never widen what the cloud prompt sees.
+- Only cloud-eligible, non-tombstoned, non-project-scoped terms may reach the network refiner (`OmpRpcRefiner`) prompt; the on-device backend (`FoundationModelsRefiner`) keeps the full active set. Never widen what the network prompt sees.
 - Ephemeral context candidates, project-scoped terms, cloud-ineligible imports, and tombstoned terms must never cross the cloud boundary.
 - Only explicit user action (Sessions Fix/Teach, suggestion accept, Glossary Import, System "Clear learned vocabulary") may set a term's confirmed or `tombstonedAt` timestamps. Never set them from automatic or background paths.
 - Keep the per-utterance active snapshot bounded (<= 100 terms) and compiled from the captured target's bundle id and active project.

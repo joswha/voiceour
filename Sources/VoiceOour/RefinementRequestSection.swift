@@ -71,8 +71,6 @@ struct RefinementRequestSection: View {
         case .appleOnDevice:
             return
                 "\(band) The Apple on-device model runs locally. Measured refinements are typically 1.6–2.0s; timeouts and guard rejections fall back to the deterministic cleanup text."
-        case .gemini, .openAI, .openRouter, .custom:
-            return band
         }
     }
 }

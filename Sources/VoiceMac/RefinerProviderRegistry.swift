@@ -5,27 +5,18 @@ import VoiceCore
 public struct RefinerProviderDescriptor: Sendable {
     public let id: RefinerProvider
     public let displayName: String
-    public let defaultBaseURL: String
-    public let suggestedModels: [String]
-    public let apiKeyURL: String?
-    public let apiKeyEnvName: String?
+    public let defaultModel: String
     public let make: @Sendable (Settings) -> any TranscriptRefining
 
     public init(
         id: RefinerProvider,
         displayName: String,
-        defaultBaseURL: String,
-        suggestedModels: [String],
-        apiKeyURL: String?,
-        apiKeyEnvName: String?,
+        defaultModel: String,
         make: @escaping @Sendable (Settings) -> any TranscriptRefining
     ) {
         self.id = id
         self.displayName = displayName
-        self.defaultBaseURL = defaultBaseURL
-        self.suggestedModels = suggestedModels
-        self.apiKeyURL = apiKeyURL
-        self.apiKeyEnvName = apiKeyEnvName
+        self.defaultModel = defaultModel
         self.make = make
     }
 }
@@ -34,14 +25,12 @@ public struct RefinerProviderDescriptor: Sendable {
 ///
 /// Adding a provider used to touch eleven files, and vendor types leaked from
 /// VoiceMac into VoiceCore, the coordinator, three UI files, the harness
-/// fixtures and the benchmark. Construction now happens in one place.
+/// fixtures and the benchmark. Construction happens in one place.
 ///
-/// `RefinerProvider` stays exactly as it is: a closed `Codable` enum whose raw
-/// values are the `refiner_provider` key in `settings.json`. This registry is
-/// runtime dispatch only and never encodes an id into settings, so it cannot
-/// change the stored format. Supporting arbitrary third-party provider ids needs
-/// a settings migration off that closed enum and is deliberately not part of
-/// this change.
+/// `RefinerProvider` stays a closed `Codable` enum whose raw values are the
+/// `refiner_provider` key in `settings.json`. This registry is runtime dispatch
+/// only and never encodes an id into settings, so it cannot change the stored
+/// format.
 public struct RefinerProviderRegistry: Sendable {
     private let descriptorsByID: [RefinerProvider: RefinerProviderDescriptor]
 
@@ -70,11 +59,10 @@ public struct RefinerProviderRegistry: Sendable {
     /// The shipped provider set.
     ///
     /// Metadata is read from `RefinerProvider` itself rather than restated, so
-    /// the enum stays the single source for base URLs, suggested models and key
-    /// locations and the two cannot drift.
+    /// the enum stays the single source for display names and default models
+    /// and the two cannot drift.
     public static func live(
         environment: [String: String],
-        apiKeyProvider: @escaping @Sendable (RefinerProvider) -> any RefinerAPIKeyProviding,
         deterministicFallback: @escaping @Sendable (String) -> String
     ) -> RefinerProviderRegistry {
         RefinerProviderRegistry(
@@ -82,16 +70,12 @@ public struct RefinerProviderRegistry: Sendable {
                 RefinerProviderDescriptor(
                     id: provider,
                     displayName: provider.displayName,
-                    defaultBaseURL: RefinerResolved.defaultBaseURL(provider),
-                    suggestedModels: provider.suggestedModels,
-                    apiKeyURL: provider.apiKeyURL,
-                    apiKeyEnvName: provider.apiKeyEnvName,
+                    defaultModel: provider.defaultModel,
                     make: { settings in
                         Self.makeBackend(
                             provider: provider,
                             settings: settings,
                             environment: environment,
-                            apiKeyProvider: apiKeyProvider,
                             deterministicFallback: deterministicFallback
                         )
                     }
@@ -103,10 +87,8 @@ public struct RefinerProviderRegistry: Sendable {
         provider: RefinerProvider,
         settings: Settings,
         environment: [String: String],
-        apiKeyProvider: @escaping @Sendable (RefinerProvider) -> any RefinerAPIKeyProviding,
         deterministicFallback: @escaping @Sendable (String) -> String
     ) -> any TranscriptRefining {
-        let model = RefinerResolved.model(settings)
         switch provider {
         case .omp:
             let omp = OmpExecutable.resolve(explicitPath: environment["VOICEOOUR_OMP_BIN"])
@@ -115,7 +97,7 @@ public struct RefinerProviderRegistry: Sendable {
                     enabled: settings.refinerEnabled,
                     executableURL: omp.url,
                     argumentPrefix: omp.prefix,
-                    model: model,
+                    model: RefinerResolved.model(settings),
                     timeoutMs: max(settings.refinerTimeoutMs, 1_000),
                     profileDirectory: OmpRpcProfile.defaultDirectory()
                 ),
@@ -136,17 +118,6 @@ public struct RefinerProviderRegistry: Sendable {
             #else
                 return UnsupportedRefiner(reason: "requires_macos_26")
             #endif
-        case .gemini, .openAI, .openRouter, .custom:
-            return LLMRefiner(
-                configuration: LLMRefinerConfiguration(
-                    enabled: settings.refinerEnabled,
-                    baseURL: URL(string: RefinerResolved.baseURL(settings)),
-                    model: model,
-                    timeoutMs: settings.refinerTimeoutMs
-                ),
-                apiKeyProvider: apiKeyProvider(provider),
-                deterministicFallback: deterministicFallback
-            )
         }
     }
 }

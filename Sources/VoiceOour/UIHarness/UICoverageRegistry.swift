@@ -91,9 +91,6 @@
 
             // Refinement
             state(.refinement, "disabled", "Refinement disabled", scene: "console.refinement.off"),
-            state(.refinement, "provider-gemini", "Gemini provider", scene: "console.refinement.off"),
-            state(.refinement, "provider-openai", "OpenAI provider", scene: "console.refinement.configured"),
-            state(.refinement, "provider-openrouter", "OpenRouter provider", scene: "console.refinement.unreachable"),
             state(.refinement, "provider-omp", "Oh My Pi provider", scene: "console.refinement.omp"),
             state(
                 .refinement,
@@ -101,37 +98,45 @@
                 "Apple on-device provider",
                 scene: "console.refinement.apple"
             ),
-            state(.refinement, "provider-custom", "Custom endpoint provider", scene: "console.refinement.custom"),
-            state(.refinement, "key-source-none", "No API key source"),
-            state(.refinement, "key-source-environment", "API key sourced from the environment"),
-            state(
-                .refinement,
-                "key-source-keychain",
-                "API key sourced from Keychain",
-                scene: "console.refinement.configured"
-            ),
-            state(.refinement, "key-save-failure", "Keychain save failure"),
-            state(.refinement, "key-delete-failure", "Keychain delete failure"),
             state(
                 .refinement,
                 "reachability-unknown",
                 "Reachability not checked",
+                scene: "console.refinement.omp-login-failed"
+            ),
+            // No scene renders a probe in flight any more: the only remaining probe
+            // spawns `omp`, and a scene that could reach it is a scene that could
+            // spawn a subprocess. The flow holds that probe behind a gate instead,
+            // which is the stronger reading anyway.
+            state(.refinement, "reachability-checking", "Reachability probe in flight"),
+            state(.refinement, "reachability-ok", "Reachable provider", scene: "console.refinement.omp"),
+            state(.refinement, "reachability-failed", "Provider unreachable", scene: "console.refinement.unreachable"),
+            state(
+                .refinement,
+                "model-catalog-loaded",
+                "Model picker offering the loaded catalog",
                 scene: "console.refinement.configured"
             ),
+            state(.refinement, "model-catalog-loading", "Model catalog load in flight"),
             state(
                 .refinement,
-                "reachability-checking",
-                "Reachability probe in flight",
-                scene: "console.refinement.custom"
+                "model-catalog-failed",
+                "Model catalog load failed",
+                scene: "console.refinement.unreachable"
             ),
-            state(.refinement, "reachability-ok", "Reachable provider", scene: "console.refinement.omp"),
             state(
                 .refinement,
-                "reachability-unauthorized",
-                "Provider rejected the key",
-                scene: "console.refinement.unauthorized"
+                "model-catalog-filtered",
+                "Model picker narrowed by a typed filter",
+                scene: "console.refinement.model-catalog"
             ),
-            state(.refinement, "reachability-failed", "Provider unreachable", scene: "console.refinement.unreachable"),
+            state(.refinement, "model-selected", "Model chosen out of the catalog"),
+            state(
+                .refinement,
+                "model-defaulted",
+                "Empty model field resolved to the provider default",
+                scene: "console.refinement.omp"
+            ),
             state(.refinement, "omp-status-idle", "OMP status not checked"),
             state(.refinement, "omp-status-checking", "OMP status check in flight"),
             state(.refinement, "omp-status-failed", "OMP status check failed"),
@@ -151,7 +156,7 @@
             ),
             state(.refinement, "check-success", "Successful CHECK verdict for the current fingerprint"),
             journey(.refinement, "enable-and-check", "Enable refinement and check provider reachability"),
-            journey(.refinement, "configure-network-provider", "Configure a network refiner and probe it"),
+            journey(.refinement, "select-model", "Load the Oh My Pi model catalog, filter it and select a model"),
             journey(.refinement, "connect-omp-provider", "Connect an Oh My Pi provider", limitation: .systemPanel),
 
             // System

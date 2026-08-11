@@ -68,7 +68,7 @@ struct DictationPolicyTests {
                 refinerEnabled: true,
                 refinerConfigured: false,
                 targetSafety: .normalText,
-                providerReadiness: .needsKey,
+                providerReadiness: .needsModel,
                 assessment: tooLong
             ) == .skip(reason: "unconfigured"))
 

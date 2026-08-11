@@ -128,7 +128,6 @@ public struct Settings: Codable, Equatable, Sendable {
     public var asrBackend: String
     public var refinerEnabled: Bool
     public var refinerProvider: RefinerProvider
-    public var refinerBaseURL: String
     public var refinerModel: String
     public var refinerTimeoutMs: Int
     public var glossary: [ProtectedTerm]
@@ -145,7 +144,6 @@ public struct Settings: Codable, Equatable, Sendable {
         case asrBackend = "asr_backend"
         case refinerEnabled = "refiner_enabled"
         case refinerProvider = "refiner_provider"
-        case refinerBaseURL = "refiner_base_url"
         case refinerModel = "refiner_model"
         case refinerTimeoutMs = "refiner_timeout_ms"
         case glossary
@@ -162,8 +160,7 @@ public struct Settings: Codable, Equatable, Sendable {
         cleanupEnabled: Bool = true,
         asrBackend: String = "fake",
         refinerEnabled: Bool = false,
-        refinerProvider: RefinerProvider = .gemini,
-        refinerBaseURL: String = "",
+        refinerProvider: RefinerProvider = .omp,
         refinerModel: String = "",
         refinerTimeoutMs: Int = 3000,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
@@ -179,7 +176,6 @@ public struct Settings: Codable, Equatable, Sendable {
         self.asrBackend = asrBackend
         self.refinerEnabled = refinerEnabled
         self.refinerProvider = refinerProvider
-        self.refinerBaseURL = refinerBaseURL
         self.refinerModel = refinerModel
         self.refinerTimeoutMs = refinerTimeoutMs
         self.glossary = glossary
@@ -197,11 +193,26 @@ public struct Settings: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         cleanupEnabled = try container.decodeIfPresent(Bool.self, forKey: .cleanupEnabled) ?? defaults.cleanupEnabled
         asrBackend = try container.decodeIfPresent(String.self, forKey: .asrBackend) ?? defaults.asrBackend
-        refinerEnabled = try container.decodeIfPresent(Bool.self, forKey: .refinerEnabled) ?? defaults.refinerEnabled
-        refinerProvider =
-            try container.decodeIfPresent(RefinerProvider.self, forKey: .refinerProvider) ?? defaults.refinerProvider
-        refinerBaseURL = try container.decodeIfPresent(String.self, forKey: .refinerBaseURL) ?? defaults.refinerBaseURL
-        refinerModel = try container.decodeIfPresent(String.self, forKey: .refinerModel) ?? defaults.refinerModel
+        let storedProviderID = try container.decodeIfPresent(String.self, forKey: .refinerProvider)
+        let storedEnabled = try container.decodeIfPresent(Bool.self, forKey: .refinerEnabled) ?? defaults.refinerEnabled
+        let storedModel = try container.decodeIfPresent(String.self, forKey: .refinerModel) ?? defaults.refinerModel
+        if let storedProviderID, RefinerProvider(rawValue: storedProviderID) == nil {
+            // A build that reached Gemini, OpenAI, OpenRouter or a hand-typed
+            // endpoint directly wrote this file. OMP now brokers every network
+            // destination, so the provider becomes OMP — but silently moving a
+            // running refiner onto a different destination is a consent
+            // question, not a rename, so refinement switches off until the user
+            // opts in again against the destination now on screen. The stored
+            // model was a bare vendor id (`gpt-4.1-nano`) that OMP's
+            // provider/model selector cannot name, so it goes too.
+            refinerProvider = defaults.refinerProvider
+            refinerEnabled = false
+            refinerModel = ""
+        } else {
+            refinerProvider = storedProviderID.flatMap(RefinerProvider.init(rawValue:)) ?? defaults.refinerProvider
+            refinerEnabled = storedEnabled
+            refinerModel = storedModel
+        }
         refinerTimeoutMs =
             try container.decodeIfPresent(Int.self, forKey: .refinerTimeoutMs) ?? defaults.refinerTimeoutMs
         glossary = try container.decodeIfPresent([ProtectedTerm].self, forKey: .glossary) ?? defaults.glossary

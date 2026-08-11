@@ -64,8 +64,6 @@ struct RefinementConnectionSection: View {
             return "Checks whether Apple Intelligence is available on this Mac. Nothing is sent anywhere."
         case .omp:
             return "Runs `omp models` locally and looks for the selected model in the result. No transcript is sent."
-        case .gemini, .openAI, .openRouter, .custom:
-            return "Requests the model list from the endpoint above. No transcript is sent."
         }
     }
 
@@ -82,8 +80,6 @@ struct RefinementConnectionSection: View {
             provider == .appleOnDevice
                 ? ("AVAILABLE", .ok)
                 : ("REACHABLE · \(models) \(models == 1 ? "MODEL" : "MODELS")", .ok)
-        case .unauthorized:
-            ("BAD KEY", .crit)
         case .failed:
             ("UNREACHABLE", .warn)
         }
@@ -93,8 +89,6 @@ struct RefinementConnectionSection: View {
     /// refinement work" is the one place that answer belongs.
     private func statusDetail(_ reachability: RefinerReachability) -> String? {
         switch reachability {
-        case .unauthorized:
-            return "The endpoint rejected the key (HTTP 401 or 403)."
         case .failed(let reason):
             let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed

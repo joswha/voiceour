@@ -1,5 +1,5 @@
 flow: refinement.enable-and-check
-title: Enable a configured refiner and check reachability
+title: Enable the Oh My Pi refiner and check reachability
 fixture: refiner-check
 transitions: idle
 PASS 1 disabled | value label="Enable refiner" == "0" | "0"
@@ -8,4 +8,7 @@ PASS 3 disabled | model refinementEnabled == "false" | false
 PASS 4 enabled | value label="Enable refiner" == "1" | "1"
 PASS 5 enabled | enabled(true) label="CHECK" | true
 PASS 6 enabled | model refinementEnabled == "true" | true
-PASS 7 reachable | text == "REACHABLE · 3 MODELS" exactly 1 | 1 match
+PASS 7 checking | text == "CHECKING…" at least 1 | 1 match
+PASS 8 checking | absent label="CHECK" | 0 matches
+PASS 9 reachable | text == "REACHABLE · 3 MODELS" exactly 1 | 1 match
+PASS 10 reachable | enabled(true) label="CHECK" | true

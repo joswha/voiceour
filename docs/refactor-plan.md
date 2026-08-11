@@ -58,12 +58,13 @@ highest-severity open-source blocker in the repository. It is also a one-line fi
 
 ### Structural themes (not individual bugs)
 
-1. **Closed-world switches instead of registries.** Every extension point — ASR backend, refiner provider,
-   console pane, harness scene, lint rule — is a set of exhaustive `switch` statements spread across
-   4–11 files. Conforming to the protocol is not enough to add anything.
+1. **Closed-world switches instead of registries.** Every extension point — ASR backend, console pane,
+   harness scene, lint rule — is a set of exhaustive `switch` statements spread across
+   4–11 files. Conforming to the protocol is not enough to add anything. The refiner provider was the
+   worst of them and is now `RefinerProviderRegistry`; it is the shape the rest should take.
 2. **Six files over 900 lines**, led by `DictationCoordinator.swift` (2,024) with 14 distinct responsibilities.
 3. **No shared test-double layer.** Two files define separate fake recorders/ASRs; `ControlServiceTests`
-   compiles against globals owned by `DictationCoordinatorTests`; three separate `URLProtocol` mocks exist.
+   compiles against globals owned by `DictationCoordinatorTests`.
 4. **A 2,786-line test monolith** (`VoiceMacTests.swift`) covering 14 unrelated topics, while every other
    test file is already correctly topic-scoped.
 5. **~2,400 lines of vendor glue** for Oh My Pi, leaking into `VoiceCore`, the coordinator, three UI files,
@@ -78,11 +79,11 @@ None of these change product behavior. All of them must land **before** Phase 3,
 
 | Pass | Current behavior | Structural improvement | Validation |
 |---|---|---|---|
-| **P0.1 Shared test support** | `DictationCoordinatorTests:1415-1519` and `ControlServiceTests:700-764` define separate fake recorders/ASRs; `CloudVocabularyFilterTests` calls helpers defined in `LLMRefinerGateTests`; three `URLProtocol` mocks | One `TestSupport` file per test target: one `FakeRecorder`, `FakeASR`, `Gate`, deterministic clock, one request-capturing `URLProtocol`. Delete the copies and the cross-file global coupling | `swift test` stays 406/406. Run targets individually to prove no file-order dependency remains |
+| **P0.1 Shared test support** | `DictationCoordinatorTests:1415-1519` and `ControlServiceTests:700-764` define separate fake recorders/ASRs | One `TestSupport` file per test target: one `FakeRecorder`, `FakeASR`, `Gate`, deterministic clock. Delete the copies and the cross-file global coupling | `swift test` stays 406/406. Run targets individually to prove no file-order dependency remains |
 | **P0.2 Fix the lying test** | `stopPathUsesOneHardCappedVocabularySnapshot` asserts a 100-term cap but never enables decoder bias and cannot observe bias phrases | Extend `FakeASR` to capture the `biasPhrases` argument; add a case with `decoderBiasEnabled = true` that asserts one compilation. This test **should fail** on today's code — that is the point | New assertion fails pre-fix, passes after Pass S4. Record it as a red test |
-| **P0.3 Retire refactor-blocking assertions** | Tests pin Keychain query internals (`:160-166,195-219,246-267`), OMP exact settings JSON (`:523-554`), process PIDs (`:1099-1124`), FoundationModels session IDs/counters, coordinator call counts | Rewrite each to assert the observable contract instead of the mechanism. Keep every assertion that is genuinely a security or wire contract (Keychain *protection class*, OMP `--no-tools`, NDJSON framing) | Same test count; each rewritten test must still fail when its contract is deliberately broken |
+| **P0.3 Retire refactor-blocking assertions** | Tests pin OMP exact settings JSON (`:523-554`), process PIDs (`:1099-1124`), FoundationModels session IDs/counters, coordinator call counts | Rewrite each to assert the observable contract instead of the mechanism. Keep every assertion that is genuinely a security or wire contract (OMP `--no-tools`, NDJSON framing) | Same test count; each rewritten test must still fail when its contract is deliberately broken |
 | **P0.4 Characterization tests for untested modules** | No test file exists for `WorkspaceTargetTracker`, `UILint`, `SessionsPane` query/stats, `SystemAudioMuter`, `SystemPermissions` | Add characterization tests for exactly the logic Phase 3/4 will move. Not coverage for its own sake — these are the parity nets for named passes | New suites pass; each names the pass it protects |
-| **P0.5 CI** | None | GitHub Actions on macOS 14: `swift build` with `-warnings-as-errors` (already clean), `swift test`, `asr` pytest, `bench` pytest, `make bench-smoke`, `make ui-snap --except os26`. Add a secret scanner. Explicitly exclude anything needing a model, mic, Accessibility grant, macOS 26, or credentials | The workflow passes on a runner with no model cache, no TCC grants, no API keys |
+| **P0.5 CI** | None | GitHub Actions on macOS 14: `swift build` with `-warnings-as-errors` (already clean), `swift test`, `asr` pytest, `bench` pytest, `make bench-smoke`, `make ui-snap --except os26`. Add a secret scanner. Explicitly exclude anything needing a model, mic, Accessibility grant, macOS 26, or an `omp` install | The workflow passes on a runner with no model cache, no TCC grants, and no `omp` binary |
 | **P0.6 Formatter + linter** | No config | Adopt `swift-format` with a checked-in config, plus `ruff` for both Python packages. **Run formatting as one isolated commit**, never mixed into a refactor pass | `git diff --stat` on the formatting commit touches only whitespace; `swift test` unchanged |
 
 ### Specs to write before Phase 3/4
@@ -188,8 +189,8 @@ Mechanical, behavior-preserving, individually reviewable. Every one is gated on 
 
 | Pass | File | Split into | Validation |
 |---|---|---|---|
-| **M1** | `DictationCoordinator.swift` (2,024, 14 responsibilities) | `RecordingSessionDriver` (permission, recorder, meter, auto-stop, mute FIFO) · `TranscriptProcessingPipeline` (ASR → cleanup → authorization → refine → insert → telemetry) · `RefinerConfigurationController` (identity, reachability, key source, OMP) · `RecentSessionJournal` (FIFO persistence, outcomes, termination drain). Coordinator stays the `@MainActor` façade | Named in the audit: `cancelledSessionLateResultDoesNotResurrectState`, `tempAudioRemovedOn{Success,Cancellation,Error}Path`, `focusSwitchDuringTranscriptionUsesLatestTargetForInsertion`, `firstSessionCheckpointPublishesImmediatelyAndPrecedesInsertion`, `terminationWaitsForPendingSessionCheckpoint`. **Do this as four separate commits, one per extraction** |
-| **M2** | `VoiceMacTests.swift` (2,786) | 12 topic files along the boundaries already identified: `KeychainRefinerAPIKeyStoreTests` (149-433), `OmpProfileEnvironmentTests` (481-738), `OmpRpcRefinerTests` (1081-1836), `FoundationModelsRefinerTests` (1887-2072), `AppleSpeechASRTests` (2073-2245), `CaptureTelemetryTests` (2246-2461), `KeyboardShortcutsTests` (2462-2560), etc. Ranges 12-51 and 53-135 fold into the existing dedicated files | Test names and outcomes identical before/after. Preserve `.serialized` only where static/process/Keychain state requires it |
+| **M1** | `DictationCoordinator.swift` (2,024, 14 responsibilities) | `RecordingSessionDriver` (permission, recorder, meter, auto-stop, mute FIFO) · `TranscriptProcessingPipeline` (ASR → cleanup → authorization → refine → insert → telemetry) · `RefinerConfigurationController` (identity, reachability, OMP account status, OMP model catalog) · `RecentSessionJournal` (FIFO persistence, outcomes, termination drain). Coordinator stays the `@MainActor` façade | Named in the audit: `cancelledSessionLateResultDoesNotResurrectState`, `tempAudioRemovedOn{Success,Cancellation,Error}Path`, `focusSwitchDuringTranscriptionUsesLatestTargetForInsertion`, `firstSessionCheckpointPublishesImmediatelyAndPrecedesInsertion`, `terminationWaitsForPendingSessionCheckpoint`. **Do this as four separate commits, one per extraction** |
+| **M2** | `VoiceMacTests.swift` (2,786) | 12 topic files along the boundaries already identified: `OmpProfileEnvironmentTests` (481-738), `OmpRpcRefinerTests` (1081-1836), `FoundationModelsRefinerTests` (1887-2072), `AppleSpeechASRTests` (2073-2245), `CaptureTelemetryTests` (2246-2461), `KeyboardShortcutsTests` (2462-2560), etc. Ranges 12-51 and 53-135 fold into the existing dedicated files | Test names and outcomes identical before/after. Preserve `.serialized` only where static or process state requires it |
 | **M3 — landed** | the 1,565-line monolithic recording-overlay file (7 subsystems) | Shipped as `RecordingOverlayView` · `RecordingOverlayController` · `RecordingOverlayPanel` · `RecordingOverlayLayout` · `RecordingOverlayButtons` · `RecordingOverlayWaveform` · `RecordingOverlayComet` · `RecordingOverlayModel` · `RecordingOverlaySessionState` · `RecordingOverlayFocusTracker`, plus the pure `RecordingOverlayPlacement` beside `RecordingOverlayPlacementTests` | `swift test --filter RecordingOverlayPlacementTests`; `make ui-snap` + `ui-snap-os26` on `overlay.*` scenes |
 | **M4 — landed** | the 1,721-line `GlassKit` monolith / `DesignTokens.swift` (678) | Shipped as `GlassWindowChrome` (A11y resolver + window bridge) · `GlassSurfaces` · `GlassMarks` · the per-control style files; `DesignTokens.swift` kept the canonical tokens and moved harness instrumentation to `DesignTokenInstrumentation.swift`. No renames, no access-level changes | `make ui-snap` and `ui-snap-os26` byte-identical; `UISceneCatalogTests` |
 | **M5 — landed** | the 977-line harness main file | Shipped as `UIHarnessRunner` · `UIHarnessArtifacts` · `UIHarnessManifest` + `UIHarnessReport` · `UIHarnessDiff`. CLI parsing already lived correctly in `UIHarnessContracts` | `scripts/ui_harness.sh --except os26 --stdout --no-sheet`; manifest, status counts, and exit codes unchanged |
@@ -269,9 +270,9 @@ Explicitly **not** part of any refactor pass. Each changes an API, a build graph
    after release every `public` symbol is a compatibility promise.
 7. **Renaming `VoiceOour` → anything** — measured blast radius: SwiftPM package/products/targets, 33 app
    source files + 7 test files, two Python packages, all scripts, plist, and docs. Critically,
-   **user-data-bearing**: the Application Support directory (settings + history), Keychain service
-   `com.voiceoour.app.refiner`, `UserDefaults` keys, and the bundle ID that scopes them. A rename without a
-   migration orphans every existing user's settings, history, and API keys. The `vociea` remote spelling is
+   **user-data-bearing**: the Application Support directory (settings + history), `UserDefaults` keys, and
+   the bundle ID that scopes them. A rename without a migration orphans every existing user's settings and
+   history. The `vociea` remote spelling is
    documented as intentional and appears **only** in `AGENTS.md:10,204` — no code references it.
 8. **Wire-contract strictness** — Swift requires `expectedModel`/`timeoutMs` where Python defaults them;
    Python `extra="forbid"` where Swift Codable ignores unknown keys. Fixture parity hides this. Aligning
@@ -311,8 +312,6 @@ lines and 96 vendored files, corrects the security policy, and puts CI in front 
   ICC profile. Correct as written.
 - **Collapsing `AppleSpeechASRClient` into `AppleSpeechDictationEngine`.** The batch/streaming split is
   semantically real. Extract the shared analyzer setup; do not merge the classes.
-- **Deleting the Keychain legacy-migration path.** It looks like dead legacy code. It is an active upgrade
-  contract for existing installs, defended by four tests. Retire it in a planned release, not a cleanup.
 - **A registry abstraction for everything.** `SettingsRow`/`PropertyKit`, `CleanupEngine`'s stage order, and
   `UILint`'s per-rule functions are already good designs. The problem is discoverability and one duplicate
   call site, not the architecture.

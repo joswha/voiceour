@@ -6,17 +6,14 @@ import Testing
 
 @Suite("CloudVocabularyFilterTests", .serialized)
 struct CloudVocabularyFilterTests {
-    /// The cloud request body must provably exclude every ineligible term:
+    /// The cloud prompt must provably exclude every ineligible term:
     /// project-scoped terms, `cloudEligible == false` terms, and tombstoned
     /// terms never cross the network boundary, while global/bundle cloud terms do.
-    @Test func cloudRequestBodyOmitsIneligibleGlossaryTerms() async throws {
-        let stub = HTTPStub()
-        let capture = RequestCapture()
-        stub.handler = { request in
-            try capture.record(request)
-            return try chatCompletionResponse(url: request.url!, finalText: "The meeting notes.")
-        }
-
+    ///
+    /// The subject is the message OMP is handed, because that message is the
+    /// whole payload: VoiceOour no longer builds a request body, and OMP
+    /// forwards what it is given.
+    @Test func cloudPromptOmitsIneligibleGlossaryTerms() {
         let glossary: [ProtectedTerm] = [
             ProtectedTerm(
                 canonical: "AlphaGlobalTerm", spokenAliases: ["alpha global"], scope: .global, cloudEligible: true),
@@ -33,44 +30,40 @@ struct CloudVocabularyFilterTests {
                 tombstonedAt: Date(timeIntervalSince1970: 0)),
         ]
 
-        let refiner = LLMRefiner(
-            configuration: LLMRefinerConfiguration(
-                enabled: true,
-                baseURL: URL(string: "https://example.invalid/v1")!,
-                model: "test-model"
-            ),
-            apiKeyProvider: StaticRefinerAPIKeyProvider("token"),
-            session: stub.session,
-            deterministicFallback: { "DET:\($0)" }
-        )
-
-        let outcome = await refiner.refine(
-            "the meeting notes",
-            glossary: glossary,
-            safety: .normalText,
+        let cloudMessage = RefinerPolicy.ompUserMessage(
+            raw: "the meeting notes",
+            glossary: RefinerPolicy.cloudEligible(glossary),
             style: .standard
         )
 
-        #expect(outcome == .refined("The meeting notes."))
-        let body = try #require(capture.body)
-        let messages = try #require(body["messages"] as? [[String: Any]])
-        let userMessage = try #require(messages.first { $0["role"] as? String == "user" }?["content"] as? String)
+        // Cloud-eligible global and bundle-scoped terms reach the prompt, with
+        // the aliases the model needs to repair a mishearing.
+        #expect(cloudMessage.contains("AlphaGlobalTerm"))
+        #expect(cloudMessage.contains("alpha global"))
+        #expect(cloudMessage.contains("BetaBundleTerm"))
+        #expect(cloudMessage.contains("beta bundle"))
+        // Project-scoped, cloudEligible==false, and tombstoned terms are gone,
+        // and so are their aliases: an alias names the term just as plainly.
+        for excluded in [
+            "GammaProjectTerm", "gamma project",
+            "DeltaLocalTerm", "delta local",
+            "EpsilonDeadTerm", "epsilon dead",
+        ] {
+            #expect(!cloudMessage.contains(excluded), "\(excluded) reached the cloud prompt")
+        }
+        #expect(cloudMessage.contains("the meeting notes"))
 
-        // Cloud-eligible global and bundle-scoped terms reach the prompt.
-        #expect(userMessage.contains("AlphaGlobalTerm"))
-        #expect(userMessage.contains("BetaBundleTerm"))
-        // Project-scoped, cloudEligible==false, and tombstoned terms are gone.
-        #expect(!userMessage.contains("GammaProjectTerm"))
-        #expect(!userMessage.contains("DeltaLocalTerm"))
-        #expect(!userMessage.contains("EpsilonDeadTerm"))
-
-        // Prove absence at the raw request-body byte level too, so no encoding
-        // path could smuggle an ineligible canonical across the boundary.
-        let rawBody = try #require(capture.rawBody)
-        let rawString = try #require(String(data: rawBody, encoding: .utf8))
-        #expect(!rawString.contains("GammaProjectTerm"))
-        #expect(!rawString.contains("DeltaLocalTerm"))
-        #expect(!rawString.contains("EpsilonDeadTerm"))
+        // Negative control: the same builder fed the unfiltered glossary does
+        // emit every one of those terms. Without this the assertions above would
+        // still pass if the prompt had simply stopped carrying vocabulary at all.
+        let unfilteredMessage = RefinerPolicy.ompUserMessage(
+            raw: "the meeting notes",
+            glossary: glossary,
+            style: .standard
+        )
+        for included in ["GammaProjectTerm", "DeltaLocalTerm", "EpsilonDeadTerm"] {
+            #expect(unfilteredMessage.contains(included))
+        }
     }
 
     /// The filter is a pure subset selection: it drops exactly the ineligible

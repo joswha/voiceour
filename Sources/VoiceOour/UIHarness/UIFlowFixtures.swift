@@ -115,19 +115,68 @@
             }
         }
 
+        /// Refinement switched off over an OMP configuration that is otherwise
+        /// complete, so the script can turn it on and press CHECK.
+        ///
+        /// The verdict parks on `.refinement`; see `modelCatalog()` below for why
+        /// that gate. Without it the probe answers inside the press and CHECKING is
+        /// a state no checkpoint can ever see.
         static func refinerCheck() -> UIFlowFixture {
-            UIFlowFixture(name: "refiner-check", armedGates: []) {
+            UIFlowFixture(name: "refiner-check", armedGates: [.refinement]) {
+                let probeLink = UIAdapterLink(gate: .refinement)
                 var settings = UIFixtures.settings()
                 settings.refinerEnabled = false
-                settings.refinerProvider = .custom
-                settings.refinerBaseURL = "https://refiner.invalid/v1"
-                settings.refinerModel = "ui-flow-model"
+                settings.refinerProvider = .omp
+                settings.refinerModel = UIFixtures.selectedModel
                 let coordinator = UIFixtures.make(
                     sessions: UIFixtures.history,
                     settings: settings,
-                    cloudReachabilityProbe: { _, _, _, _ in .ok(models: 3) }
+                    ompModelsProbe: { _, _, _, _ in
+                        await probeLink.arrive()
+                        return .ok(models: 3)
+                    }
                 )
-                return UIFlowContext(coordinator: coordinator, armedGates: [])
+                let context = UIFlowContext(coordinator: coordinator, armedGates: [.refinement])
+                probeLink.bind(to: context)
+                return context
+            }
+        }
+
+        /// An OMP configuration whose model is still the provider default and whose
+        /// catalog has not been asked for yet, so the pane's own entry task loads it
+        /// and the script drives the rest: filter, then pick.
+        ///
+        /// This is the one fixture that passes `ompModelCatalogState: nil`. Every
+        /// other one installs a value so `RefinementPane`'s `.task(id: provider)`
+        /// skips the load entirely; here the load IS the subject, so the override
+        /// stays absent and the injected loader parks on `.refinement` instead. The
+        /// gate vocabulary is closed and names the boundaries of one dictation, but
+        /// this is the same subsystem's asynchronous boundary and the flow never
+        /// dictates, so there is nothing for it to collide with. Holding it is also
+        /// the only way `.loading` is a checkpoint rather than a state the run loop
+        /// skips past between two pumps.
+        static func modelCatalog() -> UIFlowFixture {
+            UIFlowFixture(name: "model-catalog", armedGates: [.refinement]) {
+                let catalogLink = UIAdapterLink(gate: .refinement)
+                // Read on the main actor and captured by value: the load closure runs
+                // off it, and `UIFixtures` is main-actor isolated.
+                let catalog = UIFixtures.ompModels
+                var settings = UIFixtures.settings()
+                settings.refinerEnabled = true
+                settings.refinerProvider = .omp
+                settings.refinerModel = ""
+                let coordinator = UIFixtures.make(
+                    sessions: UIFixtures.history,
+                    settings: settings,
+                    ompModelCatalogState: nil,
+                    ompModelCatalogLoad: { _, _, _ in
+                        await catalogLink.arrive()
+                        return catalog
+                    }
+                )
+                let context = UIFlowContext(coordinator: coordinator, armedGates: [.refinement])
+                catalogLink.bind(to: context)
+                return context
             }
         }
 
@@ -193,11 +242,9 @@
                     url: scratch.appendingPathComponent("recent-sessions.json")
                 ),
                 recentSessionSnapshotSave: { _, _ in },
-                keySourceProvider: { _ in .none },
-                refinerAPIKeyProvider: { _ in nil },
                 ompModelsProbe: { _, _, _, _ in .failed("ui flow fixture") },
                 ompProviderStatusProbe: { _, _, _ in OmpProviderStatusSnapshot(connections: []) },
-                cloudReachabilityProbe: { _, _, _, _ in .failed("ui flow fixture") },
+                ompModelCatalogLoad: { _, _, _ in [] },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )

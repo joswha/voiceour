@@ -26,6 +26,9 @@ struct AsyncGenerationGate {
         case reachability
         /// An OMP provider-status refresh.
         case providerStatus
+        /// An OMP model-catalog refresh, so a slow `omp models` cannot replace
+        /// a list a newer refresh already published.
+        case modelCatalog
     }
 
     /// A claim on one scope, taken before launching async work.

@@ -156,7 +156,7 @@ The catalog is the single place scenes are declared: `UISceneCatalog` in `Source
 | `systemConsole`, `systemMenu`, `systemOverlay` | matching legacy measure | tag `os26`; builds the deterministic fixture first, then releases `forceLegacyGlass` only for the hosted scene and restores it at teardown |
 | `sheet(_ id, _ title, size:) { view }` | your size | component gallery, tag `atom`, same padding and backdrop as `pane` |
 
-Console and pane scenes render at 1164x820 because that is the app's first-launch window: `UISceneCatalog.consoleSize` is `VoiceOourMetrics.Window.defaultWidth` x `Window.defaultHeight`, so a scene shows exactly the geometry a fresh install shows — rail 176, region 988, padded content region 940 — and clears `ConsoleScaffold`'s 1164x560 minimum. Change the tokens and every console scene moves with them. The exception is `UISceneCatalog.tallConsoleSize`, used by the three keyed Refinement scenes whose subject is the Status row: the window is resizable, and at 820 pt that row is below the fold.
+Console and pane scenes render at 1164x820 because that is the app's first-launch window: `UISceneCatalog.consoleSize` is `VoiceOourMetrics.Window.defaultWidth` x `Window.defaultHeight`, so a scene shows exactly the geometry a fresh install shows — rail 176, region 988, padded content region 940 — and clears `ConsoleScaffold`'s 1164x560 minimum. Change the tokens and every console scene moves with them. The exception is `UISceneCatalog.tallConsoleSize`, used by the five keyed Refinement scenes whose subject is the model picker or the Status row: the window is resizable, and at 820 pt those fall below the fold.
 
 ```swift
 console("console.glossary.empty", "Glossary with every term removed",
@@ -165,16 +165,16 @@ console("console.glossary.empty", "Glossary with every term removed",
 
 Raw `UIScene(...)` is used only by the two portable overlay scenes, which need odd sizes and no backdrop. The id is the artifact basename, so keep it filesystem-safe and dot-separated: lowercase, `area.thing.state`. Native Liquid Glass counterparts use an `*.os26` id and the matching system factory. Nothing else needs touching — the harness discovers the scene, renders it, and reports `missing-golden` until the owner blesses new fixtures.
 
-The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 48 entries: 36 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 24 console, one pane, three menu, two overlay, two atom, four accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
+The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 47 entries: 35 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 23 console, one pane, three menu, two overlay, two atom, four accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
 
 ### Determinism
 
 Two mechanisms in `UIFixtures.swift` carry it:
 
-- App state comes from `UIFixtures.coordinator(_:)` — kinds `.firstRun`, `.populated`, `.emptyGlossary`, `.recording`, `.micDenied`, `.backendReady`, `.backendUnavailable`, `.backendSwitchPending`, `.refinerConfigured`, `.refinerAppleOnDevice`, `.refinerOmp`, `.refinerCustom`, `.refinerUnauthorized`, `.refinerUnreachable`, `.completedDictation`. It builds a `DictationCoordinator` out of inert fakes and never calls `DictationCoordinator.live()`, so no Python ASR sidecar is spawned, no CGEvent tap is installed, no microphone is opened and no warm-up task runs. The reachability probes are inert too, so no scene can spawn `omp` or reach the network even if one grows a `CHECK` step.
-- `UIFixtures.pinProcessSeams()`, called on every `coordinator(_:)`, pins `RenderOverrides`: the render clock (`2025-06-15T14:26:40Z`), Gregorian calendar, UTC time zone, `en_US_POSIX` locale, the permission snapshot the System and Diagnostics panes display, the two storage paths Diagnostics prints, the Apple Intelligence readiness sentence the Refinement pane appends, the recording overlay's otherwise-random comet head, and the legacy glass path. The Refinement pane's probe verdict is per fixture rather than process-wide, so `make` installs it and `pinProcessSeams()` clears it. Foundation formatters and SwiftUI environment values resolve these overrides before the machine's real values. Optional production overrides stay `nil` and production reads use `override ?? <the real value>`; `forceLegacyGlass` defaults false. `textRoleRecorder` is installed and restored only around a hosted harness scene and otherwise remains nil, so shipping behaviour is unchanged.
+- App state comes from `UIFixtures.coordinator(_:)` — kinds `.firstRun`, `.populated`, `.emptyGlossary`, `.recording`, `.micDenied`, `.backendReady`, `.backendUnavailable`, `.backendSwitchPending`, `.refinerConfigured`, `.refinerAppleOnDevice`, `.refinerOmp`, `.refinerOmpLoginFailed`, `.refinerUnreachable`, `.completedDictation`. The refiner kinds are all one of the two shipping providers: `.refinerConfigured` is Oh My Pi with a model picked out of a loaded catalog, `.refinerOmp` is Oh My Pi on the provider default, and `.refinerUnreachable` is an OMP install that answers neither the reachability probe nor the model catalog, because both run the same binary. It builds a `DictationCoordinator` out of inert fakes and never calls `DictationCoordinator.live()`, so no Python ASR sidecar is spawned, no CGEvent tap is installed, no microphone is opened and no warm-up task runs. The reachability probes are inert too, so no scene can spawn `omp` or reach the network even if one grows a `CHECK` step.
+- `UIFixtures.pinProcessSeams()`, called on every `coordinator(_:)`, pins `RenderOverrides`: the render clock (`2025-06-15T14:26:40Z`), Gregorian calendar, UTC time zone, `en_US_POSIX` locale, the permission snapshot the System and Diagnostics panes display, the two storage paths Diagnostics prints, the Apple Intelligence readiness sentence the Refinement pane appends, the recording overlay's otherwise-random comet head, and the legacy glass path. The Refinement pane's probe verdict, its OMP model catalog (`ompModels`) and that catalog's load state (`ompModelCatalogState`) are per fixture rather than process-wide, so `make` installs them and `pinProcessSeams()` clears them. Foundation formatters and SwiftUI environment values resolve these overrides before the machine's real values. Optional production overrides stay `nil` and production reads use `override ?? <the real value>`; `forceLegacyGlass` defaults false. `textRoleRecorder` is installed and restored only around a hosted harness scene and otherwise remains nil, so shipping behaviour is unchanged.
 
-Beyond that, never let a scene derive anything from `Date()`, `UUID()`, `.random`, the Keychain, TCC, or `NSColor.controlAccentColor` (it resolves to the *user's* system accent and no environment key overrides it — SwiftUI's `Color.accentColor` is safe). Avoid states dominated by `.repeatForever` or `TimelineView(.animation)`: in this app that is `FrostedCometIndicator`, whose orbit phase is wall-clock driven, which is why no scene renders a processing overlay. Settling itself is a fixed pump budget, identical every run, never adaptive.
+Beyond that, never let a scene derive anything from `Date()`, `UUID()`, `.random`, TCC, a subprocess, or `NSColor.controlAccentColor` (it resolves to the *user's* system accent and no environment key overrides it — SwiftUI's `Color.accentColor` is safe). The app holds no credential store to read from, so there is none to forbid. Avoid states dominated by `.repeatForever` or `TimelineView(.animation)`: in this app that is `FrostedCometIndicator`, whose orbit phase is wall-clock driven, which is why no scene renders a processing overlay. Settling itself is a fixed pump budget, identical every run, never adaptive.
 
 ### Steps
 
@@ -189,19 +189,19 @@ Beyond that, never let a scene derive anything from `Date()`, `UUID()`, `.random
 
 `target` is resolved by `AXDump.find` in a fixed precedence: exact identifier, exact label, label substring, exact placeholder, placeholder substring — first match in document order. Placeholders matter more than they sound: SwiftUI text fields publish no label and no title at all, so `AXPlaceholderValue` is the *only* text on the element and the only way to address one.
 
-A step that cannot find its target does not abort the scene; it records a warning in the manifest's `warnings[]` and the run continues. Two scenes are scripted today, both tagged `steps`: `console.sessions.search` types `accessibility` into `Search transcripts or timestamps`, filtering the list from ten rows to two, and `console.diagnostics.confirm` presses `CLEAR HISTORY` to reach the danger-zone confirm state. Both settle 120 ms afterwards.
+A step that cannot find its target does not abort the scene; it records a warning in the manifest's `warnings[]` and the run continues. Three scenes are scripted today, all tagged `steps`: `console.sessions.search` types `accessibility` into `Search transcripts or timestamps`, filtering the list from ten rows to two; `console.system.confirm` presses `CLEAR HISTORY` to reach the danger-zone confirm state; and `console.refinement.model-catalog` types `claude` into `refinement.model.filter`, narrowing the pinned seven-model catalog to its three Anthropic rows. Each settles 120 ms afterwards.
 
 ## Flows
 
 A scene answers whether one state still renders, reads and lints correctly. A `UIFlow` answers whether a real journey still works. It hosts a real app view with an inert `UIFlowFixture`, drives the real `DictationCoordinator` through an ordered script, and checks named semantic expectations at each checkpoint. Its stable id is the artifact basename; its title, tags and `covers` keys make the journey discoverable and connect it to the coverage ledger.
 
-The current catalog has 20 flows — 18 portable and two tagged `os26` — in `UIFlowCatalog.everything()` execution order:
+The current catalog has 21 flows — 19 portable and two tagged `os26` — in `UIFlowCatalog.everything()` execution order:
 
 - Home: `home.empty-to-populated`
 - Sessions: `sessions.search.no-results`, `sessions.search.clear`
 - Voice: `voice.toggle-cleanup`, `voice.auto-stop-dependency`
 - Glossary: `glossary.add-term`, `glossary.remove-term`
-- Refinement: `refinement.enable-and-check`
+- Refinement: `refinement.enable-and-check`, `refinement.select-model`
 - System: `system.recheck-backend`, `system.clear-history.confirm`
 - Menu and dictation: `menu.copy-transcript`, `dictation.paste.delivered`, `dictation.copy-only.terminal`, `dictation.refinement-skipped.code-editor`, `dictation.cancelled`, `dictation.asr-error`
 - Overlay: `overlay.recording.controls`
@@ -335,7 +335,7 @@ waveform bar is the real thing at the real measure; the material around them is 
 
 ## Coverage ledger
 
-`UICoverageRegistry` declares every UI surface, state and journey independently of the scenes and flows that may verify it. The current registry contains 182 requirements: 109 required, 63 snapshot-only and 10 not-verifiable. The three dispositions mean:
+`UICoverageRegistry` declares every UI surface, state and journey independently of the scenes and flows that may verify it. The current registry contains 178 requirements: 108 required, 60 snapshot-only and 10 not-verifiable. The three dispositions mean:
 
 - `required`: a passing flow must claim the key;
 - `snapshotOnly(sceneID:)`: static evidence is sufficient, and the named scene must exist in `UISceneCatalog`;

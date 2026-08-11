@@ -56,7 +56,7 @@ if [ -z "$WIN" ]; then
     exit 1
 fi
 
-sleep 0.4
+sleep "${CONSOLE_SHOT_SETTLE:-0.4}"
 mkdir -p "$(dirname -- "$OUT")"
 screencapture -x -o -l"$WIN" "$OUT"
 echo "$OUT"

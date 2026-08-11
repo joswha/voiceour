@@ -101,7 +101,6 @@ enum BenchCommand: String {
 enum BenchRefineMode: String {
     case off
     case deterministic
-    case llm
     case omp
 }
 
@@ -113,9 +112,7 @@ struct BenchOptions {
     var backend: String?
     var timeoutMs: Int
     var refineMode: BenchRefineMode
-    var refinerBaseURL: String?
     var refinerModel: String?
-    var refinerAPIKeyEnv: String?
 }
 
 enum BenchCLI {
@@ -123,10 +120,9 @@ enum BenchCLI {
         Usage:
           voiceoour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
               [--asr-dir asr] [--backend fake|mlx|apple] [--timeout-ms 120000]
-              [--refine off|deterministic|llm|omp]
-              [--refiner-base-url URL] [--refiner-model M] [--refiner-api-key-env VAR]
+              [--refine off|deterministic|omp] [--refiner-model M]
           voiceoour-bench refine --input <cases.jsonl> --output <results.jsonl>
-              --refine deterministic|llm|omp [--refiner-base-url URL] [--refiner-model M] [--refiner-api-key-env VAR]
+              --refine deterministic|omp [--refiner-model M]
         """
 
     static func parse(_ arguments: [String]) throws -> BenchOptions {
@@ -140,9 +136,7 @@ enum BenchCLI {
         var backend = command == .pipeline ? "fake" : nil
         var timeoutMs = 120_000
         var refineMode: BenchRefineMode? = command == .pipeline ? .deterministic : nil
-        var refinerBaseURL: String?
         var refinerModel: String?
-        var refinerAPIKeyEnv: String?
 
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
@@ -178,19 +172,11 @@ enum BenchCLI {
             case "--refine":
                 let value = try value(for: parsed, in: arguments, index: &index)
                 guard let mode = BenchRefineMode(rawValue: value) else {
-                    throw BenchError.usage("--refine must be off, deterministic, llm, or omp")
+                    throw BenchError.usage("--refine must be off, deterministic, or omp")
                 }
                 refineMode = mode
-            case "--refiner-base-url":
-                refinerBaseURL = try value(for: parsed, in: arguments, index: &index)
             case "--refiner-model":
                 refinerModel = try value(for: parsed, in: arguments, index: &index)
-            case "--refiner-api-key-env":
-                let value = try value(for: parsed, in: arguments, index: &index)
-                guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw BenchError.usage("--refiner-api-key-env must not be empty")
-                }
-                refinerAPIKeyEnv = value
             default:
                 throw BenchError.usage("unknown option: \(arguments[index])")
             }
@@ -203,11 +189,6 @@ enum BenchCLI {
         if command == .refine && refineMode == .off {
             throw BenchError.usage("refine mode cannot use --refine off")
         }
-        if let refinerBaseURL, !refinerBaseURL.isEmpty {
-            guard let url = URL(string: refinerBaseURL), url.scheme != nil else {
-                throw BenchError.usage("--refiner-base-url must be an absolute URL")
-            }
-        }
 
         return BenchOptions(
             command: command,
@@ -217,9 +198,7 @@ enum BenchCLI {
             backend: backend,
             timeoutMs: timeoutMs,
             refineMode: refineMode,
-            refinerBaseURL: refinerBaseURL,
-            refinerModel: refinerModel,
-            refinerAPIKeyEnv: refinerAPIKeyEnv
+            refinerModel: refinerModel
         )
     }
 
@@ -287,7 +266,7 @@ struct BenchRunner {
         try writer.write(meta(mode: .pipeline))
         let reader = try JSONLLineReader(url: options.input)
         let asr = Self.makeASRClient(backend: options.backend ?? "fake", asrDirectory: options.asrDirectory)
-        let refinement = try RefinementPipeline(mode: options.refineMode, options: options)
+        let refinement = RefinementPipeline(mode: options.refineMode, options: options)
         let decoder = JSONDecoder()
         var lineNumber = 0
         var rowCount = 0
@@ -316,7 +295,7 @@ struct BenchRunner {
         let writer = try JSONLWriter(url: options.output)
         try writer.write(meta(mode: .refine))
         let reader = try JSONLLineReader(url: options.input)
-        let refinement = try RefinementPipeline(mode: options.refineMode, options: options)
+        let refinement = RefinementPipeline(mode: options.refineMode, options: options)
         let decoder = JSONDecoder()
         var lineNumber = 0
         var rowCount = 0
@@ -494,54 +473,35 @@ struct RefinementPipeline {
     private let glossary: [ProtectedTerm] = []
     private let safeTargetSafety: TargetSafetyClass = .normalText
 
-    init(mode: BenchRefineMode, options: BenchOptions) throws {
+    init(mode: BenchRefineMode, options: BenchOptions) {
         self.mode = mode
         switch mode {
         case .off, .deterministic:
             self.refiner = nil
             self.readiness = mode == .off ? .disabled : .ready
-        case .llm:
-            let baseURLString = options.refinerBaseURL ?? ""
-            let model = options.refinerModel ?? ""
-            let apiKey = options.refinerAPIKeyEnv.flatMap { ProcessInfo.processInfo.environment[$0] }
+        case .omp:
+            // Construction goes through the same two-provider registry the app
+            // uses, so a measurement can never come from a refiner assembled
+            // differently from the shipping one.
+            //
+            // The timeout floor is the benchmark's own. The app's interactive
+            // default is short enough that a cold `omp --mode rpc` spawn would be
+            // recorded as a timeout rather than as refine latency.
             let settings = Settings(
                 refinerEnabled: true,
-                refinerProvider: .custom,
-                refinerBaseURL: baseURLString,
-                refinerModel: model,
+                refinerProvider: .omp,
+                refinerModel: options.refinerModel ?? "",
+                refinerTimeoutMs: 15_000,
                 glossary: []
             )
-            self.readiness = RefinerReadiness.evaluate(settings: settings, hasKey: apiKey?.isEmpty == false)
-            self.refiner = LLMRefiner(
-                configuration: LLMRefinerConfiguration(
-                    enabled: true,
-                    baseURL: URL(string: baseURLString),
-                    model: model,
-                    timeoutMs: settings.refinerTimeoutMs
-                ),
-                apiKeyProvider: StaticRefinerAPIKeyProvider(apiKey),
-                deterministicFallback: { CleanupEngine.clean($0, glossary: []) }
-            )
-        case .omp:
-            var settings = Settings(refinerEnabled: true, refinerProvider: .omp, glossary: [])
-            if let model = options.refinerModel, !model.isEmpty {
-                settings.refinerModel = model
-            }
-            let resolvedModel = RefinerResolved.model(settings)
-            let omp = OmpExecutable.resolve(explicitPath: ProcessInfo.processInfo.environment["VOICEOOUR_OMP_BIN"])
-            self.readiness = RefinerReadiness.evaluate(settings: settings, hasKey: false)
-            self.refiner = OmpRpcRefiner(
-                configuration: OmpRpcRefinerConfiguration(
-                    enabled: true,
-                    executableURL: omp.url,
-                    argumentPrefix: omp.prefix,
-                    model: resolvedModel,
-                    timeoutMs: max(settings.refinerTimeoutMs, 15_000),
-                    profileDirectory: FileManager.default.temporaryDirectory
-                        .appendingPathComponent("voiceoour-bench-omp-rpc", isDirectory: true)
-                ),
-                deterministicFallback: { CleanupEngine.clean($0, glossary: []) }
-            )
+            self.readiness = RefinerReadiness.evaluate(settings: settings)
+            self.refiner =
+                RefinerProviderRegistry
+                .live(
+                    environment: ProcessInfo.processInfo.environment,
+                    deterministicFallback: { CleanupEngine.clean($0, glossary: []) }
+                )
+                .make(settings: settings)
         }
     }
 
@@ -567,7 +527,7 @@ struct RefinementPipeline {
                 cleanupMs: BenchClock.elapsedMilliseconds(since: cleanupStart),
                 refineMs: nil
             )
-        case .llm, .omp:
+        case .omp:
             let cleanupStart = BenchClock.mark()
             let cleaned = CleanupEngine.clean(raw, glossary: glossary)
             let cleanupMs = BenchClock.elapsedMilliseconds(since: cleanupStart)

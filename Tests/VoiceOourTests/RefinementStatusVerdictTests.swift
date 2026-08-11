@@ -9,15 +9,15 @@ import VoiceCore
 ///
 /// Two sources write that slot. `checkRefinerReachability()` runs when the user
 /// presses CHECK, and the pane stamps the configuration it measured so a green
-/// verdict cannot outlive the provider, endpoint, model or key behind it. But a
-/// real refine also writes it — `applyRefinerReachabilityFailureIfCurrent` turns
-/// an HTTP 401/403/400/404 into `.unauthorized` or `.failed` — and that path
-/// never touches the stamp. Gating those behind a probe the user never ran hid
-/// the reason their last paste fell back to deterministic cleanup.
+/// verdict cannot outlive the provider or model behind it. But a real refine
+/// also writes it — `applyRefinerReachabilityFailureIfCurrent` promotes a
+/// durable OMP failure to `.failed` — and that path never touches the stamp.
+/// Gating those behind a probe the user never ran hid the reason their last
+/// paste fell back to deterministic cleanup.
 @MainActor
 struct RefinementStatusVerdictTests {
-    private static let current = "openAI|https://api.openai.com/v1|gpt-4.1-nano|keychain"
-    private static let other = "openRouter|https://openrouter.ai/api/v1|llama|environment"
+    private static let current = "omp|anthropic/claude-haiku-4-5"
+    private static let other = "appleOnDevice|on-device"
 
     private func verdict(
         _ measured: RefinerReachability,
@@ -40,14 +40,14 @@ struct RefinementStatusVerdictTests {
     }
 
     /// The refine-driven case: no CHECK was ever pressed, so there is no stamp,
-    /// and the row still has to say the key was rejected.
-    @Test func unauthorizedShowsWithoutAStamp() {
-        #expect(verdict(.unauthorized, stamp: nil) == .unauthorized)
-        #expect(verdict(.unauthorized, stamp: Self.other) == .unauthorized)
-        #expect(verdict(.unauthorized, stamp: Self.current) == .unauthorized)
-    }
-
-    @Test(arguments: ["HTTP 400", "HTTP 404", "The request timed out after 3000 ms."])
+    /// and the row still has to say OMP could not run.
+    @Test(
+        arguments: [
+            "launch failed: no such file",
+            "omp not ready: stdout closed before ready",
+            "omp exited: status 3",
+            "omp protocol error: model changed during refinement",
+        ])
     func failureShowsWithoutAStamp(reason: String) {
         #expect(verdict(.failed(reason), stamp: nil) == .failed(reason))
         #expect(verdict(.failed(reason), stamp: Self.other) == .failed(reason))

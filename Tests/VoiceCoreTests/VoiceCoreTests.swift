@@ -215,75 +215,58 @@ struct VoiceCoreTests {
         }
     }
 
-    @Test func refinerResolvedDerivesEveryDirectProviderBaseURLAndModel() {
-        let directCases: [(RefinerProvider, String, String)] = [
-            (.gemini, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash-lite"),
-            (.openAI, "https://api.openai.com/v1", "gpt-4.1-nano"),
-            (.openRouter, "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct"),
-        ]
-
-        for (provider, expectedBaseURL, expectedModel) in directCases {
-            let settings = Settings(refinerProvider: provider)
-            #expect(RefinerResolved.baseURL(settings) == expectedBaseURL)
-            #expect(RefinerResolved.model(settings) == expectedModel)
+    @Test func refinerResolvedDerivesEveryProviderModel() {
+        for provider in RefinerProvider.allCases {
+            #expect(RefinerResolved.model(Settings(refinerProvider: provider)) == provider.defaultModel)
         }
 
-        let custom = Settings(
-            refinerProvider: .custom,
-            refinerBaseURL: "https://custom.example/v1",
-            refinerModel: "custom-model"
-        )
-        #expect(RefinerResolved.baseURL(custom) == "https://custom.example/v1")
-        #expect(RefinerResolved.model(custom) == "custom-model")
-        #expect(RefinerResolved.baseURL(Settings(refinerProvider: .custom)) == "")
+        // On OMP the stored selector wins; an empty one means "not chosen yet".
         #expect(
-            RefinerResolved.model(Settings(refinerProvider: .openAI, refinerModel: "override-model"))
-                == "override-model")
+            RefinerResolved.model(Settings(refinerProvider: .omp, refinerModel: "openai/gpt-5.1-codex"))
+                == "openai/gpt-5.1-codex")
+        #expect(
+            RefinerResolved.model(Settings(refinerProvider: .omp, refinerModel: "")) == "anthropic/claude-haiku-4-5")
+
+        // Apple has exactly one model, so the field is ignored rather than
+        // honoured or cleared: that is what lets an OMP selector survive a round
+        // trip through the on-device provider.
+        #expect(
+            RefinerResolved.model(
+                Settings(refinerProvider: .appleOnDevice, refinerModel: "anthropic/claude-haiku-4-5"))
+                == "on-device")
+        #expect(RefinerResolved.model(Settings(refinerProvider: .appleOnDevice, refinerModel: "")) == "on-device")
     }
 
     @Test func refinerReadinessTruthTable() {
-        #expect(RefinerReadiness.evaluate(settings: Settings(refinerEnabled: false), hasKey: true) == .disabled)
+        #expect(RefinerReadiness.evaluate(settings: Settings(refinerEnabled: false)) == .disabled)
         #expect(
-            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: true, refinerProvider: .custom), hasKey: false)
-                == .needsBaseURL)
-        #expect(
-            RefinerReadiness.evaluate(
-                settings: Settings(
-                    refinerEnabled: true,
-                    refinerProvider: .custom,
-                    refinerBaseURL: "https://custom.example/v1",
-                    refinerModel: ""
-                ),
-                hasKey: false
-            ) == .needsModel)
+            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: true, refinerProvider: .omp)) == .ready)
         #expect(
             RefinerReadiness.evaluate(
-                settings: Settings(
-                    refinerEnabled: true,
-                    refinerProvider: .custom,
-                    refinerBaseURL: "https://custom.example/v1",
-                    refinerModel: "local-model"
-                ),
-                hasKey: false
+                settings: Settings(refinerEnabled: true, refinerProvider: .omp, refinerModel: "anthropic/claude-opus-4")
             ) == .ready)
 
-        for provider in [RefinerProvider.gemini, .openAI, .openRouter] {
-            let settings = Settings(refinerEnabled: true, refinerProvider: provider)
-            #expect(RefinerReadiness.evaluate(settings: settings, hasKey: false) == .needsKey)
-            #expect(RefinerReadiness.evaluate(settings: settings, hasKey: true) == .ready)
-        }
+        // Apple On-Device needs no model choice; runtime availability is the
+        // refiner's concern, not readiness's.
+        #expect(
+            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: true, refinerProvider: .appleOnDevice))
+                == .ready)
+        #expect(
+            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: false, refinerProvider: .appleOnDevice))
+                == .disabled)
 
-        // Apple On-Device needs no key, base URL, or model choice; runtime
-        // availability is the refiner's concern, not readiness's.
-        #expect(
-            RefinerReadiness.evaluate(
-                settings: Settings(refinerEnabled: true, refinerProvider: .appleOnDevice), hasKey: false) == .ready)
-        #expect(
-            RefinerReadiness.evaluate(
-                settings: Settings(refinerEnabled: false, refinerProvider: .appleOnDevice), hasKey: false) == .disabled)
+        // `needsModel` is only reachable if a provider ever resolves to an empty
+        // model, so it is pinned on the state rather than on a Settings value
+        // that cannot currently produce it.
+        #expect(RefinerReadiness.needsModel.label == "NEEDS MODEL")
+        #expect(!RefinerReadiness.needsModel.isReady)
+        #expect(RefinerReadiness.ready.isReady)
     }
 
     @Test func settingsDecodesProviderDefaultAndRoundTrips() throws {
+        // No `refiner_provider` key at all, plus a `refiner_base_url` key this
+        // build no longer knows: an older file must still decode, unknown keys
+        // and all.
         let legacyJSON = """
             {
               "cleanup_enabled": false,
@@ -298,11 +281,11 @@ struct VoiceCoreTests {
             """
 
         let legacySettings = try JSONDecoder().decode(Settings.self, from: Data(legacyJSON.utf8))
-        #expect(legacySettings.refinerProvider == .gemini)
+        #expect(legacySettings.refinerProvider == .omp)
+        #expect(legacySettings.refinerEnabled)
+        #expect(legacySettings.refinerModel == "legacy-model")
         #expect(legacySettings.cleanupEnabled == false)
         #expect(legacySettings.asrBackend == "mlx")
-        #expect(legacySettings.refinerBaseURL == "https://legacy.example/v1")
-        #expect(legacySettings.refinerModel == "legacy-model")
         #expect(legacySettings.autoStopEnabled == false)
         #expect(legacySettings.autoStopSilenceMs == 2500)
         #expect(legacySettings.speechLocale == "en_US")
@@ -311,17 +294,71 @@ struct VoiceCoreTests {
 
         let encoded = try JSONEncoder().encode(
             Settings(
-                refinerProvider: .openAI,
+                refinerProvider: .appleOnDevice,
                 autoStopEnabled: true,
                 autoStopSilenceMs: 1800,
                 speechLocale: "de_DE"
             ))
         let decoded = try JSONDecoder().decode(Settings.self, from: encoded)
 
-        #expect(decoded.refinerProvider == .openAI)
+        #expect(decoded.refinerProvider == .appleOnDevice)
         #expect(decoded.autoStopEnabled)
         #expect(decoded.autoStopSilenceMs == 1800)
         #expect(decoded.speechLocale == "de_DE")
+    }
+
+    /// A settings file naming Gemini, OpenAI, OpenRouter or the hand-typed
+    /// custom endpoint was written by a build that held the credential and sent
+    /// the transcript itself. Those providers are gone, and the migration may
+    /// not quietly repoint a live refiner at OMP: that would send the next
+    /// utterance to a network destination the user never agreed to. So the
+    /// provider falls back, the model is cleared because it named a catalog OMP
+    /// does not share, and refinement is switched off pending consent.
+    @Test func settingsMigratesRetiredRefinerProvidersToOmpAndOff() throws {
+        for retired in ["gemini", "openAI", "openRouter", "custom"] {
+            let json = """
+                {
+                  "refiner_provider": "\(retired)",
+                  "refiner_enabled": true,
+                  "refiner_model": "gemini-2.5-flash-lite",
+                  "refiner_base_url": "https://legacy.example/v1"
+                }
+                """
+            let migrated = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+
+            #expect(migrated.refinerProvider == .omp, "\(retired) should migrate to omp")
+            #expect(migrated.refinerModel == "", "\(retired) should drop its retired model")
+            #expect(migrated.refinerEnabled == false, "\(retired) should not stay enabled")
+        }
+    }
+
+    /// The migration is scoped to files it does not recognise. A surviving
+    /// provider keeps everything it stored, including an enabled refiner.
+    @Test func settingsLeavesSurvivingRefinerProvidersUntouched() throws {
+        let json = """
+            {
+              "refiner_provider": "omp",
+              "refiner_enabled": true,
+              "refiner_model": "anthropic/claude-haiku-4-5"
+            }
+            """
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+
+        #expect(decoded.refinerProvider == .omp)
+        #expect(decoded.refinerEnabled)
+        #expect(decoded.refinerModel == "anthropic/claude-haiku-4-5")
+
+        let onDeviceJSON = """
+            {
+              "refiner_provider": "appleOnDevice",
+              "refiner_enabled": true,
+              "refiner_model": ""
+            }
+            """
+        let onDevice = try JSONDecoder().decode(Settings.self, from: Data(onDeviceJSON.utf8))
+
+        #expect(onDevice.refinerProvider == .appleOnDevice)
+        #expect(onDevice.refinerEnabled)
     }
 
     /// A build before the settings pane committed on submit persisted

@@ -41,20 +41,16 @@ def _runner_refine_mode(mode: str, refine: str | None) -> str:
     raise ValueError(f"unknown mode: {mode}")
 
 
-def _append_refiner_flags(command: list[str], args: argparse.Namespace) -> None:
-    if args.refiner_base_url:
-        command.extend(["--refiner-base-url", args.refiner_base_url])
+def _append_refiner_model(command: list[str], args: argparse.Namespace) -> None:
     if args.refiner_model:
         command.extend(["--refiner-model", args.refiner_model])
-    if args.refiner_api_key_env:
-        command.extend(["--refiner-api-key-env", args.refiner_api_key_env])
 
 
 def _invoke_runner(runner: Path, args: argparse.Namespace, manifest: Path, output: Path, root: Path) -> None:
     refine_mode = _runner_refine_mode(args.mode, args.refine)
     if args.mode == "refine":
         command = [str(runner), "refine", "--input", str(manifest), "--output", str(output), "--refine", refine_mode]
-        _append_refiner_flags(command, args)
+        _append_refiner_model(command, args)
     else:
         command = [
             str(runner),
@@ -72,7 +68,7 @@ def _invoke_runner(runner: Path, args: argparse.Namespace, manifest: Path, outpu
             "--refine",
             refine_mode,
         ]
-        _append_refiner_flags(command, args)
+        _append_refiner_model(command, args)
     env = {**os.environ, "VOICEOOUR_ASR_DECODING": args.decoding}
     _run(command, cwd=root, env=env)
 
@@ -96,12 +92,10 @@ def main(argv: list[str] | None = None) -> int:
         default="greedy",
         help="ASR decoding mode for the sidecar (sets VOICEOOUR_ASR_DECODING)",
     )
-    parser.add_argument("--refine", choices=("deterministic", "llm", "omp"), default=None)
+    parser.add_argument("--refine", choices=("deterministic", "omp"), default=None)
     parser.add_argument("--timeout-ms", type=int, default=120000)
     parser.add_argument("--asr-dir", default="asr")
-    parser.add_argument("--refiner-base-url", default=None)
     parser.add_argument("--refiner-model", default=None)
-    parser.add_argument("--refiner-api-key-env", default=None)
     args = parser.parse_args(argv)
 
     root = repo_root()

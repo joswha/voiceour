@@ -10,9 +10,9 @@ The product/repo name appears as `VoiceOour` / `voiceoour`. Do not rename either
 
 - **VoiceOour**: the Swift executable target and macOS app.
 - **VoiceCore**: pure Swift/Foundation domain logic and contracts.
-- **VoiceMac**: macOS adapters for audio, pasteboard, permissions, hotkeys, process management, Keychain, and optional refinement.
+- **VoiceMac**: macOS adapters for audio, pasteboard, permissions, hotkeys, process management, and optional refinement.
 - **ASR sidecar**: the Python process under `asr/` that speaks the transcription protocol over stdio.
-- **Refiner**: the optional OpenAI-compatible text refinement layer. It is not the ASR model and must remain opt-in.
+- **Refiner**: the optional text refinement layer. It has exactly two destinations: `omp`, the locally installed Oh My Pi CLI, which brokers every network model and owns every credential involved; and Apple's on-device system model. It is not the ASR model and must remain opt-in.
 - **Capture target**: the app/window context captured before recording starts for vocabulary, cleanup, and refinement decisions.
 - **Delivery target**: the app/window/text destination focused immediately before insertion begins.
 
@@ -21,7 +21,7 @@ The product/repo name appears as `VoiceOour` / `voiceoour`. Do not rename either
 | Path | Purpose |
 | --- | --- |
 | `Sources/VoiceCore/` | Foundation-only models, session state, settings, cleanup, glossary, ASR wire types, and safety classification. |
-| `Sources/VoiceMac/` | macOS-specific adapters: audio recording, fake audio, sidecar process client, target tracking, pasteboard insertion, permissions, Carbon hotkey binding, Keychain storage, and optional LLM refiner. |
+| `Sources/VoiceMac/` | macOS-specific adapters: audio recording, fake audio, sidecar process client, target tracking, pasteboard insertion, permissions, Carbon hotkey binding, and the optional refiner backends. |
 | `Sources/VoiceOour/` | SwiftUI `MenuBarExtra`, settings UI, recording overlay, and `DictationCoordinator` orchestration. |
 | `Sources/VoiceOour/UIHarness/` | Offscreen UI harness: scene and flow catalogs, inert fixtures, deterministic runner, accessibility dump, UX lint, coverage ledger, and the `--ui-harness` CLI. |
 | `asr/` | `uv`-managed Python package for the local ASR sidecar. |
@@ -93,6 +93,9 @@ This app touches the user's active workspace. Treat insertion safety as product-
 - After the model cache manifest exists, the sidecar should load with `HF_HUB_OFFLINE=1`.
 - Network access is acceptable for first model download/cache setup or when the user explicitly enables/configures the optional refiner.
 - Never enable network refinement by default.
+- Network refinement leaves this machine only through the `omp` subprocess. VoiceOour holds no provider credential: no API-key field, no credential environment variable, no keychain item, and no per-provider base URL. Do not add one back — OMP already reaches every provider on the user's behalf, and the entitlement reason a keychain cannot work here is recorded in `docs/architecture.md`.
+- The Model field is a picker whose options come from `omp models --json`; never reintroduce a free-text model id. `OmpModelCatalog.load` is the single loader behind both the picker and the CHECK probe so the two can never describe different lists.
+- That catalog query is the one `omp` call that runs with `shadowCredentials: false`, and it must stay that way. The single-space credential tombstones protect the transcript-bearing path, but OMP advertises a provider whenever its variable is *set*: shadowed, `omp models --json` returns 50 providers the refiner cannot reach, and `GITLAB_TOKEN=" "` makes it hang forever with nothing on stderr. Both measured; see `docs/architecture.md`.
 - Protected glossary terms must survive deterministic cleanup and optional refiner output exactly.
 
 ## Swift Conventions
@@ -185,15 +188,14 @@ The harness cannot show glass, and for two separate measured reasons. Legacy beh
 - Ad-hoc signing can invalidate macOS TCC grants across rebuilds. Stable signing identity preserves permission grants more reliably.
 - Permission code belongs in `VoiceMac` adapters; user-facing state belongs in `VoiceOour` UI/coordinator.
 - Keep the shipped app entitlements narrow. `Resources/VoiceOour.entitlements` is currently audio-input-only, and the bundle is intentionally not sandboxed; change that only with matching README/setup/release documentation.
-- `kSecUseDataProtectionKeychain` cannot be the only keychain this app targets, despite the general macOS advice to prefer it. On macOS that keychain resolves an item's access group from a code-signing entitlement that must be authorized by a provisioning profile; this bundle has neither, so `SecItemAdd` returns `errSecMissingEntitlement` (-34018) and the API key cannot be saved at all. Adding `keychain-access-groups` to an ad-hoc signature is not a workaround — AMFI kills the process ("adhoc signed but contains restricted entitlements"). Both were measured. `KeychainRefinerAPIKeyStore` therefore tries the data protection keychain and falls back to the file-based one on that one status; keep the fallback until the bundle actually embeds a profile.
-- A keychain read must keep `.absent` and `.unavailable(OSStatus)` distinct all the way to the caller. Collapsing a failed read to "no key" makes the app silently send an environment credential the user never paired with that provider. `readAPIKey()` is a protocol requirement for the same reason: an extension member would statically dispatch past the real outcome.
+- This bundle cannot use the data protection keychain at all, which is why the app stores no credential of its own; the measurement is recorded in `docs/architecture.md` under "Why VoiceOour holds no credentials". Read it before adding any secret storage here.
 
 ## Git and Collaboration
 
 - Default branch: `main`.
 - Commit changes by default: once a change builds and its tests pass, stage the related files and commit with a clear, scoped message. Do not wait to be asked.
 - Do not push. Leave commits local unless the user asks for a push, a PR, or a fork.
-- Never commit secrets. `.env` (API keys) is gitignored and must stay untracked; do not `git add` it or other credential files.
+- Never commit secrets. `.env` is gitignored and must stay untracked; do not `git add` it or other credential files.
 - Do not create GitHub issues, pull requests, comments, releases, or tags unless explicitly asked.
 - Treat unexpected local changes as user work: prefer staging the specific files you changed over `git add -A` when unrelated modifications are present, and avoid overwriting them.
 - Prefer updating existing docs/tests over creating parallel conventions.

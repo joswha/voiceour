@@ -37,14 +37,16 @@ enum OmpProcess {
         arguments: [String],
         timeoutMs: Int,
         environment: [String: String],
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        shadowCredentials: Bool = true
     ) async throws -> String {
         let invocation = OmpProcessInvocation(
             executableURL: executableURL,
             arguments: arguments,
             environment: OmpEnvironment.augmented(
                 environment,
-                workingDirectory: currentDirectoryURL
+                workingDirectory: currentDirectoryURL,
+                shadowCredentials: shadowCredentials
             ),
             currentDirectoryURL: currentDirectoryURL
         )
@@ -236,7 +238,6 @@ private final class OmpProcessOutputCapture: @unchecked Sendable {
 
 private final class OmpProcessInvocation: @unchecked Sendable {
     private let process: Process
-    private let stdin: Pipe
     private let stdout: Pipe
     private let stderr: Pipe
     private let lock = NSLock()
@@ -251,18 +252,26 @@ private final class OmpProcessInvocation: @unchecked Sendable {
         currentDirectoryURL: URL?
     ) {
         let process = Process()
-        let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
         process.executableURL = executableURL
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
-        process.standardInput = stdin
+        // `omp` blocks until stdin reaches EOF: measured, `omp models --json`
+        // answers in 0.8 s from `/dev/null` and never returns at all behind a
+        // pipe nobody closes. A `Pipe` whose write end this process closes
+        // right after spawn is the narrower version of the same hazard —
+        // `posix_spawn` hands every descriptor open at that instant to any
+        // sibling child launched in the window before the close, and that
+        // sibling then holds this child's stdin open for its own lifetime. The
+        // two probes behind the Refinement pane now run concurrently, so that
+        // window is real. `nullDevice` is at EOF from the first read and has no
+        // write end for anyone to inherit.
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdout
         process.standardError = stderr
         self.process = process
-        self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
     }
@@ -286,7 +295,6 @@ private final class OmpProcessInvocation: @unchecked Sendable {
             throw OmpProcessError.timeout
         }
 
-        try? stdin.fileHandleForWriting.close()
         let capture = OmpProcessOutputCapture()
         let drains = DispatchGroup()
         drains.enter()
@@ -371,7 +379,6 @@ private final class OmpProcessInvocation: @unchecked Sendable {
         lock.unlock()
         guard shouldClose else { return }
 
-        try? stdin.fileHandleForWriting.close()
         try? stdout.fileHandleForReading.close()
         try? stderr.fileHandleForReading.close()
     }

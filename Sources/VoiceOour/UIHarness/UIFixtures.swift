@@ -25,8 +25,8 @@
     //      microphone and kicks off warm-up tasks.
     //   2. `RenderOverrides` pins the handful of values a few production views read
     //      straight off this Mac — the wall clock, calendar, locale, time zone, the
-    //      TCC database, login Keychain, `~/Library/Application Support` — behind
-    //      defaulted overrides.
+    //      TCC database, `~/Library/Application Support`, and whatever the installed
+    //      `omp` happens to vend — behind defaulted overrides.
     //
     // See docs/ui-harness.md.
 
@@ -174,20 +174,18 @@
             case backendReady
             /// Real backend whose health probe fails, permissions denied.
             case backendUnavailable
-            /// Refinement switched on and fully configured, key in the Keychain.
+            /// Refinement switched on, brokered through Oh My Pi, with a model the
+            /// user picked out of the catalog rather than inherited.
             case refinerConfigured
-            /// Apple's on-device model: no endpoint, no key and no model field.
+            /// Apple's on-device model: nothing to configure at all.
             case refinerAppleOnDevice
-            /// The brokered Oh My Pi provider: sign-in prose and a provider/model id.
+            /// Oh My Pi with an empty model field, so the provider default is what
+            /// the picker reports as in use.
             case refinerOmp
             /// OMP selected after the temporary Terminal sign-in could not start.
             case refinerOmpLoginFailed
-            /// A user-supplied OpenAI-compatible endpoint keyed from the
-            /// environment, with its probe still in flight.
-            case refinerCustom
-            /// A key the endpoint rejected, so CREDENTIALS sits beside a BAD KEY.
-            case refinerUnauthorized
-            /// A configured cloud endpoint that never answered the probe.
+            /// An OMP install that answers nothing: the reachability probe times out
+            /// and the model catalog fails with it, because both run the same binary.
             case refinerUnreachable
             /// The saved backend differs from the one running, so the warning mark
             /// is the one-click restart action.
@@ -243,8 +241,12 @@
             case .refinerConfigured:
                 return make(
                     sessions: history,
-                    settings: refinerSettings(provider: .openAI, model: "gpt-4.1-nano"),
-                    keySource: .keychain
+                    settings: refinerSettings(provider: .omp, model: selectedModel),
+                    reachability: .ok(models: ompModels.count),
+                    ompProviderConnections: ompProviderConnections,
+                    ompProviderStatusState: .loaded,
+                    ompModels: ompModels,
+                    ompModelCatalogState: .loaded
                 )
             case .refinerAppleOnDevice:
                 return make(
@@ -256,9 +258,11 @@
                 return make(
                     sessions: history,
                     settings: refinerSettings(provider: .omp),
-                    reachability: .ok(models: 14),
+                    reachability: .ok(models: ompModels.count),
                     ompProviderConnections: ompProviderConnections,
-                    ompProviderStatusState: .loaded
+                    ompProviderStatusState: .loaded,
+                    ompModels: ompModels,
+                    ompModelCatalogState: .loaded
                 )
             case .refinerOmpLoginFailed:
                 return make(
@@ -272,30 +276,12 @@
                     ompProviderConnections: ompProviderConnections,
                     ompProviderStatusState: .loaded
                 )
-            case .refinerCustom:
-                return make(
-                    sessions: history,
-                    settings: refinerSettings(
-                        provider: .custom,
-                        model: "qwen3-30b-a3b-instruct",
-                        baseURL: "https://llm.internal.example/v1"
-                    ),
-                    keySource: .environment,
-                    reachability: .checking
-                )
-            case .refinerUnauthorized:
-                return make(
-                    sessions: history,
-                    settings: refinerSettings(provider: .openAI, model: "gpt-4.1-nano"),
-                    keySource: .keychain,
-                    reachability: .unauthorized
-                )
             case .refinerUnreachable:
                 return make(
                     sessions: history,
-                    settings: refinerSettings(provider: .openRouter),
-                    keySource: .environment,
-                    reachability: .failed("The request timed out after 3000 ms.")
+                    settings: refinerSettings(provider: .omp, model: selectedModel),
+                    reachability: .failed("The request timed out after 3000 ms."),
+                    ompModelCatalogState: .failed("`omp models` did not answer within 3000 ms.")
                 )
             case .backendSwitchPending:
                 return make(
@@ -335,13 +321,15 @@
             // and whether the user ever switched it on. Pinning the ready wording
             // keeps the Refinement pane's on-device row identical on every host.
             RenderOverrides.foundationModelsDetail = Ledger.foundationModelsDetail
-            // Probe verdicts belong to a fixture, not the process: `make` installs
-            // one, and clearing here stops a refinement scene's verdict leaking
-            // into whatever renders next.
+            // Probe verdicts and the model catalog belong to a fixture, not the
+            // process: `make` installs them, and clearing here stops a refinement
+            // scene's verdict or model list leaking into whatever renders next.
             RenderOverrides.refinerReachability = nil
             RenderOverrides.ompOnboardingState = nil
             RenderOverrides.ompProviderConnections = nil
             RenderOverrides.ompProviderStatusState = nil
+            RenderOverrides.ompModels = nil
+            RenderOverrides.ompModelCatalogState = nil
         }
 
         // MARK: Property-ledger sample data
@@ -367,8 +355,7 @@
             static let savedSessions = "9"
             static let savedSessionsSize = "2.4 MB"
 
-            static let endpoint = "https://api.openai.com/v1"
-            static let model = "gpt-4.1-nano"
+            static let model = "anthropic/claude-haiku-4-5"
             static let timeout = "3000"
 
             /// The advisory prose the conditional caption states carry, and the
@@ -441,6 +428,49 @@
             ),
         ]
 
+        /// The model list every OMP scene picks from, standing in for whatever
+        /// `omp models --json` reports on the developer's machine. Pinned for the
+        /// same reason the session history is: the real catalog depends on which
+        /// subscriptions that Mac has signed in, so a live list would rewrite the
+        /// Model picker's golden on every host. Three providers, because the picker
+        /// groups connected providers ahead of the rest and a single-provider list
+        /// would never show that split. Seven entries, because the picker renders at
+        /// most eight rows and the always-present Provider default row takes the
+        /// first: an eighth model would silently never render. Sorted by provider
+        /// then selector, which is the order
+        /// `DictationCoordinator.refreshOmpModelCatalog` publishes.
+        static let ompModels = [
+            OmpAvailableModel(
+                provider: "anthropic", selector: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5"),
+            OmpAvailableModel(
+                provider: "anthropic", selector: "anthropic/claude-opus-4-5", name: "Claude Opus 4.5"),
+            OmpAvailableModel(
+                provider: "anthropic", selector: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5"),
+            OmpAvailableModel(
+                provider: "google-gemini-cli",
+                selector: "google-gemini-cli/gemini-2.5-flash",
+                name: "Gemini 2.5 Flash"
+            ),
+            OmpAvailableModel(
+                provider: "google-gemini-cli",
+                selector: "google-gemini-cli/gemini-2.5-pro",
+                name: "Gemini 2.5 Pro"
+            ),
+            OmpAvailableModel(
+                provider: "openai-codex", selector: "openai-codex/gpt-5-mini", name: "GPT-5 mini"),
+            OmpAvailableModel(
+                provider: "openai-codex", selector: "openai-codex/gpt-5.5", name: "GPT-5.5"),
+        ]
+
+        /// The catalog entry a configured scene has picked by hand, as opposed to
+        /// the provider default an empty `refinerModel` resolves to.
+        static let selectedModel = "anthropic/claude-sonnet-4-5"
+
+        /// Narrows `ompModels` to the three Anthropic rows. Short enough to type in
+        /// one scene step and specific enough that the filtered list cannot be
+        /// mistaken for the unfiltered one.
+        static let modelFilter = "claude"
+
         static func settings(
             backend: String = "fake",
             glossary: [ProtectedTerm] = VoiceCore.Settings.defaultGlossary
@@ -459,14 +489,12 @@
         /// where the pane's own branching differs.
         private static func refinerSettings(
             provider: RefinerProvider,
-            model: String = "",
-            baseURL: String = ""
+            model: String = ""
         ) -> VoiceCore.Settings {
             var configured = settings()
             configured.refinerEnabled = true
             configured.refinerProvider = provider
             configured.refinerModel = model
-            configured.refinerBaseURL = baseURL
             return configured
         }
 
@@ -476,15 +504,28 @@
             backend: String = "fake",
             health: ASRBackendHealth? = UIFixtures.devBackendHealth,
             permissions: PermissionState = .granted,
-            keySource: RefinerKeySource = .none,
             reachability: RefinerReachability? = nil,
             ompOnboardingState: OmpOnboardingState? = nil,
             ompProviderConnections: [OmpProviderConnection]? = nil,
-            ompProviderStatusState: OmpProviderStatusState? = nil,
+            // Not nil, unlike every other override here. The Refinement pane asks OMP
+            // for its account inventory and its model catalog from `.task(id: provider)`
+            // whenever the matching override is absent, and both are subprocesses. An
+            // installed value makes that task a no-op, so a scene can neither spawn
+            // `omp` nor render whichever answer happened to land inside its settle
+            // budget. A flow that means to drive one of the two passes nil for it.
+            ompProviderStatusState: OmpProviderStatusState? = .idle,
+            ompModels: [OmpAvailableModel]? = nil,
+            ompModelCatalogState: OmpModelCatalogState? = .idle,
             insertion: InsertionOutcome = .pasteAttempted,
             asrOverride: ASRClienting? = nil,
-            cloudReachabilityProbe: @escaping DictationCoordinator.CloudReachabilityProbeFunction = {
+            // The two `omp` subprocess seams. Both default to something inert, so a
+            // fixture has to ask in writing before a scripted verdict or model list
+            // can appear; only a flow that drives CHECK or REFRESH ever does.
+            ompModelsProbe: @escaping DictationCoordinator.OmpModelsProbeFunction = {
                 _, _, _, _ in .failed("ui harness fixture")
+            },
+            ompModelCatalogLoad: @escaping DictationCoordinator.OmpModelCatalogLoadFunction = {
+                _, _, _ in []
             },
             // Zero keeps `now` frozen, which is what every scene golden depends on. Only a
             // flow that has to defeat the backend-probe TTL asks for a step.
@@ -495,6 +536,8 @@
             RenderOverrides.ompOnboardingState = ompOnboardingState
             RenderOverrides.ompProviderConnections = ompProviderConnections
             RenderOverrides.ompProviderStatusState = ompProviderStatusState
+            RenderOverrides.ompModels = ompModels
+            RenderOverrides.ompModelCatalogState = ompModelCatalogState
             let scratch = nextScratchDirectory()
             let asrClient: ASRClienting =
                 asrOverride ?? HarnessASR(transcript: pinnedTranscript, backendHealth: health)
@@ -512,15 +555,11 @@
                 settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
                 recentSessionStore: seededStore(sessions, in: scratch),
                 recentSessionSnapshotSave: { _, _ in },
-                keySourceProvider: { _ in keySource },
-                refinerAPIKeyProvider: { _ in nil },
-                // No scene presses CHECK, and these make sure none ever could: the
-                // real probes spawn `omp` and reach the network.
-                ompModelsProbe: { _, _, _, _ in .failed("ui harness fixture") },
+                ompModelsProbe: ompModelsProbe,
                 ompProviderStatusProbe: { _, _, _ in
                     OmpProviderStatusSnapshot(connections: [])
                 },
-                cloudReachabilityProbe: cloudReachabilityProbe,
+                ompModelCatalogLoad: ompModelCatalogLoad,
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )
@@ -647,7 +686,7 @@
                 captureMs: 5_600,
                 asrMs: 380,
                 refinement: RefinementTrace(
-                    kind: .refined, provider: "openAI:gpt-4.1-nano", reason: nil, latencyMs: 640)
+                    kind: .refined, provider: "omp:anthropic/claude-haiku-4-5", reason: nil, latencyMs: 640)
             ),
             session(
                 index: 5,

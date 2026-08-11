@@ -71,8 +71,8 @@
     //     `DictationCoordinator.live()`, which spawns the ASR sidecar, taps the
     //     keyboard and opens the microphone;
     //   * never let a scene derive anything from `Date()`, `UUID()`, `.random`,
-    //     `NSColor.controlAccentColor`, or the user's Keychain / TCC state (see
-    //     `RenderOverrides` for the pins that already exist);
+    //     `NSColor.controlAccentColor`, the user's TCC state, or an `omp` subprocess
+    //     (see `RenderOverrides` for the pins that already exist);
     //   * avoid states dominated by a `.repeatForever` animation or a
     //     `TimelineView(.animation)` — once the run loop turns, those hash
     //     differently on every run. The recording overlay's comet is the one such
@@ -90,12 +90,13 @@
             height: VoiceOourMetrics.Window.defaultHeight
         )
 
-        /// Console measure for panes taller than a fresh install's window. The
-        /// keyed Refinement configurations already push their CONNECTION card past
-        /// the 820 pt fold — visible in `console.refinement.configured`, whose
-        /// Status row sits at y=824 — and a scene whose whole subject is that row
-        /// has to show it. The window is resizable, so this is a geometry a user
-        /// reaches by dragging, not one invented for the harness.
+        /// Console measure for panes taller than a fresh install's window. Every OMP
+        /// refinement configuration pushes its CONNECTION card well past the 820 pt
+        /// fold, because the Model picker between them is a scrolling list of every
+        /// model the broker vends rather than a single field, and a scene whose whole
+        /// subject is one of those lower rows has to show it. The window is resizable,
+        /// so this is a geometry a user reaches by dragging, not one invented for the
+        /// harness.
         static let tallConsoleSize = CGSize(
             width: VoiceOourMetrics.Window.defaultWidth,
             height: 1_000
@@ -221,9 +222,10 @@
                 ),
                 console(
                     "console.refinement.configured",
-                    "Refinement pane with a provider, model and saved key",
+                    "Refinement pane with a model picked out of the loaded catalog",
                     section: .refinement,
-                    fixture: .refinerConfigured
+                    fixture: .refinerConfigured,
+                    size: tallConsoleSize
                 ),
                 console(
                     "console.refinement.apple",
@@ -245,19 +247,20 @@
                     fixture: .refinerOmpLoginFailed,
                     size: tallConsoleSize
                 ),
+                // A filter narrows the picker to one provider's rows, which is a
+                // rendering no other scene reaches: every list here is otherwise the
+                // whole catalog, grouped and complete.
                 console(
-                    "console.refinement.custom",
-                    "Refinement pane on a custom endpoint, probe in flight",
+                    "console.refinement.model-catalog",
+                    "Refinement model picker filtered to one provider",
                     section: .refinement,
-                    fixture: .refinerCustom,
-                    size: tallConsoleSize
-                ),
-                console(
-                    "console.refinement.unauthorized",
-                    "Refinement pane after the endpoint rejected the key",
-                    section: .refinement,
-                    fixture: .refinerUnauthorized,
-                    size: tallConsoleSize
+                    fixture: .refinerConfigured,
+                    size: tallConsoleSize,
+                    tags: ["steps"],
+                    steps: [
+                        .type(UIFixtures.modelFilter, into: "refinement.model.filter"),
+                        .settle(120),
+                    ]
                 ),
                 console(
                     "console.refinement.unreachable",
@@ -1117,10 +1120,10 @@
         private var dependentGroup: some View {
             DependentGroup(isEnabled: false, label: "Refiner configuration") {
                 SettingsSectionBlock(eyebrow: "DEPENDENTGROUP · DISABLED") {
-                    PropertyRow("Endpoint", value: UIFixtures.Ledger.endpoint, valueStyle: .mono)
+                    PropertyRow("Selected model", value: UIFixtures.Ledger.model, valueStyle: .mono)
 
-                    SettingsRow(label: "Model", status: (label: "NEEDS KEY", mode: .warn)) {
-                        TextField(UIFixtures.Ledger.model, text: .constant(UIFixtures.Ledger.model))
+                    SettingsRow(label: "Timeout", status: (label: "OFF", mode: .warn)) {
+                        TextField(UIFixtures.Ledger.timeout, text: .constant(UIFixtures.Ledger.timeout))
                             .textFieldStyle(GlassTextFieldStyle())
                             .frame(width: VoiceOourMetrics.Field.medium)
                     } footer: {

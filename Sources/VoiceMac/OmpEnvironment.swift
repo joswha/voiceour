@@ -75,9 +75,22 @@ enum OmpEnvironment {
     /// Returns a minimal child environment with a launch-safe PATH and no inherited
     /// direct-provider credentials. HOME and broker settings remain available so omp
     /// can use its own credential store or a configured auth broker.
+    ///
+    /// `shadowCredentials` is true for anything that sends the user's transcript,
+    /// which is what the tombstones exist to protect. It must be false for a
+    /// read-only catalog query, because omp decides which providers to advertise
+    /// by asking whether the variable is *set*, and it only trims the tombstone
+    /// back to absent later, when it resolves a credential to use. Measured
+    /// against `omp models --json` in the hermetic profile: shadowed, it
+    /// advertises 50 providers and 1.2 MB of models that the refiner cannot
+    /// reach; unshadowed, it answers with the 15 KB the signed-in accounts
+    /// actually serve. Shadowed it also never answers at all — `GITLAB_TOKEN=" "`
+    /// hangs the process indefinitely with nothing on stderr, where both an empty
+    /// value and a real-looking `glpat-…` return in about a second.
     static func augmented(
         _ base: [String: String],
-        workingDirectory: URL? = nil
+        workingDirectory: URL? = nil,
+        shadowCredentials: Bool = true
     ) -> [String: String] {
         var env: [String: String] = [:]
         env.reserveCapacity(preservedNames.count + shadowedCredentialNames.count)
@@ -103,12 +116,14 @@ enum OmpEnvironment {
         env["HOME"] = home
         env["PATH"] = merged.joined(separator: ":")
         if env["BUN_INSTALL"] == nil { env["BUN_INSTALL"] = home + "/.bun" }
-        for name in shadowedCredentialNames {
-            env[name] = dotenvTombstone
-        }
-        for name in dotenvNames(base: base, workingDirectory: workingDirectory)
-        where !isPreserved(name) {
-            env[name] = dotenvTombstone
+        if shadowCredentials {
+            for name in shadowedCredentialNames {
+                env[name] = dotenvTombstone
+            }
+            for name in dotenvNames(base: base, workingDirectory: workingDirectory)
+            where !isPreserved(name) {
+                env[name] = dotenvTombstone
+            }
         }
         env["CLAUDE_CODE_USE_FOUNDRY"] = "false"
         return env

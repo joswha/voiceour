@@ -36,7 +36,9 @@ cd bench && uv --no-config run python -m voiceoour_bench.run --tier fleurs --mod
 cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend mlx
 ```
 
-`--mode stt` maps to the Swift runner's `pipeline --refine off`. `--mode e2e` maps to `pipeline --refine deterministic` unless `--refine llm` or `--refine omp` is explicitly supplied. `--mode refine` uses the text-only Swift `refine` command and defaults to deterministic refinement; with `--tier fleurs` it derives refine cases from FLEURS `transcription` and `raw_transcription`, otherwise it uses `fixtures/bench/refine_cases.jsonl`.
+`--mode stt` maps to the Swift runner's `pipeline --refine off`. `--mode e2e` maps to `pipeline --refine deterministic` unless `--refine omp` is explicitly supplied. `--mode refine` uses the text-only Swift `refine` command and defaults to deterministic refinement; with `--tier fleurs` it derives refine cases from FLEURS `transcription` and `raw_transcription`, otherwise it uses `fixtures/bench/refine_cases.jsonl`.
+
+`--refine omp` measures the shipping cloud path: the runner builds its refiner through the same `RefinerProviderRegistry.live` the app uses, so it cannot drift into measuring a refiner the app does not ship. `--refiner-model` picks an OMP model (empty means the provider default) and is the only refiner option there is — the runner holds no credential, because OMP owns them. Apple's on-device provider has no benchmark mode: it depends on Apple Intelligence being enabled on the host, which is not a condition a reproducible benchmark can assert.
 
 ## Metrics
 

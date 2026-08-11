@@ -20,7 +20,7 @@ flowchart LR
 ## Swift targets
 
 - `VoiceCore`: pure Swift contracts, ASR protocol wire types, session state, settings, deterministic cleanup, glossary persistence, and target safety classification. It imports Foundation only.
-- `VoiceMac`: macOS adapters for audio capture, synthetic fake audio, sidecar process management, frontmost-app tracking, pasteboard insertion, permissions, Fn/Globe hotkey capture and Escape-to-cancel via CGEventTap, Keychain-backed refiner API key storage, environment-backed local refiner API key lookup, and the optional refiner backends (`LLMRefiner` for OpenAI-compatible HTTP, `OmpRpcRefiner` for a persistent `omp --mode rpc` child process, and `FoundationModelsRefiner` for Apple's on-device system model on macOS 26+).
+- `VoiceMac`: macOS adapters for audio capture, synthetic fake audio, sidecar process management, frontmost-app tracking, pasteboard insertion, permissions, Fn/Globe hotkey capture and Escape-to-cancel via CGEventTap, and the optional refiner backends (`OmpRpcRefiner` for a persistent `omp --mode rpc` child process and `FoundationModelsRefiner` for Apple's on-device system model on macOS 26+), dispatched by provider through `RefinerProviderRegistry`.
 - `VoiceOour`: SwiftUI `MenuBarExtra`, settings UI, and `DictationCoordinator` orchestration.
 
 ## Session flow
@@ -33,11 +33,17 @@ Recent-session state is normalized on the main actor, then complete snapshots ar
 
 `RecordingOverlayFocusTracker` places the recording island on the display containing the frontmost app's leading window, with the pointer display as a fallback. While the session is active it reacts to global clicks, app activation, active-Space changes, and display reconfiguration. A dragged island position is normalized within one display's visible frame and translated to the focused display, so saved coordinates never pin it to the monitor where it was first moved.
 
-`refining` is skipped unless the refiner is enabled, configured, and the target is not terminal, code-editor, or secure. `TranscriptRefining` has three production backends: `LLMRefiner` calls OpenAI-compatible HTTP providers with API-key/OAuth direct-provider auth, while `OmpRpcRefiner` keeps one persistent `omp --mode rpc` child alive (when OMP refinement is enabled and configured, the child is spawned lazily by recording-stop `warmUp()` or by a first direct refine, and respawned lazily on exit) and drives it over newline-delimited JSON: `prompt` → `agent_end` → `get_last_assistant_text` → `new_session`. The awaited `new_session` reset (~12ms) makes every refine a fresh conversation, so utterances never contaminate each other. The child runs in a hermetic profile directory (`~/Library/Application Support/VoiceOour/omp-rpc/.omp/settings.json`) that disables omp memory, hides MCP/builtin tool schemas, and turns off marketplace traffic — measured request context drops from ~22k tokens (inherited interactive config) to ~0.3k, and warm refine latency from 2.7–11.6s (old spawn-per-dictation print mode) to ~1–2s. On timeout the turn is aborted, the session reset, and deterministic cleanup text is used; a child that stops responding is terminated and respawned on the next refine. Both cloud backends apply `RefinementGuards.passesFaithfulnessGuards` (length, glossary, and number preservation) and use deterministic cleanup fallback on guard failure or backend error.
+`refining` is skipped unless the refiner is enabled, configured, and the target is not terminal, code-editor, or secure. `TranscriptRefining` has two production backends. `OmpRpcRefiner` is the only one that reaches the network, and it does so through a subprocess rather than an HTTP client of its own: it keeps one persistent `omp --mode rpc` child alive (when OMP refinement is enabled and configured, the child is spawned lazily by recording-stop `warmUp()` or by a first direct refine, and respawned lazily on exit) and drives it over newline-delimited JSON: `prompt` → `agent_end` → `get_last_assistant_text` → `new_session`. The awaited `new_session` reset (~12ms) makes every refine a fresh conversation, so utterances never contaminate each other. The child runs in a hermetic profile directory (`~/Library/Application Support/VoiceOour/omp-rpc/.omp/settings.json`) that disables omp memory, hides MCP/builtin tool schemas, and turns off marketplace traffic — measured request context drops from ~22k tokens (inherited interactive config) to ~0.3k, and warm refine latency from 2.7–11.6s (old spawn-per-dictation print mode) to ~1–2s. On timeout the turn is aborted, the session reset, and deterministic cleanup text is used; a child that stops responding is terminated and respawned on the next refine. Both backends apply `RefinementGuards.passesFaithfulnessGuards` (length, glossary, and number preservation) and use deterministic cleanup fallback on guard failure or backend error.
 
 OMP authentication remains owned by OMP. `OmpOnboarding` asks `omp auth-broker list --json` for the current login catalog, creates a mode-`0700` one-shot `.command` file in a unique app-support directory, and opens it through `NSWorkspace` so Terminal supplies the TTY required by OMP's browser, device-code, paste-code, and key prompts. The command runs with the same credential-shadowed environment as refinement, writes only its integer exit status back to VoiceOour, and deletes itself; VoiceOour never reads `~/.omp/agent/agent.db` or receives a token. After a successful login, the app reads only the provider-scoped `omp models <provider> --json` catalog, selects a matching fast model for ChatGPT, Claude, Gemini, or Kimi, publishes the resulting reachability verdict, and removes the temporary session directory. `Other` delegates provider selection to OMP's live list.
 
 `OmpProviderStatusProbe` runs `omp usage --json --redact` plus the public provider catalog in the same credential-shadowed profile. It discards every identity and quota payload, aggregates only active/reporting/disabled account counts by provider, and feeds the Refinement pane's connected/attention/available groups. The four common subscriptions are UI constants so disconnected providers remain actionable; additional connected providers come from OMP's live catalog. Refresh generations prevent a stale subprocess result from overwriting a newer account inventory.
+
+The Model field is a picker, not a text field, because the valid ids belong to OMP rather than to this app. `DictationCoordinator.refreshOmpModelCatalog()` reads `omp models --json` in the same hermetic profile and publishes the catalog as `ompModels` with an `ompModelCatalogState` of `idle`, `loading`, `loaded`, or `failed`; the Refinement pane filters that list and `selectRefinerModel(_:)` stores the chosen selector, where an empty selector means the provider default. A model id the user typed by hand could only be validated by failing a refine, so it is not offered.
+
+That catalog query is the one `omp` call that deliberately runs with `shadowCredentials: false`. Every other call replaces each direct-provider credential with a single-space tombstone so OMP's dotenv loader cannot refill it, but OMP decides which providers to *advertise* by asking whether the variable is set and only trims the tombstone back to absent later, when it resolves a credential to use. Measured against the hermetic profile: shadowed, `omp models --json` answers with 50 providers and 1.2 MB of models the refiner cannot reach; unshadowed, it answers with the ~15 KB the signed-in accounts actually serve. Shadowed it also does not always answer at all — `GITLAB_TOKEN=" "` hangs the process indefinitely with nothing on stderr, where both an empty value and a real-looking `glpat-…` return in about a second. Dropping the names instead of tombstoning them keeps the leak closed either way: a credential inherited from the launching shell is not in `OmpEnvironment.preservedNames` and never reaches the child. `OmpModelsProbe` shares the loader, so the CHECK verdict and the picker always describe the same list.
+
+A failed refine only overwrites that Status row when its reason names a durable OMP fault — the `launch failed:`, `omp not ready:`, `omp exited:`, and `omp protocol error:` prefixes in `DictationCoordinator.durableRefinerFailurePrefixes`. A timeout, a superseded turn, a cancellation, an empty answer, or a faithfulness-guard rejection says nothing about whether OMP is reachable, so it leaves the last probe verdict standing rather than reporting the provider as broken.
 
 `FoundationModelsRefiner` (provider "Apple On-Device", macOS 26+ with Apple Intelligence enabled) runs Apple's system language model locally: no network, no API key, no app-managed model memory, measured p50 ~1.6-2.0s per refine on M4 Pro with the production glossary (`docs/performance-roadmap.md`). Each utterance checks out a pristine `LanguageModelSession` with `RefinerPolicy.onDeviceSystemPrompt` (the shared contract plus hard rules against its two measured failure modes) and the permissive content-transformation guardrails exactly once; the refiner retains at most one prewarmed spare and falls back to a cold session when none is ready. Prewarming is timing-sensitive and is driven from recording stop, not app launch: a session prepared long before use keeps little of its value across the idle gap, so preparing at launch — or right after the previous refine — buys almost nothing by the time the user dictates. `SingleUsePrewarmedSessionSlot.prepareFresh()` is therefore the only routine preparation path; it replaces an unused stale spare rather than no-op'ing on a `ready` slot, finishing a refine deliberately leaves the slot empty, and a preparation deferred past an in-flight checkout still lands when that checkout settles so back-to-back dictations recover. That yields exactly one preparation per refined utterance instead of one wasted spare plus one useful one. `DictationCoordinator` fires the hook unstructured as the stop path begins, so recorder finalization plus ASR supply the lead time without adding an `await` to the post-ASR critical path. Measured with idle held constant at 30s and only prewarm placement varied (240 accepted trials, shuffled schedule): preparing after the idle with a ~400ms lead is **383.5ms faster (paired median)** than preparing before it, 10/10 transcripts, 95% CI [361.6, 399.0], sign p=0.002; versus never prewarming the gain is 419.1ms, while a pre-idle spare retains only 37.2ms. Benefit saturates at roughly `min(lead, 300ms)`, and the opt-in Apple ASR backend leaves only ~16ms of lead so it gains little. Measured 12/14 battery passes; the residual failure shapes — conversational preambles and answered questions — are rejected by `RefinementGuards.looksLikeAssistantArtifact` (a guard shared by every backend), so they degrade to deterministic cleanup instead of being pasted. On macOS < 26 the factory installs `UnsupportedRefiner`, which skips with `requires_macos_26`.
 
@@ -93,7 +99,7 @@ Vocabulary is trust-separated. A persistent `ProtectedTerm` carries a stable `te
 
 For each utterance, `VocabularyCompiler` compiles a bounded active snapshot — at most 100 terms — scoped to the captured target's bundle id plus the active project, so only terminology relevant to where the text will land is in play. That snapshot is the single active set consumed by refinement, biasing, and the risk authorizer.
 
-Two boundaries protect this vocabulary. The cloud boundary: only `cloudEligible`, non-tombstoned, non-`projectID`-scoped terms are placed in the cloud-bound `LLMRefiner` and `OmpRpcRefiner` prompts; the on-device `FoundationModelsRefiner` keeps the full active set, so project-private terminology never leaves the device. The refinement boundary: a word-boundary term-lock protects accepted terminology through refinement, matching whole tokens rather than substrings (fixing a prior substring false-pass that let a locked term be altered inside a larger word).
+Two boundaries protect this vocabulary. The cloud boundary: only `cloudEligible`, non-tombstoned, non-`projectID`-scoped terms are placed in the network-bound `OmpRpcRefiner` prompt; the on-device `FoundationModelsRefiner` keeps the full active set, so project-private terminology never leaves the device. The refinement boundary: a word-boundary term-lock protects accepted terminology through refinement, matching whole tokens rather than substrings (fixing a prior substring false-pass that let a locked term be altered inside a larger word).
 
 ## Term correction and biasing
 
@@ -103,46 +109,47 @@ Decoder bias is likewise off by default (`Settings.decoderBiasEnabled = false`).
 
 Every automatic-authority path — auto-correction, decoder bias, and keyword spotting — is gated on a consented real-speaker TechTerms corpus that does not yet exist; current TechTerms coverage is TTS smoke-only. Stage 5 keyword spotting is deferred: CTC word-spotting is blocked because the pinned checkpoint has no CTC head, and a separate local KWS model needs real-speaker plus resource and false-accept justification before it ships.
 
-## Refiner credential storage
+## Why VoiceOour holds no credentials
 
-The optional refiner API key is the only secret this app stores. `KeychainRefinerAPIKeyStore`
-asks for the **data protection** keychain first and falls back to the **file-based** keychain on
-`errSecMissingEntitlement` (-34018) alone, caching that decision for the process.
+This app stores no secret. Refinement has exactly two destinations, and neither
+takes a credential from VoiceOour: `omp` keeps every provider token in its own
+vault and brokers whichever subscription the user signed into, and Apple's
+on-device model needs no credential at all. There is no API-key field, no
+`api-key-<provider>` keychain item, no credential environment variable, and no
+user-typed base URL that a key could be bound to.
 
-That fallback is not defensive padding; today it is the only path that works. On macOS the data
-protection keychain resolves an item's access group from a code-signing entitlement that must be
-authorized by a provisioning profile. This bundle ships neither — `Resources/VoiceOour.entitlements`
-is audio-input only and `scripts/bundle.sh` embeds no profile — so `SecItemAdd` answers -34018, and
-adding `keychain-access-groups` to an ad-hoc signature instead gets the process killed by AMFI
-(`"adhoc signed but contains restricted entitlements"`). Both were measured, not assumed. Keying the
-fallback on exactly one status keeps it from masking any other failure, and if the bundle ever gains
-a provisioning profile the same code promotes the item on the next read with no separate migration.
+That is a measurement as much as a preference, and the measurement is worth
+keeping after the code that motivated it. While the app did hold a refiner API
+key, the data protection keychain could not store it at all: on macOS that
+keychain resolves an item's access group from a code-signing entitlement which
+must be authorized by a provisioning profile, and this bundle ships neither —
+`Resources/VoiceOour.entitlements` is audio-input only and `scripts/bundle.sh`
+embeds no profile. `SecItemAdd` answered `errSecMissingEntitlement` (-34018),
+and adding `keychain-access-groups` to an ad-hoc signature instead got the
+process killed by AMFI (`"adhoc signed but contains restricted entitlements"`).
+Both outcomes were measured, not assumed, so a bundle in this shape has no
+first-class place to keep a secret. A future feature that appears to need one
+should broker it through a process that already owns a vault, the way
+refinement does, rather than reintroduce a keychain here.
 
-`kSecAttrAccessible` is therefore set only on data protection writes; the file-based keychain ignores
-it, and sending it there would imply a protection this store cannot deliver.
+## Refiner settings and migration
 
-A read distinguishes three outcomes, because two of them must not be treated alike:
+`refiner_provider` persists exactly `omp` or `appleOnDevice`. `refiner_model`
+holds a selection from OMP's catalog, and `RefinerResolved.model(_:)` resolves
+what the refiner actually uses: for `omp`, the stored selection or the provider
+default when it is empty; for `appleOnDevice`, always `on-device`, because that
+provider has exactly one model whatever the file says. Switching providers
+therefore clears nothing — a model chosen for OMP survives a detour through the
+on-device provider. `refiner_base_url` is gone with the providers that needed
+it: no refinement destination is user-typed any more.
 
-- `.found` — the key.
-- `.absent` — no such item; a caller may consult the next credential source.
-- `.unavailable(OSStatus)` — the keychain could not answer.
-
-`CompositeRefinerAPIKeyProvider` stops at `.unavailable` rather than falling through to
-`EnvRefinerAPIKeyProvider`. A locked or unreachable keychain must not silently downgrade the request
-to whatever key happens to be in the environment, because that sends a credential the user never
-paired with this provider. `detectKeySource` mirrors the same rule, so the pane's key-source label
-can never advertise a credential the refiner will refuse to send. `readAPIKey()` is a protocol
-requirement, not an extension member: callers hold `any RefinerAPIKeyProviding`, and an extension
-member would statically dispatch straight past the store's real outcome.
-
-Keychain items are scoped per refiner provider (`api-key-<provider>`). For `.custom` the account also
-carries a digest of the normalized endpoint, so a key saved against one user-typed base URL is never
-sent to the next one the user types.
-
-`RefinerEndpointPolicy.allowsCredential` gates the `Authorization` header itself: `https` always,
-plain `http` only for a loopback authority (a local Ollama or LM Studio server is a first-class
-custom endpoint and has no TLS to offer), never a URL carrying embedded credentials. A refused
-endpoint reports a skip, not an unauthenticated request that returns a confusing 401.
+A settings file naming one of the retired direct-vendor providers (`gemini`,
+`openAI`, `openRouter`, `custom`) decodes to `omp` with `refiner_model` cleared
+and `refiner_enabled` forced to `false`. The clear is required because a Gemini
+or OpenAI model id means nothing to OMP; the forced opt-out is a consent
+decision, because those installs were sending text to a provider the user chose
+with a key the user supplied, and quietly redirecting a live refiner to a
+different network destination is not a migration detail.
 
 ## Insertion policy
 
@@ -177,7 +184,7 @@ After Cmd-V is posted successfully, a deferred task (~1500 ms) clears the dictat
 
 ## Test strategy
 
-- Swift: `swift test` covers cleanup fixtures, glossary term-lock, protocol fixture decoding, classifier mapping, persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against stub processes, copy-only insertion paths, focus-race insertion, LLM refiner stub/fallback behavior, omp RPC refiner lifecycle (JSONL stub session, process reuse across refines, guard fallback, launch failure, mid-turn death, hung-turn timeout), refinement guards, and pure dictation policy (launch options, refinement eligibility, outcome mapping).
+- Swift: `swift test` covers cleanup fixtures, glossary term-lock, protocol fixture decoding, classifier mapping, persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against stub processes, copy-only insertion paths, focus-race insertion, omp RPC refiner lifecycle (JSONL stub session, process reuse across refines, guard fallback, launch failure, mid-turn death, hung-turn timeout), refinement guards, and pure dictation policy (launch options, refinement eligibility, outcome mapping).
 - Python: `cd asr && uv --no-config run pytest` covers protocol fixtures, cache manifest corruption/recovery, and process-level sidecar behavior (health, persistence across requests, cancel-during-transcribe, stdout protocol purity, malformed-line recovery).
 - Real ASR: `scripts/phase0_asr_proof.py` validates the pinned model on a generated WAV fixture and prints latency/RSS.
 - Benchmarks: `docs/benchmarks.md` describes the accuracy/speed benchmark suite (`voiceoour-bench` + `bench/`).

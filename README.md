@@ -201,13 +201,13 @@ flowchart TB
         direction TB
         APP["VoiceOour · SwiftUI<br/>MenuBarExtra · console · island<br/>DictationCoordinator owns one utterance end to end"]
         CORE["VoiceCore · pure Swift + Foundation<br/>session state · settings · deterministic cleanup<br/>glossary · wire types · target-safety policy"]
-        MAC["VoiceMac · macOS adapters<br/>audio · pasteboard · CGEventTap hotkey<br/>permissions · Keychain · refiner backends"]
+        MAC["VoiceMac · macOS adapters<br/>audio · pasteboard · CGEventTap hotkey<br/>permissions · refiner backends"]
         ASR["asr/ · Python sidecar<br/>👽 Parakeet TDT 0.6B via MLX<br/>NDJSON over stdio, one persistent process"]
         APP --> CORE
         APP --> MAC
         MAC -->|"spawn once · keep warm · multiplex by request_id"| ASR
     end
-    NET["☁️  optional refiner<br/>Gemini · OpenAI · OpenRouter · Oh My Pi<br/>OFF BY DEFAULT"]
+    NET["☁️  optional refiner<br/>the omp CLI brokers it and owns the credentials<br/>OFF BY DEFAULT"]
     APP -. "only if you turn it on" .-> NET
 ```
 
@@ -277,18 +277,19 @@ unconditional biasing showed no recall gain. Everything above works regardless.
 
 <br>
 
-Refinement ▸ `Enable refiner`, then pick a provider:
+Refinement ▸ `Enable refiner`, then pick one of the two providers:
 
 | Provider | Notes |
 |---|---|
-| **Google Gemini** | Default. `GEMINI_API_KEY` or paste a key. |
-| **OpenAI** | `OPENAI_API_KEY`. |
-| **OpenRouter** | Fastest models in practice — e.g. `meta-llama/llama-3.3-70b-instruct` routed to Groq. `OPENROUTER_API_KEY`. |
-| **Oh My Pi** | Subscription-backed refinement through the installed `omp` CLI. |
-| **Apple on-device** | macOS 26 + Apple Intelligence. Local, no key. |
-| **Custom** | The only provider that asks for a base URL; must be OpenAI-compatible. |
+| **Oh My Pi** | Default. Refines through the locally installed `omp` CLI, which brokers whichever subscription you signed into. |
+| **Apple on-device** | macOS 26 + Apple Intelligence. Nothing leaves the Mac. |
 
-Base URLs for Gemini, OpenAI and OpenRouter are derived, not typed. Keys go to the Keychain.
+There is no API key to paste for either one, and no keychain item behind them: OMP keeps its own
+credentials and the on-device model needs none.
+
+`Model` is a picker, not a text field. Its options come from `omp models --json`, so you choose
+from what your OMP install can actually reach — type in the filter to narrow the list, press
+`REFRESH` after connecting an account, and pick nothing at all to stay on the provider default.
 
 For Oh My Pi, the pane groups connected providers first and keeps ChatGPT, Claude, Gemini and
 Kimi visible even when disconnected. `CONNECT` / `RECONNECT` open OMP's own interactive login in
@@ -477,7 +478,9 @@ Fn combined with any other key is always passed straight through.
 <details>
 <summary><b>Do I need an API key?</b></summary>
 <br>
-No. Keys exist only for the optional network refiner. Transcription itself never uses one.
+No. VoiceOour has no API-key field at all: the optional refiner reaches the network through the
+`omp` CLI, which holds its own credentials, and the on-device provider needs none. Transcription
+never uses one either.
 </details>
 
 <details>

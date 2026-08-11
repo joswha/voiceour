@@ -49,10 +49,17 @@ extension OmpSuites {
             )
             #expect(ready == .ok(models: 2))
             let capturedEnvironment = try String(contentsOf: capture, encoding: .utf8)
-            #expect(capturedEnvironment.contains("openai=< >"))
-            #expect(capturedEnvironment.contains("openai_set=<x>"))
-            #expect(capturedEnvironment.contains("gemini=< >"))
-            #expect(capturedEnvironment.contains("anthropic_base=< >"))
+            // The catalog query is the one omp call that runs without the
+            // credential tombstones, because omp advertises a provider whenever
+            // its variable is set: shadowed, `omp models` lists ~50 providers the
+            // refiner cannot reach, and `GITLAB_TOKEN=" "` makes it hang forever.
+            // Dropping the names entirely keeps the leak closed either way — a
+            // credential inherited from the launching shell still never reaches
+            // the child.
+            #expect(capturedEnvironment.contains("openai=<>"))
+            #expect(capturedEnvironment.contains("openai_set=<>"))
+            #expect(capturedEnvironment.contains("gemini=<>"))
+            #expect(capturedEnvironment.contains("anthropic_base=<>"))
             #expect(capturedEnvironment.contains("foundry=<false>"))
             #expect(!capturedEnvironment.contains("openai-secret"))
             #expect(!capturedEnvironment.contains("gemini-secret"))
@@ -60,6 +67,16 @@ extension OmpSuites {
             #expect(capturedEnvironment.contains("broker=<broker-secret>"))
             #expect(capturedEnvironment.contains("home=</Users/tester>"))
             #expect(capturedEnvironment.contains("unrelated=<>"))
+
+            // The transcript-bearing path keeps them, which is what the
+            // tombstones are for: omp's dotenv loader must not refill a
+            // credential the user never paired with this app.
+            let refinerEnvironment = OmpEnvironment.augmented(environment)
+            #expect(refinerEnvironment["OPENAI_API_KEY"] == OmpEnvironment.dotenvTombstone)
+            #expect(refinerEnvironment["GEMINI_API_KEY"] == OmpEnvironment.dotenvTombstone)
+            #expect(refinerEnvironment["ANTHROPIC_BASE_URL"] == OmpEnvironment.dotenvTombstone)
+            #expect(refinerEnvironment["OMP_AUTH_BROKER_TOKEN"] == "broker-secret")
+            #expect(refinerEnvironment["UNRELATED_PARENT_VALUE"] == nil)
 
             let unavailable = await OmpModelsProbe.check(
                 executableURL: fixture.url,

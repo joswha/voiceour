@@ -5,26 +5,19 @@ import VoiceMac
 struct RefinementProviderSection: View {
     var coordinator: DictationCoordinator
     let provider: RefinerProvider
+    @Binding var modelFilter: String
     let startOmpSignIn: (OmpSubscription) async -> Void
 
     var body: some View {
         SettingsSectionBlock(eyebrow: "PROVIDER") {
             providerRow()
 
-            if provider == .appleOnDevice {
+            switch provider {
+            case .appleOnDevice:
                 onDeviceRow()
-            }
-            if provider == .omp {
+            case .omp:
                 ompConnectionsRow()
-            }
-            if provider.isCustom {
-                baseURLRow()
-            }
-            if let endpoint = resolvedEndpoint(for: provider) {
-                endpointRow(endpoint)
-            }
-            if provider != .appleOnDevice {
-                modelRow(provider: provider)
+                modelRow()
             }
         }
     }
@@ -42,14 +35,15 @@ struct RefinementProviderSection: View {
         }
     }
 
-    /// Valueless fact rows: there is nothing to configure, only something to
-    /// know. Both prose-only rows use the same primitive so they cannot render
-    /// with two different label tones two rows apart.
+    /// A valueless fact row: there is nothing to configure, only something to
+    /// know. The on-device model has no endpoint, no credential and no model
+    /// id, so it has no picker either.
     private func onDeviceRow() -> some View {
         PropertyRow(
             "On-device",
             caption:
-                "Apple Intelligence runs the model in process — no endpoint and no API key to configure. \(foundationModelsDetail)."
+                "Apple Intelligence runs the model in process — no endpoint and no API key to "
+                + "configure. \(foundationModelsDetail)."
         )
     }
 
@@ -66,13 +60,16 @@ struct RefinementProviderSection: View {
             connections: displayedOmpProviderConnections,
             statusState: displayedOmpProviderStatusState,
             onboardingState: displayedOmpOnboardingState,
-            selectedProviderID: RefinerResolved.model(coordinator.settings)
-                .split(separator: "/", maxSplits: 1)
-                .first
-                .map(String.init),
+            selectedProviderID: selectedProviderID,
             onboardingDetail: ompOnboardingDetail(displayedOmpOnboardingState),
             onRefresh: {
-                Task { await coordinator.refreshOmpProviderStatuses() }
+                Task {
+                    // Independent probes; the picker must not wait on the
+                    // account inventory to repopulate.
+                    async let statuses = coordinator.refreshOmpProviderStatuses()
+                    async let models = coordinator.refreshOmpModelCatalog()
+                    _ = await (statuses, models)
+                }
             },
             onConnect: { subscription in
                 Task { await startOmpSignIn(subscription) }
@@ -80,32 +77,33 @@ struct RefinementProviderSection: View {
         )
     }
 
-    private func baseURLRow() -> some View {
-        SettingsRow(label: "Base URL") {
-            TextField("https://host/v1", text: settingBinding(coordinator, \.refinerBaseURL))
-                .textFieldStyle(GlassTextFieldStyle(font: VoiceOourTypography.bodyMono))
-                .accessibilityLabel("Base URL")
-        } footer: {
-            CaptionText("OpenAI-compatible base URL; VoiceOour appends /chat/completions.")
-        }
+    /// The model is chosen from OMP's own catalog rather than typed. See
+    /// `OmpModelPickerRow` for why the list is bounded and grouped the way it is.
+    private func modelRow() -> some View {
+        OmpModelPickerRow(
+            models: displayedOmpModels,
+            catalogState: displayedOmpModelCatalogState,
+            connectedProviderIDs: Set(
+                displayedOmpProviderConnections.filter(\.isConnected).map(\.providerID)
+            ),
+            resolvedModel: RefinerResolved.model(coordinator.settings),
+            isDefaulted: coordinator.settings.refinerModel.isEmpty,
+            defaultModel: provider.defaultModel,
+            filter: $modelFilter,
+            onRefresh: { Task { await coordinator.refreshOmpModelCatalog() } },
+            onSelect: { coordinator.selectRefinerModel($0) }
+        )
     }
 
-    /// The destination is a resolved machine value, so it takes the ledger's
-    /// machine-value policy — mono, middle-truncated, help text for the full
-    /// string — and its disabled tone comes from the row rather than from a
-    /// bespoke view reading `isEnabled` for itself.
-    private func endpointRow(_ endpoint: String) -> some View {
-        PropertyRow("Endpoint", value: endpoint, valueStyle: .mono)
-    }
+    // MARK: - Derived state
 
-    private func modelRow(provider: RefinerProvider) -> some View {
-        SettingsRow(label: "Model") {
-            TextField("model id", text: settingBinding(coordinator, \.refinerModel))
-                .textFieldStyle(GlassTextFieldStyle(font: VoiceOourTypography.bodyMono))
-                .accessibilityLabel("Model")
-        } footer: {
-            CaptionText(modelHelp(for: provider))
-        }
+    /// Which connection row wears IN USE: the provider half of the selector the
+    /// refiner would use right now.
+    private var selectedProviderID: String? {
+        RefinerResolved.model(coordinator.settings)
+            .split(separator: "/", maxSplits: 1)
+            .first
+            .map(String.init)
     }
 
     private var displayedOmpOnboardingState: OmpOnboardingState {
@@ -118,6 +116,14 @@ struct RefinementProviderSection: View {
 
     private var displayedOmpProviderStatusState: OmpProviderStatusState {
         RenderOverrides.ompProviderStatusState ?? coordinator.ompProviderStatusState
+    }
+
+    private var displayedOmpModels: [OmpAvailableModel] {
+        RenderOverrides.ompModels ?? coordinator.ompModels
+    }
+
+    private var displayedOmpModelCatalogState: OmpModelCatalogState {
+        RenderOverrides.ompModelCatalogState ?? coordinator.ompModelCatalogState
     }
 
     private func ompOnboardingDetail(
@@ -141,64 +147,15 @@ struct RefinementProviderSection: View {
             return (detail, true)
         }
     }
-
-    /// The endpoint is shown as its own row only where it is a resolved constant.
-    /// Custom edits it in the Base URL row; the local and brokered providers have
-    /// no endpoint to state.
-    private func resolvedEndpoint(for provider: RefinerProvider) -> String? {
-        guard provider != .omp, provider != .appleOnDevice, !provider.isCustom else { return nil }
-        let baseURL = RefinerResolved.baseURL(coordinator.settings)
-        return baseURL.isEmpty ? nil : baseURL
-    }
-
-    /// The suggested list doubles as a statement of the effective value, so an
-    /// empty field reads as "defaulted", not as "unset".
-    private func modelHelp(for provider: RefinerProvider) -> String {
-        var sentences: [String] = []
-        let isDefaulted = coordinator.settings.refinerModel
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty
-
-        if provider == .omp {
-            if isDefaulted, let fallback = provider.suggestedModels.first {
-                sentences.append("Empty uses the provider default, \(fallback).")
-            }
-            sentences.append("Connecting a common provider selects a matching subscription model.")
-            sentences.append("Format: provider/model; CHECK validates any manual id.")
-            return sentences.joined(separator: " ")
-        }
-
-        let suggestions = provider.suggestedModels
-        if isDefaulted, let fallback = suggestions.first {
-            sentences.append("Empty uses the provider default, \(fallback).")
-            let alternatives = suggestions.dropFirst()
-            if !alternatives.isEmpty {
-                sentences.append("Also available: \(alternatives.joined(separator: ", ")).")
-            }
-        } else if !suggestions.isEmpty {
-            sentences.append("Suggested: \(suggestions.joined(separator: ", ")).")
-        }
-
-        switch provider {
-        case .custom:
-            // Custom is the one provider with nothing to suggest, so without a
-            // line of its own the field that most needs guidance ships a blank
-            // caption instead.
-            sentences.append("The model id your endpoint expects; VoiceOour sends it verbatim.")
-        case .gemini, .openAI, .openRouter, .omp, .appleOnDevice:
-            break
-        }
-        return sentences.joined(separator: " ")
-    }
 }
 
-/// Six providers do not fit one 536 pt row, and a segment group is the wrong
-/// place to start eliding names, so the group wraps to two rows of three.
+/// Two destinations, so one row of two segments. This was a wrapped two-row
+/// group of six when VoiceOour spoke to four cloud vendors itself.
 private struct RefinerProviderPicker: View {
     @Binding var selection: RefinerProvider
 
     var body: some View {
-        SegmentGroup(rows: 2) {
+        SegmentGroup {
             ForEach(RefinerProvider.allCases, id: \.self) { provider in
                 SegmentOption(
                     label: provider.displayName.uppercased(),

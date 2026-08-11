@@ -62,17 +62,7 @@ struct RefinementOptInSection: View {
             return "Refinement runs on this Mac. Dictated text never leaves the device."
         case .omp:
             return "While this is on, dictated text is sent over the network to the Oh My Pi provider you select."
-        case .gemini, .openAI, .openRouter, .custom:
-            let destination =
-                host(of: RefinerResolved.baseURL(coordinator.settings))
-                ?? "the endpoint you configure below"
-            return "While this is on, dictated text is sent over the network to \(destination)."
         }
-    }
-
-    private func host(of baseURL: String) -> String? {
-        guard let host = URL(string: baseURL)?.host, !host.isEmpty else { return nil }
-        return host
     }
 
     private func readinessMode(_ readiness: RefinerReadiness) -> StatusChip.Mode {
@@ -81,7 +71,7 @@ struct RefinementOptInSection: View {
             .ok
         case .disabled:
             .neutral
-        case .needsBaseURL, .needsModel, .needsKey:
+        case .needsModel:
             .warn
         }
     }

@@ -16,7 +16,7 @@ model-cache/
 asr/model-cache/
 omp-session-*.html
 
-# Local secrets: refiner API keys (GEMINI_API_KEY, OPENROUTER_API_KEY)
+# Local launch environment sourced by scripts/run_real.sh; the app itself holds no credential
 .env
 .env.*
 benchmarks/data/

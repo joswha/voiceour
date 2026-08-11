@@ -61,6 +61,21 @@ public enum OmpProviderStatusState: Equatable, Sendable {
     }
 }
 
+/// Progress of the `omp models` catalog the Refinement pane's Model picker
+/// offers. The list is inherited from OMP rather than hard-coded, so the pane
+/// has to be able to say that it is still asking, and why it could not.
+public enum OmpModelCatalogState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded
+    case failed(String)
+
+    public var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+}
+
 @Observable @MainActor
 public final class DictationCoordinator {
     public typealias RefinerFactory = (VoiceCore.Settings) -> TranscriptRefining
@@ -70,12 +85,11 @@ public final class DictationCoordinator {
         String,
         Int
     ) async -> RefinerReachability
-    public typealias CloudReachabilityProbeFunction = (
+    public typealias OmpModelCatalogLoadFunction = (
         URL,
-        String?,
-        String?,
+        [String],
         Int
-    ) async -> RefinerReachability
+    ) async throws -> [OmpAvailableModel]
     public typealias OmpOnboardingStartFunction = (
         OmpSubscription
     ) async throws -> OmpOnboardingSession
@@ -101,11 +115,6 @@ public final class DictationCoordinator {
             guard RefinerIdentity(settings: oldValue) != RefinerIdentity(settings: settings) else {
                 return
             }
-            let oldEndpoint = RefinerResolved.baseURL(oldValue)
-            let endpoint = RefinerResolved.baseURL(settings)
-            if oldValue.refinerProvider != settings.refinerProvider || oldEndpoint != endpoint {
-                refinerKeySource = keySourceProvider(settings.refinerProvider, endpoint)
-            }
             generations.invalidate(.refinerConfiguration)
             refinerReachability = .unknown
         }
@@ -118,12 +127,12 @@ public final class DictationCoordinator {
     public private(set) var backendHealthError: String?
     public internal(set) var recentSessions: [RecentSession] = []
     public internal(set) var isSystemAudioMuted: Bool = false
-    public internal(set) var refinerKeySource: RefinerKeySource = .none
     public internal(set) var refinerReachability: RefinerReachability = .unknown
     public internal(set) var ompOnboardingState: OmpOnboardingState = .idle
     public internal(set) var ompProviderConnections: [OmpProviderConnection] = []
     public internal(set) var ompProviderStatusState: OmpProviderStatusState = .idle
-    public internal(set) var keychainError: String?
+    public internal(set) var ompModels: [OmpAvailableModel] = []
+    public internal(set) var ompModelCatalogState: OmpModelCatalogState = .idle
     public internal(set) var pendingSuggestions: [TermSuggestion] = []
     public private(set) var activeProjectId: String?
     public private(set) var activeProjectName: String?
@@ -138,9 +147,8 @@ public final class DictationCoordinator {
     /// `AudioLevelMeter`.
     public let inputMeter = AudioLevelMeter()
 
-    public var hasRefinerAPIKey: Bool { refinerKeySource != .none }
     public var refinerReadiness: RefinerReadiness {
-        RefinerReadiness.evaluate(settings: settings, hasKey: hasRefinerAPIKey)
+        RefinerReadiness.evaluate(settings: settings)
     }
 
     let recorder: AudioRecording
@@ -158,11 +166,9 @@ public final class DictationCoordinator {
     let audioMuter: SystemAudioMuting
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
-    let keySourceProvider: (RefinerProvider, String) -> RefinerKeySource
-    let refinerAPIKeyProvider: (RefinerProvider, String) -> String?
     let ompModelsProbe: OmpModelsProbeFunction
     let ompProviderStatusProbe: OmpProviderStatusProbeFunction
-    let cloudReachabilityProbe: CloudReachabilityProbeFunction
+    let ompModelCatalogLoad: OmpModelCatalogLoadFunction
     let ompOnboardingStart: OmpOnboardingStartFunction
     let ompOnboardingFinish: OmpOnboardingFinishFunction
     private let activeASRBackend: String
@@ -226,15 +232,6 @@ public final class DictationCoordinator {
             store, sessions in
             try store.save(sessions)
         },
-        // Injection seam for the Keychain probe below. Production leaves this
-        // nil and gets `Self.detectKeySource`, which reads the login Keychain
-        // via `SecItemCopyMatching`; the offscreen UI harness passes a fixed
-        // source so a Refinement-pane golden does not depend on whether this
-        // Mac happens to have a refiner key saved.
-        keySourceProvider: ((RefinerProvider) -> RefinerKeySource)? = nil,
-        // Separate value seam for active reachability checks. Tests and the UI
-        // harness must not read or migrate the developer's login Keychain.
-        refinerAPIKeyProvider: ((RefinerProvider) -> String?)? = nil,
         ompModelsProbe: @escaping OmpModelsProbeFunction = { executableURL, argumentPrefix, model, timeoutMs in
             await OmpModelsProbe.check(
                 executableURL: executableURL,
@@ -245,6 +242,16 @@ public final class DictationCoordinator {
         },
         ompProviderStatusProbe: @escaping OmpProviderStatusProbeFunction = { executableURL, argumentPrefix, timeoutMs in
             try await OmpProviderStatusProbe.load(
+                executableURL: executableURL,
+                argumentPrefix: argumentPrefix,
+                timeoutMs: timeoutMs
+            )
+        },
+        // The Model picker's options come from OMP itself rather than from a
+        // list this app maintains, so the catalog load is a seam: tests and the
+        // offscreen harness must never spawn `omp models`.
+        ompModelCatalogLoad: @escaping OmpModelCatalogLoadFunction = { executableURL, argumentPrefix, timeoutMs in
+            try await OmpModelCatalog.load(
                 executableURL: executableURL,
                 argumentPrefix: argumentPrefix,
                 timeoutMs: timeoutMs
@@ -263,14 +270,6 @@ public final class DictationCoordinator {
         ompOnboardingFinish: @escaping OmpOnboardingFinishFunction = { session in
             await OmpOnboarding.finish(session)
         },
-        cloudReachabilityProbe: @escaping CloudReachabilityProbeFunction = { baseURL, apiKey, model, timeoutMs in
-            await RefinerReachabilityProbe.check(
-                baseURL: baseURL,
-                apiKey: apiKey,
-                model: model,
-                timeoutMs: timeoutMs
-            )
-        },
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
@@ -286,25 +285,11 @@ public final class DictationCoordinator {
         self.refiner = refiner
         self.refinerFactory = refinerFactory
         self.boundRefinerIdentity = refinerFactory == nil ? RefinerIdentity(settings: settings) : nil
-        if let keySourceProvider {
-            self.keySourceProvider = { provider, _ in keySourceProvider(provider) }
-        } else {
-            self.keySourceProvider = { provider, endpoint in
-                Self.detectKeySource(for: provider, endpoint: endpoint)
-            }
-        }
-        if let refinerAPIKeyProvider {
-            self.refinerAPIKeyProvider = { provider, _ in refinerAPIKeyProvider(provider) }
-        } else {
-            self.refinerAPIKeyProvider = { provider, endpoint in
-                Self.keyProvider(for: provider, endpoint: endpoint).apiKey()
-            }
-        }
         self.ompModelsProbe = ompModelsProbe
         self.ompProviderStatusProbe = ompProviderStatusProbe
         self.ompOnboardingStart = ompOnboardingStart
         self.ompOnboardingFinish = ompOnboardingFinish
-        self.cloudReachabilityProbe = cloudReachabilityProbe
+        self.ompModelCatalogLoad = ompModelCatalogLoad
         self.settings = settings
         self.activeASRBackend = activeASRBackend ?? settings.asrBackend
         self.settingsStore = settingsStore
@@ -314,22 +299,6 @@ public final class DictationCoordinator {
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
         self.recentSessions = (try? recentSessionStore.load()) ?? []
-        if let keySourceProvider {
-            // Injected fixtures stay synchronous so tests and UI goldens remain deterministic.
-            self.refinerKeySource = keySourceProvider(settings.refinerProvider)
-        } else {
-            self.refinerKeySource = .none
-            let provider = self.keySourceProvider
-            let selectedProvider = settings.refinerProvider
-            let selectedEndpoint = RefinerResolved.baseURL(settings)
-            Task { @MainActor [weak self] in
-                let keySource = await Task.detached(priority: .utility) {
-                    provider(selectedProvider, selectedEndpoint)
-                }.value
-                guard !Task.isCancelled else { return }
-                self?.refinerKeySource = keySource
-            }
-        }
         self.hotkey.onToggle { [weak self] in
             Task { @MainActor in self?.toggle() }
         }
@@ -425,10 +394,8 @@ public final class DictationCoordinator {
         let asr = components.client
         let inserter = PasteboardInserter(permissions: permissions, tracker: tracker)
         let refinerFactory: RefinerFactory = { settings in
-            let endpoint = RefinerResolved.baseURL(settings)
             let refinerRegistry = RefinerProviderRegistry.live(
                 environment: env,
-                apiKeyProvider: { Self.keyProvider(for: $0, endpoint: endpoint) },
                 deterministicFallback: { $0 }
             )
             return refinerRegistry.make(settings: settings)

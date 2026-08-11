@@ -23,16 +23,15 @@ import VoiceMac
 struct RefinementPane: View {
     var coordinator: DictationCoordinator
 
-    @State private var apiKeyInput = ""
     /// `nil` while the field mirrors the persisted value, a draft while the user
     /// is mid-edit — so backspacing over 3000 never persists 300, 30 and 3 on the
     /// way past, and an unparseable entry reverts instead of sticking.
     @State private var timeoutDraft: String?
-    /// The pane owns arming so `resetKeyEntry()` can disarm a confirmation the
-    /// user opened for a provider they have since switched away from.
-    @State private var isConfirmingKeyClear = false
+    /// The Model picker's search text. Pane-owned so switching provider clears
+    /// a filter the user typed against a list that is no longer on screen.
+    @State private var modelFilter = ""
     /// The configuration the last probe actually ran against. A verdict that
-    /// predates the provider, model or key it measured is not a verdict.
+    /// predates the provider or model it measured is not a verdict.
     @State private var checkedFingerprint: String?
     @FocusState private var timeoutFocused: Bool
     private var a11y = A11y()
@@ -56,16 +55,8 @@ struct RefinementPane: View {
                 RefinementProviderSection(
                     coordinator: coordinator,
                     provider: provider,
+                    modelFilter: $modelFilter,
                     startOmpSignIn: startOmpSignIn
-                )
-
-                RefinementCredentialsSection(
-                    coordinator: coordinator,
-                    provider: provider,
-                    apiKeyInput: $apiKeyInput,
-                    isConfirmingKeyClear: $isConfirmingKeyClear,
-                    checkedFingerprint: $checkedFingerprint,
-                    statusMode: statusMode
                 )
 
                 RefinementRequestSection(
@@ -86,23 +77,29 @@ struct RefinementPane: View {
         }
         .animation(a11y.reduceMotion ? nil : VoiceOourMotion.standard, value: provider)
         .onChange(of: provider) { _, _ in
-            resetKeyEntry()
+            modelFilter = ""
         }
         .task(id: provider) {
-            guard provider == .omp, RenderOverrides.ompProviderStatusState == nil else { return }
-            _ = await coordinator.refreshOmpProviderStatuses()
+            guard provider == .omp else { return }
+            // Two independent `omp` subprocesses. Awaiting them in sequence made
+            // the Model picker sit at NOT LOADED until the account inventory
+            // came back, which is a second of nothing for no reason.
+            async let statuses: Void = {
+                guard RenderOverrides.ompProviderStatusState == nil else { return }
+                _ = await coordinator.refreshOmpProviderStatuses()
+            }()
+            // The picker has nothing to offer until OMP has been asked, and
+            // asking is a subprocess, so it happens on pane entry rather than
+            // behind a button the user has no reason to press first.
+            async let models: Void = {
+                guard RenderOverrides.ompModelCatalogState == nil else { return }
+                _ = await coordinator.refreshOmpModelCatalog()
+            }()
+            _ = await (statuses, models)
         }
     }
 
     // MARK: - Actions
-
-    private func resetKeyEntry() {
-        // A key typed for one provider must never be written to another's item,
-        // and a confirmation armed against one provider's Keychain item must not
-        // survive into another's.
-        apiKeyInput = ""
-        isConfirmingKeyClear = false
-    }
 
     private func startOmpSignIn(_ subscription: OmpSubscription) async {
         checkedFingerprint = nil
@@ -131,25 +128,19 @@ struct RefinementPane: View {
 
     // MARK: - Derived state
 
-    /// Provider, endpoint, model and key source together decide what a probe
-    /// measures; change any of them and the stored verdict describes a
-    /// configuration that no longer exists.
+    /// Provider and model together decide what a probe measures; change either
+    /// and the stored verdict describes a configuration that no longer exists.
     private var configurationFingerprint: String {
         let settings = coordinator.settings
-        return [
-            settings.refinerProvider.rawValue,
-            RefinerResolved.baseURL(settings),
-            RefinerResolved.model(settings),
-            String(describing: coordinator.refinerKeySource),
-        ].joined(separator: "|")
+        return "\(settings.refinerProvider.rawValue)|\(RefinerResolved.model(settings))"
     }
 
     /// The verdict the Status row reports.
     ///
     /// The harness override stands in for an entire probe-and-stamp cycle: a
-    /// real check reaches the network, spawns `omp`, or asks this Mac whether
-    /// Apple Intelligence is on, and a golden may depend on none of those. It
-    /// is nil outside the harness, exactly like `RenderOverrides.permissions`.
+    /// real check spawns `omp` or asks this Mac whether Apple Intelligence is
+    /// on, and a golden may depend on neither. It is nil outside the harness,
+    /// exactly like `RenderOverrides.permissions`.
     private var displayedReachability: RefinerReachability {
         if let pinned = RenderOverrides.refinerReachability {
             return pinned
@@ -163,15 +154,15 @@ struct RefinementPane: View {
 
     /// A refusal outranks the stamp; a green verdict does not.
     ///
-    /// The coordinator publishes `.unauthorized` and `.failed` from a real
-    /// refine as well as from CHECK, guards both against its own refiner
-    /// identity and generation, and resets the slot itself the moment the
-    /// provider, endpoint, model, timeout or key moves. They are therefore
-    /// current facts about the configuration on screen, and hiding one behind a
-    /// probe the user never ran would suppress the single answer this row
-    /// exists to give — the paste that just fell back to deterministic cleanup
-    /// because the key is bad. `.ok` keeps the gate: nothing but a probe
-    /// produces it, and it is only as good as the configuration it measured.
+    /// The coordinator publishes `.failed` from a real refine as well as from
+    /// CHECK, guards it against its own refiner identity and generation, and
+    /// resets the slot itself the moment the provider, model or timeout moves.
+    /// It is therefore a current fact about the configuration on screen, and
+    /// hiding it behind a probe the user never ran would suppress the single
+    /// answer this row exists to give — the paste that just fell back to
+    /// deterministic cleanup because OMP could not run. `.ok` keeps the gate:
+    /// nothing but a probe produces it, and it is only as good as the
+    /// configuration it measured.
     ///
     /// Static and pure because a `View`'s private state is not reachable from a
     /// test, and this rule is no longer obvious enough to leave unpinned.
@@ -181,7 +172,7 @@ struct RefinementPane: View {
         configurationFingerprint: String
     ) -> RefinerReachability {
         switch measured {
-        case .checking, .unauthorized, .failed:
+        case .checking, .failed:
             measured
         case .unknown:
             .unknown

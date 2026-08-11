@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import VoiceCore
 import VoiceMac
@@ -16,14 +15,12 @@ extension DictationCoordinator {
     struct RefinerIdentity: Equatable {
         let enabled: Bool
         let provider: RefinerProvider
-        let endpoint: String
         let model: String
         let timeoutMs: Int
 
         init(settings: VoiceCore.Settings) {
             enabled = settings.refinerEnabled
             provider = settings.refinerProvider
-            endpoint = RefinerResolved.baseURL(settings)
             model = RefinerResolved.model(settings)
             timeoutMs = settings.refinerTimeoutMs
         }
@@ -32,6 +29,8 @@ extension DictationCoordinator {
             "\(provider.rawValue):\(model)"
         }
 
+        /// Whether this configuration sends the transcript off the Mac. OMP
+        /// brokers to a network provider; Apple's model does not.
         var isCloud: Bool {
             provider != .appleOnDevice
         }
@@ -41,74 +40,6 @@ extension DictationCoordinator {
         let backend: TranscriptRefining
         let identity: RefinerIdentity
         let configurationGeneration: AsyncGenerationGate.Token
-    }
-
-    nonisolated static func keychainAccount(
-        for provider: RefinerProvider,
-        endpoint: String
-    ) -> String {
-        let baseAccount = "api-key-\(provider.rawValue)"
-        guard provider == .custom else { return baseAccount }
-        let digest = SHA256.hash(data: Data(normalizedEndpoint(endpoint).utf8))
-        let endpointDigest = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
-        return "\(baseAccount)-\(endpointDigest)"
-    }
-
-    private nonisolated static func normalizedEndpoint(_ endpoint: String) -> String {
-        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: trimmed) else {
-            return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
-        }
-        components.scheme = components.scheme?.lowercased()
-        components.host = components.host?.lowercased()
-        let normalized = components.string ?? trimmed
-        return normalized.hasSuffix("/") ? String(normalized.dropLast()) : normalized
-    }
-
-    nonisolated static func keychainStore(
-        for provider: RefinerProvider,
-        endpoint: String
-    ) -> KeychainRefinerAPIKeyStore {
-        KeychainRefinerAPIKeyStore(account: keychainAccount(for: provider, endpoint: endpoint))
-    }
-
-    nonisolated static func envKeyProvider(
-        for provider: RefinerProvider,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> EnvRefinerAPIKeyProvider {
-        // Prefer the provider-specific variable because the narrower credential wins.
-        EnvRefinerAPIKeyProvider(
-            names: [provider.apiKeyEnvName].compactMap { $0 } + ["VOICEOOUR_REFINER_API_KEY"],
-            environment: environment
-        )
-    }
-
-    nonisolated static func keyProvider(
-        for provider: RefinerProvider,
-        endpoint: String
-    ) -> CompositeRefinerAPIKeyProvider {
-        CompositeRefinerAPIKeyProvider([
-            keychainStore(for: provider, endpoint: endpoint),
-            envKeyProvider(for: provider),
-        ])
-    }
-
-    nonisolated static func detectKeySource(
-        for provider: RefinerProvider,
-        endpoint: String
-    ) -> RefinerKeySource {
-        // Mirror the fall-through rule the request path uses, so this label can
-        // never advertise a credential the refiner will refuse to send: an
-        // unreachable keychain is reported as no key, not as the environment's.
-        switch keychainStore(for: provider, endpoint: endpoint).readAPIKey() {
-        case .found:
-            return .keychain
-        case .unavailable:
-            return .none
-        case .absent:
-            guard case .found = envKeyProvider(for: provider).readAPIKey() else { return .none }
-            return .environment
-        }
     }
 
     func currentRefinerBinding() -> RefinerBinding {
@@ -140,63 +71,90 @@ extension DictationCoordinator {
         return true
     }
 
+    /// Promotes a durable refine failure into the Status row's verdict.
+    ///
+    /// Only durable ones. A refine reports why it fell back, and most reasons
+    /// describe the utterance rather than the configuration — a timeout on a
+    /// long transcript, a superseded request, a guard rejection. Those say
+    /// nothing about whether the refiner works. The reasons below say OMP could
+    /// not run at all, which is exactly the answer the user would otherwise
+    /// have to press CHECK to discover, after a paste already silently fell
+    /// back to deterministic cleanup.
     func applyRefinerReachabilityFailureIfCurrent(
         _ reason: String,
         binding: RefinerBinding
     ) {
         guard binding.identity.isCloud,
             generations.isCurrent(binding.configurationGeneration),
-            binding.identity == RefinerIdentity(settings: settings)
+            binding.identity == RefinerIdentity(settings: settings),
+            Self.durableRefinerFailurePrefixes.contains(where: reason.hasPrefix)
         else {
             return
         }
-
-        let verdict: RefinerReachability
-        switch reason {
-        case "http_401", "http_403":
-            verdict = .unauthorized
-        case "http_400":
-            verdict = .failed("HTTP 400")
-        case "http_404":
-            verdict = .failed("HTTP 404")
-        default:
-            return
-        }
         generations.invalidate(.reachability)
-        refinerReachability = verdict
+        refinerReachability = .failed(reason)
     }
 
-    public func saveRefinerAPIKey(_ key: String) {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        let endpoint = RefinerResolved.baseURL(settings)
-        let store = Self.keychainStore(for: settings.refinerProvider, endpoint: endpoint)
-        do {
-            if trimmed.isEmpty {
-                try store.delete()
-            } else {
-                try store.save(apiKey: trimmed)
-            }
-            keychainError = nil
-            refinerKeySource = keySourceProvider(settings.refinerProvider, endpoint)
-            generations.invalidate(.refinerConfiguration)
-            generations.invalidate(.reachability)
-            refinerReachability = .unknown
-        } catch {
-            keychainError = "Keychain update failed: \(error)"
-        }
-    }
+    /// The `OmpRpcError.shortMessage` prefixes that describe a broken refiner
+    /// rather than a difficult request.
+    static let durableRefinerFailurePrefixes = [
+        "launch failed:",
+        "omp not ready:",
+        "omp exited:",
+        "omp protocol error:",
+    ]
 
     public func selectRefinerProvider(_ provider: RefinerProvider) {
-        let currentModel = settings.refinerModel
-        let isProviderSuggestedModel = RefinerProvider.allCases.contains { candidate in
-            candidate.suggestedModels.contains(currentModel)
-        }
+        guard settings.refinerProvider != provider else { return }
         settings.refinerProvider = provider
-        if currentModel.isEmpty || isProviderSuggestedModel {
-            settings.refinerModel = ""
-        }
+        // `refinerModel` is deliberately left alone. It is OMP's selector, and
+        // `RefinerResolved.model` already ignores it on the on-device provider,
+        // so switching over to look at Apple's row and back keeps the model the
+        // user picked instead of silently resetting it to the default.
         saveSettings()
-        refinerKeySource = keySourceProvider(provider, RefinerResolved.baseURL(settings))
+    }
+
+    /// Records the model the user picked from OMP's own catalog. An empty
+    /// selector restores the provider default rather than leaving the refiner
+    /// with no model at all.
+    public func selectRefinerModel(_ selector: String) {
+        let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard settings.refinerModel != trimmed else { return }
+        settings.refinerModel = trimmed
+        saveSettings()
+    }
+
+    /// Loads the model list VoiceOour offers in the Model picker straight from
+    /// `omp models --json`, so the choices are whatever the user's own OMP
+    /// installation can actually reach rather than a list this app maintains
+    /// and lets drift.
+    @discardableResult
+    public func refreshOmpModelCatalog(timeoutMs: Int = 30_000) async -> Bool {
+        let requestGeneration = generations.begin(.modelCatalog)
+        ompModelCatalogState = .loading
+        let environment = ProcessInfo.processInfo.environment
+        let omp = OmpExecutable.resolve(explicitPath: environment["VOICEOOUR_OMP_BIN"])
+
+        do {
+            let models = try await ompModelCatalogLoad(omp.url, omp.prefix, max(timeoutMs, 1))
+            guard generations.isCurrent(requestGeneration) else { return false }
+            ompModels = models.sorted { left, right in
+                left.provider == right.provider
+                    ? left.selector.localizedCaseInsensitiveCompare(right.selector) == .orderedAscending
+                    : left.provider.localizedCaseInsensitiveCompare(right.provider) == .orderedAscending
+            }
+            ompModelCatalogState = .loaded
+            return true
+        } catch is CancellationError {
+            guard generations.isCurrent(requestGeneration) else { return false }
+            ompModelCatalogState = .idle
+            return false
+        } catch {
+            guard generations.isCurrent(requestGeneration) else { return false }
+            let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            ompModelCatalogState = .failed(detail)
+            return false
+        }
     }
 
     /// Refreshes the redacted provider/account inventory that `omp usage`
@@ -382,7 +340,8 @@ extension DictationCoordinator {
             )
         }
 
-        if identity.provider == .omp {
+        switch identity.provider {
+        case .omp:
             guard
                 commitReachability(
                     .checking,
@@ -408,9 +367,8 @@ extension DictationCoordinator {
                 configurationGeneration: configurationGeneration,
                 requestGeneration: requestGeneration
             )
-        }
 
-        if identity.provider == .appleOnDevice {
+        case .appleOnDevice:
             let status = FoundationModelsAvailability.summary()
             return commitReachability(
                 status.available ? .ok(models: 1) : .failed(status.detail),
@@ -419,39 +377,5 @@ extension DictationCoordinator {
                 requestGeneration: requestGeneration
             )
         }
-
-        guard !identity.endpoint.isEmpty, let url = URL(string: identity.endpoint) else {
-            return commitReachability(
-                .failed("no base URL"),
-                identity: identity,
-                configurationGeneration: configurationGeneration,
-                requestGeneration: requestGeneration
-            )
-        }
-
-        guard
-            commitReachability(
-                .checking,
-                identity: identity,
-                configurationGeneration: configurationGeneration,
-                requestGeneration: requestGeneration
-            )
-        else {
-            return false
-        }
-        let apiKey = refinerAPIKeyProvider(identity.provider, identity.endpoint)
-        let selectedModel = identity.provider == .custom ? nil : identity.model
-        let result = await cloudReachabilityProbe(
-            url,
-            apiKey,
-            selectedModel,
-            identity.timeoutMs
-        )
-        return commitReachability(
-            result,
-            identity: identity,
-            configurationGeneration: configurationGeneration,
-            requestGeneration: requestGeneration
-        )
     }
 }

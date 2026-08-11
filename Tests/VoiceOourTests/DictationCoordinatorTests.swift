@@ -134,13 +134,7 @@ struct DictationCoordinatorTests {
         #expect(!coordinator.state.isActive)
     }
 
-    @Test func defaultCoordinatorDoesNotProbeLoginKeychain() {
-        let coordinator = makeCoordinator(asr: FakeASR(behavior: .text("unused")))
-
-        #expect(coordinator.refinerKeySource == .none)
-    }
-
-    @Test func runtimeRefinerBindingTracksEnableProviderEndpointModelAndTimeout() async {
+    @Test func runtimeRefinerBindingTracksEnableProviderModelAndTimeout() async {
         var settings = VoiceCore.Settings()
         settings.refinerEnabled = false
         settings.refinerProvider = .omp
@@ -150,8 +144,7 @@ struct DictationCoordinatorTests {
         let coordinator = makeCoordinator(
             asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
             refinerFactory: { factory.make(settings: $0) },
-            settings: settings,
-            keySourceProvider: { _ in .keychain }
+            settings: settings
         )
 
         coordinator.settings.refinerEnabled = true
@@ -168,18 +161,18 @@ struct DictationCoordinatorTests {
         #expect(factory.settingsSnapshots.map(\.refinerModel) == ["model-a", "model-b"])
         #expect(factory.settingsSnapshots.last?.refinerTimeoutMs == 2_500)
 
-        var custom = coordinator.settings
-        custom.refinerProvider = .custom
-        custom.refinerBaseURL = "https://local.example/v1"
-        custom.refinerModel = "custom-model"
-        coordinator.settings = custom
+        var onDevice = coordinator.settings
+        onDevice.refinerProvider = .appleOnDevice
+        coordinator.settings = onDevice
         await driveUtterance(coordinator)
 
-        #expect(factory.settingsSnapshots.map(\.refinerProvider) == [.omp, .omp, .custom])
-        #expect(
-            factory.settingsSnapshots.last.map { RefinerResolved.baseURL($0) }
-                == "https://local.example/v1"
-        )
+        #expect(factory.settingsSnapshots.map(\.refinerProvider) == [.omp, .omp, .appleOnDevice])
+        // The provider switch rebinds even though `refinerModel` never changed:
+        // the identity carries the *resolved* model, and Apple has only one.
+        // The stored OMP selector rides along untouched so switching back
+        // restores it.
+        #expect(factory.settingsSnapshots.last?.refinerModel == "model-b")
+        #expect(factory.settingsSnapshots.last.map { RefinerResolved.model($0) } == "on-device")
         #expect(factory.refiners.map(\.refinementCount) == [2, 1, 1])
     }
 
@@ -192,22 +185,17 @@ struct DictationCoordinatorTests {
         let coordinator = makeCoordinator(
             asr: FakeASR(behavior: .text("unused")),
             settings: settings,
-            keySourceProvider: { _ in .keychain },
-            ompModelsProbe: { _, _, _, _ in
+            ompModelsProbe: { _, _, model, _ in
+                guard model == "old-model" else { return .ok(models: 7) }
                 await oldProbeGate.wait()
                 return .failed("stale failure")
-            },
-            cloudReachabilityProbe: { _, _, _, _ in .ok(models: 7) }
+            }
         )
 
         let staleCheck = Task { await coordinator.checkRefinerReachability() }
         await waitUntil { coordinator.refinerReachability == .checking }
 
-        var current = coordinator.settings
-        current.refinerProvider = .custom
-        current.refinerBaseURL = "https://current.example/v1"
-        current.refinerModel = "current-model"
-        coordinator.settings = current
+        coordinator.settings.refinerModel = "current-model"
         let currentCommitted = await coordinator.checkRefinerReachability()
         #expect(currentCommitted)
         #expect(coordinator.refinerReachability == .ok(models: 7))
@@ -340,22 +328,123 @@ struct DictationCoordinatorTests {
         #expect(coordinator.ompProviderConnections == snapshot.connections)
     }
 
+    /// The Model picker's options are OMP's, not a list this app maintains, so
+    /// the coordinator has to publish whatever the load returned — in the one
+    /// order the picker relies on, provider then selector.
+    @Test func ompModelCatalogRefreshPublishesLoadingThenLoadedModels() async {
+        let loadGate = TestGate()
+        let loaded = [
+            OmpAvailableModel(provider: "openai", selector: "openai/gpt-5.1-codex", name: "GPT-5.1 Codex"),
+            OmpAvailableModel(provider: "anthropic", selector: "anthropic/claude-opus-4", name: "Claude Opus 4"),
+            OmpAvailableModel(provider: "anthropic", selector: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5"),
+        ]
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            ompModelCatalogLoad: { _, _, timeoutMs in
+                #expect(timeoutMs == 1_234)
+                await loadGate.wait()
+                return loaded
+            }
+        )
+
+        #expect(coordinator.ompModelCatalogState == .idle)
+        let refresh = Task { await coordinator.refreshOmpModelCatalog(timeoutMs: 1_234) }
+        await waitUntil { coordinator.ompModelCatalogState == .loading }
+        loadGate.fire()
+
+        #expect(await refresh.value)
+        #expect(coordinator.ompModelCatalogState == .loaded)
+        #expect(
+            coordinator.ompModels.map(\.selector) == [
+                "anthropic/claude-haiku-4-5",
+                "anthropic/claude-opus-4",
+                "openai/gpt-5.1-codex",
+            ])
+    }
+
+    /// A catalog that could not be read has to say so on the row. Silently
+    /// leaving the picker empty reads as "OMP has no models", which sends the
+    /// user looking for the wrong problem.
+    @Test func ompModelCatalogRefreshPublishesTheFailureReason() async {
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            ompModelCatalogLoad: { _, _, _ in throw OmpModelCatalogTestError.unreadable }
+        )
+
+        #expect(!(await coordinator.refreshOmpModelCatalog()))
+        #expect(coordinator.ompModelCatalogState == .failed(OmpModelCatalogTestError.unreadable.errorDescription!))
+        #expect(coordinator.ompModels.isEmpty)
+    }
+
+    /// REFRESH is a button, so two loads can overlap. The one that started first
+    /// may finish last, and its answer describes a catalog request the user has
+    /// already replaced.
+    @Test func supersededModelCatalogLoadDoesNotOverwriteTheNewerOne() async {
+        let staleGate = TestGate()
+        let staleModel = OmpAvailableModel(provider: "stale", selector: "stale/model", name: "Stale")
+        let freshModel = OmpAvailableModel(provider: "fresh", selector: "fresh/model", name: "Fresh")
+        let loadCount = LoadCounter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            ompModelCatalogLoad: { _, _, _ in
+                guard loadCount.next() == 1 else { return [freshModel] }
+                await staleGate.wait()
+                return [staleModel]
+            }
+        )
+
+        let staleLoad = Task { await coordinator.refreshOmpModelCatalog() }
+        await waitUntil { coordinator.ompModelCatalogState == .loading }
+
+        #expect(await coordinator.refreshOmpModelCatalog())
+        #expect(coordinator.ompModels == [freshModel])
+
+        staleGate.fire()
+        #expect(!(await staleLoad.value))
+        #expect(coordinator.ompModels == [freshModel])
+        #expect(coordinator.ompModelCatalogState == .loaded)
+    }
+
+    /// The picker writes the selector straight into settings, and its
+    /// `Provider default` row writes an empty string rather than spelling the
+    /// default out — so the stored file never pins a default that later moves.
+    @Test func selectRefinerModelPersistsTheSelectorAndEmptyRestoresTheDefault() throws {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        let store = temporarySettingsStore()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            settings: settings,
+            settingsStore: store
+        )
+
+        coordinator.selectRefinerModel("openai/gpt-5.1-codex")
+        #expect(coordinator.settings.refinerModel == "openai/gpt-5.1-codex")
+        #expect(RefinerResolved.model(coordinator.settings) == "openai/gpt-5.1-codex")
+        #expect(try store.load().refinerModel == "openai/gpt-5.1-codex")
+
+        coordinator.selectRefinerModel("")
+        #expect(coordinator.settings.refinerModel == "")
+        #expect(RefinerResolved.model(coordinator.settings) == "anthropic/claude-haiku-4-5")
+        #expect(try store.load().refinerModel == "")
+    }
+
     @Test func inFlightBackendKeepsItsTraceAndCannotDemoteNewerConfiguration() async {
         var settings = VoiceCore.Settings()
         settings.refinerEnabled = true
-        settings.refinerProvider = .openAI
+        settings.refinerProvider = .omp
         settings.refinerModel = "old-model"
         let refinementGate = TestGate()
         let oldRefiner = BlockingOutcomeRefiner(
             gate: refinementGate,
-            outcome: .fellBack("ignored backend fallback", reason: "http_401")
+            outcome: .fellBack("ignored backend fallback", reason: "omp exited: status 3")
         )
         let coordinator = makeCoordinator(
             asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
             refinerFactory: { _ in oldRefiner },
             settings: settings,
-            keySourceProvider: { _ in .keychain },
-            cloudReachabilityProbe: { _, _, _, _ in .ok(models: 3) }
+            ompModelsProbe: { _, _, _, _ in .ok(models: 3) }
         )
 
         coordinator.start()
@@ -363,11 +452,7 @@ struct DictationCoordinatorTests {
         coordinator.stopAndProcess()
         await waitUntil { coordinator.state == .refining && oldRefiner.refinementCount == 1 }
 
-        var current = coordinator.settings
-        current.refinerProvider = .custom
-        current.refinerBaseURL = "https://new.example/v1"
-        current.refinerModel = "new-model"
-        coordinator.settings = current
+        coordinator.settings.refinerModel = "new-model"
         let currentReachabilityCommitted = await coordinator.checkRefinerReachability()
         #expect(currentReachabilityCommitted)
         #expect(coordinator.refinerReachability == .ok(models: 3))
@@ -375,25 +460,27 @@ struct DictationCoordinatorTests {
         refinementGate.fire()
         await waitUntil { !coordinator.isProcessingInFlight }
 
-        #expect(coordinator.recentSessions.first?.refinement?.provider == "openAI:old-model")
-        #expect(coordinator.recentSessions.first?.refinement?.reason == "http_401")
+        #expect(coordinator.recentSessions.first?.refinement?.provider == "omp:old-model")
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "omp exited: status 3")
         #expect(coordinator.refinerReachability == .ok(models: 3))
     }
 
-    @Test func currentCloudAuthenticationFailureDemotesReachability() async {
+    /// A refine that proves OMP cannot run at all answers the question CHECK
+    /// answers, so it replaces the cached green verdict rather than leaving the
+    /// user to discover it by pressing a button.
+    @Test func currentDurableOmpFailureDemotesReachability() async {
         var settings = VoiceCore.Settings()
         settings.refinerEnabled = true
-        settings.refinerProvider = .openAI
-        settings.refinerModel = "gpt-test"
+        settings.refinerProvider = .omp
+        settings.refinerModel = "anthropic/claude-haiku-4-5"
         let refiner = CapturingRefiner(
-            outcome: .fellBack("ignored backend fallback", reason: "http_403")
+            outcome: .fellBack("ignored backend fallback", reason: "launch failed: no such file")
         )
         let coordinator = makeCoordinator(
             asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
             refiner: refiner,
             settings: settings,
-            keySourceProvider: { _ in .keychain },
-            cloudReachabilityProbe: { _, _, _, _ in .ok(models: 2) }
+            ompModelsProbe: { _, _, _, _ in .ok(models: 2) }
         )
 
         let reachabilityCommitted = await coordinator.checkRefinerReachability()
@@ -401,68 +488,58 @@ struct DictationCoordinatorTests {
         #expect(coordinator.refinerReachability == .ok(models: 2))
         await driveUtterance(coordinator)
 
-        #expect(coordinator.refinerReachability == .unauthorized)
-        #expect(coordinator.recentSessions.first?.refinement?.reason == "http_403")
+        #expect(coordinator.refinerReachability == .failed("launch failed: no such file"))
+        #expect(coordinator.recentSessions.first?.refinement?.reason == "launch failed: no such file")
     }
 
-    @Test func directCloudProbeUsesSelectedModelExceptForCustomAliases() async {
+    /// The mirror image, and the reason the promotion is prefix-matched rather
+    /// than "any fallback". A timeout on a long utterance, a superseded request
+    /// and a guard rejection all describe that utterance, not the refiner, and
+    /// must leave a verdict the user actually measured alone.
+    @Test(arguments: ["omp timed out", "superseded", "cancelled", "empty_output", "guard_rejected"])
+    func transientRefineFailureLeavesTheMeasuredVerdictAlone(reason: String) async {
         var settings = VoiceCore.Settings()
         settings.refinerEnabled = true
-        settings.refinerProvider = .gemini
-        settings.refinerModel = "gemini-selected"
-        let capture = CloudProbeCapture()
+        settings.refinerProvider = .omp
+        settings.refinerModel = "anthropic/claude-haiku-4-5"
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("Please send the draft, no wait, send the updated note.")),
+            refiner: CapturingRefiner(outcome: .fellBack("ignored backend fallback", reason: reason)),
+            settings: settings,
+            ompModelsProbe: { _, _, _, _ in .ok(models: 2) }
+        )
+
+        #expect(await coordinator.checkRefinerReachability())
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.refinerReachability == .ok(models: 2))
+        #expect(coordinator.recentSessions.first?.refinement?.reason == reason)
+    }
+
+    /// The probe asks OMP about the model the next refine would actually use,
+    /// which is the resolved one: an unset selector means the provider default,
+    /// not "no model".
+    @Test func ompReachabilityProbeAsksAboutTheResolvedModel() async {
+        var settings = VoiceCore.Settings()
+        settings.refinerEnabled = true
+        settings.refinerProvider = .omp
+        settings.refinerModel = ""
+        let capture = ProbeModelCapture()
         let coordinator = makeCoordinator(
             asr: FakeASR(behavior: .text("unused")),
             settings: settings,
-            keySourceProvider: { _ in .keychain },
-            cloudReachabilityProbe: { _, _, model, _ in
+            ompModelsProbe: { _, _, model, _ in
                 capture.record(model: model)
                 return .ok(models: 4)
             }
         )
 
-        let builtInCommitted = await coordinator.checkRefinerReachability()
-        #expect(builtInCommitted)
+        #expect(await coordinator.checkRefinerReachability())
 
-        var custom = coordinator.settings
-        custom.refinerProvider = .custom
-        custom.refinerBaseURL = "https://custom.example/v1"
-        custom.refinerModel = "server-defined-alias"
-        coordinator.settings = custom
-        let customCommitted = await coordinator.checkRefinerReachability()
-        #expect(customCommitted)
+        coordinator.settings.refinerModel = "openai/gpt-5.1-codex"
+        #expect(await coordinator.checkRefinerReachability())
 
-        #expect(capture.models == ["gemini-selected", nil])
-    }
-
-    @Test func currentCloudRequestFailuresReplaceTheCachedGreenVerdict() async {
-        for (reason, expectedVerdict) in [
-            ("http_400", RefinerReachability.failed("HTTP 400")),
-            ("http_404", RefinerReachability.failed("HTTP 404")),
-        ] {
-            var settings = VoiceCore.Settings()
-            settings.refinerEnabled = true
-            settings.refinerProvider = .openAI
-            settings.refinerModel = "gpt-test"
-            let coordinator = makeCoordinator(
-                asr: FakeASR(
-                    behavior: .text("Please send the draft, no wait, send the updated note.")
-                ),
-                refiner: CapturingRefiner(
-                    outcome: .fellBack("ignored backend fallback", reason: reason)
-                ),
-                settings: settings,
-                keySourceProvider: { _ in .keychain },
-                cloudReachabilityProbe: { _, _, _, _ in .ok(models: 2) }
-            )
-
-            let probeCommitted = await coordinator.checkRefinerReachability()
-            #expect(probeCommitted)
-            await driveUtterance(coordinator)
-
-            #expect(coordinator.refinerReachability == expectedVerdict)
-            #expect(coordinator.recentSessions.first?.refinement?.reason == reason)
-        }
+        #expect(capture.models == ["anthropic/claude-haiku-4-5", "openai/gpt-5.1-codex"])
     }
 
     // MARK: Temp-audio cleanup
@@ -1670,10 +1747,6 @@ struct DictationCoordinatorTests {
         settings: VoiceCore.Settings = VoiceCore.Settings(),
         settingsStore: SettingsStore? = nil,
         hotkey: HotkeyBinding = FakeHotkey(),
-        // This default must never be nil: nil lets swift test read and mutate the
-        // developer's real login Keychain.
-        keySourceProvider: ((RefinerProvider) -> RefinerKeySource)? = { _ in .none },
-        refinerAPIKeyProvider: @escaping (RefinerProvider) -> String? = { _ in nil },
         ompModelsProbe: @escaping DictationCoordinator.OmpModelsProbeFunction = {
             executableURL,
             argumentPrefix,
@@ -1692,23 +1765,16 @@ struct DictationCoordinatorTests {
             _ in
             OmpProviderStatusSnapshot(connections: [])
         },
+        ompModelCatalogLoad: @escaping DictationCoordinator.OmpModelCatalogLoadFunction = { _, _, _ in
+            // Never the real loader: it spawns `omp models --json`, which reads
+            // the developer's own OMP profile and reaches the network.
+            []
+        },
         ompOnboardingStart: @escaping DictationCoordinator.OmpOnboardingStartFunction = { _ in
             throw CancellationError()
         },
         ompOnboardingFinish: @escaping DictationCoordinator.OmpOnboardingFinishFunction = { _ in
             .cancelled
-        },
-        cloudReachabilityProbe: @escaping DictationCoordinator.CloudReachabilityProbeFunction = {
-            baseURL,
-            apiKey,
-            model,
-            timeoutMs in
-            await RefinerReachabilityProbe.check(
-                baseURL: baseURL,
-                apiKey: apiKey,
-                model: model,
-                timeoutMs: timeoutMs
-            )
         },
         recentSessionStore: RecentSessionStore? = nil,
         recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
@@ -1738,13 +1804,11 @@ struct DictationCoordinatorTests {
                         .appendingPathComponent("recent-sessions.json")
                 ),
             recentSessionSnapshotSave: recentSessionSnapshotSave,
-            keySourceProvider: keySourceProvider,
-            refinerAPIKeyProvider: refinerAPIKeyProvider,
             ompModelsProbe: ompModelsProbe,
             ompProviderStatusProbe: ompProviderStatusProbe,
+            ompModelCatalogLoad: ompModelCatalogLoad,
             ompOnboardingStart: ompOnboardingStart,
             ompOnboardingFinish: ompOnboardingFinish,
-            cloudReachabilityProbe: cloudReachabilityProbe,
             audioMuter: audioMuter,
             temporaryAudioRemover: temporaryAudioRemover
         )
@@ -2246,15 +2310,15 @@ private final class RefinerFactorySpy: @unchecked Sendable {
     }
 }
 
-private final class CloudProbeCapture: @unchecked Sendable {
+private final class ProbeModelCapture: @unchecked Sendable {
     private let lock = NSLock()
-    private var capturedModels: [String?] = []
+    private var capturedModels: [String] = []
 
-    var models: [String?] {
+    var models: [String] {
         lock.withLock { capturedModels }
     }
 
-    func record(model: String?) {
+    func record(model: String) {
         lock.withLock { capturedModels.append(model) }
     }
 }
@@ -2334,5 +2398,27 @@ private final class SessionSnapshotWriterSpy: @unchecked Sendable {
             throw SaveError.injected
         }
         try store.save(sessions)
+    }
+}
+
+/// The catalog load reports its reason through `LocalizedError`, so the double
+/// has to as well or the published `.failed` string would be an opaque
+/// `NSError` description rather than the sentence the row shows.
+private enum OmpModelCatalogTestError: LocalizedError {
+    case unreadable
+
+    var errorDescription: String? { "omp models returned nothing readable" }
+}
+
+/// Counts calls so one injected loader can answer differently per invocation.
+private final class LoadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.withLock {
+            count += 1
+            return count
+        }
     }
 }
