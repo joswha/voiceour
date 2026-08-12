@@ -305,6 +305,7 @@
             RenderOverrides.timeZone = pinnedTimeZone
             RenderOverrides.settingsPath = Ledger.settingsPath
             RenderOverrides.recentSessionsPath = Ledger.recentSessionsPath
+            RenderOverrides.dictationStatsPath = Ledger.dictationStatsPath
             // Accessibility settings are machine state too. Base scenes explicitly
             // pin the standard presentation; dedicated a11y scenes opt one in.
             RenderOverrides.reduceTransparency = false
@@ -346,6 +347,8 @@
         enum Ledger {
             static let settingsPath = "/Users/harness/Library/Application Support/VoiceOour/settings.json"
             static let recentSessionsPath = "/Users/harness/Library/Application Support/VoiceOour/recent-sessions.json"
+            static let dictationStatsPath =
+                "/Users/harness/Library/Application Support/VoiceOour/dictation-stats.json"
 
             /// Never `Bundle.main.infoDictionary`: the harness runs from a bare
             /// executable whose short version and build number are not the app's.
@@ -546,7 +549,7 @@
             let scratch = nextScratchDirectory()
             let asrClient: ASRClienting =
                 asrOverride ?? HarnessASR(transcript: pinnedTranscript, backendHealth: health)
-            let clock = UIScriptClock(now: pinnedNow, step: clockStep)
+            let clock = UIScriptClock(now: pinnedNow, step: clockStep, calendar: pinnedCalendar)
             let coordinator = DictationCoordinator(
                 recorder: HarnessRecorder(audioURL: scratch.appendingPathComponent("capture.wav")),
                 asr: asrClient,
@@ -560,6 +563,7 @@
                 settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
                 recentSessionStore: seededStore(sessions, in: scratch),
                 recentSessionSnapshotSave: { _, _ in },
+                statsSnapshotSave: { _, _ in },
                 ompModelsProbe: ompModelsProbe,
                 ompProviderStatusProbe: { _, _, _ in
                     OmpProviderStatusSnapshot(connections: [])

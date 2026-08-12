@@ -13,10 +13,16 @@ struct HomeChartsShelf: View {
     /// The ranked app list keeps four: at three columns its meter track was
     /// short enough that every share under a seventh clamped to the minimum
     /// fill, which turns a ranked bar chart into a column of identical stubs.
+    ///
+    /// All three read the lifetime ledger, so the fourteen-day window is a
+    /// window on time rather than on whatever fits in the transcript store: a
+    /// fortnight busier than the retention cap used to lose its oldest days
+    /// silently, and the app tally used to lag by exactly one dictation
+    /// because a destination is recorded on the journal's second write.
     var body: some View {
         BentoRow {
             ContentCard(eyebrow: "WHEN YOU DICTATE") {
-                if insights.sessionCount < 3 {
+                if insights.dictationCount < 3 {
                     CaptionText("Not enough dictations yet to chart your rhythm.")
                 } else {
                     HourActivityChart(buckets: insights.hourBuckets)

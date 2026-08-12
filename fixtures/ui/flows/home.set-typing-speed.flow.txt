@@ -1,0 +1,9 @@
+flow: home.set-typing-speed
+title: The typing baseline can be corrected on the pane that claims it
+fixture: static
+transitions: idle
+PASS 1 population-default | model typingSpeedWPM == "52" | 52
+PASS 2 population-default | text == "52 wpm is the measured average of 168,000 typists — change it to yours." exactly 1 | 1 match
+PASS 3 reader-baseline | model typingSpeedWPM == "90" | 90
+PASS 4 reader-baseline | absent value="52 wpm is the measured average of 168,000 typists — change it to yours." | 0 matches
+PASS 5 reader-baseline | text == "Your typing speed, not the 52 wpm population average." exactly 1 | 1 match

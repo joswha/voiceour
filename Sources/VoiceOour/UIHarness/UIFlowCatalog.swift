@@ -24,6 +24,13 @@
         private static let glossaryTerm = "FlowTerm"
         private static let glossaryAliases = "flow term, flow-term"
         private static let noMatchQuery = "definitely-not-a-transcript"
+        /// A plausible touch-typist rate, well inside `DictationInsights.typingWPMRange`
+        /// and far enough from the default that every derived figure has to move.
+        private static let fastTypistWPM = "90"
+        private static let defaultBaselineNote =
+            "52 wpm is the measured average of 168,000 typists — change it to yours."
+        private static let readerBaselineNote =
+            "Your typing speed, not the 52 wpm population average."
 
         /// Queries are grounded in committed AX dumps unless the comment explicitly
         /// names the source-only branch from which the runtime selector is derived.
@@ -59,6 +66,11 @@
             static let autoStop = UIQuery.label("Stop after silence")
             static let autoStopDuration = UIQuery.label("Auto-stop silence, milliseconds")
             static let cleanup = UIQuery.label("Clean up after capture")
+
+            // HomeVelocityGauges.swift: the one editable figure on Home. No
+            // committed golden holds an edited baseline, so the runtime value
+            // is what this flow verifies.
+            static let typingSpeed = UIQuery.label("Typing speed, words per minute")
 
             // fixtures/ui/console.system.denied.ax.txt:19
             static let backendRecheck = UIQuery.id("system.backend.recheck")
@@ -190,10 +202,43 @@
                                 .absent(.value("No dictations yet")),
                                 .text(.equals("ALL TIME"), .exactly(1)),
                                 .model(.recentSessionCount, .equals("1")),
+                                // The ALL TIME strip reads the lifetime ledger, not the
+                                // capped transcript list; at one dictation the two agree,
+                                // and that they are both asserted is the point.
+                                .model(.lifetimeDictationCount, .equals("1")),
                             ]
                         ),
                     ]
-                )
+                ),
+                UIFlow(
+                    id: "home.set-typing-speed",
+                    title: "The typing baseline can be corrected on the pane that claims it",
+                    tags: ["home", "console", "settings"],
+                    covers: [
+                        .state(.home, "typing-baseline-custom"),
+                        .journey(.home, "set-typing-speed"),
+                    ],
+                    host: .console(.home),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "population-default",
+                            [
+                                .model(.typingSpeedWPM, .equals("52")),
+                                .text(.equals(defaultBaselineNote), .exactly(1)),
+                            ]
+                        ),
+                        .act(.type(fastTypistWPM, into: Selector.typingSpeed)),
+                        .check(
+                            "reader-baseline",
+                            [
+                                .model(.typingSpeedWPM, .equals(fastTypistWPM)),
+                                .absent(.value(defaultBaselineNote)),
+                                .text(.equals(readerBaselineNote), .exactly(1)),
+                            ]
+                        ),
+                    ]
+                ),
             ]
         }
 

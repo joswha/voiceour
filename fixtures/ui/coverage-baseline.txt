@@ -28,10 +28,10 @@ state:home:chart-escape-clear
 state:home:chart-focus
 state:home:chart-pin
 state:home:empty-top-apps
-state:home:estimated-time-caption
 state:home:fewer-than-three-dictations
-state:home:no-speaking-wpm
+state:home:no-dictation-wpm
 state:home:records-absent
+state:home:untimed-coverage-caption
 state:home:working-checking-permissions
 state:home:working-cleaning
 state:home:working-finalizing-audio

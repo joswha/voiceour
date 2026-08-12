@@ -133,10 +133,22 @@ cold_load_ms=193738 warm_inference_ms=4360 rss_kb=1743880192
 
 <div align="center">
 <img src="docs/media/console-home.png" width="820"
-     alt="The VoiceOour console, Home pane: time saved, speaking versus typing speed, all-time counters, dictation charts, top apps and personal records.">
+     alt="The VoiceOour console, Home pane: time saved, your dictation rate against an editable typing speed, all-time counters, dictation charts, top apps and personal records.">
 <br>
 <sub><i>Home keeps score: words dictated, time saved against your typing speed, busiest hours, top destinations.</i></sub>
 </div>
+
+**What Home is actually claiming.** *Time saved* is how long those words would have taken to
+type, minus how long the dictation really took — the speech, the moment the microphone takes to
+wake, and the wait for transcription and insertion. Only dictations with recorded timing count
+toward it: the older ones are left out rather than guessed at, and the card says how many until
+they age out. The typing speed you are measured against starts at **52 wpm** — the average of
+168,000 people over 136 million keystrokes (Dhakal, Feit, Kristensson & Oulasvirta,
+*Observations on Typing from 136 Million Keystrokes*, CHI 2018) — and it is an editable field
+right there on the card, next to the TYPING gauge. Type your own and every figure on the pane
+re-reads against it. *Fastest spoken* is your speaking record, so it is not the rate the saving
+is worked out from. The all-time counters keep counting after old transcripts are dropped, so
+they never plateau or go backwards.
 
 <br>
 
@@ -185,6 +197,12 @@ These are enforced in code and in review, not aspirations in a marketing page.
 - 🗂️ **Recent transcripts stay on your Mac**, live in the Sessions pane, and are wiped by
   System ▸ Clear history. **Audio is never persisted** — temp files are deleted on success,
   cancel and error alike.
+- 🧮 **Your counters are kept apart from your words.** Transcripts live in `recent-sessions.json`
+  — the newest 500, older ones drop off — while the running tally lives in `dictation-stats.json`,
+  which is why the all-time figures survive that eviction. The tally holds counts and durations
+  and no transcript text beyond a single 320-character quote of your longest dictation. Clearing
+  history erases both; deleting one transcript keeps the lifetime counts and takes that quote
+  with it. Both paths are listed in Diagnostics ▸ STORAGE.
 - 🔤 **Only cloud-eligible, non-project-scoped glossary terms** are ever put in a network
   refiner's prompt. Project-scoped and imported terms never leave the machine. On-device
   refiners get the full set.

@@ -247,7 +247,7 @@
             let refinementLink = UIAdapterLink(gate: .refinement)
             let insertionLink = UIAdapterLink(gate: .insertion)
             let scratch = UIFixtures.nextScratchDirectory()
-            let clock = UIScriptClock(now: UIFixtures.pinnedNow)
+            let clock = UIScriptClock(now: UIFixtures.pinnedNow, calendar: UIFixtures.pinnedCalendar)
             var settings = UIFixtures.settings(backend: "ui-flow", glossary: [])
             settings.refinerEnabled = refinementEnabled
             settings.refinerProvider = .appleOnDevice
@@ -272,6 +272,7 @@
                     url: scratch.appendingPathComponent("recent-sessions.json")
                 ),
                 recentSessionSnapshotSave: { _, _ in },
+                statsSnapshotSave: { _, _ in },
                 ompModelsProbe: { _, _, _, _ in .failed("ui flow fixture") },
                 ompProviderStatusProbe: { _, _, _ in OmpProviderStatusSnapshot(connections: []) },
                 ompModelCatalogLoad: { _, _, _ in [] },
@@ -547,20 +548,27 @@
 
         private let origin: Date
         private let step: TimeInterval
+        private let pinnedCalendar: Calendar
         private let lock = NSLock()
         private var uuidCounter = 0
         private var nowCounter = 0
 
-        init(now: Date, step: TimeInterval = 0) {
+        init(now: Date, step: TimeInterval = 0, calendar: Calendar) {
             origin = now
             self.step = step
+            pinnedCalendar = calendar
         }
 
         var runtime: DictationRuntime {
             DictationRuntime(
                 now: { [self] in nextNow() },
                 makeUUID: { [self] in nextUUID() },
-                sleep: { try await Task.sleep(nanoseconds: $0) }
+                sleep: { try await Task.sleep(nanoseconds: $0) },
+                // The coordinator buckets dictation statistics by this
+                // calendar, so a host in another region would otherwise put a
+                // fixture's sessions in different day rows and move the
+                // fourteen-day chart in the golden.
+                calendar: { [self] in pinnedCalendar }
             )
         }
 

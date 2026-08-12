@@ -4,9 +4,13 @@ import VoiceCore
 
 /// Home dashboard — the console's landing "dictation instrument panel".
 ///
-/// Every figure is derived from `coordinator.recentSessions` (the count-capped
-/// local store, never date-capped) via `DictationInsights`. The pane lays those
-/// figures out as four shelves on one **twelve-column** measure
+/// Every figure comes from `coordinator.insights`, the digest the journal
+/// republishes on each change. Its lifetime half is counted by
+/// `DictationStatsLedger`, which keeps counting after the transcript store
+/// drops a session, so the all-time figures no longer plateau at the retention
+/// cap; its two text-derived fields cover the kept transcripts and say so.
+///
+/// The pane lays those figures out as four shelves on one **twelve-column** measure
 /// (`Content.grid`, clamped to the region), each shelf answering one question a
 /// person actually asks of a dictation tool:
 ///
@@ -14,7 +18,8 @@ import VoiceCore
 ///    rule on the card's midline. Left: the saved-time figure at the 64pt hero
 ///    face, plus the LISTENING badge while a capture runs, over the one sentence
 ///    that shows the figure's arithmetic. Right: the speed ratio at the 32pt
-///    metric face over the YOU / TYPING gauges it is measured from.
+///    metric face over the YOU / TYPING gauges it is measured from, the second
+///    of which the reader can correct.
 /// 2. ALL TIME — one full-width strip whose four equal quarters carry the units
 ///    that name them ("108 words", "4 days in a row"), in the same grammar as
 ///    the Sessions TOTALS strip (RecentSessionMetricStrip.swift).
@@ -36,14 +41,12 @@ struct HomePane: View {
 
     private var a11y = A11y()
 
-    /// Snapshot of the derived digest. `DictationInsights.init` tokenizes every
-    /// session's full transcript (O(total characters)), so recomputing it on
-    /// every body eval — which fires on any coordinator publish — is wasteful.
-    /// It is instead recomputed only when the session list itself changes
-    /// (append/delete-only, so an id-list is a sound invalidation key). A nil
-    /// snapshot is computed inline for the very first frame so the dashboard
-    /// never flashes empty before `.onAppear` fills the cache.
-    @State private var insights: DictationInsights?
+    /// No cached digest: `coordinator.insights` is the digest, republished by
+    /// the journal whenever the ledger or the retained corpus changes. The
+    /// cache this replaced keyed on the session id list, which cannot see the
+    /// in-place amendment that attaches the destination app and the
+    /// post-speech timing to the session just recorded — so TOP APPS and the
+    /// time economy were always one dictation behind.
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
@@ -51,27 +54,27 @@ struct HomePane: View {
 
     var body: some View {
         Group {
-            if coordinator.recentSessions.isEmpty {
+            if coordinator.insights.dictationCount == 0 {
                 HomeEmptyState()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
-                HomeDashboard(insights: insights ?? makeInsights(), capture: capture)
+                HomeDashboard(
+                    insights: coordinator.insights,
+                    capture: capture,
+                    typingWPM: coordinator.settings.typingSpeedWPM,
+                    setTypingWPM: setTypingWPM
+                )
             }
         }
+        // Fourteen readouts replacing themselves in one frame is the most
+        // abrupt change the surface can make, and it happens at the exact
+        // moment the dashboard exists for.
+        .animation(a11y.reduceMotion ? nil : VoiceOourMotion.standard, value: coordinator.insights)
         .onAppear {
-            if insights == nil {
-                insights = makeInsights()
-            }
-        }
-        .onChange(of: coordinator.recentSessions.map(\.id)) {
-            // Fourteen readouts replacing themselves in one frame is the most
-            // abrupt change the surface can make, and it happens at the exact
-            // moment the dashboard exists for.
-            if a11y.reduceMotion {
-                insights = makeInsights()
-            } else {
-                withAnimation(VoiceOourMotion.standard) { insights = makeInsights() }
-            }
+            // The streak and the fourteen-day window are relative to "now", so
+            // a console left open across midnight re-windows on re-entry
+            // rather than waiting for the next dictation.
+            coordinator.refreshInsights()
         }
     }
 
@@ -89,15 +92,13 @@ struct HomePane: View {
         }
     }
 
-    /// `DictationInsights` derives the 14-day trend and the dictation streak
-    /// relative to "now". `RenderOverrides.renderNow` is the wall clock in
-    /// production and a pinned instant under the offscreen UI harness, so a
-    /// golden of this dashboard does not change at midnight.
-    private func makeInsights() -> DictationInsights {
-        DictationInsights(
-            sessions: coordinator.recentSessions,
-            calendar: RenderOverrides.calendar ?? Calendar.current,
-            now: RenderOverrides.renderNow
-        )
+    /// The one value on this pane the reader can set. Home states a typing
+    /// speed it has no way to measure, so the assumption is corrigible exactly
+    /// where it is claimed.
+    private func setTypingWPM(_ wpm: Int) {
+        let clamped = DictationInsights.clamp(wpm)
+        guard clamped != coordinator.settings.typingSpeedWPM else { return }
+        coordinator.settings.typingSpeedWPM = clamped
+        coordinator.saveSettings()
     }
 }

@@ -40,10 +40,11 @@ enum RenderOverrides {
     /// treatments, which real TCC state can only ever show one of.
     static var permissions: PermissionsChecking?
 
-    /// Pins the two storage paths the Diagnostics pane prints, so a committed
+    /// Pins the storage paths the Diagnostics pane prints, so a committed
     /// fixture never contains the developer's home directory.
     static var settingsPath: String?
     static var recentSessionsPath: String?
+    static var dictationStatsPath: String?
 
     /// Pins the recording overlay's per-mount random comet head.
     static var cometHead: CometEmoji?

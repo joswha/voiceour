@@ -85,6 +85,8 @@ This app touches the user's active workspace. Treat insertion safety as product-
 - Strip exactly one trailing newline for terminal copy-only text so a copied command is not accidentally executed on paste.
 - If event-post/Accessibility permission is missing or unstable, copy only and report the reason.
 - Recent transcripts must remain local and clearable from the Sessions view. Do not persist audio history; temporary audio files should be removed when no longer needed.
+- Dictation history is two files with different bounds: `recent-sessions.json` (newest 500 transcripts) and `dictation-stats.json` (`DictationStatsLedger`, uncapped aggregates). Both are written behind one FIFO and "durable" means both took the change. Never derive a lifetime statistic from the capped transcript corpus, and never estimate the time economy — a dictation without capture timing is excluded from it, not given an assumed speaking rate.
+- The ledger stores no transcript text beyond one 320-character record preview. Clearing history resets it; deleting a single transcript keeps the lifetime counts and drops any quote sourced from that session.
 
 ## Local-First and Network Policy
 

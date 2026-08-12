@@ -34,8 +34,8 @@
             state(.home, "working-refining", "WORKING while refining"),
             state(.home, "working-ready-to-insert", "WORKING while ready to insert"),
             state(.home, "zero-words", "Dashboard with zero dictated words"),
-            state(.home, "estimated-time-caption", "Estimated-time caption before enough history exists"),
-            state(.home, "no-speaking-wpm", "Dashboard without a speaking WPM value"),
+            state(.home, "untimed-coverage-caption", "Coverage caption while untimed dictations remain"),
+            state(.home, "no-dictation-wpm", "Dashboard before any dictation has been timed"),
             state(.home, "fewer-than-three-dictations", "Chart caption before three dictations"),
             state(.home, "empty-top-apps", "TOP APPS with no destinations"),
             state(.home, "records-absent", "RECORDS section omitted without qualifying history"),
@@ -44,12 +44,20 @@
             state(.home, "chart-hover", "Pointer hover on a chart bucket", limitation: .pointerHover),
             state(.home, "chart-pin", "Pinned chart bucket"),
             state(.home, "chart-escape-clear", "Escape clears the pinned chart bucket"),
+            state(
+                .home,
+                "typing-baseline-default",
+                "Typing baseline sitting at the population default",
+                scene: "console.home.populated"
+            ),
+            state(.home, "typing-baseline-custom", "Typing baseline replaced by the reader's own"),
             journey(
                 .home,
                 "empty-to-populated",
                 "First dictation turns the empty dashboard into a populated dashboard"
             ),
             journey(.home, "inspect-and-pin-chart", "Focus, inspect, pin and clear chart data"),
+            journey(.home, "set-typing-speed", "Editing the typing baseline re-derives the saving"),
 
             // Sessions
             state(.sessions, "empty", "No transcript history", scene: "console.sessions.empty"),

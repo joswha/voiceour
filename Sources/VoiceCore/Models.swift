@@ -132,6 +132,12 @@ public struct Settings: Codable, Equatable, Sendable {
     public var speechLocale: String
     public var automaticTermCorrectionEnabled: Bool
     public var decoderBiasEnabled: Bool
+    /// Words per minute this reader types, used by Home as the counterfactual
+    /// every time-saved figure is measured against. Defaults to a measured
+    /// population average (`DictationInsights.defaultTypingWPM`) because the
+    /// app cannot observe the user's keyboard, and is editable on Home itself
+    /// so the assumption is corrigible where it is stated.
+    public var typingSpeedWPM: Int
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -147,6 +153,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case speechLocale = "speech_locale"
         case automaticTermCorrectionEnabled = "automatic_term_correction_enabled"
         case decoderBiasEnabled = "decoder_bias_enabled"
+        case typingSpeedWPM = "typing_speed_wpm"
     }
 
     public init(
@@ -162,7 +169,8 @@ public struct Settings: Codable, Equatable, Sendable {
         autoStopSilenceMs: Int = 2500,
         speechLocale: String = SpeechLocale.fallback,
         automaticTermCorrectionEnabled: Bool = false,
-        decoderBiasEnabled: Bool = false
+        decoderBiasEnabled: Bool = false,
+        typingSpeedWPM: Int = DictationInsights.defaultTypingWPM
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -177,6 +185,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.speechLocale = speechLocale
         self.automaticTermCorrectionEnabled = automaticTermCorrectionEnabled
         self.decoderBiasEnabled = decoderBiasEnabled
+        self.typingSpeedWPM = DictationInsights.clamp(typingSpeedWPM)
     }
 
     public init(from decoder: Decoder) throws {
@@ -220,6 +229,9 @@ public struct Settings: Codable, Equatable, Sendable {
             ?? defaults.automaticTermCorrectionEnabled
         decoderBiasEnabled =
             try container.decodeIfPresent(Bool.self, forKey: .decoderBiasEnabled) ?? defaults.decoderBiasEnabled
+        typingSpeedWPM = DictationInsights.clamp(
+            try container.decodeIfPresent(Int.self, forKey: .typingSpeedWPM) ?? defaults.typingSpeedWPM
+        )
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

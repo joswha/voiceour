@@ -177,8 +177,12 @@ struct SessionsPane: View {
         // `RenderOverrides.renderNow` is the wall clock in production and a
         // pinned instant under the offscreen UI harness, so a golden of this
         // metric strip does not change at midnight.
+        //
+        // Counted from the lifetime ledger's daily rows, not from the list
+        // above it: the transcript store is capped, so a month busier than the
+        // cap would report fewer words than were actually dictated in it.
         stats = RecentSessionQuery.totals(
-            of: coordinator.recentSessions,
+            of: coordinator.statsLedger,
             calendar: RenderOverrides.calendar ?? Calendar.current,
             now: RenderOverrides.renderNow
         )

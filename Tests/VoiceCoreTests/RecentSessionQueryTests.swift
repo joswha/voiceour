@@ -149,16 +149,26 @@ struct RecentSessionQueryTests {
 
     // MARK: Totals
 
+    /// Totals are counted from the ledger, not the retained transcripts, so the
+    /// fixtures are folded through `ingest` exactly as the journal folds them.
+    private func ledger(_ sessions: [RecentSession], calendar: Calendar) -> DictationStatsLedger {
+        var ledger = DictationStatsLedger()
+        ledger.ingest(sessions, calendar: calendar)
+        return ledger
+    }
+
     @Test func totalsCountOnlyTodayAndOnlyTheCurrentMonth() {
         let utc = calendar("UTC")
         let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
         let totals = RecentSessionQuery.totals(
-            of: [
-                session("three words today", at: "2026-03-15T08:00:00Z"),
-                session("two today", at: "2026-03-15T22:00:00Z"),
-                session("earlier this month", at: "2026-03-02T08:00:00Z"),
-                session("last month entirely", at: "2026-02-27T08:00:00Z"),
-            ],
+            of: ledger(
+                [
+                    session("three words today", at: "2026-03-15T08:00:00Z"),
+                    session("two today", at: "2026-03-15T22:00:00Z"),
+                    session("earlier this month", at: "2026-03-02T08:00:00Z"),
+                    session("last month entirely", at: "2026-02-27T08:00:00Z"),
+                ],
+                calendar: utc),
             calendar: utc,
             now: now
         )
@@ -175,10 +185,12 @@ struct RecentSessionQueryTests {
         let utc = calendar("UTC")
         let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
         let totals = RecentSessionQuery.totals(
-            of: [
-                session("this march", at: "2026-03-04T08:00:00Z"),
-                session("last march", at: "2025-03-04T08:00:00Z"),
-            ],
+            of: ledger(
+                [
+                    session("this march", at: "2026-03-04T08:00:00Z"),
+                    session("last march", at: "2025-03-04T08:00:00Z"),
+                ],
+                calendar: utc),
             calendar: utc,
             now: now
         )
@@ -188,8 +200,26 @@ struct RecentSessionQueryTests {
         #expect(totals.sessionsToday == 0)
     }
 
+    /// Eviction cannot undercount a period: the transcripts are gone from the
+    /// corpus and the day rows they were folded into are not.
+    @Test func totalsSurviveTranscriptEviction() {
+        let utc = calendar("UTC")
+        let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
+        let store = RecentSessionStore(limit: 1)
+        let sessions = [
+            session("three words today", at: "2026-03-15T08:00:00Z"),
+            session("two today", at: "2026-03-15T09:00:00Z"),
+        ]
+        let totals = RecentSessionQuery.totals(of: ledger(sessions, calendar: utc), calendar: utc, now: now)
+
+        #expect(store.normalized(sessions).count == 1)
+        #expect(totals.sessionsToday == 2)
+        #expect(totals.wordsToday == 5)
+    }
+
     @Test func emptyHistoryTotalsAreAllZero() {
-        let totals = RecentSessionQuery.totals(of: [], calendar: calendar("UTC"), now: Date())
+        let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
+        let totals = RecentSessionQuery.totals(of: DictationStatsLedger(), calendar: calendar("UTC"), now: now)
 
         #expect(totals == RecentSessionTotals())
     }

@@ -10,6 +10,12 @@ struct HomeRecordsShelf: View {
     /// from rather than beside it: a record is a footnote to a running total,
     /// not a peer of it. The shelf disappears entirely when there is neither a
     /// record nor a transcript to quote.
+    ///
+    /// Two records are lifetime; the vocabulary count is not, and cannot be —
+    /// counting distinct words needs the words, and only the retained
+    /// transcripts still have them. That is the one window difference on the
+    /// pane, so the cell is named for its window rather than left to look like
+    /// the lifetime figures beside it.
     @ViewBuilder
     var body: some View {
         let cells = recordsCells
@@ -46,7 +52,7 @@ struct HomeRecordsShelf: View {
                 )
             )
         }
-        if let peak = insights.peakSessionWPM {
+        if let peak = insights.peakSpokenWPM {
             cells.append(
                 MetricCell(
                     id: "FASTEST SPOKEN",
@@ -56,7 +62,10 @@ struct HomeRecordsShelf: View {
         }
         if insights.uniqueWordCount > 0 {
             cells.append(
-                MetricCell(id: "DIFFERENT WORDS", parts: HomeFormat.countParts(insights.uniqueWordCount))
+                MetricCell(
+                    id: "DIFFERENT WORDS · KEPT",
+                    parts: HomeFormat.countParts(insights.uniqueWordCount)
+                )
             )
         }
         return cells

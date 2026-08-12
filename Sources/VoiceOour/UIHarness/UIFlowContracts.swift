@@ -219,8 +219,15 @@
         case errorMessage
         /// `coordinator.targetLabel`.
         case targetLabel
-        /// Decimal count of `coordinator.recentSessions`.
+        /// Decimal count of `coordinator.recentSessions` — kept transcripts,
+        /// which the store caps.
         case recentSessionCount
+        /// Decimal `coordinator.insights.dictationCount` — the lifetime tally,
+        /// which outlives eviction and is what Home's ALL TIME strip reads.
+        case lifetimeDictationCount
+        /// Decimal `settings.typingSpeedWPM`, the baseline every saving is
+        /// measured against.
+        case typingSpeedWPM
         /// Decimal count of active glossary terms in settings.
         case glossaryTermCount
         /// `true`/`false` for `settings.refinementEnabled`.

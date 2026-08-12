@@ -13,7 +13,13 @@ public struct RecentSessionDayGroup: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Period totals for the Sessions ledger.
+/// Period totals for the Sessions ledger, counted from `DictationStatsLedger`
+/// rather than from the retained transcripts.
+///
+/// The transcript store keeps a fixed number of sessions, so a heavy month
+/// overflows it and a corpus-derived "this month" silently undercounts the
+/// moment it does. The ledger's daily rows outlive eviction, so these figures
+/// stay true however much was dictated.
 public struct RecentSessionTotals: Equatable, Sendable {
     public var wordsToday: Int
     public var sessionsToday: Int
@@ -79,29 +85,30 @@ public enum RecentSessionQuery {
             .sorted { $0.day > $1.day }
     }
 
-    /// Today's and this month's word and session counts.
+    /// Today's and this month's word and dictation counts.
     ///
     /// "This month" is the same calendar month *and* year as `now`, so last
     /// January does not count toward this January.
     public static func totals(
-        of sessions: [RecentSession],
+        of ledger: DictationStatsLedger,
         calendar: Calendar,
         now: Date
     ) -> RecentSessionTotals {
         var totals = RecentSessionTotals()
+        let today = calendar.startOfDay(for: now)
         let currentMonth = calendar.component(.month, from: now)
         let currentYear = calendar.component(.year, from: now)
 
-        for session in sessions {
-            if calendar.isDate(session.createdAt, inSameDayAs: now) {
-                totals.wordsToday += session.wordCount
-                totals.sessionsToday += 1
+        for day in ledger.days {
+            if day.startOfDay == today {
+                totals.wordsToday += day.words
+                totals.sessionsToday += day.dictations
             }
-            if calendar.component(.month, from: session.createdAt) == currentMonth,
-                calendar.component(.year, from: session.createdAt) == currentYear
+            if calendar.component(.month, from: day.startOfDay) == currentMonth,
+                calendar.component(.year, from: day.startOfDay) == currentYear
             {
-                totals.wordsThisMonth += session.wordCount
-                totals.sessionsThisMonth += 1
+                totals.wordsThisMonth += day.words
+                totals.sessionsThisMonth += day.dictations
             }
         }
         return totals

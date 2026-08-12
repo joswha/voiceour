@@ -1769,6 +1769,228 @@ struct DictationCoordinatorTests {
         #expect(coordinator.lastTranscript == "please run cube cuddle on the pod")
     }
 
+    // MARK: Lifetime statistics
+
+    @Test func aCompletedDictationIsFoldedOnceAcrossBothJournalWrites() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("counted once not twice")),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+
+        // One dictation writes the journal twice — the append, then the outcome
+        // amendment — and both fold. Counting by session id is what keeps that
+        // from reading as two dictations, or the amendment from being skipped.
+        let session = try #require(coordinator.recentSessions.first)
+        #expect(coordinator.statsLedger.dictations == 1)
+        #expect(coordinator.statsLedger.words == session.wordCount)
+        #expect(coordinator.statsLedger.characters == session.text.count)
+        #expect(coordinator.statsLedger.measuredDictations == 1)
+        #expect(coordinator.statsLedger.spokenMs == 100)
+        #expect(coordinator.statsLedger.apps == ["com.apple.TextEdit": 1])
+        #expect(coordinator.statsLedger.attributedOutcomes == 1)
+    }
+
+    @Test func insightsCarryTheDestinationAppAsSoonAsTheOutcomeLands() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("attribute this to the front app")),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+
+        // No further mutation below: the destination app exists only on the
+        // second journal write, so a digest invalidated by session ids alone
+        // never saw it and TOP APPS sat one dictation behind forever.
+        #expect(coordinator.insights.attributedOutcomeCount == 1)
+        let destination = try #require(coordinator.insights.destinations.first)
+        #expect(destination.bundleId == "com.apple.TextEdit")
+        #expect(destination.count == 1)
+        #expect(destination.share == 1)
+        #expect(coordinator.insights.dictationCount == 1)
+        #expect(coordinator.insights.measuredDictationCount == 1)
+        #expect(coordinator.insights.spokenMs == 100)
+    }
+
+    @Test func lifetimeTotalsOutliveTheTranscriptsTheyWereCountedFrom() async throws {
+        let fixture = temporarySessionStore(limit: 2)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("one more than the corpus keeps")),
+            recentSessionStore: fixture.store
+        )
+
+        for _ in 0..<3 {
+            await driveUtterance(coordinator)
+        }
+
+        // The corpus is a ring, the tally is not. Reading lifetime figures off
+        // the ring froze the dictation count at the cap and walked "since"
+        // forward as the oldest transcripts were evicted.
+        #expect(coordinator.recentSessions.count == 2)
+        #expect(coordinator.statsLedger.dictations == 3)
+        #expect(coordinator.statsLedger.apps["com.apple.TextEdit"] == 3)
+        let kept = try #require(coordinator.recentSessions.first)
+        #expect(coordinator.statsLedger.words == kept.wordCount * 3)
+        let oldestKept = try #require(coordinator.recentSessions.last)
+        let startedAt = try #require(coordinator.statsLedger.startedAt)
+        #expect(startedAt < oldestKept.createdAt)
+        #expect(coordinator.insights.dictationCount == 3)
+        #expect(coordinator.insights.keptTranscriptCount == 2)
+    }
+
+    @Test func aFirstLaunchSeedsTheLedgerFromTheRetainedCorpusAndPersistsTheSeed() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let older = RecentSession(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            text: "seed the tally from what is still on disk"
+        )
+        let newer = RecentSession(
+            createdAt: Date(timeIntervalSince1970: 1_700_003_600),
+            text: "and count this one too"
+        )
+        try fixture.store.save([older, newer])
+        let statsURL = fixture.directory.appendingPathComponent(DictationStatsStore.fileName)
+        #expect(!FileManager.default.fileExists(atPath: statsURL.path))
+
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            recentSessionStore: fixture.store
+        )
+
+        // Derived from the injected transcript store, so a test can never leave
+        // the tally pointed at the developer's own Application Support file.
+        #expect(coordinator.statsStore.url.path == statsURL.path)
+        #expect(coordinator.statsLedger.dictations == 2)
+        #expect(coordinator.statsLedger.words == older.wordCount + newer.wordCount)
+        #expect(coordinator.statsLedger.startedAt == older.createdAt)
+        #expect(coordinator.insights.dictationCount == 2)
+
+        let seedWrite = try #require(coordinator.recentSessionPersistenceTail)
+        #expect(await seedWrite.value)
+        #expect(FileManager.default.fileExists(atPath: statsURL.path))
+        #expect(try DictationStatsStore(url: statsURL).load().dictations == 2)
+    }
+
+    @Test func aStatsFileOneDictationBehindReconcilesWithoutRecountingTheRest() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let counted = RecentSession(
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            text: "folded before the process died",
+            outcome: RecentSessionOutcomeMetadata(disposition: .pasteAttempted, targetBundleId: "com.apple.Notes"),
+            stages: SessionStageTimings(captureMs: 4_000)
+        )
+        let lost = RecentSession(
+            createdAt: Date(timeIntervalSince1970: 1_700_003_600),
+            text: "written after the tally was last saved",
+            outcome: RecentSessionOutcomeMetadata(disposition: .pasteAttempted, targetBundleId: "com.apple.Terminal"),
+            stages: SessionStageTimings(captureMs: 6_000)
+        )
+        try fixture.store.save([counted, lost])
+        var behind = DictationStatsLedger()
+        behind.ingest([counted], calendar: .current)
+        try DictationStatsStore(besideRecentSessionsAt: fixture.store.url).save(behind)
+
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            recentSessionStore: fixture.store
+        )
+
+        // The two durable files can disagree only across a crash between their
+        // writes. Launch folds the difference and nothing else.
+        #expect(coordinator.statsLedger.dictations == 2)
+        #expect(coordinator.statsLedger.words == counted.wordCount + lost.wordCount)
+        #expect(coordinator.statsLedger.spokenMs == 10_000)
+        #expect(coordinator.statsLedger.attributedOutcomes == 2)
+        #expect(coordinator.statsLedger.apps == ["com.apple.Notes": 1, "com.apple.Terminal": 1])
+        #expect(coordinator.statsLedger.startedAt == counted.createdAt)
+    }
+
+    @Test func clearingHistoryClearsTheTallyOnDiskAsWell() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("erase the counts with the words")),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+        #expect(coordinator.statsLedger.dictations == 1)
+
+        #expect(await coordinator.clearRecentSessions())
+
+        // A lifetime word count, a per-app breakdown and a quoted personal best
+        // are still a record of what the user just asked to erase.
+        #expect(coordinator.statsLedger == DictationStatsLedger())
+        #expect(coordinator.insights == .empty)
+        // Neither durable file survives: an empty ledger removes its file
+        // rather than leaving a husk of zeroes where the history was.
+        let statsStore = DictationStatsStore(besideRecentSessionsAt: fixture.store.url)
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+        #expect(!FileManager.default.fileExists(atPath: statsStore.url.path))
+        #expect(try statsStore.load() == DictationStatsLedger())
+    }
+
+    @Test func deletingOneTranscriptKeepsItsCountButDropsItsQuote() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("the record line comes from this transcript")),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+        let session = try #require(coordinator.recentSessions.first)
+        #expect(coordinator.statsLedger.records.longestPreview == session.text)
+
+        #expect(await coordinator.deleteRecentSession(id: session.id))
+
+        // A dictation that happened still happened; only the text that quoted
+        // the deleted transcript goes with it.
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(coordinator.statsLedger.dictations == 1)
+        #expect(coordinator.statsLedger.words == session.wordCount)
+        #expect(coordinator.statsLedger.records.longestWords == session.wordCount)
+        #expect(coordinator.statsLedger.records.longestPreview == nil)
+        #expect(coordinator.insights.dictationCount == 1)
+        #expect(coordinator.insights.keptTranscriptCount == 0)
+        #expect(coordinator.insights.longestSessionPreview == nil)
+
+        // Deleting the last transcript empties that file but not the tally,
+        // which is the asymmetry "clear history" does not have.
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+        let persisted = try DictationStatsStore(besideRecentSessionsAt: fixture.store.url).load()
+        #expect(persisted.dictations == 1)
+        #expect(persisted.records.longestPreview == nil)
+    }
+
+    @Test func aFailedStatsWriteDeniesDurabilityEvenAfterTheTranscriptsAreGone() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try fixture.store.save([RecentSession(text: "history to erase")])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("unused")),
+            recentSessionStore: fixture.store,
+            statsSnapshotSave: { _, _ in throw StatsWriteFailure.injected }
+        )
+
+        let isDurable = await coordinator.clearRecentSessions()
+
+        // The transcript write succeeded; the acknowledgement is still false,
+        // because "durable" has to mean both files took the change.
+        #expect(!isDurable)
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(coordinator.statsLedger == DictationStatsLedger())
+    }
+
     // MARK: Helpers
 
     private func makeCoordinator(
@@ -1818,6 +2040,10 @@ struct DictationCoordinatorTests {
             store, sessions in
             try store.save(sessions)
         },
+        statsSnapshotSave: @escaping @Sendable (DictationStatsStore, DictationStatsLedger) throws -> Void = {
+            store, ledger in
+            try store.save(ledger)
+        },
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
         }
@@ -1841,6 +2067,7 @@ struct DictationCoordinatorTests {
                         .appendingPathComponent("recent-sessions.json")
                 ),
             recentSessionSnapshotSave: recentSessionSnapshotSave,
+            statsSnapshotSave: statsSnapshotSave,
             ompModelsProbe: ompModelsProbe,
             ompProviderStatusProbe: ompProviderStatusProbe,
             ompModelCatalogLoad: ompModelCatalogLoad,
@@ -2442,6 +2669,12 @@ private final class SessionSnapshotWriterSpy: @unchecked Sendable {
         }
         try store.save(sessions)
     }
+}
+
+/// Stands in for a stats file that cannot be written, so a test can prove the
+/// durability acknowledgement is the conjunction of both journal writes.
+private enum StatsWriteFailure: Error {
+    case injected
 }
 
 /// The catalog load reports its reason through `LocalizedError`, so the double

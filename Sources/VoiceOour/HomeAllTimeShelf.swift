@@ -11,6 +11,11 @@ struct HomeAllTimeShelf: View {
     /// tally in the same visual register as the headline above it. One card with
     /// four ruled quarters prints the same four figures as four phrases a person
     /// can read straight out.
+    ///
+    /// "All time" is now literally true. These four come from the lifetime
+    /// ledger, so they keep climbing after the transcript store starts dropping
+    /// its oldest sessions; read off the retained corpus they used to freeze at
+    /// the retention cap and then drift sideways as words were evicted.
     var body: some View {
         ContentCard(eyebrow: "ALL TIME") {
             HomeMetricRow(cells: allTimeCells, scale: .metric, labels: false)
@@ -40,8 +45,8 @@ struct HomeAllTimeShelf: View {
             MetricCell(
                 id: "DICTATIONS",
                 parts: HomeFormat.countParts(
-                    insights.sessionCount,
-                    unit: insights.sessionCount == 1 ? "dictation" : "dictations"
+                    insights.dictationCount,
+                    unit: insights.dictationCount == 1 ? "dictation" : "dictations"
                 )
             ),
             MetricCell(
