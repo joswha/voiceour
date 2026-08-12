@@ -124,7 +124,7 @@ public struct ASRBackendRegistry: Sendable {
             modelLabel: ASRModelContract.modelId,
             makeLive: { context in
                 ASRBackendComponents(
-                    recorder: AVAudioEngineRecorder(),
+                    recorder: MicrophoneRecorder(),
                     client: SidecarASRClient(asrDirectory: context.asrDirectory, backend: "mlx"),
                     usesSystemAudioMuter: true
                 )
@@ -150,7 +150,7 @@ public struct ASRBackendRegistry: Sendable {
                     }
                 #endif
                 return ASRBackendComponents(
-                    recorder: AVAudioEngineRecorder(),
+                    recorder: MicrophoneRecorder(),
                     client: Self.unsupportedAppleSpeech,
                     usesSystemAudioMuter: true
                 )

@@ -263,6 +263,12 @@
 
             // Overlay
             state(.overlay, "recording", "Recording waveform and controls", scene: "overlay.panel.recording"),
+            // Required rather than snapshot-only, even though `overlay.island.warmup`
+            // pins the pixels: the subject is a TRANSITION. The island was blind to this
+            // window for as long as liveness was measured off the first tap callback, and
+            // only a flow that steps warm-up -> live can prove the label gives way to the
+            // meter at the moment real audio arrives.
+            state(.overlay, "capture-warmup", "Island readout while the microphone is still starting"),
             state(.overlay, "idle", "Idle overlay trailing slot"),
             state(.overlay, "processing", "Processing overlay label and controls"),
             state(.overlay, "processing-comet", "Processing comet animation", limitation: .perpetualAnimation),

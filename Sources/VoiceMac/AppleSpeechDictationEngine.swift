@@ -201,19 +201,15 @@ import VoiceCore
 
         private let lock = NSLock()
         private var phase: Phase = .capturing
-        private var meterLevel: Float = 0
         private var routeRecoveryFailed = false
 
-        private let engine = AVAudioEngine()
+        private let capture: MicrophoneCapture
         private let fileURL: URL
         private var file: AVAudioFile?
-        private var converter: AVAudioConverter?
+        private var converter: CaptureConverter?
         private let targetFormat: AVAudioFormat
         private var writtenFrames: Int64 = 0
         private let initStartedAt: Date
-        private var firstBufferAt: Date?
-        private var routeChangeObserver: NSObjectProtocol?
-        private var tapInstalled = false
 
         private let analyzer: SpeechAnalyzer
         private let inputContinuation: AsyncStream<AnalyzerInput>.Continuation
@@ -306,33 +302,15 @@ import VoiceCore
                 analyzerConstructionDuration
                 + Date().timeIntervalSince(analyzerHandoffStartedAt)
 
-            let input = engine.inputNode
-            let inputFormat = input.outputFormat(forBus: 0)
-            guard let converter = AVAudioConverter(from: inputFormat, to: target) else {
-                file = nil
-                try? FileManager.default.removeItem(at: fileURL)
-                inputContinuation.finish()
-                collectTask.cancel()
-                analyzerStartTask.cancel()
-                throw RecorderError.fileMissing
-            }
-            self.converter = converter
-
-            let tapInstallStartedAt = Date()
-            input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-                self?.consume(buffer: buffer)
-            }
-            tapInstalled = true
-            let tapInstallDuration = Date().timeIntervalSince(tapInstallStartedAt)
-            engine.prepare()
-            let engineStartStartedAt = Date()
-            let engineStartDuration: TimeInterval
+            // Pinned away from a Bluetooth headset whenever one is the system default
+            // input: that microphone delivers digital zeros for ~1.4 s while the HFP/SCO
+            // link negotiates, and streaming those zeros into the analyzer is how the
+            // opening words of an utterance used to disappear.
+            let capture: MicrophoneCapture
             do {
-                try engine.start()
-                engineStartDuration = Date().timeIntervalSince(engineStartStartedAt)
+                capture = try MicrophoneCapture(
+                    preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
             } catch {
-                input.removeTap(onBus: 0)
-                tapInstalled = false
                 file = nil
                 try? FileManager.default.removeItem(at: fileURL)
                 inputContinuation.finish()
@@ -340,24 +318,27 @@ import VoiceCore
                 analyzerStartTask.cancel()
                 throw error
             }
+            self.capture = capture
+            // Built here but fed lazily: the converter's source is whatever format the
+            // first buffer actually arrives in, not a format guessed before capture.
+            converter = CaptureConverter(targetFormat: target)
 
-            routeChangeObserver = NotificationCenter.default.addObserver(
-                forName: Notification.Name.AVAudioEngineConfigurationChange,
-                object: engine,
-                queue: nil
-            ) { [weak self] _ in
-                self?.handleRouteChange()
+            let captureStartStartedAt = Date()
+            capture.start { [weak self] buffer in
+                self?.consume(buffer: buffer)
             }
+            let captureStartDuration = Date().timeIntervalSince(captureStartStartedAt)
 
             let totalDuration = Date().timeIntervalSince(initStartedAt)
             let breakdown = String(
                 format:
-                    "VoiceOour: session init breakdown total=%.1fms engine_start=%.1fms analyzer=%.1fms file=%.1fms tap=%.1fms\n",
+                    "VoiceOour: session init breakdown total=%.1fms capture_start=%.1fms analyzer=%.1fms file=%.1fms device=%@%@\n",
                 totalDuration * 1_000,
-                engineStartDuration * 1_000,
+                captureStartDuration * 1_000,
                 analyzerDuration * 1_000,
                 fileSetupDuration * 1_000,
-                tapInstallDuration * 1_000
+                capture.source.name,
+                capture.source.isRedirected ? " (redirected)" : ""
             )
             try? FileHandle.standardError.write(contentsOf: Data(breakdown.utf8))
         }
@@ -370,14 +351,18 @@ import VoiceCore
                 lock.unlock()
                 return
             }
-            if firstBufferAt == nil {
-                firstBufferAt = Date()
+            let chunks = converter.convert(buffer)
+            // A route change now arrives as a new format on the buffer itself, and the
+            // converter follows it. The only unrecoverable case is a format no converter
+            // can be built for: from there the analyzer holds pre-change audio only and
+            // would finalize a plausible but silently truncated utterance, so latch it
+            // and let transcribe() serve the WAV through the batch path.
+            if converter.didFailToFollowFormat {
+                routeRecoveryFailed = true
             }
-            let converted = Self.convert(buffer: buffer, with: converter, to: targetFormat, endOfStream: false)
-            for chunk in converted {
+            for chunk in chunks {
                 writeAndYield(chunk)
             }
-            meterLevel = Self.rmsLevel(of: buffer)
             lock.unlock()
         }
 
@@ -396,50 +381,6 @@ import VoiceCore
             inputContinuation.yield(AnalyzerInput(buffer: buffer))
         }
 
-        private func handleRouteChange() {
-            do {
-                try lock.withLock {
-                    guard phase == .capturing else { return }
-
-                    let input = engine.inputNode
-                    if tapInstalled {
-                        input.removeTap(onBus: 0)
-                        tapInstalled = false
-                    }
-                    if let converter {
-                        // Preserve the old converter's resampling tail before replacing it.
-                        for chunk in Self.convert(buffer: nil, with: converter, to: targetFormat, endOfStream: true) {
-                            writeAndYield(chunk)
-                        }
-                    }
-                    converter = nil
-
-                    let inputFormat = input.outputFormat(forBus: 0)
-                    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-                        let replacement = AVAudioConverter(from: inputFormat, to: targetFormat)
-                    else {
-                        throw RecorderError.fileMissing
-                    }
-                    converter = replacement
-                    input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-                        self?.consume(buffer: buffer)
-                    }
-                    tapInstalled = true
-                    if !engine.isRunning {
-                        engine.prepare()
-                        try engine.start()
-                    }
-                }
-            } catch {
-                // Streaming is unusable from here on: the analyzer only has
-                // pre-switch audio. Flag it so transcribe() takes the batch path.
-                lock.withLock { routeRecoveryFailed = true }
-                let detail = String(describing: error).replacingOccurrences(of: "\n", with: " ")
-                let message = "VoiceOour: audio route change recovery failed: \(detail)\n"
-                try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
-            }
-        }
-
         func routeRecoveryDidFail() -> Bool {
             lock.withLock { routeRecoveryFailed }
         }
@@ -447,30 +388,20 @@ import VoiceCore
         // MARK: - Lifecycle
 
         func stopCapture() async throws -> RecordedAudio {
-            let transition: (observer: NSObjectProtocol?, removeTap: Bool)? = lock.withLock {
-                guard phase == .capturing else { return nil }
+            let wasCapturing: Bool = lock.withLock {
+                guard phase == .capturing else { return false }
                 phase = .finalizing
-                let observer = routeChangeObserver
-                routeChangeObserver = nil
-                let removeTap = tapInstalled
-                tapInstalled = false
-                return (observer, removeTap)
+                return true
             }
-            guard let transition else { throw RecorderError.notRecording }
+            guard wasCapturing else { throw RecorderError.notRecording }
 
-            if let observer = transition.observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if transition.removeTap {
-                engine.inputNode.removeTap(onBus: 0)
-            }
-            engine.stop()
+            capture.stop()
 
             let frames: Int64 = lock.withLock {
                 if let converter {
                     // Drain sample-rate-conversion remainders; skipping this truncates
                     // the tail of the utterance (measured up to 220 frames on live input).
-                    for chunk in Self.convert(buffer: nil, with: converter, to: targetFormat, endOfStream: true) {
+                    for chunk in converter.drain() {
                         writeAndYield(chunk)
                     }
                 }
@@ -479,7 +410,6 @@ import VoiceCore
                     file.close()
                 }
                 file = nil
-                meterLevel = 0
                 stoppedAt = Date()
                 return writtenFrames
             }
@@ -567,62 +497,41 @@ import VoiceCore
             url.standardizedFileURL == fileURL.standardizedFileURL
         }
 
+        // All three delegate to the capture, which is the only thing that sees raw
+        // buffers. `capture` outlives `stop()` precisely so the coordinator can still
+        // read the start latency after the WAV has been handed over.
         func currentLevel() -> Float? {
-            lock.lock()
-            defer { lock.unlock() }
-            guard phase == .capturing else { return nil }
-            return meterLevel
+            capture.currentLevel()
         }
 
         func startLatencyMs() -> Int? {
-            lock.withLock {
-                guard let firstBufferAt else { return nil }
-                return max(0, Int(firstBufferAt.timeIntervalSince(initStartedAt) * 1000))
-            }
+            capture.startLatencyMs()
         }
 
         func hasReceivedAudio() -> Bool {
-            lock.withLock { firstBufferAt != nil }
+            capture.hasReceivedAudio()
         }
 
         /// Idempotent teardown for cancel/error paths. `deleteFile` is true only
         /// while the engine still owns the WAV (before `stopCapture` returned it).
         func teardown(deleteFile: Bool) async {
-            let cleanup:
-                (
-                    wasCapturing: Bool,
-                    removeTap: Bool,
-                    observer: NSObjectProtocol?,
-                    finalize: Task<AppleSpeechTranscript, Error>?
-                ) = lock.withLock {
-                    let wasCapturing = phase == .capturing
-                    phase = .done
-                    converter = nil
-                    if let file {
-                        file.close()
-                    }
-                    file = nil
-                    meterLevel = 0
-                    let removeTap = tapInstalled
-                    tapInstalled = false
-                    let observer = routeChangeObserver
-                    routeChangeObserver = nil
-                    let finalize = finalizeTask
-                    finalizeTask = nil
-                    return (wasCapturing, removeTap, observer, finalize)
+            let finalize: Task<AppleSpeechTranscript, Error>? = lock.withLock {
+                phase = .done
+                converter = nil
+                if let file {
+                    file.close()
                 }
+                file = nil
+                let finalize = finalizeTask
+                finalizeTask = nil
+                return finalize
+            }
 
-            if let observer = cleanup.observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if cleanup.removeTap {
-                engine.inputNode.removeTap(onBus: 0)
-            }
-            if cleanup.wasCapturing {
-                engine.stop()
-            }
+            // Unconditional: MicrophoneCapture.stop() is idempotent, so this no longer
+            // needs to know whether the session was still capturing.
+            capture.stop()
             inputContinuation.finish()
-            cleanup.finalize?.cancel()
+            finalize?.cancel()
             collectTask.cancel()
             analyzerStartTask.cancel()
             await analyzer.cancelAndFinishNow()
@@ -645,88 +554,5 @@ import VoiceCore
             await analyzer.cancelAndFinishNow()
         }
 
-        // MARK: - Audio helpers
-
-        /// Converts one tap buffer (or drains the converter at end of stream).
-        /// Reuses the converter across calls so fractional resampling phase carries
-        /// over; always consumes `.inputRanDry` output per AVAudioConverter contract.
-        static func convert(
-            buffer: AVAudioPCMBuffer?,
-            with converter: AVAudioConverter,
-            to format: AVAudioFormat,
-            endOfStream: Bool
-        ) -> [AVAudioPCMBuffer] {
-            var pending = buffer
-            var out: [AVAudioPCMBuffer] = []
-            let sourceRate = converter.inputFormat.sampleRate
-            let targetRate = format.sampleRate
-
-            while true {
-                let inputFrames = Double(pending?.frameLength ?? 0)
-                let capacity = AVAudioFrameCount(
-                    max(256, (inputFrames * targetRate / max(sourceRate, 1)).rounded(.up) + 64))
-                guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return out }
-                var consumed = false
-                var error: NSError?
-                let status = converter.convert(to: output, error: &error) { _, outStatus in
-                    if endOfStream, pending == nil {
-                        outStatus.pointee = .endOfStream
-                        return nil
-                    }
-                    if consumed || pending == nil {
-                        outStatus.pointee = endOfStream ? .endOfStream : .noDataNow
-                        return nil
-                    }
-                    consumed = true
-                    let next = pending
-                    pending = nil
-                    outStatus.pointee = .haveData
-                    return next
-                }
-                if output.frameLength > 0 {
-                    out.append(output)
-                }
-                switch status {
-                case .haveData:
-                    continue
-                case .inputRanDry:
-                    if endOfStream { continue }
-                    return out
-                case .endOfStream, .error:
-                    return out
-                @unknown default:
-                    return out
-                }
-            }
-        }
-
-        static func rmsLevel(of buffer: AVAudioPCMBuffer) -> Float {
-            let frames = Int(buffer.frameLength)
-            guard frames > 0 else { return 0 }
-            var sum: Double = 0
-            if let floatData = buffer.floatChannelData {
-                let samples = floatData[0]
-                for index in 0..<frames {
-                    let sample = Double(samples[index])
-                    sum += sample * sample
-                }
-            } else if let intData = buffer.int16ChannelData {
-                let samples = intData[0]
-                for index in 0..<frames {
-                    let sample = Double(samples[index]) / 32768.0
-                    sum += sample * sample
-                }
-            } else {
-                return 0
-            }
-            let rms = sqrt(sum / Double(frames))
-            // Same perceptual mapping as AVAudioEngineRecorder's decibel curve.
-            let decibels = Float(20 * log10(max(rms, 1e-7)))
-            let floor: Float = -55
-            let ceiling: Float = -8
-            let clamped = Swift.min(Swift.max(decibels, floor), ceiling)
-            let normalized = (clamped - floor) / (ceiling - floor)
-            return Swift.min(Swift.max(sqrtf(normalized), 0), 1)
-        }
     }
 #endif

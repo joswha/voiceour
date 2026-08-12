@@ -5,7 +5,15 @@ import Testing
 @testable import VoiceMac
 
 /// Covers Apple Speech ASR availability, batch transcription, and live capture.
-@Suite("Apple Speech ASR")
+///
+/// `.serialized` because the live-capture tests each open a capture session on the
+/// one physical microphone this machine has. Run in parallel under
+/// `VOICEOOUR_APPLE_SPEECH_INTEGRATION` they deadlock: the run sat idle for 30
+/// minutes with every thread parked in `CFRunLoopRun` and no frame of this code on
+/// any stack, waiting on continuations that never resolved. Serialized, the same
+/// seven tests finish in 4.7 seconds. The default gate is unaffected either way —
+/// without the environment variable the integration tests return immediately.
+@Suite("Apple Speech ASR", .serialized)
 struct AppleSpeechASRTests {
     @Test func unsupportedASRClientReportsBackendUnavailable() async throws {
         let client = UnsupportedASRClient(backendId: "apple-speech", detail: "Apple Speech backend requires macOS 26")

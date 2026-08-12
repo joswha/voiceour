@@ -115,6 +115,34 @@
             }
         }
 
+        /// The Bluetooth warm-up window: `start()` returns at once, the state machine is
+        /// in `.recording`, and the capture is still handing back digital silence.
+        ///
+        /// Measured on AirPods Max through one identical capture path: first buffer at
+        /// 143 ms, first buffer holding a NON-ZERO sample at 1422 ms, 64 of the first 197
+        /// buffers all-zero, against 99 ms and zero silent buffers on the built-in
+        /// microphone. This fixture is that window with the wall clock taken out of it:
+        /// the capture stays not-live until the script opens `.captureLive`.
+        ///
+        /// Only two gates are armed. The journey never stops the recorder, transcribes,
+        /// refines or delivers, and arming a boundary no script can release is
+        /// indistinguishable from a script that forgot to.
+        static func captureWarmup() -> UIFlowFixture {
+            let gates: Set<UIGate> = [.permission, .captureLive]
+            return UIFlowFixture(name: "capture-warmup", armedGates: gates) {
+                makeDictationContext(
+                    armedGates: gates,
+                    transcription: .success(scriptedASRResult(transcript: "The warm-up journey never transcribes.")),
+                    refinement: .skipped(reason: "the warm-up journey never refines"),
+                    insertion: .failed(reason: "the warm-up journey never delivers"),
+                    targetBundleID: "com.apple.TextEdit",
+                    targetSafety: .normalText,
+                    refinementEnabled: false,
+                    capture: UICaptureWarmup()
+                )
+            }
+        }
+
         /// Refinement switched off over an OMP configuration that is otherwise
         /// complete, so the script can turn it on and press CHECK.
         ///
@@ -210,7 +238,8 @@
             insertion: InsertionOutcome,
             targetBundleID: String,
             targetSafety: TargetSafetyClass,
-            refinementEnabled: Bool
+            refinementEnabled: Bool,
+            capture: UICaptureWarmup? = nil
         ) -> UIFlowContext {
             let permissionLink = UIAdapterLink(gate: .permission)
             let recorderLink = UIAdapterLink(gate: .recorderStop)
@@ -227,7 +256,8 @@
             let coordinator = DictationCoordinator(
                 recorder: UIGatedRecorder(
                     link: recorderLink,
-                    audioURL: scratch.appendingPathComponent("capture.wav")
+                    audioURL: scratch.appendingPathComponent("capture.wav"),
+                    capture: capture
                 ),
                 asr: UIGatedASR(link: transcriptionLink, result: transcription),
                 tracker: HarnessTracker(bundleID: targetBundleID, safety: targetSafety),
@@ -251,6 +281,18 @@
             let context = UIFlowContext(coordinator: coordinator, armedGates: armedGates)
             for link in [permissionLink, recorderLink, transcriptionLink, refinementLink, insertionLink] {
                 link.bind(to: context)
+            }
+            if let capture {
+                // The capture's own boundary is synchronous, so nothing can park inside
+                // `captureIsLive()`. This task parks instead, for the life of the fixture,
+                // and hands the flag over the instant the script opens the gate. Teardown
+                // drains it, so a flow that ends inside the warm-up window leaks nothing.
+                let captureLink = UIAdapterLink(gate: .captureLive)
+                captureLink.bind(to: context)
+                Task { @MainActor in
+                    await captureLink.arrive()
+                    capture.goLive()
+                }
             }
             return context
         }
@@ -349,6 +391,9 @@
     struct UIGatedRecorder: AudioRecording {
         let link: UIAdapterLink
         let audioURL: URL
+        /// Non-nil only for `UIFlowFixture.captureWarmup()`. Absent, the capture behaves
+        /// like every other fixture's and is live from the first poll.
+        var capture: UICaptureWarmup?
 
         func start() throws {}
 
@@ -367,9 +412,18 @@
             )
         }
 
-        func currentInputLevel() -> Float? { 0.42 }
-        func lastStartLatencyMs() -> Int? { 18 }
-        func captureIsLive() -> Bool { true }
+        /// Digital silence until the capture is live, which is what the AirPods Max
+        /// measurement actually recorded: 64 of the first 197 buffers all zeros.
+        func currentInputLevel() -> Float? { captureIsLive() ? 0.42 : 0 }
+
+        /// Nothing to report until real audio has arrived; then the measured cold-link
+        /// figure, so a flow reading this sees the number that made the bug visible.
+        func lastStartLatencyMs() -> Int? {
+            guard let capture else { return 18 }
+            return capture.isLive ? 1_422 : nil
+        }
+
+        func captureIsLive() -> Bool { capture?.isLive ?? true }
         func discardRecording() async {}
     }
 
@@ -429,6 +483,34 @@
                 )
             )
             return outcome
+        }
+    }
+
+    /// Capture liveness the script owns.
+    ///
+    /// `AudioRecording.captureIsLive()` is a synchronous poll -- `RecordingSessionDriver`
+    /// reads it once when metering starts and again every 40 ms -- so the warm-up window
+    /// cannot be a suspension inside the recorder the way `stop()` is. It is a flag
+    /// instead, and the `.captureLive` gate decides when it flips. Lock-guarded rather
+    /// than actor-isolated for the same reason `UIScriptClock` is: the port it answers is
+    /// `Sendable` and nonisolated, and hopping actors to read a Bool would change the
+    /// metering loop's shape.
+    final class UICaptureWarmup: @unchecked Sendable {
+        private let lock = NSLock()
+        private var live = false
+
+        var isLive: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return live
+        }
+
+        /// One-way, exactly like the real thing: a capture that has delivered a non-zero
+        /// sample never goes back to warming up within one session.
+        func goLive() {
+            lock.lock()
+            live = true
+            lock.unlock()
         }
     }
 

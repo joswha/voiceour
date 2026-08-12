@@ -244,7 +244,7 @@ def test_run_decorates_single_json_result_for_strict_ingestion(tmp_path: Path, m
         "captured_duration_ms": 3_950,
         "pre_roll_ms": rows[0]["pre_roll_ms"],
         "post_roll_ms": rows[0]["post_roll_ms"],
-        "implementation": "production-av-audio-recorder",
+        "implementation": "production-microphone-recorder",
         "endpoint_bounding_applied": False,
         "telemetry": {"clip_ratio": 0.001, "processing_mode": rows[0]["mode"]},
     }
@@ -259,6 +259,6 @@ def test_run_decorates_single_json_result_for_strict_ingestion(tmp_path: Path, m
     assert ingest_results(rows, result_rows) == {rows[0]["id"]: result_rows[0]}
     assert result_rows[0]["telemetry"] == executable_result["telemetry"]
     assert result_rows[0]["captured_duration_ms"] == 3_950
-    assert result_rows[0]["implementation"] == "production-av-audio-recorder"
+    assert result_rows[0]["implementation"] == "production-microphone-recorder"
     assert result_rows[0]["endpoint_bounding_applied"] is False
     assert json.loads(results_path.read_text(encoding="utf-8")) == result_rows[0]

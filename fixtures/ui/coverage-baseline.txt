@@ -42,7 +42,6 @@ state:menu:copy-feedback
 state:menu:failed-report
 state:menu:muted-header
 state:overlay:cancel-dictation-label
-state:overlay:idle
 state:overlay:processing
 state:refinement:omp-no-accounts
 state:refinement:omp-status-checking

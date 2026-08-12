@@ -332,6 +332,15 @@
     enum UIGate: String, CaseIterable, Hashable, CustomStringConvertible {
         /// Microphone permission check inside `start()`.
         case permission
+        /// The capture reporting its first buffer that carries a non-zero sample.
+        ///
+        /// Unlike every other gate here, the port this one holds is SYNCHRONOUS:
+        /// `AudioRecording.captureIsLive()` is polled by the metering loop, so the fixture
+        /// parks a task on this gate and flips the flag the fake recorder answers from.
+        /// The boundary is real either way — on a cold Bluetooth link it is a 1.4 s wait —
+        /// and naming it is what lets a flow stand inside the warm-up window instead of
+        /// racing through it.
+        case captureLive
         /// `recorder.stop()` handing back the recorded audio.
         case recorderStop
         /// The ASR client returning a transcript.

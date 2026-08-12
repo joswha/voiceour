@@ -497,6 +497,21 @@
                         )
                     )
                 },
+                UISceneDescriptor(
+                    id: "overlay.island.warmup",
+                    title: "Recording overlay island, microphone still warming up",
+                    size: RecordingOverlayMetrics.islandSize,
+                    tags: ["overlay"]
+                ) {
+                    AnyView(
+                        RecordingOverlayView(
+                            model: warmingOverlayModel(),
+                            onCancel: {},
+                            onFinish: {},
+                            islandOnly: true
+                        )
+                    )
+                },
             ]
         }
 
@@ -776,6 +791,21 @@
             let model = RecordingOverlayModel()
             model.update(.recording)
             model.updateCaptureLive(true)
+            for level in waveformLevels {
+                model.record(level)
+            }
+            return model
+        }
+
+        /// A capture that has been started and is not delivering audio yet: the state the
+        /// island holds for 1422 ms on a cold AirPods Max link against 99 ms on the
+        /// built-in microphone. The meter samples below are fed in deliberately —
+        /// `record(_:)` drops every one of them while capture is not live, so this scene
+        /// pins both halves of the fix at once: the waveform cannot draw from a warm-up
+        /// buffer, and the slot reads WARMING instead of a flat meter.
+        private static func warmingOverlayModel() -> RecordingOverlayModel {
+            let model = RecordingOverlayModel()
+            model.update(.recording)
             for level in waveformLevels {
                 model.record(level)
             }

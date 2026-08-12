@@ -163,9 +163,9 @@ console("console.glossary.empty", "Glossary with every term removed",
         section: .glossary, fixture: .emptyGlossary, tags: ["empty"])
 ```
 
-Raw `UIScene(...)` is used only by the two portable overlay scenes, which need odd sizes and no backdrop. The id is the artifact basename, so keep it filesystem-safe and dot-separated: lowercase, `area.thing.state`. Native Liquid Glass counterparts use an `*.os26` id and the matching system factory. Nothing else needs touching — the harness discovers the scene, renders it, and reports `missing-golden` until the owner blesses new fixtures.
+Raw `UIScene(...)` is used only by the three portable overlay scenes, which need odd sizes and no backdrop. The id is the artifact basename, so keep it filesystem-safe and dot-separated: lowercase, `area.thing.state`. Native Liquid Glass counterparts use an `*.os26` id and the matching system factory. Nothing else needs touching — the harness discovers the scene, renders it, and reports `missing-golden` until the owner blesses new fixtures.
 
-The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 47 entries: 35 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 23 console, one pane, three menu, two overlay, two atom, four accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
+The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 49 entries: 37 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 23 console, one pane, three menu, three overlay, two atom, five accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
 
 ### Determinism
 
@@ -195,7 +195,7 @@ A step that cannot find its target does not abort the scene; it records a warnin
 
 A scene answers whether one state still renders, reads and lints correctly. A `UIFlow` answers whether a real journey still works. It hosts a real app view with an inert `UIFlowFixture`, drives the real `DictationCoordinator` through an ordered script, and checks named semantic expectations at each checkpoint. Its stable id is the artifact basename; its title, tags and `covers` keys make the journey discoverable and connect it to the coverage ledger.
 
-The current catalog has 21 flows — 19 portable and two tagged `os26` — in `UIFlowCatalog.everything()` execution order:
+The current catalog has 22 flows — 20 portable and two tagged `os26` — in `UIFlowCatalog.everything()` execution order:
 
 - Home: `home.empty-to-populated`
 - Sessions: `sessions.search.no-results`, `sessions.search.clear`
@@ -204,7 +204,7 @@ The current catalog has 21 flows — 19 portable and two tagged `os26` — in `U
 - Refinement: `refinement.enable-and-check`, `refinement.select-model`
 - System: `system.recheck-backend`, `system.clear-history.confirm`
 - Menu and dictation: `menu.copy-transcript`, `dictation.paste.delivered`, `dictation.copy-only.terminal`, `dictation.refinement-skipped.code-editor`, `dictation.cancelled`, `dictation.asr-error`
-- Overlay: `overlay.recording.controls`
+- Overlay: `overlay.recording.controls`, `overlay.capture.warmup`
 - Atoms: `atoms.confirm-row`
 - Native macOS 26: `console.rail.navigation.os26`, `menu.primary-action.os26`
 
@@ -224,7 +224,7 @@ State expectations match the coordinator case, not associated payloads: `idle`, 
 
 Flow selectors return the complete match set. Identifier, label, value, placeholder and role queries are exact; `labelContains` and `valueContains` are explicit exceptions for genuinely dynamic text, not fallback matching, and `all` requires every child query to match the same node. Any action or expectation that requires one node fails on zero matches or on ambiguity. A substring that silently retargets after a UI change is the bug a flow exists to catch, so flows never use the scene stepper's first-match fuzzy precedence.
 
-No flow wait has a wall-clock deadline. The runner pumps one run-loop turn at a time, up to a fixed budget of 3,000 turns, and reports `not observed within 3000 turns` rather than elapsed milliseconds. Loaded and idle machines therefore make the same decision. Each asynchronous boundary is a named `UIGate` — `permission`, `recorderStop`, `transcription`, `refinement`, `insertion`, or `persistence` — and the script releases it explicitly. Without those gates, the pipeline could cross an intermediate state inside one settle and make the checkpoint a race.
+No flow wait has a wall-clock deadline. The runner pumps one run-loop turn at a time, up to a fixed budget of 3,000 turns, and reports `not observed within 3000 turns` rather than elapsed milliseconds. Loaded and idle machines therefore make the same decision. Each asynchronous boundary is a named `UIGate` — `permission`, `captureLive`, `recorderStop`, `transcription`, `refinement`, `insertion`, or `persistence` — and the script releases it explicitly. Without those gates, the pipeline could cross an intermediate state inside one settle and make the checkpoint a race. `captureLive` is the one gate whose port is synchronous: `AudioRecording.captureIsLive()` is polled by the metering loop, so `UIFlowFixture.captureWarmup()` parks a task on the gate and flips the flag its fake recorder answers from. Without it the Bluetooth warm-up window — 1422 ms to the first non-zero buffer on AirPods Max against 99 ms on the built-in microphone — is a state no checkpoint can stand in.
 
 ### Production value seams
 
@@ -341,7 +341,7 @@ waveform bar is the real thing at the real measure; the material around them is 
 - `snapshotOnly(sceneID:)`: static evidence is sufficient, and the named scene must exist in `UISceneCatalog`;
 - `notVerifiable(limitation)`: the offscreen path measurably cannot verify the requirement, and the reason must come from the closed `UIKnownLimitation` vocabulary.
 
-The coverage baseline makes that ledger an enforceable ratchet without pretending every gap is already closed. `fixtures/ui/coverage-baseline.txt` contains the required keys that are currently unclaimed; it currently contains 76 keys. The gate enforces both directions:
+The coverage baseline makes that ledger an enforceable ratchet without pretending every gap is already closed. `fixtures/ui/coverage-baseline.txt` contains the required keys that are currently unclaimed; it currently contains 69 keys. The gate enforces both directions:
 
 - **Regression:** a required key is uncovered now but absent from the baseline. A surface was added without coverage or a passing claimant was lost, so the run fails.
 - **Stale entry:** a baseline key is covered now. The run fails until the entry is removed, so a closed gap cannot remain as permission to uncover the key later.

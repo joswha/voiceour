@@ -1,0 +1,16 @@
+flow: overlay.capture.warmup
+title: The island says WARMING until the microphone is really delivering audio
+fixture: capture-warmup
+transitions: idle -> checkingPermissions -> recording -> cancelled -> idle
+PASS 1 idle | state == idle | idle
+PASS 2 idle | absent label="Finish recording" | 0 matches
+PASS 3 idle | enabled(true) label="Cancel dictation" | true
+PASS 4 idle | count role=AXButton exactly 1 | 1 match
+PASS 5 warming | state == recording | recording
+PASS 6 warming | value label="Dictation status" == "Microphone starting" | "Microphone starting"
+PASS 7 warming | absent label="Dictation status" & value="Recording" | 0 matches
+PASS 8 warming | enabled(true) label="Finish recording" | true
+PASS 9 listening | state == recording | recording
+PASS 10 listening | value label="Dictation status" == "Recording" | "Recording"
+PASS 11 listening | absent label="Dictation status" & value="Microphone starting" | 0 matches
+PASS 12 listening | transitions exact [idle -> checkingPermissions -> recording] | idle -> checkingPermissions -> recording

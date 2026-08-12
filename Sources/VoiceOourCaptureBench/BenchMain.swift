@@ -228,7 +228,7 @@ private struct CaptureBenchRunner {
         let endpointBoundingApplied: Bool
         if options.mode == .standard {
             recorded = try await runProductionBaseline()
-            implementation = "production-av-audio-recorder"
+            implementation = "production-microphone-recorder"
             endpointBoundingApplied = false
         } else {
             recorded = try await runExperimentalEngine()
@@ -254,7 +254,7 @@ private struct CaptureBenchRunner {
     }
 
     private func runProductionBaseline() async throws -> RecordedAudio {
-        let recorder = AVAudioEngineRecorder()
+        let recorder = MicrophoneRecorder()
         do {
             try recorder.start()
             try await sleepForCapture()
@@ -338,7 +338,7 @@ private enum CaptureBenchOutput {
             return CaptureBenchMode(
                 mode: mode,
                 implementation: mode == .standard
-                    ? "production-av-audio-recorder"
+                    ? "production-microphone-recorder"
                     : "experimental-av-audio-engine",
                 available: availability.available,
                 unavailableReason: availability.unavailableReason

@@ -26,6 +26,12 @@ final class RecordingOverlayModel: ObservableObject {
         isRecording && captureLive
     }
 
+    /// Capture has been asked for but no buffer carrying a non-zero sample has arrived.
+    /// The single source of the warm-up decision: nothing re-derives it inline.
+    var isWarmingUp: Bool {
+        isRecording && !captureLive
+    }
+
     var isProcessing: Bool {
         state.isOverlayProcessing
     }
@@ -46,17 +52,35 @@ final class RecordingOverlayModel: ObservableObject {
         }
     }
 
+    /// The same vocabulary as `processingLabel`, for the window between "capture
+    /// requested" and "audio actually flowing". Seven characters, measured on the same
+    /// `micro` metric as the labels above — SF Mono 10 medium, tracking 0.8 — at 48.9pt
+    /// against the 111.7pt that comment records for "FINALIZING AUDIO", so it clears the
+    /// centre slot's 110pt budget with more than half of it to spare.
+    var warmingLabel: String {
+        "WARMING"
+    }
+
+    /// What the centre slot announces. `SessionState.displayName` says "Recording" from
+    /// the instant capture is requested, which on a cold Bluetooth link is untrue for up
+    /// to ~1.5 s, so the readout would tell a VoiceOver user the same thing the flat
+    /// meter told everyone else.
+    var accessibilityStatus: String {
+        isWarmingUp ? "Microphone starting" : state.displayName
+    }
+
     var showsFinishButton: Bool {
         isRecording
     }
 
     /// Identity of what the island's centre and trailing slots hold, so the two
-    /// crossfade together on the one value that actually changes them. Warm-up and
-    /// live capture share the meter, so going live is not a phase change — the bars
-    /// simply start moving.
+    /// crossfade together on the one value that actually changes them. Warm-up and live
+    /// capture hold DIFFERENT things — a word and a meter — so going live is a phase
+    /// change and gets its own token.
     var centerPhaseToken: Int {
-        if isRecording { return 1 }
-        if isProcessing { return 2 }
+        if isWarmingUp { return 1 }
+        if isListening { return 2 }
+        if isProcessing { return 3 }
         return 0
     }
 

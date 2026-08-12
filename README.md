@@ -321,11 +321,16 @@ are not a specification, a guarantee, or a target.
 | ASR | **347 ms** | 843 ms | 1052 ms | 167 |
 | refinement | 2257 ms | 3995 ms | 5426 ms | 155 |
 | insertion | **4 ms** | 32 ms | 43 ms | 188 |
-| start latency (hotkey → capture) | **188 ms** | 219 ms | 231 ms | 43 |
+| start latency (hotkey → first audio buffer) | **188 ms** | 219 ms | 231 ms | 43 |
 
 Refinement is roughly 87% of post-speech latency — which is exactly why it is optional. Note this
 is a sum of independently measured stage medians, not one stopwatch span; those sessions predate
 the per-session `stopReleaseToInsertionOutcomeMs` timing the app now records.
+
+That start-latency row counted the first buffer arriving, not the first buffer with sound in it. On
+a Bluetooth headset macOS hands over more than a second of digital silence first, so VoiceOour now
+times hotkey → first real audio and records from the Mac's built-in microphone whenever the default
+input is a Bluetooth headset — earlier numbers are not comparable with later ones.
 
 ### Accuracy
 

@@ -220,27 +220,44 @@ struct RecordingOverlayView: View {
     /// One accessibility element for the whole readout, so a state change is a VALUE
     /// change on a stable, labelled node instead of a label change on an unlabelled
     /// image that VoiceOver only speaks if the user happens to be parked on it.
+    ///
+    /// `.isStaticText` is what makes that value reachable at all. Measured against the
+    /// in-process accessibility walk this app dumps: without the trait the element is
+    /// `AXUnknown` and `accessibilityValue` answers nil through both the modern and the
+    /// legacy attribute API, so the readout published a label and nothing else. With it
+    /// the element is `AXStaticText`, keeps its content-sized frame, and finally carries
+    /// the value — which is the only thing that distinguishes warm-up from listening in
+    /// the accessibility tree, since both draw one unlabelled element in this slot.
     private var centerSlot: some View {
         centerContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Dictation status")
-            .accessibilityValue(model.state.displayName)
-            .accessibilityAddTraits(.updatesFrequently)
+            .accessibilityValue(model.accessibilityStatus)
+            .accessibilityAddTraits([.updatesFrequently, .isStaticText])
             .accessibilitySortPriority(2)
     }
 
     @ViewBuilder
     private var centerContent: some View {
-        if model.isRecording {
-            // Warm-up and live capture share ONE view identity: the meter is already
-            // on screen when the pill appears and comes alive as buffers arrive,
-            // instead of crossfading a comet into a waveform. That also leaves the
-            // comet meaning exactly one thing — the session is being processed.
+        if model.isWarmingUp {
+            // Warm-up and live capture used to share ONE view identity, on the reasoning
+            // that the meter was already on screen and simply came alive as buffers
+            // arrived. That was decided while warm-up was believed to be sub-100ms,
+            // because liveness was measured off the first tap callback rather than the
+            // first buffer holding a non-zero sample. Measured properly, a cold Bluetooth
+            // link reaches real audio at 1422 ms (AirPods Max) against 99 ms on the
+            // built-in microphone, and a flat meter held for a second and a half is
+            // pixel-indistinguishable from a live meter listening to silence — so the
+            // user speaks into the hole. A word says which one it is. The comet still
+            // means exactly one thing: the session is being processed.
+            stateLabel(model.warmingLabel)
+                .transition(.opacity)
+        } else if model.isRecording {
             RecordingWaveform(samples: model.samples)
                 .transition(.opacity)
         } else if model.isProcessing {
-            stateLabel
+            stateLabel(model.processingLabel ?? "")
                 .transition(.opacity)
         } else {
             Color.clear
@@ -251,15 +268,19 @@ struct RecordingOverlayView: View {
     /// Inside the capsule, where it composites against the pill's own glass at
     /// Text.high instead of against an arbitrary wallpaper at Text.low — which
     /// measured 1.21:1 on a mid-grey desktop.
-    private var stateLabel: some View {
-        Text(model.processingLabel ?? "")
+    ///
+    /// Static by construction: the only animation is the crossfade between two texts.
+    /// Nothing here may breathe on a repeating or wall-clock-driven curve, because the
+    /// warm-up word is now snapshotted by a scene golden.
+    private func stateLabel(_ text: String) -> some View {
+        Text(text)
             .roleStyle(.micro)
             .foregroundStyle(VoiceOourPalette.Text.high)
             .lineLimit(1)
             .contentTransition(.opacity)
             .animation(
                 a11y.reduceMotion ? nil : VoiceOourMotion.deliberate,
-                value: model.processingLabel
+                value: text
             )
     }
 

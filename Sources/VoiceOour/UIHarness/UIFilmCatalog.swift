@@ -156,8 +156,8 @@
                         }
                     ),
                     script: { recorder in
-                        // Warm-up: the pill is up and the meter is flat because no audio
-                        // buffer has arrived yet.
+                        // Warm-up: the pill is up and the centre reads WARMING, because
+                        // no buffer carrying real audio has arrived yet.
                         model.update(.recording)
                         model.updateCaptureLive(false)
                         try recorder.frames(5, settling: frameMilliseconds)

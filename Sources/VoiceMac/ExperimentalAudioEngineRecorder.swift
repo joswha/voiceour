@@ -81,7 +81,7 @@ public final class ExperimentalAudioEngineRecorder: @unchecked Sendable {
         guard mode != .standard else {
             throw ExperimentalAudioEngineRecorderError.unsupportedMode(
                 mode,
-                "standard is the production AVAudioRecorder baseline, not an AVAudioEngine challenger"
+                "standard is the production MicrophoneRecorder baseline, not an AVAudioEngine challenger"
             )
         }
         guard (1...Self.maximumDurationMs).contains(expectedDurationMs) else {

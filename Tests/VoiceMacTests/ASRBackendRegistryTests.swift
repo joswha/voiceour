@@ -50,7 +50,7 @@ struct ASRBackendRegistryTests {
     @Test func mlxBackendUsesTheRealRecorderAndTheMuter() {
         let components = registry.liveComponents(for: "mlx", context: context)
 
-        #expect(components.recorder is AVAudioEngineRecorder)
+        #expect(components.recorder is MicrophoneRecorder)
         #expect(components.client is SidecarASRClient)
         #expect(components.usesSystemAudioMuter)
     }
@@ -66,7 +66,7 @@ struct ASRBackendRegistryTests {
             #expect(!(components.client is UnsupportedASRClient))
         } else {
             #expect(components.client is UnsupportedASRClient)
-            #expect(components.recorder is AVAudioEngineRecorder)
+            #expect(components.recorder is MicrophoneRecorder)
             #expect(registry.client(for: "apple", context: context) is UnsupportedASRClient)
         }
     }

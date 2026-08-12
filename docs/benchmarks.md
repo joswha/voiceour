@@ -85,8 +85,13 @@ Measured 2026-07-18 on macOS 26.5.2 (M4 Pro), Apple SpeechTranscriber batch path
 ## Paired capture matrix
 
 `voiceoour_bench.capture_matrix` plans and collects the Stage 0 microphone matrix around the
-`voiceoour-capture-bench` executable. `standard` is the current production
-`AVAudioRecorder` baseline. `native` is the experimental hardware-native
+`voiceoour-capture-bench` executable. `standard` is the production baseline and tracks whatever
+production records through, which is now `MicrophoneRecorder` over `MicrophoneCapture` — an
+`AVCaptureSession` pinned to a chosen input device (`docs/architecture.md`, *Microphone capture*)
+— rather than the `AVAudioRecorder` the matrix was originally designed against. Rows collected
+before that swap are therefore not paired with rows collected after it, and the
+`implementation` field distinguishes them: `production-av-audio-recorder` against
+`production-microphone-recorder`. `native` is the experimental hardware-native
 `AVAudioEngine` path. The remaining modes are `voice-processing`,
 `voice-processing-no-agc`, `sound-isolation`, and
 `sound-isolation-high-quality`. Check availability without requesting microphone permission:

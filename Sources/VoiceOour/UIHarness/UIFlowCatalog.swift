@@ -90,6 +90,17 @@
             static let cancelRecording = UIQuery.label("Cancel recording")
             static let dictationStatus = UIQuery.label("Dictation status")
             static let finishRecording = UIQuery.label("Finish recording")
+            // The idle island's leading control. `RecordingOverlayView.cancelButton`
+            // swaps the label on `model.isRecording`; no scene renders an idle overlay.
+            static let cancelDictation = UIQuery.label("Cancel dictation")
+
+            // The centre readout addressed by label AND value, which is the whole point of
+            // the warm-up flow: both phases publish one element with the same stable label
+            // in the same slot, and only the value says which phase it is.
+            // `RecordingOverlayModel.accessibilityStatus`; the warm-up half is also pinned
+            // by fixtures/ui/overlay.island.warmup.ax.txt.
+            static let warmingStatus = UIQuery.all([.label("Dictation status"), .value("Microphone starting")])
+            static let listeningStatus = UIQuery.all([.label("Dictation status"), .value("Recording")])
 
             // These flow-local identifiers follow ConfirmActionRow.swift:128-159. No scene
             // contains the `flow.confirm` instance; its controls are verified at runtime.
@@ -883,8 +894,83 @@
                             ]
                         )
                     ]
-                )
+                ),
+                warmupFlow,
             ]
+        }
+
+        /// The window this whole surface was blind to.
+        ///
+        /// `AudioRecording.captureIsLive()` used to be answered by the protocol default --
+        /// `true`, always -- or, on the streaming path, by the arrival of the first tap
+        /// callback, which on AirPods Max fires at 151 ms holding a buffer of pure zeros.
+        /// The island therefore drew a flat meter for the 1.4 s before real audio arrived,
+        /// which looks exactly like a live meter in a quiet room, and the user spoke into
+        /// the hole. This journey stands inside that window: one element, one stable
+        /// label, and a value that changes at the moment the capture actually wakes up.
+        ///
+        /// No `.capture` step, deliberately. The centre slot crossfades on
+        /// `centerPhaseToken` with a wall-clock curve, so a frame taken here records
+        /// whatever opacity this host happened to reach. `overlay.island.warmup` pins the
+        /// warm-up pixels with no transition in flight, and `overlay.island.recording`
+        /// pins the meter; what a flow adds is the ORDER, which is semantic.
+        private static var warmupFlow: UIFlow {
+            UIFlow(
+                id: "overlay.capture.warmup",
+                title: "The island says WARMING until the microphone is really delivering audio",
+                tags: ["overlay", "dictation", "warmup"],
+                covers: [.state(.overlay, "capture-warmup"), .state(.overlay, "idle")],
+                host: .overlay,
+                fixture: .captureWarmup(),
+                steps: [
+                    // Before anything starts: the trailing cap holds no action at all, so
+                    // the island publishes exactly one control, the discard.
+                    .check(
+                        "idle",
+                        [
+                            .state(.idle),
+                            .absent(Selector.finishRecording),
+                            .enabled(Selector.cancelDictation, true),
+                            .count(.role("AXButton"), .exactly(1)),
+                        ]
+                    ),
+                    .act(.dictate(.start)),
+                    .wait(.state(.checkingPermissions)),
+                    .release(.permission),
+                    .wait(.state(.recording)),
+                    .wait(.element(Selector.warmingStatus)),
+                    // `.recording` and NOT listening. The finish action is already live --
+                    // the user may stop a dictation that has not started hearing them --
+                    // and the readout is the only thing that says so.
+                    .check(
+                        "warming",
+                        [
+                            .state(.recording),
+                            .value(Selector.dictationStatus, .equals("Microphone starting")),
+                            .absent(Selector.listeningStatus),
+                            .enabled(Selector.finishRecording, true),
+                        ]
+                    ),
+                    .release(.captureLive),
+                    .wait(.element(Selector.listeningStatus)),
+                    // Same element, same label, same state: only the value moved, which is
+                    // exactly the regression this flow exists to catch. Anything that
+                    // reports liveness off "the capture was requested" again fails here.
+                    .check(
+                        "listening",
+                        [
+                            .state(.recording),
+                            .value(Selector.dictationStatus, .equals("Recording")),
+                            .absent(Selector.warmingStatus),
+                            .transitions([.idle, .checkingPermissions, .recording], .exact),
+                        ]
+                    ),
+                    // Ends the session rather than leaving a 40 ms metering loop running
+                    // in the process for every flow that comes after this one.
+                    .act(.dictate(.cancel)),
+                    .wait(.state(.idle)),
+                ]
+            )
         }
 
         // MARK: Atoms
