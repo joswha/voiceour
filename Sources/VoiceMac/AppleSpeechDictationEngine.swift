@@ -223,6 +223,10 @@ import VoiceCore
             self.initStartedAt = initStartedAt
             self.locale = locale
 
+            // `file=` in the breakdown below is this bracket: the whole capture-file
+            // construction, target format included. The format is an in-memory
+            // `AVAudioFormat` init, so the number is still dominated by the temporary
+            // directory and the `AVAudioFile` open.
             let fileSetupStartedAt = Date()
             let wav = try CaptureWAVTarget(sampleRate: Self.sampleRate)
             let fileSetupDuration = Date().timeIntervalSince(fileSetupStartedAt)

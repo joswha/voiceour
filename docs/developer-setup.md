@@ -174,9 +174,9 @@ scripts/sign_notarize.sh
 
 ## Test tiers
 
-- PR gate: `make test` and `cd asr && uv --no-config run pytest`.
+- PR gate: the whole local-checks block in `CONTRIBUTING.md`; CI enforces every command in it.
 - App smoke: `scripts/run_dev.sh --self-test`.
-- UI gate: `make ui-snap` (offscreen, no window, no focus change; see `docs/ui-harness.md`).
+- UI gate: `make ui-flow` and `make ui-coverage` are enforced in CI; `make ui-snap` and `make ui-flow-frames` run as an advisory job on hosted runners because rasters are host-sensitive, so treat them as required locally (offscreen, no window, no focus change; see `docs/ui-harness.md`).
 - Interactive fake app: `scripts/run_dev.sh`.
 - Interactive real Parakeet app: `scripts/run_real.sh` on a logged-in desktop; the macOS microphone prompt may appear when real recording first starts, and Parakeet may cold-load on first use.
 - Real ASR proof: generated fixture plus `phase0_asr_proof.py`.

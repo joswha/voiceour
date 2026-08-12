@@ -15,9 +15,8 @@ struct VoiceOourApp: App {
         // policy. `UIHarnessRequest` is nil unless `--ui-harness` is present, so a
         // normal launch falls straight through.
         //
-        // Compiled out of the shipping bundle entirely. `scripts/bundle.sh` is the
-        // only build that omits `-DUI_HARNESS`, so the harness objects never link
-        // into the release binary.
+        // `scripts/bundle.sh` builds without `-DUI_HARNESS`, so this block and the
+        // harness objects behind it never link into the shipping binary.
         #if UI_HARNESS
             if CommandLine.arguments.contains(UIHarnessRequest.flag) {
                 guard let request = UIHarnessRequest(arguments: CommandLine.arguments) else {

@@ -1,9 +1,10 @@
 // Offscreen UI harness. Compiled only when `UI_HARNESS` is defined.
 //
-// Every build defines it except `scripts/bundle.sh`, whose plain
-// `swift build -c release` is therefore the only build that omits the harness --
-// which is the entire point: these objects used to link into the shipping binary
-// even though execution was gated at runtime on `--ui-harness`.
+// The flag comes from `scripts/ui_harness.sh` (and so every `make ui-*` target) and
+// from the `make test` / CI `swift test` steps. Ordinary builds omit it, the
+// `swift build -c release` inside `scripts/bundle.sh` that ships included -- which is
+// the entire point: these objects used to link into the shipping binary even though
+// execution was gated at runtime on `--ui-harness`.
 //
 // `RenderOverrides` is deliberately NOT here: many production files read it, so
 // it lives in `Sources/VoiceOour/RenderOverrides.swift` and is never gated.

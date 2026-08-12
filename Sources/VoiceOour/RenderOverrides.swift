@@ -6,7 +6,7 @@ import VoiceMac
 // Production code, never gated behind `UI_HARNESS`.
 //
 // Named for what it is rather than for its main consumer. The offscreen harness
-// is what *sets* these, but thirteen production files *read* them, so calling the
+// is what *sets* these, but many production files *read* them, so calling the
 // type `UIHarnessSeams` invited exactly the mistake this gate has to avoid:
 // gating or deleting it alongside `UIHarness/`, which does not compile.
 //

@@ -449,7 +449,7 @@ Everything in the top block is fake-backed: no model, no microphone, no TCC gran
 | `make bench-smoke` | end-to-end benchmark on the fake backend | ✅ enforced |
 | `make ui-flow` | deterministic interactive journeys, host-independent journals | ✅ enforced |
 | `make ui-coverage` | required UI surface / state / journey coverage ratchet | ✅ enforced |
-| `make ui-snap` | 36 portable offscreen UI scenes against committed goldens | 🟡 non-blocking |
+| `make ui-snap` | portable offscreen UI scenes against committed goldens | 🟡 non-blocking |
 | `make ui-flow-frames` | flow rasters and AX dumps against committed goldens | 🟡 non-blocking |
 | `make ui-all` | portable scenes then flows with frame reconciliation | local full gate |
 | `make ui-snap-os26` | 12 scenes on the native macOS 26 code branch; its glass never rasterises offscreen | macOS 26 host |

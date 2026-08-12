@@ -41,7 +41,7 @@ dev:
 .PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-film ui-all
 
 # The portable gate. Runs on any host: every scene is pinned to the painted
-# path by `UIHarnessSeams.forceLegacyGlass`, so these goldens are the ones CI
+# path by `RenderOverrides.forceLegacyGlass`, so these goldens are the ones CI
 # and a macOS 14/15 machine can both reproduce.
 ui-snap:
 	scripts/ui_harness.sh --except os26
