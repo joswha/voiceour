@@ -441,7 +441,7 @@ Everything in the top block is fake-backed: no model, no microphone, no TCC gran
 
 | Command | Covers | CI |
 |---|---|---|
-| `swift build` | compiles the package, warnings as errors | ✅ enforced |
+| `make build` | compiles the package, warnings as errors | ✅ enforced |
 | `make test` | Swift unit tests including the UI harness suites | ✅ enforced |
 | `cd asr && uv --no-config run pytest` | sidecar protocol, cache manifest, process behaviour | ✅ enforced |
 | `cd bench && uv --no-config run pytest` | benchmark scoring and reporting logic | ✅ enforced |

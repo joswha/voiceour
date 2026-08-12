@@ -5,7 +5,7 @@
 // which is the entire point: these objects used to link into the shipping binary
 // even though execution was gated at runtime on `--ui-harness`.
 //
-// `RenderOverrides` is deliberately NOT here: eleven production files read it, so
+// `RenderOverrides` is deliberately NOT here: many production files read it, so
 // it lives in `Sources/VoiceOour/RenderOverrides.swift` and is never gated.
 #if UI_HARNESS
 
@@ -20,11 +20,11 @@
         ) -> Bool {
             let machineMode = request.stdoutManifest
             for result in results where result.status != .ok {
-                flowNote(flowResultLine(result), machineMode: machineMode)
+                note(flowResultLine(result), machineMode: machineMode)
             }
             for result in results {
                 for line in result.lines where !line.passed {
-                    flowNote(
+                    note(
                         "ui-flow: FAIL \(result.flow.id) \(line.checkpoint) \(line.expectation) "
                             + "| observed \(line.observed)",
                         machineMode: machineMode
@@ -36,10 +36,10 @@
             // this app has real gaps today and a gate that is red on day one gets bypassed.
             for entry in coverage.entries where entry.status == .broken {
                 let detail = entry.problem ?? entry.requirement.title
-                flowNote("ui-flow: BROKEN \(entry.requirement.key) | \(detail)", machineMode: machineMode)
+                note("ui-flow: BROKEN \(entry.requirement.key) | \(detail)", machineMode: machineMode)
             }
             for key in coverage.undeclared {
-                flowNote("ui-flow: UNDECLARED \(key)", machineMode: machineMode)
+                note("ui-flow: UNDECLARED \(key)", machineMode: machineMode)
             }
 
             var baselineWarnings: [String] = []
@@ -53,25 +53,25 @@
                 )
             }
             for key in ratchet.regressions {
-                flowNote(
+                note(
                     "ui-flow: UNCOVERED \(key) | not in \(UICoverageBaseline.fileName): coverage regressed",
                     machineMode: machineMode
                 )
             }
             for key in ratchet.stale {
-                flowNote(
+                note(
                     "ui-flow: STALE-BASELINE \(key) | now covered; prune it with make ui-flow-update",
                     machineMode: machineMode
                 )
             }
             if ratchet.missing {
-                flowNote(
+                note(
                     "ui-flow: no \(UICoverageBaseline.fileName); generate it with make ui-flow-update",
                     machineMode: machineMode
                 )
             }
             if baselineWritten {
-                flowNote("ui-flow: written \(UICoverageBaseline.fileName)", machineMode: machineMode)
+                note("ui-flow: written \(UICoverageBaseline.fileName)", machineMode: machineMode)
             }
             for warning in baselineWarnings {
                 flowError("ui-flow: \(warning)")
@@ -90,9 +90,9 @@
                 }
             }
 
-            flowNote("ui-flow: \(flowTallyLine(flowTally(results), coverage: coverage))", machineMode: machineMode)
+            note("ui-flow: \(flowTallyLine(flowTally(results), coverage: coverage))", machineMode: machineMode)
             let artifacts = request.outputDirectory.appendingPathComponent("flows", isDirectory: true).path
-            flowNote("ui-flow: artifacts \(artifacts)", machineMode: machineMode)
+            note("ui-flow: artifacts \(artifacts)", machineMode: machineMode)
 
             let artifactFailure = results.contains { result in
                 result.status != .ok && result.status != .written
@@ -164,14 +164,6 @@
             if coverage.count(.broken) > 0 { parts.append("\(coverage.count(.broken)) broken") }
             if !coverage.undeclared.isEmpty { parts.append("\(coverage.undeclared.count) undeclared") }
             return parts.joined(separator: ", ")
-        }
-
-        private static func flowNote(_ message: String, machineMode: Bool) {
-            if machineMode {
-                fputs("\(message)\n", stderr)
-            } else {
-                print(message)
-            }
         }
 
         private static func flowError(_ message: String) {

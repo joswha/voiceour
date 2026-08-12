@@ -5,7 +5,7 @@
 // which is the entire point: these objects used to link into the shipping binary
 // even though execution was gated at runtime on `--ui-harness`.
 //
-// `RenderOverrides` is deliberately NOT here: eleven production files read it, so
+// `RenderOverrides` is deliberately NOT here: many production files read it, so
 // it lives in `Sources/VoiceOour/RenderOverrides.swift` and is never gated.
 #if UI_HARNESS
 
@@ -338,7 +338,7 @@
 
         /// Every value `atom.properties` renders.
         ///
-        /// `PropertyKit`'s rows are pure-value views, so that scene's reproducibility
+        /// `PropertyRow`'s rows are pure-value views, so that scene's reproducibility
         /// is entirely a property of the data handed to them: a real bundle version, a
         /// real `~/Library` path or a live health report would churn its golden on
         /// every machine and on every rebuild. The two storage paths are the same

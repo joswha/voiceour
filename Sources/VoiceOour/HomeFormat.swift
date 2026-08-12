@@ -35,6 +35,24 @@ enum HomeAppNames {
     }
 }
 
+// MARK: - Date formatter seams
+
+/// A `DateFormatter` with the three seams the harness pins already applied, in
+/// order: calendar, locale, time zone. Those three are the whole of what keeps
+/// a golden machine-independent, so every date formatter in the app has to
+/// resolve all three the same way — one that misses a seam bakes this Mac's own
+/// settings into a committed fixture. Always a fresh instance: `DateFormatter`
+/// is mutable and each call site sets its own format on top.
+enum RenderFormatters {
+    static func dateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
+        formatter.locale = RenderOverrides.locale ?? Locale.current
+        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        return formatter
+    }
+}
+
 // MARK: - Formatting
 
 /// Shared readout formatting for the dashboard: durations (h/m/s), grouped
@@ -138,19 +156,13 @@ enum HomeFormat {
     }
 
     static let since: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("MMMdyyyy")
         return formatter
     }()
 
     private static let hourClock: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("j")
         return formatter
     }()

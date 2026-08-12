@@ -213,7 +213,7 @@ extension SettingsRow where Footer == CaptionText? {
     }
 }
 
-/// Internal rather than file-private: `PropertyKit`'s ledger rows publish the
+/// Internal rather than file-private: `PropertyRow`'s ledger rows publish the
 /// same anchors, so a section can stack both row families and
 /// `SettingsSectionBlock` still rules between every pair of them.
 struct SettingsRowBoundsPreferenceKey: PreferenceKey {

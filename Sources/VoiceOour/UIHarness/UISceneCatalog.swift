@@ -5,7 +5,7 @@
 // which is the entire point: these objects used to link into the shipping binary
 // even though execution was gated at runtime on `--ui-harness`.
 //
-// `RenderOverrides` is deliberately NOT here: eleven production files read it, so
+// `RenderOverrides` is deliberately NOT here: many production files read it, so
 // it lives in `Sources/VoiceOour/RenderOverrides.swift` and is never gated.
 #if UI_HARNESS
 
@@ -528,7 +528,7 @@
                 },
                 sheet(
                     "atom.properties",
-                    "PropertyKit ledger rows in every mode",
+                    "Property ledger rows in every mode",
                     // The measure the ledger panes hand their rows, plus the sheet's
                     // own padding: every row is exactly as wide here as it ships.
                     size: CGSize(
@@ -951,7 +951,7 @@
         }
     }
 
-    /// Every `PropertyKit` ledger row in every mode, composed the way the System,
+    /// Every `PropertyRow` ledger row in every mode, composed the way the System,
     /// Diagnostics and Refinement panes compose them: inside `SettingsSectionBlock`
     /// cards on the shared label/value grid. Hosting the real container is the point
     /// — a ledger row has to publish the same row-bounds anchor `SettingsRow`

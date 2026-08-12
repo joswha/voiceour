@@ -28,26 +28,17 @@ struct DayWordsChart: View {
     private static let columnInset = VoiceOourMetrics.Space.xs
 
     private static let weekdayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.dateFormat = "EEE"
         return formatter
     }()
     private static let shortDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("MMMd")
         return formatter
     }()
     private static let accessibilityDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.dateFormat = "EEEE, MMMM d, yyyy"
         return formatter
     }()

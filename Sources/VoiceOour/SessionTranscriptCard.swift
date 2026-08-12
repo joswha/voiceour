@@ -131,10 +131,10 @@ struct TranscriptCard: View {
                     .accessibilityLabel("Recorded with system audio muted")
             }
             if let outcome = session.outcome {
-                StatusChip(label: outcome.chipLabel, mode: outcome.chipMode)
+                StatusChip(label: outcome.chip.label, mode: outcome.chip.mode)
             }
             if let refinement = session.refinement {
-                StatusChip(label: refinement.badgeLabel, mode: refinement.badgeMode)
+                StatusChip(label: refinement.badge.label, mode: refinement.badge.mode)
                     .help(refinement.detailLine)
             }
             if let targetSafety = session.outcome?.targetSafety, targetSafety != .normalText {

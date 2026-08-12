@@ -95,8 +95,14 @@ func awaitProcessIDs(in file: URL, count: Int = 1) async -> [pid_t] {
     return processIDs(in: file)
 }
 
-func waitForProcessExit(_ pid: pid_t) async -> Bool {
-    for _ in 0..<100 {
+/// Iteration-counted rather than deadline-based so a descheduled test run
+/// still gets its full quota of polls instead of expiring while suspended.
+/// A non-positive pid is reported as already exited without asking the kernel:
+/// `kill(0, 0)` targets the caller's whole process group, so an unparsed pid
+/// would otherwise stay "alive" for the full timeout.
+func waitForProcessExit(_ pid: pid_t, timeout: TimeInterval = 5) async -> Bool {
+    guard pid > 0 else { return true }
+    for _ in 0..<max(1, Int((timeout / 0.05).rounded(.up))) {
         if kill(pid, 0) == -1, errno == ESRCH {
             return true
         }

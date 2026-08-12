@@ -17,10 +17,7 @@ public struct SettingsStore: Sendable {
     }
 
     public func save(_ settings: Settings) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(settings)
-        try writeVoiceOourPrivateState(data, to: url)
+        try writeVoiceOourPrivateJSON(settings, to: url)
     }
 
     public static var defaultURL: URL {

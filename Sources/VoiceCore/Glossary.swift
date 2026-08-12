@@ -169,8 +169,8 @@ public enum RefinerPrivacy {
 }
 
 /// Explicit, user-driven mutations for a `ProtectedTerm`. Only these helpers set
-/// alias `confirmedAt`/`rejectedAt` and term `tombstonedAt`, keeping those fields
-/// off any automatic path.
+/// alias `confirmedAt`/`rejectedAt`, keeping those fields off any automatic
+/// path.
 public enum TermMutation {
     /// Reconciles both alias stores against one user-authored list.
     ///
@@ -246,16 +246,6 @@ public enum TermMutation {
         } else {
             updated.labeledAliases.append(AliasLabel(surface: surface, rejectedAt: date))
         }
-        return updated
-    }
-
-    /// Marks a term as tombstoned via explicit user removal.
-    static func tombstoning(
-        _ term: ProtectedTerm,
-        at date: Date = Date()
-    ) -> ProtectedTerm {
-        var updated = term
-        updated.tombstonedAt = date
         return updated
     }
 }

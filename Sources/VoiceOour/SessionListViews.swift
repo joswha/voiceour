@@ -96,10 +96,10 @@ struct RecentSessionRow: View {
                         .accessibilityLabel("Recorded with system audio muted")
                 }
                 if let outcome = session.outcome {
-                    StatusChip(label: outcome.chipLabel, mode: outcome.chipMode, size: .compact)
+                    StatusChip(label: outcome.chip.label, mode: outcome.chip.mode, size: .compact)
                 }
                 if let refinement = session.refinement {
-                    StatusChip(label: refinement.badgeLabel, mode: refinement.badgeMode, size: .compact)
+                    StatusChip(label: refinement.badge.label, mode: refinement.badge.mode, size: .compact)
                         .help(refinement.detailLine)
                 }
                 StatusChip(

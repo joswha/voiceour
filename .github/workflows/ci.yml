@@ -42,7 +42,7 @@ jobs:
       - name: Python lint
         run: make lint-python
 
-      # -DUI_HARNESS: the offscreen harness and its two test suites are compiled
+      # -DUI_HARNESS: the offscreen harness and its test suites are compiled
       # out of a plain build, which is what keeps them out of the shipping binary.
       - name: Swift tests
         run: swift test -Xswiftc -warnings-as-errors -Xswiftc -DUI_HARNESS

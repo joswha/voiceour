@@ -230,20 +230,11 @@ public struct RecentSessionStore: Sendable {
             return
         }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(sessions)
-        try writeVoiceOourPrivateState(data, to: url)
+        try writeVoiceOourPrivateJSON(sessions, to: url)
     }
 
     public func clear() throws {
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch {
-            if FileManager.default.fileExists(atPath: url.path) {
-                throw error
-            }
-        }
+        try removeVoiceOourPrivateState(at: url)
     }
 
     public static var defaultURL: URL {

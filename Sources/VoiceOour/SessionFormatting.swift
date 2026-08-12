@@ -2,43 +2,24 @@ import Foundation
 import VoiceCore
 
 extension RecentSessionOutcomeMetadata {
-    var chipLabel: String {
+    var chip: (label: String, mode: StatusChip.Mode) {
         switch disposition {
         case .pasteAttempted:
-            "PASTED"
+            ("PASTED", .ok)
         case .copiedOnly:
-            "COPIED"
+            ("COPIED", .warn)
         case .failed:
-            "FAILED"
-        }
-    }
-
-    var chipMode: StatusChip.Mode {
-        switch disposition {
-        case .pasteAttempted:
-            .ok
-        case .copiedOnly:
-            .warn
-        case .failed:
-            .crit
+            ("FAILED", .crit)
         }
     }
 }
 
 extension RefinementTrace {
-    var badgeLabel: String {
+    var badge: (label: String, mode: StatusChip.Mode) {
         switch kind {
-        case .refined: "REFINED"
-        case .fellBack: "RAW · FELL BACK"
-        case .skipped: "CLEANUP ONLY"
-        }
-    }
-
-    var badgeMode: StatusChip.Mode {
-        switch kind {
-        case .refined: .ok
-        case .fellBack: .warn
-        case .skipped: .neutral
+        case .refined: ("REFINED", .ok)
+        case .fellBack: ("RAW · FELL BACK", .warn)
+        case .skipped: ("CLEANUP ONLY", .neutral)
         }
     }
 
@@ -83,28 +64,19 @@ extension TargetSafetyClass {
 
 enum SessionsFormatters {
     static let timestamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
 
     static let detailStamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.dateFormat = "MMM d, yyyy · HH:mm"
         return formatter
     }()
 
     static let dayHeader: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
-        formatter.locale = RenderOverrides.locale ?? Locale.current
-        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        let formatter = RenderFormatters.dateFormatter()
         formatter.dateFormat = "EEEE · MMM d · yyyy"
         return formatter
     }()

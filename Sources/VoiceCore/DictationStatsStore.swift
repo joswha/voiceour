@@ -39,19 +39,11 @@ public struct DictationStatsStore: Sendable {
             try clear()
             return
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try writeVoiceOourPrivateState(encoder.encode(ledger), to: url)
+        try writeVoiceOourPrivateJSON(ledger, to: url)
     }
 
     public func clear() throws {
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch {
-            if FileManager.default.fileExists(atPath: url.path) {
-                throw error
-            }
-        }
+        try removeVoiceOourPrivateState(at: url)
     }
 
     public static let fileName = "dictation-stats.json"

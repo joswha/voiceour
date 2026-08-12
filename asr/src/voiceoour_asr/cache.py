@@ -55,10 +55,7 @@ def ensure_model() -> Path:
         if snapshot_path is not None:
             os.environ["HF_HUB_OFFLINE"] = "1"
             return snapshot_path
-        try:
-            MANIFEST.unlink()
-        except FileNotFoundError:
-            pass
+        MANIFEST.unlink(missing_ok=True)
     snapshot_path = Path(snapshot_download(repo_id=MODEL_ID, revision=MODEL_REVISION, cache_dir=str(APP_CACHE)))
     MANIFEST.write_text(
         json.dumps(

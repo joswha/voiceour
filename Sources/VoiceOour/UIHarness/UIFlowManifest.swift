@@ -5,7 +5,7 @@
 // which is the entire point: these objects used to link into the shipping binary
 // even though execution was gated at runtime on `--ui-harness`.
 //
-// `RenderOverrides` is deliberately NOT here: eleven production files read it, so
+// `RenderOverrides` is deliberately NOT here: many production files read it, so
 // it lives in `Sources/VoiceOour/RenderOverrides.swift` and is never gated.
 #if UI_HARNESS
 
@@ -198,7 +198,7 @@
             try container.encode(transitions, forKey: .transitions)
             try container.encode(frames, forKey: .frames)
             try container.encode(warnings, forKey: .warnings)
-            try UIFlowNullable.encode(error, forKey: .error, into: &container)
+            try UINullable.encode(error, forKey: .error, into: &container)
         }
     }
 
@@ -245,7 +245,7 @@
             try container.encode(status, forKey: .status)
             try container.encode(expectation, forKey: .expectation)
             try container.encode(observed, forKey: .observed)
-            try UIFlowNullable.encode(selector, forKey: .selector, into: &container)
+            try UINullable.encode(selector, forKey: .selector, into: &container)
             try container.encode(candidates, forKey: .candidates)
         }
     }
@@ -295,8 +295,8 @@
             try container.encode(id, forKey: .id)
             try container.encode(pixelStatus, forKey: .pixelStatus)
             try container.encode(axStatus, forKey: .axStatus)
-            try UIFlowNullable.encode(pngSha256, forKey: .pngSha256, into: &container)
-            try UIFlowNullable.encode(goldenPngSha256, forKey: .goldenPngSha256, into: &container)
+            try UINullable.encode(pngSha256, forKey: .pngSha256, into: &container)
+            try UINullable.encode(goldenPngSha256, forKey: .goldenPngSha256, into: &container)
             try container.encode(axNodeCount, forKey: .axNodeCount)
             try container.encode(findings, forKey: .findings)
         }
@@ -353,8 +353,8 @@
             try container.encode(status, forKey: .status)
             try container.encode(disposition, forKey: .disposition)
             try container.encode(claimants, forKey: .claimants)
-            try UIFlowNullable.encode(limitation, forKey: .limitation, into: &container)
-            try UIFlowNullable.encode(problem, forKey: .problem, into: &container)
+            try UINullable.encode(limitation, forKey: .limitation, into: &container)
+            try UINullable.encode(problem, forKey: .problem, into: &container)
         }
     }
 
@@ -363,7 +363,7 @@
         let severity: String
         let message: String
         let path: String
-        let frame: UIFlowFrameGeometryRow
+        let frame: UIFrameRow
 
         enum CodingKeys: String, CodingKey {
             case rule
@@ -378,47 +378,7 @@
             severity = finding.severity.rawValue
             message = finding.message
             path = finding.path
-            frame = UIFlowFrameGeometryRow(finding.frame)
-        }
-    }
-
-    private struct UIFlowFrameGeometryRow: Encodable {
-        let originX: Double
-        let originY: Double
-        let width: Double
-        let height: Double
-
-        enum CodingKeys: String, CodingKey {
-            case originX = "x"
-            case originY = "y"
-            case width
-            case height
-        }
-
-        init(_ frame: CGRect) {
-            originX = Self.round(frame.origin.x)
-            originY = Self.round(frame.origin.y)
-            width = Self.round(frame.size.width)
-            height = Self.round(frame.size.height)
-        }
-
-        private static func round(_ value: CGFloat) -> Double {
-            let scaled = (Double(value) * 10).rounded()
-            return scaled == 0 ? 0 : scaled / 10
-        }
-    }
-
-    private enum UIFlowNullable {
-        static func encode<Key: CodingKey>(
-            _ value: String?,
-            forKey key: Key,
-            into container: inout KeyedEncodingContainer<Key>
-        ) throws {
-            if let value {
-                try container.encode(value, forKey: key)
-            } else {
-                try container.encodeNil(forKey: key)
-            }
+            frame = UIFrameRow(finding.frame)
         }
     }
 

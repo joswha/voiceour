@@ -75,13 +75,11 @@ struct RailFooter: View {
         }
     }
 
+    /// Spoken from the displayed word rather than a second switch, so VoiceOver
+    /// can never announce a state the rail is not showing. `lowercased()` is not
+    /// locale-sensitive, and every label is ASCII.
     private var accessibilityStatus: String {
-        switch status {
-        case .idle: "idle"
-        case .working: "working"
-        case .live: "live"
-        case .error: "error"
-        }
+        statusLabel.lowercased()
     }
 
     /// `Signal.cyan` stays reserved for the live case — it is the rail's one signal —

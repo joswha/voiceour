@@ -106,7 +106,7 @@ struct SidecarClientTests {
         guard let outcome else {
             Issue.record("Expected timeout to complete within 2 seconds")
             Darwin.kill(pid, SIGTERM)
-            _ = await waitForProcessExit(pid: pid, timeout: 1.5)
+            _ = await waitForProcessExit(pid, timeout: 1.5)
             return
         }
         guard case .failure(let error) = outcome, let sidecarError = error as? SidecarASRClientError else {
@@ -117,7 +117,7 @@ struct SidecarClientTests {
         #expect(elapsed < 2.0)
 
         #expect(try await waitForFile(terminatedFile, timeout: 1.5) == "terminated")
-        #expect(await waitForProcessExit(pid: pid, timeout: 1.5))
+        #expect(await waitForProcessExit(pid, timeout: 1.5))
     }
 
     @Test func stderrFloodBeforeReplyStillSucceeds() async throws {
@@ -934,24 +934,4 @@ private func waitForFile(_ file: URL, timeout: TimeInterval) async throws -> Str
     return FileManager.default.fileExists(atPath: file.path)
         ? try String(contentsOf: file, encoding: .utf8)
         : ""
-}
-
-private func waitForProcessExit(pid: pid_t, timeout: TimeInterval) async -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if !processIsAlive(pid) {
-            return true
-        }
-        try? await Task.sleep(nanoseconds: 50_000_000)
-    }
-    return !processIsAlive(pid)
-}
-
-private func processIsAlive(_ pid: pid_t) -> Bool {
-    guard pid > 0 else { return false }
-    errno = 0
-    if kill(pid, 0) == 0 {
-        return true
-    }
-    return errno == EPERM
 }

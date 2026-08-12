@@ -333,9 +333,6 @@ struct GlossaryVocabularyTests {
         let rejected = TermMutation.rejectingAlias("cube control", on: confirmed, at: Date(timeIntervalSince1970: 8))
         #expect(rejected.labeledAliases.first?.rejectedAt == Date(timeIntervalSince1970: 8))
         #expect(rejected.labeledAliases.first?.confirmedAt == nil)
-
-        let tombstoned = TermMutation.tombstoning(base, at: Date(timeIntervalSince1970: 9))
-        #expect(tombstoned.tombstonedAt == Date(timeIntervalSince1970: 9))
     }
 
     @Test func aliasMutationTransitionsAreCaseInsensitiveAndConflictFree() throws {

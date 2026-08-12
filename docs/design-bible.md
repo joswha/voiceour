@@ -509,7 +509,7 @@ No underline or independent hero band belongs under the header. Spacing, type, a
 ---
 ## 12. The Manifest Grid
 
-The Manifest Grid is the canonical layout for settings and ledger panes. Its shared primitives live in `SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, `SegmentControl.swift`, and `PropertyKit.swift`; their chrome comes from `GlassSurfaces.swift` and the control styles beside it.
+The Manifest Grid is the canonical layout for settings and ledger panes. Its shared primitives live in `SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, `SegmentControl.swift`, `PropertyRow.swift`, `ConfirmActionRow.swift`, and `DependentGroup.swift`; their chrome comes from `GlassSurfaces.swift` and the control styles beside it.
 
 ### 12.1 `SettingsPaneScroll`
 
@@ -580,9 +580,9 @@ Every segmented choice uses `SegmentOption`; it carries the selected accessibili
 
 Repeated controls require instance-scoped accessibility labels and identifiers. Badge rows show the exceptional state, not an unconditional badge repeated on every row.
 
-### 12.7 `PropertyKit` and the ledger row
+### 12.7 The property row family and the ledger row
 
-`PropertyKit.swift` holds the read-mostly half of the grid: the rows System, Diagnostics, and Refinement use to state a fact. Its rows publish the same row-bounds anchors and `settingsContentLead` as `SettingsRow`, so one card may mix both kinds and `SettingsSectionBlock`'s overlay rules still land between row bounds.
+`PropertyRow.swift` holds the read-mostly half of the grid: the rows System, Diagnostics, and Refinement use to state a fact, with `ConfirmActionRow.swift` and `DependentGroup.swift` beside it. Its rows publish the same row-bounds anchors and `settingsContentLead` as `SettingsRow`, so one card may mix both kinds and `SettingsSectionBlock`'s overlay rules still land between row bounds.
 
 ```swift
 PropertyRow(_ label: String, value: String? = nil, valueStyle: PropertyValueStyle = .body,
@@ -1098,7 +1098,9 @@ SettingsSectionBlock.swift settings row groups
 SettingsRow.swift        settings rows and divider geometry
 CaptionText.swift        secondary settings descriptions
 SegmentControl.swift     segmented settings controls
-PropertyKit.swift        property rows, accessory rail, confirm row, dependent group
+PropertyRow.swift        property rows and accessory rail
+ConfirmActionRow.swift   confirm-before-acting row
+DependentGroup.swift     dependent control group
 ConsoleView.swift        window host and activation policy
 ConsoleSection.swift     navigation section model
 ConsoleScaffold.swift    shell, pane composition, modern/legacy root application
@@ -1157,7 +1159,7 @@ RecordingOverlayFocusTracker.swift screen/space change tracking
 UIHarness/               deterministic fixtures, scene catalog, render/runtime seams
 ```
 
-View files compose the vocabulary of `DesignTokens`, the glass and mark primitives, the settings primitives above, and `PropertyKit` instead of inventing parallel colors, geometry, or control states.
+View files compose the vocabulary of `DesignTokens`, the glass and mark primitives, the settings primitives above, and the property row family instead of inventing parallel colors, geometry, or control states.
 
 ---
 ## 27. Persistence and Save UX

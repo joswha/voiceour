@@ -222,40 +222,13 @@ import VoiceCore
             let initStartedAt = Date()
             self.initStartedAt = initStartedAt
             self.locale = locale
-            guard
-                let target = AVAudioFormat(
-                    commonFormat: .pcmFormatInt16,
-                    sampleRate: Double(Self.sampleRate),
-                    channels: 1,
-                    interleaved: true
-                )
-            else {
-                throw RecorderError.fileMissing
-            }
-            targetFormat = target
 
             let fileSetupStartedAt = Date()
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-                "voiceoour", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            fileURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
-            // commonFormat/interleaved set the file's PROCESSING format to match the
-            // converter output; the default Float32 processing format makes
-            // write(from:) abort on Int16 buffers (CoreAudio CAVerboseAbort).
-            file = try AVAudioFile(
-                forWriting: fileURL,
-                settings: [
-                    AVFormatIDKey: kAudioFormatLinearPCM,
-                    AVSampleRateKey: Self.sampleRate,
-                    AVNumberOfChannelsKey: 1,
-                    AVLinearPCMBitDepthKey: 16,
-                    AVLinearPCMIsFloatKey: false,
-                    AVLinearPCMIsBigEndianKey: false,
-                ],
-                commonFormat: .pcmFormatInt16,
-                interleaved: true
-            )
+            let wav = try CaptureWAVTarget(sampleRate: Self.sampleRate)
             let fileSetupDuration = Date().timeIntervalSince(fileSetupStartedAt)
+            targetFormat = wav.format
+            fileURL = wav.url
+            file = wav.file
 
             let analyzerConstructionStartedAt = Date()
             let transcriber = SpeechTranscriber(
@@ -321,7 +294,7 @@ import VoiceCore
             self.capture = capture
             // Built here but fed lazily: the converter's source is whatever format the
             // first buffer actually arrives in, not a format guessed before capture.
-            converter = CaptureConverter(targetFormat: target)
+            converter = CaptureConverter(targetFormat: wav.format)
 
             let captureStartStartedAt = Date()
             capture.start { [weak self] buffer in
@@ -429,7 +402,7 @@ import VoiceCore
             let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
             let byteCount = (attributes?[.size] as? NSNumber)?.intValue ?? 0
             guard FileManager.default.fileExists(atPath: fileURL.path), frames > 0 else {
-                throw RecorderError.fileMissing
+                throw RecorderError.outputUnavailable
             }
             let durationMs = max(0, Int(Date().timeIntervalSince(initStartedAt) * 1000))
             return RecordedAudio(

@@ -7,7 +7,7 @@ VoiceOour is fake-first. A contributor should be able to build, test, and smoke 
 Everything here is fake-backed and needs no model, microphone, TCC grant, or credential.
 
 ```sh
-swift build                              # CI-enforced, warnings as errors
+make build                               # CI-enforced, warnings as errors
 make test                                # CI-enforced; swift test with the UI harness compiled in
 (cd asr && uv --no-config run pytest)     # CI-enforced
 (cd bench && uv --no-config run pytest)   # CI-enforced

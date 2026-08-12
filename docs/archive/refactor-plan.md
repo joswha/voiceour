@@ -1,6 +1,8 @@
+> Archived 2026-08-12. Historical planning record; not current documentation. Superseded by [../architecture.md](../architecture.md).
+
 # Open-source readiness: refactor plan
 
-Status: proposal. Nothing in here has been implemented, except the Phase 3 rows explicitly marked **landed**.
+Status: unexecuted proposal, kept for its reasoning. Apart from the Phase 3 rows explicitly marked **landed**, no pass below was ever executed, and the repository has moved on independently of this plan.
 
 Scope: prepare VoiceOour for a public release by removing what does not earn its keep, correcting what is
 wrong, and turning the load-bearing seams into primitives an outside contributor can extend. Behavior is
@@ -10,7 +12,7 @@ preserved except where a pass is explicitly labelled **BEHAVIOR CHANGE** or **MI
 
 ## 1. Baseline
 
-Measured before any change, on a clean tree:
+A dated snapshot, measured on a clean tree before any of the work below. It predates the CI workflow (`.github/workflows/ci.yml`), the `.swift-format` and ruff configurations, and the removal of the Rust control-plane/TUI — all three have since landed, so the `CI`, tooling, and Rust rows record history rather than the tree as it stands. Nothing here has been re-measured.
 
 | Signal | Value |
 |---|---|
@@ -196,7 +198,7 @@ Mechanical, behavior-preserving, individually reviewable. Every one is gated on 
 | **M5 — landed** | the 977-line harness main file | Shipped as `UIHarnessRunner` · `UIHarnessArtifacts` · `UIHarnessManifest` + `UIHarnessReport` · `UIHarnessDiff`. CLI parsing already lived correctly in `UIHarnessContracts` | `scripts/ui_harness.sh --except os26 --stdout --no-sheet`; manifest, status counts, and exit codes unchanged |
 | **M6** | `OmpRpcRefiner.swift` (1,102) / `OmpSupport.swift` (610) | Profile discovery · environment sanitization · RPC runtime actor · one-shot process invocation · termination. Keep the public entry points as the compatibility surface | Existing OMP suite, including `ompRpcLaunchUsesNoToolsAndAlwaysAskApproval` |
 | **M7** | `Adapters.swift` (311) / `DictationPolicy.swift` (251) | `Adapters.swift` is a misnomer — it holds DTOs, six protocols, and a no-op muter, while the real adapters are in `VoiceMac`. Split into `CorePorts` + domain models. Move `LaunchOptions` (CLI parsing) out of `VoiceCore` into the executable layer | `DictationPolicyTests`, `VoiceCoreTests`, launch-option parsing via the bench CLI |
-| **M8** | `PropertyKit.swift` (623) | `PropertyRow` + accessories · `ConfirmActionRow` · `DependentGroup`. It is a coherent family, just undiscoverable in one file | Harness atom scenes for each primitive |
+| **M8 — landed** | the 623-line property-primitive file | Shipped as `PropertyRow.swift` (`PropertyRow` plus `PropertyGrid` / `PropertyAccessory` / `PropertyValueStyle`) · `ConfirmActionRow.swift` · `DependentGroup.swift`. A coherent family, previously undiscoverable in one file | Harness atom scenes for each primitive |
 
 ---
 

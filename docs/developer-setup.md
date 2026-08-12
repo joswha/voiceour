@@ -10,8 +10,8 @@
 ## First success path
 
 ```sh
-swift build
-swift test
+make build
+make test
 (cd asr && uv --no-config run pytest)
 scripts/run_dev.sh --self-test
 ```
@@ -174,7 +174,7 @@ scripts/sign_notarize.sh
 
 ## Test tiers
 
-- PR gate: `swift test` and `cd asr && uv --no-config run pytest`.
+- PR gate: `make test` and `cd asr && uv --no-config run pytest`.
 - App smoke: `scripts/run_dev.sh --self-test`.
 - UI gate: `make ui-snap` (offscreen, no window, no focus change; see `docs/ui-harness.md`).
 - Interactive fake app: `scripts/run_dev.sh`.
@@ -197,6 +197,7 @@ scripts/sign_notarize.sh
 |`make_fixture.sh`|supported|Generates the WAV proof fixture; wrapped by `make fixture`.|
 |`phase0_asr_proof.py`|supported (model proof)|Loads the pinned model directly (not through the sidecar protocol; the sidecar path is covered by Swift/Python process tests) and prints transcript/latency/RSS.|
 |`ui_harness.sh`|supported|Offscreen UI render/dump/lint/diff; wrapped by `make ui-snap`, `make ui-update`, `make ui-list`. Never opens a window, never steals focus.|
+|`make_readme_gif.sh`|supported|Records the README's recording-island GIF from the harness film mode; wrapped by `make ui-film`. Needs `ffmpeg` and `ffprobe` on `PATH`. Media, not a gate: nothing diffs its output.|
 |`console_shot.sh`, `find_console_window.swift`|screenshot tooling|Onscreen console window capture. Superseded by `ui_harness.sh` except for real glass — behind-window `NSVisualEffectView` and modern `.glassEffect` alike, neither of which the offscreen path can rasterise.|
 |`archive/perf_probe.sh`, `archive/perf_probe_helper.swift`|archived|Measuring render performance. Archived, not wired into `make` or CI: it needs a running bundled app plus an Accessibility grant, and it mutates focus and cursor state while sampling. Run it directly from `scripts/archive/` if you need a render baseline.|
 |`make_icon.sh`, `render_emoji_icon.swift`|asset regeneration|One-off generators that produced the committed `Resources/AppIcon.icns`.|

@@ -45,7 +45,7 @@ enum ConsolePaneRegistry {
         ConsolePaneDescriptor(
             id: .sessions,
             label: "Sessions",
-            eyebrow: "LOCAL · LAST 30 DAYS",
+            eyebrow: "LOCAL · HISTORY",
             subtitle: "Recent transcripts kept on this Mac.",
             symbol: "rectangle.stack",
             headerMeasure: nil,

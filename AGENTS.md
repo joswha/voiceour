@@ -125,8 +125,8 @@ Use the smallest command that verifies the change.
 
 | Purpose | Command |
 | --- | --- |
-| Swift build | `swift build` |
-| Swift tests | `swift test` |
+| Swift build | `make build` |
+| Swift tests | `make test` |
 | UI scene gate (offscreen) | `make ui-snap` |
 | Bless intended scene change | `make ui-update` |
 | UI semantic flow gate (offscreen) | `make ui-flow` |

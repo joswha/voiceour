@@ -5,27 +5,6 @@ import Testing
 
 @Suite("DictationInsights")
 struct DictationInsightsTests {
-    // Fixed, wall-time-independent fixtures. UTC has no DST, so subtracting a
-    // whole day always moves exactly one calendar day back — that determinism
-    // is the whole point of injecting the calendar.
-    private let utc: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar
-    }()
-    private let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)  // 2023-11-14 22:13:20 UTC
-    private let day: TimeInterval = 86_400
-
-    /// Builds a body with exactly `n` whitespace-separated words.
-    private func text(_ n: Int) -> String {
-        n <= 0 ? "" : (1...n).map { "w\($0)" }.joined(separator: " ")
-    }
-
-    private func isClose(_ value: Double?, _ expected: Double, tol: Double = 1e-6) -> Bool {
-        guard let value else { return false }
-        return abs(value - expected) < tol
-    }
-
     private func ledger(_ sessions: [RecentSession]) -> DictationStatsLedger {
         var ledger = DictationStatsLedger()
         ledger.ingest(sessions, calendar: utc)

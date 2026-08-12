@@ -227,7 +227,7 @@ After Cmd-V is posted successfully, a deferred task (~1500 ms) clears the dictat
 
 ## Test strategy
 
-- Swift: `swift test` covers cleanup fixtures, glossary term-lock, protocol fixture decoding, classifier mapping, persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against stub processes, copy-only insertion paths, focus-race insertion, omp RPC refiner lifecycle (JSONL stub session, process reuse across refines, guard fallback, launch failure, mid-turn death, hung-turn timeout), refinement guards, and pure dictation policy (launch options, refinement eligibility, outcome mapping).
+- Swift: `make test` covers cleanup fixtures, glossary term-lock, protocol fixture decoding, classifier mapping, persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against stub processes, copy-only insertion paths, focus-race insertion, omp RPC refiner lifecycle (JSONL stub session, process reuse across refines, guard fallback, launch failure, mid-turn death, hung-turn timeout), refinement guards, and pure dictation policy (launch options, refinement eligibility, outcome mapping).
 - Python: `cd asr && uv --no-config run pytest` covers protocol fixtures, cache manifest corruption/recovery, and process-level sidecar behavior (health, persistence across requests, cancel-during-transcribe, stdout protocol purity, malformed-line recovery).
 - Real ASR: `scripts/phase0_asr_proof.py` validates the pinned model on a generated WAV fixture and prints latency/RSS.
 - Benchmarks: `docs/benchmarks.md` describes the accuracy/speed benchmark suite (`voiceoour-bench` + `bench/`).

@@ -5,7 +5,7 @@
 // which is the entire point: these objects used to link into the shipping binary
 // even though execution was gated at runtime on `--ui-harness`.
 //
-// `RenderOverrides` is deliberately NOT here: eleven production files read it, so
+// `RenderOverrides` is deliberately NOT here: many production files read it, so
 // it lives in `Sources/VoiceOour/RenderOverrides.swift` and is never gated.
 #if UI_HARNESS
 
@@ -288,7 +288,9 @@
 
     /// Frames are rounded to one decimal so subpixel jitter never churns the manifest, and
     /// so the numbers agree with the ones the lint rules print inside `message`.
-    private struct UIFrameRow: Encodable {
+    /// Shared with `UIFlowManifest`: the flow manifest emits the same `x`/`y`/`width`/`height`
+    /// shape, so a second copy could only drift.
+    struct UIFrameRow: Encodable {
         let originX: Double
         let originY: Double
         let width: Double
@@ -315,7 +317,8 @@
     }
 
     /// Keeps nullable manifest keys present instead of omitted, matching `BenchMeta`.
-    private enum UINullable {
+    /// Shared with `UIFlowManifest`, which has the same explicit-null keys.
+    enum UINullable {
         static func encode<Key: CodingKey>(
             _ value: String?,
             forKey key: Key,

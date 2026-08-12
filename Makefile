@@ -1,12 +1,12 @@
 .PHONY: build test bundle verify-bundle fixture dev python-test asr-sync format format-check lint-python
 
 build:
-	swift build
+	swift build -Xswiftc -warnings-as-errors
 
-# UISceneCatalogTests and UILintTests exercise the harness, which is compiled out
-# unless UI_HARNESS is defined. `swift test` on its own will not find them.
+# The UI harness test suites are compiled out unless UI_HARNESS is defined, so
+# `swift test` on its own will not find them.
 test:
-	swift test -Xswiftc -DUI_HARNESS
+	swift test -Xswiftc -warnings-as-errors -Xswiftc -DUI_HARNESS
 
 python-test:
 	cd asr && uv --no-config run pytest

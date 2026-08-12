@@ -6,7 +6,55 @@ import VoiceCore
 enum RecorderError: Error {
     case alreadyRecording
     case notRecording
-    case fileMissing
+    case outputUnavailable
+}
+
+/// The one 16 kHz mono interleaved Int16 WAV every capture path writes. The
+/// sidecar recorder and the Apple Speech streaming session must produce a
+/// byte-identical file — a drift between the two surfaces only as audio the
+/// backend cannot read, so the construction lives in exactly one place.
+struct CaptureWAVTarget {
+    let url: URL
+    let format: AVAudioFormat
+    let file: AVAudioFile
+
+    init(sampleRate: Int) throws {
+        guard
+            let format = AVAudioFormat(
+                commonFormat: .pcmFormatInt16,
+                sampleRate: Double(sampleRate),
+                channels: 1,
+                interleaved: true
+            )
+        else {
+            throw RecorderError.outputUnavailable
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "voiceoour", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+
+        // commonFormat/interleaved set the file's PROCESSING format to match the
+        // converter output; the default Float32 processing format makes
+        // write(from:) abort on Int16 buffers (CoreAudio CAVerboseAbort).
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+            ],
+            commonFormat: .pcmFormatInt16,
+            interleaved: true
+        )
+        self.url = url
+        self.format = format
+        self.file = file
+    }
 }
 
 /// The sidecar backends' recorder: capture through ``MicrophoneCapture``, convert
@@ -26,10 +74,8 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     private var converter: CaptureConverter?
     private var file: AVAudioFile?
     private var outputURL: URL?
-    private var startedAt: Date?
     private var writtenFrames: AVAudioFramePosition = 0
     private var lastStartLatency: Int?
-    private var lastSource: MicrophoneCapture.Source?
 
     private static let sampleRate = 16_000
 
@@ -39,51 +85,18 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         try lock.withLock {
             guard capture == nil else { throw RecorderError.alreadyRecording }
 
-            guard
-                let targetFormat = AVAudioFormat(
-                    commonFormat: .pcmFormatInt16,
-                    sampleRate: Double(Self.sampleRate),
-                    channels: 1,
-                    interleaved: true
-                )
-            else {
-                throw RecorderError.fileMissing
-            }
-
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-                "voiceoour", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
-
-            // commonFormat/interleaved set the file's PROCESSING format to match the
-            // converter output; the default Float32 processing format makes
-            // write(from:) abort on Int16 buffers (CoreAudio CAVerboseAbort).
-            let file = try AVAudioFile(
-                forWriting: url,
-                settings: [
-                    AVFormatIDKey: kAudioFormatLinearPCM,
-                    AVSampleRateKey: Self.sampleRate,
-                    AVNumberOfChannelsKey: 1,
-                    AVLinearPCMBitDepthKey: 16,
-                    AVLinearPCMIsFloatKey: false,
-                    AVLinearPCMIsBigEndianKey: false,
-                ],
-                commonFormat: .pcmFormatInt16,
-                interleaved: true
-            )
+            let wav = try CaptureWAVTarget(sampleRate: Self.sampleRate)
 
             let capture = try MicrophoneCapture(
                 preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
-            let converter = CaptureConverter(targetFormat: targetFormat)
+            let converter = CaptureConverter(targetFormat: wav.format)
 
-            self.file = file
+            self.file = wav.file
             self.converter = converter
             self.capture = capture
-            outputURL = url
-            startedAt = Date()
+            outputURL = wav.url
             writtenFrames = 0
             lastStartLatency = nil
-            lastSource = capture.source
 
             capture.start { [weak self] buffer in
                 self?.consume(buffer)
@@ -127,13 +140,12 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             // Releasing the file is what flushes the WAV header's final sizes.
             file = nil
             self.outputURL = nil
-            startedAt = nil
             lastStartLatency = latency
             return (outputURL, frames, latency)
         }
 
         guard FileManager.default.fileExists(atPath: finished.url.path) else {
-            throw RecorderError.fileMissing
+            throw RecorderError.outputUnavailable
         }
         let attributes = try FileManager.default.attributesOfItem(atPath: finished.url.path)
         let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
@@ -169,7 +181,6 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             capture = nil
             converter = nil
             file = nil
-            startedAt = nil
             let url = outputURL
             outputURL = nil
             return url
@@ -189,12 +200,6 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
 
     public func captureIsLive() -> Bool {
         lock.withLock { capture?.hasReceivedAudio() ?? false }
-    }
-
-    /// Which microphone the last capture actually used, and whether that was a
-    /// redirect away from the system default.
-    func lastCaptureSource() -> MicrophoneCapture.Source? {
-        lock.withLock { lastSource }
     }
 
     private func consume(_ buffer: AVAudioPCMBuffer) {

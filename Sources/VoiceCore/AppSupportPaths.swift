@@ -23,3 +23,25 @@ func writeVoiceOourPrivateState(_ data: Data, to url: URL) throws {
     try data.write(to: url, options: [.atomic])
     try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
 }
+
+/// One encoder configuration for every persisted VoiceOour file. `sortedKeys`
+/// keeps the on-disk bytes stable across launches, so a settings or history
+/// file changes only when its content actually does — and a store that adopts
+/// this helper cannot drift from the others by forgetting a formatting option.
+func writeVoiceOourPrivateJSON<Value: Encodable>(_ value: Value, to url: URL) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try writeVoiceOourPrivateState(encoder.encode(value), to: url)
+}
+
+/// Removal is idempotent: an already-absent file is exactly the state the
+/// caller asked for, so only a failure that leaves the file on disk is an error.
+func removeVoiceOourPrivateState(at url: URL) throws {
+    do {
+        try FileManager.default.removeItem(at: url)
+    } catch {
+        if FileManager.default.fileExists(atPath: url.path) {
+            throw error
+        }
+    }
+}

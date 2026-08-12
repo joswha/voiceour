@@ -81,7 +81,7 @@ struct DiagnosticsPane: View {
             PropertyRow(
                 "Status",
                 value: backendEvidence,
-                accessories: [.status(backendStatusText, backendStatusMode)]
+                accessories: [backendStatusAccessory]
             )
 
             PropertyRow(
@@ -234,37 +234,24 @@ struct DiagnosticsPane: View {
         return "\(cache) · \(model)"
     }
 
-    private var backendStatusText: String {
-        switch coordinator.backendHealth?.backendStatus {
-        case .ready:
-            "READY"
-        case .modelMissing:
-            "MODEL MISSING"
-        case .backendUnavailable:
-            "BACKEND UNAVAILABLE"
-        case nil:
-            "UNKNOWN"
-        }
-    }
-
     /// A missing model is a recoverable gap — download it and dictation works.
     /// An unavailable backend is not: nothing transcribes until it comes back,
     /// which is a hard failure and reads as one.
-    private var backendStatusMode: StatusChip.Mode {
+    private var backendStatusAccessory: PropertyAccessory {
         switch coordinator.backendHealth?.backendStatus {
         case .ready:
-            .ok
+            .status("READY", .ok)
         case .modelMissing:
-            .warn
+            .status("MODEL MISSING", .warn)
         case .backendUnavailable:
-            .crit
+            .status("BACKEND UNAVAILABLE", .crit)
         case nil:
-            .neutral
+            .status("UNKNOWN", .neutral)
         }
     }
 
     private var healthProbeAccessories: [PropertyAccessory] {
-        var accessories: [PropertyAccessory] = [.status(healthProbeText, healthProbeMode)]
+        var accessories: [PropertyAccessory] = [healthProbeAccessory]
         if let payload = coordinator.backendHealthError {
             // The copy action carries the untouched `String(describing:)`
             // dump, which is the form a bug report wants, and only exists
@@ -289,18 +276,11 @@ struct DiagnosticsPane: View {
             : "The speech backend answered its health probe."
     }
 
-    private var healthProbeText: String {
+    private var healthProbeAccessory: PropertyAccessory {
         if coordinator.backendHealthError != nil {
-            return "ERROR"
+            return .status("ERROR", .crit)
         }
-        return coordinator.backendHealth == nil ? "NOT PROBED" : "ALL CLEAR"
-    }
-
-    private var healthProbeMode: StatusChip.Mode {
-        if coordinator.backendHealthError != nil {
-            return .crit
-        }
-        return coordinator.backendHealth == nil ? .neutral : .ok
+        return coordinator.backendHealth == nil ? .status("NOT PROBED", .neutral) : .status("ALL CLEAR", .ok)
     }
 
     /// The human sentence inside the health payload.

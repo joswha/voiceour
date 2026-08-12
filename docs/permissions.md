@@ -14,7 +14,7 @@ Run `scripts/setup_local_signing.sh` once before repeated local builds. It insta
 
 ## Automated insertion checks
 
-`swift test` passed these insertion contracts:
+`make test` passed these insertion contracts:
 
 - Terminal targets strip one trailing newline, write clipboard, and never post Cmd-V.
 - Missing synthetic paste permission is requested once per app run before falling back; subsequent attempts remain copy-only without reopening the prompt, and begin pasting automatically after the permission becomes granted.

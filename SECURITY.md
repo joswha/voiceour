@@ -8,7 +8,7 @@ Security fixes target the current `main` branch until tagged releases exist.
 
 ## Reporting a vulnerability
 
-Open a private security advisory on GitHub, or email `<SECURITY-CONTACT-TODO: replace with a monitored address before the repository is made public>`. Include reproduction steps, affected commit, and whether microphone audio, clipboard contents, or transcript text can be exposed.
+Report privately through GitHub security advisories: open the repository's Security tab and choose "Report a vulnerability". That advisory is the only reporting channel; please do not open a public issue. Include reproduction steps, affected commit, and whether microphone audio, clipboard contents, or transcript text can be exposed.
 
 ## Security boundaries
 
