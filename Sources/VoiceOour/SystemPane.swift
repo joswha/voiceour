@@ -89,11 +89,6 @@ struct SystemPane: View {
 
                     SettingsSectionBlock(eyebrow: "AUDIO") {
                         muteRow
-
-                        if coordinator.settings.muteSystemAudioDuringCapture {
-                            scopeRow
-                                .transition(.opacity)
-                        }
                     }
 
                     SettingsSectionBlock(eyebrow: "PRIVACY") {
@@ -383,10 +378,15 @@ struct SystemPane: View {
     /// What system audio is doing right now, on the same three-state ladder the
     /// standalone SYSTEM AUDIO tile carried. It is a readout *of* the switch
     /// beside it, so it rides that row's status slot rather than restating the
-    /// setting as a fourth fact in a section of its own. Its `detail` is also the
-    /// row's only explanatory caption: the state sentence already says what a
-    /// static one would have, and scope belongs to the picker below, so nothing
-    /// else is stacked under the switch except the live "applies next" note.
+    /// setting as a fourth fact in a section of its own. Its `detail` is also
+    /// the row's only explanatory caption: the state sentence already says what
+    /// a static one would have, so nothing else is stacked under the switch
+    /// except the live "applies next" note.
+    ///
+    /// UNAVAILABLE outranks MUTE ON because it is the same promise, refused.
+    /// A device with neither a settable mute nor a settable volume — a
+    /// DisplayPort monitor, measured — cannot be silenced at all, and the pane
+    /// that kept saying "will be muted" is exactly how that went unnoticed.
     private var muteReadout: Readout {
         if coordinator.isSystemAudioMuted {
             return Readout(
@@ -394,11 +394,17 @@ struct SystemPane: View {
                 mode: .ok,
                 detail: "System audio is currently muted and will be restored when the session ends."
             )
+        } else if coordinator.settings.muteSystemAudioDuringCapture, coordinator.isSystemAudioMuteUnavailable {
+            return Readout(
+                status: "UNAVAILABLE",
+                mode: .warn,
+                detail: "The current output device offers no mute or volume control, so audio kept playing."
+            )
         } else if coordinator.settings.muteSystemAudioDuringCapture {
             return Readout(
                 status: "MUTE ON",
                 mode: .neutral,
-                detail: "System audio will be muted during recording and restored when the session ends."
+                detail: "System audio fades out for the recording and fades back when the session ends."
             )
         } else {
             return Readout(
@@ -427,31 +433,6 @@ struct SystemPane: View {
                     CaptionText("Applies from the next recording.")
                         .transition(.opacity)
                 }
-            }
-        }
-    }
-
-    /// The scope caption lives here rather than on the switch above it: it
-    /// qualifies the ALL OUTPUTS segment, and hanging it under the picker keeps
-    /// the explanation below the control it explains — and keeps its predicate
-    /// to the one term the row does not already imply.
-    private var scopeRow: some View {
-        SettingsRow(label: "Mute scope") {
-            ScopePicker(
-                isBuiltInSelected: coordinator.settings.muteScope == .builtInOutputOnly,
-                selectBuiltIn: {
-                    coordinator.settings.muteScope = .builtInOutputOnly
-                    coordinator.saveSettings()
-                },
-                selectAll: {
-                    coordinator.settings.muteScope = .allOutputs
-                    coordinator.saveSettings()
-                }
-            )
-        } footer: {
-            if coordinator.settings.muteScope == .allOutputs {
-                CaptionText("Includes AirPods and other headphones.")
-                    .transition(.opacity)
             }
         }
     }

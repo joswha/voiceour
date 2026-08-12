@@ -1446,6 +1446,43 @@ struct DictationCoordinatorTests {
         #expect(!coordinator.inputMeter.live)
     }
 
+    /// A device with no writable mute or volume — a DisplayPort monitor, in the
+    /// measurement that motivated this — leaves the capture unmuted. The pane
+    /// has to be able to say so instead of promising a mute that never lands.
+    @Test func aRefusedMuteIsPublishedAsUnavailableAndClearedByASuccessfulOne() async {
+        var settings = VoiceCore.Settings()
+        settings.muteSystemAudioDuringCapture = true
+
+        let refused = makeCoordinator(
+            asr: FakeASR(behavior: .text("unmuted utterance")),
+            audioMuter: RefusingAudioMuter(),
+            settings: settings
+        )
+        refused.start()
+        await waitUntil { refused.state == .recording }
+        await waitUntil { refused.isSystemAudioMuteUnavailable }
+        #expect(!refused.isSystemAudioMuted)
+
+        // Same coordinator, muting switched off: nothing was asked for, so
+        // nothing was refused.
+        refused.settings.muteSystemAudioDuringCapture = false
+        refused.cancel()
+        await waitUntil { refused.state == .idle }
+        refused.start()
+        await waitUntil { refused.state == .recording }
+        await waitUntil { !refused.isSystemAudioMuteUnavailable }
+
+        let granted = makeCoordinator(
+            asr: FakeASR(behavior: .text("muted utterance")),
+            audioMuter: CountingAudioMuter(),
+            settings: settings
+        )
+        granted.start()
+        await waitUntil { granted.state == .recording }
+        #expect(granted.isSystemAudioMuted)
+        #expect(!granted.isSystemAudioMuteUnavailable)
+    }
+
     @Test func systemAudioIsMutedForTheRecordingAndRestoredExactlyOnceOnEveryExitPath() async {
         var settings = VoiceCore.Settings()
         settings.muteSystemAudioDuringCapture = true
@@ -1936,7 +1973,7 @@ private final class CountingAudioMuter: SystemAudioMuting, @unchecked Sendable {
     var muteCount: Int { lock.withLock { mutes } }
     var restoreCount: Int { lock.withLock { restores } }
 
-    func mute(scope: MuteScope) async -> Bool {
+    func mute() async -> Bool {
         lock.withLock { mutes += 1 }
         return true
     }
@@ -1944,6 +1981,12 @@ private final class CountingAudioMuter: SystemAudioMuting, @unchecked Sendable {
     func restore() async {
         lock.withLock { restores += 1 }
     }
+}
+
+/// A muter standing in for an output device with no writable mute or volume.
+private final class RefusingAudioMuter: SystemAudioMuting, @unchecked Sendable {
+    func mute() async -> Bool { false }
+    func restore() async {}
 }
 
 /// A muter whose `mute` blocks until a gate fires, so a test can occupy the window
@@ -1965,7 +2008,7 @@ private final class GatedAudioMuter: SystemAudioMuting, @unchecked Sendable {
     var restoreCount: Int { lock.withLock { restores } }
     var isMuted: Bool { lock.withLock { muted } }
 
-    func mute(scope: MuteScope) async -> Bool {
+    func mute() async -> Bool {
         // The device is muted first, then the caller is released -- exactly the
         // ordering that makes the publication window observable.
         lock.withLock {

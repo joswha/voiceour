@@ -759,7 +759,7 @@ System is the capability ledger: every OS grant this app asks for is reported ex
 |---|---|
 | READINESS | **Backend**: DEV READY / READY / CHECKING… / CHECK NEEDED / MODEL NEEDED, with RE-CHECK where a fresh probe is the answer; **Microphone**: NOT REQUIRED / GRANTED / WILL PROMPT / DENIED, with OPEN SYSTEM SETTINGS… when denied |
 | CAPTURE | **Fn/Globe capture**: ACTIVE TAP / PASSIVE FALLBACK; **Insertion**: PASTE READY / COPY-ONLY RISK; each offers the matching Accessibility deep link while it is degraded |
-| AUDIO | **Mute during capture**: toggle with MUTED NOW / MUTE ON / MUTE OFF; **Mute scope**: the two-option `SegmentGroup`, present only while muting is on |
+| AUDIO | **Mute during capture**: toggle with MUTED NOW / UNAVAILABLE / MUTE ON / MUTE OFF |
 | PRIVACY | **Data handling**: a valueless row carrying the local-data note as a permanent caption |
 | DANGER | **Clear history**; **Clear vocabulary** |
 
@@ -972,7 +972,7 @@ The primary action opens the console when an error gate needs remediation; other
 ---
 ## 23. Audio-Mute UX
 
-Verified against `Sources/VoiceCore/Models.swift` — defaults are `muteSystemAudioDuringCapture: Bool = true`, `muteScope: MuteScope = .builtInOutputOnly`.
+Verified against `Sources/VoiceCore/Models.swift` — the only setting is `muteSystemAudioDuringCapture: Bool = true`. There is no scope setting: `mute_scope` existed until the muter stopped asking what transport the output device used, and a stale key in an installed settings file decodes to nothing.
 
 Mute is a system side effect; UI must whisper clearly and never overclaim.
 
@@ -981,8 +981,10 @@ Mute is a system side effect; UI must whisper clearly and never overclaim.
 - Observable UI state: `public private(set) var isSystemAudioMuted: Bool` on the `@Observable` `DictationCoordinator` — the rail-footer status cluster (§10.1), System pane, Diagnostics, `MenuView`, and session history all read this directly. It is deliberately **not** mirrored into the recording overlay's model (§21.5 rule 3).
 - Crash safety: ownership is persisted to a flag file (`~/Library/Application Support/VoiceOour/mute-owned.flag`, never `UserDefaults`) before muting, verified and cleared on next launch before UI mounts.
 - User override: if the user changes mute/volume externally while VoiceOour owns it, drop ownership immediately, clear `isSystemAudioMuted`, do not reassert — the user wins.
-- Default scope `.builtInOutputOnly`: built-in transport mutes; unknown transport treated as leaky (mute); Bluetooth/USB/DisplayPort skipped unless `.allOutputs` is selected.
-- If a CoreAudio write fails: don't persist ownership, don't show recorder-pill mute UI, show only the System pane hint "Unavailable on the current output device."
+- Device selection: whatever is the default output device. Transport type is not consulted. The retired `.builtInOutputOnly` default made the feature a silent no-op on Bluetooth headphones — the output people actually dictate through — and the second setting that fixed it was never found.
+- Control selection is per device, measured: MacBook Pro Speakers publish a settable main mute and a settable main volume; AirPods Max publish a settable main mute and **no** main volume, only channels 1–2; a DisplayPort monitor publishes neither and cannot be silenced at all. The muter probes, it does not assume.
+- Edges fade. Volume ramps to zero over 120ms in 8 steps before the mute lands, and ramps back after it lifts, so a capture boundary reads as a fade rather than a cut.
+- If the device offers no writable control: don't persist ownership, don't show recorder-pill mute UI, show only the System pane's UNAVAILABLE readout ("The current output device offers no mute or volume control, so audio kept playing."), driven by `DictationCoordinator.isSystemAudioMuteUnavailable`.
 
 VoiceOver strings in use: "System audio muted" (live), "Recorded with system audio muted" (historical session).
 

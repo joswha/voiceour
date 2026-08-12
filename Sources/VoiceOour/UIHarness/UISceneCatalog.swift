@@ -432,6 +432,18 @@
                     fixture: .backendUnavailable,
                     adaptation: .differentiateWithoutColor
                 ),
+                // The System pane used to carry the mute-scope `SegmentGroup`,
+                // so the scene above doubled as the golden for the rule that a
+                // selected segment gains a leading checkmark under this
+                // adaptation. Retiring that picker left the rule ungated; the
+                // Voice pane's BACKEND group gates it now.
+                accessibilityConsole(
+                    "a11y.differentiate-without-color.voice",
+                    "Voice pane segmented controls with Differentiate Without Color enabled",
+                    section: .voice,
+                    fixture: .populated,
+                    adaptation: .differentiateWithoutColor
+                ),
                 accessibilityConsole(
                     "a11y.reduce-motion",
                     "Recording dashboard with Reduce Motion enabled",

@@ -174,8 +174,12 @@
             state(.system, "mute-on", "Mute-during-capture enabled", scene: "console.system.granted"),
             state(.system, "muted-now", "System audio currently MUTED NOW"),
             state(.system, "mute-off", "Mute-during-capture disabled"),
-            state(.system, "scope-built-in", "Built-in output scope", scene: "console.system.granted"),
-            state(.system, "scope-all-outputs", "ALL OUTPUTS scope"),
+            state(
+                .system,
+                "mute-unavailable",
+                "Mute unsupported by the output device",
+                scene: "console.system.denied"
+            ),
             state(
                 .system,
                 "clear-history-armed",

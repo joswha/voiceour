@@ -236,7 +236,8 @@
                     settings: settings(backend: realBackend),
                     backend: realBackend,
                     health: nil,
-                    permissions: .denied
+                    permissions: .denied,
+                    muteUnavailable: true
                 )
             case .refinerConfigured:
                 return make(
@@ -504,6 +505,10 @@
             backend: String = "fake",
             health: ASRBackendHealth? = UIFixtures.devBackendHealth,
             permissions: PermissionState = .granted,
+            /// The last capture asked for a mute the output device could not
+            /// provide. Pinned rather than driven: reaching the real verdict
+            /// needs a CoreAudio device, which a golden may never depend on.
+            muteUnavailable: Bool = false,
             reachability: RefinerReachability? = nil,
             ompOnboardingState: OmpOnboardingState? = nil,
             ompProviderConnections: [OmpProviderConnection]? = nil,
@@ -570,6 +575,7 @@
             // coordinator's 5s de-dupe TTL in front of the pane's own probe.
             coordinator.refreshBackendHealth(timeoutMs: 500)
             settle { coordinator.backendHealth != nil || coordinator.backendHealthError != nil }
+            coordinator.isSystemAudioMuteUnavailable = muteUnavailable
             return coordinator
         }
 

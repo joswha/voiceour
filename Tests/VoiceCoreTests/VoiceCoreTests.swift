@@ -385,7 +385,7 @@ struct VoiceCoreTests {
         #expect(SpeechLocale.canonical("not_a_locale") == nil)
     }
 
-    @Test func legacySettingsJSONMissingMuteFieldsEnablesBuiltInOutputMute() throws {
+    @Test func legacySettingsJSONMissingMuteFieldsEnablesMute() throws {
         let legacyJSON = """
             {
               "cleanup_enabled": false,
@@ -398,25 +398,37 @@ struct VoiceCoreTests {
         #expect(settings.cleanupEnabled == false)
         #expect(settings.asrBackend == "mlx")
         #expect(settings.muteSystemAudioDuringCapture == true)
-        #expect(settings.muteScope == .builtInOutputOnly)
+    }
+
+    /// `mute_scope` was a real key until the muter stopped caring which
+    /// transport the output device used. Every installed settings file still
+    /// carries it, so decoding has to ignore it rather than fail.
+    @Test func settingsJSONWithRetiredMuteScopeKeyStillDecodes() throws {
+        let json = """
+            {
+              "asr_backend": "apple",
+              "mute_system_audio_during_capture": true,
+              "mute_scope": "builtInOutputOnly"
+            }
+            """
+
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+
+        #expect(settings.asrBackend == "apple")
+        #expect(settings.muteSystemAudioDuringCapture == true)
     }
 
     @Test func settingsStoreRoundTripPersistsCustomMuteValues() throws {
         let fixture = temporarySettingsFile()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = SettingsStore(url: fixture.url)
-        let settings = Settings(
-            asrBackend: "mlx",
-            muteSystemAudioDuringCapture: false,
-            muteScope: .allOutputs
-        )
+        let settings = Settings(asrBackend: "mlx", muteSystemAudioDuringCapture: false)
 
         try store.save(settings)
         let loaded = try store.load()
 
         #expect(loaded.asrBackend == "mlx")
         #expect(loaded.muteSystemAudioDuringCapture == false)
-        #expect(loaded.muteScope == .allOutputs)
     }
 
     @Test func settingsStoreRestrictsPermissionsAfterEveryAtomicSave() throws {
@@ -663,8 +675,7 @@ struct VoiceCoreTests {
     @Test func noOpSystemAudioMuterNeverReportsAudioMuted() async {
         let muter: SystemAudioMuting = NoOpSystemAudioMuter()
 
-        #expect(await muter.mute(scope: .builtInOutputOnly) == false)
-        #expect(await muter.mute(scope: .allOutputs) == false)
+        #expect(await muter.mute() == false)
         await muter.restore()
     }
 

@@ -114,14 +114,14 @@ extension TranscriptRefining {
 }
 
 public protocol SystemAudioMuting: Sendable {
-    func mute(scope: MuteScope) async -> Bool
+    func mute() async -> Bool
     func restore() async
 }
 
 public struct NoOpSystemAudioMuter: SystemAudioMuting {
     public init() {}
 
-    public func mute(scope: MuteScope) async -> Bool {
+    public func mute() async -> Bool {
         false
     }
 

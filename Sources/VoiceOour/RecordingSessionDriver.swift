@@ -17,7 +17,6 @@ extension DictationCoordinator {
         pendingSuggestions = []
         updateTargetLabel(for: snapshot)
         let shouldMuteSystemAudio = settings.muteSystemAudioDuringCapture
-        let muteScope = settings.muteScope
 
         Task { @MainActor in
             // A cancel/restart queued ahead of this task must win: without
@@ -31,7 +30,7 @@ extension DictationCoordinator {
             // resolved and published `isSystemAudioMuted` yet.
             systemAudioRestore = nil
             let muteTask = enqueueMuteOperation { () -> Bool in
-                shouldMuteSystemAudio ? await audioMuter.mute(scope: muteScope) : false
+                shouldMuteSystemAudio ? await audioMuter.mute() : false
             }
             pendingMuteResult = muteTask
 
@@ -74,6 +73,11 @@ extension DictationCoordinator {
             }
 
             isSystemAudioMuted = muted
+            // The device the user is listening on may offer no mute and no
+            // volume control at all -- a DisplayPort monitor is the measured
+            // case. Saying so beats a settings pane that promises a mute the
+            // hardware silently refused.
+            isSystemAudioMuteUnavailable = shouldMuteSystemAudio && !muted
 
             if let startError {
                 await restoreSystemAudioIfNeeded()

@@ -6,11 +6,6 @@ public enum CasePolicy: String, Codable, Equatable, Sendable, CaseIterable {
     case title
 }
 
-public enum MuteScope: String, Codable, Equatable, Sendable, CaseIterable {
-    case builtInOutputOnly
-    case allOutputs
-}
-
 public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
     public var id: String { termId }
     public var termId: String
@@ -132,7 +127,6 @@ public struct Settings: Codable, Equatable, Sendable {
     public var refinerTimeoutMs: Int
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
-    public var muteScope: MuteScope
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
     public var speechLocale: String
@@ -148,7 +142,6 @@ public struct Settings: Codable, Equatable, Sendable {
         case refinerTimeoutMs = "refiner_timeout_ms"
         case glossary
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
-        case muteScope = "mute_scope"
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
         case speechLocale = "speech_locale"
@@ -165,7 +158,6 @@ public struct Settings: Codable, Equatable, Sendable {
         refinerTimeoutMs: Int = 3000,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
-        muteScope: MuteScope = .builtInOutputOnly,
         autoStopEnabled: Bool = false,
         autoStopSilenceMs: Int = 2500,
         speechLocale: String = SpeechLocale.fallback,
@@ -180,7 +172,6 @@ public struct Settings: Codable, Equatable, Sendable {
         self.refinerTimeoutMs = refinerTimeoutMs
         self.glossary = glossary
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
-        self.muteScope = muteScope
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
         self.speechLocale = speechLocale
@@ -219,7 +210,6 @@ public struct Settings: Codable, Equatable, Sendable {
         muteSystemAudioDuringCapture =
             try container.decodeIfPresent(Bool.self, forKey: .muteSystemAudioDuringCapture)
             ?? defaults.muteSystemAudioDuringCapture
-        muteScope = try container.decodeIfPresent(MuteScope.self, forKey: .muteScope) ?? defaults.muteScope
         autoStopEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoStopEnabled) ?? defaults.autoStopEnabled
         autoStopSilenceMs =
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs

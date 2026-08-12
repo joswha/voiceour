@@ -127,6 +127,9 @@ public final class DictationCoordinator {
     public private(set) var backendHealthError: String?
     public internal(set) var recentSessions: [RecentSession] = []
     public internal(set) var isSystemAudioMuted: Bool = false
+    /// True when the last capture asked for a mute the output device could not
+    /// provide. Sticky until the next capture answers the question again.
+    public internal(set) var isSystemAudioMuteUnavailable: Bool = false
     public internal(set) var refinerReachability: RefinerReachability = .unknown
     public internal(set) var ompOnboardingState: OmpOnboardingState = .idle
     public internal(set) var ompProviderConnections: [OmpProviderConnection] = []
