@@ -115,6 +115,47 @@ Transcribe results carry additive optional evidence fields, all decoded permissi
 
 Golden protocol fixtures live in `fixtures/protocol/` and are decoded by both Swift and Python tests.
 
+## Where the ASR boundary is going
+
+Researched 2026-08-13 against four competing designs and four scoring lenses. Recorded here because
+the current boundary is adequate for five backends of three families and will not survive the fourth
+family. Nothing below is built yet; this is the direction, and the ordering matters more than the
+shape.
+
+**Do the non-abstraction work first.** The measured gap between `mlx` (release-to-inserted 316 ms)
+and `apple` (184 ms) is only 118 ms of ASR; roughly 130 ms of non-ASR overhead sits in *both* paths
+and nobody has attacked it. `Sources/` currently contains **zero** `os_signpost` call sites, so no
+end-to-end latency claim in this repository is independently checkable. Instrument first, then move
+the work that runs before the paste but does not gate it — journal write, statistics folding,
+insight refresh, audio-route restoration with its 105 ms fade, WAV analysis, capture teardown —
+to after it. That is worth more than the entire runtime swap and it changes no transcript.
+
+**Streaming is a property of the checkpoint, and the boundary must be able to say so.** Encoded as a
+type, not a setting: a backend may not advertise capture-time operation unless it declares a finite
+lookahead. `parakeet-tdt-0.6b-v3` cannot, which is why `transcribe_stream` lost (see the
+performance roadmap's dead-ends table).
+
+**Evidence must be earned, not asserted.** Today a backend states its evidence implicitly by which
+optional fields it fills, and `biasEnabled` already showed how a defaulted field turns "unknown"
+into a false negative. The durable shape is a three-way distinction — what a backend *claims*, what
+it has been *certified* to produce against falsification probes (uniform-spread timestamps, constant
+confidence, duplicated n-best), and what a given result actually *used* — with each signal naming
+the quantity behind it. A transducer joint posterior, an AED average logprob and an audio-LLM
+sequence logprob are three different numbers and must never share one `confidence` field without a
+`basis` and a calibration identity.
+
+**One boundary crossing per utterance.** Metal dispatch on this host costs ~90-116 us per separate
+command-buffer commit against ~0.7-3 us batched, and a TDT decode makes 40-60 joint calls. Any
+abstraction that puts a process, serialisation or materialisation boundary *inside* a decode loop
+forfeits more than the runtime choice wins. Iteration belongs inside a stage.
+
+**Do not hard-code a compute unit.** ANE is reachable only through CoreML, its specialization cache
+is invalidated by every OS update, and its int4 is storage-only (weights dequantize to fp16 before
+matmul). Meanwhile M5 puts a Neural Accelerator in every GPU core and MLX reaches them through
+Metal 4 tensor ops, so the ANE-versus-GPU seam this design might have optimised around is being
+dissolved by Apple. FluidAudio already ships this model on the GPU rather than the ANE.
+Compute placement is a per-artifact hint to be measured, never an architectural commitment.
+
 ## Apple Speech backend (opt-in, macOS 26+)
 
 `--asr-backend apple` selects the native on-device SpeechAnalyzer/SpeechTranscriber path instead of the Python sidecar. No Python process, no model download managed by VoiceOour (speech assets are system-managed per locale via `AssetInventory`), and no speech-recognition authorization prompt (the API is fully on-device; microphone permission is unchanged).
