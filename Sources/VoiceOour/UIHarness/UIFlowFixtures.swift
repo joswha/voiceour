@@ -105,10 +105,13 @@
         /// pane's probe nor the explicit RE-CHECK is swallowed by the bootstrap result.
         static func backendRecovery() -> UIFlowFixture {
             UIFlowFixture(name: "backend-recovery", armedGates: []) {
+                // A registered picker id, not a fixture-shaped one: the readiness
+                // row names whichever backend is running, so an unknown id would
+                // put "UI-FLOW" in a committed sentence.
                 let coordinator = UIFixtures.make(
                     sessions: UIFixtures.history,
-                    settings: UIFixtures.settings(backend: "ui-flow"),
-                    backend: "ui-flow",
+                    settings: UIFixtures.settings(backend: "mlx"),
+                    backend: "mlx",
                     asrOverride: UIRecoveringASR(),
                     clockStep: UIScriptClock.backendProbeStep
                 )

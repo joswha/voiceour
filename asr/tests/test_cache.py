@@ -17,18 +17,19 @@ def cache_module(monkeypatch: pytest.MonkeyPatch, tmp_path):
     importlib.reload(cache)
 
 
-def write_manifest(cache_module, data: dict[str, str] | str) -> None:
-    cache_module.APP_CACHE.mkdir(parents=True, exist_ok=True)
+def write_manifest(spec, data: dict[str, str] | str) -> None:
+    spec.cache_dir.mkdir(parents=True, exist_ok=True)
+    manifest = spec.cache_dir / "manifest.json"
     if isinstance(data, str):
-        cache_module.MANIFEST.write_text(data)
+        manifest.write_text(data)
     else:
-        cache_module.MANIFEST.write_text(json.dumps(data))
+        manifest.write_text(json.dumps(data))
 
 
-def matching_manifest(cache_module, snapshot_path: str | None = None) -> dict[str, str]:
+def matching_manifest(spec, snapshot_path: str | None = None) -> dict[str, str]:
     data = {
-        "model_id": cache_module.MODEL_ID,
-        "revision": cache_module.MODEL_REVISION,
+        "model_id": spec.model_id,
+        "revision": spec.revision,
     }
     if snapshot_path is not None:
         data["snapshot_path"] = snapshot_path
@@ -36,9 +37,9 @@ def matching_manifest(cache_module, snapshot_path: str | None = None) -> dict[st
 
 
 def test_cache_ok_returns_false_for_malformed_manifest_json(cache_module):
-    write_manifest(cache_module, "{not-json")
+    write_manifest(cache_module.PARAKEET, "{not-json")
 
-    assert cache_module.cache_ok() is False
+    assert cache_module.cache_ok(cache_module.PARAKEET) is False
 
 
 @pytest.mark.parametrize(
@@ -49,15 +50,38 @@ def test_cache_ok_returns_false_for_malformed_manifest_json(cache_module):
     ],
 )
 def test_cache_ok_returns_false_when_matching_manifest_has_no_existing_snapshot(cache_module, name, snapshot_path):
-    path = None if snapshot_path is None else str(cache_module.APP_CACHE / snapshot_path)
-    write_manifest(cache_module, matching_manifest(cache_module, path))
+    spec = cache_module.PARAKEET
+    path = None if snapshot_path is None else str(spec.cache_dir / snapshot_path)
+    write_manifest(spec, matching_manifest(spec, path))
 
-    assert cache_module.cache_ok() is False, name
+    assert cache_module.cache_ok(spec) is False, name
 
 
 def test_cache_ok_returns_true_for_matching_manifest_with_existing_snapshot_dir(cache_module):
-    snapshot = cache_module.APP_CACHE / "snapshot"
+    spec = cache_module.PARAKEET
+    snapshot = spec.cache_dir / "snapshot"
     snapshot.mkdir(parents=True)
-    write_manifest(cache_module, matching_manifest(cache_module, str(snapshot)))
+    write_manifest(spec, matching_manifest(spec, str(snapshot)))
 
-    assert cache_module.cache_ok() is True
+    assert cache_module.cache_ok(spec) is True
+
+
+def test_cache_ok_returns_false_for_a_manifest_pinning_another_revision(cache_module):
+    spec = cache_module.PARAKEET
+    snapshot = spec.cache_dir / "snapshot"
+    snapshot.mkdir(parents=True)
+    stale = matching_manifest(spec, str(snapshot)) | {"revision": "0" * 40}
+    write_manifest(spec, stale)
+
+    assert cache_module.cache_ok(spec) is False
+
+
+def test_model_cache_env_override_moves_parakeet_only(cache_module, tmp_path):
+    assert cache_module.PARAKEET.cache_dir == tmp_path
+    assert tmp_path not in cache_module.ARK_06B.cache_dir.parents
+    assert tmp_path not in cache_module.ARK_3B.cache_dir.parents
+
+
+def test_module_constants_still_name_parakeet(cache_module):
+    assert cache_module.MODEL_ID == cache_module.PARAKEET.model_id
+    assert cache_module.MODEL_REVISION == cache_module.PARAKEET.revision

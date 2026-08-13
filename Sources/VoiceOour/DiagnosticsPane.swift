@@ -1,5 +1,6 @@
 import SwiftUI
 import VoiceCore
+import VoiceMac
 
 /// Diagnostics as one property sheet.
 ///
@@ -217,8 +218,18 @@ struct DiagnosticsPane: View {
         return "\(saved) → \(coordinator.activeBackend.uppercased())"
     }
 
+    /// The model the running backend loads, with the revision it is pinned to
+    /// when it pins one. Apple's transcriber is versioned by the OS rather
+    /// than by a revision this app can name, and the fake backend loads
+    /// nothing at all, so both fall back to the descriptor's own words rather
+    /// than borrowing another backend's model id.
     private var modelIdentifier: String {
-        asrModelLabel(for: coordinator.activeBackend)
+        guard let descriptor = ASRBackendRegistry.builtIn.descriptor(for: coordinator.activeBackend) else {
+            return coordinator.activeBackend
+        }
+        guard let modelId = descriptor.modelId else { return descriptor.modelLabel }
+        guard let revision = descriptor.modelRevision else { return modelId }
+        return "\(modelId)@\(revision)"
     }
 
     /// What the chip's verdict is made of. Cache and model residency were two

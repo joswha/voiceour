@@ -71,7 +71,6 @@ state:system:clear-vocabulary-unavailable
 state:system:microphone-not-determined
 state:system:mute-off
 state:system:muted-now
-state:voice:backend-selections
 state:voice:invalid-locale
 state:voice:restart-unavailable
 state:voice:silence-clamp

@@ -114,7 +114,7 @@ This app touches the user's active workspace. Treat insertion safety as product-
 
 - The ASR package is under `asr/` and requires Python 3.11+.
 - Use `uv --no-config` for Python commands in this environment; the repo docs call out a machine-level `uv` config issue.
-- Keep backend selection through `VOICEOOUR_ASR_BACKEND=fake|mlx`.
+- Keep backend selection through `VOICEOOUR_ASR_BACKEND=fake|mlx|ark-0.6b|ark-3b`. `mlx` is the default real backend; the ARK ones are opt-in and share the runtime vendored under `asr/src/voiceoour_asr/backends/ark_mlx/`, which is a verbatim upstream copy — patch it only with a matching NOTICE entry.
 - Preserve the deterministic fake backend for tests and smoke runs.
 - Keep Pydantic protocol/schema validation strict enough to catch malformed wire messages.
 - Do not let dependency logs leak to stdout.

@@ -8,6 +8,13 @@ dependencies = [
     "parakeet-mlx==0.5.2",
     "huggingface_hub",
     "pydantic>=2",
+    # Vendored ARK-ASR runtime (backends/ark_mlx): audio loading, tokenizer and
+    # feature extractor, checkpoint reader. Ranges follow the upstream ark-asr-mlx
+    # pyproject the vendored copy was tested against; transformers 5 is a breaking
+    # major that copy has never seen.
+    "librosa>=0.11,<0.12",
+    "transformers>=4.57,<5",
+    "safetensors>=0.5,<1",
 ]
 
 [tool.uv]
@@ -29,6 +36,9 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+# The vendored ARK runtime is a verbatim upstream copy (see its NOTICE); linting it
+# would invite fixes that silently fork it.
+extend-exclude = ["src/voiceoour_asr/backends/ark_mlx"]
 
 [tool.ruff.lint]
 # Pyflakes, pycodestyle, isort, bugbear, comprehensions, pyupgrade. Deliberately

@@ -257,6 +257,23 @@ struct SystemPane: View {
         )
     }
 
+    /// How the running backend describes itself. A saved id from a future
+    /// build resolves to no descriptor, so the readout falls back to the id
+    /// rather than naming a backend that is not running.
+    private var activeDescriptor: ASRBackendDescriptor? {
+        ASRBackendRegistry.builtIn.descriptor(for: coordinator.activeBackend)
+    }
+
+    /// Spelled exactly as the Voice pane's picker labels it, so the sentence
+    /// and the option the reader chose share one vocabulary.
+    private var activeBackendName: String {
+        activeDescriptor?.displayName ?? coordinator.activeBackend.uppercased()
+    }
+
+    private var activeModelLabel: String {
+        activeDescriptor?.modelLabel ?? coordinator.activeBackend
+    }
+
     private var backendReadout: Readout {
         if coordinator.activeBackend == "fake" {
             return Readout(
@@ -269,7 +286,7 @@ struct SystemPane: View {
             return Readout(
                 status: "READY",
                 mode: .ok,
-                detail: "Parakeet MLX is configured for local transcription."
+                detail: "\(activeBackendName) is configured for local transcription."
             )
         } else if coordinator.backendHealth == nil, coordinator.backendHealthError == nil {
             // The probe starts from this pane's own onAppear, so "no verdict yet"
@@ -290,7 +307,9 @@ struct SystemPane: View {
             return Readout(
                 status: "MODEL NEEDED",
                 mode: .warn,
-                detail: "Parakeet may cold-load or download the pinned model on first real transcription.",
+                detail:
+                    "\(activeBackendName) may cold-load or download \(activeModelLabel) "
+                    + "on first real transcription.",
                 remediation: recheckAccessory
             )
         }

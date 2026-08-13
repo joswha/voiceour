@@ -96,7 +96,20 @@ The sidecar speaks newline-delimited JSON on stdio. stdout is protocol-only; log
 
 The sidecar is a persistent process. `SidecarASRClient` spawns it once (lazily, or eagerly via `warmUp()` at app launch), validates the `hello` handshake, keeps stdin/stdout open, and multiplexes requests by `request_id`; the MLX model therefore loads once per app run, not once per utterance. On the Python side the stdin reader stays live while `transcribe` runs on a worker thread, so a `cancel` for the in-flight request id takes effect immediately. `VOICEOOUR_PRELOAD=1` (set by the client) makes the MLX backend load the model right after `hello` and then run one throwaway inference on silence, because MLX is lazy and the first `generate()` otherwise pays ~0.9s of kernel compilation on the first dictation. Transcribe requests for the app's native recordings (16 kHz mono 16-bit WAV) decode in-process via `load_pcm16_mono_wav` instead of parakeet's per-request ffmpeg subprocess; other formats fall back to `parakeet_mlx.load_audio`. Timeouts send `cancel`, wait briefly for a terminal message, then terminate the process; the next request respawns it. Sidecar stderr is drained continuously and forwarded to the app's stderr.
 
-The client sends the pinned expected model (`ASRModelContract` in VoiceCore); the MLX backend rejects mismatched `model_id` or `revision` with `MANIFEST_MISMATCH` (empty strings act as wildcards).
+The process boundary is not a latency cost worth optimising, and this is measured rather than
+assumed. Driving the real sidecar over its real stdio protocol on an M4 Pro (FLEURS, n=32), the
+caller-visible round trip exceeds the `inference` time the sidecar reports from inside itself by
+**0.8 ms at p50 and 1.3 ms at p95** — 0.68% of a 119.9 ms Parakeet round trip, and 0.27% of a
+322.3 ms ARK-0.6B one. Everything the mechanism adds is in that number: `fork`/`exec` is already
+paid, the JSON encode/decode is small, the pipe is local, and the WAV is handed over by path rather
+than copied through the pipe. Python's GIL does not appear because the MLX call releases it into
+Metal for the duration. What the mechanism *does* cost is one-time and hidden: ~130-320 ms from
+spawn to `hello`, and a first transcribe of ~1.3-1.5 s that absorbs model load plus MLX kernel
+compilation, which is exactly what `VOICEOOUR_PRELOAD=1` exists to move off the first dictation.
+So when an ASR backend is slow here, the model and its framework are the reason; rewriting the
+transport would buy back under a millisecond.
+
+The client sends the model its backend pins, not one global model: `SidecarASRClient` is constructed with the `expectedModel` its `ASRBackendDescriptor` carries (`ASRModelContract` for `mlx`, the ARK repo id and revision for `ark-0.6b`/`ark-3b`, none for `fake`). The MLX backend rejects mismatched `model_id` or `revision` with `MANIFEST_MISMATCH` (empty strings act as wildcards); an absent `expected_model` is accepted, which is what a backend with no model to pin sends.
 
 Transcribe results carry additive optional evidence fields, all decoded permissively so `protocol_version` stays `1` (no version bump): per-`ASRWord` and per-segment `words` (text, time range, confidence), a transcript `confidence` with a `confidenceMode` tag (`greedy_entropy`, `beam_logprob`, or `none`), a ranked list of `ASRHypothesis` each carrying a pre-bias `rawScore`, and an `ASRDecoderInfo` block. Requests may carry `biasPhrases` and a `biasSnapshotId`; an oversized bias list is rejected with the `biasListTooLarge` error. The fields are optional, so sidecars and clients that omit them decode unchanged. The fake backend and `fixtures/protocol/` exercise every field.
 
@@ -128,9 +141,9 @@ Technical jargon is recovered in three layers, none of which touch the ASR model
 
 ## Model pin
 
-The real backend uses `mlx-community/parakeet-tdt-0.6b-v3` pinned at Hugging Face revision `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`, recorded in `asr/src/voiceoour_asr/cache.py` as `MODEL_REVISION`.
+The default backend uses `mlx-community/parakeet-tdt-0.6b-v3` pinned at Hugging Face revision `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`, recorded in `asr/src/voiceoour_asr/cache.py` as `PARAKEET` (still exported as `MODEL_ID`/`MODEL_REVISION`). The opt-in ARK backends pin `leope/ark-asr-0.6B-mlx` at `6ec069bd68cbbe165aa42728eac482c90cb58d2f` and `leope/ark-asr-3B-mlx` at `63d9fb8ba352c5c7c65ff2336019048170563d63` as `ARK_06B` and `ARK_3B`.
 
-`cache.ensure_model()` writes a manifest containing model id, revision, and snapshot path. Once a manifest exists, the sidecar sets `HF_HUB_OFFLINE=1` before loading.
+Each pin is a `cache.ModelSpec` — repo id, revision, its own directory under `~/Library/Caches/VoiceOour/`, and for ARK an allow-list that fetches weights and tokenizer assets only, never the Python runtime the ARK repos ship (that runtime is vendored verbatim under `asr/src/voiceoour_asr/backends/ark_mlx/`, so the app never imports code downloaded at runtime). `cache.ensure_model(spec)` writes a manifest containing model id, revision, and snapshot path. Once a manifest exists, the sidecar sets `HF_HUB_OFFLINE=1` before loading.
 
 ## Parakeet decoding
 

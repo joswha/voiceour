@@ -35,6 +35,8 @@ struct DictationPolicyTests {
         #expect(LaunchOptions.validBackend(" fake ") == "fake")
         #expect(LaunchOptions.validBackend("MLX") == "mlx")
         #expect(LaunchOptions.validBackend("Apple") == "apple")
+        #expect(LaunchOptions.validBackend("ARK-0.6B") == "ark-0.6b")
+        #expect(LaunchOptions.validBackend("ark-3b") == "ark-3b")
         #expect(LaunchOptions.validBackend("sherpa") == nil)
     }
 

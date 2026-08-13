@@ -252,7 +252,7 @@ dictation audio, and the jargon evidence that would settle it remains inadmissib
 real-speaker accuracy* as **unsettled pending the consented real-speaker TechTerms corpus** that
 `docs/benchmarks.md` already says does not exist.
 
-### ASR model swap: ARK-ASR 0.6B and 3B, measured and rejected
+### ASR model swap: ARK-ASR 0.6B and 3B, measured, shipped opt-in, not promoted to default
 
 Investigated 2026-08-13 on the same M4 Pro, `mlx==0.32.0`, because ARK-ASR-3B sits at **4.636%** avg
 cleaned WER on the live HF Open ASR Leaderboard against **5.661%** for our pinned
@@ -265,6 +265,12 @@ token IDs, initial-logit cosine 0.9999). Every row was scored with this repo's o
 `voiceoour_bench.metrics`, and Parakeet was re-run in-process with identical staging so the comparison
 comes down to the models. That control reproduced the committed FLEURS row exactly — U-WER 4.416%,
 F-WER 10.284%, case F1 0.921 — which is what makes the ARK columns trustworthy.
+
+The latency figures were later re-confirmed through the **production path** rather than in-process,
+by driving the real sidecar over its real stdio protocol (FLEURS, n=32, warm): Parakeet round trip
+p50 **119.9 ms**, ARK-0.6B **322.3 ms** — ARK 2.7x slower, on the identical transport. The mechanism
+tax is 0.8-0.9 ms p50 for both, so the sidecar is not confounding the comparison in either
+direction; see `docs/architecture.md` for that measurement.
 
 Two of the four tiers are admissible as accuracy evidence. `techterms` and `smoke` are local macOS
 `say` synthesis, which `docs/benchmarks.md` labels `evidence_scope: smoke-only` and forbids as
@@ -324,15 +330,28 @@ shallow-fusion glossary path has no transducer beam to hook into. ARK also hard-
 30 s with no chunking or VAD of its own; 16 of 128 LibriSpeech rows had to be skipped, where Parakeet
 transcribed all 128.
 
-**The shape we would use if this changes.** A second Python backend in the existing sidecar —
-`asr/src/voiceoour_asr/backends/ark.py` behind `VOICEOOUR_ASR_BACKEND=ark`, one more
-`ASRBackendDescriptor`, per-backend model identity so `cache.py`, `SidecarASRClient`'s hardcoded
-`ASRModelContract`, and `BenchMain.meta` stop assuming one model. Not native Swift/MLX: mlx-swift
-0.31.6 needs swift-tools **6.3** against our 5.9, the newest 5.9-compatible tag is 0.23.1, MLX Swift
-cannot build its Metal shaders under the SwiftPM CLI at all — it requires Xcode — and no licensed
-Swift ARK implementation exists to vendor (the one the model card links is absent from the repository
-and that repository carries no licence). Not GGUF or Rust either: llama.cpp's `mtmd` has no `arkasr`
-graph or converter, and Candle's own Voxtral example forces CPU on non-CUDA builds.
+**Both sizes are shipped as opt-in backends, because the measurement above is not the same thing as
+living with a model.** Select `ARK 0.6B` or `ARK 3B` in the Voice pane, or run
+`--asr-backend ark-0.6b`; `mlx` remains the default and nothing changes unless you pick one.
+Benchmark them against the incumbent on identical rows with
+`make bench-stt BACKEND=ark-0.6b N=64` — reports are now named per backend, so an A/B of the same
+tier no longer collides on timestamp alone.
+
+The shape is a second Python backend in the existing sidecar (`asr/src/voiceoour_asr/backends/ark.py`
+behind `VOICEOOUR_ASR_BACKEND=ark-0.6b|ark-3b`), with the ARK MLX runtime **vendored verbatim** under
+`backends/ark_mlx/` rather than imported from the model repo, so the app never executes code
+downloaded from Hugging Face. Model identity became per-descriptor along the way, which removed three
+standing assumptions that there is exactly one model: `cache.py`'s single `MODEL_ID`,
+`SidecarASRClient`'s hardcoded `ASRModelContract` (it was telling even the `fake` backend to expect
+Parakeet), and `BenchMain.meta`'s Apple-or-Parakeet ternary, which would have labelled every ARK
+benchmark run as Parakeet.
+
+Not native Swift/MLX: mlx-swift 0.31.6 needs swift-tools **6.3** against our 5.9, the newest
+5.9-compatible tag is 0.23.1, MLX Swift cannot build its Metal shaders under the SwiftPM CLI at all —
+it requires Xcode, which this repo's shell-first build deliberately avoids — and no licensed Swift ARK
+implementation exists to vendor (the one the model card links is absent from the repository, and that
+repository carries no licence). Not GGUF or Rust either: llama.cpp's `mtmd` has no `arkasr` graph or
+converter, and Candle's own Voxtral example forces CPU on non-CUDA builds.
 
 **What would reopen this.** An ARK release that emits punctuation and case at 3B quality *and* lands
 under ~350 ms p50 on 10 s of audio; or the consented real-speaker TechTerms corpus showing a jargon

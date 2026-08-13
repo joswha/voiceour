@@ -50,15 +50,23 @@ public enum SidecarASRClientError: Error, Equatable {
 
 public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
     private let runtime: SidecarProcessRuntime
+    /// The model this client's sidecar must have loaded, echoed on every
+    /// transcribe so a stale cache fails as a mismatch instead of quietly
+    /// transcribing with other weights. Nil for a backend that pins no model —
+    /// the fake sidecar used to be told to expect Parakeet.
+    private let expectedModel: ASRExpectedModel?
 
-    init(launch: SidecarLaunchConfiguration) {
+    init(launch: SidecarLaunchConfiguration, expectedModel: ASRExpectedModel? = nil) {
         self.runtime = SidecarProcessRuntime(launch: launch)
+        self.expectedModel = expectedModel
     }
 
     public convenience init(
-        asrDirectory: URL, backend: String = ProcessInfo.processInfo.environment["VOICEOOUR_ASR_BACKEND"] ?? "fake"
+        asrDirectory: URL,
+        backend: String = ProcessInfo.processInfo.environment["VOICEOOUR_ASR_BACKEND"] ?? "fake",
+        expectedModel: ASRExpectedModel? = nil
     ) {
-        self.init(launch: .uv(projectDirectory: asrDirectory, backend: backend))
+        self.init(launch: .uv(projectDirectory: asrDirectory, backend: backend), expectedModel: expectedModel)
     }
 
     deinit {
@@ -70,7 +78,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         let request = ASRTranscribeRequest(
             requestId: UUID().uuidString,
             audio: audio.meta,
-            expectedModel: ASRExpectedModel(modelId: ASRModelContract.modelId, revision: ASRModelContract.revision),
+            expectedModel: expectedModel,
             timeoutMs: timeoutMs
         )
         return try await runRequest(requestId: request.requestId, timeoutMs: timeoutMs) {
@@ -89,7 +97,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         let request = ASRTranscribeRequest(
             requestId: UUID().uuidString,
             audio: audio.meta,
-            expectedModel: ASRExpectedModel(modelId: ASRModelContract.modelId, revision: ASRModelContract.revision),
+            expectedModel: expectedModel,
             timeoutMs: timeoutMs,
             biasPhrases: biasPhrases,
             biasSnapshotId: UUID().uuidString

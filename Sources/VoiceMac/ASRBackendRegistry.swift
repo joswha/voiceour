@@ -42,6 +42,14 @@ public struct ASRBackendDescriptor: Sendable {
     public let id: String
     public let displayName: String
     public let modelLabel: String
+    /// The real model behind the backend, as opposed to `modelLabel`, which is
+    /// a display string ("no model · synthetic transcripts") that no consumer
+    /// can act on. Benchmark metadata, Diagnostics and the sidecar's
+    /// `expected_model` all need the identity itself. Nil where the backend
+    /// loads no model of its own; `modelRevision` is additionally nil where
+    /// nothing pins one, as with Apple's system-managed transcriber.
+    public let modelId: String?
+    public let modelRevision: String?
     public let makeLive: @Sendable (ASRBackendContext) -> ASRBackendComponents
     public let makeClient: @Sendable (ASRBackendContext) -> any ASRClienting
 
@@ -49,12 +57,16 @@ public struct ASRBackendDescriptor: Sendable {
         id: String,
         displayName: String,
         modelLabel: String,
+        modelId: String?,
+        modelRevision: String?,
         makeLive: @escaping @Sendable (ASRBackendContext) -> ASRBackendComponents,
         makeClient: @escaping @Sendable (ASRBackendContext) -> any ASRClienting
     ) {
         self.id = id
         self.displayName = displayName
         self.modelLabel = modelLabel
+        self.modelId = modelId
+        self.modelRevision = modelRevision
         self.makeLive = makeLive
         self.makeClient = makeClient
     }
@@ -107,6 +119,8 @@ public struct ASRBackendRegistry: Sendable {
             id: "fake",
             displayName: "FAKE",
             modelLabel: "no model · synthetic transcripts",
+            modelId: nil,
+            modelRevision: nil,
             makeLive: { context in
                 ASRBackendComponents(
                     recorder: FakeAudioRecorder(),
@@ -122,21 +136,35 @@ public struct ASRBackendRegistry: Sendable {
             id: "mlx",
             displayName: "PARAKEET MLX",
             modelLabel: ASRModelContract.modelId,
+            modelId: Self.parakeetModel.modelId,
+            modelRevision: Self.parakeetModel.revision,
             makeLive: { context in
                 ASRBackendComponents(
                     recorder: MicrophoneRecorder(),
-                    client: SidecarASRClient(asrDirectory: context.asrDirectory, backend: "mlx"),
+                    client: SidecarASRClient(
+                        asrDirectory: context.asrDirectory,
+                        backend: "mlx",
+                        expectedModel: Self.parakeetModel
+                    ),
                     usesSystemAudioMuter: true
                 )
             },
             makeClient: { context in
-                SidecarASRClient(asrDirectory: context.asrDirectory, backend: "mlx")
+                SidecarASRClient(
+                    asrDirectory: context.asrDirectory,
+                    backend: "mlx",
+                    expectedModel: Self.parakeetModel
+                )
             }
         ),
         ASRBackendDescriptor(
             id: "apple",
             displayName: "APPLE SPEECH",
             modelLabel: "apple/SpeechTranscriber (system-managed)",
+            modelId: "apple/SpeechTranscriber",
+            // The transcriber ships with the OS and pins nothing of its own;
+            // callers that need a revision substitute the OS version.
+            modelRevision: nil,
             makeLive: { context in
                 // The availability gate lives only here. It used to be duplicated
                 // in the coordinator's live() and in BenchMain.
@@ -164,9 +192,80 @@ public struct ASRBackendRegistry: Sendable {
                 return Self.unsupportedAppleSpeech
             }
         ),
+        // Opt-in, never a default candidate: measured on this app's corpora ARK
+        // 0.6B runs about twice the `mlx` default's latency for no accuracy
+        // gain, and ARK 3B runs 4-9x slower in 7+ GB resident and emits no
+        // capitalization at all. `docs/performance-roadmap.md` carries the
+        // comparison; read it before promoting either one.
+        ASRBackendDescriptor(
+            id: "ark-0.6b",
+            displayName: "ARK 0.6B",
+            modelLabel: Self.arkSmallModel.modelId,
+            modelId: Self.arkSmallModel.modelId,
+            modelRevision: Self.arkSmallModel.revision,
+            makeLive: { context in
+                ASRBackendComponents(
+                    recorder: MicrophoneRecorder(),
+                    client: SidecarASRClient(
+                        asrDirectory: context.asrDirectory,
+                        backend: "ark-0.6b",
+                        expectedModel: Self.arkSmallModel
+                    ),
+                    usesSystemAudioMuter: true
+                )
+            },
+            makeClient: { context in
+                SidecarASRClient(
+                    asrDirectory: context.asrDirectory,
+                    backend: "ark-0.6b",
+                    expectedModel: Self.arkSmallModel
+                )
+            }
+        ),
+        ASRBackendDescriptor(
+            id: "ark-3b",
+            displayName: "ARK 3B",
+            modelLabel: Self.arkLargeModel.modelId,
+            modelId: Self.arkLargeModel.modelId,
+            modelRevision: Self.arkLargeModel.revision,
+            makeLive: { context in
+                ASRBackendComponents(
+                    recorder: MicrophoneRecorder(),
+                    client: SidecarASRClient(
+                        asrDirectory: context.asrDirectory,
+                        backend: "ark-3b",
+                        expectedModel: Self.arkLargeModel
+                    ),
+                    usesSystemAudioMuter: true
+                )
+            },
+            makeClient: { context in
+                SidecarASRClient(
+                    asrDirectory: context.asrDirectory,
+                    backend: "ark-3b",
+                    expectedModel: Self.arkLargeModel
+                )
+            }
+        ),
     ])
 
     private static var unsupportedAppleSpeech: UnsupportedASRClient {
         UnsupportedASRClient(backendId: "apple-speech", detail: "Apple Speech backend requires macOS 26")
     }
+
+    /// The model each sidecar backend must have loaded, which is also the
+    /// identity its descriptor publishes: one place per backend where an id and
+    /// its pinned revision are written, rather than four.
+    private static let parakeetModel = ASRExpectedModel(
+        modelId: ASRModelContract.modelId,
+        revision: ASRModelContract.revision
+    )
+    private static let arkSmallModel = ASRExpectedModel(
+        modelId: "leope/ark-asr-0.6B-mlx",
+        revision: "6ec069bd68cbbe165aa42728eac482c90cb58d2f"
+    )
+    private static let arkLargeModel = ASRExpectedModel(
+        modelId: "leope/ark-asr-3B-mlx",
+        revision: "63d9fb8ba352c5c7c65ff2336019048170563d63"
+    )
 }

@@ -401,7 +401,12 @@ def build_report(
     output_dir = output_dir or repo_root() / "benchmarks" / "results"
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    output_path = output_dir / f"{stamp}-{tier}-{mode}.json"
+    # Same reason the results JSONL carries the backend: an A/B sweep writes one
+    # report per backend for the same tier and mode. The backend comes from the
+    # run's own metadata, so the report can never claim a backend it did not read.
+    backend = meta.get("backend")
+    parts = [stamp, tier, backend, mode] if isinstance(backend, str) and backend else [stamp, tier, mode]
+    output_path = output_dir / f"{'-'.join(parts)}.json"
     output_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
     return report, output_path
 
@@ -419,6 +424,9 @@ def markdown_table(report: dict[str, Any]) -> str:
     rows = [
         ("tier", report["tier"]),
         ("mode", report["mode"]),
+        # The backend is the variable under test in an A/B; two tables that omit
+        # it are indistinguishable on screen.
+        ("backend", (report.get("meta") or {}).get("backend")),
         ("rows", report["counts"]["successful_rows"]),
         ("errors", report["counts"]["error_rows"]),
         ("uwer raw", metrics.get("uwer_raw")),

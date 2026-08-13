@@ -116,14 +116,18 @@ struct BenchOptions {
 }
 
 enum BenchCLI {
+    /// Interpolated from the registry so a new backend can never be missing
+    /// here while the parser below already accepts it.
     static let usage = """
         Usage:
           voiceoour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
-              [--asr-dir asr] [--backend fake|mlx|apple] [--timeout-ms 120000]
+              [--asr-dir asr] [--backend \(backendChoices)] [--timeout-ms 120000]
               [--refine off|deterministic|omp] [--refiner-model M]
           voiceoour-bench refine --input <cases.jsonl> --output <results.jsonl>
               --refine deterministic|omp [--refiner-model M]
         """
+
+    private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
 
     static func parse(_ arguments: [String]) throws -> BenchOptions {
         guard let commandValue = arguments.first, let command = BenchCommand(rawValue: commandValue) else {
@@ -133,7 +137,7 @@ enum BenchCLI {
         var input: URL?
         var output: URL?
         var asrDirectory = fileURL("asr")
-        var backend = command == .pipeline ? "fake" : nil
+        var backend = command == .pipeline ? ASRBackendRegistry.builtIn.defaultDescriptor.id : nil
         var timeoutMs = 120_000
         var refineMode: BenchRefineMode? = command == .pipeline ? .deterministic : nil
         var refinerModel: String?
@@ -265,7 +269,10 @@ struct BenchRunner {
         let writer = try JSONLWriter(url: options.output)
         try writer.write(meta(mode: .pipeline))
         let reader = try JSONLLineReader(url: options.input)
-        let asr = Self.makeASRClient(backend: options.backend ?? "fake", asrDirectory: options.asrDirectory)
+        let asr = Self.makeASRClient(
+            backend: options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id,
+            asrDirectory: options.asrDirectory
+        )
         let refinement = RefinementPipeline(mode: options.refineMode, options: options)
         let decoder = JSONDecoder()
         var lineNumber = 0
@@ -321,15 +328,37 @@ struct BenchRunner {
     }
 
     private func meta(mode: BenchCommand) -> BenchMeta {
-        BenchMeta(
+        let backend = mode == .pipeline ? options.backend : nil
+        let model = Self.modelIdentity(for: backend)
+        return BenchMeta(
             mode: mode.rawValue,
-            backend: mode == .pipeline ? options.backend : nil,
-            modelId: options.backend == "apple" ? "apple/SpeechTranscriber" : ASRModelContract.modelId,
-            modelRevision: options.backend == "apple"
-                ? ProcessInfo.processInfo.operatingSystemVersionString : ASRModelContract.revision,
+            backend: backend,
+            modelId: model.id,
+            modelRevision: model.revision,
             refineMode: options.refineMode.rawValue,
             startedAt: ISO8601DateFormatter().string(from: Date())
         )
+    }
+
+    /// Model identity is read from the backend's descriptor, never branched on
+    /// here: a stale branch would stamp Parakeet's identity onto every other
+    /// backend's rows and make the whole record untrustworthy.
+    ///
+    /// A descriptor with a model but no pinned revision is system-managed (Apple
+    /// Speech ships with the OS), so the OS version is the only revision that
+    /// means anything. A backend with no model at all — `fake`, and refine runs,
+    /// which never touch ASR — reports its own name rather than borrowing
+    /// another backend's model.
+    private static func modelIdentity(for backend: String?) -> (id: String, revision: String) {
+        guard
+            let backend,
+            let descriptor = ASRBackendRegistry.builtIn.descriptor(for: backend),
+            let modelId = descriptor.modelId
+        else {
+            let name = backend ?? "none"
+            return (name, name)
+        }
+        return (modelId, descriptor.modelRevision ?? ProcessInfo.processInfo.operatingSystemVersionString)
     }
 
     private func processPipelineRow(

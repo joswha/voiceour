@@ -175,6 +175,9 @@
             case backendReady
             /// Real backend whose health probe fails, permissions denied.
             case backendUnavailable
+            /// An ARK backend running and healthy, so every readout that used
+            /// to hardcode Parakeet has another backend to name.
+            case arkBackendReady
             /// Refinement switched on, brokered through Oh My Pi, with a model the
             /// user picked out of the catalog rather than inherited.
             case refinerConfigured
@@ -239,6 +242,13 @@
                     health: nil,
                     permissions: .denied,
                     muteUnavailable: true
+                )
+            case .arkBackendReady:
+                return make(
+                    sessions: history,
+                    settings: settings(backend: arkBackend),
+                    backend: arkBackend,
+                    health: arkBackendHealth
                 )
             case .refinerConfigured:
                 return make(
@@ -366,7 +376,7 @@
             /// The advisory prose the conditional caption states carry, and the
             /// payload the copy accessory hands to the pasteboard.
             static let healthFailure = "The last probe could not reach the sidecar socket: connection refused."
-            static let healthReport = "backend=mlx-parakeet status=backendUnavailable cache=ok model=not loaded"
+            static let healthReport = "backend=parakeet-mlx status=backendUnavailable cache=ok model=not loaded"
             static let microphonePrompt = "macOS may ask for microphone access when the first real recording starts."
             /// The readiness sentence the Refinement pane appends to its on-device
             /// row. Matches `FoundationModelsAvailability.summary().detail` on a Mac
@@ -382,7 +392,14 @@
 
         // MARK: Composition
 
-        private static let realBackend = "mlx-parakeet"
+        /// The canonical picker id: what `Settings.asrBackend` stores and what
+        /// the registry resolves a descriptor from. Not `parakeet-mlx`, which is
+        /// the id the sidecar reports for itself.
+        private static let realBackend = "mlx"
+
+        /// The smaller ARK model, opt-in and slower than Parakeet, so no fixture
+        /// makes it the default: it exists to be named by a readout.
+        private static let arkBackend = "ark-0.6b"
 
         // `nonisolated` because it is a default argument of `make`, and default
         // argument expressions are evaluated outside the enum's main-actor context.
@@ -395,7 +412,15 @@
         )
 
         private static let realBackendHealth = ASRBackendHealth(
-            backendId: realBackend,
+            backendId: "parakeet-mlx",
+            backendStatus: .ready,
+            ready: true,
+            modelLoaded: true,
+            cacheOk: true
+        )
+
+        private static let arkBackendHealth = ASRBackendHealth(
+            backendId: arkBackend,
             backendStatus: .ready,
             ready: true,
             modelLoaded: true,

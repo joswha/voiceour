@@ -68,6 +68,16 @@
             static let autoStopDuration = UIQuery.label("Auto-stop silence, milliseconds")
             static let cleanup = UIQuery.label("Clean up after capture")
 
+            // One segment per registry descriptor, labelled with its display name:
+            // fixtures/ui/console.voice.default.ax.txt:18-20 for the three that
+            // predate ARK, VoicePane.swift:108-115 for the shape the pair follows.
+            static func backendOption(_ displayName: String) -> UIQuery {
+                .label(displayName)
+            }
+            // fixtures/ui/console.voice.restart-required.ax.txt:21. Published only
+            // while a saved backend differs from the one running.
+            static let backendRestart = UIQuery.id("voice.backend.restart")
+
             // HomeVelocityGauges.swift: the one editable figure on Home. No
             // committed golden holds an edited baseline, so the runtime value
             // is what this flow verifies.
@@ -347,6 +357,67 @@
                         ),
                     ]
                 ),
+                UIFlow(
+                    id: "voice.select-ark-backend",
+                    title: "Every ASR backend can be saved, and the readouts name the running one",
+                    tags: ["voice", "system", "console", "settings", "cross-pane"],
+                    covers: [.state(.voice, "backend-selections")],
+                    host: .console(.voice),
+                    fixture: .static(.arkBackendReady),
+                    steps: [
+                        .check(
+                            "ark-running",
+                            [
+                                .selected(Selector.backendOption("ARK 0.6B"), true),
+                                .model(.activeBackend, .equals("ark-0.6b")),
+                                // VoicePane.runningSummary prints the running
+                                // descriptor's model label while saved and running
+                                // agree, so this line is the registry's ARK repo id
+                                // rather than the Parakeet contract.
+                                .text(.equals("leope/ark-asr-0.6B-mlx"), .exactly(1)),
+                                .absent(Selector.backendRestart),
+                            ]
+                        ),
+                        // Every option in declaration order, so the pane is proved to
+                        // save each of the five rather than the two ARK additions.
+                        .act(.press(Selector.backendOption("FAKE"))),
+                        .check("fake-saved", [.selected(Selector.backendOption("FAKE"), true)]),
+                        .act(.press(Selector.backendOption("PARAKEET MLX"))),
+                        .check("mlx-saved", [.selected(Selector.backendOption("PARAKEET MLX"), true)]),
+                        .act(.press(Selector.backendOption("APPLE SPEECH"))),
+                        .check("apple-saved", [.selected(Selector.backendOption("APPLE SPEECH"), true)]),
+                        .act(.press(Selector.backendOption("ARK 3B"))),
+                        .check(
+                            "ark-3b-saved",
+                            [
+                                .selected(Selector.backendOption("ARK 3B"), true),
+                                .selected(Selector.backendOption("ARK 0.6B"), false),
+                                // The header chip carries the saved id, uppercased.
+                                .text(.equals("ARK-3B"), .exactly(1)),
+                                // Saving is not switching: the restart mark appears,
+                                // the running backend is untouched, and the footer
+                                // gives up the model line to say which one that is.
+                                .exists(Selector.backendRestart),
+                                .model(.activeBackend, .equals("ark-0.6b")),
+                                .text(.equals("ARK 0.6B IN USE"), .exactly(1)),
+                            ]
+                        ),
+                        .act(.navigate(.system)),
+                        .wait(.element(Selector.backendReady)),
+                        // The readiness sentence follows the backend that is running,
+                        // never the one just saved -- it used to name Parakeet whatever
+                        // was selected.
+                        .check(
+                            "system-names-running-backend",
+                            [
+                                .value(
+                                    Selector.backendReady,
+                                    .equals("READY, ARK 0.6B is configured for local transcription.")
+                                )
+                            ]
+                        ),
+                    ]
+                ),
             ]
         }
 
@@ -563,7 +634,7 @@
                             [
                                 .value(
                                     Selector.backendReady,
-                                    .equals("READY, Parakeet MLX is configured for local transcription.")
+                                    .equals("READY, PARAKEET MLX is configured for local transcription.")
                                 )
                             ]
                         ),

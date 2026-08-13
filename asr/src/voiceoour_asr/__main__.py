@@ -9,6 +9,7 @@ from threading import Event, Lock, Thread
 from pydantic import ValidationError
 
 from voiceoour_asr import __version__, cache
+from voiceoour_asr.backends.ark import ArkBackend
 from voiceoour_asr.backends.fake import FakeBackend
 from voiceoour_asr.backends.mlx import MLXBackend
 from voiceoour_asr.errors import ErrorCode
@@ -35,6 +36,10 @@ def make_backend():
         return FakeBackend()
     if backend_name == "mlx":
         return MLXBackend()
+    if backend_name == "ark-0.6b":
+        return ArkBackend(cache.ARK_06B, "ark-0.6b")
+    if backend_name == "ark-3b":
+        return ArkBackend(cache.ARK_3B, "ark-3b")
     return None
 
 
@@ -72,7 +77,7 @@ def parse_message(line: str):
 
 
 def start_preload(backend) -> None:
-    if os.environ.get("VOICEOOUR_PRELOAD") != "1" or not isinstance(backend, MLXBackend):
+    if os.environ.get("VOICEOOUR_PRELOAD") != "1" or not hasattr(backend, "warm_up"):
         return
 
     def preload() -> None:
@@ -100,7 +105,7 @@ def main() -> int:
         )
     else:
         status = BackendStatus.READY
-        if backend.backend_id == "parakeet-mlx" and not cache.cache_ok():
+        if not backend.health().cache_ok:
             status = BackendStatus.MODEL_MISSING
         emit(
             Hello(

@@ -99,7 +99,7 @@ class MLXBackend(Backend):
             self._import_error = None
 
     def health(self):
-        ok = cache.cache_ok()
+        ok = cache.cache_ok(cache.PARAKEET)
         return HealthResponse(
             request_id="health",
             ready=self._import_error is None and ok,
@@ -146,7 +146,7 @@ class MLXBackend(Backend):
         if self._model is not None:
             return self._model
         start = time.perf_counter()
-        snapshot = cache.ensure_model()
+        snapshot = cache.ensure_model(cache.PARAKEET)
         from parakeet_mlx import from_pretrained
 
         self._model = from_pretrained(str(snapshot))

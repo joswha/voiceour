@@ -5,4 +5,4 @@ transitions: idle
 PASS 1 unavailable | exists value="CHECK NEEDED" | 2 matches
 PASS 2 unavailable | label id=system.backend.recheck == "Re-check backend health" | "Re-check backend health"
 PASS 3 unavailable | role id=system.backend.recheck == AXButton | AXButton
-PASS 4 ready | value label="Backend" == "READY, Parakeet MLX is configured for local transcription." | "READY, Parakeet MLX is configured for local transcription."
+PASS 4 ready | value label="Backend" == "READY, PARAKEET MLX is configured for local transcription." | "READY, PARAKEET MLX is configured for local transcription."

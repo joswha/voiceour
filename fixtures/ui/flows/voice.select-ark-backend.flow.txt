@@ -1,0 +1,18 @@
+flow: voice.select-ark-backend
+title: Every ASR backend can be saved, and the readouts name the running one
+fixture: static
+transitions: idle
+PASS 1 ark-running | selected(true) label="ARK 0.6B" | true
+PASS 2 ark-running | model activeBackend == "ark-0.6b" | "ark-0.6b"
+PASS 3 ark-running | text == "leope/ark-asr-0.6B-mlx" exactly 1 | 1 match
+PASS 4 ark-running | absent id=voice.backend.restart | 0 matches
+PASS 5 fake-saved | selected(true) label="FAKE" | true
+PASS 6 mlx-saved | selected(true) label="PARAKEET MLX" | true
+PASS 7 apple-saved | selected(true) label="APPLE SPEECH" | true
+PASS 8 ark-3b-saved | selected(true) label="ARK 3B" | true
+PASS 9 ark-3b-saved | selected(false) label="ARK 0.6B" | false
+PASS 10 ark-3b-saved | text == "ARK-3B" exactly 1 | 1 match
+PASS 11 ark-3b-saved | exists id=voice.backend.restart | 1 match
+PASS 12 ark-3b-saved | model activeBackend == "ark-0.6b" | "ark-0.6b"
+PASS 13 ark-3b-saved | text == "ARK 0.6B IN USE" exactly 1 | 1 match
+PASS 14 system-names-running-backend | value label="Backend" == "READY, ARK 0.6B is configured for local transcription." | "READY, ARK 0.6B is configured for local transcription."

@@ -13,9 +13,9 @@ from voiceoour_asr import cache
 
 def transcribe_once(path: Path) -> tuple[str, float, float, int]:
     start = time.perf_counter()
-    cache.ensure_model()
+    cache.ensure_model(cache.PARAKEET)
     from parakeet_mlx import from_pretrained
-    model = from_pretrained(cache.MODEL_ID, cache_dir=str(cache.APP_CACHE))
+    model = from_pretrained(cache.MODEL_ID, cache_dir=str(cache.PARAKEET.cache_dir))
     loaded = time.perf_counter()
     result = model.transcribe(str(path))
     done = time.perf_counter()

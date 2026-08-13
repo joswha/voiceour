@@ -942,7 +942,7 @@
                     TextField("Empty field", text: .constant(""))
                         .textFieldStyle(GlassTextFieldStyle())
                         .frame(width: VoiceOourMetrics.Field.medium)
-                    TextField("Filled field", text: .constant("mlx-parakeet"))
+                    TextField("Filled field", text: .constant(UIFixtures.Ledger.model))
                         .textFieldStyle(GlassTextFieldStyle())
                         .frame(width: VoiceOourMetrics.Field.medium)
                 }

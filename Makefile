@@ -99,18 +99,21 @@ ui-all: ui-snap ui-flow-frames
 .PHONY: bench-smoke bench-stt bench-refine bench-e2e bench-techterms
 
 N ?= 200
+# Parakeet stays the measured default; override to A/B another registered
+# backend, e.g. `make bench-stt BACKEND=ark-0.6b N=64`.
+BACKEND ?= mlx
 
 bench-smoke:
 	cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode e2e --backend fake
 
 bench-stt:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend mlx --n $(N)
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend $(BACKEND) --n $(N)
 
 bench-refine:
 	cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode refine --refine deterministic
 
 bench-e2e:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier fleurs --mode e2e --backend mlx --n $(N)
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier fleurs --mode e2e --backend $(BACKEND) --n $(N)
 
 bench-techterms:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend mlx
+	cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend $(BACKEND)

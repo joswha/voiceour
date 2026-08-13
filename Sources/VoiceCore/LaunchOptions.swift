@@ -37,9 +37,14 @@ public struct LaunchOptions: Equatable, Sendable {
     /// AVFoundation and Speech). Callers that have the registry pass its
     /// `backendIDs` so there is one source of truth at runtime; the default is
     /// only the fallback for argument parsing during `init`.
+    ///
+    /// That default has to track `ASRBackendRegistry.builtIn` in
+    /// `Sources/VoiceMac/ASRBackendRegistry.swift` by hand — VoiceCore cannot
+    /// import VoiceMac to read it. An id registered there but missing here is
+    /// rejected on the command line even though the app can build it.
     public static func validBackend(
         _ value: String?,
-        validBackendIDs: Set<String> = ["fake", "mlx", "apple"]
+        validBackendIDs: Set<String> = ["fake", "mlx", "apple", "ark-0.6b", "ark-3b"]
     ) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

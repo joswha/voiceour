@@ -193,43 +193,12 @@ struct SidecarClientTests {
     @Test func transcribeRequestEncodingCarriesProtocolModelTimeoutAndSnakeCaseAudio() async throws {
         let temp = try makeTemporaryDirectory()
         let requestFile = temp.appendingPathComponent("request.json")
-        let script = try writePythonScript(
-            """
-            import json, sys
+        let script = try writePythonScript(requestEchoScript(writingTo: requestFile), in: temp)
 
-            REQUEST_FILE = \(pythonLiteral(requestFile.path))
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            for line in sys.stdin:
-                with open(REQUEST_FILE, "w", encoding="utf-8") as handle:
-                    handle.write(line)
-                request = json.loads(line)
-                emit({
-                    "type": "result",
-                    "protocol_version": 1,
-                    "request_id": request["request_id"],
-                    "backend_id": "fake",
-                    "model_id": "fake",
-                    "model_revision": "dev",
-                    "transcript": {"text": "encoding-ok", "language": "en", "segments": None},
-                    "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                })
-            """,
-            in: temp
+        let client = SidecarASRClient(
+            launch: launchConfiguration(for: script),
+            expectedModel: ASRExpectedModel(modelId: ASRModelContract.modelId, revision: ASRModelContract.revision)
         )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 1_234)
         #expect(result.transcript.text == "encoding-ok")
 
@@ -264,6 +233,29 @@ struct SidecarClientTests {
         #expect(audio["sampleRateHz"] == nil)
         #expect(audio["durationMs"] == nil)
         #expect(audio["byteCount"] == nil)
+    }
+
+    /// A client with no pinned model leaves `expected_model` off the wire
+    /// instead of borrowing another backend's. The fake sidecar used to be
+    /// handed Parakeet's id and revision — a claim about weights it never
+    /// loads, and a manifest mismatch the day a backend starts checking.
+    @Test func transcribeOmitsExpectedModelWhenTheClientPinsNone() async throws {
+        let temp = try makeTemporaryDirectory()
+        let requestFile = temp.appendingPathComponent("request.json")
+        let script = try writePythonScript(requestEchoScript(writingTo: requestFile), in: temp)
+
+        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        _ = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
+
+        let requestData = try Data(contentsOf: requestFile)
+        let decoded = try ASRWire.decode(ASRTranscribeRequest.self, from: requestData)
+        #expect(decoded.expectedModel == nil)
+
+        guard let raw = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            Issue.record("Expected a transcribe request object")
+            return
+        }
+        #expect(raw["expected_model"] == nil)
     }
 
     @Test func sidecarErrorMessageMapsToProtocolError() async throws {
@@ -845,6 +837,44 @@ private func launchConfiguration(for script: URL) -> SidecarLaunchConfiguration 
         executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
         arguments: [script.path]
     )
+}
+
+/// A sidecar that greets, writes every request it is sent to `requestFile`, and
+/// answers each one with the same fixed result. The subject of the tests that
+/// share it is the request bytes, not the reply.
+private func requestEchoScript(writingTo requestFile: URL) -> String {
+    """
+    import json, sys
+
+    REQUEST_FILE = \(pythonLiteral(requestFile.path))
+
+    def emit(message):
+        print(json.dumps(message, separators=(",", ":")), flush=True)
+
+    emit({
+        "type": "hello",
+        "protocol_version": 1,
+        "sidecar_version": "0.1.0",
+        "backend_id": "fake",
+        "backend_status": "ready",
+        "capabilities": {"final_utterance": True},
+    })
+
+    for line in sys.stdin:
+        with open(REQUEST_FILE, "w", encoding="utf-8") as handle:
+            handle.write(line)
+        request = json.loads(line)
+        emit({
+            "type": "result",
+            "protocol_version": 1,
+            "request_id": request["request_id"],
+            "backend_id": "fake",
+            "model_id": "fake",
+            "model_revision": "dev",
+            "transcript": {"text": "encoding-ok", "language": "en", "segments": None},
+            "timings_ms": {"load": 0, "inference": 0, "total": 0},
+        })
+    """
 }
 
 private func sampleAudio() -> RecordedAudio {

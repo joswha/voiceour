@@ -999,9 +999,11 @@ struct DictationCoordinatorTests {
             sourceURL: URL(fileURLWithPath: "fixtures/audio/hello_16k_mono.wav"),
             directory: fixture.directory
         )
-        let asr = SidecarASRClient(
-            asrDirectory: URL(fileURLWithPath: "asr"),
-            backend: "mlx"
+        // Through the registry, so this measures the client the app actually
+        // builds — including the model it pins the sidecar to.
+        let asr = ASRBackendRegistry.builtIn.client(
+            for: "mlx",
+            context: ASRBackendContext(asrDirectory: URL(fileURLWithPath: "asr"), speechLocale: "en_US")
         )
         let coordinator = makeCoordinator(
             recorder: recorder,

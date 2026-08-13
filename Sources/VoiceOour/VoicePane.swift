@@ -98,7 +98,13 @@ struct VoicePane: View {
             statusActionAccessibilityLabel: "Restart VoiceOour to apply backend",
             statusActionAccessibilityIdentifier: "voice.backend.restart"
         ) {
-            SegmentGroup {
+            // Two rows. Five segments measure 478pt laid out on one, against a
+            // control band of 480pt beside the IN USE mark and 414pt beside the
+            // wider RESTART TO APPLY one — the state selecting a backend lands
+            // in. Wrapping keeps the three original backends on the first row
+            // and the opt-in ARK pair on the second, and the group holds the
+            // 316pt width it has today.
+            SegmentGroup(rows: 2) {
                 ForEach(Self.backends, id: \.id) { backend in
                     SegmentOption(
                         label: backend.name,
@@ -229,9 +235,12 @@ struct VoicePane: View {
 
     /// The fake backend synthesises text and loads nothing; printing the pinned
     /// Parakeet contract for it asserted a model that would never be used. The
-    /// registry owns the per-backend wording.
+    /// registry owns the per-backend wording, including for an id it does not
+    /// know: an unregistered backend resolves to the same default the registry
+    /// would actually build, rather than to whichever model was hardcoded here.
     private static func modelSummary(for backend: String) -> String {
-        ASRBackendRegistry.builtIn.descriptor(for: backend)?.modelLabel ?? asrModelLabel(for: backend)
+        let registry = ASRBackendRegistry.builtIn
+        return (registry.descriptor(for: backend) ?? registry.defaultDescriptor).modelLabel
     }
 
     // MARK: Locale editing
