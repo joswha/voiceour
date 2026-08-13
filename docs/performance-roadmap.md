@@ -252,6 +252,96 @@ dictation audio, and the jargon evidence that would settle it remains inadmissib
 real-speaker accuracy* as **unsettled pending the consented real-speaker TechTerms corpus** that
 `docs/benchmarks.md` already says does not exist.
 
+### ASR model swap: ARK-ASR 0.6B and 3B, measured and rejected
+
+Investigated 2026-08-13 on the same M4 Pro, `mlx==0.32.0`, because ARK-ASR-3B sits at **4.636%** avg
+cleaned WER on the live HF Open ASR Leaderboard against **5.661%** for our pinned
+`parakeet-tdt-0.6b-v3` — a 1.03 pp edge that looked worth 3B of weights. It does not survive contact
+with this app's corpora or its latency budget.
+
+Both sizes were run through the community MLX conversions `leope/ark-asr-0.6B-mlx` and
+`leope/ark-asr-3B-mlx` (Apache-2.0, BF16, parity-validated against upstream PyTorch: identical greedy
+token IDs, initial-logit cosine 0.9999). Every row was scored with this repo's own
+`voiceoour_bench.metrics`, and Parakeet was re-run in-process with identical staging so the comparison
+comes down to the models. That control reproduced the committed FLEURS row exactly — U-WER 4.416%,
+F-WER 10.284%, case F1 0.921 — which is what makes the ARK columns trustworthy.
+
+Two of the four tiers are admissible as accuracy evidence. `techterms` and `smoke` are local macOS
+`say` synthesis, which `docs/benchmarks.md` labels `evidence_scope: smoke-only` and forbids as
+evidence for "technical term accuracy, or the production gate"; they appear below for plumbing and
+latency only, and no conclusion here rests on them. The LibriSpeech row is **row-matched at n=112**:
+ARK rejects audio over 30 s, so Parakeet is re-scored on the same 112 rows rather than compared
+across corpora of different size. Those excluded 16 rows are the hard ones — Parakeet scores 3.518%
+on them against 2.716% on the 112 it keeps — so leaving them in would have flattered ARK.
+
+| tier (n) | metric | Parakeet TDT 0.6B | ARK 0.6B | ARK 3B |
+|---|---|---:|---:|---:|
+| FLEURS (64, p50 9.8 s) | U-WER | 4.416% | **4.202%** | **3.632%** |
+| | F-WER | **10.284%** | **9.590%** | 23.470% |
+| | case F1 | **0.921** | 0.914 | **0.000** |
+| | ASR p50 / p95 | **155 / 195 ms** | 310 / 454 ms | 1181 / 2162 ms |
+| LibriSpeech (112 row-matched, p50 22.9 s) | U-WER | **2.716%** | 2.925% | **2.194%** |
+| | CER | **0.889%** | 1.057% | **0.767%** |
+| | ASR p50 / p95 | **307 / 714 ms** | 858 / 1880 ms | 2773 / 3717 ms |
+| TechTerms (16, TTS, smoke-only) | U-WER | 6.731% | 8.654% | 10.577% |
+| | ASR p50 | 87 ms | 102 ms | 348 ms |
+| Smoke (8, TTS, smoke-only) | U-WER | 12.281% | 12.281% | 21.053% |
+| | ASR p50 | 88 ms | 118 ms | 410 ms |
+| any | MLX peak memory | **1.9–2.6 GB** | 2.3–2.9 GB | 7.1–7.7 GB |
+
+Four findings kill it, and they are independent:
+
+1. **The leaderboard edge does not transfer.** On the two admissible tiers ARK-0.6B is a wash:
+   +0.214 pp on FLEURS (4.202% vs 4.416%) and −0.209 pp on LibriSpeech (2.925% vs 2.716%), two
+   near-identical deltas pointing opposite ways. The published 0.52 pp advantage is not visible.
+   ARK-3B *does* win accuracy on both — 0.784 pp and 0.522 pp — and is disqualified by findings 2 to
+   4 rather than by word error. The TTS tiers happen to run the same direction (ARK-0.6B −1.92 pp on
+   TechTerms, level on Smoke) but are inadmissible and are not counted.
+2. **Parakeet is faster on every tier**, by 1.2x on short utterances up to 2.8x on read speech, and
+   this is structural rather than an artifact of the port: ARK's audio preprocessing is ~7 ms once
+   warm, and its cost is a 32-layer 1280-dim Whisper encoder plus autoregressive decode, against a
+   transducer that emits in one pass. ARK-3B is 4x to 9x slower.
+   Quantizing the decoder cannot rescue this, and the FLEURS stage split says why: ARK-0.6B spends
+   6.9 ms in preprocessing and **146.8 ms in encoder-plus-prefill** before it emits a single token,
+   against **154.7 ms for all of Parakeet**. Even with decode driven to zero the encoder alone costs
+   what the incumbent costs end to end. Quantizing the encoder instead is not the escape hatch either:
+   mlx-audio's `model_quant_predicate` for this model family deliberately excludes `audio_tower` and
+   the projector and quantizes only the decoder, so the tower stays BF16 by convention.
+3. **ARK-3B does not emit capitalization**, spells numbers as words, and drops most internal
+   punctuation: "twenty-five to thirty" for "25 to 30", case F1 **0.000**. Its word accuracy is
+   genuinely the best measured here, and its *user-visible* error rate is the worst of the three —
+   F-WER 23.470% against Parakeet's 10.284%. This is upstream behaviour, not a conversion defect;
+   the port's `VALIDATION.md` reference output is itself lowercase and unpunctuated. A dictation app
+   pastes the string verbatim, so F-WER is the metric that matters and restoring case and digits
+   would cost another model pass.
+4. **ARK-3B needs 7.1–7.7 GB resident** on a 24 GB machine that also has to hold the refiner.
+
+Two capability losses would apply to either size. ARK returns plain text only — no word alignments,
+no per-word or aggregate confidence, no n-best. `RiskAuthorizer` requires calibrated confidence plus
+n-best agreement before it will replace a term, so an ARK backend silently disables automatic term
+correction (it degrades to suggest/keep, which is safe but strictly less useful), and the phrase-trie
+shallow-fusion glossary path has no transducer beam to hook into. ARK also hard-rejects audio over
+30 s with no chunking or VAD of its own; 16 of 128 LibriSpeech rows had to be skipped, where Parakeet
+transcribed all 128.
+
+**The shape we would use if this changes.** A second Python backend in the existing sidecar —
+`asr/src/voiceoour_asr/backends/ark.py` behind `VOICEOOUR_ASR_BACKEND=ark`, one more
+`ASRBackendDescriptor`, per-backend model identity so `cache.py`, `SidecarASRClient`'s hardcoded
+`ASRModelContract`, and `BenchMain.meta` stop assuming one model. Not native Swift/MLX: mlx-swift
+0.31.6 needs swift-tools **6.3** against our 5.9, the newest 5.9-compatible tag is 0.23.1, MLX Swift
+cannot build its Metal shaders under the SwiftPM CLI at all — it requires Xcode — and no licensed
+Swift ARK implementation exists to vendor (the one the model card links is absent from the repository
+and that repository carries no licence). Not GGUF or Rust either: llama.cpp's `mtmd` has no `arkasr`
+graph or converter, and Candle's own Voxtral example forces CPU on non-CUDA builds.
+
+**What would reopen this.** An ARK release that emits punctuation and case at 3B quality *and* lands
+under ~350 ms p50 on 10 s of audio; or the consented real-speaker TechTerms corpus showing a jargon
+win large enough to pay for the latency. On the current evidence the more interesting candidates are
+elsewhere on that leaderboard: `ibm-granite/granite-speech-4.1-2b-nar` (4.95% WER at RTFx 2079, a
+non-autoregressive CTC-plus-LLM editor, i.e. one forward pass rather than a decode loop) and
+`Qwen/Qwen3-ASR-1.7B` (4.98%, streaming, with a companion forced aligner for the timestamps ARK
+cannot give us).
+
 
 
 ## What would actually move the needle next
@@ -286,6 +376,16 @@ Ranked by expected value, not by ease:
   `cd asr && uv --no-config run python ../scripts/phase0_asr_proof.py ../fixtures/audio/hello_16k_mono.wav`.
 - Accuracy/latency tiers and gates: `docs/benchmarks.md`; compare with
   `voiceoour_bench.compare … --gate uwer_final:0.0035`.
+- ARK-ASR comparison: the harness was a scratch package outside this repository and is not committed,
+  in line with the other raw artifacts here. To rebuild it, `uv` a Python 3.12 env with
+  `mlx==0.32.0`, `transformers==4.57.6`, `librosa`, `jiwer` and `whisper-normalizer`; `snapshot_download`
+  `leope/ark-asr-0.6B-mlx` and `leope/ark-asr-3B-mlx`; put each snapshot's bundled `src/` on
+  `sys.path` and drive `ark_asr_mlx.api.ArkASR`. Iterate `benchmarks/data/<tier>/manifest.jsonl`,
+  skipping rows over 30 s because ARK raises on them, and score with `voiceoour_bench.metrics`
+  (`uwer`, `cer`, `fwer`, `case_f1`, `percentiles`) so the numbers stay comparable to the tables above.
+  Two traps cost real time: warm up on a clip of representative length, because the first
+  `librosa.load` pays a multi-second numba import that otherwise lands on row one and reads as 23 s of
+  "preprocessing"; and warm up on a row under 30 s, or the warm-up itself throws.
 - Foundation Models timing: build a standalone harness against the `FoundationModels` framework and
   replicate `RefinerPolicy.onDeviceSystemPrompt` + `RefinerPolicy.ompUserMessage` verbatim; use
   `SystemLanguageModel.tokenCount(for:)` for token counts rather than character estimates.
