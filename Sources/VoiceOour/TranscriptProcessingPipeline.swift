@@ -148,7 +148,7 @@ extension DictationCoordinator {
             transcriptConfidence: result.transcript.confidence,
             confidenceMode: result.transcript.confidenceMode,
             appearsInNBest: appearsInNBest,
-            decoderBiasEnabled: result.decoder?.biasEnabled ?? false,
+            decoderBiasEnabled: result.decoder?.biasEnabled,
             runnerUpMargin: signal - bestRival
         )
     }

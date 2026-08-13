@@ -32,7 +32,10 @@ public struct AuthorizerEvidence: Equatable, Sendable {
     public let appearsInNBest: Bool
     /// Whether decoder-side biasing was active for this term. Biased support is
     /// circular (the decoder was told to prefer the term), never independent.
-    public let decoderBiasEnabled: Bool
+    /// `nil` means the backend did not report it, which is NOT the same as
+    /// "unbiased": a backend that biases but omits the field would otherwise
+    /// have its circular support accepted as independent evidence.
+    public let decoderBiasEnabled: Bool?
     /// Gap between the winning hypothesis and its runner-up at the span. A small
     /// margin means the recognition was ambiguous.
     public let runnerUpMargin: Double?
@@ -43,7 +46,7 @@ public struct AuthorizerEvidence: Equatable, Sendable {
         transcriptConfidence: Double? = nil,
         confidenceMode: ASRConfidenceMode? = nil,
         appearsInNBest: Bool = false,
-        decoderBiasEnabled: Bool = false,
+        decoderBiasEnabled: Bool? = nil,
         runnerUpMargin: Double? = nil
     ) {
         self.candidate = candidate
@@ -134,8 +137,10 @@ public enum RiskAuthorizer {
 
         // Veto: decoder biasing makes the ASR's support for the term circular —
         // it was told to prefer the term, so its preference is not independent
-        // evidence and can never justify an automatic edit.
-        guard !evidence.decoderBiasEnabled else { return fallback }
+        // evidence and can never justify an automatic edit. An UNREPORTED bias
+        // state vetoes for the same reason: we cannot show the support is
+        // independent, and "the backend did not say" must never read as "no".
+        guard evidence.decoderBiasEnabled == false else { return fallback }
 
         // Veto: no independent acoustic support. A candidate absent from the
         // n-best list only survives because a language model or the decoder

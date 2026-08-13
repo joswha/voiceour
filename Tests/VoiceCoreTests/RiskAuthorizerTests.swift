@@ -74,6 +74,26 @@ struct RiskAuthorizerTests {
         #expect(RiskAuthorizer.decide(evidence, automaticEnabled: true) == .suggest(termId: "term"))
     }
 
+    // Veto: an UNREPORTED bias state is not evidence of an unbiased decode.
+    // `ASRDecoderInfo.biasEnabled` is a non-optional Bool defaulting to false and
+    // the whole `decoder` block is optional, so before this was tri-valued a
+    // backend that biased and omitted either one decoded as "not biased" and
+    // skipped the circularity veto entirely. Everything else here is pristine,
+    // so this test fails if the veto ever stops distinguishing nil from false.
+    @Test func unreportedDecoderBiasCapsAtSuggest() {
+        let pristine = pristineEvidence(risk: .medium)
+        let evidence = AuthorizerEvidence(
+            candidate: pristine.candidate,
+            termRisk: pristine.termRisk,
+            transcriptConfidence: pristine.transcriptConfidence,
+            confidenceMode: pristine.confidenceMode,
+            appearsInNBest: pristine.appearsInNBest,
+            decoderBiasEnabled: nil,
+            runnerUpMargin: pristine.runnerUpMargin
+        )
+        #expect(RiskAuthorizer.decide(evidence, automaticEnabled: true) == .suggest(termId: "term"))
+    }
+
     // Veto: no independent acoustic support (homophone / common-word failure mode).
     @Test func absentFromNBestCapsAtSuggest() {
         let evidence = AuthorizerEvidence(

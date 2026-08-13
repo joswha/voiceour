@@ -429,15 +429,22 @@ latency is.
 
 Ranked by expected value, not by ease:
 
-0. **Stream the ASR during capture instead of after the key is released.** Measured on 500 real
-   sessions here: with refinement skipped, release-to-inserted is 316 ms on `mlx` against 184 ms on
-   `apple`, whose ASR stage is 66 ms — not because Apple's model is faster, but because
-   SpeechAnalyzer transcribes while the user is still speaking. `parakeet-mlx` already ships
-   `StreamingParakeet` and `transcribe_stream`; we call neither. This attacks the entire post-stop
-   ASR stage rather than a fraction of it, keeps Parakeet's accuracy advantage over Apple, and is
-   independent of which runtime executes the model. It is listed above the refine work only because
-   it is cheap; refinement is still the larger absolute cost whenever it runs.
-   Cost: a streaming protocol verb in the sidecar and teeing mic buffers to it during capture.
+0. **Adopt a streaming-TRAINED model — not the streaming API on the model we have.** Measured on
+   500 real sessions here: with refinement skipped, release-to-inserted is 316 ms on `mlx` against
+   184 ms on `apple`, whose ASR stage is 66 ms. Apple wins because SpeechTranscriber transcribes
+   while the user is still speaking. The tempting inference — "so call `transcribe_stream`" — is
+   **wrong and already refuted in the dead-ends table above**: `StreamingParakeet` measured
+   **66 ms slower** than batch at the production median, with 5.56% of words changed.
+   Two reasons, both structural. `parakeet-tdt-0.6b-v3` is **full-context trained** (non-causal
+   ALiBi; long-form is 30-40 s chunks merged by LCS, arXiv 2509.14128) — it tolerates chunking, it
+   was not trained for it. And `StreamingParakeet`'s `context_size` is in *encoded frames* at 80 ms,
+   so the default `(256, 256)` is a **20.48 s right context**, which cannot help a 13-21 s utterance.
+   Streaming is therefore a property of the *checkpoint*, not a runtime switch. Getting Apple's
+   66 ms means adopting a model trained for it — NVIDIA's cache-aware FastConformer (80 ms
+   lookahead), Moonshine streaming, Voxtral Realtime (80 ms frames, configurable 240-2400 ms delay),
+   or Qwen3-ASR streaming — and paying its accuracy cost: NVIDIA's own numbers put RNNT at 5.0 WER
+   offline against 6.3 chunk-aware at 1360 ms lookahead on LibriSpeech test-other.
+   The primitive should make that swap cheap rather than presuppose the answer.
 0b. **Or swap the ASR runtime, which is smaller but nearly free.** The bake-off above measured
    `parakeet.cpp` at 88.4 ms and FluidAudio at 71.5 ms against our 119.9 ms, both on our own model
    and both without Python. `parakeet.cpp` is the conservative pick: identical U-WER to three
