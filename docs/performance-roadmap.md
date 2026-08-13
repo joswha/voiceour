@@ -361,12 +361,89 @@ non-autoregressive CTC-plus-LLM editor, i.e. one forward pass rather than a deco
 `Qwen/Qwen3-ASR-1.7B` (4.98%, streaming, with a companion forced aligner for the timestamps ARK
 cannot give us).
 
+### Runtime bake-off: is a non-Python runtime faster? Rust, no. C and CoreML, yes.
+
+Measured 2026-08-13, M4 Pro, FLEURS n=64, every leg run **serially under an exclusive hardware
+window** and scored with `voiceoour_bench.metrics`. Warm in every case: model resident, kernels
+compiled, two discarded warm-up passes, model load reported separately and never inside a row.
+
+**Framework question, isolated.** Whisper large-v3-turbo is the one non-trivial ASR architecture
+MLX, Candle and whisper.cpp all implement, so it is the controlled comparison. Decoding was matched
+leg-by-leg against Candle's actual behaviour — greedy, no beam, language forced to `en`,
+`condition_on_previous_text` off, `suppress_blank` off, and `compression_ratio_threshold` disabled
+because Candle sets that field to `NaN` and never computes it, making its fallback branch dead code.
+
+| runtime | U-WER | ASR p50 |
+|---|---:|---:|
+| **MLX (Python)** | 4.274% | **435 ms** |
+| whisper.cpp (C/Metal) | 3.989% | 495 ms |
+| Candle (Rust/Metal) | 4.274% | **960 ms** |
+
+Candle is **2.2x slower than Python/MLX on identical weights and identical decoding**. The GPU is
+provably engaged: the same binary on `--cpu` at the same dtype takes 8145 ms against 999 ms on
+Metal. A second tell that this is kernel quality rather than configuration — going f32 to f16 buys
+Candle only ~10%, where a compute-bound GPU should give far more. Candle and MLX agreeing to three
+decimal places on U-WER is the check that the A/B was fair.
+
+Two further facts kill Rust as a route rather than merely losing on speed. Candle 0.11.0 **does not
+compile its own Whisper example** as released: `candle-examples` requests symphonia 0.6 while its
+`audio.rs` is written against the 0.5 module layout. And Rust has **no Parakeet TDT and no ARK
+implementation at all** — `candle-transformers` audio is csm, dac, encodec, metavoice, mimi,
+parler_tts, snac, voxtral, whisper; mistral.rs has no C ABI and no transducer; `parakeet-rs` is an
+ONNX Runtime wrapper, not native. Choosing Rust means writing the model *and* being slower.
+
+**Same-model, different-runtime.** whisper.cpp upstream now ships a native Parakeet TDT
+(`libparakeet`, MIT, plain C ABI, Metal) running the same `parakeet-tdt-0.6b-v3` checkpoint we
+ship, and FluidAudio ships it as CoreML for Swift. Both are directly comparable to production.
+
+| runtime | U-WER | CER | p50 | p95 | Python? |
+|---|---:|---:|---:|---:|---|
+| MLX sidecar (today) | 4.416% | 1.966% | 119.9 ms | — | yes |
+| parakeet.cpp (C/Metal) | 4.416% | 1.929% | **88.4 ms** | 123.1 ms | no |
+| FluidAudio (CoreML/ANE) | **3.989%** | **1.892%** | **71.5 ms** | 86.3 ms | no |
+
+Both beat the incumbent, and both delete Python. `parakeet.cpp` reproduces our U-WER to three
+decimals — it is the same model and the same greedy TDT decode — and it still exposes word
+timestamps and real per-token posteriors, so `RiskAuthorizer` would keep working. FluidAudio is
+fastest and scores best, on the Neural Engine rather than the GPU, which should also help battery.
+
+The one caveat worth keeping: across 64 rows FluidAudio has **one more contiguous multi-word
+dropout** than parakeet.cpp (2 runs vs 1). Its aggregate word operations are otherwise better
+(34 substitutions / 14 deletions / 8 insertions against 39/15/8). The 4-word dropout on
+`fleurs-en_us-test-000048` occurs in *both* runtimes and is therefore the model, not the runtime.
+Silent deletion at high reported confidence is the failure mode dictation can least afford, so this
+deserves a larger sample before FluidAudio is trusted as a default.
+
+**The bigger lever is not the runtime.** From 500 real sessions on this machine, segmented by
+whether refinement ran: with refinement skipped, release-to-inserted is 316 ms for `mlx` against
+**184 ms for `apple`**, whose ASR stage is 66 ms — because SpeechAnalyzer transcribes *during*
+capture rather than after the key is released. `parakeet-mlx` already exposes `StreamingParakeet`
+and `transcribe_stream` and we do not use either. Streaming Parakeet during capture would attack
+the whole post-stop ASR stage rather than the 30-40% a runtime swap wins, and it composes with
+either runtime above. That, not the language the decoder is written in, is where the remaining
+latency is.
+
 
 
 ## What would actually move the needle next
 
 Ranked by expected value, not by ease:
 
+0. **Stream the ASR during capture instead of after the key is released.** Measured on 500 real
+   sessions here: with refinement skipped, release-to-inserted is 316 ms on `mlx` against 184 ms on
+   `apple`, whose ASR stage is 66 ms — not because Apple's model is faster, but because
+   SpeechAnalyzer transcribes while the user is still speaking. `parakeet-mlx` already ships
+   `StreamingParakeet` and `transcribe_stream`; we call neither. This attacks the entire post-stop
+   ASR stage rather than a fraction of it, keeps Parakeet's accuracy advantage over Apple, and is
+   independent of which runtime executes the model. It is listed above the refine work only because
+   it is cheap; refinement is still the larger absolute cost whenever it runs.
+   Cost: a streaming protocol verb in the sidecar and teeing mic buffers to it during capture.
+0b. **Or swap the ASR runtime, which is smaller but nearly free.** The bake-off above measured
+   `parakeet.cpp` at 88.4 ms and FluidAudio at 71.5 ms against our 119.9 ms, both on our own model
+   and both without Python. `parakeet.cpp` is the conservative pick: identical U-WER to three
+   decimals, MIT, plain C ABI, and it still returns word timestamps and per-token posteriors, so
+   `RiskAuthorizer` survives. Do not take FluidAudio as default until its extra multi-word dropout
+   is characterised on a larger sample.
 1. **Make the 29.2% no-op refines free.** They are the largest identified waste and no shipped change
    touches them. A cheap classifier was rejected as overfit on 137 single-speaker rows — the blocker is
    *data*, not technique. Persisting per-session refiner-input text plus the corrected labels would
