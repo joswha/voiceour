@@ -41,7 +41,8 @@ rasterise system Liquid Glass at all. On macOS 26 the real island lenses your de
    ┃             ✓ finishes · ✕ discards · Esc discards · drag it anywhere.
    ┃
    👽  DECODE    Parakeet TDT 0.6B runs on your own Apple silicon through a
-   ┃             persistent Python sidecar. ~347 ms median on an M4 Pro.
+   ┃             persistent Python sidecar. ~347 ms median on an M4 Pro. ARK-ASR
+   ┃             0.6B and 3B are selectable too, and Apple's on-device model.
    ┃             Airplane mode is a supported configuration.
    ┃
    🧼  CLEAN     Fillers out. Protected terms in — kubectl, --no-config, p95,
@@ -220,7 +221,7 @@ flowchart TB
         APP["VoiceOour · SwiftUI<br/>MenuBarExtra · console · island<br/>DictationCoordinator owns one utterance end to end"]
         CORE["VoiceCore · pure Swift + Foundation<br/>session state · settings · deterministic cleanup<br/>glossary · wire types · target-safety policy"]
         MAC["VoiceMac · macOS adapters<br/>audio · pasteboard · CGEventTap hotkey<br/>permissions · refiner backends"]
-        ASR["asr/ · Python sidecar<br/>👽 Parakeet TDT 0.6B via MLX<br/>NDJSON over stdio, one persistent process"]
+        ASR["asr/ · Python sidecar<br/>👽 Parakeet TDT 0.6B via MLX (default)<br/>ARK-ASR 0.6B / 3B opt-in<br/>NDJSON over stdio, one persistent process"]
         APP --> CORE
         APP --> MAC
         MAC -->|"spawn once · keep warm · multiplex by request_id"| ASR
@@ -384,6 +385,37 @@ audio, because it transcribes *during* capture). Neither tier is real-speaker di
 the default stands on read-speech evidence plus status quo, pending the consented corpus
 `docs/benchmarks.md` records as not yet existing.
 
+#### ARK-ASR, opt-in
+
+`ARK 0.6B` and `ARK 3B` are selectable in the Voice pane. They are **not** the default, and the
+numbers below are why. Measured 2026-08-13 on an M4 Pro with the same scorer, but reported as their
+own table rather than extra columns above: these are a different run, and the LibriSpeech row is
+row-matched at n=112 because ARK rejects clips over 30 s.
+
+| tier | metric | Parakeet (default) | ARK 0.6B | ARK 3B |
+|---|---|---:|---:|---:|
+| FLEURS (n=64) | U-WER | 4.416% | **4.202%** | **3.632%** |
+| FLEURS | F-WER | **10.284%** | **9.590%** | 23.470% |
+| FLEURS | case F1 | **0.921** | 0.914 | **0.000** |
+| FLEURS | round trip p50 | **119.9 ms** | 322.3 ms | — |
+| LibriSpeech (n=112) | U-WER | **2.716%** | 2.925% | **2.194%** |
+| any | peak memory | **1.9–2.6 GB** | 2.3–2.9 GB | 7.1–7.7 GB |
+
+On the two admissible tiers ARK-0.6B is a wash — +0.214 pp on FLEURS, −0.209 pp on LibriSpeech — for
+2.7x the latency. ARK-3B genuinely wins word accuracy on both, then gives it all back at the only
+point that matters here: it emits **no capitalization** and spells numbers as words, so the string
+actually pasted into your editor is worse (F-WER 23.470% against 10.284%). That is upstream
+behaviour, not a conversion defect. **Selecting ARK 3B downloads about 7 GB** and holds 7.1–7.7 GB
+resident; ARK 0.6B downloads 2.2 GB.
+
+Either ARK backend returns plain text only — no word alignments, no confidence, no n-best — so
+automatic term correction stands down rather than acting on evidence it does not have, and glossary
+biasing becomes a no-op. Clips over 30 s are rejected instead of silently truncated.
+
+Full method, per-stage timings and the runtime options that were rejected (native Swift/MLX, GGUF,
+Rust) are in [`docs/performance-roadmap.md`](docs/performance-roadmap.md). To re-run it yourself:
+`make bench-stt BACKEND=ark-0.6b N=64`.
+
 <details>
 <summary><b>Where the cost actually is, and what we tried and threw away</b></summary>
 
@@ -428,7 +460,7 @@ Negative results are load-bearing, so they are kept:
 | INT8 quantization | −32 ms, but unvalidated for accuracy and needs a new model pin |
 | MLX 0.31.2 → 0.32.0 | 0.35 ms — noise |
 | Wired memory / residency | 0.3–1.4 ms *slower* |
-| Replacing the Python sidecar IPC | total non-inference overhead is only 1.2–1.6 ms |
+| Replacing the Python sidecar IPC | non-inference overhead is 0.8–0.9 ms p50, measured at the protocol |
 | Rust or hand-written Metal kernels | no viable path; see the roadmap for why |
 
 </details>
@@ -532,10 +564,47 @@ implementation and is intentionally replaceable.
 </details>
 
 <details>
-<summary><b>Why a Python sidecar instead of pure Swift?</b></summary>
+<summary><b>What is MLX? Is it Apple's CUDA?</b></summary>
 <br>
-Because MLX + Parakeet lives in Python and the IPC is not the bottleneck: total non-inference
-overhead was measured at 1.2–1.6 ms. Replacing it was evaluated and rejected on those numbers.
+Close, but the nearer analogy is PyTorch. CUDA is the low-level GPU programming layer; on Apple that
+layer is <b>Metal</b>. MLX is the array/neural-network framework <i>on top</i> of Metal — it is what
+you write models in, and it compiles down to Metal kernels. So the stack is MLX → Metal → GPU, the
+way PyTorch → CUDA → GPU works on NVIDIA.
+<br><br>
+The part that is genuinely different from CUDA is memory. A discrete NVIDIA card has its own VRAM,
+so every inference copies weights and activations across PCIe. Apple silicon has <b>unified
+memory</b>: CPU and GPU address the same physical RAM, so there is no copy and no separate "device"
+to move tensors to. That is why a 7 GB model simply occupies 7 GB of your machine's RAM, and why
+"out of VRAM" is not a failure mode here. MLX is also lazy — it builds a graph and only computes
+when you ask for a result — which is why the first inference after launch pays kernel compilation
+and every later one does not.
+</details>
+
+<details>
+<summary><b>Why a Python sidecar instead of Rust, or pure Swift?</b></summary>
+<br>
+Because the transport is not what costs anything, and Python is not what runs the math.
+<br><br>
+Measured on this machine by driving the real sidecar over its real protocol and comparing the
+caller-visible round trip against the inference time the sidecar reports from inside itself: the
+mechanism adds <b>0.8–0.9 ms at p50, 1.3 ms at p95</b> — 0.68% of a 119.9 ms Parakeet round trip.
+Process boundary, JSON encode/decode, pipe traffic, all of it. Audio is handed over as a file path,
+never copied through the pipe. Python's GIL never shows up because the MLX call releases it into
+Metal for the duration; Python builds a graph and waits on the GPU. Rewriting the transport in Rust
+would buy back under a millisecond of a 120 ms operation.
+<br><br>
+The real reason is upstream: the model runtimes <i>are</i> Python. `parakeet-mlx` and the ARK MLX
+port are Python packages. Moving to Rust does not mean swapping a transport, it means
+reimplementing the models — and the Rust ecosystem is not ready for these specific ones. Candle
+ships no Parakeet or ARK, its own Voxtral example forces CPU on any non-CUDA build, and it has open
+Metal K-quant correctness bugs; mistral.rs has no C or Swift ABI at all. Native Swift/MLX was costed
+too and rejected for a different reason: mlx-swift needs swift-tools 6.3 against this package's 5.9,
+and it cannot build its Metal shaders under the SwiftPM CLI — it requires Xcode, which this repo's
+shell-first build deliberately avoids.
+<br><br>
+What the sidecar <i>does</i> cost is one-time and already hidden: ~130–320 ms from spawn to `hello`
+and a first transcribe that absorbs model load plus kernel compilation, which is exactly what
+`VOICEOOUR_PRELOAD=1` moves off your first dictation.
 </details>
 
 ---
