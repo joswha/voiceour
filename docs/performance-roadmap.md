@@ -76,6 +76,24 @@ The glossary is the largest single controllable input: going from 8 to 58 terms 
 
 ## Shipped in this change
 
+**Stop awaiting the system-audio fade before transcribing.** `SystemAudioMuter.restore()` ramps the
+user's volume back over `fadeDuration = 120 ms` and awaits every step, and `processStop` awaited it
+immediately after `recorder.stop()`, before the ASR call. The journal quantifies the cost without
+needing new instrumentation: taking `stopReleaseToInsertionOutcomeMs - asrMs` as non-ASR overhead,
+restricted to `parakeet-mlx` sessions where refinement was skipped, and splitting on
+`mutedDuringCapture` — the only variable left — gives **199 ms p50 muted (n=92) against 72 ms
+unmuted (n=13)**. The 127 ms difference is the fade. 80.1% of real-backend sessions were muted, so
+four out of five dictations paid it, in front of an inference that takes 117.8 ms.
+
+The fade now starts on the stop path and ramps under the transcription instead of in front of it
+(`beginSystemAudioRestore()`), which is safe because the restore was already idempotent per session
+and already stored its in-flight task for later joiners. Pinned by
+`recordingStopDoesNotWaitForTheAudioFadeBeforeTranscribing`, which gates `restore()` and asserts the
+coordinator reaches `.transcribing` while the fade is still parked; the test was confirmed to fail
+when the `await` is put back. Note the aggregate muted-vs-unmuted figure across all backends is only
+38 ms and is confounded by backend mix — segmenting within one backend is what makes this legible,
+and is why the earlier ~120 ms figure was a reading of `fadeDuration` rather than a measurement.
+
 **Prewarm the Foundation Models session at recording stop instead of at app launch.**
 
 `DictationCoordinator` previously issued `Task { await refiner.warmUp() }` at construction
