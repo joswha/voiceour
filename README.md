@@ -486,9 +486,13 @@ would recover less than one millisecond from a 120 ms operation.
 The model runtimes are Python packages. This includes `parakeet-mlx` and the ARK MLX port. A Rust
 implementation would need to reimplement the models. Candle has no Parakeet or ARK implementation.
 Its Voxtral example forces CPU execution on non-CUDA builds, and it has open Metal K-quant
-correctness bugs. mistral.rs has no C or Swift ABI. Native Swift/MLX has separate constraints:
-mlx-swift requires swift-tools 6.3 while this package uses 5.9, and its Metal shaders require Xcode
-instead of the SwiftPM CLI. This repository keeps a shell-first build that does not require Xcode.
+correctness bugs. mistral.rs has no C or Swift ABI. Native Swift/MLX has a separate constraint: its
+Metal shaders require Xcode instead of the SwiftPM CLI, and this repository keeps a shell-first build
+that does not require Xcode.
+<br><br>
+This answers why the sidecar is Python <i>today</i>, not why it should stay Python. A no-Python C/Metal
+runtime for the same checkpoint is measured, faster, and recommended; see the 2026-08-14 pass in
+[`docs/performance-roadmap.md`](docs/performance-roadmap.md).
 <br><br>
 Sidecar startup takes ~130–320 ms from spawn to `hello`. The first transcription also loads the
 model and compiles kernels. These one-time costs occur before the first dictation.

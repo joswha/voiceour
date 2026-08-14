@@ -366,9 +366,10 @@ standing assumptions that there is exactly one model: `cache.py`'s single `MODEL
 Parakeet), and `BenchMain.meta`'s Apple-or-Parakeet ternary, which would have labelled every ARK
 benchmark run as Parakeet.
 
-Not native Swift/MLX. mlx-swift 0.31.6 needs swift-tools **6.3** against our 5.9. The newest
-5.9-compatible tag is 0.23.1. MLX Swift cannot build its Metal shaders under the SwiftPM CLI at all.
-It requires Xcode, which this repo's shell-first build avoids. No licensed Swift ARK implementation
+Not native Swift/MLX. MLX Swift cannot build its Metal shaders under the SwiftPM CLI at all; it
+requires Xcode, which this repo's shell-first build avoids, and on this host the Metal compiler is not
+even installed (measured in the 2026-08-14 pass below). Its swift-tools **6.3** manifest is no longer
+the blocker recorded here: the installed toolchain is 6.3.3. No licensed Swift ARK implementation
 exists to vendor; the one the model card links is absent from the repository, and that repository
 carries no licence. Not GGUF or Rust either: llama.cpp's `mtmd` has no `arkasr` graph or converter,
 and Candle's own Voxtral example forces CPU on non-CUDA builds.
@@ -552,6 +553,136 @@ parakeet.cpp (2 runs vs 1). Its aggregate word-operation counts are 34 substitut
 Silent deletion at high reported confidence can create undetected transcript omissions, so this
 requires a larger sample before FluidAudio is trusted as a default.
 
+### Removing Python: second pass, measured 2026-08-14
+
+The first pass asked which runtime is fastest. This one asks what the Python dependency actually
+costs and which no-Python runtime can carry the shipping contract. Latency turns out to be the
+smallest of the three answers.
+
+**The bundle cannot ship.** `scripts/bundle.sh:25-28` copies the Swift executable, `Info.plist` and
+the icon, and nothing else. Real dictation resolves its sidecar through `DictationCoordinator.live()`
+(`--asr-dir`, then `VOICEOUR_ASR_DIR`, then `<repoRoot>/asr`) and launches
+`/usr/bin/env uv --no-config run --project <dir> python -m voiceour_asr`
+(`SidecarASRClient.swift:26-35`). `.build/Voiceour.app` copied to another Mac therefore has no real
+backend — and no `fake` one either, because `fake` is a sidecar backend too
+(`ASRBackendRegistry.swift:131-137`), so `scripts/run_dev.sh --self-test` and the sidecar Swift tests
+need `uv` and a synced venv as well. No measurement of the transport addresses that, and the
+transport is the only thing the 0.8 ms figure ever measured.
+
+**Same-machine A/B on the production path.** `fixtures/audio/hello_16k_mono.wav` (4.13 s), warm, one
+process per runtime, f16-class weights on both sides:
+
+| runtime | warm inference | first inference | peak RSS | weights on disk | Python |
+|---|---:|---:|---:|---:|---|
+| MLX sidecar (today) | 74.5 ms | 833 ms | 1.15 GB | 2.51 GB | yes |
+| parakeet.cpp f16 (C/Metal) | **50.2 ms** | 58-348 ms | 1.34 GB | **1.26 GB** | no |
+
+Both produced the byte-identical transcript `Hello world testing NVIDIA Parakeet NN spaceport.`,
+including the same mistake on the fixture's "and NSPasteboard". Identical output on identical input is
+stronger evidence of equivalence than matching aggregate WER.
+
+Method: MLX was driven through the production sequence `load_pcm16_mono_wav` → `get_logmel` →
+`generate`, not `parakeet_mlx`'s own entry point. Measured through the latter it reads 104 ms, because
+it shells out to `ffmpeg` — the same confound the ordering-controlled re-run above found. parakeet.cpp
+is the sum of its own reported mel, encode, predict and decode for the second and third of three files
+passed to one context (35.2 + 6.5 + 7.1 + 1.3 ms); model load is reported separately and its first
+encode of a process is 58-348 ms while Metal pipelines materialise. So the honest claim is **1.48x on
+the ASR stage, saving ~24 ms**, which is ~8% of the 316 ms release-to-inserted with refinement skipped
+and ~1% with refinement on. Latency is not the reason to do this.
+
+**parakeet.cpp builds with Metal from the command line on a host with no Metal compiler.** This is the
+decisive integration fact and it was verified first-hand rather than read. On this machine
+`xcrun -sdk macosx metal --version` fails with `cannot execute tool 'metal' due to missing Metal
+Toolchain`. Upstream whisper.cpp at 592feef (v1.9.2) nevertheless configures and builds
+`-DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON` with plain cmake and
+AppleClang, and the resulting binary reports `PARAKEET : MTL : EMBED_LIBRARY = 1` and initialises
+`Apple M4 Pro` at runtime: `ggml/src/ggml-metal/CMakeLists.txt:27-58` embeds the shader *source* via
+an ASM `incbin` section and `ggml-metal-device.m:125-134,229-235` compiles it with
+`newLibraryWithSource`. Only the non-embedded path (`:93-101`) needs `xcrun metal`. The static
+`parakeet-cli` is 2.9 MB and links Accelerate, Foundation, Metal, MetalKit, libc++ and libSystem —
+system frameworks only, no nested dylibs, so nothing new to sign inside the bundle.
+
+**Model artifact.** `ggml-org/parakeet-GGUF` publishes prebuilt f32/f16/q8_0/q4_0/q4_k conversions, so
+there is no conversion step and therefore no maintainer-side Python either. Pinnable and pinned in
+this measurement: revision `35156454d1a39de06863303dd209fd2bed6ee079`,
+`ggml-parakeet-tdt-0.6b-v3-f16.bin`, sha256
+`833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f`. That is a stronger contract than
+today's, which pins repo and revision but not content. The card declares
+`base_model: nvidia/parakeet-tdt-0.6b-v3` and does not name a source revision, so lineage is verified
+and byte-equivalence to our pinned `ed2b7e8c…` is **UNVERIFIED**.
+
+**Why the other four candidates lose.**
+
+- **Rust: no, and for a different reason than last time.** Two crates reach Parakeet and neither is a
+  native implementation. `parakeet-rs` 0.3.7 wraps ONNX Runtime, and its own `src/execution.rs` states
+  CoreML is *slower* than CPU for Parakeet because the dynamic ONNX graph blocks ANE/GPU optimisation,
+  with WebGPU documented as returning incorrect results. `sherpa-rs` 0.6.8 is deprecated in favour of
+  upstream's own Rust API. `candle-transformers` 0.11 audio is still csm, dac, encodec, metavoice, mimi,
+  parler_tts, snac, voxtral, whisper — no Conformer, no TDT, and no fused LSTM Metal kernel; `burn` 0.22
+  has no ASR model. The Whisper leg above already measured Candle 2.2x slower than Python/MLX on
+  identical weights and matched decoding.
+- **Pure Swift MLX: no, and the stated blocker has moved.** The toolchain objection recorded elsewhere
+  in this document is stale: the installed toolchain is Swift 6.3.3, so a swift-tools 6.3 dependency is
+  consumable. The Metal objection is the live one, measured above. `mlx-swift-examples` contains no ASR
+  example at all, and the only public Swift Parakeet, `FluidInference/swift-parakeet-mlx` (3,070 LOC,
+  HEAD 2025-07-18), is described by its own README as v2-only, resource-intensive and superseded by that
+  author's CoreML path; it is greedy-only, its `AlignedToken` carries no confidence, and its attention
+  cache calls are commented out. A production-complete port was estimated at 35-55 engineer-days.
+- **sherpa-onnx: shelved, not rejected.** It is the only candidate with real decode-time biasing —
+  per-stream hotwords compiled into an Aho-Corasick `ContextGraph` whose scores fuse before top-k — and
+  it ships a first-party SwiftPM package with prebuilt xcframeworks plus an exported
+  `parakeet-tdt-0.6b-v3-int8` archive with genuine TDT duration decoding. Two facts keep it off the
+  default: `cmake/onnxruntime-osx-universal-static.cmake:60-62` compiles the shipped static Apple build
+  with `-DSHERPA_ONNX_DISABLE_COREML`, so the default Apple product is CPU-only, and its Swift wrapper
+  exposes text/timestamps/durations while discarding the `ys_probs` and tokens the C++ hypothesis
+  carries. 21 MB + 44 MB of arm64 archives. This is where biasing lives if biasing ever becomes a
+  product requirement.
+- **WhisperKit: no.** The open-source model enum is Whisper and distil-Whisper only, and its
+  `BeamSearchTokenSampler.update` is a `fatalError` stub. Parakeet exists only in Argmax's commercial
+  Pro SDK, which requires an API key plus an internet check at first use and at least once every
+  30 days. A local-first dictation app cannot take a license heartbeat.
+- **FluidAudio: opt-in, still not default.** Fastest and most accurate leg in the table above,
+  Apache-2.0, no external Swift dependencies. Three things block promotion. It resolves weights from
+  `resolve/main` with no revision pin (`ModelRegistry.swift:42-50`), which contradicts the model-pin
+  contract. Its v3 accuracy defects are exactly the failure mode this app must not have: five open
+  upstream issues report silent word loss from window composition, #850 deleting a 7.5 s opening at a
+  reported confidence of 0.993, which independently corroborates the extra multi-word dropout measured
+  above. And its TDT path gives token timings plus a mean-token-probability confidence, but no n-best.
+  One mitigation is untested: batch mode uses a 15 s full-attention window, so a short dictation should
+  take exactly one window and never reach the composition path.
+
+**Recommended shape: keep the process boundary, replace the language.** The sidecar becomes a second
+SwiftPM executable target in this repository that links `libparakeet` and speaks protocol v1
+unchanged. The boundary earns its 0.8 ms three times over. Cancellation in parakeet.cpp is
+cooperative and weaker than the header suggests — `src/parakeet.cpp:184-208` installs no abort
+callback on the scheduler paths encode, predict and joint actually use, so an in-flight Metal graph
+cannot be interrupted and only a killable child gives the client a hard timeout. A ggml abort takes
+its process with it, and #3933 was a load-time stack overflow. The 342 MB encode and 67 MB decode
+compute buffers plus weights stay reclaimable by killing an idle child rather than resident in a
+menu-bar app. And reuse is the smaller diff: `SidecarASRClient`, the nine `fixtures/protocol/` files,
+the health and preload semantics and every Swift transport test survive untouched, while both ends
+finally import the same `VoiceCore.ASRProtocol` types instead of maintaining 400 Swift and 179 Python
+lines of the same wire in parallel.
+
+**What it deletes, and what it costs.** `asr/` is 2,896 source and 1,605 test lines. Gone with it:
+`huggingface_hub` (`cache.py`'s 134 lines become a pinned `URLSession` GET plus a sha256 check), the
+two opt-in ARK backends with their vendored 675-line runtime, and 830 lines of trie bias and beam
+n-best. That last item is a real capability loss and is recorded as one: upstream parakeet.cpp is
+greedy-only with no bias hook, so `RiskAuthorizer.appearsInNBest` loses the only path by which it
+could stop being a tautology. Both features are off by default and neither discriminates on the
+shipping path today. `bench/` stays Python deliberately: it drives the Swift `voiceour-bench` binary
+and scores with jiwer and whisper-normalizer, it never ships, and rewriting WER scoring in Swift would
+trade a trusted reference implementation for a novel one. The boundary is no Python in the app, not no
+Python in the lab.
+
+**Three gates before the default flips.** Reproduce accuracy through `voiceour_bench` on LibriSpeech
+n=128 and FLEURS n=64 against `--gate uwer_final:0.0035`, not on one fixture. Choose f16 (1.26 GB)
+versus q8_0 (669 MB) by measurement. And settle open issue #3932 before trusting the word timings:
+duration argmax runs over log-probs, underflowed slots compare against a -1e10 sentinel with a strict
+`>`, and duration index 0 is then selected silently — 16 of 786 tokens on the upstream sample, shifting
+timestamps. It is a one-line comparison bug in a file we would be vendoring anyway.
+
+
 **Why streaming appeared to offer a larger latency reduction.** From 500 real sessions on this
 machine, segmented by whether refinement ran, release-to-inserted with refinement skipped is 316 ms
 for `mlx` against **184 ms for `apple`**, whose ASR stage is 66 ms because SpeechAnalyzer transcribes
@@ -566,11 +697,14 @@ advantage for this utterance profile.
 
 Ranked by estimated engineering value, not implementation ease:
 
-0. **Swap the ASR runtime.** The comparison above measured `parakeet.cpp` at 88.4 ms and FluidAudio
-   at 71.5 ms against our 119.9 ms, both on our own model and both without Python. `parakeet.cpp`
-   preserves existing output and authorization capabilities: identical U-WER to three decimals,
-   MIT, plain C ABI, word timestamps, and per-token posteriors. Do not take FluidAudio as default
-   until its extra multi-word dropout is characterised on a larger sample.
+0. **Replace the sidecar's language, not its shape.** Keep protocol v1 and the child process; make the
+   child a SwiftPM executable that links upstream whisper.cpp's MIT `libparakeet` and drop `asr/`
+   entirely. Measured on the production path: 50.2 ms against 74.5 ms warm, byte-identical transcript,
+   half the weights on disk, and a 2.9 MB static library that builds with plain cmake on a host with no
+   Metal compiler. The reason is not the 24 ms. It is that `scripts/bundle.sh` produces an app that
+   cannot transcribe on any machine without this source tree and `uv`. Do not make FluidAudio the
+   default: it pins no model revision and has five open upstream issues about silently deleted words.
+   Gates and the retained-capability losses are in the 2026-08-14 pass above.
 1. **Avoid work for the 29.2% no-op refines.** No shipped change addresses them. A cheap classifier
    was rejected as overfit on 137 single-speaker rows. The missing prerequisite is a broader labeled
    dataset. Persisting per-session refiner-input text plus the corrected labels would build the
