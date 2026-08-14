@@ -214,11 +214,15 @@ extension DictationCoordinator {
         // decision so the recorded session captures the true muted state even
         // when stop outruns the mute's flag publication.
         let mutedDuringCapture = await pendingMuteResult?.value ?? false
+        let totalSpan = StopPath.signposter.beginInterval(StopPath.Stage.total)
+        defer { StopPath.signposter.endInterval(StopPath.Stage.total, totalSpan) }
         do {
             try ensureCurrentProcessing(generation)
             stopInputMetering()
             state = .finalizingAudio
+            let finalizeSpan = StopPath.signposter.beginInterval(StopPath.Stage.finalizeAudio)
             let audio = try await recorder.stop()
+            StopPath.signposter.endInterval(StopPath.Stage.finalizeAudio, finalizeSpan)
             audioURL = audio.url
             // Audio comes back the moment capture ends, not when transcription
             // finishes. Every other restore path is a safety net for a throw that
@@ -234,6 +238,7 @@ extension DictationCoordinator {
             // `activeProjectId` stay mutable across the ASR await, so compiling
             // again later let an edit mid-transcription make the ASR bias list,
             // the cleanup glossary and the refiner's terms disagree.
+            let vocabularySpan = StopPath.signposter.beginInterval(StopPath.Stage.vocabulary)
             let snapshot = target ?? tracker.snapshot()
             let vocabulary = VocabularyCompiler.compile(
                 persistent: settings.glossary,
@@ -242,6 +247,7 @@ extension DictationCoordinator {
                 activeProjectId: activeProjectId
             )
             let biasPhrases = settings.decoderBiasEnabled ? Self.biasPhrases(from: vocabulary) : []
+            StopPath.signposter.endInterval(StopPath.Stage.vocabulary, vocabularySpan)
 
             state = .transcribing
             let asrStarted = runtime.now()
@@ -251,12 +257,14 @@ extension DictationCoordinator {
             removeTemporaryAudio(&audioURL)
 
             state = .cleaning
+            let cleanupSpan = StopPath.signposter.beginInterval(StopPath.Stage.cleanup)
             let rawTranscript = result.transcript.text
             let activeTerms = vocabulary.terms
             let composed = LiteralComposition.apply(rawTranscript)
             var deterministic =
                 settings.cleanupEnabled ? CleanupEngine.clean(composed, glossary: activeTerms) : composed
             lastTranscript = deterministic
+            StopPath.signposter.endInterval(StopPath.Stage.cleanup, cleanupSpan)
             try ensureCurrentProcessing(generation)
 
             if DictationPolicy.shouldSkipTranscript(deterministic) {
@@ -443,6 +451,7 @@ extension DictationCoordinator {
                 asrInferenceMs: result.timingsMs.inference,
                 asrTotalMs: result.timingsMs.total
             )
+            let journalSpan = StopPath.signposter.beginInterval(StopPath.Stage.journal)
             let sessionID = await recordRecentSession(
                 text: finalText,
                 rawTranscript: rawTranscript,
@@ -450,13 +459,16 @@ extension DictationCoordinator {
                 mutedDuringCapture: mutedDuringCapture,
                 stages: stages
             )
+            StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
             try ensureCurrentProcessing(generation)
 
             state = .readyToInsert
             let insertionTarget = tracker.snapshot()
             updateTargetLabel(for: insertionTarget)
             let insertStarted = runtime.now()
+            let insertSpan = StopPath.signposter.beginInterval(StopPath.Stage.insert)
             let outcome = await inserter.insert(finalText, into: insertionTarget)
+            StopPath.signposter.endInterval(StopPath.Stage.insert, insertSpan)
             let insertMs = Int(runtime.now().timeIntervalSince(insertStarted) * 1000)
             let stopReleaseToInsertionOutcomeMs = Int(runtime.now().timeIntervalSince(stopReleaseStarted) * 1000)
             // Publish before the durable checkpoint so the UI sees the outcome
