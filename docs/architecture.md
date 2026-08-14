@@ -222,6 +222,8 @@ Decoder bias is likewise off by default (`Settings.decoderBiasEnabled = false`).
 
 Every automatic-authority path — auto-correction, decoder bias, and keyword spotting — is gated on a consented real-speaker TechTerms corpus that does not yet exist; current TechTerms coverage is TTS smoke-only. Stage 5 keyword spotting is deferred: CTC word-spotting is blocked because the pinned checkpoint has no CTC head, and a separate local KWS model needs real-speaker plus resource and false-accept justification before it ships.
 
+Two of those gates do not discriminate on the shipping default decoding path, measured 2026-08-14, and this is recorded in `RiskAuthorizer`'s own doc comment as well because the prose above reads stronger than the code measures. The MLX greedy path returns exactly one hypothesis, and it is the transcript the candidate was extracted from, with `score` and `raw_score` both literally `0.0` — so `appearsInNBest` asks whether the candidate appears in the text it came from, and always answers yes. Only the opt-in beam path (`VOICEOOUR_ASR_DECODING=beam`, set nowhere in this repository) produces a real n-best list. And `greedy_entropy` is not a calibrated probability: committed TechTerms reports put its expected calibration error between **0.235 and 0.419**, where 0 is perfect, against floors described as calibrated. Relatedly `runnerUpMargin` as supplied by `TranscriptProcessingPipeline` is a margin between the retriever's own blended phonetic/textual similarity scores, not between competing recognitions. None of it is live while the master switch is off, and it is the switch, not the gates, that is currently doing the work.
+
 ## Why VoiceOour holds no credentials
 
 This app stores no secret. Refinement has exactly two destinations, and neither
@@ -263,6 +265,18 @@ or OpenAI model id means nothing to OMP; the forced opt-out is a consent
 decision, because those installs were sending text to a provider the user chose
 with a key the user supplied, and quietly redirecting a live refiner to a
 different network destination is not a migration detail.
+
+## No-speech gate
+
+ASR models do not return nothing for noise, they invent. Measured 2026-08-14 through the real sidecar on 8 s WAVs: pure digital zeros gave the `mlx` default an empty string but gave `ark-0.6b` `嗯。`; quiet dither and hiss both gave `mlx` `"Esta mañana está en su mayor mayor mayor."` and `ark-0.6b` `嗯。`. `DictationPolicy.shouldSkipTranscript` cannot catch any of that, because it tests for whitespace and none of those strings are whitespace, and this app pastes the result into the user's document.
+
+`processStop` therefore gates on capture evidence before it calls the model, which also saves the inference. The evidence was already being computed and discarded: `MicrophoneRecorder` runs `CaptureTelemetryAnalyzer` on the finished WAV and `RecordedAudio` already carried the telemetry to the stop path, where nothing read it.
+
+The signal is `snrDB`, the gap between the 90th and 10th percentile of 10 ms buffer RMS. Flat noise collapses toward zero because every buffer looks alike; speech keeps a wide gap because it alternates with its own pauses. Measured: **0.0** for zeros, **0.8** for both dither and hiss, against **20.4–52.8** for nine real speech clips. `DictationPolicy.minimumCaptureSNRDB` is **6 dB**, which is 7.5x above the loudest noise sample and 3.4x below the quietest speech sample.
+
+Peak level is deliberately not used, and neither is `activeSpeechRatio`. Three of those real clips peak at −44 to −49 dBFS — quieter than the hiss — and read `activeSpeechRatio` 0.000 because they never cross −40 dBFS, so either signal would discard genuine quiet speech.
+
+The gate fails open in both directions that matter. Absent telemetry proceeds, because suppressing a real dictation on no evidence is worse than passing noise through. `RecordedAudio.isSynthetic` proceeds, and the producer sets it: `FakeAudioRecorder` writes literal silence and synthesising a transcript from it is that recorder's contract, so a gate that keyed on level alone would have broken every test, the smoke path and the UI harness.
 
 ## Insertion policy
 
