@@ -117,23 +117,39 @@ Golden protocol fixtures live in `fixtures/protocol/` and are decoded by both Sw
 
 ## Where the ASR boundary is going
 
-Researched 2026-08-13 against four competing designs and four scoring lenses. Recorded here because
-the current boundary is adequate for five backends of three families and will not survive the fourth
-family. Nothing below is built yet; this is the direction, and the ordering matters more than the
-shape.
+Researched 2026-08-13 against four competing designs and four scoring lenses, then partly overtaken
+by measurement on 2026-08-14. Recorded here because the current boundary is adequate for five
+backends of three families and will not survive the fourth family. The invariants below are the
+direction; nothing about the boundary itself is built yet.
 
-**Do the non-abstraction work first.** The measured gap between `mlx` (release-to-inserted 316 ms)
-and `apple` (184 ms) is only 118 ms of ASR; roughly 130 ms of non-ASR overhead sits in *both* paths
-and nobody has attacked it. `Sources/` currently contains **zero** `os_signpost` call sites, so no
-end-to-end latency claim in this repository is independently checkable. Instrument first, then move
-the work that runs before the paste but does not gate it — journal write, statistics folding,
-insight refresh, audio-route restoration with its 105 ms fade, WAV analysis, capture teardown —
-to after it. That is worth more than the entire runtime swap and it changes no transcript.
+**The non-abstraction work came first, and it was not where it was predicted to be.** The design pass
+claimed ~130 ms of non-ASR overhead sat in both the `mlx` and `apple` paths, and prescribed deferring
+the journal write, statistics folding and audio-route restoration past the paste. Measurement
+contradicted most of that:
+
+- Overhead is not shared between the paths. Segmenting real sessions by backend and mute state —
+  `parakeet-mlx`, refinement skipped — gives non-ASR overhead of **72 ms p50 unmuted (n=13)** against
+  **199 ms muted (n=92)**. Mute state, not the path, was the variable.
+- The 127 ms difference was `SystemAudioMuter.restore()`, whose `fadeDuration` is **120 ms** (not the
+  105 ms the design pass cited) and which `processStop` awaited *before* the ASR call. 80.1% of
+  real-backend sessions were muted, so four in five dictations paid it in front of a 117.8 ms
+  inference. The fix was to **detach** it so the fade ramps under the transcription, not to defer it
+  past the paste: the user wants their audio back promptly, and nothing about transcription depends on
+  the fade having finished.
+- The journal write, the largest of the prescribed deferrals, measures **1.5 ms**. Not worth moving.
+
+`Sources/VoiceOour/StopPathSignposts.swift` now carries an `OSSignposter` with six intervals over the
+stop path, which previously had none — that absence is why a 120 ms fade had to be found by reading
+source rather than by measuring. Emission is verified only as far as `OSSignposter.isEnabled`;
+signposts are ephemeral and need Instruments to collect, as that file records.
 
 **Streaming is a property of the checkpoint, and the boundary must be able to say so.** Encoded as a
 type, not a setting: a backend may not advertise capture-time operation unless it declares a finite
-lookahead. `parakeet-tdt-0.6b-v3` cannot, which is why `transcribe_stream` lost (see the
-performance roadmap's dead-ends table).
+lookahead. `parakeet-tdt-0.6b-v3` cannot, which is why `transcribe_stream` lost. Four
+streaming-trained candidates were then measured and all lost too — a streaming model must drain its
+trained delay before it can finalise, and at these utterance lengths that drain costs more than
+decoding the whole utterance once. Streaming is **not enabled in any shipping path**; see the
+performance roadmap for the full grid and the conditions under which it becomes interesting again.
 
 **Evidence must be earned, not asserted.** Today a backend states its evidence implicitly by which
 optional fields it fills, and `biasEnabled` already showed how a defaulted field turns "unknown"
