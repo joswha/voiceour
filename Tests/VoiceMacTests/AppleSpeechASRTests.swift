@@ -47,13 +47,7 @@ struct AppleSpeechASRTests {
             return
         }
 
-        let fixture = URL(fileURLWithPath: "fixtures/audio/hello_16k_mono.wav")
-        let audio = RecordedAudio(
-            url: fixture,
-            meta: ASRAudioMeta(
-                path: fixture.path, format: "wav", sampleRateHz: 16000, channels: 1, durationMs: 3242,
-                byteCount: 103_760)
-        )
+        let audio = helloFixtureAudio()
         let started = Date()
         let result = try await client.transcribe(audio, timeoutMs: 15_000)
         let ms = Int(Date().timeIntervalSince(started) * 1000)
@@ -69,13 +63,8 @@ struct AppleSpeechASRTests {
         guard #available(macOS 26.0, *) else { return }
 
         let engine = AppleSpeechDictationEngine()
-        let fixture = URL(fileURLWithPath: "fixtures/audio/hello_16k_mono.wav")
-        let audio = RecordedAudio(
-            url: fixture,
-            meta: ASRAudioMeta(
-                path: fixture.path, format: "wav", sampleRateHz: 16000, channels: 1, durationMs: 3242,
-                byteCount: 103_760)
-        )
+        let audio = helloFixtureAudio()
+        let fixture = audio.url
         let result = try await engine.transcribe(audio, timeoutMs: 15_000)
         #expect(result.backendId == "apple-speech")
         #expect(result.transcript.text.lowercased().contains("hello"))
@@ -94,13 +83,7 @@ struct AppleSpeechASRTests {
             return
         }
 
-        let fixture = URL(fileURLWithPath: "fixtures/audio/hello_16k_mono.wav")
-        let audio = RecordedAudio(
-            url: fixture,
-            meta: ASRAudioMeta(
-                path: fixture.path, format: "wav", sampleRateHz: 16000, channels: 1, durationMs: 3242,
-                byteCount: 103_760)
-        )
+        let audio = helloFixtureAudio()
         let result = try await client.transcribe(audio, timeoutMs: 15_000)
 
         // The fixture reliably transcribes "hello", so requesting audio-time-range
@@ -195,6 +178,16 @@ struct AppleSpeechASRTests {
         try engine.start()
         try await Task.sleep(nanoseconds: 200_000_000)
         await engine.discardRecording()
+    }
+
+    private func helloFixtureAudio() -> RecordedAudio {
+        let fixture = URL(fileURLWithPath: "fixtures/audio/hello_16k_mono.wav")
+        return RecordedAudio(
+            url: fixture,
+            meta: ASRAudioMeta(
+                path: fixture.path, format: "wav", sampleRateHz: 16000, channels: 1, durationMs: 3242,
+                byteCount: 103_760)
+        )
     }
 
 }

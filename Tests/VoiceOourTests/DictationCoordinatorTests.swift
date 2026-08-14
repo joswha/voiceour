@@ -217,7 +217,6 @@ struct DictationCoordinatorTests {
         settings.refinerModel = "old-model"
         let oldProbeGate = TestGate()
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             settings: settings,
             ompModelsProbe: { _, _, model, _ in
                 guard model == "old-model" else { return .ok(models: 7) }
@@ -272,7 +271,6 @@ struct DictationCoordinatorTests {
             ),
         ]
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             settings: settings,
             settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
             ompOnboardingStart: { subscription in
@@ -311,7 +309,6 @@ struct DictationCoordinatorTests {
         settings.refinerEnabled = true
         settings.refinerProvider = .omp
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             settings: settings,
             ompOnboardingStart: { _ in
                 throw OmpOnboardingError.cannotOpenTerminal
@@ -344,7 +341,6 @@ struct DictationCoordinatorTests {
             )
         ])
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             settings: settings,
             ompProviderStatusProbe: { _, _, timeoutMs in
                 #expect(timeoutMs == 1_234)
@@ -373,7 +369,6 @@ struct DictationCoordinatorTests {
             OmpAvailableModel(provider: "anthropic", selector: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5"),
         ]
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             ompModelCatalogLoad: { _, _, timeoutMs in
                 #expect(timeoutMs == 1_234)
                 await loadGate.wait()
@@ -401,7 +396,6 @@ struct DictationCoordinatorTests {
     /// user looking for the wrong problem.
     @Test func ompModelCatalogRefreshPublishesTheFailureReason() async {
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             ompModelCatalogLoad: { _, _, _ in throw OmpModelCatalogTestError.unreadable }
         )
 
@@ -419,7 +413,6 @@ struct DictationCoordinatorTests {
         let freshModel = OmpAvailableModel(provider: "fresh", selector: "fresh/model", name: "Fresh")
         let loadCount = LoadCounter()
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             ompModelCatalogLoad: { _, _, _ in
                 guard loadCount.next() == 1 else { return [freshModel] }
                 await staleGate.wait()
@@ -448,7 +441,6 @@ struct DictationCoordinatorTests {
         settings.refinerProvider = .omp
         let store = temporarySettingsStore()
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             settings: settings,
             settingsStore: store
         )
@@ -560,7 +552,6 @@ struct DictationCoordinatorTests {
         settings.refinerModel = ""
         let capture = ProbeModelCapture()
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             settings: settings,
             ompModelsProbe: { _, _, model, _ in
                 capture.record(model: model)
@@ -1069,14 +1060,14 @@ struct DictationCoordinatorTests {
         #expect((stages.asrTotalMs ?? 0) >= (stages.asrInferenceMs ?? 0))
         #expect(endToEndMs >= hostASRMs + insertMs)
         #expect(!fileExists(recorder.producedURL))
-        print(
+        let telemetry =
             "mlx coordinator telemetry: endToEnd=\(endToEndMs)ms "
-                + "hostASR=\(hostASRMs)ms insert=\(insertMs)ms "
-                + "backend=\(stages.asrBackendId ?? "nil") "
-                + "load=\(stages.asrLoadMs ?? -1)ms "
-                + "inference=\(stages.asrInferenceMs ?? -1)ms "
-                + "total=\(stages.asrTotalMs ?? -1)ms"
-        )
+            + "hostASR=\(hostASRMs)ms insert=\(insertMs)ms "
+            + "backend=\(stages.asrBackendId ?? "nil") "
+            + "load=\(stages.asrLoadMs ?? -1)ms "
+            + "inference=\(stages.asrInferenceMs ?? -1)ms "
+            + "total=\(stages.asrTotalMs ?? -1)ms\n"
+        FileHandle.standardError.write(Data(telemetry.utf8))
     }
 
     // MARK: Recent-session persistence
@@ -1280,7 +1271,6 @@ struct DictationCoordinatorTests {
         try fixture.store.save([session])
         let writer = SessionSnapshotWriterSpy(failingCalls: [1])
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             recentSessionStore: fixture.store,
             recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
         )
@@ -1426,7 +1416,7 @@ struct DictationCoordinatorTests {
     /// ending can still arrive at an idle coordinator. It must not flash `.cancelled`.
     @Test func escapeFromIdleIsANoOp() async {
         let hotkey = FakeHotkey()
-        let coordinator = makeCoordinator(asr: FakeASR(behavior: .text("unused")), hotkey: hotkey)
+        let coordinator = makeCoordinator(hotkey: hotkey)
 
         hotkey.triggerCancel()
         await drain()
@@ -1693,14 +1683,7 @@ struct DictationCoordinatorTests {
     /// `clearLearnedVocabulary`, which deleted a default the user only ever added
     /// a surface to.
     @Test func teachingASurfaceOntoABundledTermKeepsItBundled() throws {
-        let store = temporarySettingsStore()
-        var settings = VoiceCore.Settings()
-        settings.glossary = Settings.defaultGlossary
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("")),
-            settings: settings,
-            settingsStore: store
-        )
+        let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
 
         #expect(!coordinator.hasLearnedVocabulary)
         coordinator.teachCorrection(canonical: "kubectl", misheard: "cube control", scope: .global)
@@ -1717,17 +1700,11 @@ struct DictationCoordinatorTests {
     /// added does not. Both halves are load-bearing: filtering on `source` alone
     /// used to leave a taught mishearing welded to a bundled term forever.
     @Test func clearingLearnedVocabularyRestoresBundledSurfacesAndDropsLearnedTerms() throws {
-        let store = temporarySettingsStore()
-        var settings = VoiceCore.Settings()
-        settings.glossary =
-            Settings.defaultGlossary + [
+        let coordinator = makeVocabularyCoordinator(
+            glossary: Settings.defaultGlossary + [
                 ProtectedTerm(canonical: "NeuroDock", spokenAliases: ["neuro dock"], source: .explicitCorrection),
                 ProtectedTerm(canonical: "ProjectTerm", spokenAliases: [], source: .manualImport),
             ]
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("")),
-            settings: settings,
-            settingsStore: store
         )
         coordinator.teachCorrection(canonical: "kubectl", misheard: "cube control", scope: .global)
 
@@ -1750,13 +1727,8 @@ struct DictationCoordinatorTests {
     /// A default the user deleted from the ledger stays deleted: the clear
     /// restores surfaces on rows that survive, it does not resurrect rows.
     @Test func clearingLearnedVocabularyDoesNotResurrectARemovedDefault() {
-        let store = temporarySettingsStore()
-        var settings = VoiceCore.Settings()
-        settings.glossary = Settings.defaultGlossary.filter { $0.canonical != "CGEvent" }
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("")),
-            settings: settings,
-            settingsStore: store
+        let coordinator = makeVocabularyCoordinator(
+            glossary: Settings.defaultGlossary.filter { $0.canonical != "CGEvent" }
         )
 
         coordinator.clearLearnedVocabulary()
@@ -1772,19 +1744,14 @@ struct DictationCoordinatorTests {
     /// carried `Cloud` as an alias of `Claude` and rewrote every dictated
     /// "Google Cloud" into "Google Claude".
     @Test func clearingLearnedVocabularyDropsUnshippedSurfacesOfAnOrphanedDefault() throws {
-        let store = temporarySettingsStore()
-        var settings = VoiceCore.Settings()
         let orphan = ProtectedTerm(
             canonical: "Claude",
             spokenAliases: ["Cloud"],
             termId: "Claude",
             source: .bundled
         )
-        settings.glossary = Settings.defaultGlossary + [orphan]
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("")),
-            settings: settings,
-            settingsStore: store
+        let coordinator = makeVocabularyCoordinator(
+            glossary: Settings.defaultGlossary + [orphan]
         )
         #expect(
             CleanupEngine.clean("deploy on Google Cloud", glossary: [orphan]) == "deploy on Google Claude",
@@ -1807,13 +1774,9 @@ struct DictationCoordinatorTests {
     /// two alias stores meet in every one of those hops, and the reported bug was
     /// that they disagreed.
     @Test func aTaughtSurfaceSurvivesTheGlossaryRowRoundTrip() async throws {
-        let store = temporarySettingsStore()
-        var settings = VoiceCore.Settings()
-        settings.glossary = []
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("please run cube uh cuddle on the pod")),
-            settings: settings,
-            settingsStore: store
+        let coordinator = makeVocabularyCoordinator(
+            glossary: [],
+            asrText: "please run cube uh cuddle on the pod"
         )
 
         coordinator.teachCorrection(canonical: "kubectl", misheard: "cube uh cuddle", scope: .global)
@@ -1933,7 +1896,6 @@ struct DictationCoordinatorTests {
         #expect(!FileManager.default.fileExists(atPath: statsURL.path))
 
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             recentSessionStore: fixture.store
         )
 
@@ -1972,7 +1934,6 @@ struct DictationCoordinatorTests {
         try DictationStatsStore(besideRecentSessionsAt: fixture.store.url).save(behind)
 
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             recentSessionStore: fixture.store
         )
 
@@ -2049,7 +2010,6 @@ struct DictationCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         try fixture.store.save([RecentSession(text: "history to erase")])
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("unused")),
             recentSessionStore: fixture.store,
             statsSnapshotSave: { _, _ in throw StatsWriteFailure.injected }
         )
@@ -2068,7 +2028,7 @@ struct DictationCoordinatorTests {
 
     private func makeCoordinator(
         recorder: AudioRecording = FakeRecorder(),
-        asr: ASRClienting,
+        asr: ASRClienting = FakeASR(behavior: .text("unused")),
         tracker: TargetTracking = FakeTracker(),
         inserter: TextInserting = FakeInserter(outcome: .pasteAttempted),
         refiner: TranscriptRefining = FakeRefiner(),
@@ -2160,6 +2120,19 @@ struct DictationCoordinatorTests {
         return (
             directory,
             RecentSessionStore(url: directory.appendingPathComponent("recent-sessions.json"), limit: limit)
+        )
+    }
+
+    private func makeVocabularyCoordinator(
+        glossary: [ProtectedTerm],
+        asrText: String = ""
+    ) -> DictationCoordinator {
+        var settings = VoiceCore.Settings()
+        settings.glossary = glossary
+        return makeCoordinator(
+            asr: FakeASR(behavior: .text(asrText)),
+            settings: settings,
+            settingsStore: temporarySettingsStore()
         )
     }
 
@@ -2539,7 +2512,7 @@ private final class GuardingCapturingRefiner: TranscriptRefining, @unchecked Sen
         safety: TargetSafetyClass,
         style: RefinementStyle
     ) async -> RefineOutcome {
-        let prompt = RefinerPolicy.llmUserMessage(
+        let prompt = RefinerPolicy.ompUserMessage(
             raw: raw,
             glossary: RefinerPolicy.cloudEligible(glossary),
             style: style

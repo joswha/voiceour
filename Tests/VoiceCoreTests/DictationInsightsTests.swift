@@ -38,7 +38,6 @@ struct DictationInsightsTests {
         #expect(result.isFullyMeasured)
 
         #expect(result.dictationWPM == nil)
-        #expect(result.spokenWPM == nil)
         #expect(result.speedMultiplier(typingWPM: DictationInsights.defaultTypingWPM) == nil)
         #expect(result.peakSpokenWPM == nil)
 
@@ -180,11 +179,9 @@ struct DictationInsightsTests {
         #expect(result.spokenMs == 30_000)
         #expect(result.waitMs == 30_000)
         #expect(result.elapsedMs == 60_000)
-        #expect(isClose(result.spokenWPM, 104))  // speech alone
         #expect(isClose(result.dictationWPM, 52))  // hotkey to text on screen
 
         let unmeasured = insights([RecentSession(createdAt: fixedNow, text: text(52))])
-        #expect(unmeasured.spokenWPM == nil)
         #expect(unmeasured.dictationWPM == nil)
     }
 

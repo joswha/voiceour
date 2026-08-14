@@ -28,3 +28,18 @@ func isClose(_ value: Double?, _ expected: Double, tol: Double = 1e-6) -> Bool {
     guard let value else { return false }
     return abs(value - expected) < tol
 }
+
+// MARK: File fixtures
+
+func temporaryCoreTestFile(named fileName: String) -> (directory: URL, url: URL) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("VoiceCoreTests-\(UUID().uuidString)", isDirectory: true)
+    return (directory, directory.appendingPathComponent(fileName))
+}
+
+func repoRoot() -> URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}

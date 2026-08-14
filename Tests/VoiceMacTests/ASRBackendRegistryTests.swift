@@ -129,13 +129,9 @@ struct ASRBackendRegistryTests {
         #expect(VoiceCore.LaunchOptions.validBackend(nil, validBackendIDs: ids) == nil)
     }
 
-    /// `LaunchOptions` hardcodes the same ids because VoiceCore may not import
-    /// VoiceMac to read the registry. This is the drift check for that copy: a
-    /// backend registered here but missing there is selectable in the app and
-    /// rejected on the command line.
-    @Test func launchOptionDefaultsCoverEveryRegisteredBackend() {
-        for id in registry.backendIDs {
-            #expect(VoiceCore.LaunchOptions.validBackend(id) == id)
-        }
+    /// VoiceCore cannot import VoiceMac to read the registry, so this exact
+    /// equality assertion catches drift in either direction.
+    @Test func launchOptionDefaultsMatchRegisteredBackends() {
+        #expect(LaunchOptions.defaultBackendIDs == registry.backendIDs)
     }
 }

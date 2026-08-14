@@ -197,27 +197,44 @@ extension OmpSuites {
                 profileDirectory: nil
             )
 
-            #expect(snapshot.connectedProviderCount == 4)
-            #expect(snapshot.activeAccountCount == 5)
             #expect(
-                snapshot.connection(providerID: "openai-codex")
-                    == OmpProviderConnection(
+                snapshot.connections == [
+                    OmpProviderConnection(
+                        providerID: "anthropic",
+                        displayName: "Anthropic",
+                        activeAccounts: 1,
+                        reportingAccounts: 1,
+                        disabledAccounts: 0
+                    ),
+                    OmpProviderConnection(
                         providerID: "openai-codex",
                         displayName: "ChatGPT Plus/Pro",
                         activeAccounts: 2,
                         reportingAccounts: 2,
                         disabledAccounts: 0
-                    ))
-            #expect(
-                snapshot.connection(providerID: "google-gemini-cli")
-                    == OmpProviderConnection(
+                    ),
+                    OmpProviderConnection(
+                        providerID: "cursor",
+                        displayName: "Cursor",
+                        activeAccounts: 1,
+                        reportingAccounts: 0,
+                        disabledAccounts: 0
+                    ),
+                    OmpProviderConnection(
                         providerID: "google-gemini-cli",
                         displayName: "Google Cloud Code Assist",
                         activeAccounts: 0,
                         reportingAccounts: 0,
                         disabledAccounts: 1
-                    ))
-            #expect(snapshot.connection(providerID: "cursor")?.displayName == "Cursor")
+                    ),
+                    OmpProviderConnection(
+                        providerID: "kimi-code",
+                        displayName: "Kimi Code",
+                        activeAccounts: 1,
+                        reportingAccounts: 0,
+                        disabledAccounts: 0
+                    ),
+                ])
             let captured = try String(contentsOf: capture, encoding: .utf8)
             #expect(captured.contains("args=<usage --json --redact>"))
             #expect(captured.contains("openai=< >"))

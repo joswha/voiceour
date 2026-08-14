@@ -460,7 +460,7 @@ struct VoiceCoreTests {
     }
 
     @Test func settingsStoreRoundTripPersistsCustomMuteValues() throws {
-        let fixture = temporarySettingsFile()
+        let fixture = temporaryCoreTestFile(named: "settings.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = SettingsStore(url: fixture.url)
         let settings = Settings(asrBackend: "mlx", muteSystemAudioDuringCapture: false)
@@ -473,7 +473,7 @@ struct VoiceCoreTests {
     }
 
     @Test func settingsStoreRestrictsPermissionsAfterEveryAtomicSave() throws {
-        let fixture = temporarySettingsFile()
+        let fixture = temporaryCoreTestFile(named: "settings.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let fileManager = FileManager.default
         let store = SettingsStore(url: fixture.url)
@@ -557,7 +557,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreLoadMissingFileReturnsEmptyHistory() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         let store = RecentSessionStore(url: fixture.url, limit: 5)
@@ -566,7 +566,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreSaveRoundTripsTextFlagsAndOutcomeNewestFirst() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = RecentSessionStore(url: fixture.url, limit: 5)
         let older = Date(timeIntervalSince1970: 1_700_000_000)
@@ -593,7 +593,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreRestrictsPermissionsAfterEveryAtomicSave() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let fileManager = FileManager.default
         let store = RecentSessionStore(url: fixture.url, limit: 5)
@@ -624,7 +624,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreReloadsPersistedSessionsNewestFirst() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = RecentSessionStore(url: fixture.url, limit: 5)
         let oldest = RecentSession(
@@ -643,7 +643,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreDefaultLimitRetainsMoreThanOldMenuCap() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = RecentSessionStore(url: fixture.url)
         let base = Date(timeIntervalSince1970: 1_700_003_000)
@@ -663,7 +663,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreSnapshotNormalizesNewestFirstAndCapsAtLimit() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = RecentSessionStore(url: fixture.url, limit: 500)
         let base = Date(timeIntervalSince1970: 1_700_010_000)
@@ -684,7 +684,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreEmptySnapshotRemovesExistingFile() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = RecentSessionStore(url: fixture.url, limit: 5)
         try store.save([RecentSession(text: "saved")])
@@ -697,7 +697,7 @@ struct VoiceCoreTests {
     }
 
     @Test func recentSessionStoreClearRemovesFileAndLeavesEmptyHistory() throws {
-        let fixture = temporaryRecentSessionFile()
+        let fixture = temporaryCoreTestFile(named: "recent-sessions.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = RecentSessionStore(url: fixture.url, limit: 5)
 
@@ -729,31 +729,12 @@ struct VoiceCoreTests {
         #expect(RecentSessionStore.defaultURL.lastPathComponent == "recent-sessions.json")
     }
 
-    private func temporarySettingsFile() -> (directory: URL, url: URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VoiceCoreTests-\(UUID().uuidString)", isDirectory: true)
-        return (directory, directory.appendingPathComponent("settings.json"))
-    }
-
-    private func temporaryRecentSessionFile() -> (directory: URL, url: URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VoiceCoreTests-\(UUID().uuidString)", isDirectory: true)
-        return (directory, directory.appendingPathComponent("recent-sessions.json"))
-    }
-
     private func posixPermissions(at url: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
         return permissions.intValue & 0o777
     }
 
-}
-
-func repoRoot() -> URL {
-    URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
 }
 
 private struct CleanupPair: Decodable {

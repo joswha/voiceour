@@ -28,38 +28,6 @@ struct RefinerStylePromptTests {
         #expect(String(formal.dropLast(formalSuffix.count)) == standard)
     }
 
-    @Test func llmUserMessageAppendsExactStyleSuffixes() {
-        let standard = RefinerPolicy.llmUserMessage(raw: "hello", glossary: [], style: .standard)
-        let casual = RefinerPolicy.llmUserMessage(raw: "hello", glossary: [], style: .casual)
-        let formal = RefinerPolicy.llmUserMessage(raw: "hello", glossary: [], style: .formal)
-
-        #expect(!standard.contains("\nSTYLE:"))
-        #expect(casual.hasSuffix(casualSuffix))
-        #expect(formal.hasSuffix(formalSuffix))
-        #expect(String(casual.dropLast(casualSuffix.count)) == standard)
-        #expect(String(formal.dropLast(formalSuffix.count)) == standard)
-    }
-    @Test func llmUserMessageRendersHandwrittenAndDerivedVocabularyAliases() {
-        let glossary = [
-            ProtectedTerm(canonical: "NSPasteboard", spokenAliases: ["NS Pasteboard", "native pasteboard"]),
-            ProtectedTerm(canonical: "kubectl", spokenAliases: []),
-        ]
-
-        let message = RefinerPolicy.llmUserMessage(raw: "use the tool", glossary: glossary, style: .standard)
-
-        #expect(
-            message == """
-                <protected_terms>
-                NSPasteboard (heard as: NS Pasteboard, native pasteboard, n s pasteboard)
-                kubectl
-                </protected_terms>
-                \(repairInstruction)
-                <transcript>
-                use the tool
-                </transcript>
-                """)
-    }
-
     @Test func ompUserMessageRendersHandwrittenAndDerivedVocabularyAliases() {
         let glossary = [
             ProtectedTerm(canonical: "NSPasteboard", spokenAliases: ["NS Pasteboard", "native pasteboard"]),

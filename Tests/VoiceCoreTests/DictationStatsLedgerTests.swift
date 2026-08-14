@@ -13,12 +13,6 @@ struct DictationStatsLedgerTests {
         RecentSessionOutcomeMetadata(disposition: .pasteAttempted, targetBundleId: bundleId)
     }
 
-    private func temporaryStatsFile() -> (directory: URL, url: URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VoiceCoreTests-\(UUID().uuidString)", isDirectory: true)
-        return (directory, directory.appendingPathComponent(DictationStatsStore.fileName))
-    }
-
     // MARK: Folding
 
     @Test func ingestCountsTheSameCorpusOnlyOnce() {
@@ -220,7 +214,7 @@ struct DictationStatsLedgerTests {
         let sessionStore = RecentSessionStore()  // the shipping retention cap
         #expect(sessionStore.limit <= DictationStatsLedger.ingestMemory)
 
-        let fixture = temporaryStatsFile()
+        let fixture = temporaryCoreTestFile(named: DictationStatsStore.fileName)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         let corpus = sessionStore.normalized(
@@ -254,7 +248,7 @@ struct DictationStatsLedgerTests {
     }
 
     @Test func storeLoadsAnEmptyLedgerForAMissingFile() throws {
-        let fixture = temporaryStatsFile()
+        let fixture = temporaryCoreTestFile(named: DictationStatsStore.fileName)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         #expect(try DictationStatsStore(url: fixture.url).load() == DictationStatsLedger())
@@ -263,7 +257,7 @@ struct DictationStatsLedgerTests {
     /// A file this build cannot read is discarded rather than fatal: the caller
     /// re-ingests the retained corpus, so the worst case is a restarted tally.
     @Test func storeDiscardsALedgerWrittenByAnUnknownVersion() throws {
-        let fixture = temporaryStatsFile()
+        let fixture = temporaryCoreTestFile(named: DictationStatsStore.fileName)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         try FileManager.default.createDirectory(at: fixture.directory, withIntermediateDirectories: true)
         try Data(#"{"version": 99, "dictations": 41, "words": 9000}"#.utf8).write(to: fixture.url)

@@ -15,8 +15,7 @@
             guard
                 let names = try generatedGoldenNames(
                     in: directory,
-                    suffixes: [".ax.txt", ".png.sha256"],
-                    absentMessage: "UI scene goldens have never been generated; scene parity is skipped"
+                    suffixes: [".ax.txt", ".png.sha256"]
                 )
             else { return }
 
@@ -38,8 +37,7 @@
             guard
                 let names = try generatedGoldenNames(
                     in: directory,
-                    suffixes: [".ax.txt", ".png.sha256"],
-                    absentMessage: "UI scene goldens have never been generated; orphan detection is skipped"
+                    suffixes: [".ax.txt", ".png.sha256"]
                 )
             else { return }
 
@@ -61,8 +59,7 @@
             guard
                 let names = try generatedGoldenNames(
                     in: directory,
-                    suffixes: [".flow.txt", ".ax.txt", ".png.sha256"],
-                    absentMessage: "UI flow goldens have never been generated; journal parity is skipped"
+                    suffixes: [".flow.txt", ".ax.txt", ".png.sha256"]
                 )
             else { return }
 
@@ -85,8 +82,7 @@
             guard
                 let names = try generatedGoldenNames(
                     in: directory,
-                    suffixes: [".flow.txt", ".ax.txt", ".png.sha256"],
-                    absentMessage: "UI flow goldens have never been generated; frame parity is skipped"
+                    suffixes: [".flow.txt", ".ax.txt", ".png.sha256"]
                 )
             else { return }
 
@@ -110,29 +106,14 @@
                 "flow .png.sha256 goldens without a matching capture: \(pixelOrphans.sorted())")
         }
 
-        private func repositoryRoot() -> URL? {
-            let fileManager = FileManager.default
-            var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            while true {
-                if fileManager.fileExists(atPath: candidate.appendingPathComponent("Package.swift").path) {
-                    return candidate
-                }
-                let parent = candidate.deletingLastPathComponent()
-                guard parent.path != candidate.path else { return nil }
-                candidate = parent
-            }
-        }
-
         private func generatedGoldenNames(
             in directory: URL,
-            suffixes: [String],
-            absentMessage: Comment
+            suffixes: [String]
         ) throws -> [String]? {
             let fileManager = FileManager.default
             var isDirectory: ObjCBool = false
             let exists = fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory)
             guard exists else {
-                #expect(!exists, absentMessage)
                 return nil
             }
             #expect(isDirectory.boolValue, "golden path is not a directory: \(directory.lastPathComponent)")
@@ -141,7 +122,6 @@
             let names = try fileManager.contentsOfDirectory(atPath: directory.path)
             let generated = names.filter { name in suffixes.contains { name.hasSuffix($0) } }
             guard !generated.isEmpty else {
-                #expect(generated.isEmpty, absentMessage)
                 return nil
             }
             return generated
