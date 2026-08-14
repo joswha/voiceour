@@ -179,7 +179,7 @@ Documented so nobody re-litigates them.
 | Idea | Result |
 |---|---|
 | **`@Generable` diff/patch output** instead of full rewrite | **+873 ms (+88% SLOWER)**, 30/50 patch-application failures. Constrained-decoding overhead and schema tokens swamp the decode saving |
-| **Streaming Parakeet** (`transcribe_stream`, already in the installed 0.5.2) | At the production-median 10.5 s: **66 ms slower** than batch and **5.56% of words changed**. Wins only on 45 s+ audio and only at 27% WER. No depth setting achieved byte parity |
+| **Streaming Parakeet** (`transcribe_stream`, already in the installed 0.5.2) | Closed 2026-08-14 with a 9-config sweep, FLEURS n=64. There is **no operating point**. See "Streaming Parakeet has no operating point" below for the full grid; the short version is that the only config whose accuracy survives (`L256 R256`, U-WER 5.840% against batch 4.416%) has a **179 ms** residual against batch's 118 ms, and every config fast enough to beat batch costs 50-80 pp of U-WER. Supersedes the earlier one-line result (66 ms slower, 5.56% of words changed) |
 | **Session reuse for KV-prefix caching** | Turns 2–4 were 250–290 ms faster, but the transcript grows and **blows the 4096 context by turn 10**, degrading quality. Also violates the no-contamination contract |
 | **Deferred replacement-prewarm blocking the critical path** | Hypothesis falsified: costs **0.292 ms** |
 | Moving that replacement prewarm off-path | 2.4% *slower* |
@@ -361,6 +361,64 @@ non-autoregressive CTC-plus-LLM editor, i.e. one forward pass rather than a deco
 `Qwen/Qwen3-ASR-1.7B` (4.98%, streaming, with a companion forced aligner for the timestamps ARK
 cannot give us).
 
+### Streaming Parakeet has no operating point, and the reason generalises
+
+Measured 2026-08-14, M4 Pro, FLEURS n=64, one process, batch and every streaming config warmed
+before timing, audio decoded up front so no `ffmpeg` lands inside a measurement.
+
+The earlier dead-end entry compared *total* streaming compute against one batch pass. That is the
+wrong metric: streaming's entire claim is that the encoder runs while the user is still talking, so
+what a user waits for is the **residual** — the last `add_audio()` call after the hotkey is released.
+This sweep reports both, and it also sweeps `context_size`, which the earlier attempt left at the
+default `(256, 256)` (a 20.48 s unfinalized tail, since the units are 80 ms encoded frames).
+
+| config | U-WER | CER | residual p50 | total p50 | finalization lag | RTFx |
+|---|---:|---:|---:|---:|---:|---:|
+| batch, one pass | **4.416%** | **1.966%** | 117.8 ms | 117.8 ms | — | 80.5 |
+| stream L256 R256 c640 | 5.840% | 2.980% | 179.4 ms | 2295.4 ms | 20480 ms | 4.1 |
+| stream L128 R32 c640 | 56.695% | 43.309% | 86.3 ms | 1271.0 ms | 2560 ms | 7.5 |
+| stream L64 R16 c640 | 54.843% | 40.119% | 63.9 ms | 984.2 ms | 1280 ms | 9.9 |
+| stream L64 R8 c640 | 60.684% | 43.445% | 57.2 ms | 898.2 ms | 640 ms | 10.7 |
+| stream L32 R4 c640 | 72.009% | 52.276% | 48.7 ms | 802.2 ms | 320 ms | 12.0 |
+| stream L32 R4 c1280 | 64.886% | 50.297% | 52.9 ms | 449.1 ms | 320 ms | 21.2 |
+| stream L32 R4 d2 c640 | 63.818% | 46.179% | 53.8 ms | 843.4 ms | 640 ms | 11.3 |
+| stream L16 R2 c640 | 84.900% | 71.927% | **46.1 ms** | 769.3 ms | 160 ms | 12.7 |
+
+Two findings, and the second is the useful one.
+
+**The mechanism works.** Residual falls from 117.8 ms to **46 ms** as the context shrinks, and every
+streaming config runs at 4-21x real time, so the encoder comfortably keeps up during capture. The
+*architecture* — overlap the encoder with capture, pay only the last chunk at release — is sound and
+lands squarely in Apple SpeechTranscriber's measured 66 ms ASR territory.
+
+**The checkpoint cannot pay for it.** Accuracy collapses from 4.4% to 55-85% U-WER. This is not a
+harness artifact; the output degrades into coherent-but-wrong phonetics
+("All nouns I world say for you always begin with a cap little letter of a scent with a sea"), which
+is a model decoding out of distribution rather than crashing. `parakeet-tdt-0.6b-v3` is
+**full-context trained** (non-causal ALiBi), and `transcribe_stream` swaps the encoder to
+`rel_pos_local_attn` with the given window. Only `L256 R256` keeps accuracy, and it does so precisely
+because 256 frames x 80 ms = 20.48 s is longer than the whole utterance, i.e. it is not really
+streaming — and it is *slower* than batch anyway. So the two requirements are mutually exclusive on
+this checkpoint, which closes the question rather than deferring it.
+
+**The consequence.** Getting Apple's latency means a checkpoint **trained** for streaming, and the
+residual numbers above are the payoff to expect (~46-64 ms). Candidates that are genuinely
+streaming-trained *and* runnable on this Mac, in order of fit:
+
+| candidate | size | lookahead | licence | Apple runtime | timestamps / confidence |
+|---|---|---|---|---|---|
+| `moonshine-ai/moonshine-streaming-medium` | 245M / ~289 MB ORT | 80 ms | MIT | official C++/Swift ONNX, macOS arm64 dylib | **word timestamps + confidence 0..1** |
+| `nvidia/nemotron-speech-streaming-en-0.6b` | ~700 MB q8_0 GGUF | 80-1120 ms | NVIDIA Open Model | NeMo-Speech.cpp, Apache-2, Metal | timestamps yes; **word confidence is a 1.0 placeholder** |
+| `kyutai/stt-1b-en_fr-mlx` | ~1 GB BF16 | 500 ms delay | CC-BY-4.0 | MLX-native (`moshi-mlx`) | word timestamps; no confidence |
+| `mistralai/Voxtral-Mini-4B-Realtime-2602` | 4.42 GB int4 | 80-2400 ms | Apache-2 | ExecuTorch Metal | neither |
+
+Moonshine is the best-shaped first attempt: MIT, an order of magnitude smaller than what we ship, a
+real macOS arm64 runtime, and it is the only one that exposes both word timestamps and a confidence
+in 0..1, so `RiskAuthorizer`'s replace path could survive. Its published leaderboard U-WER (6.66%) is
+worse than our 5.66%, so this is explicitly a latency-for-accuracy trade and must be measured on our
+corpora before anyone ships it. Nemotron has the better WER but its confidence is a placeholder,
+which silently disables automatic term correction exactly as ARK does.
+
 ### Runtime bake-off: is a non-Python runtime faster? Rust, no. C and CoreML, yes.
 
 Measured 2026-08-13, M4 Pro, FLEURS n=64, every leg run **serially under an exclusive hardware
@@ -402,6 +460,16 @@ ship, and FluidAudio ships it as CoreML for Swift. Both are directly comparable 
 | parakeet.cpp (C/Metal) | 4.416% | 1.929% | **88.4 ms** | 123.1 ms | no |
 | FluidAudio (CoreML/ANE) | **3.989%** | **1.892%** | **71.5 ms** | 86.3 ms | no |
 
+**Ordering-controlled 2026-08-14.** The five legs above ran serially in one long window, so whichever
+ran last met the hottest machine. Re-measured MLX and parakeet.cpp in ABBA order, three rounds, six
+runs each: parakeet.cpp p50s spanned 87.6-89.5 ms (spread **1.9 ms**), MLX 142.3-146.2 ms (spread
+**3.9 ms**). The effect is **7.5x the worst within-tool spread**, so it is not thermal drift.
+That re-run also exposed a confound in the re-run itself, worth recording because it inflates any
+in-process MLX comparison: the harness called `parakeet_mlx.audio.load_audio`, which **shells out to
+`ffmpeg`** (28.6 ms p50 here), while production uses the `load_pcm16_mono_wav` fast path and
+parakeet.cpp reads the WAV directly in 0.19 ms. Comparing inference only, MLX is 117.3 ms against
+parakeet.cpp 88.0 ms — a 25.0% gap, which is what the 119.9/88.4 row already said. The table stands.
+
 Both beat the incumbent, and both delete Python. `parakeet.cpp` reproduces our U-WER to three
 decimals — it is the same model and the same greedy TDT decode — and it still exposes word
 timestamps and real per-token posteriors, so `RiskAuthorizer` would keep working. FluidAudio is
@@ -429,22 +497,24 @@ latency is.
 
 Ranked by expected value, not by ease:
 
-0. **Adopt a streaming-TRAINED model — not the streaming API on the model we have.** Measured on
-   500 real sessions here: with refinement skipped, release-to-inserted is 316 ms on `mlx` against
-   184 ms on `apple`, whose ASR stage is 66 ms. Apple wins because SpeechTranscriber transcribes
-   while the user is still speaking. The tempting inference — "so call `transcribe_stream`" — is
-   **wrong and already refuted in the dead-ends table above**: `StreamingParakeet` measured
-   **66 ms slower** than batch at the production median, with 5.56% of words changed.
-   Two reasons, both structural. `parakeet-tdt-0.6b-v3` is **full-context trained** (non-causal
-   ALiBi; long-form is 30-40 s chunks merged by LCS, arXiv 2509.14128) — it tolerates chunking, it
-   was not trained for it. And `StreamingParakeet`'s `context_size` is in *encoded frames* at 80 ms,
-   so the default `(256, 256)` is a **20.48 s right context**, which cannot help a 13-21 s utterance.
-   Streaming is therefore a property of the *checkpoint*, not a runtime switch. Getting Apple's
-   66 ms means adopting a model trained for it — NVIDIA's cache-aware FastConformer (80 ms
-   lookahead), Moonshine streaming, Voxtral Realtime (80 ms frames, configurable 240-2400 ms delay),
-   or Qwen3-ASR streaming — and paying its accuracy cost: NVIDIA's own numbers put RNNT at 5.0 WER
-   offline against 6.3 chunk-aware at 1360 ms lookahead on LibriSpeech test-other.
-   The primitive should make that swap cheap rather than presuppose the answer.
+0. **Evaluate a streaming-TRAINED checkpoint. The streaming mechanism is now measured and works; our
+   checkpoint is what fails.** On 500 real sessions here, release-to-inserted with refinement skipped
+   is 316 ms on `mlx` against 184 ms on `apple`, whose ASR stage is 66 ms, because SpeechTranscriber
+   transcribes while the user is still speaking. The 9-config sweep above settles what that costs us:
+   feeding Parakeet in chunks drops the residual from 117.8 ms to **46 ms** at 4-21x real time — the
+   overlap idea is right and lands in Apple's territory — while U-WER goes from 4.4% to 55-85%,
+   because `parakeet-tdt-0.6b-v3` is full-context trained and cannot decode inside a small local
+   attention window. There is no operating point on this checkpoint, so the next move is a different
+   checkpoint, not a different setting.
+   First attempt should be **`moonshine-ai/moonshine-streaming-medium`**: MIT, 245M parameters
+   (~289 MB with its runtime, against our 463 MB), 80 ms trained lookahead, an official C++/Swift
+   ONNX runtime with a macOS arm64 dylib, and — uniquely among the candidates — both word timestamps
+   and a real 0..1 confidence, so `RiskAuthorizer`'s replace path can survive. Its published
+   leaderboard U-WER is 6.66% against our 5.66%, so this is an explicit latency-for-accuracy trade
+   that must be measured on our own corpora, with `bench-stt` and `bench-e2e`, before it ships even
+   as opt-in. `nemotron-speech-streaming-en-0.6b` via NeMo-Speech.cpp has better WER but reports word
+   confidence as a hardcoded 1.0, which would silently disable automatic term correction the same way
+   ARK does — that is a capability regression disguised as a latency win.
 0b. **Or swap the ASR runtime, which is smaller but nearly free.** The bake-off above measured
    `parakeet.cpp` at 88.4 ms and FluidAudio at 71.5 ms against our 119.9 ms, both on our own model
    and both without Python. `parakeet.cpp` is the conservative pick: identical U-WER to three
