@@ -282,9 +282,7 @@ Peak level is deliberately not used, and neither is `activeSpeechRatio`. Three o
 
 The gate fails open in both directions that matter. Absent telemetry proceeds, because suppressing a real dictation on no evidence is worse than passing noise through. `RecordedAudio.isSynthetic` proceeds, and the producer sets it: `FakeAudioRecorder` writes literal silence and synthesising a transcript from it is that recorder's contract, so a gate that keyed on level alone would have broken every test, the smoke path and the UI harness.
 
-## Insertion policy
-
-`DictationCoordinator` passes the just-captured delivery target to `PasteboardInserter`, which writes plain text to `NSPasteboard.general` and posts Cmd-V only after two identity checks:
+`DictationCoordinator` passes the just-captured delivery target to `PasteboardInserter`, which writes plain text to `NSPasteboard.general` and posts Cmd-V only after re-verifying the destination twice:
 
 1. Safety class must be `.normalText`. `InsertionSafetyPolicy` owns that mapping and takes no parameter to widen it.
 2. Synthetic paste permission must be granted.
@@ -292,7 +290,7 @@ The gate fails open in both directions that matter. Absent telemetry proceeds, b
 4. Clipboard is written.
 5. `stillMatches` must pass again before Cmd-V.
 
-`stillMatches` compares bundle id, pid **and** safety class. Safety is part of the identity because a focus change inside one process — a web page auto-focusing a password input while the inserter awaits the permission request — keeps the first two and would otherwise receive synthetic Cmd-V.
+`stillMatches` compares bundle id, pid, safety class **and** the secure-input flag. Safety is part of it because a focus change inside one process — a web page auto-focusing a password input while the inserter awaits the permission request — keeps bundle and pid and would otherwise receive synthetic Cmd-V. What it does **not** carry is window or element identity: `TargetSnapshot` holds no `AXUIElement` or window number, so focus moving between two ordinary text fields of the same process compares equal. That is a deliberate limit, not an oversight — the two checks bracket a pasteboard write measured in single-digit milliseconds, and the class of change they exist to catch is the one that changes the *safety* of the destination. Do not describe this as verifying the exact window or the exact field.
 
 Terminal, code-editor, secure, and unknown-risky targets are copy-only, unconditionally — there is no setting, launch flag, or constructor argument that makes any of them pasteable. An AX inspection that cannot be completed classifies the target `.unknownRisky` rather than ordinary text, so an unreadable focus is copy-only rather than pasteable, and that is precisely why the class cannot be opted out of. The previous clipboard is never read or restored.
 

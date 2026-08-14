@@ -136,8 +136,10 @@
     // MARK: - Effect recorder
 
     /// What left the app. The point of an end-to-end harness is not that the state machine
-    /// reached `pasteAttempted`; it is that the exact text a user dictated reached the exact
-    /// window that was focused, and that a copy-only target got copy-only treatment.
+    /// reached `pasteAttempted`; it is that the exact text a user dictated reached the
+    /// process that was focused, and that a copy-only target got copy-only treatment.
+    /// "Process", not "window": `TargetSnapshot` carries no window or element identity,
+    /// and a claim this file cannot check is not a claim it should make.
     @MainActor
     final class UIEffectRecorder {
         struct Delivery {

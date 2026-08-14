@@ -57,6 +57,16 @@ public enum SafetyClassifier {
     /// `.noFocusedElement` deliberately does not reach that guard: the app was
     /// readable and reported an empty focus, which is evidence, not the absence
     /// of it.
+    ///
+    /// A readable element whose role *and* subrole both come back nil is a third
+    /// case, and it reaches `.normalText`. That is deliberate and it is covered
+    /// rather than overlooked: an AX role lookup can fail on a perfectly
+    /// ordinary text field, so failing closed here would degrade routine
+    /// dictation to copy-only across whole applications, while the field this
+    /// would be protecting is already caught one line below by
+    /// `secureInputActive`. Secure entry is a system-level signal that a
+    /// password field raises whether or not AX will describe it, which is the
+    /// entire reason that check exists and leads this precedence.
     public static func classify(
         bundleId: String?,
         focus: TargetFocusInspection,
