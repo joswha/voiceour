@@ -73,5 +73,25 @@
     "name": "discourse_phrases_untouched",
     "raw": "I like it, you know him",
     "expected": "I like it, you know him"
+  },
+  {
+    "name": "leading_capitalized_filler_keeps_sentence_case",
+    "raw": "Uh let's do a cleanup over the surfaces of each component.",
+    "expected": "Let's do a cleanup over the surfaces of each component."
+  },
+  {
+    "name": "capitalized_filler_after_period_keeps_sentence_case",
+    "raw": "Let's introduce a thread. Um basically our platform needs one.",
+    "expected": "Let's introduce a thread. Basically our platform needs one."
+  },
+  {
+    "name": "collapsed_repeat_keeps_sentence_case",
+    "raw": "Zat, zat, zat.",
+    "expected": "Zat, zat."
+  },
+  {
+    "name": "lowercase_filler_does_not_impose_sentence_case",
+    "raw": "uh please run the parser now",
+    "expected": "please run the parser now"
   }
 ]
