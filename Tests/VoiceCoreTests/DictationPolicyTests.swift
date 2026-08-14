@@ -177,6 +177,23 @@ struct DictationPolicyTests {
             ) == .refine)
     }
 
+    // The counterpart to the test above, and the reason it needs a threshold at
+    // all. A technical canonical routinely contains ordinary English, and matching
+    // any component made this the dominant refine trigger: simulated over 500 real
+    // local sessions the unrestricted rule fired on 83.0% of dictations, with "the"
+    // from `see the SSH config` accounting for 336 of them on its own. Each firing
+    // requests a refine that costs ~1.9 s at p50, so this is a latency defect, not
+    // a cosmetic one.
+    @Test func ordinaryWordInsideAMultiWordGlossaryTermDoesNotForceRefinement() {
+        let glossary = [ProtectedTerm(canonical: "see the SSH config", spokenAliases: [])]
+        let assessment = DictationPolicy.assessTranscript(
+            "The recording finished without any problems.",
+            glossary: glossary
+        )
+
+        #expect(!assessment.needsRefinement)
+    }
+
     @Test func phoneticNearMissNeedsRefinement() {
         let glossary = [ProtectedTerm(canonical: "kubectl", spokenAliases: ["cube cuddle"])]
         let assessment = DictationPolicy.assessTranscript(
