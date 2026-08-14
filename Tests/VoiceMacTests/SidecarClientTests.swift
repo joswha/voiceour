@@ -5,97 +5,36 @@ import Testing
 @testable import VoiceCore
 @testable import VoiceMac
 
+/// Transport tests for `SidecarASRClient`.
+///
+/// Every peer here is `ASRSidecarStub`, a Swift test-support executable selected by argv.
+/// It replaced inline `python3` scripts: this repository ships no Python, so a test suite that
+/// needed an interpreter to prove the client's framing was testing the wrong machine.
 @Suite("SidecarClientTests", .serialized)
 struct SidecarClientTests {
     @Test func twoTranscribesReuseOneProcess() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
+        let client = SidecarASRClient(launch: stubLaunch("echo-turns"))
+        // 15 s, not 2 s: this is the only budget CI proved too tight. The subject here is that
+        // two turns reuse one process, not how long a turn may take. Every other budget in this
+        // file is left alone -- most of them are what ends their own test, and inflating those
+        // just makes a serialized suite wait out its own deadlines.
+        let first = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
+        let second = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
 
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            count = 0
-            for line in sys.stdin:
-                request = json.loads(line)
-                count += 1
-                emit({
-                    "type": "result",
-                    "protocol_version": 1,
-                    "request_id": request["request_id"],
-                    "backend_id": "fake",
-                    "model_id": "fake",
-                    "model_revision": "dev",
-                    "transcript": {"text": f"turn-{count}", "language": "en", "segments": None},
-                    "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                })
-            """,
-            in: temp
-        )
-
-        do {
-            let client = SidecarASRClient(launch: launchConfiguration(for: script))
-            // 15 s, not 2 s: this is the only budget CI proved too tight. The
-            // subject here is that two turns reuse one process, not how long a
-            // turn may take, and the first spawn on a cold 3-core runner pays
-            // python startup with an unwarmed filesystem cache. Every other
-            // budget in this file is left alone -- most of them are what ends
-            // their own test, and inflating those just makes a serialized suite
-            // wait out its own deadlines.
-            let first = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
-            let second = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
-
-            #expect(first.transcript.text == "turn-1")
-            #expect(second.transcript.text == "turn-2")
-        }
+        #expect(first.transcript.text == "turn-1")
+        #expect(second.transcript.text == "turn-2")
     }
 
     @Test func timeoutAfterHelloTerminatesSilentProcessPromptly() async throws {
         let temp = try makeTemporaryDirectory()
         let pidFile = temp.appendingPathComponent("pid.txt")
         let terminatedFile = temp.appendingPathComponent("terminated.txt")
-        let script = try writePythonScript(
-            """
-            import json, os, signal, sys, time
 
-            def record_termination(signum, frame):
-                with open(\(pythonLiteral(terminatedFile.path)), "w", encoding="utf-8") as handle:
-                    handle.write("terminated")
-                sys.exit(0)
-
-            signal.signal(signal.SIGTERM, record_termination)
-
-            with open(\(pythonLiteral(pidFile.path)), "w", encoding="utf-8") as handle:
-                handle.write(str(os.getpid()))
-
-            print(json.dumps({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            }), flush=True)
-
-            for line in sys.stdin:
-                time.sleep(10)
-            """,
-            in: temp
+        let client = SidecarASRClient(
+            launch: stubLaunch("silent-after-hello", pidFile.path, terminatedFile.path)
         )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
         await client.warmUp()
-        let pidText = try await waitForFile(pidFile, timeout: 1.0)
+        let pidText = try await waitForFile(pidFile, timeout: 2.0)
         let pid = pid_t(pidText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         let start = Date()
         let outcome = await resultWithin(timeout: 2.0) {
@@ -121,61 +60,24 @@ struct SidecarClientTests {
     }
 
     @Test func stderrFloodBeforeReplyStillSucceeds() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            for line in sys.stdin:
-                request = json.loads(line)
-                sys.stderr.buffer.write(b"x" * (256 * 1024))
-                sys.stderr.flush()
-                emit({
-                    "type": "result",
-                    "protocol_version": 1,
-                    "request_id": request["request_id"],
-                    "backend_id": "fake",
-                    "model_id": "fake",
-                    "model_revision": "dev",
-                    "transcript": {"text": "after-stderr-flood", "language": "en", "segments": None},
-                    "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                })
-            """,
-            in: temp
-        )
-
-        // The flood is captured, not forwarded. 256 KiB as one line with no
-        // newline stalls a CI log consumer; the stall backpressures through
-        // swiftpm's 64 KiB capture pipe and wedges the whole test binary, which
-        // is how this test used to take CI down -- measured: under a stalled
-        // consumer the run hung for a full 180 s and exactly 65,536 bytes
-        // escaped. Counting here is also stronger than spraying at fd 2: the
-        // drain is asserted to have kept up, not merely to have survived.
+        // The flood is captured, not forwarded. 256 KiB as one line with no newline stalls a CI
+        // log consumer; the stall backpressures through swiftpm's 64 KiB capture pipe and wedges
+        // the whole test binary, which is how this test used to take CI down -- measured: under a
+        // stalled consumer the run hung for a full 180 s and exactly 65,536 bytes escaped.
+        // Counting here is also stronger than spraying at fd 2: the drain is asserted to have
+        // kept up, not merely to have survived.
         let forwarded = FloodCounter()
-        var launch = launchConfiguration(for: script)
+        var launch = stubLaunch("stderr-flood")
         launch.stderrSink = { [forwarded] bytes in forwarded.add(bytes.count) }
 
         let client = SidecarASRClient(launch: launch)
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
 
         #expect(result.transcript.text == "after-stderr-flood")
-        // More than one 64 KiB pipe buffer, which is the point: the drain kept
-        // draining while the child wrote, so the child never blocked and the
-        // reply arrived. Not the full 256 KiB -- the reply ends the session and
-        // teardown stops the source mid-flood by design, so an exact total would
-        // assert a race rather than the behaviour.
+        // More than one 64 KiB pipe buffer, which is the point: the drain kept draining while the
+        // child wrote, so the child never blocked and the reply arrived. Not the full 256 KiB --
+        // the reply ends the session and teardown stops the source mid-flood by design, so an
+        // exact total would assert a race rather than the behaviour.
         #expect(forwarded.total > 64 * 1024)
     }
 
@@ -193,10 +95,9 @@ struct SidecarClientTests {
     @Test func transcribeRequestEncodingCarriesProtocolModelTimeoutAndSnakeCaseAudio() async throws {
         let temp = try makeTemporaryDirectory()
         let requestFile = temp.appendingPathComponent("request.json")
-        let script = try writePythonScript(requestEchoScript(writingTo: requestFile), in: temp)
 
         let client = SidecarASRClient(
-            launch: launchConfiguration(for: script),
+            launch: stubLaunch("echo-result", requestFile.path),
             expectedModel: ASRExpectedModel(modelId: ASRModelContract.modelId, revision: ASRModelContract.revision)
         )
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 1_234)
@@ -233,6 +134,10 @@ struct SidecarClientTests {
         #expect(audio["sampleRateHz"] == nil)
         #expect(audio["durationMs"] == nil)
         #expect(audio["byteCount"] == nil)
+        // Decoder bias and its snapshot id were deleted with the beam decoder; the wire must
+        // not carry a field no backend can honour.
+        #expect(raw["bias_phrases"] == nil)
+        #expect(raw["bias_snapshot_id"] == nil)
     }
 
     /// A client with no pinned model leaves `expected_model` off the wire
@@ -242,9 +147,8 @@ struct SidecarClientTests {
     @Test func transcribeOmitsExpectedModelWhenTheClientPinsNone() async throws {
         let temp = try makeTemporaryDirectory()
         let requestFile = temp.appendingPathComponent("request.json")
-        let script = try writePythonScript(requestEchoScript(writingTo: requestFile), in: temp)
 
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("echo-result", requestFile.path))
         _ = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
 
         let requestData = try Data(contentsOf: requestFile)
@@ -259,40 +163,7 @@ struct SidecarClientTests {
     }
 
     @Test func sidecarErrorMessageMapsToProtocolError() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            for line in sys.stdin:
-                request = json.loads(line)
-                emit({
-                    "type": "error",
-                    "protocol_version": 1,
-                    "request_id": request["request_id"],
-                    "code": "manifest_mismatch",
-                    "category": "model",
-                    "retryable": False,
-                    "user_message_key": "asr.manifest_mismatch",
-                    "detail": "wrong revision",
-                })
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("error-reply"))
         let error = await thrownError {
             try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
         }
@@ -313,76 +184,14 @@ struct SidecarClientTests {
     }
 
     @Test func mismatchedRequestIdResultIsIgnoredUntilCorrectResultArrives() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys, time
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            def result(request_id, text):
-                return {
-                    "type": "result",
-                    "protocol_version": 1,
-                    "request_id": request_id,
-                    "backend_id": "fake",
-                    "model_id": "fake",
-                    "model_revision": "dev",
-                    "transcript": {"text": text, "language": "en", "segments": None},
-                    "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                }
-
-            for line in sys.stdin:
-                request = json.loads(line)
-                emit(result("not-" + request["request_id"], "wrong"))
-                time.sleep(0.05)
-                emit(result(request["request_id"], "correct"))
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("mismatched-request-id"))
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
 
         #expect(result.transcript.text == "correct")
     }
 
     @Test func cancelledTerminalMessageThrowsCancellationError() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            for line in sys.stdin:
-                request = json.loads(line)
-                emit({"type": "cancelled", "protocol_version": 1, "request_id": request["request_id"]})
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("cancelled-reply"))
         let error = await thrownError {
             try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
         }
@@ -395,59 +204,15 @@ struct SidecarClientTests {
         defer { try? FileManager.default.removeItem(at: temp) }
         let transcribeFile = temp.appendingPathComponent("transcribe.json")
         let cancelFile = temp.appendingPathComponent("cancel.json")
-        let script = try writePythonScript(
-            """
-            import json, os, sys
 
-            TRANSCRIBE_FILE = \(pythonLiteral(transcribeFile.path))
-            CANCEL_FILE = \(pythonLiteral(cancelFile.path))
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            def persist(path, line):
-                temporary_path = path + ".tmp"
-                with open(temporary_path, "w", encoding="utf-8") as handle:
-                    handle.write(line)
-                os.replace(temporary_path, path)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            transcribe_line = sys.stdin.readline()
-            if not transcribe_line:
-                sys.exit(0)
-            persist(TRANSCRIBE_FILE, transcribe_line)
-            transcribe = json.loads(transcribe_line)
-
-            for line in sys.stdin:
-                frame = json.loads(line)
-                if frame.get("type") != "cancel":
-                    continue
-                persist(CANCEL_FILE, line)
-                if frame.get("request_id") == transcribe.get("request_id"):
-                    emit({
-                        "type": "cancelled",
-                        "protocol_version": 1,
-                        "request_id": frame["request_id"],
-                    })
-                    break
-            """,
-            in: temp
+        let client = SidecarASRClient(
+            launch: stubLaunch("record-cancel", transcribeFile.path, cancelFile.path)
         )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
         let transcription = Task {
             try await client.transcribe(sampleAudio(), timeoutMs: 10_000)
         }
 
-        let transcribeLine = try await waitForFile(transcribeFile, timeout: 1.0)
+        let transcribeLine = try await waitForFile(transcribeFile, timeout: 2.0)
         try #require(!transcribeLine.isEmpty, "Expected the sidecar to persist the transcribe frame")
         transcription.cancel()
 
@@ -478,9 +243,7 @@ struct SidecarClientTests {
     }
 
     @Test func noHelloThrowsNoHello() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript("", in: temp)
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("no-hello"))
 
         let error = await thrownError {
             try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
@@ -494,22 +257,7 @@ struct SidecarClientTests {
     }
 
     @Test func incompatibleHelloVersionThrowsIncompatibleHello() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json
-            print(json.dumps({
-                "type": "hello",
-                "protocol_version": 2,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            }), flush=True)
-            """,
-            in: temp
-        )
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("wrong-version-hello"))
 
         let error = await thrownError {
             try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
@@ -525,48 +273,8 @@ struct SidecarClientTests {
     @Test func processExitMidRequestErrorsAndNextTranscribeRespawns() async throws {
         let temp = try makeTemporaryDirectory()
         let stateFile = temp.appendingPathComponent("already-exited.txt")
-        let script = try writePythonScript(
-            """
-            import json, os, sys
 
-            STATE_FILE = \(pythonLiteral(stateFile.path))
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            first_run = not os.path.exists(STATE_FILE)
-            if first_run:
-                with open(STATE_FILE, "w", encoding="utf-8") as handle:
-                    handle.write("exited")
-
-            for line in sys.stdin:
-                request = json.loads(line)
-                if first_run:
-                    sys.exit(7)
-                emit({
-                    "type": "result",
-                    "protocol_version": 1,
-                    "request_id": request["request_id"],
-                    "backend_id": "fake",
-                    "model_id": "fake",
-                    "model_revision": "dev",
-                    "transcript": {"text": "respawned", "language": "en", "segments": None},
-                    "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                })
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("exit-first-run", stateFile.path))
         let firstError = await thrownError {
             try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
         }
@@ -583,46 +291,18 @@ struct SidecarClientTests {
         let second = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
         #expect(second.transcript.text == "respawned")
     }
+
     @Test func sidecarFramingAgainstStubProcess() async throws {
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-        let script = temp.appendingPathComponent("stub.sh")
-        let body = """
-            printf '%s\\n' '{"type":"hello","protocol_version":1,"sidecar_version":"0.1.0","backend_id":"fake","backend_status":"ready","capabilities":{"final_utterance":true}}'
-            while IFS= read -r line; do
-              req=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["request_id"])')
-              printf '{"type":"result","protocol_version":1,"request_id":"%s","backend_id":"fake","model_id":"fake","model_revision":"dev","transcript":{"text":"stub text","language":"en","segments":null},"timings_ms":{"load":0,"inference":0,"total":0}}\\n' "$req"
-            done
-            """
-        try body.write(to: script, atomically: true, encoding: .utf8)
-        let client = SidecarASRClient(
-            launch: SidecarLaunchConfiguration(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path])
-        )
-        let audio = RecordedAudio(
-            url: URL(fileURLWithPath: "/tmp/fake.wav"),
-            meta: ASRAudioMeta(
-                path: "/tmp/fake.wav", format: "wav", sampleRateHz: 16000, channels: 1, durationMs: 42, byteCount: 84))
-        let result = try await client.transcribe(audio, timeoutMs: 2000)
+        let client = SidecarASRClient(launch: stubLaunch("fixed-result", "stub text"))
+        let result = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
+
         #expect(result.transcript.text == "stub text")
     }
 
     @Test func sidecarHealthAgainstStubProcess() async throws {
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-        let script = temp.appendingPathComponent("stub-health.sh")
-        let body = """
-            printf '%s\\n' '{"type":"hello","protocol_version":1,"sidecar_version":"0.1.0","backend_id":"fake","backend_status":"ready","capabilities":{"final_utterance":true}}'
-            while IFS= read -r line; do
-              req=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["request_id"])')
-              printf '{"type":"health","protocol_version":1,"request_id":"%s","ready":true,"model_loaded":true,"cache_ok":true}\\n' "$req"
-            done
-            """
-        try body.write(to: script, atomically: true, encoding: .utf8)
-        let client = SidecarASRClient(
-            launch: SidecarLaunchConfiguration(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path])
-        )
+        let client = SidecarASRClient(launch: stubLaunch("health"))
 
-        let health = try await client.health(timeoutMs: 2000)
+        let health = try await client.health(timeoutMs: 2_000)
 
         #expect(health.backendId == "fake")
         #expect(health.backendStatus == .ready)
@@ -641,50 +321,7 @@ struct SidecarClientTests {
     /// Answers the SECOND request first. A client that assumed FIFO would hand
     /// each caller the other's transcript.
     @Test func twoOutstandingRequestsAnsweredOutOfOrderEachGetTheirOwnResult() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            def result(request_id, text):
-                return {
-                    "type": "result",
-                    "protocol_version": 1,
-                    "request_id": request_id,
-                    "backend_id": "fake",
-                    "model_id": "fake",
-                    "model_revision": "dev",
-                    "transcript": {"text": text, "language": "en", "segments": None},
-                    "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                }
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            # Hold the first request until the second arrives, then reply in
-            # reverse order.
-            queued = []
-            for line in sys.stdin:
-                queued.append(json.loads(line)["request_id"])
-                if len(queued) < 2:
-                    continue
-                emit(result(queued[1], "second-" + queued[1]))
-                emit(result(queued[0], "first-" + queued[0]))
-                queued = []
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("out-of-order"))
         async let first = client.transcribe(sampleAudio(), timeoutMs: 5_000)
         async let second = client.transcribe(sampleAudio(), timeoutMs: 5_000)
         let results = try await [first, second]
@@ -703,54 +340,7 @@ struct SidecarClientTests {
     /// answers the cancelled one with `cancelled` and still returns a result for
     /// the survivor on the same stdio pair.
     @Test func cancellingOneRequestLetsTheOtherComplete() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            outstanding = []
-            for line in sys.stdin:
-                request = json.loads(line)
-                if request["type"] == "cancel":
-                    target = request["request_id"]
-                    emit({
-                        "type": "cancelled",
-                        "protocol_version": 1,
-                        "request_id": target,
-                    })
-                    for other in outstanding:
-                        if other == target:
-                            continue
-                        emit({
-                            "type": "result",
-                            "protocol_version": 1,
-                            "request_id": other,
-                            "backend_id": "fake",
-                            "model_id": "fake",
-                            "model_revision": "dev",
-                            "transcript": {"text": "survivor", "language": "en", "segments": None},
-                            "timings_ms": {"load": 0, "inference": 0, "total": 0},
-                        })
-                    outstanding = []
-                else:
-                    outstanding.append(request["request_id"])
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("cancel-one"))
         let cancelled = Task { try await client.transcribe(sampleAudio(), timeoutMs: 5_000) }
         let survivor = Task { try await client.transcribe(sampleAudio(), timeoutMs: 5_000) }
 
@@ -773,35 +363,7 @@ struct SidecarClientTests {
     /// A sidecar that exits with several requests outstanding must fail every one
     /// of them rather than leaving a caller suspended forever.
     @Test func processExitFailsEveryPendingRequest() async throws {
-        let temp = try makeTemporaryDirectory()
-        let script = try writePythonScript(
-            """
-            import json, sys
-
-            def emit(message):
-                print(json.dumps(message, separators=(",", ":")), flush=True)
-
-            emit({
-                "type": "hello",
-                "protocol_version": 1,
-                "sidecar_version": "0.1.0",
-                "backend_id": "fake",
-                "backend_status": "ready",
-                "capabilities": {"final_utterance": True},
-            })
-
-            # Read both requests, answer neither, then die.
-            seen = 0
-            for line in sys.stdin:
-                seen += 1
-                if seen >= 2:
-                    break
-            sys.exit(9)
-            """,
-            in: temp
-        )
-
-        let client = SidecarASRClient(launch: launchConfiguration(for: script))
+        let client = SidecarASRClient(launch: stubLaunch("exit-mid-request", "2"))
         let first = Task { try await client.transcribe(sampleAudio(), timeoutMs: 5_000) }
         let second = Task { try await client.transcribe(sampleAudio(), timeoutMs: 5_000) }
 
@@ -826,56 +388,21 @@ private func makeTemporaryDirectory() throws -> URL {
     return directory
 }
 
-private func writePythonScript(_ body: String, in directory: URL, name: String = "sidecar.py") throws -> URL {
-    let script = directory.appendingPathComponent(name)
-    try body.write(to: script, atomically: true, encoding: .utf8)
-    return script
-}
-
-private func launchConfiguration(for script: URL) -> SidecarLaunchConfiguration {
+/// Launches `ASRSidecarStub` from the test bundle's own products directory, which is where
+/// SwiftPM puts every executable product built alongside these tests.
+private func stubLaunch(_ scenario: String, _ arguments: String...) -> SidecarLaunchConfiguration {
     SidecarLaunchConfiguration(
-        executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
-        arguments: [script.path]
+        executableURL: testProductsDirectory().appendingPathComponent("ASRSidecarStub"),
+        arguments: [scenario] + arguments
     )
 }
 
-/// A sidecar that greets, writes every request it is sent to `requestFile`, and
-/// answers each one with the same fixed result. The subject of the tests that
-/// share it is the request bytes, not the reply.
-private func requestEchoScript(writingTo requestFile: URL) -> String {
-    """
-    import json, sys
-
-    REQUEST_FILE = \(pythonLiteral(requestFile.path))
-
-    def emit(message):
-        print(json.dumps(message, separators=(",", ":")), flush=True)
-
-    emit({
-        "type": "hello",
-        "protocol_version": 1,
-        "sidecar_version": "0.1.0",
-        "backend_id": "fake",
-        "backend_status": "ready",
-        "capabilities": {"final_utterance": True},
-    })
-
-    for line in sys.stdin:
-        with open(REQUEST_FILE, "w", encoding="utf-8") as handle:
-            handle.write(line)
-        request = json.loads(line)
-        emit({
-            "type": "result",
-            "protocol_version": 1,
-            "request_id": request["request_id"],
-            "backend_id": "fake",
-            "model_id": "fake",
-            "model_revision": "dev",
-            "transcript": {"text": "encoding-ok", "language": "en", "segments": None},
-            "timings_ms": {"load": 0, "inference": 0, "total": 0},
-        })
-    """
+private func testProductsDirectory() -> URL {
+    Bundle(for: TestBundleAnchor.self).bundleURL.deletingLastPathComponent()
 }
+
+/// Only exists to give `Bundle(for:)` a class in this test target.
+private final class TestBundleAnchor {}
 
 private func sampleAudio() -> RecordedAudio {
     RecordedAudio(
@@ -889,16 +416,6 @@ private func sampleAudio() -> RecordedAudio {
             byteCount: 84
         )
     )
-}
-
-private func pythonLiteral(_ value: String) -> String {
-    let escaped =
-        value
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-    return "\"\(escaped)\""
 }
 
 private func thrownError<T>(from operation: () async throws -> T) async -> Error? {

@@ -330,8 +330,6 @@ struct VoiceCoreTests {
         #expect(partialSettings.autoStopEnabled == false)
         #expect(partialSettings.autoStopSilenceMs == 2500)
         #expect(partialSettings.speechLocale == "en_US")
-        #expect(partialSettings.automaticTermCorrectionEnabled == false)
-        #expect(partialSettings.decoderBiasEnabled == false)
 
         let encoded = try JSONEncoder().encode(
             Settings(
@@ -491,7 +489,7 @@ struct VoiceCoreTests {
             startLatencyMs: 42,
             asrPath: "streamed",
             stopReleaseToInsertionOutcomeMs: 211,
-            asrBackendId: "parakeet-mlx",
+            asrBackendId: "parakeet-cpp",
             asrLoadMs: 7,
             asrInferenceMs: 103,
             asrTotalMs: 110

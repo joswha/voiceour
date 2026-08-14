@@ -2,9 +2,22 @@ import Foundation
 
 public let asrProtocolVersion = 1
 
+/// The one pinned artifact the real ASR backend loads.
+///
+/// A single GGUF-converted checkpoint downloaded from Hugging Face and verified by digest,
+/// not a repository snapshot: the sidecar links parakeet.cpp and reads exactly this file.
+/// The registry advertises `modelId`/`revision`, the sidecar's model cache uses every field,
+/// and both must move together with `Vendor/parakeet` and the protocol fixtures.
 public enum ASRModelContract {
-    public static let modelId = "mlx-community/parakeet-tdt-0.6b-v3"
-    public static let revision = "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15"
+    public static let modelId = "ggml-org/parakeet-GGUF"
+    public static let revision = "35156454d1a39de06863303dd209fd2bed6ee079"
+    public static let fileName = "ggml-parakeet-tdt-0.6b-v3-f16.bin"
+    public static let sha256 = "833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f"
+    public static let sizeBytes: Int64 = 1_255_897_319
+
+    public static let downloadURL = URL(
+        string: "https://huggingface.co/\(modelId)/resolve/\(revision)/\(fileName)"
+    )!
 }
 
 public enum BackendStatus: String, Codable, Equatable, Sendable {
@@ -26,7 +39,6 @@ public enum ASRErrorCode: String, Codable, Equatable, Sendable, CaseIterable {
     case cancelled
     case backendUnavailable = "backend_unavailable"
     case internalError = "internal_error"
-    case biasListTooLarge = "bias_list_too_large"
 }
 
 public struct ASRCapabilities: Codable, Equatable, Sendable {
@@ -143,16 +155,6 @@ public struct ASRExpectedModel: Codable, Equatable, Sendable {
     }
 }
 
-public struct ASRBiasPhrase: Codable, Equatable, Sendable {
-    public var text: String
-    public var weight: Double?
-
-    public init(text: String, weight: Double? = nil) {
-        self.text = text
-        self.weight = weight
-    }
-}
-
 public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
     public var type: String
     public var protocolVersion: Int
@@ -160,8 +162,6 @@ public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
     public var audio: ASRAudioMeta
     public var expectedModel: ASRExpectedModel?
     public var timeoutMs: Int
-    public var biasPhrases: [ASRBiasPhrase]?
-    public var biasSnapshotId: String?
 
     public init(
         type: String = "transcribe",
@@ -169,9 +169,7 @@ public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
         requestId: String,
         audio: ASRAudioMeta,
         expectedModel: ASRExpectedModel?,
-        timeoutMs: Int,
-        biasPhrases: [ASRBiasPhrase]? = nil,
-        biasSnapshotId: String? = nil
+        timeoutMs: Int
     ) {
         self.type = type
         self.protocolVersion = protocolVersion
@@ -179,8 +177,6 @@ public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
         self.audio = audio
         self.expectedModel = expectedModel
         self.timeoutMs = timeoutMs
-        self.biasPhrases = biasPhrases
-        self.biasSnapshotId = biasSnapshotId
     }
 }
 
@@ -196,10 +192,13 @@ public struct ASRCancelRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// How a transcript's `confidence` was derived, so consumers can refuse to trust a number
+/// whose basis is not calibrated. Neither of these is calibrated today.
 public enum ASRConfidenceMode: String, Codable, Equatable, Sendable {
+    /// No confidence basis at all: the value, if any, is not a decoder posterior.
     case none
-    case greedyEntropy = "greedy_entropy"
-    case beamLogprob = "beam_logprob"
+    /// Mean of the decoder's per-token posteriors from a greedy TDT decode.
+    case greedyTokenProb = "greedy_token_prob"
 }
 
 public struct ASRWord: Codable, Equatable, Sendable {
@@ -264,36 +263,6 @@ public struct ASRTimings: Codable, Equatable, Sendable {
     }
 }
 
-public struct ASRHypothesis: Codable, Equatable, Sendable {
-    public var rank: Int
-    public var text: String
-    public var score: Double
-    public var rawScore: Double?
-    public var transcript: ASRTranscript?
-
-    public init(rank: Int, text: String, score: Double, rawScore: Double? = nil, transcript: ASRTranscript? = nil) {
-        self.rank = rank
-        self.text = text
-        self.score = score
-        self.rawScore = rawScore
-        self.transcript = transcript
-    }
-}
-
-public struct ASRDecoderInfo: Codable, Equatable, Sendable {
-    public var mode: String
-    public var beamSize: Int?
-    public var biasEnabled: Bool
-    public var biasSnapshotId: String?
-
-    public init(mode: String, beamSize: Int? = nil, biasEnabled: Bool = false, biasSnapshotId: String? = nil) {
-        self.mode = mode
-        self.beamSize = beamSize
-        self.biasEnabled = biasEnabled
-        self.biasSnapshotId = biasSnapshotId
-    }
-}
-
 public struct ASRResult: Codable, Equatable, Sendable {
     public var type: String
     public var protocolVersion: Int
@@ -303,8 +272,6 @@ public struct ASRResult: Codable, Equatable, Sendable {
     public var modelRevision: String
     public var transcript: ASRTranscript
     public var timingsMs: ASRTimings
-    public var hypotheses: [ASRHypothesis]?
-    public var decoder: ASRDecoderInfo?
 
     public init(
         type: String = "result",
@@ -314,9 +281,7 @@ public struct ASRResult: Codable, Equatable, Sendable {
         modelId: String,
         modelRevision: String,
         transcript: ASRTranscript,
-        timingsMs: ASRTimings,
-        hypotheses: [ASRHypothesis]? = nil,
-        decoder: ASRDecoderInfo? = nil
+        timingsMs: ASRTimings
     ) {
         self.type = type
         self.protocolVersion = protocolVersion
@@ -326,8 +291,6 @@ public struct ASRResult: Codable, Equatable, Sendable {
         self.modelRevision = modelRevision
         self.transcript = transcript
         self.timingsMs = timingsMs
-        self.hypotheses = hypotheses
-        self.decoder = decoder
     }
 }
 

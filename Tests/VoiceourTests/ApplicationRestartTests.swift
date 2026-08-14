@@ -27,15 +27,15 @@ struct ApplicationRestartTests {
     @Test func restartDropsStaleBackendOverridesAndKeepsTheConsoleOpen() {
         let arguments = VoiceourAppDelegate.restartArguments(from: [
             "--repo-root", "/tmp/voiceour",
-            "--asr-backend", "mlx",
+            "--asr-backend", "parakeet",
             "--asr-backend=apple",
-            "--asr-dir", "/tmp/asr",
+            "--no-activate",
         ])
 
         #expect(
             arguments == [
                 "--repo-root", "/tmp/voiceour",
-                "--asr-dir", "/tmp/asr",
+                "--no-activate",
                 "--show-console",
             ])
     }

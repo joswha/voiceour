@@ -100,10 +100,9 @@ struct AppleSpeechASRTests {
                 #expect(confidence >= 0)
             }
         }
-        // Apple exposes no documented confidence scale: the aggregate is present
-        // but the mode is never a fabricated greedy/beam label.
-        #expect(result.transcript.confidenceMode != .greedyEntropy)
-        #expect(result.transcript.confidenceMode != .beamLogprob)
+        // Apple exposes no documented confidence scale: the aggregate is present but the mode
+        // is never borrowed from a decoder Apple does not run.
+        #expect(result.transcript.confidenceMode != .greedyTokenProb)
         if result.transcript.confidence != nil {
             #expect(result.transcript.confidenceMode == ASRConfidenceMode.none)
         }
@@ -130,8 +129,7 @@ struct AppleSpeechASRTests {
             for word in segments.flatMap({ $0.words ?? [] }) {
                 #expect(word.endMs >= word.startMs)
             }
-            #expect(result.transcript.confidenceMode != .greedyEntropy)
-            #expect(result.transcript.confidenceMode != .beamLogprob)
+            #expect(result.transcript.confidenceMode != .greedyTokenProb)
         }
 
         try? FileManager.default.removeItem(at: audio.url)

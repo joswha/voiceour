@@ -410,16 +410,6 @@ public final class DictationCoordinator {
         let launchOptions = VoiceCore.LaunchOptions(arguments: CommandLine.arguments.dropFirst())
         let env = ProcessInfo.processInfo.environment
 
-        let repoRootPath =
-            launchOptions.repoRoot
-            ?? env["VOICEOUR_REPO_ROOT"]
-            ?? FileManager.default.currentDirectoryPath
-        let repoRoot = URL(fileURLWithPath: repoRootPath)
-        let asrDirectoryPath =
-            launchOptions.asrDirectory
-            ?? env["VOICEOUR_ASR_DIR"]
-            ?? repoRoot.appendingPathComponent("asr").path
-        let asrDirectory = URL(fileURLWithPath: asrDirectoryPath)
         let registry = ASRBackendRegistry.builtIn
         let backend =
             launchOptions.asrBackend
@@ -432,7 +422,10 @@ public final class DictationCoordinator {
         let tracker = WorkspaceTargetTracker()
         let components = registry.liveComponents(
             for: backend,
-            context: ASRBackendContext(asrDirectory: asrDirectory, speechLocale: settings.speechLocale)
+            context: ASRBackendContext(
+                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
+                speechLocale: settings.speechLocale
+            )
         )
         let recorder = components.recorder
         let asr = components.client

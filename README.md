@@ -44,10 +44,9 @@ rasterise system Liquid Glass. On macOS 26, the live island uses Liquid Glass ag
    ┃             a live waveform while recording.
    ┃             ✓ finishes · ✕ discards · Esc discards · drag it anywhere.
    ┃
-   👽  DECODE    Parakeet TDT 0.6B runs on Apple silicon through a persistent
-   ┃             Python sidecar. Median latency is ~347 ms on an M4 Pro.
-   ┃             ARK-ASR 0.6B, ARK-ASR 3B, and Apple's on-device model are
-   ┃             also selectable. Airplane mode is supported.
+   👽  DECODE    PARAKEET runs Parakeet TDT 0.6B on Apple silicon through the
+   ┃             persistent Swift voiceour-asr sidecar. FAKE and APPLE SPEECH
+   ┃             are also selectable. Airplane mode is supported.
    ┃
    🧼  CLEAN     Cleanup removes fillers and preserves protected terms such as
    ┃             kubectl, --no-config, p95, and your internal codenames.
@@ -81,8 +80,9 @@ scripts/run_dev.sh --self-test   # build + run cleanup and safety checks
 scripts/run_dev.sh               # launch Voiceour in the menu bar
 ```
 
-You need macOS 14+, Command Line Tools (`xcode-select --install`), and
-[`uv`](https://docs.astral.sh/uv/) for the Python sidecar. Full Xcode is not required.
+You need macOS 14+ and Command Line Tools (`xcode-select --install`). `swift build` produces both
+the app and `voiceour-asr`; full Xcode is not required. [`uv`](https://docs.astral.sh/uv/) is needed
+only for the Python benchmark tooling in `bench/`, which never ships.
 
 For the real-ASR, signing, UI, benchmark, and release recipes, see
 [`docs/developer-setup.md`](docs/developer-setup.md). Contributors should use the exact gate list in
@@ -209,11 +209,6 @@ a custom vocabulary.
 - **Clear vocabulary** in System requires typed confirmation. It removes terms you added and
   restores the bundled defaults, including any `DETECTED AS` text taught for those defaults.
 
-Automatic term correction and decoder biasing are **experimental and off**
-(`Settings.automaticTermCorrectionEnabled`, `Settings.decoderBiasEnabled`). The only measurements
-so far are from a text-to-speech smoke tier, where unconditional biasing showed no recall gain.
-The vocabulary features above do not depend on either experimental setting.
-
 </details>
 
 <details>
@@ -253,8 +248,8 @@ current launch context.
 
 ## 📈 Measured performance
 
-Measurements used one Apple M4 Pro (10P+4E, 24 GB), macOS 26.5.2, `mlx 0.31.2`,
-`parakeet-mlx 0.5.2`, and Apple on-device Foundation Models. Latency percentiles come from
+Measurements used one Apple M4 Pro (10P+4E, 24 GB), macOS 26.5.2, the Parakeet TDT 0.6B v3
+checkpoint, and Apple on-device Foundation Models. Latency percentiles come from
 **353 real dictation sessions**. Controlled A/B results come from **~1,240 timed on-device model
 calls**. [`docs/performance-roadmap.md`](docs/performance-roadmap.md) contains the full methodology,
 negative results, and statistics.
@@ -279,7 +274,7 @@ input is a Bluetooth headset. Earlier and later measurements are not comparable.
 
 ### Accuracy
 
-| tier | metric | Parakeet TDT 0.6B v3 (default) | Apple SpeechTranscriber (opt-in) |
+| tier | metric | PARAKEET | APPLE SPEECH (opt-in) |
 |---|---|---:|---:|
 | LibriSpeech (n=128) | U-WER | **2.845%** | 3.133% |
 | LibriSpeech | CER | **0.920%** | 1.137% |
@@ -298,50 +293,22 @@ with the same scorer. The 2026-08-11 reports are
 `20260811T114301Z`/`20260811T114320Z` for FLEURS.
 
 The LibriSpeech U-WER delta is **+0.288 pp**, inside the project's +0.35 pp gate. The FLEURS delta is
-**+1.71 pp**, outside the gate. These results replace the 2026-07-17 runs, which compared 128 mlx
-rows with 64 Apple rows and used n=8 for FLEURS. At n=64, the FLEURS result reverses.
+**+1.71 pp**, outside the gate. These results replace the 2026-07-17 runs, which compared 128
+Parakeet rows with 64 Apple rows and used n=8 for FLEURS. At n=64, the FLEURS result reverses.
 
 The TechTerms rows are excluded from production evidence because the tier uses `macos-say` TTS.
 [`docs/benchmarks.md`](docs/benchmarks.md) states that these rows "must not be used as evidence for …
 technical term accuracy, or the production gate". The result is 7/11 vs 3/11 utterances
 (exact McNemar p ≥ 0.125).
 
-On row-matched read speech, **`mlx` leads every content axis on both tiers**. Its earlier latency
-tail is no longer present. Apple retains two measured advantages: punctuation micro-F1
-(0.870 vs 0.833) and post-stop latency from its fused live engine (**15.9 ms vs 119 ms** on the
-same 10.56 s audio). The live engine transcribes during capture. Neither tier contains real-speaker
-dictation audio. The default remains `mlx` based on the read-speech evidence and previous default.
+On row-matched read speech, **PARAKEET leads every content axis on both tiers**. Apple retains two
+measured advantages: punctuation micro-F1 (0.870 vs 0.833) and post-stop latency from its fused live
+engine (**15.9 ms vs 119 ms** on the same 10.56 s audio). The live engine transcribes during
+capture. Neither tier contains real-speaker dictation audio.
 [`docs/benchmarks.md`](docs/benchmarks.md) records that a consented corpus does not yet exist.
 
-#### ARK-ASR, opt-in
-
-`ARK 0.6B` and `ARK 3B` are selectable in the Voice pane but are not the default. The table below
-comes from a separate run on 2026-08-13 using an M4 Pro and the same scorer. The LibriSpeech rows
-are matched at n=112 because ARK rejects clips longer than 30 s.
-
-| tier | metric | Parakeet (default) | ARK 0.6B | ARK 3B |
-|---|---|---:|---:|---:|
-| FLEURS (n=64) | U-WER | 4.416% | **4.202%** | **3.632%** |
-| FLEURS | F-WER | **10.284%** | **9.590%** | 23.470% |
-| FLEURS | case F1 | **0.921** | 0.914 | **0.000** |
-| FLEURS | round trip p50 | **119.9 ms** | 322.3 ms | n/a |
-| LibriSpeech (n=112) | U-WER | **2.716%** | 2.925% | **2.194%** |
-| any | peak memory | **1.9–2.6 GB** | 2.3–2.9 GB | 7.1–7.7 GB |
-
-Across the two admissible tiers, ARK-0.6B differs by +0.214 pp on FLEURS and −0.209 pp on
-LibriSpeech, with 2.7x the latency. ARK-3B has lower word error on both tiers. It emits **no
-capitalization** and spells numbers as words, so its pasted output has F-WER 23.470% compared with
-10.284% for Parakeet. This behavior comes from the upstream model, not the conversion code.
-**Selecting ARK 3B downloads about 7 GB** and uses 7.1–7.7 GB of resident memory. ARK 0.6B
-downloads 2.2 GB.
-
-Both ARK backends return plain text without word alignments, confidence, or n-best results.
-Automatic term correction therefore stays off, and glossary biasing has no effect. Clips longer
-than 30 s are rejected instead of truncated.
-
 [`docs/performance-roadmap.md`](docs/performance-roadmap.md) contains the full method, per-stage
-timings, and rejected runtime options for native Swift/MLX, GGUF, and Rust. Run the benchmark with
-`make bench-stt BACKEND=ark-0.6b N=64`.
+timings, and rejected runtime options.
 
 <details>
 <summary><b>Refinement cost and rejected approaches</b></summary>
@@ -383,11 +350,9 @@ The following measurements ruled out other approaches:
 | Streaming Parakeet (`transcribe_stream`) | **+66 ms slower** at the 10.5 s median, 5.56% of words changed |
 | Trimming the glossary out of the prompt | 55–464 ms available, but every variant produced worse output |
 | Shorter system prompt | −331 ms, but caused command-as-text execution failures |
-| Encoder `mx.compile` | +1.7 ms fixed-shape win, −5.9 ms penalty per unseen input length |
 | INT8 quantization | −32 ms, but unvalidated for accuracy and needs a new model pin |
-| MLX 0.31.2 → 0.32.0 | 0.35 ms, within measurement noise |
 | Wired memory / residency | 0.3–1.4 ms *slower* |
-| Replacing the Python sidecar IPC | non-inference overhead is 0.8–0.9 ms p50, measured at the protocol |
+| Eliminating the sidecar process boundary | non-inference overhead is 0.8–0.9 ms p50, measured at the protocol |
 | Rust or hand-written Metal kernels | no viable path; see the roadmap for the constraints |
 
 </details>
@@ -400,6 +365,9 @@ The required fake-backed CI path needs no model, microphone, TCC grant, or crede
 [`CONTRIBUTING.md`](CONTRIBUTING.md) lists the required and advisory gates.
 [`docs/developer-setup.md`](docs/developer-setup.md) lists every command and run recipe.
 
+The direct real-ASR proof is
+`swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav`.
+
 Offscreen UI review needs neither Screen Recording nor Accessibility permission. The harness
 renders the real SwiftUI views and dumps their accessibility trees. It compares both outputs with
 committed goldens. [`docs/ui-harness.md`](docs/ui-harness.md) documents the process.
@@ -411,9 +379,11 @@ committed goldens. [`docs/ui-harness.md`](docs/ui-harness.md) documents the proc
 <details>
 <summary><b>Does it work with no internet?</b></summary>
 <br>
-Yes, after the model is cached. Once the cache manifest exists, the sidecar loads with
-<code>HF_HUB_OFFLINE=1</code>. After that, only optional OMP refinement can use the network, and it
-is off by default.
+Yes, after the model is cached. On first use, the sidecar downloads the pinned 1.26 GB
+`ggml-org/parakeet-GGUF` model and stores it in
+`~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml/` unless `VOICEOUR_MODEL_CACHE` overrides the
+location. Later launches check the manifest plus the model file's presence and size locally. After
+that, only optional OMP refinement can use the network, and it is off by default.
 </details>
 
 <details>
@@ -455,48 +425,33 @@ Carbon/<code>CGEventTap</code> implementation.
 </details>
 
 <details>
-<summary><b>What is MLX? Is it Apple's CUDA?</b></summary>
+<summary><b>Which transcription backends are available?</b></summary>
 <br>
-MLX is closer to PyTorch. CUDA is NVIDIA's low-level GPU programming layer. Metal fills that role
-on Apple platforms. MLX is an array and neural-network framework on top of Metal. Models written in
-MLX compile to Metal kernels. The stacks are MLX → Metal → GPU on Apple silicon and
-PyTorch → CUDA → GPU on NVIDIA hardware.
+The Voice pane ships three choices: <code>FAKE</code> for deterministic development,
+<code>PARAKEET</code> for local Parakeet TDT, and <code>APPLE SPEECH</code> for Apple's on-device
+SpeechAnalyzer on macOS 26+.
 <br><br>
-A discrete NVIDIA GPU has its own VRAM, so inference copies weights and activations across PCIe.
-Apple silicon uses <b>unified memory</b>. The CPU and GPU address the same physical RAM, with no
-copy and no separate device for tensors. A 7 GB model therefore uses 7 GB of system RAM, and
-<code>out of VRAM</code> is not a separate failure mode. MLX evaluates lazily. It builds a graph
-and computes when a result is requested. The first inference after launch pays the kernel
-compilation cost; later inferences do not.
+PARAKEET runs in the ASR sidecar, a Swift executable named <code>voiceour-asr</code> that links
+vendored whisper.cpp <code>parakeet.cpp</code> and ggml sources under
+<code>Vendor/parakeet/</code>. It uses <code>ggml-org/parakeet-GGUF</code> at revision
+<code>35156454d1a39de06863303dd209fd2bed6ee079</code>, file
+<code>ggml-parakeet-tdt-0.6b-v3-f16.bin</code>.
 </details>
 
 <details>
-<summary><b>Why a Python sidecar instead of Rust, or pure Swift?</b></summary>
+<summary><b>Why does transcription use a sidecar?</b></summary>
 <br>
-Transport overhead is small, and MLX performs the model computation.
+The persistent child keeps model loading and inference outside the app process while preserving a
+small, versioned boundary. The app multiplexes NDJSON protocol-v1 requests over stdio; audio passes
+as a file path instead of through the pipe.
 <br><br>
-Measurements on this machine used the real sidecar and its real protocol. They compared the
-caller-visible round trip with inference time reported inside the sidecar. The mechanism adds
-<b>0.8–0.9 ms at p50 and 1.3 ms at p95</b>, or 0.68% of a 119.9 ms Parakeet round trip. This
-includes the process boundary, JSON encoding and decoding, and pipe traffic. Audio passes as a file
-path and is not copied through the pipe. Python builds the graph, then the MLX call releases
-Python's GIL while Metal runs the model. Python waits for the GPU. Rewriting the transport in Rust
-would recover less than one millisecond from a 120 ms operation.
+Measurements on this machine compared the caller-visible round trip with inference time reported
+inside the sidecar. The process boundary, JSON encoding and decoding, and pipe traffic add
+<b>0.8–0.9 ms at p50 and 1.3 ms at p95</b>, or 0.68% of a 119.9 ms Parakeet round trip. Keeping the
+helper also gives the client a process it can terminate on a hard timeout.
 <br><br>
-The model runtimes are Python packages. This includes `parakeet-mlx` and the ARK MLX port. A Rust
-implementation would need to reimplement the models. Candle has no Parakeet or ARK implementation.
-Its Voxtral example forces CPU execution on non-CUDA builds, and it has open Metal K-quant
-correctness bugs. mistral.rs has no C or Swift ABI. Native Swift/MLX has a separate constraint: its
-Metal shaders require Xcode instead of the SwiftPM CLI, and this repository keeps a shell-first build
-that does not require Xcode.
-<br><br>
-This answers why the sidecar is Python <i>today</i>, not why it should stay Python. A no-Python C/Metal
-runtime for the same checkpoint is measured, faster, and recommended; see the 2026-08-14 pass in
-[`docs/performance-roadmap.md`](docs/performance-roadmap.md).
-<br><br>
-Sidecar startup takes ~130–320 ms from spawn to `hello`. The first transcription also loads the
-model and compiles kernels. These one-time costs occur before the first dictation.
-`VOICEOUR_PRELOAD=1` moves model loading and kernel compilation out of the first dictation.
+<code>VOICEOUR_PRELOAD=1</code> lets the sidecar acquire the model in the background, load it, and
+run a throwaway decode so model and Metal-pipeline startup do not consume a dictation timeout.
 </details>
 
 ---
@@ -504,9 +459,10 @@ model and compiles kernels. These one-time costs occur before the first dictatio
 ## 🧰 Shipping it
 
 [`docs/developer-setup.md`](docs/developer-setup.md) documents bundling, stable local signing,
-bundle verification, and release notarization. `Resources/Voiceour.entitlements` is a signing
-input, not a resource copied into the app bundle. Its entitlements are embedded in the code
-signature.
+bundle verification, and release notarization. The bundle carries its signed `voiceour-asr` helper
+in `Contents/MacOS/`, so a copied `.app` can transcribe without a repository checkout.
+`Resources/Voiceour.entitlements` is a signing input, not a resource copied into the app bundle.
+Its entitlements are embedded in the code signature.
 
 [`docs/permissions.md`](docs/permissions.md) documents permission and insertion behavior.
 [Dependency notes](CONTRIBUTING.md#dependency-notes) records the contributor constraint behind the

@@ -110,8 +110,8 @@
                 // put "UI-FLOW" in a committed sentence.
                 let coordinator = UIFixtures.make(
                     sessions: UIFixtures.history,
-                    settings: UIFixtures.settings(backend: "mlx"),
-                    backend: "mlx",
+                    settings: UIFixtures.settings(backend: "parakeet"),
+                    backend: "parakeet",
                     asrOverride: UIRecoveringASR(),
                     clockStep: UIScriptClock.backendProbeStep
                 )

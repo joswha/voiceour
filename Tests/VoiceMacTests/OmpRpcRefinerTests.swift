@@ -66,16 +66,16 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"\(reply)"}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}\\n' "$id"
                       ;;
                   esac
@@ -234,11 +234,11 @@ extension OmpSuites {
                       printf '%s\\n' '{"type":"agent_end"}'
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Hello after timeout."}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}\\n' "$id"
                       ;;
                   esac
@@ -313,7 +313,7 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       printf '%s\\n' '{"type":"\(eventType)","isTerminal":false}'
                       (
@@ -323,7 +323,7 @@ extension OmpSuites {
                       ) &
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       if [ -e "$terminal_marker" ]; then
                         reply='Terminal response.'
                       else
@@ -332,7 +332,7 @@ extension OmpSuites {
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"%s"}}\\n' "$id" "$reply"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
                       ;;
                   esac
@@ -521,7 +521,7 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       (
                         /bin/sleep 0.25
@@ -529,11 +529,11 @@ extension OmpSuites {
                       ) &
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Combined deadline."}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("id", ""))')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       if [ -n "$id" ]; then
                         printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
                       fi
@@ -572,16 +572,16 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Second request."}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
                       ;;
                   esac
@@ -662,7 +662,7 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       if [ "$first_run" = true ]; then
                         : > "$0.first-prompt"
@@ -672,11 +672,11 @@ extension OmpSuites {
                       fi
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Second request."}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
                       ;;
                   esac
@@ -749,7 +749,7 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       if [ "$changed" = true ]; then
                         printf '%s\\n' '{"type":"model_changed","model":"other/provider"}'
@@ -759,11 +759,11 @@ extension OmpSuites {
                       fi
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Configured model."}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
                       ;;
                   esac
@@ -813,16 +813,16 @@ extension OmpSuites {
                 while IFS= read -r line; do
                   case "$line" in
                     *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
                       printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
                       ;;
                     *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Hello world."}}\\n' "$id"
                       ;;
                     *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                       if [ "$fail_reset" = true ]; then
                         printf '{"id":"%s","type":"response","command":"new_session","success":false,"error":"reset failed"}\\n' "$id"
                       else

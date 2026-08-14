@@ -97,12 +97,10 @@ struct VoicePane: View {
             statusActionAccessibilityLabel: "Restart Voiceour to apply backend",
             statusActionAccessibilityIdentifier: "voice.backend.restart"
         ) {
-            // Two rows. Five segments measure 478pt laid out on one, against a
-            // control band of 480pt beside the IN USE mark and 414pt beside the
-            // wider RESTART TO APPLY one — the state selecting a backend lands
-            // in. Wrapping keeps the three original backends on the first row
-            // and the opt-in ARK pair on the second, and the group holds the
-            // 316pt width it has today.
+            // Three segments, so they fit one row of the control band beside either the
+            // IN USE mark or the wider RESTART TO APPLY one. `rows: 2` is retained as the
+            // wrap allowance: the group keeps its 316pt width, and a fourth backend wraps
+            // rather than overflowing.
             SegmentGroup(rows: 2) {
                 ForEach(Self.backends, id: \.id) { backend in
                     SegmentOption(

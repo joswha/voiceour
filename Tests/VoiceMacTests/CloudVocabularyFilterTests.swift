@@ -190,11 +190,11 @@ struct CloudVocabularyFilterTests {
                   printf '%s\\n' '{"type":"agent_end"}'
                   ;;
                 *'"type":"get_last_assistant_text"'*)
-                  id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                  id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                   printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"The meeting notes."}}\\n' "$id"
                   ;;
                 *'"type":"new_session"'*)
-                  id=$(printf '%s' "$line" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+                  id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
                   printf '{"id":"%s","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}\\n' "$id"
                   ;;
               esac

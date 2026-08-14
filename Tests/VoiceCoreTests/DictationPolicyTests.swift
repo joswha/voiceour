@@ -7,24 +7,20 @@ struct DictationPolicyTests {
     @Test func launchOptionsParsesSeparateArguments() {
         let options = LaunchOptions(arguments: [
             "--repo-root", "/tmp/repo",
-            "--asr-dir", "/tmp/repo/asr",
-            "--asr-backend", "MLX",
+            "--asr-backend", "PARAKEET",
         ])
 
         #expect(options.repoRoot == "/tmp/repo")
-        #expect(options.asrDirectory == "/tmp/repo/asr")
-        #expect(options.asrBackend == "mlx")
+        #expect(options.asrBackend == "parakeet")
     }
 
     @Test func launchOptionsParsesInlineArguments() {
         let options = LaunchOptions(arguments: [
             "--repo-root=/tmp/inline-repo",
-            "--asr-dir=/tmp/inline-repo/asr",
             "--asr-backend=fake",
         ])
 
         #expect(options.repoRoot == "/tmp/inline-repo")
-        #expect(options.asrDirectory == "/tmp/inline-repo/asr")
         #expect(options.asrBackend == "fake")
     }
 
@@ -33,22 +29,29 @@ struct DictationPolicyTests {
 
         #expect(options.asrBackend == nil)
         #expect(LaunchOptions.validBackend(" fake ") == "fake")
-        #expect(LaunchOptions.validBackend("MLX") == "mlx")
+        #expect(LaunchOptions.validBackend("PARAKEET") == "parakeet")
         #expect(LaunchOptions.validBackend("Apple") == "apple")
-        #expect(LaunchOptions.validBackend("ARK-0.6B") == "ark-0.6b")
-        #expect(LaunchOptions.validBackend("ark-3b") == "ark-3b")
         #expect(LaunchOptions.validBackend("sherpa") == nil)
+    }
+
+    /// An install that persisted one of the retired Python-sidecar backend ids keeps its real
+    /// backend. Without the mapping every one of these would fail validation and silently fall
+    /// through to the fake backend on the next launch.
+    @Test func retiredBackendIdsNormalizeToParakeet() {
+        #expect(LaunchOptions.validBackend("mlx") == "parakeet")
+        #expect(LaunchOptions.validBackend("MLX") == "parakeet")
+        #expect(LaunchOptions.validBackend("ark-0.6b") == "parakeet")
+        #expect(LaunchOptions.validBackend("ark-3b") == "parakeet")
+        #expect(LaunchOptions(arguments: ["--asr-backend=mlx"]).asrBackend == "parakeet")
     }
 
     @Test func launchOptionsIgnoresMissingValues() {
         let options = LaunchOptions(arguments: [
             "--repo-root",
-            "--asr-dir",
             "--asr-backend",
         ])
 
         #expect(options.repoRoot == nil)
-        #expect(options.asrDirectory == nil)
         #expect(options.asrBackend == nil)
     }
 

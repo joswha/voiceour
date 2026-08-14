@@ -11,10 +11,8 @@
     "byte_count": 172800
   },
   "expected_model": {
-    "model_id": "mlx-community/parakeet-tdt-0.6b-v3",
-    "revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15"
+    "model_id": "ggml-org/parakeet-GGUF",
+    "revision": "35156454d1a39de06863303dd209fd2bed6ee079"
   },
-  "timeout_ms": 30000,
-  "bias_phrases": null,
-  "bias_snapshot_id": null
+  "timeout_ms": 30000
 }

@@ -1,0 +1,214 @@
+import Foundation
+import VoiceCore
+
+/// The real backend: parakeet.cpp over the pinned GGUF checkpoint.
+///
+/// State that both the reader thread (`health`) and the decode queue (`transcribe`, `warmUp`)
+/// touch lives behind `stateLock`. The context itself is only ever used from the decode queue —
+/// `parakeet_full` is documented as not thread safe for the same context.
+public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
+    public let backendId = "parakeet-cpp"
+
+    private let cache: ParakeetModelCache
+    private let log: (String) -> Void
+
+    private let stateLock = NSLock()
+    /// Held for the whole duration of a model load so exactly one context is ever constructed.
+    ///
+    /// This cannot be `stateLock`: a first load compiles the embedded Metal shader library and
+    /// takes seconds, and `health()` must stay answerable throughout. It cannot be omitted
+    /// either — two contexts in one process share ggml's Metal device, so releasing the loser of
+    /// a construction race runs `parakeet_free`, tears the device down under the survivor, and
+    /// every later encode fails with "command buffer failed with status 1".
+    private let loadLock = NSLock()
+    /// Held for the duration of one `parakeet_full`. See `decode(_:samples:isCancelled:)`.
+    private let decodeLock = NSLock()
+    private var context: ParakeetContext?
+    private var loadMs = 0
+    private var loadFailed = false
+
+    public init(cache: ParakeetModelCache, log: @escaping (String) -> Void) {
+        self.cache = cache
+        self.log = log
+    }
+
+    public func startupStatus() -> BackendStatus {
+        cache.cacheOK() ? .ready : .modelMissing
+    }
+
+    public func health() -> ASRBackendHealth {
+        let cacheOk = cache.cacheOK()
+        stateLock.lock()
+        let loaded = context != nil
+        let failed = loadFailed
+        stateLock.unlock()
+        return ASRBackendHealth(
+            backendId: backendId,
+            backendStatus: cacheOk ? .ready : .modelMissing,
+            ready: cacheOk && !failed,
+            modelLoaded: loaded,
+            cacheOk: cacheOk
+        )
+    }
+
+    /// Downloads the artifact if needed, loads the model, and runs one throwaway decode.
+    ///
+    /// The throwaway decode is not superstition: the first `parakeet_full` of a process pays
+    /// 58-348 ms materialising Metal pipelines, and the very first run of a given binary on a
+    /// machine additionally compiles the embedded shader library (about 7.5 s, then cached by
+    /// the OS). Paying both here keeps them off the user's first dictation.
+    public func warmUp() throws {
+        try cache.ensureModel { fraction in
+            self.log(String(format: "VOICEOUR_PRELOAD download %.0f%%", fraction * 100))
+        }
+        let context = try loadContext()
+        _ = try decode(context, samples: [Float](repeating: 0, count: 8000), isCancelled: { false })
+    }
+
+    /// Drops the model before the process exits. See `SidecarBackend.shutdown`: ggml's Metal
+    /// device destructor aborts if a residency set still holds one of this context's buffers.
+    public func shutdown() {
+        stateLock.lock()
+        let released = context
+        context = nil
+        stateLock.unlock()
+        _ = released
+    }
+
+    public func transcribe(
+        _ request: ASRTranscribeRequest,
+        isCancelled: @escaping () -> Bool
+    ) -> SidecarTerminal {
+        if isCancelled() { return .cancelled }
+
+        let samples: [Float]
+        let context: ParakeetContext
+        switch prepare(request) {
+        case .failure(let code, let detail): return .failure(code: code, detail: detail)
+        case .ready(let decoded, let loaded):
+            samples = decoded
+            context = loaded
+        }
+
+        if isCancelled() { return .cancelled }
+
+        let started = DispatchTime.now().uptimeNanoseconds
+        let segments: [ParakeetSegmentRaw]
+        do {
+            segments = try decode(context, samples: samples, isCancelled: isCancelled)
+        } catch {
+            return .failure(code: .inferenceFailed, detail: String(describing: error))
+        }
+        let inferenceMs = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+
+        if isCancelled() { return .cancelled }
+
+        stateLock.lock()
+        let loadMs = self.loadMs
+        stateLock.unlock()
+
+        return .result(
+            transcript: TokenMapping.transcript(from: segments),
+            backendId: backendId,
+            modelId: ASRModelContract.modelId,
+            modelRevision: ASRModelContract.revision,
+            timings: ASRTimings(load: loadMs, inference: inferenceMs, total: loadMs + inferenceMs)
+        )
+    }
+
+    private enum Preparation {
+        case ready([Float], ParakeetContext)
+        case failure(code: ASRErrorCode, detail: String?)
+    }
+
+    /// Everything that can fail before the decode: request shape, model availability,
+    /// audio decoding and model load, in the order the retired Python backend applied them.
+    private func prepare(_ request: ASRTranscribeRequest) -> Preparation {
+        let audioURL: URL
+        switch SidecarRequestValidation.validate(
+            request,
+            modelId: ASRModelContract.modelId,
+            modelRevision: ASRModelContract.revision
+        ) {
+        case .audioPath(let url): audioURL = url
+        case .failure(let code, let detail): return .failure(code: code, detail: detail)
+        }
+
+        // A cold acquisition cannot fit inside the client's 30 s transcribe timeout, so this
+        // never blocks on the download: the preload thread is already fetching, and the client
+        // is told to retry. Blocking would spend the whole budget, time out, and have the
+        // client kill the sidecar mid-download.
+        guard cache.cacheOK() else {
+            return .failure(
+                code: .modelNotInstalled,
+                detail: "\(ASRModelContract.modelId) is still being acquired; retry once it has finished"
+            )
+        }
+
+        let samples: [Float]
+        do {
+            samples = try WAVFile.readSamples(at: audioURL)
+        } catch {
+            return .failure(code: .unsupportedAudioFormat, detail: String(describing: error))
+        }
+
+        do {
+            return .ready(samples, try loadContext())
+        } catch let error as ParakeetModelCacheError {
+            if case .manifestMismatch = error {
+                return .failure(code: .manifestMismatch, detail: error.description)
+            }
+            return .failure(code: .modelLoadFailed, detail: error.description)
+        } catch {
+            return .failure(code: .modelLoadFailed, detail: String(describing: error))
+        }
+    }
+
+    /// Creates the context on first use, exactly once.
+    ///
+    /// Callers are the decode queue and the preload thread. The load lock is held across
+    /// construction rather than only around the state update: a "build then discard the loser"
+    /// race destroys a live Metal device, which is not recoverable in-process.
+    private func loadContext() throws -> ParakeetContext {
+        if let existing = currentContext() { return existing }
+
+        loadLock.lock()
+        defer { loadLock.unlock() }
+        if let existing = currentContext() { return existing }
+
+        let started = DispatchTime.now().uptimeNanoseconds
+        do {
+            let created = try ParakeetContext(modelPath: cache.modelURL.path)
+            let elapsed = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+            stateLock.lock()
+            context = created
+            loadMs = elapsed
+            stateLock.unlock()
+            return created
+        } catch {
+            stateLock.lock()
+            loadFailed = true
+            stateLock.unlock()
+            throw error
+        }
+    }
+
+    private func currentContext() -> ParakeetContext? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return context
+    }
+
+    /// Runs one decode with the context held exclusively.
+    ///
+    /// The server already serializes real transcribes on one queue, but the preload thread's
+    /// throwaway decode does not run there, and `parakeet_full` is documented as not thread safe
+    /// for the same context.
+    private func decode(_ context: ParakeetContext, samples: [Float], isCancelled: @escaping () -> Bool) throws
+        -> [ParakeetSegmentRaw]
+    {
+        decodeLock.lock()
+        defer { decodeLock.unlock() }
+        return try context.transcribe(samples: samples, isCancelled: isCancelled)
+    }
+}

@@ -24,12 +24,20 @@ swift build -c release --package-path "$ROOT"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Voiceour"
+# The ASR sidecar ships inside the bundle, beside the app binary: the app resolves it as a
+# sibling of its own executable, which is what makes a copied .app able to transcribe.
+cp "$ROOT/.build/release/voiceour-asr" "$APP/Contents/MacOS/voiceour-asr"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-chmod +x "$APP/Contents/MacOS/Voiceour"
+chmod +x "$APP/Contents/MacOS/Voiceour" "$APP/Contents/MacOS/voiceour-asr"
+# Sign the helper first and explicitly. --deep on the app would sign it too, but with the
+# app's entitlements and in an order that depends on codesign's traversal; sealing it here
+# makes the nested signature deterministic and independently verifiable.
 if [ -n "$SIGN_KEYCHAIN" ]; then
+  codesign --force --keychain "$SIGN_KEYCHAIN" --sign "$SIGN_FLAG" "$APP/Contents/MacOS/voiceour-asr"
   codesign --force --deep --keychain "$SIGN_KEYCHAIN" --sign "$SIGN_FLAG" --entitlements "$ROOT/Resources/Voiceour.entitlements" "$APP"
 else
+  codesign --force --sign "$SIGN_FLAG" "$APP/Contents/MacOS/voiceour-asr"
   codesign --force --deep --sign "$SIGN_FLAG" --entitlements "$ROOT/Resources/Voiceour.entitlements" "$APP"
 fi
 printf '%s\n' "$APP"

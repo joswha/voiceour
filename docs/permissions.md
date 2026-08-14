@@ -8,7 +8,7 @@
 
 Voiceour does not request Input Monitoring in v0 and does not mutate focused controls through AX APIs.
 
-For real ASR, `scripts/run_real.sh` launches the bundle and passes `--repo-root`, `--asr-dir`, and `--asr-backend mlx` through `open --args`. Parakeet may cold-load on first use, but the model and inference remain local.
+For real ASR, `scripts/run_real.sh` launches the bundle with the `parakeet` backend. The app starts the sibling Swift executable `voiceour-asr`, which links the vendored parakeet.cpp runtime. Parakeet may cold-load on first use, but the model and inference remain local.
 
 Run `scripts/setup_local_signing.sh` once before repeated local builds. It installs a dedicated password-free `voiceour-dev` identity, and `scripts/bundle.sh` selects it without opening unrelated keychains. The stable certificate gives every rebuild the same designated requirement, so a single Accessibility grant survives later builds. `VOICEOUR_CODESIGN_IDENTITY` can explicitly select another identity; without either identity, the bundler warns and uses an ad-hoc signature whose per-build cdhash requires a new grant after code changes.
 
@@ -74,7 +74,7 @@ Then:
 2. Tap Fn/Globe to start recording. If this is your first real recording, macOS may request microphone permission at this point. With Accessibility granted, Voiceour consumes the standalone tap and suppresses the macOS emoji popup; without it, the passive fallback may let the popup also appear.
 3. While recording, expect a compact movable graphite island with cancel/check controls on the focused target's display. Drag the island body to reposition it. The centre reads `WARMING` until the selected microphone delivers real audio, and only then does the live waveform replace it; processing displays the uppercase state label and comet. The overlay has no transcript preview. When a Bluetooth device is the default input and a built-in microphone exists, Voiceour deliberately captures from the built-in microphone, so the waveform should replace `WARMING` promptly; without a built-in input a cold Bluetooth microphone can remain warming for over a second. Silence should keep the waveform bars low, and speaking should raise and move them.
 4. Speak one utterance and finish with the check control or Fn/Globe. During finalization/transcription, focus an eligible text target in another app or on another display. The island should follow that display and remain visible through insertion.
-5. Expected real mode: Parakeet may cold-load on first use, then the local MLX backend produces a transcript that follows the normal cleanup/glossary path and attempts Cmd-V in the target focused when insertion begins.
+5. Expected real mode: Parakeet may cold-load on first use, then the local Swift ASR sidecar produces a transcript that follows the normal cleanup/glossary path and attempts Cmd-V in the target focused when insertion begins.
 6. If a normal text target only receives the clipboard copy, grant the macOS event-post/Accessibility synthetic-paste permission Voiceour requests and retry.
 7. A focus change after the final delivery snapshot, denied paste permission, or a terminal/code/secure/unknown-risky delivery target must show copy-only and never post Cmd-V into an unverified target.
 

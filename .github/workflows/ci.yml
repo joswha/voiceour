@@ -20,14 +20,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # `bench/` is the only Python left in this repository, and it never ships.
       - name: Install uv and cache Python dependencies
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
           enable-cache: true
           cache-dependency-glob: |
-            asr/pyproject.toml
-            asr/uv.lock
             bench/pyproject.toml
             bench/uv.lock
 
@@ -55,9 +54,6 @@ jobs:
 
       - name: UI coverage ledger
         run: make ui-coverage
-
-      - name: ASR sidecar tests
-        run: make python-test
 
       - name: Benchmark tests
         run: cd bench && uv --no-config run pytest

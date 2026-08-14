@@ -9,35 +9,21 @@ public enum TermRisk: Equatable, Sendable {
     case critical
 }
 
-/// All the independent evidence the authorizer weighs for one candidate.
+/// The evidence the authorizer weighs for one candidate.
 ///
-/// The struct is a pure value: it carries a retrieved `TermCandidate`, its risk
-/// class, and the acoustic/ASR signals needed to decide whether the candidate
-/// has *independent* support strong enough to justify an automatic edit. It
-/// deliberately separates decoder-biased support (`decoderBiasEnabled`) from
-/// genuine n-best support (`appearsInNBest`) so the authorizer can refuse to
-/// treat the decoder's own preference as evidence for itself.
+/// A pure value: a retrieved `TermCandidate`, its risk class, and the ASR signals
+/// available for the span it covers.
 public struct AuthorizerEvidence: Equatable, Sendable {
     /// The suggestion-only match produced by retrieval.
     public let candidate: TermCandidate
     /// How harmful an incorrect automatic edit of this span would be.
     public let termRisk: TermRisk
-    /// Calibrated confidence of the transcript at the span, if available.
+    /// Confidence of the transcript at the span, if the backend reported one.
     public let transcriptConfidence: Double?
-    /// The mode the confidence was produced under. `.none` or `nil` means the
-    /// number is not a calibrated probability and cannot clear a calibrated bar.
+    /// What that number is. No mode this decoder produces is calibrated.
     public let confidenceMode: ASRConfidenceMode?
-    /// Whether the candidate's surface appears in the ASR n-best list — i.e. the
-    /// acoustic model independently entertained it.
-    public let appearsInNBest: Bool
-    /// Whether decoder-side biasing was active for this term. Biased support is
-    /// circular (the decoder was told to prefer the term), never independent.
-    /// `nil` means the backend did not report it, which is NOT the same as
-    /// "unbiased": a backend that biases but omits the field would otherwise
-    /// have its circular support accepted as independent evidence.
-    public let decoderBiasEnabled: Bool?
-    /// Gap between the winning hypothesis and its runner-up at the span. A small
-    /// margin means the recognition was ambiguous.
+    /// Gap between the winning candidate and its runner-up at the span. A small
+    /// margin means retrieval was ambiguous.
     public let runnerUpMargin: Double?
 
     public init(
@@ -45,16 +31,12 @@ public struct AuthorizerEvidence: Equatable, Sendable {
         termRisk: TermRisk,
         transcriptConfidence: Double? = nil,
         confidenceMode: ASRConfidenceMode? = nil,
-        appearsInNBest: Bool = false,
-        decoderBiasEnabled: Bool? = nil,
         runnerUpMargin: Double? = nil
     ) {
         self.candidate = candidate
         self.termRisk = termRisk
         self.transcriptConfidence = transcriptConfidence
         self.confidenceMode = confidenceMode
-        self.appearsInNBest = appearsInNBest
-        self.decoderBiasEnabled = decoderBiasEnabled
         self.runnerUpMargin = runnerUpMargin
     }
 }
@@ -63,77 +45,43 @@ public struct AuthorizerEvidence: Equatable, Sendable {
 ///
 /// - `keep`: no action; the candidate is too weak to even surface.
 /// - `suggest`: surface a suggestion-only proposal for explicit user action.
-/// - `replace`: perform an automatic edit. Only ever returned when automatic
-///   replacement is explicitly enabled and every threshold passes on
-///   independent evidence with no veto.
+///
+/// There is deliberately no automatic-replacement verdict. See `RiskAuthorizer`.
 public enum AuthorizerDecision: Equatable, Sendable {
     case keep
     case suggest(termId: String)
-    case replace(termId: String)
-}
-
-/// Calibrated absolute-confidence and runner-up-margin floors, split by risk
-/// class. Critical spans demand the strict (`critical*`) band; everything else
-/// uses the base band. All values are on the same calibrated scale as the ASR
-/// confidence/margin signals in `AuthorizerEvidence`.
-public struct RiskThresholds: Equatable, Sendable {
-    public var absolute: Double
-    public var margin: Double
-    public var criticalAbsolute: Double
-    public var criticalMargin: Double
-
-    public init(absolute: Double, margin: Double, criticalAbsolute: Double, criticalMargin: Double) {
-        self.absolute = absolute
-        self.margin = margin
-        self.criticalAbsolute = criticalAbsolute
-        self.criticalMargin = criticalMargin
-    }
-
-    /// Deliberately conservative defaults: a non-critical span must be strongly
-    /// confident with a clear margin, and a critical span must be near-certain
-    /// with a wide margin before any automatic edit is permitted.
-    public static var conservativeDefault: RiskThresholds {
-        RiskThresholds(absolute: 0.85, margin: 0.15, criticalAbsolute: 0.97, criticalMargin: 0.40)
-    }
 }
 
 /// Deterministic, pure risk authorizer for term candidates.
 ///
-/// `decide` is a total function of its inputs with no side effects and no
-/// hidden state. It fails safe toward `.keep`: automatic replacement is off by
-/// default and is only ever granted when it is explicitly enabled *and* the
-/// evidence is independent (not decoder-biased, present in the acoustic n-best)
-/// *and* clears the calibrated absolute + margin thresholds for the candidate's
-/// risk class *and* no veto applies. Any doubt collapses to at most `.suggest`,
-/// never `.replace`.
+/// `decide` is a total function of its inputs with no side effects and no hidden
+/// state. Its whole output space is "surface a suggestion" or "do nothing"; it
+/// never edits text.
 ///
-/// **Two of those gates do not currently discriminate on the default decoding
-/// path, and this must be closed before automatic replacement is enabled.**
-/// Measured 2026-08-14:
+/// **This used to be able to authorize an automatic replacement, and that path was
+/// deleted rather than left switched off.** Measured 2026-08-14, two of its three
+/// independence gates could not discriminate:
 ///
-/// - *Independent n-best support is vacuous under greedy decoding.* The MLX
-///   backend's greedy path returns exactly one hypothesis, and it is the very
-///   transcript the candidate was extracted from, with `score` and `raw_score`
-///   both literally `0.0` (`asr/src/voiceour_asr/backends/mlx.py`, the `ranked`
-///   construction and its own docstring). So `appearsInNBest` asks whether the
-///   candidate appears in the text it came from, which is always true. Only the
-///   opt-in beam path (`VOICEOUR_ASR_DECODING=beam`, set nowhere in this
-///   repository) produces a real n-best list.
-/// - *`confidenceMode == .greedyEntropy` is not a calibrated probability.*
-///   Committed benchmark reports put its expected calibration error between
-///   **0.235 and 0.419** (`benchmarks/results/*-techterms-stt.json`, `ece`), where
-///   0 is perfect. `absolute` and `criticalAbsolute` are described as calibrated
-///   floors; against that signal they are not.
-/// - Relatedly, `runnerUpMargin` as supplied by
-///   `TranscriptProcessingPipeline.authorizerEvidence` is a margin between the
-///   *retriever's own* blended phonetic/textual similarity scores, not an acoustic
-///   margin between competing recognitions.
+/// - *N-best support was vacuous.* The gate asked whether the candidate appeared in
+///   an ASR hypothesis list. Under greedy decoding that list held exactly one entry:
+///   the transcript the candidate had just been extracted from. The question was
+///   always answered yes. Only an opt-in beam decoder produced a real n-best list,
+///   and the runtime this app now ships (`Vendor/parakeet`) is greedy-only with no
+///   beam and no decoder-bias hook, so the gate could not be repaired in place.
+/// - *The confidence floors were described as calibrated and were not.* Committed
+///   benchmark reports put the expected calibration error of the greedy confidence
+///   signal between **0.235 and 0.419** (`benchmarks/results/*-techterms-stt.json`,
+///   `ece`), where 0 is perfect. The replacement for it, `greedy_token_prob`, is a
+///   mean of per-token posteriors and is equally uncalibrated.
+/// - Relatedly, `runnerUpMargin` is a margin between the *retriever's own* blended
+///   phonetic/textual similarity scores, not an acoustic margin between competing
+///   recognitions. It is still useful for ranking suggestions; it was never an
+///   acoustic independence signal.
 ///
-/// None of this is live: `Settings.automaticTermCorrectionEnabled` defaults to
-/// `false`, and `docs/benchmarks.md` already gates every automatic-authority path
-/// on a consented real-speaker corpus that does not exist yet. It is recorded here
-/// because the gates read as stronger than they measure, and the master switch is
-/// one boolean away.
+/// `docs/performance-roadmap.md` records where decode-time biasing would have to
+/// live if this capability is ever wanted back. Until an independent acoustic
+/// signal exists, a term correction is something the user accepts, not something
+/// the app performs.
 public enum RiskAuthorizer {
 
     /// Minimum blended acoustic/textual signal for a candidate to be surfaced as
@@ -141,70 +89,8 @@ public enum RiskAuthorizer {
     private static let suggestionFloor = 0.55
 
     /// Returns the authorizer's verdict for `evidence`.
-    ///
-    /// - Parameters:
-    ///   - evidence: independent evidence for one candidate.
-    ///   - thresholds: calibrated floors, per risk class.
-    ///   - automaticEnabled: master switch; when `false`, `.replace` is never
-    ///     returned regardless of how strong the evidence is.
-    public static func decide(
-        _ evidence: AuthorizerEvidence,
-        thresholds: RiskThresholds = .conservativeDefault,
-        automaticEnabled: Bool = false
-    ) -> AuthorizerDecision {
-        let termId = evidence.candidate.termId
-
-        // The safe fallback whenever automatic replacement is not warranted:
-        // surface a suggestion if the candidate is plausible, otherwise keep the
-        // text untouched. A suggestion never mutates text.
-        let fallback: AuthorizerDecision =
-            isPlausible(evidence.candidate) ? .suggest(termId: termId) : .keep
-
-        // Veto: automatic replacement must be explicitly enabled.
-        guard automaticEnabled else { return fallback }
-
-        // Veto: decoder biasing makes the ASR's support for the term circular —
-        // it was told to prefer the term, so its preference is not independent
-        // evidence and can never justify an automatic edit. An UNREPORTED bias
-        // state vetoes for the same reason: we cannot show the support is
-        // independent, and "the backend did not say" must never read as "no".
-        guard evidence.decoderBiasEnabled == false else { return fallback }
-
-        // Veto: no independent acoustic support. A candidate absent from the
-        // n-best list only survives because a language model or the decoder
-        // preferred it; this is exactly the homophone / common-word failure mode,
-        // so it is capped at a suggestion.
-        guard evidence.appearsInNBest else { return fallback }
-
-        // Select the threshold band. Critical spans require the strict band, so a
-        // critical candidate is vetoed on *any* miss against the tighter floors.
-        let absoluteFloor: Double
-        let marginFloor: Double
-        switch evidence.termRisk {
-        case .critical:
-            absoluteFloor = thresholds.criticalAbsolute
-            marginFloor = thresholds.criticalMargin
-        case .medium, .low:
-            absoluteFloor = thresholds.absolute
-            marginFloor = thresholds.margin
-        }
-
-        // Veto: absolute confidence must be present, calibrated, and clear the
-        // floor. An absent value or an uncalibrated mode cannot clear a
-        // calibrated bar.
-        guard let confidence = evidence.transcriptConfidence,
-            let mode = evidence.confidenceMode, mode != .none,
-            confidence >= absoluteFloor
-        else { return fallback }
-
-        // Veto: the runner-up margin must be present and clear the floor. A small
-        // or absent margin means the recognition was ambiguous.
-        guard let margin = evidence.runnerUpMargin, margin >= marginFloor
-        else { return fallback }
-
-        // Enabled, independent, calibrated, and unambiguous with no veto: the
-        // only path to an automatic edit.
-        return .replace(termId: termId)
+    public static func decide(_ evidence: AuthorizerEvidence) -> AuthorizerDecision {
+        isPlausible(evidence.candidate) ? .suggest(termId: evidence.candidate.termId) : .keep
     }
 
     /// A candidate is worth surfacing when its blended acoustic/textual signal

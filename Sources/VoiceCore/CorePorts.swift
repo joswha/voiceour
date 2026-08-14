@@ -34,7 +34,6 @@ extension AudioRecording {
 
 public protocol ASRClienting: Sendable {
     func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult
-    func transcribe(_ audio: RecordedAudio, timeoutMs: Int, biasPhrases: [ASRBiasPhrase]) async throws -> ASRResult
     func health(timeoutMs: Int) async throws -> ASRBackendHealth
     func warmUp() async
     func lastTranscriptionPath() -> String?
@@ -43,16 +42,6 @@ public protocol ASRClienting: Sendable {
 extension ASRClienting {
     public func warmUp() async {}
     public func lastTranscriptionPath() -> String? { nil }
-
-    /// Bias-aware decode. The default ignores `biasPhrases` and forwards to the
-    /// unbiased two-argument path, so only backends that support decoder biasing
-    /// (the sidecar) need to override it; Apple/Fake/Unsupported clients inherit
-    /// this byte-identical default.
-    public func transcribe(_ audio: RecordedAudio, timeoutMs: Int, biasPhrases: [ASRBiasPhrase]) async throws
-        -> ASRResult
-    {
-        try await transcribe(audio, timeoutMs: timeoutMs)
-    }
 }
 
 public protocol TargetTracking: Sendable {

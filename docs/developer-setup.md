@@ -3,36 +3,21 @@
 ## Prerequisites
 
 - macOS 14 or newer.
-- Xcode or Command Line Tools with SwiftPM.
-- `uv` for Python dependency management.
-- Apple Silicon for the real Parakeet MLX proof.
+- Xcode Command Line Tools (or full Xcode) with SwiftPM.
+- `uv` only when working in `bench/`.
 
 ## First success path
 
+Install the Xcode Command Line Tools, then:
+
 ```sh
-make build
-make format-check
-make lint-python
-make test
-(cd asr && uv --no-config run pytest)
-(cd bench && uv --no-config run pytest)
-scripts/run_dev.sh --self-test
-make bench-smoke
-make ui-flow
-make ui-coverage
-make ui-snap
-make ui-flow-frames
+swift build
 ```
 
-This is the complete fake-backed verification inventory. The exact required-versus-advisory CI
-classification lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md). `make python-test` is the Makefile
-wrapper for the ASR pytest command above; `make format` applies Swift formatting rather than
-checking it.
-
-This repository standardises on `uv --no-config` for every Python command, and the scripts use it
-where they launch the sidecar. That is deliberate: a host-level `uv.toml` (`/etc/uv/uv.toml` or
-`~/.config/uv/uv.toml`) can otherwise change dependency resolution, so results would depend on
-whose machine ran them.
+The Xcode toolchain and `swift build` produce both the app and the `voiceour-asr` Swift
+executable. Building and running them needs no Python tooling. Benchmark work is the sole
+exception: commands under `bench/` use `uv --no-config` so host-level uv configuration cannot
+change dependency resolution.
 
 ## Run the fake dev app
 
@@ -84,15 +69,30 @@ These launch flags are development-only and guarded like `--self-test`: `--show-
 scripts/run_real.sh
 ```
 
-`scripts/run_real.sh` is the recommended interactive test path for real ASR. It launches the `.app` bundle with `NSMicrophoneUsageDescription` metadata and passes `--repo-root`, `--asr-dir`, and `--asr-backend mlx` through `open --args`. The macOS microphone prompt may appear when you first start a real recording, not merely when the app launches; Parakeet may cold-load on first use, and the model and inference remain local.
+`scripts/run_real.sh` is the recommended interactive test path for real ASR. It launches the
+`.app` bundle with `NSMicrophoneUsageDescription` metadata and selects the `parakeet` backend. The
+app starts the sibling Swift executable `voiceour-asr`; the macOS microphone prompt may appear
+when you first start a real recording, not merely when the app launches. The model and inference
+remain local.
 
-The default is `mlx-community/parakeet-tdt-0.6b-v3`, pinned to revision
-`ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`; Apple Silicon is required. The first launch downloads
-and caches the model. Once its cache manifest exists the sidecar sets `HF_HUB_OFFLINE=1`, stays
-alive for the app run, and preloads at launch so later dictations pay inference rather than model
-startup.
+The model is `ggml-org/parakeet-GGUF` at revision
+`35156454d1a39de06863303dd209fd2bed6ee079`, file
+`ggml-parakeet-tdt-0.6b-v3-f16.bin`. The first run downloads 1.26 GB. Unless
+`VOICEOUR_MODEL_CACHE` overrides it, the sidecar stores the model under
+`~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml/` beside a `manifest.json` containing
+`model_id`, `revision`, `file`, `sha256`, and `size_bytes`. The digest is verified during the
+download; later launches verify the file's presence and size.
 
-While recording, Voiceour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `mlx` path) logs `Voiceour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
+The first Parakeet load for a given binary on a machine spends about 7.5 seconds compiling the
+embedded Metal shader library. Later loads take about 9 ms from the OS shader cache. The sidecar
+stays alive for the app run and preloads after launch so subsequent dictations pay inference
+rather than model startup.
+
+The old `~/Library/Caches/Voiceour/parakeet/` and
+`~/Library/Caches/Voiceour/ark-*/` directories are no longer read or deleted automatically and
+are safe to remove by hand.
+
+While recording, Voiceour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `parakeet` path) logs `Voiceour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
 
 After granting Accessibility/event-post permission, restart the existing test bundle without rebuilding it:
 
@@ -137,18 +137,19 @@ The "Apple On-Device" provider runs Apple's system language model through the Fo
 ## Run the real ASR proof
 
 ```sh
-scripts/make_fixture.sh
-cd asr && uv --no-config run python ../scripts/phase0_asr_proof.py ../fixtures/audio/hello_16k_mono.wav
+swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 ```
 
-Example proof output:
+Example warm-cache debug output measured on an Apple M4 Pro:
 
 ```text
-transcript=Hello world testing NVIDIA Parakeet NN Spaceport.
-cold_load_ms=193738 warm_inference_ms=4360 rss_bytes=1743880192
+transcript=Hello world testing NVIDIA Parakeet NN spaceport.
+cold_load_ms=3092 warm_inference_ms=92
 ```
 
-This proof is non-interactive; it does not record the manual GUI insertion matrix.
+The proof acquires and verifies the model when needed, loads it, transcribes the fixture, and
+exits non-zero if the transcript is empty or lacks `hello` or `world`. It is non-interactive and
+does not record the manual GUI insertion matrix.
 
 ## Bundle
 
@@ -214,22 +215,23 @@ target-safety policy, focus-race checks, and release insertion matrix.
 Real integrations are opt-in:
 
 ```sh
-VOICEOUR_MLX_INTEGRATION=1 swift test
+VOICEOUR_PARAKEET_INTEGRATION=1 swift test
 VOICEOUR_OMP_INTEGRATION=1 swift test
 VOICEOUR_FM_INTEGRATION=1 swift test
 VOICEOUR_APPLE_SPEECH_INTEGRATION=1 swift test
 ```
 
-They require, respectively, the MLX model download, an OMP login, macOS 26 with Apple Intelligence,
-or macOS 26 with SpeechAnalyzer. They skip when their environment variable is absent.
+They require, respectively, the Parakeet model cache, an OMP login, macOS 26 with Apple
+Intelligence, or macOS 26 with SpeechAnalyzer. They skip when their environment variable is
+absent.
 
 The benchmark Make targets are:
 
 ```sh
 make bench-smoke
-make bench-stt BACKEND=mlx N=64
+make bench-stt BACKEND=parakeet N=64
 make bench-refine
-make bench-e2e BACKEND=mlx N=64
+make bench-e2e BACKEND=parakeet N=64
 make bench-techterms
 ```
 
@@ -248,7 +250,6 @@ datasets; see [`docs/benchmarks.md`](benchmarks.md).
 |`sign_notarize.sh`|release-only|Credentialed Developer ID sign + notarize + staple.|
 |`setup_local_signing.sh`|supported|One-time password-free `voiceour-dev` keychain identity so `bundle.sh` rebuilds keep the Accessibility/TCC grant.|
 |`make_fixture.sh`|supported|Generates the WAV proof fixture; wrapped by `make fixture`.|
-|`phase0_asr_proof.py`|supported (model proof)|Loads the pinned model directly (not through the sidecar protocol; the sidecar path is covered by Swift/Python process tests) and prints transcript/latency/RSS.|
 |`ui_harness.sh`|supported|Offscreen UI render/dump/lint/diff; wrapped by `make ui-snap`, `make ui-update`, `make ui-list`. Never opens a window, never steals focus.|
 |`make_readme_gif.sh`|supported|Records the README's recording-island GIF from the harness film mode; wrapped by `make ui-film`. Needs `ffmpeg` and `ffprobe` on `PATH`. Media, not a gate: nothing diffs its output.|
 |`console_shot.sh`, `find_console_window.swift`|screenshot tooling|Onscreen console window capture. Superseded by `ui_harness.sh` except for real glass. The offscreen path cannot rasterise either behind-window `NSVisualEffectView` or modern `.glassEffect`.|

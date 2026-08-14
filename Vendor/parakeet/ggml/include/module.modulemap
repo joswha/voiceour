@@ -1,0 +1,14 @@
+// Explicit map instead of SwiftPM's umbrella-directory default: ggml-cpp.h lives in this
+// directory for the vendored .cpp sources but is guarded with #error "This header is for
+// C++ only", so an umbrella module fails to build for Swift importers.
+module CGgml {
+    header "ggml.h"
+    header "ggml-alloc.h"
+    header "ggml-backend.h"
+    header "ggml-opt.h"
+    header "gguf.h"
+    header "ggml-cpu.h"
+    header "ggml-metal.h"
+    header "ggml-blas.h"
+    export *
+}

@@ -108,7 +108,6 @@ struct BenchOptions {
     var command: BenchCommand
     var input: URL
     var output: URL
-    var asrDirectory: URL
     var backend: String?
     var timeoutMs: Int
     var refineMode: BenchRefineMode
@@ -121,7 +120,7 @@ enum BenchCLI {
     static let usage = """
         Usage:
           voiceour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
-              [--asr-dir asr] [--backend \(backendChoices)] [--timeout-ms 120000]
+              [--backend \(backendChoices)] [--timeout-ms 120000]
               [--refine off|deterministic|omp] [--refiner-model M]
           voiceour-bench refine --input <cases.jsonl> --output <results.jsonl>
               --refine deterministic|omp [--refiner-model M]
@@ -136,7 +135,6 @@ enum BenchCLI {
 
         var input: URL?
         var output: URL?
-        var asrDirectory = fileURL("asr")
         var backend = command == .pipeline ? ASRBackendRegistry.builtIn.defaultDescriptor.id : nil
         var timeoutMs = 120_000
         var refineMode: BenchRefineMode? = command == .pipeline ? .deterministic : nil
@@ -150,9 +148,6 @@ enum BenchCLI {
                 input = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--output":
                 output = fileURL(try value(for: parsed, in: arguments, index: &index))
-            case "--asr-dir":
-                guard command == .pipeline else { throw BenchError.usage("--asr-dir is only valid for pipeline") }
-                asrDirectory = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--backend":
                 guard command == .pipeline else { throw BenchError.usage("--backend is only valid for pipeline") }
                 let value = try value(for: parsed, in: arguments, index: &index)
@@ -198,7 +193,6 @@ enum BenchCLI {
             command: command,
             input: input,
             output: output,
-            asrDirectory: asrDirectory,
             backend: backend,
             timeoutMs: timeoutMs,
             refineMode: refineMode,
@@ -258,10 +252,13 @@ struct BenchRunner {
     /// Uses the registry's batch factory, not its live one: the live Apple
     /// backend is the fused recording engine, which is not what a file-driven
     /// benchmark should measure.
-    private static func makeASRClient(backend: String, asrDirectory: URL) -> any ASRClienting {
+    private static func makeASRClient(backend: String) -> any ASRClienting {
         ASRBackendRegistry.builtIn.client(
             for: backend,
-            context: ASRBackendContext(asrDirectory: asrDirectory, speechLocale: "en_US")
+            context: ASRBackendContext(
+                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
+                speechLocale: "en_US"
+            )
         )
     }
 
@@ -269,10 +266,7 @@ struct BenchRunner {
         let writer = try JSONLWriter(url: options.output)
         try writer.write(meta(mode: .pipeline))
         let reader = try JSONLLineReader(url: options.input)
-        let asr = Self.makeASRClient(
-            backend: options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id,
-            asrDirectory: options.asrDirectory
-        )
+        let asr = Self.makeASRClient(backend: options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id)
         let refinement = RefinementPipeline(mode: options.refineMode, options: options)
         let decoder = JSONDecoder()
         var lineNumber = 0
@@ -374,7 +368,6 @@ struct BenchRunner {
         var rowError: String?
         var refined = false
         var refineSkipReason: String?
-        var hypotheses: [BenchHypothesis]?
         var confidence: Double?
         var confidenceMode: String?
 
@@ -383,8 +376,7 @@ struct BenchRunner {
             let asrStart = BenchClock.mark()
             let result: ASRResult
             do {
-                result = try await asr.transcribe(
-                    audio, timeoutMs: options.timeoutMs, biasPhrases: biasPhrases(for: input))
+                result = try await asr.transcribe(audio, timeoutMs: options.timeoutMs)
                 timings.asr = BenchClock.elapsedMilliseconds(since: asrStart)
             } catch {
                 timings.asr = BenchClock.elapsedMilliseconds(since: asrStart)
@@ -394,7 +386,6 @@ struct BenchRunner {
             timings.asrLoad = result.timingsMs.load
             timings.asrInference = result.timingsMs.inference
             rawTranscript = result.transcript.text
-            hypotheses = result.hypotheses?.map { BenchHypothesis(rank: $0.rank, text: $0.text, score: $0.score) }
             confidence = result.transcript.confidence
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
@@ -420,7 +411,6 @@ struct BenchRunner {
             timingsMs: timings,
             audioS: input.audioS,
             error: rowError,
-            hypotheses: hypotheses,
             confidence: confidence,
             confidenceMode: confidenceMode
         )
@@ -464,34 +454,6 @@ struct BenchRunner {
             byteCount: byteCount
         )
         return RecordedAudio(url: audioURL, meta: meta)
-    }
-
-    /// Opt-in decoder-bias measurement path. Enabled only when
-    /// `VOICEOUR_BENCH_BIAS` is set to a truthy value (biasing requires the beam
-    /// decoder, so pair it with `--decoding beam`). Default emits no bias so the
-    /// standard benchmark path is unchanged.
-    private var biasEnabled: Bool {
-        Self.isTruthy(ProcessInfo.processInfo.environment["VOICEOUR_BENCH_BIAS"])
-    }
-
-    /// Uses the manifest row's labeled canonical term as the sole bias phrase so
-    /// term-recovery deltas are attributable to biasing. No canonical term (or
-    /// bias disabled) -> no bias.
-    private func biasPhrases(for input: PipelineInputRow) -> [ASRBiasPhrase] {
-        guard biasEnabled else { return [] }
-        guard let canonical = input.canonicalTerm?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !canonical.isEmpty
-        else {
-            return []
-        }
-        return [ASRBiasPhrase(text: canonical)]
-    }
-
-    private static func isTruthy(_ value: String?) -> Bool {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
-            return false
-        }
-        return value == "1" || value == "true" || value == "yes" || value == "on"
     }
 }
 
@@ -839,12 +801,6 @@ struct BenchOutputTimings: Encodable {
     }
 }
 
-struct BenchHypothesis: Encodable {
-    var rank: Int
-    var text: String
-    var score: Double
-}
-
 struct BenchOutputRow: Encodable {
     var type = "row"
     var id: String
@@ -856,7 +812,6 @@ struct BenchOutputRow: Encodable {
     var timingsMs: BenchOutputTimings
     var audioS: Double?
     var error: String?
-    var hypotheses: [BenchHypothesis]?
     var confidence: Double?
     var confidenceMode: String?
 
@@ -871,7 +826,6 @@ struct BenchOutputRow: Encodable {
         case timingsMs = "timings_ms"
         case audioS = "audio_s"
         case error
-        case hypotheses
         case confidence
         case confidenceMode = "confidence_mode"
     }
@@ -899,9 +853,6 @@ struct BenchOutputRow: Encodable {
             try container.encode(error, forKey: .error)
         } else {
             try container.encodeNil(forKey: .error)
-        }
-        if let hypotheses {
-            try container.encode(hypotheses, forKey: .hypotheses)
         }
         if let confidence {
             try container.encode(confidence, forKey: .confidence)

@@ -1,4 +1,4 @@
-.PHONY: build test bundle verify-bundle fixture dev python-test format format-check lint-python
+.PHONY: build test bundle verify-bundle fixture dev format format-check lint-python
 
 build:
 	swift build -Xswiftc -warnings-as-errors
@@ -8,9 +8,6 @@ build:
 test:
 	swift test -Xswiftc -warnings-as-errors -Xswiftc -DUI_HARNESS
 
-python-test:
-	cd asr && uv --no-config run pytest
-
 # swift-format ships with the Swift 6 toolchain, so a contributor installs nothing.
 # Configuration is .swift-format at the repo root.
 format:
@@ -19,8 +16,8 @@ format:
 format-check:
 	swift format lint --strict --recursive Sources Tests
 
+# `bench/` is the only Python left in this repository, and it never ships.
 lint-python:
-	cd asr && uv --no-config run ruff check .
 	cd bench && uv --no-config run ruff check .
 
 bundle:
@@ -97,8 +94,8 @@ ui-all: ui-snap ui-flow-frames
 
 N ?= 200
 # Parakeet stays the measured default; override to A/B another registered
-# backend, e.g. `make bench-stt BACKEND=ark-0.6b N=64`.
-BACKEND ?= mlx
+# backend, e.g. `make bench-stt BACKEND=apple N=64`.
+BACKEND ?= parakeet
 
 bench-smoke:
 	cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode e2e --backend fake

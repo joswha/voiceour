@@ -8,4 +8,4 @@ if [ -f "$ROOT/.env" ]; then
   set +a
 fi
 "$ROOT/scripts/bundle.sh" >/dev/null
-open -n "$APP" --args --repo-root "$ROOT" --asr-dir "$ROOT/asr" --asr-backend "${VOICEOUR_ASR_BACKEND:-mlx}" "$@"
+open -n "$APP" --args --asr-backend "${VOICEOUR_ASR_BACKEND:-parakeet}" "$@"

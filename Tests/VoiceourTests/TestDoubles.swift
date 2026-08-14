@@ -67,15 +67,7 @@ final class FakeASR: ASRClienting, @unchecked Sendable {
         case throwError(Error)
     }
 
-    private let lock = NSLock()
     private let behavior: Behavior
-    private var _receivedBiasPhrases: [ASRBiasPhrase] = []
-
-    /// Bias phrases seen by the three-argument `transcribe` overload. Empty when
-    /// the coordinator took the two-argument path (decoder bias disabled).
-    var receivedBiasPhrases: [ASRBiasPhrase] {
-        lock.withLock { _receivedBiasPhrases }
-    }
 
     init(behavior: Behavior) {
         self.behavior = behavior
@@ -93,11 +85,6 @@ final class FakeASR: ASRClienting, @unchecked Sendable {
         case .throwError(let error):
             throw error
         }
-    }
-
-    func transcribe(_ audio: RecordedAudio, timeoutMs: Int, biasPhrases: [ASRBiasPhrase]) async throws -> ASRResult {
-        lock.withLock { _receivedBiasPhrases = biasPhrases }
-        return try await transcribe(audio, timeoutMs: timeoutMs)
     }
 
     func health(timeoutMs: Int) async throws -> ASRBackendHealth {
@@ -174,3 +161,12 @@ struct FakeRefiner: TranscriptRefining {
         .skipped(reason: "test")
     }
 }
+
+/// The directory SwiftPM built this test bundle into, which is also where the `voiceour-asr`
+/// helper lands. The app resolves the sidecar as a sibling of its own executable; an
+/// integration test that wants the real sidecar has to apply the same rule.
+func testProductsDirectory() -> URL {
+    Bundle(for: TestProductsAnchor.self).bundleURL.deletingLastPathComponent()
+}
+
+private final class TestProductsAnchor {}

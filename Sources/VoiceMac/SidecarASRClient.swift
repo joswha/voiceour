@@ -23,15 +23,18 @@ struct SidecarLaunchConfiguration: Sendable {
         self.stderrSink = stderrSink
     }
 
-    static func uv(projectDirectory: URL, backend: String = "fake") -> SidecarLaunchConfiguration {
+    /// Launches the bundled `voiceour-asr` helper directly.
+    ///
+    /// No interpreter, no project directory, no arguments: the helper is a sibling of the
+    /// running executable in both a SwiftPM products directory and `Contents/MacOS`, which is
+    /// what lets a copied `.app` transcribe at all.
+    static func sidecar(executableURL: URL, backend: String = "fake") -> SidecarLaunchConfiguration {
         var env = ProcessInfo.processInfo.environment
         env["VOICEOUR_ASR_BACKEND"] = backend
         env["VOICEOUR_PRELOAD"] = "1"
         return SidecarLaunchConfiguration(
-            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-            arguments: [
-                "uv", "--no-config", "run", "--project", projectDirectory.path, "python", "-m", "voiceour_asr",
-            ],
+            executableURL: executableURL,
+            arguments: [],
             environment: env
         )
     }
@@ -62,11 +65,14 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
     }
 
     public convenience init(
-        asrDirectory: URL,
+        sidecarExecutableURL: URL,
         backend: String = ProcessInfo.processInfo.environment["VOICEOUR_ASR_BACKEND"] ?? "fake",
         expectedModel: ASRExpectedModel? = nil
     ) {
-        self.init(launch: .uv(projectDirectory: asrDirectory, backend: backend), expectedModel: expectedModel)
+        self.init(
+            launch: .sidecar(executableURL: sidecarExecutableURL, backend: backend),
+            expectedModel: expectedModel
+        )
     }
 
     deinit {
@@ -80,27 +86,6 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             audio: audio.meta,
             expectedModel: expectedModel,
             timeoutMs: timeoutMs
-        )
-        return try await runRequest(requestId: request.requestId, timeoutMs: timeoutMs) {
-            try await self.runtime.transcribe(request)
-        }
-    }
-
-    public func transcribe(_ audio: RecordedAudio, timeoutMs: Int, biasPhrases: [ASRBiasPhrase]) async throws
-        -> ASRResult
-    {
-        // No bias phrases -> keep the wire request byte-identical to the
-        // unbiased default path (no bias fields, no snapshot id).
-        guard !biasPhrases.isEmpty else {
-            return try await transcribe(audio, timeoutMs: timeoutMs)
-        }
-        let request = ASRTranscribeRequest(
-            requestId: UUID().uuidString,
-            audio: audio.meta,
-            expectedModel: expectedModel,
-            timeoutMs: timeoutMs,
-            biasPhrases: biasPhrases,
-            biasSnapshotId: UUID().uuidString
         )
         return try await runRequest(requestId: request.requestId, timeoutMs: timeoutMs) {
             try await self.runtime.transcribe(request)

@@ -14,13 +14,13 @@ import Testing
 struct ASRBackendRegistryTests {
     private let registry = ASRBackendRegistry.builtIn
     private let context = ASRBackendContext(
-        asrDirectory: URL(fileURLWithPath: "/tmp/voiceour-asr"),
+        sidecarExecutableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
         speechLocale: "en_US"
     )
 
-    @Test func builtInCarriesExactlyTheFiveShippedBackendsInPickerOrder() {
-        #expect(registry.descriptors.map(\.id) == ["fake", "mlx", "apple", "ark-0.6b", "ark-3b"])
-        #expect(registry.backendIDs == ["fake", "mlx", "apple", "ark-0.6b", "ark-3b"])
+    @Test func builtInCarriesExactlyTheThreeShippedBackendsInPickerOrder() {
+        #expect(registry.descriptors.map(\.id) == ["fake", "parakeet", "apple"])
+        #expect(registry.backendIDs == ["fake", "parakeet", "apple"])
     }
 
     @Test func descriptorMetadataMatchesWhatTheUISurfaces() throws {
@@ -30,11 +30,11 @@ struct ASRBackendRegistryTests {
         #expect(fake.modelId == nil)
         #expect(fake.modelRevision == nil)
 
-        let mlx = try #require(registry.descriptor(for: "mlx"))
-        #expect(mlx.displayName == "PARAKEET MLX")
-        #expect(mlx.modelLabel == ASRModelContract.modelId)
-        #expect(mlx.modelId == ASRModelContract.modelId)
-        #expect(mlx.modelRevision == ASRModelContract.revision)
+        let parakeet = try #require(registry.descriptor(for: "parakeet"))
+        #expect(parakeet.displayName == "PARAKEET")
+        #expect(parakeet.modelLabel == ASRModelContract.modelId)
+        #expect(parakeet.modelId == ASRModelContract.modelId)
+        #expect(parakeet.modelRevision == ASRModelContract.revision)
 
         let apple = try #require(registry.descriptor(for: "apple"))
         #expect(apple.displayName == "APPLE SPEECH")
@@ -44,21 +44,12 @@ struct ASRBackendRegistryTests {
         #expect(apple.modelRevision == nil)
     }
 
-    /// The ARK pins are the converted MLX repositories the sidecar downloads. A
-    /// wrong revision costs gigabytes of re-download and runs weights that the
-    /// numbers in `docs/performance-roadmap.md` were never measured on.
-    @Test func arkDescriptorsPinTheirConvertedModels() throws {
-        let small = try #require(registry.descriptor(for: "ark-0.6b"))
-        #expect(small.displayName == "ARK 0.6B")
-        #expect(small.modelLabel == "leope/ark-asr-0.6B-mlx")
-        #expect(small.modelId == "leope/ark-asr-0.6B-mlx")
-        #expect(small.modelRevision == "6ec069bd68cbbe165aa42728eac482c90cb58d2f")
+    /// The sidecar helper is resolved as a sibling of whatever executable is running, which is
+    /// the one rule that holds for `swift run`, the benchmark and `Contents/MacOS` alike.
+    @Test func siblingSidecarURLResolvesNextToTheRunningExecutable() {
+        let url = ASRBackendContext.siblingSidecarURL(of: URL(fileURLWithPath: "/opt/App.app/Contents/MacOS/Voiceour"))
 
-        let large = try #require(registry.descriptor(for: "ark-3b"))
-        #expect(large.displayName == "ARK 3B")
-        #expect(large.modelLabel == "leope/ark-asr-3B-mlx")
-        #expect(large.modelId == "leope/ark-asr-3B-mlx")
-        #expect(large.modelRevision == "63d9fb8ba352c5c7c65ff2336019048170563d63")
+        #expect(url.path == "/opt/App.app/Contents/MacOS/voiceour-asr")
     }
 
     /// The fake backend needs neither a real recorder nor a muter: it produces
@@ -71,25 +62,13 @@ struct ASRBackendRegistryTests {
         #expect(!components.usesSystemAudioMuter)
     }
 
-    @Test func mlxBackendUsesTheRealRecorderAndTheMuter() {
-        let components = registry.liveComponents(for: "mlx", context: context)
+    @Test func parakeetBackendUsesTheRealRecorderAndTheMuter() {
+        let components = registry.liveComponents(for: "parakeet", context: context)
 
         #expect(components.recorder is MicrophoneRecorder)
         #expect(components.client is SidecarASRClient)
         #expect(components.usesSystemAudioMuter)
-    }
-
-    /// Both ARK sizes are sidecar backends shaped exactly like `mlx` — real
-    /// microphone, muter, Python client — not a native engine and not a variant
-    /// of the fake backend.
-    @Test(arguments: ["ark-0.6b", "ark-3b"])
-    func arkBackendsRunThroughTheSidecarLikeMLX(id: String) {
-        let components = registry.liveComponents(for: id, context: context)
-
-        #expect(components.recorder is MicrophoneRecorder)
-        #expect(components.client is SidecarASRClient)
-        #expect(components.usesSystemAudioMuter)
-        #expect(registry.client(for: id, context: context) is SidecarASRClient)
+        #expect(registry.client(for: "parakeet", context: context) is SidecarASRClient)
     }
 
     /// Below macOS 26 the Apple backend still resolves — it stays selectable and
@@ -122,9 +101,12 @@ struct ASRBackendRegistryTests {
 
     @Test func launchOptionValidationCanBeDrivenByTheRegistry() {
         let ids = registry.backendIDs
-        #expect(VoiceCore.LaunchOptions.validBackend("MLX", validBackendIDs: ids) == "mlx")
+        #expect(VoiceCore.LaunchOptions.validBackend("PARAKEET", validBackendIDs: ids) == "parakeet")
         #expect(VoiceCore.LaunchOptions.validBackend("  apple ", validBackendIDs: ids) == "apple")
-        #expect(VoiceCore.LaunchOptions.validBackend("ARK-0.6B", validBackendIDs: ids) == "ark-0.6b")
+        // Retired ids normalize before the membership test, so a persisted "mlx" still
+        // resolves against the live registry rather than falling through to the default.
+        #expect(VoiceCore.LaunchOptions.validBackend("MLX", validBackendIDs: ids) == "parakeet")
+        #expect(VoiceCore.LaunchOptions.validBackend("ARK-0.6B", validBackendIDs: ids) == "parakeet")
         #expect(VoiceCore.LaunchOptions.validBackend("quantum-ears", validBackendIDs: ids) == nil)
         #expect(VoiceCore.LaunchOptions.validBackend(nil, validBackendIDs: ids) == nil)
     }

@@ -1,0 +1,16 @@
+flow: voice.select-backend
+title: Every ASR backend can be saved, and the readouts name the running one
+fixture: static
+transitions: idle
+PASS 1 apple-running | selected(true) label="APPLE SPEECH" | true
+PASS 2 apple-running | model activeBackend == "apple" | "apple"
+PASS 3 apple-running | text == "apple/SpeechTranscriber (system-managed)" exactly 1 | 1 match
+PASS 4 apple-running | absent id=voice.backend.restart | 0 matches
+PASS 5 fake-saved | selected(true) label="FAKE" | true
+PASS 6 parakeet-saved | selected(true) label="PARAKEET" | true
+PASS 7 parakeet-saved | selected(false) label="APPLE SPEECH" | false
+PASS 8 parakeet-saved | text == "PARAKEET" at least 1 | 1 match
+PASS 9 parakeet-saved | exists id=voice.backend.restart | 1 match
+PASS 10 parakeet-saved | model activeBackend == "apple" | "apple"
+PASS 11 parakeet-saved | text == "APPLE SPEECH IN USE" exactly 1 | 1 match
+PASS 12 system-names-running-backend | value label="Backend" == "READY, APPLE SPEECH is configured for local transcription." | "READY, APPLE SPEECH is configured for local transcription."

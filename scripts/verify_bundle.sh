@@ -4,6 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP="$ROOT/.build/Voiceour.app"
 BIN="$APP/Contents/MacOS/Voiceour"
+SIDECAR="$APP/Contents/MacOS/voiceour-asr"
 
 fail() {
   echo "verify_bundle.sh: $*" >&2
@@ -11,6 +12,10 @@ fail() {
 }
 
 [ -x "$BIN" ] || fail "missing executable $BIN; run scripts/bundle.sh first"
+
+# The whole point of the bundle: a copied .app must carry its own ASR sidecar.
+[ -x "$SIDECAR" ] || fail "missing ASR sidecar $SIDECAR; run scripts/bundle.sh first"
+codesign --verify --strict --verbose=2 "$SIDECAR"
 
 plutil -lint "$ROOT/Resources/Info.plist" "$ROOT/Resources/Voiceour.entitlements"
 

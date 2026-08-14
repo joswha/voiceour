@@ -46,7 +46,7 @@ struct ProtocolFixtureParityTests {
         let confidence = try #require(result.transcript.confidence)
         let confidenceMode = try #require(result.transcript.confidenceMode)
         #expect(confidence == 0.865)
-        #expect(confidenceMode == .beamLogprob)
+        #expect(confidenceMode == .greedyTokenProb)
 
         let segments = try #require(result.transcript.segments)
         let segment = try #require(segments.first)
@@ -63,17 +63,14 @@ struct ProtocolFixtureParityTests {
         #expect(firstWord.endMs == 300)
         #expect(firstWordConfidence == 0.82)
 
-        let hypotheses = try #require(result.hypotheses)
-        let alternate = try #require(hypotheses.first { $0.rank == 1 })
-        let rawScore = try #require(alternate.rawScore)
-        #expect(alternate.text == "git status")
-        #expect(rawScore == -3.94)
+        let lastWord = try #require(words.last)
+        let lastWordConfidence = try #require(lastWord.confidence)
+        #expect(lastWord.text == "status")
+        #expect(lastWord.startMs == 320)
+        #expect(lastWord.endMs == 620)
+        #expect(lastWordConfidence == 0.91)
 
-        let decoder = try #require(result.decoder)
-        let beamSize = try #require(decoder.beamSize)
-        #expect(decoder.mode == "beam")
-        #expect(beamSize == 5)
-        #expect(decoder.biasEnabled == false)
-        #expect(decoder.biasSnapshotId == nil)
+        #expect(result.backendId == "parakeet-cpp")
+        #expect(result.modelId == ASRModelContract.modelId)
     }
 }

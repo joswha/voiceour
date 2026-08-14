@@ -11,4 +11,4 @@ if [ -f "$ROOT/.env" ]; then
   . "$ROOT/.env"
   set +a
 fi
-open -n "$APP" --args --repo-root "$ROOT" --asr-dir "$ROOT/asr" --asr-backend "${VOICEOUR_ASR_BACKEND:-mlx}" "$@"
+open -n "$APP" --args --asr-backend "${VOICEOUR_ASR_BACKEND:-parakeet}" "$@"

@@ -3,7 +3,6 @@ import Foundation
 /// Parses process arguments on behalf of the app layer.
 public struct LaunchOptions: Equatable, Sendable {
     public var repoRoot: String?
-    public var asrDirectory: String?
     public var asrBackend: String?
 
     public init<Arguments: Sequence>(arguments: Arguments) where Arguments.Element == String {
@@ -14,15 +13,11 @@ public struct LaunchOptions: Equatable, Sendable {
             switch argument {
             case "--repo-root":
                 if let value = Self.value(after: index, in: values) { repoRoot = value }
-            case "--asr-dir":
-                if let value = Self.value(after: index, in: values) { asrDirectory = value }
             case "--asr-backend":
                 if let value = Self.value(after: index, in: values) { asrBackend = Self.validBackend(value) }
             default:
                 if let value = Self.inlineValue(for: "--repo-root", in: argument) {
                     repoRoot = value
-                } else if let value = Self.inlineValue(for: "--asr-dir", in: argument) {
-                    asrDirectory = value
                 } else if let value = Self.inlineValue(for: "--asr-backend", in: argument) {
                     asrBackend = Self.validBackend(value)
                 }
@@ -32,8 +27,18 @@ public struct LaunchOptions: Equatable, Sendable {
     }
 
     /// Backend ids accepted when validation is not supplied by a registry.
-    public static let defaultBackendIDs: Set<String> = [
-        "fake", "mlx", "apple", "ark-0.6b", "ark-3b",
+    public static let defaultBackendIDs: Set<String> = ["fake", "parakeet", "apple"]
+
+    /// Backend ids that existed in shipped builds and no longer do.
+    ///
+    /// All three ran the same Parakeet family through the retired Python sidecar, and every
+    /// source of a backend id — launch argument, environment, persisted settings — funnels
+    /// through `validBackend`. Normalizing here means an existing install keeps its real
+    /// backend instead of silently dropping to the fake one.
+    public static let retiredBackendIDs: [String: String] = [
+        "mlx": "parakeet",
+        "ark-0.6b": "parakeet",
+        "ark-3b": "parakeet",
     ]
 
     /// Normalizes a backend id, rejecting anything unregistered.
@@ -52,7 +57,8 @@ public struct LaunchOptions: Equatable, Sendable {
     ) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return validBackendIDs.contains(normalized) ? normalized : nil
+        let resolved = retiredBackendIDs[normalized] ?? normalized
+        return validBackendIDs.contains(resolved) ? resolved : nil
     }
 
     private static func value(after index: Array<String>.Index, in values: [String]) -> String? {

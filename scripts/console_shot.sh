@@ -37,7 +37,6 @@ sleep 0.5
 
 VOICEOUR_ASR_BACKEND="${VOICEOUR_ASR_BACKEND:-fake}" \
 VOICEOUR_REPO_ROOT="$ROOT" \
-VOICEOUR_ASR_DIR="$ROOT/asr" \
     "$ROOT/.build/debug/Voiceour" --show-console --no-activate --console-section="$SECTION" >/dev/null 2>&1 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true' EXIT

@@ -744,101 +744,6 @@ struct DictationCoordinatorTests {
             })
     }
 
-    @Test func stopPathUsesOneHardCappedVocabularySnapshot() async {
-        var terms = [
-            ProtectedTerm(
-                canonical: "NeuroDock",
-                spokenAliases: ["neuro dock"],
-                protected: true,
-                termId: "retained-neurodock",
-                source: .bundled
-            )
-        ]
-        // Confirmed aliases on the first ten reserved terms push the derived
-        // phrase list past 100, so the surviving cap is observable rather than
-        // an accident of the snapshot already being 100 terms long.
-        terms.append(
-            contentsOf: (1..<150).map { index in
-                ProtectedTerm(
-                    canonical: "ReservedVocabularyTerm\(index)",
-                    spokenAliases: [],
-                    protected: true,
-                    termId: "term-\(index)",
-                    source: .bundled,
-                    labeledAliases: index <= 10
-                        ? [AliasLabel(surface: "reserved alias \(index)", confirmedAt: Date())]
-                        : []
-                )
-            })
-        var settings = VoiceCore.Settings()
-        settings.glossary = terms
-        settings.refinerEnabled = true
-        settings.refinerProvider = .omp
-        settings.automaticTermCorrectionEnabled = true
-        // The ASR bias list is only compiled when this is on, so without it the
-        // cap this test is named for cannot be observed at all.
-        settings.decoderBiasEnabled = true
-
-        let raw = "Please use neuro dock, no wait, use neuro dock tomorrow."
-        let expectedVocabulary = VocabularyCompiler.compile(
-            persistent: terms,
-            ephemeral: [],
-            capturedBundleId: "com.apple.TextEdit",
-            activeProjectId: nil
-        )
-        let expectedDeterministic = CleanupEngine.clean(raw, glossary: expectedVocabulary.terms)
-        let asrResult = ASRResult(
-            requestId: "vocabulary-snapshot",
-            backendId: "fake",
-            modelId: "fake",
-            modelRevision: "dev",
-            transcript: ASRTranscript(
-                text: raw,
-                language: "en",
-                segments: nil,
-                confidence: 0.99,
-                confidenceMode: .greedyEntropy
-            ),
-            timingsMs: ASRTimings(load: 0, inference: 0, total: 0),
-            hypotheses: [
-                ASRHypothesis(rank: 0, text: expectedDeterministic, score: 1.0, rawScore: 1.0)
-            ],
-            decoder: ASRDecoderInfo(mode: "greedy", biasEnabled: false)
-        )
-        let refiner = CapturingRefiner(output: "Refined output without the protected term.")
-        let asr = FakeASR(behavior: .custom(asrResult))
-        let coordinator = makeCoordinator(asr: asr, refiner: refiner, settings: settings)
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        coordinator.stopAndProcess()
-        await waitUntil { coordinator.lastOutcome != nil }
-
-        // Every surface the one snapshot could legitimately contribute to the
-        // decoder-bias list: canonical plus the surfaces the user authored or
-        // confirmed. A term's typed aliases bias the decoder for the same reason
-        // its confirmed mishearings do, so both stores feed this through the one
-        // `Glossary.userAliases` accessor the rest of the app reads.
-        let snapshotSurfaces = Set(
-            expectedVocabulary.terms.flatMap { term in
-                [term.renderedCanonical] + Glossary.userAliases(for: term)
-            }.map { $0.lowercased() }
-        )
-        let biasTexts = asr.receivedBiasPhrases.map(\.text)
-
-        #expect(expectedVocabulary.terms.count == 100)
-        #expect(snapshotSurfaces.count > 100, "the phrase list must exceed the cap for it to be observable")
-        // One snapshot means one cap, and the ASR bias list and the refiner's
-        // terms are both drawn from it rather than from two separate compiles.
-        #expect(biasTexts.count == 100)
-        #expect(Set(biasTexts.map { $0.lowercased() }).isSubset(of: snapshotSurfaces))
-        #expect(refiner.termIDs == expectedVocabulary.terms.map(\.termId))
-        #expect(refiner.raw == expectedDeterministic)
-        #expect(coordinator.lastTranscript == expectedDeterministic)
-        #expect(coordinator.recentSessions.first?.refinement?.kind == .fellBack)
-        #expect(coordinator.recentSessions.first?.refinement?.reason == "guard_rejected")
-    }
-
     @Test func compiledOutVocabularyDoesNotRouteCleanTranscriptToRefiner() async {
         var settings = VoiceCore.Settings()
         settings.refinerEnabled = true
@@ -893,52 +798,6 @@ struct DictationCoordinatorTests {
         #expect(refiner.serializedPrompt?.contains("ACME-ULTRA-SECRET") == false)
         #expect(coordinator.recentSessions.first?.refinement?.reason == "guard_rejected")
         #expect(coordinator.lastTranscript.contains("ACME-ULTRA-SECRET"))
-    }
-
-    @Test func cloudAutomaticCorrectionReachesProviderBeforeFullTermLock() async {
-        let cloudTerm = ProtectedTerm(
-            canonical: "NeuroDock",
-            spokenAliases: ["neuro dock"],
-            termId: "cloud-neurodock",
-            cloudEligible: true
-        )
-        var settings = VoiceCore.Settings()
-        settings.refinerEnabled = true
-        settings.refinerProvider = .omp
-        settings.automaticTermCorrectionEnabled = true
-        settings.glossary = [cloudTerm]
-        let raw = "Please use neuro doc, no wait, use neuro doc tomorrow."
-        let result = ASRResult(
-            requestId: "cloud-automatic-correction",
-            backendId: "fake",
-            modelId: "fake",
-            modelRevision: "dev",
-            transcript: ASRTranscript(
-                text: raw,
-                language: "en",
-                segments: nil,
-                confidence: 0.99,
-                confidenceMode: .greedyEntropy
-            ),
-            timingsMs: ASRTimings(load: 0, inference: 0, total: 0),
-            hypotheses: [
-                ASRHypothesis(rank: 0, text: raw, score: 1.0, rawScore: 1.0)
-            ],
-            decoder: ASRDecoderInfo(mode: "greedy", biasEnabled: false)
-        )
-        let refiner = CapturingRefiner(echoing: ())
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .custom(result)),
-            refiner: refiner,
-            settings: settings
-        )
-
-        await driveUtterance(coordinator)
-
-        #expect(refiner.raw?.contains("NeuroDock") == true)
-        #expect(refiner.raw?.contains("neuro doc") == false)
-        #expect(coordinator.lastTranscript.contains("NeuroDock"))
-        #expect(coordinator.recentSessions.first?.refinement?.kind == .refined)
     }
 
     @Test func backendFallbackUsesCurrentFullVocabularyText() async {
@@ -1015,8 +874,8 @@ struct DictationCoordinatorTests {
         #expect(refiner.style == .formal)
     }
 
-    @Test func mlxSessionPersistsEndToEndTelemetry() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_MLX_INTEGRATION"] != nil else { return }
+    @Test func parakeetSessionPersistsEndToEndTelemetry() async throws {
+        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
 
         let fixture = temporarySessionStore()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -1027,8 +886,11 @@ struct DictationCoordinatorTests {
         // Through the registry, so this measures the client the app actually
         // builds — including the model it pins the sidecar to.
         let asr = ASRBackendRegistry.builtIn.client(
-            for: "mlx",
-            context: ASRBackendContext(asrDirectory: URL(fileURLWithPath: "asr"), speechLocale: "en_US")
+            for: "parakeet",
+            context: ASRBackendContext(
+                sidecarExecutableURL: testProductsDirectory().appendingPathComponent("voiceour-asr"),
+                speechLocale: "en_US"
+            )
         )
         let coordinator = makeCoordinator(
             recorder: recorder,
@@ -1055,13 +917,13 @@ struct DictationCoordinatorTests {
         let insertMs = try #require(stages.insertMs)
 
         #expect(coordinator.lastOutcome == .pasteAttempted)
-        #expect(stages.asrBackendId == "parakeet-mlx")
+        #expect(stages.asrBackendId == "parakeet-cpp")
         #expect((stages.asrInferenceMs ?? 0) > 0)
         #expect((stages.asrTotalMs ?? 0) >= (stages.asrInferenceMs ?? 0))
         #expect(endToEndMs >= hostASRMs + insertMs)
         #expect(!fileExists(recorder.producedURL))
         let telemetry =
-            "mlx coordinator telemetry: endToEnd=\(endToEndMs)ms "
+            "parakeet coordinator telemetry: endToEnd=\(endToEndMs)ms "
             + "hostASR=\(hostASRMs)ms insert=\(insertMs)ms "
             + "backend=\(stages.asrBackendId ?? "nil") "
             + "load=\(stages.asrLoadMs ?? -1)ms "

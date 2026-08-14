@@ -1,6 +1,6 @@
 # Architecture
 
-Voiceour is split into three app Swift targets (plus the `voiceour-bench` and `voiceour-capture-bench` executables) and one Python sidecar.
+Voiceour is split into three app Swift targets, two Swift ASR targets, and the `voiceour-bench` and `voiceour-capture-bench` executables.
 
 ```mermaid
 flowchart LR
@@ -12,9 +12,10 @@ flowchart LR
     Coordinator --> Refiner[Optional TranscriptRefining]
     Coordinator --> Inserter[PasteboardInserter]
     Tracker[WorkspaceTargetTracker] --> Coordinator
-    ASR --> Sidecar[Python NDJSON sidecar]
+    ASR --> Sidecar[Swift voiceour-asr sidecar]
     Sidecar --> Fake[Fake backend]
-    Sidecar --> MLX[parakeet-mlx backend]
+    Sidecar --> Parakeet[Vendored parakeet.cpp backend]
+    ASR --> Apple[Apple Speech backend]
 ```
 
 ## Swift targets
@@ -22,12 +23,14 @@ flowchart LR
 - `VoiceCore`: pure Swift contracts, ASR protocol wire types, session state, settings, deterministic cleanup, glossary persistence, and target safety classification. It imports Foundation only.
 - `VoiceMac`: macOS adapters for audio capture, synthetic fake audio, sidecar process management, frontmost-app tracking, pasteboard insertion, permissions, Fn/Globe hotkey capture and Escape-to-cancel via CGEventTap, and the optional refiner backends (`OmpRpcRefiner` for a persistent `omp --mode rpc` child process and `FoundationModelsRefiner` for Apple's on-device system model on macOS 26+), dispatched by provider through `RefinerProviderRegistry`.
 - `Voiceour`: SwiftUI `MenuBarExtra`, settings UI, and `DictationCoordinator` orchestration.
+- `ASRSidecarCore`: the model cache, WAV reader, parakeet context wrapper, token mapping, fake backend, and NDJSON server shared by the sidecar.
+- `VoiceourASR`: the Swift executable product `voiceour-asr`; it links `CParakeet` and `CGgml` through `ASRSidecarCore`.
 
 ## Session flow
 
 `idle → checkingPermissions → recording → finalizingAudio → transcribing → cleaning → refining → readyToInsert → pasteAttempted/copiedOnly → idle`.
 
-Each utterance has two target snapshots with separate jobs. The capture target is taken before recording and remains the context for app-scoped vocabulary, decoder bias, cleanup, and refinement. Immediately before insertion, `DictationCoordinator` takes a fresh delivery-target snapshot from the frontmost app; insertion safety, the target label, and recent-session destination metadata use that latest snapshot. A user may therefore move from app A to app B during transcription or refinement and deliver into B without changing the linguistic context captured for the utterance.
+Each utterance has two target snapshots with separate jobs. The capture target is taken before recording and remains the context for app-scoped vocabulary, cleanup, and refinement. Immediately before insertion, `DictationCoordinator` takes a fresh delivery-target snapshot from the frontmost app; insertion safety, the target label, and recent-session destination metadata use that latest snapshot. A user may therefore move from app A to app B during transcription or refinement and deliver into B without changing the linguistic context captured for the utterance.
 
 Recent-session state is normalized on the main actor, then complete snapshots are persisted off-main through one FIFO tail. Dictation awaits the pre-insertion checkpoint and the final outcome checkpoint; destructive clear/delete actions report completion only after their exact snapshot is durable. Termination rejects new starts and drains the captured persistence tail before exit.
 
@@ -71,7 +74,7 @@ Home has no digest of its own: it renders `coordinator.insights`, which the jour
 
 ## Microphone capture
 
-Both real backends record through one front-end. `MicrophoneCapture` is an `AVCaptureSession` plus an `AVCaptureAudioDataOutput`, pinned to a chosen input device UID, handing raw PCM buffers to a consumer on a private serial queue. `MicrophoneRecorder` wraps it as the `AudioRecording` adapter for the `mlx` backend and the macOS-below-26 `apple` fallback, and the Apple streaming session consumes the same buffers, so both backends report capture liveness identically and `CaptureConverter` is the single place a source format becomes the 16 kHz mono Int16 that the WAV file and the analyzer both want.
+Both real backends record through one front-end. `MicrophoneCapture` is an `AVCaptureSession` plus an `AVCaptureAudioDataOutput`, pinned to a chosen input device UID, handing raw PCM buffers to a consumer on a private serial queue. `MicrophoneRecorder` wraps it as the `AudioRecording` adapter for the `parakeet` backend and the macOS-below-26 `apple` fallback, and the Apple streaming session consumes the same buffers, so both backends report capture liveness identically and `CaptureConverter` is the single place a source format becomes the 16 kHz mono Int16 that the WAV file and the analyzer both want.
 
 It is not an `AVAudioEngine`, and it cannot be. An engine's input and output share a single AUHAL on macOS, so pinning the input to the built-in microphone while the output stays on a Bluetooth headset fails graph initialisation with `-10868` (`kAudioUnitErr_FormatNotSupported`). Measured twice, once with the device set after the input node had materialised and once before any format was read: in both orderings `setDeviceID` reports success, the node keeps the *old* device's format, and `engine.start()` throws. `AVCaptureSession` selects its device explicitly and has no output side to conflict with. An engine input tap is the shorter code path and is not an option here; do not restore one.
 
@@ -94,10 +97,12 @@ Which microphone a dictation used is not persisted. `MicrophoneCapture.Source` c
 
 The sidecar speaks newline-delimited JSON on stdio. stdout is protocol-only; logs go to stderr. Every message carries `protocol_version: 1`. The sidecar emits `hello` at startup, accepts `health`, `transcribe`, and `cancel`, and returns exactly one terminal `result`, `error`, or `cancelled` per `transcribe` request.
 
-The sidecar is a persistent process. `SidecarASRClient` spawns it once (lazily, or eagerly via `warmUp()` at app launch), validates the `hello` handshake, keeps stdin/stdout open, and multiplexes requests by `request_id`; the MLX model therefore loads once per app run, not once per utterance. On the Python side the stdin reader stays live while `transcribe` runs on a worker thread, so a `cancel` for the in-flight request id takes effect immediately. `VOICEOUR_PRELOAD=1` (set by the client) makes the MLX backend load the model right after `hello` and then run one throwaway inference on silence, because MLX is lazy and the first `generate()` otherwise pays ~0.9s of kernel compilation on the first dictation. Transcribe requests for the app's native recordings (16 kHz mono 16-bit WAV) decode in-process via `load_pcm16_mono_wav` instead of parakeet's per-request ffmpeg subprocess; other formats fall back to `parakeet_mlx.load_audio`. Timeouts send `cancel`, wait briefly for a terminal message, then terminate the process; the next request respawns it. Sidecar stderr is drained continuously and forwarded to the app's stderr.
+The ASR sidecar is the Swift executable `voiceour-asr`. It links the vendored parakeet.cpp implementation under `Vendor/parakeet/`, pinned to `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage). `SidecarASRClient` spawns one persistent child, validates `hello`, keeps stdin/stdout open, and multiplexes requests by `request_id`. The server keeps its stdin reader live while transcribes execute on one serial decode queue, so cancellation can reach the in-flight request. `VOICEOUR_PRELOAD=1` acquires and loads the model in the background after `hello`, then runs one throwaway decode to warm the Metal pipelines. Timeouts send `cancel`, wait briefly for a terminal message, then terminate the process; the next request respawns it. Sidecar stderr is drained continuously and forwarded to the app's stderr.
 
-The process boundary is not a latency cost worth optimising, and this is measured rather than
-assumed. Driving the real sidecar over its real stdio protocol on an M4 Pro (FLEURS, n=32), the
+The child is launched directly, without Python or `uv`. `--asr-dir` and `VOICEOUR_ASR_DIR` were deleted. A bundled app carries the helper at `Contents/MacOS/voiceour-asr`, signed explicitly before the app itself; the app resolves it as a sibling of its own executable. That single lookup works for SwiftPM products and the bundle, and makes a copied `.app` self-contained for transcription.
+
+The following transport measurement describes the retired Python/MLX and ARK runtimes. Driving
+that sidecar over its real stdio protocol on an M4 Pro (FLEURS, n=32), the
 caller-visible round trip exceeds the `inference` time the sidecar reports from inside itself by
 **0.8 ms at p50 and 1.3 ms at p95**. That is 0.68% of a 119.9 ms Parakeet round trip, and 0.27% of a
 322.3 ms ARK-0.6B one. Everything the mechanism adds is in that number: `fork`/`exec` is already
@@ -109,25 +114,27 @@ compilation. `VOICEOUR_PRELOAD=1` moves that work off the first dictation.
 When an ASR backend is slow here, the model and its framework are the likely source. Rewriting the
 transport would buy back under a millisecond.
 
-The client sends the model its backend pins, not one global model: `SidecarASRClient` is constructed with the `expectedModel` its `ASRBackendDescriptor` carries (`ASRModelContract` for `mlx`, the ARK repo id and revision for `ark-0.6b`/`ark-3b`, none for `fake`). The MLX backend rejects mismatched `model_id` or `revision` with `MANIFEST_MISMATCH` (empty strings act as wildcards); an absent `expected_model` is accepted, which is what a backend with no model to pin sends.
+`ASRBackendRegistry` registers exactly `fake`, `parakeet`, and `apple`, in that picker order, and its default remains `fake`. `parakeet` is displayed as `PARAKEET`, and its sidecar reports `backend_id: "parakeet-cpp"`; `apple` is the in-process Speech backend and never enters the sidecar. For migration from historical settings, the retired ids `mlx`, `ark-0.6b`, and `ark-3b` normalize to `parakeet` in `LaunchOptions.validBackend`, so an existing install keeps a real backend.
 
-Transcribe results carry additive optional evidence fields, all decoded permissively so `protocol_version` stays `1` (no version bump): per-`ASRWord` and per-segment `words` (text, time range, confidence), a transcript `confidence` with a `confidenceMode` tag (`greedy_entropy`, `beam_logprob`, or `none`), a ranked list of `ASRHypothesis` each carrying a pre-bias `rawScore`, and an `ASRDecoderInfo` block. Requests may carry `biasPhrases` and a `biasSnapshotId`; an oversized bias list is rejected with the `biasListTooLarge` error. The fields are optional, so sidecars and clients that omit them decode unchanged. The fake backend and `fixtures/protocol/` exercise every field.
+`SidecarASRClient` sends the descriptor's `expectedModel`: the full `ASRModelContract` pin for `parakeet`, and none for `fake`. The sidecar rejects a truthy `model_id` or `revision` mismatch with `manifest_mismatch`; empty strings remain wildcards.
 
-Golden protocol fixtures live in `fixtures/protocol/` and are decoded by both Swift and Python tests.
+Transcribe results may carry per-`ASRWord` and per-segment `words` with text, time range, and confidence, plus transcript `confidence` and its `confidenceMode` (`greedy_token_prob` or `none`). Optional evidence remains permissively decoded, so this schema change did not require a protocol-version bump.
+
+Golden protocol fixtures live in `fixtures/protocol/` and are decoded by Swift fixture-parity tests.
 
 ## Where the ASR boundary is going
 
 Researched 2026-08-13 against four competing designs and four scoring lenses, then partly overtaken
-by measurement on 2026-08-14. Recorded here because the current boundary is adequate for five
-backends of three families and will not survive the fourth family. The invariants below are the
-direction; nothing about the boundary itself is built yet.
+by measurement on 2026-08-14. Recorded as design history: the registry now contains exactly three
+backends (`fake`, `parakeet`, and `apple`), and the current boundary is adequate for them. The
+invariants below describe what a future additional runtime family would need; that boundary is not built.
 
 **Measured non-ASR overhead.** Measurement preceded the boundary abstraction and found the overhead in a different place than predicted. The design pass claimed ~130 ms of non-ASR overhead sat in both the
 `mlx` and `apple` paths, and prescribed deferring the journal write, statistics folding and
 audio-route restoration past the paste. Measurement contradicted most of that:
 
 - Overhead differs by mute state. Segmenting real sessions by backend and mute state with
-  `parakeet-mlx` and refinement skipped gives non-ASR overhead of **72 ms p50 unmuted (n=13)** against
+  the retired `parakeet-mlx` runtime and refinement skipped gives non-ASR overhead of **72 ms p50 unmuted (n=13)** against
   **199 ms muted (n=92)**. Mute state, not the path, was the variable.
 - The 127 ms difference was `SystemAudioMuter.restore()`, whose `fadeDuration` is **120 ms** (not the
   105 ms the design pass cited) and which `processStop` awaited *before* the ASR call. 80.1% of
@@ -150,14 +157,14 @@ trained delay before it can finalise, and at these utterance lengths that drain 
 decoding the whole utterance once. Streaming is **not enabled in any shipping path**; see the
 performance roadmap for the full grid and the conditions under which it becomes interesting again.
 
-**Evidence has three states.** Today a backend states its evidence implicitly by which optional fields
-it fills, and `biasEnabled` already showed how a defaulted field turns "unknown" into a false negative.
-The durable shape distinguishes what a backend *claims*, what it has been *certified* to produce
-against falsification probes (uniform-spread timestamps, constant confidence, duplicated n-best),
-and what a given result actually *used*. Each signal names
-the quantity behind it. A transducer joint posterior, an AED average logprob and an audio-LLM
-sequence logprob are three different numbers and must never share one `confidence` field without a
-`basis` and a calibration identity.
+**Evidence has three states.** The current wire states evidence implicitly through the optional fields
+a backend fills. Retired evidence-gating work showed how a defaulted field can turn "unknown" into a
+false negative. A future durable shape would distinguish what a backend *claims*, what it has been
+*certified* to produce against falsification probes (uniform-spread timestamps, constant confidence,
+or duplicated hypothesis lists), and what a given result actually *used*. Each signal must name the
+quantity behind it. A transducer joint posterior, an AED average logprob, and an audio-LLM sequence
+logprob are different numbers and must never share one `confidence` field without a `basis` and a
+calibration identity.
 
 **One boundary crossing per utterance.** Metal dispatch on this host costs ~90-116 us per separate
 command-buffer commit against ~0.7-3 us batched, and a TDT decode makes 40-60 joint calls. Any
@@ -173,7 +180,7 @@ Compute placement is a per-artifact hint to be measured, never an architectural 
 
 ## Apple Speech backend (opt-in, macOS 26+)
 
-`--asr-backend apple` selects the native on-device SpeechAnalyzer/SpeechTranscriber path instead of the Python sidecar. No Python process, no model download managed by Voiceour (speech assets are system-managed per locale via `AssetInventory`), and no speech-recognition authorization prompt (the API is fully on-device; microphone permission is unchanged).
+`--asr-backend apple` selects the native on-device SpeechAnalyzer/SpeechTranscriber path instead of the ASR sidecar. It spawns no sidecar process and requires no model download managed by Voiceour (speech assets are system-managed per locale via `AssetInventory`) or speech-recognition authorization prompt (the API is fully on-device; microphone permission is unchanged).
 
 The backend is a fused recorder + ASR: `AppleSpeechDictationEngine` is injected as BOTH `AudioRecording` and `ASRClienting`, and transcribes WHILE recording. Each dictation is one single-use streaming session (probing showed a finished `SpeechAnalyzer` cannot be restarted): a `MicrophoneCapture` session feeds `CaptureConverter`, which converts its buffers once to 16 kHz mono Int16. This is simultaneously the WAV file format and `SpeechAnalyzer.bestAvailableAudioFormat`. The converter hands the buffers to an incrementally written WAV (fallback + existing cleanup invariants) and a live analyzer input stream. `stop()` drains the converter tail (mandatory; up to ~220 frames), transfers WAV ownership to the coordinator, and starts finalization; `transcribe()` awaits it. Measured stop-to-result is 43-285ms versus 220-900ms for batch file transcription. Any streaming failure falls back to batch transcription of the recorded WAV; foreign files (bench CLI, tests) always use the batch path (`AppleSpeechASRClient`). `SpeechAnalyzer.Options(modelRetention: .processLifetime)` plus a `prepareToAnalyze` warm-up keep the system model resident between dictations. On macOS < 26 the factory installs `UnsupportedASRClient`, which fails with `backend_unavailable`.
 
@@ -181,7 +188,16 @@ Module choice is based on measurement. `DictationTranscriber` (which supports `A
 
 SpeechTranscriber also emits per-word evidence: each finalized result carries per-word time-range and confidence run attributes, surfaced through the same optional protocol fields with `confidenceMode` `none` (the module exposes no calibrated score). It stays the primary Apple transcriber, and its alignment/confidence data feeds the same evidence pipeline as Parakeet.
 
-Benchmarked against Parakeet on this hardware (M4 Pro, macOS 26.5.2), row-matched over identical manifest rows (2026-08-11): LibriSpeech n=128 U-WER 3.13% vs 2.84% and CER 1.14% vs 0.92%; FLEURS n=64 U-WER 6.13% vs 4.42%, F-WER 13.00% vs 10.28%, case F1 0.848 vs 0.921. Parakeet wins every content axis; Apple wins exactly one, punctuation micro-F1 0.870 vs 0.833. Batch latency now favours Parakeet as well: ASR p95 348ms vs 802ms on LibriSpeech, 167ms vs 236ms on FLEURS. This supersedes the 2026-07-17 figures (LibriSpeech 128 vs 64 rows, FLEURS n=8, Apple p95 885ms against a 2327ms Parakeet tail): those runs were not row-matched, the FLEURS verdict flipped once n grew from 8 to 64, and the Parakeet latency tail disappeared when the sidecar became persistent and preloaded. `mlx` remains the default backend.
+Benchmarked against Parakeet on this hardware (M4 Pro, macOS 26.5.2), row-matched over identical
+manifest rows (2026-08-11): LibriSpeech n=128 U-WER 3.13% vs 2.84% and CER 1.14% vs 0.92%;
+FLEURS n=64 U-WER 6.13% vs 4.42%, F-WER 13.00% vs 10.28%, case F1 0.848 vs 0.921.
+Parakeet wins every content axis; Apple wins exactly one, punctuation micro-F1 0.870 vs 0.833.
+Batch latency favoured Parakeet as well: ASR p95 348ms vs 802ms on LibriSpeech, 167ms vs 236ms
+on FLEURS. This superseded the 2026-07-17 figures (LibriSpeech 128 vs 64 rows, FLEURS n=8,
+Apple p95 885ms against a 2327ms Parakeet tail): those runs were not row-matched, the FLEURS
+verdict flipped once n grew from 8 to 64, and the Parakeet latency tail disappeared when the
+sidecar became persistent and preloaded. This benchmark history measured the now-retired
+MLX-backed Parakeet runtime; `parakeet` is the current real sidecar backend.
 
 The live-session transcriber runs with `reportingOptions: [.volatileResults, .fastResults]`: an A/B over the same LibriSpeech n=64 subset measured fast-mode final U-WER 2.82% vs 3.07% for finals-only, so fast mode ships (verdict FAST). Only finalized results are collected. Volatile results are intentionally ignored; a live transcript preview was built and then removed on user feedback, and the reporting options stay as measured. The engine takes a `locale:` at init (from the `speech_locale` setting, default `en_US`, applied at next launch) and threads it through the streaming session, prewarm, and the composed batch client. The recording overlay gates its "listening" presentation on real capture liveness: `AudioRecording.captureIsLive()`, defined as the first non-silent buffer rather than the first buffer to arrive, is polled by the coordinator's meter loop into a published `captureLive`. The island holds a static `WARMING` label until real audio arrives, so the waveform's appearance means the microphone is actually hearing you.
 
@@ -193,23 +209,52 @@ Start latency: the system-audio mute runs concurrently with recorder startup (ac
 
 Refinement is gated deterministically before any model call: `DictationPolicy.assessTranscript` skips the refiner for clean transcripts (reason `clean_transcript`) and for transcripts over 350 words (reason `transcript_too_long`); repair markers, filler density, repeats, length ≥ 40 words, bare glossary components, or a phonetic near-miss of a glossary alias trigger refinement. The refine prompt adapts per target app via `DictationPolicy.refinementStyle(forBundleId:)`: casual for chat apps, formal for mail clients, standard otherwise.
 
-Technical jargon is recovered in three layers, none of which touch the ASR model (vocabulary biasing is a measured dead end on this stack). Layer 1, deterministic: `Glossary.derivedAliases(for:)` derives spoken variants from each canonical by case/acronym/digit/separator tokenization (`NSPasteboard` → "ns pasteboard", "n s pasteboard"), so typing a canonical in the Glossary pane is sufficient. Hand-written surfaces are only needed for true mishearings like "cube cuddle" → `kubectl`. Those surfaces live in two stores: `spokenAliases` for what the user typed, `labeledAliases` for observed surfaces the user confirmed or rejected. `Glossary.userAliases(for:)` is the one read accessor over both, so the ledger's DETECTED AS column, `matchingAliases`, cleanup's disfluency shelter (which keeps filler stripping and repeat collapsing from eating a surface that spells a hesitation or stutter as part of itself), the refiner prompt, and the decoder-bias list cannot disagree about what a term has been taught; the inline editor commits through `TermMutation.settingAliases(_:on:)`, which reconciles both stores so deleting a surface actually stops it matching. Layer 2, routing: `assessTranscript` flags 1–4-word n-grams within a bounded edit distance of any alias as a near-miss, forcing the refine path even for otherwise clean utterances (a false positive costs one refine, never a wrong paste). Layer 3, model: refiner prompts render each term as `canonical (heard as: …)` with an explicit mishearing-repair instruction, and the existing term-lock/faithfulness guards validate the output.
+Technical jargon is recovered in three layers, none of which touch the ASR model (vocabulary
+biasing was a measured dead end on the retired stack). Layer 1, deterministic:
+`Glossary.derivedAliases(for:)` derives spoken variants from each canonical by
+case/acronym/digit/separator tokenization (`NSPasteboard` → "ns pasteboard", "n s pasteboard"),
+so typing a canonical in the Glossary pane is sufficient. Hand-written surfaces are only needed
+for true mishearings like "cube cuddle" → `kubectl`. Those surfaces live in two stores:
+`spokenAliases` for what the user typed, `labeledAliases` for observed surfaces the user confirmed
+or rejected. `Glossary.userAliases(for:)` is the one read accessor over both, so the ledger's
+DETECTED AS column, `matchingAliases`, cleanup's disfluency shelter (which keeps filler stripping
+and repeat collapsing from eating a surface that spells a hesitation or stutter as part of itself),
+the refiner prompt, and risk-authorizer suggestions cannot disagree about what a term has been
+taught; the inline editor commits through `TermMutation.settingAliases(_:on:)`, which reconciles
+both stores so deleting a surface actually stops it matching. Layer 2, routing:
+`assessTranscript` flags 1–4-word n-grams within a bounded edit distance of any alias as a near-miss,
+forcing the refine path even for otherwise clean utterances (a false positive costs one refine,
+never a wrong paste). Layer 3, model: refiner prompts render each term as
+`canonical (heard as: …)` with an explicit mishearing-repair instruction, and the existing
+term-lock/faithfulness guards validate the output.
 
 ## Model pin
 
-The default backend uses `mlx-community/parakeet-tdt-0.6b-v3` pinned at Hugging Face revision `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`, recorded in `asr/src/voiceour_asr/cache.py` as `PARAKEET` (still exported as `MODEL_ID`/`MODEL_REVISION`). The opt-in ARK backends pin `leope/ark-asr-0.6B-mlx` at `6ec069bd68cbbe165aa42728eac482c90cb58d2f` and `leope/ark-asr-3B-mlx` at `63d9fb8ba352c5c7c65ff2336019048170563d63` as `ARK_06B` and `ARK_3B`.
+The `parakeet` backend uses `ggml-org/parakeet-GGUF` at revision
+`35156454d1a39de06863303dd209fd2bed6ee079`, file
+`ggml-parakeet-tdt-0.6b-v3-f16.bin` (1,255,897,319 bytes; 1.26 GB), with SHA-256
+`833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f`.
 
-Each pin is a `cache.ModelSpec`: repo id, revision, its own directory under `~/Library/Caches/Voiceour/`, and for ARK an allow-list that fetches weights and tokenizer assets only, never the Python runtime the ARK repos ship. That runtime is vendored verbatim under `asr/src/voiceour_asr/backends/ark_mlx/`, so the app never imports code downloaded at runtime. `cache.ensure_model(spec)` writes a manifest containing model id, revision, and snapshot path. Once a manifest exists, the sidecar sets `HF_HUB_OFFLINE=1` before loading.
+`VOICEOUR_MODEL_CACHE` overrides the default flat cache directory
+`~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml/`. The directory holds the `.bin` and
+`manifest.json` with `model_id`, `revision`, `file`, `sha256`, and `size_bytes`. The digest is
+verified once at download; subsequent launches check file presence and size. The retired snapshot
+cache's `HF_HUB_OFFLINE` mechanism is gone. Old `~/Library/Caches/Voiceour/parakeet/` and
+`~/Library/Caches/Voiceour/ark-*/` directories are user disk state: the app never reads them and
+never deletes them automatically, and they are safe to remove manually.
 
 ## Parakeet decoding
 
-The MLX Parakeet backend has two decoding modes. The default greedy path now emits per-token alignments, `words`, and a transcript `confidence` tagged `greedy_entropy`, at unchanged latency. The evidence is a byproduct of the existing greedy pass, not a second decode. An opt-in beam path (`VOICEOUR_ASR_DECODING=beam`) returns ranked n-best `ASRHypothesis` with raw beam scores. Both modes preserve an unbiased (zero-boost) `rawScore` baseline for every hypothesis, so downstream authority decisions can always compare against a score that no decoder bias touched.
+The parakeet.cpp backend runs greedy TDT decoding only. It emits per-token alignments and
+posteriors; transcript confidence is their mean and is reported as `greedy_token_prob`.
+Per-word confidence is the minimum probability among that word's tokens. Neither value is
+calibrated, and no app policy treats it as calibrated.
 
 ## Vocabulary model
 
 Vocabulary is trust-separated. A persistent `ProtectedTerm` carries a stable `termId`, a `source` (`TermSource`: `explicitCorrection`, `manualImport`, `appProfile`, or `bundled`), a `scope` (`VocabularyScope`: `global`, `bundleID`, or `projectID`), a `cloudEligible` flag, `labeledAliases`, and a `tombstonedAt` for soft deletion. Low-trust, in-session hints are held as in-memory-only `EphemeralContextCandidate`s that never persist. Legacy `settings.json` glossary state still loads through an additive, fully defaulted decode, so older installs upgrade in place.
 
-For each utterance, `VocabularyCompiler` compiles a bounded active snapshot of at most 100 terms. It is scoped to the captured target's bundle id plus the active project, so only terminology relevant to where the text will land is in play. That snapshot is the single active set consumed by refinement, biasing, and the risk authorizer.
+For each utterance, `VocabularyCompiler` compiles a bounded active snapshot of at most 100 terms. It is scoped to the captured target's bundle id plus the active project, so only terminology relevant to where the text will land is in play. That snapshot is the single active set consumed by cleanup, refinement, and the risk authorizer.
 
 Two boundaries protect this vocabulary. The cloud boundary: only `cloudEligible`, non-tombstoned, non-`projectID`-scoped terms are placed in the network-bound `OmpRpcRefiner` prompt; the on-device `FoundationModelsRefiner` keeps the full active set, so project-private terminology never leaves the device. The refinement boundary: a word-boundary term-lock protects accepted terminology through refinement, matching whole tokens rather than substrings (fixing a prior substring false-pass that let a locked term be altered inside a larger word).
 
@@ -217,15 +262,15 @@ A third boundary protects the user's ordinary prose from their own vocabulary. A
 
 `clearLearnedVocabulary()` reduces an *orphaned* bundled term, meaning one an older build shipped and this build no longer lists in `Settings.defaultGlossary`, to its canonical alone. There is no shipped surface set to restore such a row to, and stripping only `labeledAliases` cleared the user's own confirmations while preserving aliases from a version that no longer exists, which made a damaging shipped alias unremovable by the button whose whole job is removing it: a removed default carried `Cloud` as an alias of `Claude` and rewrote every dictated "Google Cloud" into "Google Claude". The row itself survives, because the canonical may still be vocabulary the user relies on.
 
-## Term correction and biasing
+## Term correction
 
-A deterministic risk authorizer maps each candidate term correction to `KEEP`, `suggest`, or `replace`. It is wired end to end, but automatic replacement is off by default (`Settings.automaticTermCorrectionEnabled = false`): with it off, the authorizer only ever surfaces suggestions and never rewrites the transcript. Even when enabled, a `replace` requires independent n-best support, non-decoder-biased evidence (the preserved unbiased `rawScore`), and calibrated absolute-plus-margin thresholds. Critical terms, including commands, flags, paths, and versions, are vetoed from auto-replacement whenever the evidence is ambiguous.
-
-Decoder bias is likewise off by default (`Settings.decoderBiasEnabled = false`). When enabled it applies trie shallow-fusion over a term-to-BPE segmenter during decoding while preserving the unbiased (zero-boost) `rawScore` baseline invariant, so biased and unbiased scores stay independently available for the authorizer. On the current smoke tier, unconditional bias produced no term-recall gain and regressed both hard-negative false-replacement and U-WER well past the approved +0.35 pp U-WER budget, so it stays off pending real-speaker calibration.
-
-Every automatic-authority path, including auto-correction, decoder bias, and keyword spotting, is gated on a consented real-speaker TechTerms corpus that does not yet exist; current TechTerms coverage is TTS smoke-only. Stage 5 keyword spotting is deferred: CTC word-spotting is blocked because the pinned checkpoint has no CTC head, and a separate local KWS model needs real-speaker plus resource and false-accept justification before it ships.
-
-Two of those gates do not discriminate on the shipping default decoding path, measured 2026-08-14, and this is recorded in `RiskAuthorizer`'s own doc comment as well because the prose above reads stronger than the code measures. The MLX greedy path returns exactly one hypothesis, and it is the transcript the candidate was extracted from, with `score` and `raw_score` both literally `0.0`. Therefore, `appearsInNBest` asks whether the candidate appears in the text it came from, and always answers yes. Only the opt-in beam path (`VOICEOUR_ASR_DECODING=beam`, set nowhere in this repository) produces a real n-best list. `greedy_entropy` is not a calibrated probability: committed TechTerms reports put its expected calibration error between **0.235 and 0.419**, where 0 is perfect, against floors described as calibrated. Relatedly `runnerUpMargin` as supplied by `TranscriptProcessingPipeline` is a margin between the retriever's own blended phonetic/textual similarity scores, not between competing recognitions. None of it is live while the master switch is off. The switch, not the gates, is currently doing the work.
+Decoder bias and beam n-best were deleted: the shipped runtime is greedy-only with no bias hook,
+and the measured n-best independence gate was vacuous under greedy decoding because its single
+hypothesis was the transcript from which the candidate came. `RiskAuthorizer` therefore lost its
+`.replace` verdict and now returns only `.keep` or `.suggest`;
+`Settings.decoderBiasEnabled` and `Settings.automaticTermCorrectionEnabled` are gone. Restoring
+decode-time biasing would require a different runtime; `docs/performance-roadmap.md` carries the
+analysis.
 
 ## Why Voiceour holds no credentials
 
@@ -271,7 +316,7 @@ different network destination is not a migration detail.
 
 ## No-speech gate
 
-ASR models can invent transcripts for noise. Measured 2026-08-14 through the real sidecar on 8 s WAVs: pure digital zeros gave the `mlx` default an empty string but gave `ark-0.6b` `嗯。`; quiet dither and hiss both gave `mlx` `"Esta mañana está en su mayor mayor mayor."` and `ark-0.6b` `嗯。`. `DictationPolicy.shouldSkipTranscript` cannot catch any of that, because it tests for whitespace and none of those strings are whitespace, and this app pastes the result into the user's document.
+ASR models can invent transcripts for noise. Measured 2026-08-14 through the then-current real sidecar on 8 s WAVs: pure digital zeros gave the now-retired `mlx` backend an empty string but gave the now-retired `ark-0.6b` backend `嗯。`; quiet dither and hiss both gave `mlx` `"Esta mañana está en su mayor mayor mayor."` and `ark-0.6b` `嗯。`. `DictationPolicy.shouldSkipTranscript` cannot catch any of that, because it tests for whitespace and none of those strings are whitespace, and this app pastes the result into the user's document.
 
 `processStop` therefore gates on capture evidence before it calls the model, which also saves the inference. The evidence was already being computed and discarded: `MicrophoneRecorder` runs `CaptureTelemetryAnalyzer` on the finished WAV and `RecordedAudio` already carried the telemetry to the stop path, where nothing read it.
 
@@ -313,8 +358,7 @@ After Cmd-V is posted successfully, a deferred task (~1500 ms) clears the dictat
 
 ## Test strategy
 
-- Swift: `make test` covers cleanup fixtures, glossary term-lock, protocol fixture decoding, classifier mapping, persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against stub processes, copy-only insertion paths, focus-race insertion, omp RPC refiner lifecycle (JSONL stub session, process reuse across refines, guard fallback, launch failure, mid-turn death, hung-turn timeout), refinement guards, and pure dictation policy (launch options, refinement eligibility, outcome mapping).
-- Python: `cd asr && uv --no-config run pytest` covers protocol fixtures, cache manifest corruption/recovery, and process-level sidecar behavior (health, persistence across requests, cancel-during-transcribe, stdout protocol purity, malformed-line recovery).
-- Real ASR: `scripts/phase0_asr_proof.py` validates the pinned model on a generated WAV fixture and prints latency/RSS.
-- Benchmarks: `docs/benchmarks.md` describes the accuracy/speed benchmark suite (`voiceour-bench` + `bench/`).
-- Packaging: `scripts/verify_bundle.sh` checks bundle plist values, signature validity, and entitlement metadata after `scripts/bundle.sh`.
+- Swift: `make test` covers ASR sidecar cache, WAV, token-mapping, fake-backend and process behavior; protocol fixture decoding; persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against Swift stub processes; cleanup fixtures; glossary term-lock; classifier mapping; copy-only and focus-race insertion; OMP RPC refiner lifecycle; refinement guards; and pure dictation policy.
+- Real ASR: `.build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` validates the pinned model against the fixture and prints the transcript plus cold-load and warm-inference timings.
+- Benchmarks: `docs/benchmarks.md` describes the accuracy/speed benchmark suite (`voiceour-bench` + `bench/`); `bench/` is the only Python in the repository and never ships.
+- Packaging: `scripts/verify_bundle.sh` checks `Contents/MacOS/voiceour-asr` is present, executable, and sealed, then checks bundle plist values, app signature validity, and entitlement metadata after `scripts/bundle.sh`.

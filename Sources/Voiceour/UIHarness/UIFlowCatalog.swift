@@ -359,61 +359,55 @@
                     ]
                 ),
                 UIFlow(
-                    id: "voice.select-ark-backend",
+                    id: "voice.select-backend",
                     title: "Every ASR backend can be saved, and the readouts name the running one",
                     tags: ["voice", "system", "console", "settings", "cross-pane"],
                     covers: [.state(.voice, "backend-selections")],
                     host: .console(.voice),
-                    fixture: .static(.arkBackendReady),
+                    fixture: .static(.appleBackendReady),
                     steps: [
                         .check(
-                            "ark-running",
+                            "apple-running",
                             [
-                                .selected(Selector.backendOption("ARK 0.6B"), true),
-                                .model(.activeBackend, .equals("ark-0.6b")),
-                                // VoicePane.runningSummary prints the running
-                                // descriptor's model label while saved and running
-                                // agree, so this line is the registry's ARK repo id
-                                // rather than the Parakeet contract.
-                                .text(.equals("leope/ark-asr-0.6B-mlx"), .exactly(1)),
+                                .selected(Selector.backendOption("APPLE SPEECH"), true),
+                                .model(.activeBackend, .equals("apple")),
+                                // VoicePane.runningSummary prints the running descriptor's
+                                // model label while saved and running agree, so this line is
+                                // the registry's Apple id rather than the Parakeet contract.
+                                .text(.equals("apple/SpeechTranscriber (system-managed)"), .exactly(1)),
                                 .absent(Selector.backendRestart),
                             ]
                         ),
-                        // Every option in declaration order, so the pane is proved to
-                        // save each of the five rather than the two ARK additions.
+                        // Every option in declaration order, so the pane is proved to save
+                        // each of the three rather than only the one already running.
                         .act(.press(Selector.backendOption("FAKE"))),
                         .check("fake-saved", [.selected(Selector.backendOption("FAKE"), true)]),
-                        .act(.press(Selector.backendOption("PARAKEET MLX"))),
-                        .check("mlx-saved", [.selected(Selector.backendOption("PARAKEET MLX"), true)]),
-                        .act(.press(Selector.backendOption("APPLE SPEECH"))),
-                        .check("apple-saved", [.selected(Selector.backendOption("APPLE SPEECH"), true)]),
-                        .act(.press(Selector.backendOption("ARK 3B"))),
+                        .act(.press(Selector.backendOption("PARAKEET"))),
                         .check(
-                            "ark-3b-saved",
+                            "parakeet-saved",
                             [
-                                .selected(Selector.backendOption("ARK 3B"), true),
-                                .selected(Selector.backendOption("ARK 0.6B"), false),
+                                .selected(Selector.backendOption("PARAKEET"), true),
+                                .selected(Selector.backendOption("APPLE SPEECH"), false),
                                 // The header chip carries the saved id, uppercased.
-                                .text(.equals("ARK-3B"), .exactly(1)),
-                                // Saving is not switching: the restart mark appears,
-                                // the running backend is untouched, and the footer
-                                // gives up the model line to say which one that is.
+                                .text(.equals("PARAKEET"), .atLeast(1)),
+                                // Saving is not switching: the restart mark appears, the
+                                // running backend is untouched, and the footer gives up the
+                                // model line to say which one that is.
                                 .exists(Selector.backendRestart),
-                                .model(.activeBackend, .equals("ark-0.6b")),
-                                .text(.equals("ARK 0.6B IN USE"), .exactly(1)),
+                                .model(.activeBackend, .equals("apple")),
+                                .text(.equals("APPLE SPEECH IN USE"), .exactly(1)),
                             ]
                         ),
                         .act(.navigate(.system)),
                         .wait(.element(Selector.backendReady)),
-                        // The readiness sentence follows the backend that is running,
-                        // never the one just saved -- it used to name Parakeet whatever
-                        // was selected.
+                        // The readiness sentence follows the backend that is running, never
+                        // the one just saved -- it used to name Parakeet whatever was selected.
                         .check(
                             "system-names-running-backend",
                             [
                                 .value(
                                     Selector.backendReady,
-                                    .equals("READY, ARK 0.6B is configured for local transcription.")
+                                    .equals("READY, APPLE SPEECH is configured for local transcription.")
                                 )
                             ]
                         ),
@@ -635,7 +629,7 @@
                             [
                                 .value(
                                     Selector.backendReady,
-                                    .equals("READY, PARAKEET MLX is configured for local transcription.")
+                                    .equals("READY, PARAKEET is configured for local transcription.")
                                 )
                             ]
                         ),

@@ -691,20 +691,80 @@ ASR could save more than the 30-40% available from a runtime swap. The evaluatio
 neither the current Parakeet checkpoint nor the four streaming-trained candidates can realise that
 advantage for this utterance profile.
 
+### Shipped: the Swift sidecar, measured 2026-08-14
+
+The plan above is now the shipped state. `asr/` is deleted, the child is the SwiftPM executable
+`voiceour-asr` linking `Vendor/parakeet` (whisper.cpp `592feef0`, MIT), and the model pin moved to
+`ggml-org/parakeet-GGUF@35156454d1a39de06863303dd209fd2bed6ee079`,
+`ggml-parakeet-tdt-0.6b-v3-f16.bin`. Protocol v1, the process shape and the 30 s client timeout are
+unchanged. Two numbers from the pass above did not survive contact: the library is built by SwiftPM,
+not cmake, and `-mcpu=native` was dropped because a copyable `.app` must not carry the build host's
+CPU baseline.
+
+**Accuracy gate, both tiers, same rows as the 2026-08-11 MLX runs.** Reports
+`20260814T173544Z-librispeech-parakeet-stt.json` and `20260814T173557Z-fleurs-parakeet-stt.json`,
+scored by the same `voiceour_bench` normalizer, 128 and 64 rows, zero error rows on both sides.
+The formal gate is `uwer_final:0.0035`; both pass, and neither U-WER moves in the wrong direction.
+
+| tier | metric | MLX sidecar (retired) | Swift sidecar (shipped) | delta |
+|---|---|---:|---:|---:|
+| LibriSpeech (n=128) | U-WER | 2.845% | **2.812%** | −0.03 pp |
+| LibriSpeech | CER | 0.923% | **0.884%** | −0.04 pp |
+| LibriSpeech | ASR p50 | 255.0 ms | **202.5 ms** | −20.6% |
+| LibriSpeech | ASR p95 | 348.0 ms | **272.7 ms** | −21.6% |
+| LibriSpeech | model load p50 | 886 ms | **314 ms** | −64.6% |
+| FLEURS (n=64) | U-WER | 4.416% | 4.416% | 0.00 pp |
+| FLEURS | CER | 1.972% | **1.930%** | −0.04 pp |
+| FLEURS | F-WER | 10.284% | **10.033%** | −0.25 pp |
+| FLEURS | punctuation micro F1 | 0.8333 | **0.8380** | +0.005 |
+| FLEURS | case overall F1 | 0.9210 | **0.9218** | +0.001 |
+| FLEURS | ASR p50 | 122.5 ms | **90.5 ms** | −26.1% |
+| FLEURS | RTFx | 61.7 | **99.7** | +61.6% |
+
+Identical FLEURS U-WER on 64 rows is the same-weights, same-greedy-decode result the first pass
+predicted from a single fixture, now on a corpus. The latency gap is 20-26% rather than the 33%
+the isolated harness suggested, because the production path already avoided the `ffmpeg` confound.
+
+**The confidence signal is no better calibrated than the one it replaces.** `greedy_token_prob`
+(mean per-token posterior) scores ECE 0.6208 on LibriSpeech and 0.5677 on FLEURS, against 0.6636
+and 0.5898 for the retired `greedy_entropy`. Marginally better, still useless as a probability.
+Nothing in the app treats either as calibrated, and `RiskAuthorizer` no longer has an automatic
+edit to gate on.
+
+**Two defects were found by the corpus that the fixture and a hand-driven dictation both missed.**
+Both are recorded because each looked like success on every smaller test:
+
+- *Two contexts, one Metal device.* The backend built its context outside the lock and discarded
+  the loser of a race. Freeing that duplicate tore down ggml's shared Metal device under the
+  survivor, and every later encode failed with `command buffer failed with status 1` — **256 of
+  256 benchmark rows**. `--prove` and interactive dictation always passed because preload won the
+  race whenever the first request was more than a moment behind it. Fixed by holding a dedicated
+  load lock across construction; `SidecarProcessTests.preloadAndAnImmediateTranscribeShareOneModel`
+  reproduces the race under `VOICEOUR_PARAKEET_INTEGRATION=1`.
+- *`Process.waitUntilExit()` after the process has already exited.* `OmpProcessTermination`
+  followed its own bounded poll with an unbounded `waitUntilExit()`. Once `isRunning` is false that
+  call is redundant, and on Darwin it can block forever: the test binary hung with no children
+  left and every sampled thread parked in that function. Removed; the bounded poll is the proof.
+
+**Bundle proof.** `.build/Voiceour.app` copied to `/tmp` and launched with no arguments spawns
+`/tmp/Voiceour.app/Contents/MacOS/voiceour-asr`, which preloads to 1284 MB resident, and that same
+copied helper transcribes `fixtures/audio/hello_16k_mono.wav` from a directory with no repository,
+no Python and no `uv`. First run of a given binary on a machine spends 7.5 s compiling the embedded
+Metal shader library; afterwards the OS shader cache serves it in 9 ms. `leaks --atExit` on a full
+`--prove` reports 0 leaks.
 
 
 ## Ranked next steps
 
 Ranked by estimated engineering value, not implementation ease:
 
-0. **Replace the sidecar's language, not its shape.** Keep protocol v1 and the child process; make the
-   child a SwiftPM executable that links upstream whisper.cpp's MIT `libparakeet` and drop `asr/`
-   entirely. Measured on the production path: 50.2 ms against 74.5 ms warm, byte-identical transcript,
-   half the weights on disk, and a 2.9 MB static library that builds with plain cmake on a host with no
-   Metal compiler. The reason is not the 24 ms. It is that `scripts/bundle.sh` produces an app that
-   cannot transcribe on any machine without this source tree and `uv`. Do not make FluidAudio the
-   default: it pins no model revision and has five open upstream issues about silently deleted words.
-   Gates and the retained-capability losses are in the 2026-08-14 pass above.
+0. **Replace the sidecar's language, not its shape.** *Done (2026-08-14):* the child is now the
+   SwiftPM executable `voiceour-asr` linking vendored whisper.cpp Parakeet, `asr/` is deleted, and
+   `scripts/bundle.sh` ships the helper inside the bundle so a copied `.app` transcribes with no
+   source tree and no `uv`. The measured outcome is in "Shipped: the Swift sidecar" above: U-WER
+   unchanged or better on both tiers, ASR p50 down 20-26%. FluidAudio is still not a candidate for
+   the default: it pins no model revision and has five open upstream issues about silently deleted
+   words.
 1. **Avoid work for the 29.2% no-op refines.** No shipped change addresses them. A cheap classifier
    was rejected as overfit on 137 single-speaker rows. The missing prerequisite is a broader labeled
    dataset. Persisting per-session refiner-input text plus the corrected labels would build the

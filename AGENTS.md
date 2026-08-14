@@ -2,7 +2,7 @@
 
 ## Default Context
 
-Voiceour is a macOS menu-bar dictation app. The intended user flow is: focus any text input, tap Fn/Globe by itself, speak one utterance, transcribe locally through the Python ASR sidecar, clean/refine text when configured, then paste or copy the final text into whichever target is focused when delivery begins.
+Voiceour is a macOS menu-bar dictation app. The intended user flow is: focus any text input, tap Fn/Globe by itself, speak one utterance, transcribe locally through the ASR sidecar, clean/refine text when configured, then paste or copy the final text into whichever target is focused when delivery begins.
 
 The product/repo name appears as `Voiceour` / `voiceour`. Do not rename either without explicit instruction.
 
@@ -11,7 +11,7 @@ The product/repo name appears as `Voiceour` / `voiceour`. Do not rename either w
 - **Voiceour**: the Swift executable target and macOS app.
 - **VoiceCore**: pure Swift/Foundation domain logic and contracts.
 - **VoiceMac**: macOS adapters for audio, pasteboard, permissions, hotkeys, process management, and optional refinement.
-- **ASR sidecar**: the Python process under `asr/` that speaks the transcription protocol over stdio.
+- **ASR sidecar**: the Swift `voiceour-asr` executable under `Sources/VoiceourASR/`, linking the vendored parakeet.cpp under `Vendor/parakeet/`, that speaks the transcription protocol over stdio.
 - **Refiner**: the optional text refinement layer. It has exactly two destinations: `omp`, the locally installed Oh My Pi CLI, which brokers every network model and owns every credential involved; and Apple's on-device system model. It is not the ASR model and must remain opt-in.
 - **Capture target**: the app/window context captured before recording starts for vocabulary, cleanup, and refinement decisions.
 - **Delivery target**: the app/window/text destination focused immediately before insertion begins.
@@ -24,8 +24,11 @@ The product/repo name appears as `Voiceour` / `voiceour`. Do not rename either w
 | `Sources/VoiceMac/` | macOS-specific adapters: audio recording, fake audio, sidecar process client, target tracking, pasteboard insertion, permissions, Carbon hotkey binding, and the optional refiner backends. |
 | `Sources/Voiceour/` | SwiftUI `MenuBarExtra`, settings UI, recording overlay, and `DictationCoordinator` orchestration. |
 | `Sources/Voiceour/UIHarness/` | Offscreen UI harness: scene and flow catalogs, inert fixtures, deterministic runner, accessibility dump, UX lint, coverage ledger, and the `--ui-harness` CLI. |
-| `asr/` | `uv`-managed Python package for the local ASR sidecar. |
-| `fixtures/protocol/` | Golden NDJSON/JSON protocol fixtures decoded by both Swift and Python tests. |
+| `Vendor/parakeet/` | Vendored parakeet.cpp and ggml sources, with the upstream pin and local patch ledger in `NOTICE.md`. |
+| `Sources/ASRSidecarCore/` | Model cache, WAV reader, parakeet context wrapper, token mapping, fake backend, and NDJSON server. |
+| `Sources/VoiceourASR/` | Swift executable target for the shipped `voiceour-asr` sidecar. |
+| `Sources/ASRSidecarStub/` | Test-only executable for exercising sidecar transport failures; never shipped. |
+| `fixtures/protocol/` | Golden NDJSON/JSON protocol fixtures decoded by Swift protocol tests. |
 | `fixtures/text/` | Text cleanup fixtures. |
 | `fixtures/ui/` | Committed UI goldens: one accessibility dump and one PNG digest per scene. |
 | `Resources/` | App plist and entitlements. |
@@ -67,9 +70,10 @@ The sidecar protocol is newline-delimited JSON over stdio.
 - Startup emits `hello`.
 - Accepted request types are `health`, `transcribe`, and `cancel`.
 - Each `transcribe` request must produce exactly one terminal `result`, `error`, or `cancelled` response.
-- The sidecar is a persistent process: the Swift client spawns it once, keeps stdio open, and multiplexes requests by `request_id`; Python runs `transcribe` on a worker thread so `cancel` is actionable mid-request. `VOICEOUR_PRELOAD=1` preloads the MLX model after `hello` and runs one warm-up inference so the first dictation skips MLX lazy kernel compilation.
-- Wire-contract changes must update Swift protocol models, Python protocol models, and shared fixtures in `fixtures/protocol/` together.
-- Keep Python protocol tests and Swift protocol tests decoding the same fixture set.
+- The sidecar is a persistent process: the Swift client spawns it once, keeps stdio open, and multiplexes requests by `request_id`; the sidecar serializes decodes on one queue while keeping cancellation and health handling actionable during an in-flight request.
+- `VOICEOUR_PRELOAD=1` acquires the pinned model in the background after `hello`, loads it, and runs one throwaway decode so the first dictation does not pay Metal pipeline materialisation.
+- The wire no longer carries `bias_phrases`, `bias_snapshot_id`, `hypotheses`, or `decoder`; `ASRConfidenceMode` contains only `none` and `greedy_token_prob`.
+- Wire-contract changes must update Swift protocol models and the shared fixtures in `fixtures/protocol/` together.
 
 ## Privacy and Insertion Safety
 
@@ -90,9 +94,9 @@ This app touches the user's active workspace. Treat insertion safety as product-
 
 ## Local-First and Network Policy
 
-- Real ASR is local via MLX/Parakeet. The current model is `mlx-community/parakeet-tdt-0.6b-v3` pinned at revision `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`. An opt-in `apple` backend (macOS 26+) uses the on-device SpeechAnalyzer/SpeechTranscriber instead of the Python sidecar; it is also fully local.
-- Do not replace the model id or revision casually. Treat model identity, cache manifest behavior, docs, and tests as one compatibility contract.
-- After the model cache manifest exists, the sidecar should load with `HF_HUB_OFFLINE=1`.
+- Real ASR is local through the `parakeet` backend and its Swift/C sidecar. The current model is `ggml-org/parakeet-GGUF` at revision `35156454d1a39de06863303dd209fd2bed6ee079`, file `ggml-parakeet-tdt-0.6b-v3-f16.bin`. An opt-in `apple` backend (macOS 26+) uses the on-device SpeechAnalyzer/SpeechTranscriber instead of the sidecar; it is also fully local.
+- Do not replace the model id or revision casually. `Vendor/parakeet/` and the model pin move together; treat model identity, cache manifest behavior, docs, and tests as one compatibility contract.
+- The cache manifest records `model_id`, `revision`, `file`, `sha256`, and `size_bytes`. The digest is verified once at download; later launches check the pinned file's presence and size. No separate offline-mode environment flag or Hugging Face snapshot layout is involved.
 - Network access is acceptable for first model download/cache setup or when the user explicitly enables/configures the optional refiner.
 - Never enable network refinement by default.
 - Network refinement leaves this machine only through the `omp` subprocess. Voiceour holds no provider credential: no API-key field, no credential environment variable, no keychain item, and no per-provider base URL. Do not add one back — OMP already reaches every provider on the user's behalf, and the entitlement reason a keychain cannot work here is recorded in `docs/architecture.md`.
@@ -110,14 +114,14 @@ This app touches the user's active workspace. Treat insertion safety as product-
 - Use Swift Testing for Swift test targets already configured in `Package.swift`.
 - Do not add `sindresorhus/KeyboardShortcuts` back without verifying the command-line toolchain issue described in the repo docs is resolved. The current Carbon hotkey binder is intentionally small and replaceable.
 
-## Python Sidecar Conventions
+## Vendored parakeet.cpp
 
-- The ASR package is under `asr/` and requires Python 3.11+.
-- Use `uv --no-config` for Python commands in this environment; the repo docs call out a machine-level `uv` config issue.
-- Keep backend selection through `VOICEOUR_ASR_BACKEND=fake|mlx|ark-0.6b|ark-3b`. `mlx` is the default real backend; the ARK ones are opt-in and share the runtime vendored under `asr/src/voiceour_asr/backends/ark_mlx/`, which is a verbatim upstream copy — patch it only with a matching NOTICE entry.
-- Preserve the deterministic fake backend for tests and smoke runs.
-- Keep Pydantic protocol/schema validation strict enough to catch malformed wire messages.
-- Do not let dependency logs leak to stdout.
+- Vendor parakeet.cpp and ggml from `ggml-org/whisper.cpp` at commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage), preserving upstream-relative paths.
+- Mark every local change to an upstream file with a `VOICEOUR PATCH` comment and list it in `Vendor/parakeet/NOTICE.md`.
+- Preserve the existing patch for `ggml-org/whisper.cpp#3932`: the TDT decode loop chooses duration slots from raw pre-log-softmax logits rather than log-softmax output guarded by the `-1e10f` sentinel.
+- `Vendor/parakeet/ggml/embed/ggml-metal-embed.metal` is generated. Regenerate it with `Vendor/parakeet/ggml/embed/regenerate.sh` after any re-vendor of the Metal sources.
+- Do not enable `-mcpu=native`; the copyable app must remain compatible with older Apple Silicon Macs rather than target the build host's exact CPU.
+- Keep backend selection through `VOICEOUR_ASR_BACKEND=fake|parakeet|apple`; `parakeet` is the real sidecar backend and `apple` is the opt-in in-process backend.
 
 ## Developer Commands
 
@@ -136,12 +140,10 @@ Use the smallest command that verifies the change.
 | UI coverage ledger | `make ui-coverage` |
 | Full scene and flow-frame gate | `make ui-all` |
 | Re-record the README GIF (media, not a gate) | `make ui-film` |
-| Python sidecar sync | `cd asr && uv --no-config sync` |
-| Python sidecar tests | `cd asr && uv --no-config run pytest` |
 | Fake app self-test | `scripts/run_dev.sh --self-test` |
 | Fake app launch | `scripts/run_dev.sh` |
 | Real ASR launch | `scripts/run_real.sh` |
-| Real ASR proof fixture | `scripts/make_fixture.sh` then `cd asr && uv --no-config run python ../scripts/phase0_asr_proof.py ../fixtures/audio/hello_16k_mono.wav` |
+| Real ASR proof fixture | `swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
 | Bundle app | `scripts/bundle.sh` |
 | Restart existing real bundle | `scripts/restart_real.sh` |
 | Benchmark smoke (offline, fake) | `make bench-smoke` |
@@ -154,7 +156,7 @@ Do not use real-ASR or GUI/manual flows as routine verification unless the chang
 - For Swift app behavior or bundled-resource changes, do not stop at source edits or tests. Rebuild and restart the running menu-bar app before yielding so the user never tests a stale binary.
 - For UI changes, verify offscreen with `make ui-snap` first. Relaunching the app takes over the user's screen, so reserve it for changes that genuinely need the live app: menu-bar item behavior, hotkeys, real insertion, permission prompts, or either glass material — the offscreen capture shows neither the legacy behind-window tint nor modern `.glassEffect`.
 - Prefer the fake path for fast iteration when real ASR is not required: `scripts/run_dev.sh --self-test` for smoke verification and `scripts/run_dev.sh` for an interactive fake launch.
-- If `.build/Voiceour.app` or a real-ASR instance is running, rebuild the bundle with `scripts/bundle.sh`, quit existing `Voiceour` processes, then reopen with the correct launch path (`scripts/restart_real.sh` for MLX/real-bundle testing, `scripts/run_dev.sh` for fake development).
+- If `.build/Voiceour.app` or a real-ASR instance is running, rebuild the bundle with `scripts/bundle.sh`, quit existing `Voiceour` processes, then reopen with the correct launch path (`scripts/restart_real.sh` for PARAKEET/real-bundle testing, `scripts/run_dev.sh` for fake development).
 - When a user reports stale UI or behavior, confirm the active `Voiceour` process path/arguments after relaunch before declaring the fix visible.
 
 ## Offscreen UI Harness
@@ -204,6 +206,6 @@ The harness cannot show glass, and for two separate measured reasons. Legacy beh
 
 ## Documentation Rules
 
-- Keep docs declarative and repo-specific. Do not copy Oh My Pi/Bun/TypeScript/catalog rules into this Swift/Python app.
+- Keep docs declarative and repo-specific. Do not copy Oh My Pi/Bun/TypeScript/catalog rules into this Swift app and its Python benchmark harness.
 - If behavior changes, update the closest existing doc: `README.md` for user-visible behavior, `docs/architecture.md` for design contracts, `docs/developer-setup.md` for setup/run instructions, `docs/ui-harness.md` for the offscreen UI harness, and `CONTRIBUTING.md` for contributor rules.
-- Keep command examples aligned with `uv --no-config`; a host-level uv config must not be able to change results.
+- Keep `bench/` command examples aligned with `uv --no-config`; a host-level uv config must not be able to change benchmark results.

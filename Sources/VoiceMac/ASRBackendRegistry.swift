@@ -8,12 +8,22 @@ import VoiceCore
 
 /// Everything a backend needs to build itself.
 public struct ASRBackendContext: Sendable {
-    public let asrDirectory: URL
+    /// The `voiceour-asr` helper this process should spawn. Always a sibling of the running
+    /// executable: SwiftPM's products directory and an app bundle's `Contents/MacOS` are both
+    /// flat, so one rule covers `swift run`, the benchmark and the shipped bundle.
+    public let sidecarExecutableURL: URL
     public let speechLocale: String
 
-    public init(asrDirectory: URL, speechLocale: String) {
-        self.asrDirectory = asrDirectory
+    public init(sidecarExecutableURL: URL, speechLocale: String) {
+        self.sidecarExecutableURL = sidecarExecutableURL
         self.speechLocale = speechLocale
+    }
+
+    /// The sibling lookup itself, so every caller resolves it identically.
+    public static func siblingSidecarURL(
+        of executableURL: URL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+    ) -> URL {
+        executableURL.deletingLastPathComponent().appendingPathComponent("voiceour-asr")
     }
 }
 
@@ -84,10 +94,8 @@ public struct ASRBackendDescriptor: Sendable {
 public struct ASRBackendRegistry: Sendable {
     public let descriptors: [ASRBackendDescriptor]
     private static let fakeBackendID = "fake"
-    private static let mlxBackendID = "mlx"
+    private static let parakeetBackendID = "parakeet"
     private static let appleBackendID = "apple"
-    private static let arkSmallBackendID = "ark-0.6b"
-    private static let arkLargeBackendID = "ark-3b"
 
     public init(descriptors: [ASRBackendDescriptor]) {
         self.descriptors = descriptors
@@ -129,17 +137,23 @@ public struct ASRBackendRegistry: Sendable {
             makeLive: { context in
                 ASRBackendComponents(
                     recorder: FakeAudioRecorder(),
-                    client: SidecarASRClient(asrDirectory: context.asrDirectory, backend: Self.fakeBackendID),
+                    client: SidecarASRClient(
+                        sidecarExecutableURL: context.sidecarExecutableURL,
+                        backend: Self.fakeBackendID
+                    ),
                     usesSystemAudioMuter: false
                 )
             },
             makeClient: { context in
-                SidecarASRClient(asrDirectory: context.asrDirectory, backend: Self.fakeBackendID)
+                SidecarASRClient(
+                    sidecarExecutableURL: context.sidecarExecutableURL,
+                    backend: Self.fakeBackendID
+                )
             }
         ),
         ASRBackendDescriptor(
-            id: Self.mlxBackendID,
-            displayName: "PARAKEET MLX",
+            id: Self.parakeetBackendID,
+            displayName: "PARAKEET",
             modelLabel: ASRModelContract.modelId,
             modelId: Self.parakeetModel.modelId,
             modelRevision: Self.parakeetModel.revision,
@@ -147,8 +161,8 @@ public struct ASRBackendRegistry: Sendable {
                 ASRBackendComponents(
                     recorder: MicrophoneRecorder(),
                     client: SidecarASRClient(
-                        asrDirectory: context.asrDirectory,
-                        backend: Self.mlxBackendID,
+                        sidecarExecutableURL: context.sidecarExecutableURL,
+                        backend: Self.parakeetBackendID,
                         expectedModel: Self.parakeetModel
                     ),
                     usesSystemAudioMuter: true
@@ -156,8 +170,8 @@ public struct ASRBackendRegistry: Sendable {
             },
             makeClient: { context in
                 SidecarASRClient(
-                    asrDirectory: context.asrDirectory,
-                    backend: Self.mlxBackendID,
+                    sidecarExecutableURL: context.sidecarExecutableURL,
+                    backend: Self.parakeetBackendID,
                     expectedModel: Self.parakeetModel
                 )
             }
@@ -197,61 +211,6 @@ public struct ASRBackendRegistry: Sendable {
                 return Self.unsupportedAppleSpeech
             }
         ),
-        // Opt-in, never a default candidate: measured on this app's corpora ARK
-        // 0.6B runs about twice the `mlx` default's latency for no accuracy
-        // gain, and ARK 3B runs 4-9x slower in 7+ GB resident and emits no
-        // capitalization at all. `docs/performance-roadmap.md` carries the
-        // comparison; read it before promoting either one.
-        ASRBackendDescriptor(
-            id: Self.arkSmallBackendID,
-            displayName: "ARK 0.6B",
-            modelLabel: Self.arkSmallModel.modelId,
-            modelId: Self.arkSmallModel.modelId,
-            modelRevision: Self.arkSmallModel.revision,
-            makeLive: { context in
-                ASRBackendComponents(
-                    recorder: MicrophoneRecorder(),
-                    client: SidecarASRClient(
-                        asrDirectory: context.asrDirectory,
-                        backend: Self.arkSmallBackendID,
-                        expectedModel: Self.arkSmallModel
-                    ),
-                    usesSystemAudioMuter: true
-                )
-            },
-            makeClient: { context in
-                SidecarASRClient(
-                    asrDirectory: context.asrDirectory,
-                    backend: Self.arkSmallBackendID,
-                    expectedModel: Self.arkSmallModel
-                )
-            }
-        ),
-        ASRBackendDescriptor(
-            id: Self.arkLargeBackendID,
-            displayName: "ARK 3B",
-            modelLabel: Self.arkLargeModel.modelId,
-            modelId: Self.arkLargeModel.modelId,
-            modelRevision: Self.arkLargeModel.revision,
-            makeLive: { context in
-                ASRBackendComponents(
-                    recorder: MicrophoneRecorder(),
-                    client: SidecarASRClient(
-                        asrDirectory: context.asrDirectory,
-                        backend: Self.arkLargeBackendID,
-                        expectedModel: Self.arkLargeModel
-                    ),
-                    usesSystemAudioMuter: true
-                )
-            },
-            makeClient: { context in
-                SidecarASRClient(
-                    asrDirectory: context.asrDirectory,
-                    backend: Self.arkLargeBackendID,
-                    expectedModel: Self.arkLargeModel
-                )
-            }
-        ),
     ])
 
     private static var unsupportedAppleSpeech: UnsupportedASRClient {
@@ -264,13 +223,5 @@ public struct ASRBackendRegistry: Sendable {
     private static let parakeetModel = ASRExpectedModel(
         modelId: ASRModelContract.modelId,
         revision: ASRModelContract.revision
-    )
-    private static let arkSmallModel = ASRExpectedModel(
-        modelId: "leope/ark-asr-0.6B-mlx",
-        revision: "6ec069bd68cbbe165aa42728eac482c90cb58d2f"
-    )
-    private static let arkLargeModel = ASRExpectedModel(
-        modelId: "leope/ark-asr-3B-mlx",
-        revision: "63d9fb8ba352c5c7c65ff2336019048170563d63"
     )
 }

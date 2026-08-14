@@ -130,8 +130,6 @@ public struct Settings: Codable, Equatable, Sendable {
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
     public var speechLocale: String
-    public var automaticTermCorrectionEnabled: Bool
-    public var decoderBiasEnabled: Bool
     /// Words per minute this reader types, used by Home as the counterfactual
     /// every time-saved figure is measured against. Defaults to a measured
     /// population average (`DictationInsights.defaultTypingWPM`) because the
@@ -151,8 +149,6 @@ public struct Settings: Codable, Equatable, Sendable {
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
         case speechLocale = "speech_locale"
-        case automaticTermCorrectionEnabled = "automatic_term_correction_enabled"
-        case decoderBiasEnabled = "decoder_bias_enabled"
         case typingSpeedWPM = "typing_speed_wpm"
     }
 
@@ -168,8 +164,6 @@ public struct Settings: Codable, Equatable, Sendable {
         autoStopEnabled: Bool = false,
         autoStopSilenceMs: Int = 2500,
         speechLocale: String = SpeechLocale.fallback,
-        automaticTermCorrectionEnabled: Bool = false,
-        decoderBiasEnabled: Bool = false,
         typingSpeedWPM: Int = DictationInsights.defaultTypingWPM
     ) {
         self.cleanupEnabled = cleanupEnabled
@@ -183,8 +177,6 @@ public struct Settings: Codable, Equatable, Sendable {
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
         self.speechLocale = speechLocale
-        self.automaticTermCorrectionEnabled = automaticTermCorrectionEnabled
-        self.decoderBiasEnabled = decoderBiasEnabled
         self.typingSpeedWPM = DictationInsights.clamp(typingSpeedWPM)
     }
 
@@ -211,11 +203,6 @@ public struct Settings: Codable, Equatable, Sendable {
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs
         let storedLocale = try container.decodeIfPresent(String.self, forKey: .speechLocale) ?? defaults.speechLocale
         speechLocale = SpeechLocale.canonical(storedLocale) ?? defaults.speechLocale
-        automaticTermCorrectionEnabled =
-            try container.decodeIfPresent(Bool.self, forKey: .automaticTermCorrectionEnabled)
-            ?? defaults.automaticTermCorrectionEnabled
-        decoderBiasEnabled =
-            try container.decodeIfPresent(Bool.self, forKey: .decoderBiasEnabled) ?? defaults.decoderBiasEnabled
         typingSpeedWPM = DictationInsights.clamp(
             try container.decodeIfPresent(Int.self, forKey: .typingSpeedWPM) ?? defaults.typingSpeedWPM
         )

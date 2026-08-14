@@ -107,17 +107,20 @@ enum OmpProcessTermination {
     private static let termGraceNanoseconds: UInt64 = 100_000_000
     private static let killGraceNanoseconds: UInt64 = 300_000_000
 
+    /// Never calls `Process.waitUntilExit()`.
+    ///
+    /// `waitUntilStopped` already polls `process.isRunning`, so a `true` return is proof that
+    /// Foundation has observed and reaped the child; the extra `waitUntilExit()` this function
+    /// used to make was redundant. It was also a hang: on Darwin, `waitUntilExit()` waits on
+    /// bookkeeping that is already complete once `isRunning` is false, and it then blocks
+    /// forever. Observed as an indefinitely stuck test binary with no remaining children, with
+    /// every sampled thread parked inside this function.
     static func terminateAndReap(_ process: Process) {
         guard process.isRunning else { return }
         let rootPID = process.processIdentifier
         var descendants = Set(descendantPIDs(of: rootPID))
         signal(SIGTERM, rootPID: rootPID, descendants: descendants)
-        if waitUntilStopped(
-            process,
-            descendants: descendants,
-            for: termGraceNanoseconds
-        ) {
-            process.waitUntilExit()
+        if waitUntilStopped(process, descendants: descendants, for: termGraceNanoseconds) {
             return
         }
 
@@ -126,23 +129,11 @@ enum OmpProcessTermination {
         // A waiting shell normally exits as soon as its killed helper is
         // reaped. Give it that chance before killing the parent; otherwise the
         // helper becomes an orphaned zombie and can outlive this deadline.
-        if waitUntilStopped(
-            process,
-            descendants: descendants,
-            for: termGraceNanoseconds
-        ) {
-            process.waitUntilExit()
+        if waitUntilStopped(process, descendants: descendants, for: termGraceNanoseconds) {
             return
         }
         _ = Darwin.kill(rootPID, SIGKILL)
-        _ = waitUntilStopped(
-            process,
-            descendants: descendants,
-            for: killGraceNanoseconds
-        )
-        if !process.isRunning {
-            process.waitUntilExit()
-        }
+        _ = waitUntilStopped(process, descendants: descendants, for: killGraceNanoseconds)
     }
 
     private static func signal(

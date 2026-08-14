@@ -1,8 +1,8 @@
 {
   "type": "hello",
   "protocol_version": 1,
-  "sidecar_version": "0.1.0",
-  "backend_id": "parakeet-mlx",
+  "sidecar_version": "1.0.0",
+  "backend_id": "parakeet-cpp",
   "backend_status": "ready",
   "capabilities": {
     "final_utterance": true

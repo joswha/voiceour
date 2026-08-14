@@ -13,9 +13,8 @@ from .report import build_report, markdown_table
 
 # Mirrors `ASRBackendRegistry.builtIn` in Sources/VoiceMac/ASRBackendRegistry.swift.
 # The Swift runner validates the id against the registry itself; this list only
-# exists so a typo fails here instead of after a release build. Parakeet (`mlx`)
-# stays the default: the ARK backends are opt-in A/B candidates.
-ASR_BACKENDS = ("fake", "mlx", "apple", "ark-0.6b", "ark-3b")
+# exists so a typo fails here instead of after a release build.
+ASR_BACKENDS = ("fake", "parakeet", "apple")
 
 
 def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
@@ -23,7 +22,10 @@ def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
 
 
 def _build_swift_runner(root: Path) -> Path:
+    # The ASR sidecar is a sibling of the runner in .build/release, and that is how the
+    # runner finds it, so both products must be built before the benchmark starts.
     _run(["swift", "build", "-c", "release", "--product", "voiceour-bench"], cwd=root)
+    _run(["swift", "build", "-c", "release", "--product", "voiceour-asr"], cwd=root)
     runner = root / ".build" / "release" / "voiceour-bench"
     if not runner.exists():
         raise FileNotFoundError(f"Swift benchmark runner was not produced at {runner}")
@@ -68,8 +70,6 @@ def _invoke_runner(runner: Path, args: argparse.Namespace, manifest: Path, outpu
             str(manifest),
             "--output",
             str(output),
-            "--asr-dir",
-            args.asr_dir,
             "--backend",
             args.backend,
             "--timeout-ms",
@@ -78,8 +78,7 @@ def _invoke_runner(runner: Path, args: argparse.Namespace, manifest: Path, outpu
             refine_mode,
         ]
         _append_refiner_model(command, args)
-    env = {**os.environ, "VOICEOUR_ASR_DECODING": args.decoding}
-    _run(command, cwd=root, env=env)
+    _run(command, cwd=root, env={**os.environ})
 
 
 def _refine_manifest(args: argparse.Namespace, root: Path) -> Path:
@@ -94,16 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tier", choices=("smoke", "librispeech", "fleurs", "techterms"), required=True)
     parser.add_argument("--mode", choices=("stt", "refine", "e2e"), required=True)
     parser.add_argument("--n", type=int, default=None, help="first-N rows for HF-backed tiers")
-    parser.add_argument("--backend", choices=ASR_BACKENDS, default="mlx")
-    parser.add_argument(
-        "--decoding",
-        choices=("greedy", "beam"),
-        default="greedy",
-        help="ASR decoding mode for the sidecar (sets VOICEOUR_ASR_DECODING)",
-    )
+    parser.add_argument("--backend", choices=ASR_BACKENDS, default="parakeet")
     parser.add_argument("--refine", choices=("deterministic", "omp"), default=None)
     parser.add_argument("--timeout-ms", type=int, default=120000)
-    parser.add_argument("--asr-dir", default="asr")
     parser.add_argument("--refiner-model", default=None)
     args = parser.parse_args(argv)
 

@@ -30,18 +30,21 @@ Equivalent direct commands:
 
 ```sh
 cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode e2e --backend fake
-cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend mlx --n 200
+cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend parakeet --n 200
 cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode refine --refine deterministic
-cd bench && uv --no-config run python -m voiceour_bench.run --tier fleurs --mode e2e --backend mlx --n 100
-cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend mlx
+cd bench && uv --no-config run python -m voiceour_bench.run --tier fleurs --mode e2e --backend parakeet --n 100
+cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend parakeet
 ```
+
+The registered backend ids are `fake`, `parakeet`, and `apple`. Both the benchmark runner and the
+Make targets default to `parakeet`.
 
 `--mode stt` maps to the Swift runner's `pipeline --refine off`. `--mode e2e` maps to `pipeline --refine deterministic` unless `--refine omp` is explicitly supplied. `--mode refine` uses the text-only Swift `refine` command and defaults to deterministic refinement; with `--tier fleurs` it derives refine cases from FLEURS `transcription` and `raw_transcription`, otherwise it uses `fixtures/bench/refine_cases.jsonl`.
 
 `--backend apple` runs the native macOS 26 `SpeechAnalyzer`/`SpeechTranscriber` batch client through the identical harness, report, and scorer, so an Apple-vs-Parakeet comparison is two invocations of the same command over the same manifest rather than a hand-driven Swift-runner call. Row matching is deterministic: `prepare_tier` uses the first N rows, so passing the same `--tier` and `--n` to both backends guarantees identical rows:
 
 ```sh
-cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend mlx --n 64
+cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend parakeet --n 64
 cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend apple --n 64
 ```
 
@@ -68,7 +71,7 @@ Formatting metrics use only rows with non-null `formatted_reference`. Content me
 
 The Python package uses the published `whisper-normalizer` package (`whisper_normalizer.english.EnglishTextNormalizer`) rather than vendoring normalizer files. It was import-tested on numbers, fillers, and contractions during setup.
 
-U-WER is computed with jiwer. The Open ASR Leaderboard uses kaldialign with compound-merge behavior, so Voiceour numbers can differ slightly from leaderboard figures even on the same transcripts. Treat the LibriSpeech anchors as sanity checks rather than exact reproduction targets: NVIDIA NeMo reports `parakeet-tdt-0.6b-v3` at 1.93 WER on test-clean and 3.59 WER on test-other. Voiceour runs the MLX conversion/backend, not the NeMo implementation, so model-runtime differences are expected.
+U-WER is computed with jiwer. The Open ASR Leaderboard uses kaldialign with compound-merge behavior, so Voiceour numbers can differ slightly from leaderboard figures even on the same transcripts. Treat the LibriSpeech anchors as sanity checks rather than exact reproduction targets: NVIDIA NeMo reports `parakeet-tdt-0.6b-v3` at 1.93 WER on test-clean and 3.59 WER on test-other. Voiceour runs the GGUF-converted weights through the vendored parakeet.cpp C/Metal runtime, not the NeMo implementation, so model-runtime differences are expected.
 
 FLEURS refine metrics use `raw_transcription` as the formatted reference because FLEURS separates normalized `transcription` from the human-formatted source text. That gives the refiner a realistic target for punctuation and case without mixing ASR errors into the text-only benchmark.
 
@@ -84,10 +87,9 @@ Sweep a backend separately with the prebuilt runner. This is the `run.py` pipeli
 
 ```sh
 for snr in 20 10 05 00; do
-  VOICEOUR_ASR_DECODING=greedy .build/release/voiceour-bench pipeline \
+  .build/release/voiceour-bench pipeline \
     --input "benchmarks/data/librispeech-noise/snr${snr}/manifest.jsonl" \
     --output "benchmarks/results/manual-librispeech-apple-stt-noise-snr${snr}.results.jsonl" \
-    --asr-dir asr \
     --backend apple \
     --timeout-ms 120000 \
     --refine off
@@ -238,13 +240,10 @@ On top of the shared U-WER/CER/latency metrics, techterms reports add the follow
 - **Hard-negative false-replacement rate**: fraction of observed hard-negative opportunities where the canonical term wrongly appears, with a per-10k-opportunity scaling.
 - **No-op preservation**: exact-preservation rate on rows the terminology layer should leave untouched.
 - **Candidate Recall@K**: whether the expected `term_id` is among the retrieved candidate ids at K = 1 and K = 5.
-- **N-best oracle coverage**: whether the canonical term is present in any decoded hypothesis (rank-0 plus every n-best alternative). This is the ceiling any reranker could reach.
 - **Per-mode reliability / ECE / risk-coverage**: Brier score, expected calibration error, equal-width reliability bins, and risk/coverage points bucketed by the transcript `confidenceMode`.
 
-### Decoding and bias toggles
-
-- `VOICEOUR_ASR_DECODING=beam` (set by `run.py --decoding beam`) switches the MLX Parakeet sidecar from the default greedy path to opt-in beam n-best, which returns ranked hypotheses with pre-bias raw scores. Greedy stays the default; the n-best metrics above require this toggle.
-- `VOICEOUR_BENCH_BIAS=<truthy>` enables the opt-in decoder-bias measurement path in the Swift `voiceour-bench` runner, which injects the manifest row's labeled canonical term as the sole bias phrase. Biasing requires the beam decoder, so pair it with `--decoding beam`. Unset (default) emits no bias, leaving the standard benchmark path byte-for-byte unchanged.
+Current runner output rows do not emit a `hypotheses` field. Report compatibility code reads that
+field only from historical committed results under `benchmarks/results/`.
 
 ### U-WER regression gate
 
@@ -252,7 +251,7 @@ On top of the shared U-WER/CER/latency metrics, techterms reports add the follow
 
 ```sh
 cd bench && uv --no-config run python -m voiceour_bench.compare \
-  ../benchmarks/results/techterms-greedy.report.json \
+  ../benchmarks/results/techterms-baseline.report.json \
   ../benchmarks/results/techterms-candidate.report.json \
   --gate uwer_final:0.0035
 ```
@@ -261,40 +260,15 @@ A candidate whose gated metric rises by more than `max_delta` exits non-zero; `-
 
 ### Analyses
 
-- `voiceour_bench.disagreement` compares two backend or decoding runs for transcript disagreement and the term-recovery routing signal (which utterances one run gets and the other misses):
+- `voiceour_bench.disagreement` compares two backend runs for transcript disagreement and the term-recovery routing signal (which utterances one run gets and the other misses):
 
   ```sh
   cd bench && uv --no-config run python -m voiceour_bench.disagreement \
-    --run-a-results ../benchmarks/results/techterms-greedy.results.jsonl \
+    --run-a-results ../benchmarks/results/techterms-parakeet.results.jsonl \
     --run-a-manifest ../benchmarks/data/techterms/manifest.jsonl \
-    --run-b-results ../benchmarks/results/techterms-beam.results.jsonl \
+    --run-b-results ../benchmarks/results/techterms-apple.results.jsonl \
     --run-b-manifest ../benchmarks/data/techterms/manifest.jsonl
   ```
-
-- `voiceour_bench.calibrate` reads a report's per-mode confidence calibration and recommends the automatic-correction operating threshold with the most coverage inside an accepted-error bound. Reports resolved to `speaker_kind: tts` are flagged provisional rather than treated as a shippable calibration:
-
-  ```sh
-  cd bench && uv --no-config run python -m voiceour_bench.calibrate \
-    ../benchmarks/results/techterms.report.json
-  ```
-
-- `voiceour_bench.nbest_absence` measures how often a labeled canonical term is absent from the entire beam (rank-0 plus every alternative). Persistent absence is the Stage 5 keyword-spotting precondition: reranking cannot recover a term no hypothesis contains.
-
-  ```sh
-  cd bench && uv --no-config run python -m voiceour_bench.nbest_absence \
-    --manifest ../benchmarks/data/techterms/manifest.jsonl \
-    --results ../benchmarks/results/techterms-beam.results.jsonl
-  ```
-
-### Measured smoke baseline (provisional)
-
-All numbers below are from the 16-case techterms TTS smoke tier on an M4 Pro with the production Parakeet-v3 backend. They track plumbing and regressions only; TTS is not real speech, so none of them are real-speaker proof.
-
-- Greedy baseline: term recall 0.636, term precision 1.0, hard-negative false-replacement 0.0, U-WER 0.067.
-- Opt-in beam n-best *regressed* term recall versus greedy (0.545 vs 0.636, U-WER 0.067 -> 0.144); the intended terms were absent from the whole beam in several cases. n-best target-absence is 0.455 (5/11) under beam.
-- Unconditional decoder bias failed the gates: no recall gain (0.636) while hard-negative false-replacement rose to 0.4 and U-WER regressed to 0.192 (+12.5 pp, far past the 0.0035 budget). Decoder bias therefore stays off pending real-speaker calibration.
-
-Every automatic-authority path (automatic term correction, decoder bias, keyword spotting) remains gated on a consented real-speaker TechTerms corpus that does not yet exist. Treat these figures as smoke-only baselines, not evidence for enabling any of those paths.
 
 ## Adding a dataset tier
 
