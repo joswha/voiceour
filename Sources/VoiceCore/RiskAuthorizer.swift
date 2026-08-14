@@ -106,6 +106,34 @@ public struct RiskThresholds: Equatable, Sendable {
 /// *and* clears the calibrated absolute + margin thresholds for the candidate's
 /// risk class *and* no veto applies. Any doubt collapses to at most `.suggest`,
 /// never `.replace`.
+///
+/// **Two of those gates do not currently discriminate on the default decoding
+/// path, and this must be closed before automatic replacement is enabled.**
+/// Measured 2026-08-14:
+///
+/// - *Independent n-best support is vacuous under greedy decoding.* The MLX
+///   backend's greedy path returns exactly one hypothesis, and it is the very
+///   transcript the candidate was extracted from, with `score` and `raw_score`
+///   both literally `0.0` (`asr/src/voiceoour_asr/backends/mlx.py`, the `ranked`
+///   construction and its own docstring). So `appearsInNBest` asks whether the
+///   candidate appears in the text it came from, which is always true. Only the
+///   opt-in beam path (`VOICEOOUR_ASR_DECODING=beam`, set nowhere in this
+///   repository) produces a real n-best list.
+/// - *`confidenceMode == .greedyEntropy` is not a calibrated probability.*
+///   Committed benchmark reports put its expected calibration error between
+///   **0.235 and 0.419** (`benchmarks/results/*-techterms-stt.json`, `ece`), where
+///   0 is perfect. `absolute` and `criticalAbsolute` are described as calibrated
+///   floors; against that signal they are not.
+/// - Relatedly, `runnerUpMargin` as supplied by
+///   `TranscriptProcessingPipeline.authorizerEvidence` is a margin between the
+///   *retriever's own* blended phonetic/textual similarity scores, not an acoustic
+///   margin between competing recognitions.
+///
+/// None of this is live: `Settings.automaticTermCorrectionEnabled` defaults to
+/// `false`, and `docs/benchmarks.md` already gates every automatic-authority path
+/// on a consented real-speaker corpus that does not exist yet. It is recorded here
+/// because the gates read as stronger than they measure, and the master switch is
+/// one boolean away.
 public enum RiskAuthorizer {
 
     /// Minimum blended acoustic/textual signal for a candidate to be surfaced as
