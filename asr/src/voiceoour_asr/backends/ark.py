@@ -248,6 +248,18 @@ class ArkBackend(Backend):
                 request_id=request.request_id,
                 detail=f"audio is {duration:.2f}s; ARK-ASR accepts at most {MAX_AUDIO_SECONDS:.0f}s per clip",
             )
+        # A cold ARK acquisition cannot fit inside an utterance. The client's
+        # transcribe timeout is 30 s; downloading and loading the 0.6B measured 27.6 s
+        # here and the 3B is 7.0 GB, so blocking would spend the whole budget, time
+        # out, and then have the client terminate the sidecar mid-download. The
+        # preload thread is already fetching in the background after `hello`, so say
+        # so immediately and let a later dictation succeed instead.
+        if not cache.cache_ok(self._spec):
+            return protocol_error(
+                ErrorCode.MODEL_NOT_INSTALLED,
+                request_id=request.request_id,
+                detail=f"{self._spec.model_id} is still being acquired; retry once it has finished",
+            )
         try:
             self._load_model()
         except cache.ManifestMismatch as exc:

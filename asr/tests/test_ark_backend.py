@@ -133,3 +133,37 @@ def test_health_reports_a_missing_ark_cache(tmp_path):
     assert health.cache_ok is False
     assert health.ready is False
     assert health.model_loaded is False
+
+
+def test_transcribe_fails_fast_while_the_model_is_still_being_acquired(tmp_path):
+    """A cold acquisition must not be charged to the utterance budget.
+
+    The Swift client's transcribe timeout is 30 s. Downloading and loading ARK 0.6B
+    measured 27.6 s on the development machine and the 3B checkpoint is 7.0 GB, so
+    blocking here spends the whole budget, times out, and then has the client
+    terminate the sidecar mid-download -- losing the partial fetch every time. The
+    preload thread is already fetching after `hello`, so an uncached model must say
+    so immediately instead.
+    """
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(b"RIFF" + b"\x00" * 40)
+    backend = ArkBackend(local_spec(cache.ARK_3B, tmp_path), "ark-3b")
+
+    response = backend.transcribe(
+        TranscribeRequest(
+            request_id="cold",
+            audio=AudioMeta(
+                path=str(wav),
+                format="wav",
+                sample_rate_hz=16_000,
+                channels=1,
+                duration_ms=8_000,
+                byte_count=wav.stat().st_size,
+            ),
+        ),
+        Event(),
+    )
+
+    assert response.type == "error"
+    assert response.code == ErrorCode.MODEL_NOT_INSTALLED
+    assert cache.ARK_3B.model_id in (response.detail or "")
