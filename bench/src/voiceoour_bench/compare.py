@@ -58,8 +58,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    baseline = dict(_flatten_numbers("", _load(args.baseline).get("metrics", {})))
-    candidate = dict(_flatten_numbers("", _load(args.candidate).get("metrics", {})))
+    baseline_report = _load(args.baseline)
+    candidate_report = _load(args.candidate)
+
+    # Refuse to compare reports that did not score the same rows. Only rows without
+    # an `error` are scored, so a backend that rejects some inputs is silently
+    # measured on an easier corpus: ARK rejects clips over 30 s, which drops 16 of
+    # the 128 LibriSpeech rows, and the rows it drops are the longest ones. A delta
+    # between 128 scored rows and 112 is not a delta, and a gate computed from it is
+    # worse than no gate because it looks like evidence.
+    baseline_counts = baseline_report.get("counts", {})
+    candidate_counts = candidate_report.get("counts", {})
+    baseline_scored = baseline_counts.get("successful_rows")
+    candidate_scored = candidate_counts.get("successful_rows")
+    if baseline_scored != candidate_scored:
+        print(
+            f"REFUSING TO COMPARE: baseline scored {baseline_scored} rows, candidate scored "
+            f"{candidate_scored} (errors: {baseline_counts.get('error_rows')} vs "
+            f"{candidate_counts.get('error_rows')}). Re-run both over the intersection, "
+            "or compare only within one row set.",
+            file=sys.stderr,
+        )
+        return 2
+
+    baseline = dict(_flatten_numbers("", baseline_report.get("metrics", {})))
+    candidate = dict(_flatten_numbers("", candidate_report.get("metrics", {})))
     keys = sorted(set(baseline) | set(candidate))
     print("| metric | baseline | candidate | delta |")
     print("| --- | ---: | ---: | ---: |")

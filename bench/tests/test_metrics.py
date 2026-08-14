@@ -371,3 +371,34 @@ def test_compare_gate_fails_closed_when_metric_is_missing(tmp_path, capsys) -> N
     candidate.write_text(json.dumps({"metrics": {"uwer_final": 0.1}}), encoding="utf-8")
     assert compare_main([str(baseline), str(candidate), "--gate", "uwer_final:0.0035"]) == 1
     assert "unavailable" in capsys.readouterr().err
+
+
+def test_compare_refuses_reports_that_scored_different_rows(tmp_path, capsys):
+    """A delta between different row sets is not a delta.
+
+    Only rows without an `error` are scored, so a backend that rejects some inputs
+    is measured on an easier corpus. ARK rejects clips over 30 s, which drops 16 of
+    the 128 LibriSpeech rows -- and the dropped rows are the longest ones. A gate
+    computed across that mismatch looks like evidence, which is worse than no gate.
+    """
+    from voiceoour_bench import compare
+
+    def write(path, scored, errors, uwer):
+        path.write_text(
+            json.dumps(
+                {
+                    "counts": {"successful_rows": scored, "error_rows": errors},
+                    "metrics": {"uwer_final": uwer},
+                }
+            )
+        )
+        return path
+
+    baseline = write(tmp_path / "base.json", 128, 0, 0.028)
+    candidate = write(tmp_path / "cand.json", 112, 16, 0.022)
+
+    assert compare.main([str(baseline), str(candidate)]) == 2
+    assert "REFUSING TO COMPARE" in capsys.readouterr().err
+
+    matched = write(tmp_path / "matched.json", 128, 0, 0.030)
+    assert compare.main([str(baseline), str(matched)]) == 0
