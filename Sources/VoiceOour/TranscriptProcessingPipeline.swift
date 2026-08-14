@@ -222,8 +222,11 @@ extension DictationCoordinator {
             audioURL = audio.url
             // Audio comes back the moment capture ends, not when transcription
             // finishes. Every other restore path is a safety net for a throw that
-            // beat this point; restoreSystemAudioIfNeeded is idempotent per session.
-            await restoreSystemAudioIfNeeded()
+            // beat this point; the restore is idempotent per session. Started, not
+            // awaited: its 120 ms volume fade does not gate transcription, and
+            // awaiting it here delayed every ASR call on a muted session by longer
+            // than the inference itself.
+            beginSystemAudioRestore()
             try ensureCurrentProcessing(generation)
 
             // One vocabulary snapshot per utterance, compiled here and held for

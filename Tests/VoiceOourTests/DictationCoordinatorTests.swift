@@ -97,6 +97,40 @@ struct DictationCoordinatorTests {
         await waitUntil { coordinator.lastOutcome != nil }
     }
 
+    // The system-audio restore ramps the user's volume back over a 120 ms fade
+    // and `SystemAudioMuter.restore()` awaits every step of it. Nothing about
+    // transcription depends on that fade, and 80.1% of real recorded sessions on
+    // the development machine were muted during capture, so awaiting it on the
+    // stop path put a full fade in front of four out of five ASR calls -- longer
+    // than the inference itself. This pins the restore as started-but-not-awaited:
+    // ASR must reach .transcribing while restore() is still blocked.
+    @Test func recordingStopDoesNotWaitForTheAudioFadeBeforeTranscribing() async {
+        let muteGate = TestGate()
+        let restoreGate = TestGate()
+        let transcriptionGate = TestGate()
+        let muter = GatedAudioMuter(muteGate: muteGate, restoreGate: restoreGate)
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .gatedText(transcriptionGate, "hello world")),
+            audioMuter: muter
+        )
+
+        coordinator.start()
+        await waitUntil { muter.isMuted }
+        muteGate.fire()
+        coordinator.stopAndProcess()
+
+        // Reaching .transcribing proves the stop path called the ASR client, and
+        // restore() is still parked on its gate, so it cannot have been awaited.
+        await waitUntil { coordinator.state == .transcribing }
+        #expect(muter.restoreEnteredCount == 1, "the restore must have been started")
+        #expect(muter.restoreCount == 0, "the fade must still be in flight, not awaited")
+
+        restoreGate.fire()
+        transcriptionGate.fire()
+        await waitUntil { coordinator.lastOutcome != nil }
+        await waitUntil { muter.restoreCount == 1 && !muter.isMuted }
+    }
+
     @Test func disabledRefinerIsNotPrewarmed() async {
         let refiner = BlockingWarmUpRefiner(gate: TestGate())
         let coordinator = makeCoordinator(
@@ -2225,16 +2259,22 @@ private final class RefusingAudioMuter: SystemAudioMuting, @unchecked Sendable {
 private final class GatedAudioMuter: SystemAudioMuting, @unchecked Sendable {
     private let lock = NSLock()
     private let muteGate: TestGate
+    /// When set, `restore()` blocks on it, which is what makes "the stop path did
+    /// not wait for the volume fade" an observable property rather than a comment.
+    private let restoreGate: TestGate?
     private var mutes = 0
     private var restores = 0
+    private var restoresEntered = 0
     private var muted = false
 
-    init(muteGate: TestGate) {
+    init(muteGate: TestGate, restoreGate: TestGate? = nil) {
         self.muteGate = muteGate
+        self.restoreGate = restoreGate
     }
 
     var muteCount: Int { lock.withLock { mutes } }
     var restoreCount: Int { lock.withLock { restores } }
+    var restoreEnteredCount: Int { lock.withLock { restoresEntered } }
     var isMuted: Bool { lock.withLock { muted } }
 
     func mute() async -> Bool {
@@ -2249,6 +2289,8 @@ private final class GatedAudioMuter: SystemAudioMuting, @unchecked Sendable {
     }
 
     func restore() async {
+        lock.withLock { restoresEntered += 1 }
+        await restoreGate?.wait()
         lock.withLock {
             restores += 1
             muted = false
