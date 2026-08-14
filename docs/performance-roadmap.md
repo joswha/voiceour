@@ -457,6 +457,34 @@ falsification probe (constant confidence, uniformly spread timestamps), never ag
 Nemotron remains the better-WER candidate with the same confidence defect; `kyutai/stt-1b-en_fr-mlx`
 is the remaining untried option and is MLX-native, which suits this repo.
 
+**Kyutai was built and measured 2026-08-14, and it loses on its own terms — which closes the
+streaming question.** `kyutai/stt-1b-en_fr-mlx` is MLX-native, so it needed no new runtime here, and
+its central risk was the documented 500 ms delay. That risk is answered definitively: the tail **can**
+be flushed faster than real time. `moshi_mlx` stepping has no clock at all — `LmGen._step` counts an
+integer `step_idx` (`moshi_mlx/models/generate.py:60-114`), upstream's own file script drives it with
+a bare unpaced loop, and the only pacing anywhere in the tree is the microphone. Feeding zero-padding
+drains the delay at **~17.6 ms per 80 ms block, i.e. 4.5x real time**, independently reproducing
+Kyutai's own "500 ms becomes ~125 ms at 4x" claim, and words genuinely fall out of the pad steps at
+the indices the 6.25-block delay predicts.
+
+And it still loses: 7 flush blocks x 17.6 ms puts residual at **141 ms**, against Parakeet batch
+inference at **117.8 ms**. Indicative accuracy on 3 rows was 9.59% against Parakeet's 4.416% U-WER.
+Two operational notes for anyone revisiting it: the flush must be bounded at `ceil(500/80) = 7`
+blocks, because padding past ~13 makes it hallucinate text out of pure silence, and its confidence is
+discarded rather than absent — `sampling.py:147` computes a full log-softmax and `lm.py:465` throws it
+away into `_`, so it is recoverable through the private `_step` plus one extra `text_linear` matmul.
+
+**Synthesis across all four candidates.** Streaming does not pay for utterances this short, and the
+reason is structural rather than a property of any one model. A whole-utterance decode costs 117.8 ms
+*once*; a streaming model must drain its trained delay before it can finalise, and that drain
+(141 ms for Kyutai at 4.5x) is the floor no amount of runtime work removes. The only candidate whose
+residual genuinely beat batch was Moonshine at 4.5-37 ms, and it is blocked on a hardcoded confidence
+and on corrupting sequential utterances in one process. So: **stop pursuing streaming for the current
+utterance profile.** It becomes interesting again only if capture lengths grow substantially, if a
+streaming checkpoint appears with both real confidence and clean sequential behaviour, or if we start
+wanting live partial text on screen during capture as a product feature rather than as a latency
+trick — which is a different justification and should be argued on its own merits.
+
 ### Runtime bake-off: is a non-Python runtime faster? Rust, no. C and CoreML, yes.
 
 Measured 2026-08-13, M4 Pro, FLEURS n=64, every leg run **serially under an exclusive hardware
@@ -544,17 +572,15 @@ Ranked by expected value, not by ease:
    because `parakeet-tdt-0.6b-v3` is full-context trained and cannot decode inside a small local
    attention window. There is no operating point on this checkpoint, so the next move is a different
    checkpoint, not a different setting.
-   **Moonshine was tried first and is blocked** (built 2026-08-14, see above): its residuals are
-   excellent at 4.5-37 ms, but its per-word confidence is a hardcoded `1.0f` despite the header
-   documenting 0..1, and sequential utterances in one process corrupt — which is precisely how a
-   dictation app uses a model. Do not integrate it until upstream fixes the reset path, and do not
-   count on its confidence even then. `nemotron-speech-streaming-en-0.6b` has the better WER and the
-   same hardcoded-confidence defect. `kyutai/stt-1b-en_fr-mlx` is the remaining untried candidate and
-   is MLX-native, so it needs no new runtime here; it has word timestamps, no confidence, and a
-   500 ms delay that its authors reduce by flushing the tail faster than real time.
-   Whichever is next, the accuracy trade must be measured on our own corpora with `bench-stt` and
-   `bench-e2e` before it ships even as opt-in, and its evidence claims must be verified against
-   source rather than documentation.
+   **All four candidates were tried and the line is closed — see the synthesis above.** Moonshine has
+   the only residual that beats batch (4.5-37 ms) and is blocked on a hardcoded `1.0f` confidence plus
+   sequential-utterance corruption. Kyutai's flush provably works at 4.5x real time and still lands at
+   141 ms against batch's 117.8 ms. Nemotron has the better WER and the same confidence defect. The
+   structural reason is that a streaming model must drain its trained delay before finalising, and at
+   these utterance lengths that drain costs more than decoding the whole utterance once.
+   **Demote this item.** Revisit only if capture lengths grow, if a checkpoint appears with real
+   confidence and clean sequential behaviour, or if live partial text becomes a product goal in its own
+   right rather than a latency trick.
 0b. **Or swap the ASR runtime, which is smaller but nearly free.** The bake-off above measured
    `parakeet.cpp` at 88.4 ms and FluidAudio at 71.5 ms against our 119.9 ms, both on our own model
    and both without Python. `parakeet.cpp` is the conservative pick: identical U-WER to three
