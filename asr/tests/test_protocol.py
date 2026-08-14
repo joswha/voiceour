@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from voiceoour_asr.errors import ErrorCode
-from voiceoour_asr.protocol import (
+from voiceour_asr.errors import ErrorCode
+from voiceour_asr.protocol import (
     Cancelled,
     CancelRequest,
     ErrorMessage,

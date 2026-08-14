@@ -305,33 +305,33 @@ struct VoiceCoreTests {
     }
 
     @Test func settingsDecodesProviderDefaultAndRoundTrips() throws {
-        // No `refiner_provider` key at all, plus a `refiner_base_url` key this
-        // build no longer knows: an older file must still decode, unknown keys
-        // and all.
-        let legacyJSON = """
+        // A partial file: no `refiner_provider` key, plus one key this build does
+        // not know. Settings is written to tolerate both so a hand-edited or
+        // truncated file costs the user one field rather than every field.
+        let partialJSON = """
             {
               "cleanup_enabled": false,
               "asr_backend": "mlx",
-              "model_id": "legacy-model-id",
-              "model_revision": "legacy-revision",
+              "model_id": "unused-model-id",
+              "model_revision": "unused-revision",
               "refiner_enabled": true,
-              "refiner_base_url": "https://legacy.example/v1",
-              "refiner_model": "legacy-model",
+              "refiner_base_url": "https://unknown.example/v1",
+              "refiner_model": "stored-model",
               "refiner_timeout_ms": 2500
             }
             """
 
-        let legacySettings = try JSONDecoder().decode(Settings.self, from: Data(legacyJSON.utf8))
-        #expect(legacySettings.refinerProvider == .omp)
-        #expect(legacySettings.refinerEnabled)
-        #expect(legacySettings.refinerModel == "legacy-model")
-        #expect(legacySettings.cleanupEnabled == false)
-        #expect(legacySettings.asrBackend == "mlx")
-        #expect(legacySettings.autoStopEnabled == false)
-        #expect(legacySettings.autoStopSilenceMs == 2500)
-        #expect(legacySettings.speechLocale == "en_US")
-        #expect(legacySettings.automaticTermCorrectionEnabled == false)
-        #expect(legacySettings.decoderBiasEnabled == false)
+        let partialSettings = try JSONDecoder().decode(Settings.self, from: Data(partialJSON.utf8))
+        #expect(partialSettings.refinerProvider == .omp)
+        #expect(partialSettings.refinerEnabled)
+        #expect(partialSettings.refinerModel == "stored-model")
+        #expect(partialSettings.cleanupEnabled == false)
+        #expect(partialSettings.asrBackend == "mlx")
+        #expect(partialSettings.autoStopEnabled == false)
+        #expect(partialSettings.autoStopSilenceMs == 2500)
+        #expect(partialSettings.speechLocale == "en_US")
+        #expect(partialSettings.automaticTermCorrectionEnabled == false)
+        #expect(partialSettings.decoderBiasEnabled == false)
 
         let encoded = try JSONEncoder().encode(
             Settings(
@@ -348,34 +348,8 @@ struct VoiceCoreTests {
         #expect(decoded.speechLocale == "de_DE")
     }
 
-    /// A settings file naming Gemini, OpenAI, OpenRouter or the hand-typed
-    /// custom endpoint was written by a build that held the credential and sent
-    /// the transcript itself. Those providers are gone, and the migration may
-    /// not quietly repoint a live refiner at OMP: that would send the next
-    /// utterance to a network destination the user never agreed to. So the
-    /// provider falls back, the model is cleared because it named a catalog OMP
-    /// does not share, and refinement is switched off pending consent.
-    @Test func settingsMigratesRetiredRefinerProvidersToOmpAndOff() throws {
-        for retired in ["gemini", "openAI", "openRouter", "custom"] {
-            let json = """
-                {
-                  "refiner_provider": "\(retired)",
-                  "refiner_enabled": true,
-                  "refiner_model": "gemini-2.5-flash-lite",
-                  "refiner_base_url": "https://legacy.example/v1"
-                }
-                """
-            let migrated = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
-
-            #expect(migrated.refinerProvider == .omp, "\(retired) should migrate to omp")
-            #expect(migrated.refinerModel == "", "\(retired) should drop its retired model")
-            #expect(migrated.refinerEnabled == false, "\(retired) should not stay enabled")
-        }
-    }
-
-    /// The migration is scoped to files it does not recognise. A surviving
-    /// provider keeps everything it stored, including an enabled refiner.
-    @Test func settingsLeavesSurvivingRefinerProvidersUntouched() throws {
+    /// Both providers decode with exactly the state they stored.
+    @Test func settingsDecodesBothProvidersWithTheirStoredState() throws {
         let json = """
             {
               "refiner_provider": "omp",
@@ -426,15 +400,15 @@ struct VoiceCoreTests {
         #expect(SpeechLocale.canonical("not_a_locale") == nil)
     }
 
-    @Test func legacySettingsJSONMissingMuteFieldsEnablesMute() throws {
-        let legacyJSON = """
+    @Test func settingsJSONMissingMuteFieldsEnablesMute() throws {
+        let partialJSON = """
             {
               "cleanup_enabled": false,
               "asr_backend": "mlx"
             }
             """
 
-        let settings = try JSONDecoder().decode(Settings.self, from: Data(legacyJSON.utf8))
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(partialJSON.utf8))
 
         #expect(settings.cleanupEnabled == false)
         #expect(settings.asrBackend == "mlx")
@@ -490,20 +464,20 @@ struct VoiceCoreTests {
         #expect(try posixPermissions(at: fixture.url) == 0o600)
     }
 
-    @Test func legacyRecentSessionJSONMissingOutcomeDecodesNil() throws {
-        let legacyJSON = """
+    @Test func recentSessionJSONMissingOutcomeDecodesNil() throws {
+        let partialJSON = """
             {
               "id": "00000000-0000-0000-0000-000000000101",
               "createdAt": 42,
-              "text": "legacy transcript"
+              "text": "partial transcript"
             }
             """
 
-        let session = try JSONDecoder().decode(RecentSession.self, from: Data(legacyJSON.utf8))
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(partialJSON.utf8))
 
         #expect(session.id == UUID(uuidString: "00000000-0000-0000-0000-000000000101")!)
         #expect(session.createdAt == Date(timeIntervalSinceReferenceDate: 42))
-        #expect(session.text == "legacy transcript")
+        #expect(session.text == "partial transcript")
         #expect(session.mutedDuringCapture == false)
         #expect(session.outcome == nil)
         #expect(session.stages == nil)
@@ -530,12 +504,12 @@ struct VoiceCoreTests {
         #expect(decoded.stages == stages)
     }
 
-    @Test func legacySessionStageTimingsDecodeNewTelemetryAsNil() throws {
-        let legacyJSON = """
+    @Test func sessionStageTimingsMissingFieldsDecodeAsNil() throws {
+        let partialJSON = """
             {
               "id": "00000000-0000-0000-0000-000000000102",
               "createdAt": 42,
-              "text": "legacy timed transcript",
+              "text": "partially timed transcript",
               "stages": {
                 "captureMs": 2400,
                 "asrMs": 125,
@@ -546,7 +520,7 @@ struct VoiceCoreTests {
             }
             """
 
-        let session = try JSONDecoder().decode(RecentSession.self, from: Data(legacyJSON.utf8))
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(partialJSON.utf8))
         let stages = try #require(session.stages)
 
         #expect(stages.stopReleaseToInsertionOutcomeMs == nil)
@@ -720,9 +694,9 @@ struct VoiceCoreTests {
         await muter.restore()
     }
 
-    @Test func applicationSupportPathsDeriveFromTheVoiceOourBase() {
-        let base = URL.voiceOourSupportDirectory
-        #expect(base.lastPathComponent == "VoiceOour")
+    @Test func applicationSupportPathsDeriveFromTheVoiceourBase() {
+        let base = URL.voiceourSupportDirectory
+        #expect(base.lastPathComponent == "Voiceour")
         #expect(SettingsStore.defaultURL.deletingLastPathComponent().path == base.path)
         #expect(SettingsStore.defaultURL.lastPathComponent == "settings.json")
         #expect(RecentSessionStore.defaultURL.deletingLastPathComponent().path == base.path)

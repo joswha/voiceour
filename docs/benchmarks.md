@@ -1,6 +1,6 @@
-# VoiceOour Benchmarks
+# Voiceour Benchmarks
 
-VoiceOour benchmarks measure speech-to-text accuracy, deterministic/optional refinement quality, and latency through the same production Swift paths used by the app. The Python package in `bench/` prepares datasets, invokes the Swift `voiceoour-bench` runner, computes metrics, and writes JSON reports under `benchmarks/results/`.
+Voiceour benchmarks measure speech-to-text accuracy, deterministic/optional refinement quality, and latency through the same production Swift paths used by the app. The Python package in `bench/` prepares datasets, invokes the Swift `voiceour-bench` runner, computes metrics, and writes JSON reports under `benchmarks/results/`.
 
 ## Tiers
 
@@ -29,11 +29,11 @@ make bench-techterms
 Equivalent direct commands:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode e2e --backend fake
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend mlx --n 200
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode refine --refine deterministic
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier fleurs --mode e2e --backend mlx --n 100
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend mlx
+cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode e2e --backend fake
+cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend mlx --n 200
+cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode refine --refine deterministic
+cd bench && uv --no-config run python -m voiceour_bench.run --tier fleurs --mode e2e --backend mlx --n 100
+cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend mlx
 ```
 
 `--mode stt` maps to the Swift runner's `pipeline --refine off`. `--mode e2e` maps to `pipeline --refine deterministic` unless `--refine omp` is explicitly supplied. `--mode refine` uses the text-only Swift `refine` command and defaults to deterministic refinement; with `--tier fleurs` it derives refine cases from FLEURS `transcription` and `raw_transcription`, otherwise it uses `fixtures/bench/refine_cases.jsonl`.
@@ -41,8 +41,8 @@ cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --
 `--backend apple` runs the native macOS 26 `SpeechAnalyzer`/`SpeechTranscriber` batch client through the identical harness, report, and scorer, so an Apple-vs-Parakeet comparison is two invocations of the same command over the same manifest rather than a hand-driven Swift-runner call. Row matching is deterministic: `prepare_tier` uses the first N rows, so passing the same `--tier` and `--n` to both backends guarantees identical rows:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend mlx --n 64
-cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend apple --n 64
+cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend mlx --n 64
+cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend apple --n 64
 ```
 
 Run them one at a time: concurrent Metal work distorts the latency percentiles. Punctuation and case F1 need a tier that carries `formatted_reference`, which LibriSpeech does not. Use `--tier fleurs` for any formatting comparison.
@@ -68,23 +68,23 @@ Formatting metrics use only rows with non-null `formatted_reference`. Content me
 
 The Python package uses the published `whisper-normalizer` package (`whisper_normalizer.english.EnglishTextNormalizer`) rather than vendoring normalizer files. It was import-tested on numbers, fillers, and contractions during setup.
 
-U-WER is computed with jiwer. The Open ASR Leaderboard uses kaldialign with compound-merge behavior, so VoiceOour numbers can differ slightly from leaderboard figures even on the same transcripts. Treat the LibriSpeech anchors as sanity checks rather than exact reproduction targets: NVIDIA NeMo reports `parakeet-tdt-0.6b-v3` at 1.93 WER on test-clean and 3.59 WER on test-other. VoiceOour runs the MLX conversion/backend, not the NeMo implementation, so model-runtime differences are expected.
+U-WER is computed with jiwer. The Open ASR Leaderboard uses kaldialign with compound-merge behavior, so Voiceour numbers can differ slightly from leaderboard figures even on the same transcripts. Treat the LibriSpeech anchors as sanity checks rather than exact reproduction targets: NVIDIA NeMo reports `parakeet-tdt-0.6b-v3` at 1.93 WER on test-clean and 3.59 WER on test-other. Voiceour runs the MLX conversion/backend, not the NeMo implementation, so model-runtime differences are expected.
 
 FLEURS refine metrics use `raw_transcription` as the formatted reference because FLEURS separates normalized `transcription` from the human-formatted source text. That gives the refiner a realistic target for punctuation and case without mixing ASR errors into the text-only benchmark.
 
 ## Noise robustness sweep
 
-`bench/src/voiceoour_bench/noise.py` regenerates the 64-utterance LibriSpeech baseline subset with deterministic additive Gaussian noise (seed 20260718, per-file RNG derived via SHA-256) at 20, 10, 5, and 0 dB SNR into `benchmarks/data/librispeech-noise/snr{XX}/`. It only writes the noisy WAVs and manifests and prints each manifest path; it does not invoke a runner, select a backend, or write results:
+`bench/src/voiceour_bench/noise.py` regenerates the 64-utterance LibriSpeech baseline subset with deterministic additive Gaussian noise (seed 20260718, per-file RNG derived via SHA-256) at 20, 10, 5, and 0 dB SNR into `benchmarks/data/librispeech-noise/snr{XX}/`. It only writes the noisy WAVs and manifests and prints each manifest path; it does not invoke a runner, select a backend, or write results:
 
 ```sh
-(cd bench && uv --no-config run python -m voiceoour_bench.noise)
+(cd bench && uv --no-config run python -m voiceour_bench.noise)
 ```
 
 Sweep a backend separately with the prebuilt runner. This is the `run.py` pipeline invocation repeated over the four generated manifests:
 
 ```sh
 for snr in 20 10 05 00; do
-  VOICEOOUR_ASR_DECODING=greedy .build/release/voiceoour-bench pipeline \
+  VOICEOUR_ASR_DECODING=greedy .build/release/voiceour-bench pipeline \
     --input "benchmarks/data/librispeech-noise/snr${snr}/manifest.jsonl" \
     --output "benchmarks/results/manual-librispeech-apple-stt-noise-snr${snr}.results.jsonl" \
     --asr-dir asr \
@@ -98,8 +98,8 @@ Measured 2026-07-18 on macOS 26.5.2 (M4 Pro), Apple SpeechTranscriber batch path
 
 ## Paired capture matrix
 
-`voiceoour_bench.capture_matrix` plans and collects the Stage 0 microphone matrix around the
-`voiceoour-capture-bench` executable. `standard` is the production baseline and tracks whatever
+`voiceour_bench.capture_matrix` plans and collects the Stage 0 microphone matrix around the
+`voiceour-capture-bench` executable. `standard` is the production baseline and tracks whatever
 production records through, which is now `MicrophoneRecorder` over `MicrophoneCapture`. It uses an
 `AVCaptureSession` pinned to a chosen input device (`docs/architecture.md`, *Microphone capture*)
 rather than the `AVAudioRecorder` the matrix was originally designed against. Rows collected
@@ -111,7 +111,7 @@ before that swap are therefore not paired with rows collected after it, and the
 `sound-isolation-high-quality`. Check availability without requesting microphone permission:
 
 ```sh
-voiceoour-capture-bench --list-modes
+voiceour-capture-bench --list-modes
 ```
 
 The default matrix crosses all six modes with 100/200 ms pre-roll, 300/500 ms post-roll, two
@@ -132,7 +132,7 @@ Planning is deterministic and does not open the microphone. The following writes
 manifest and prints the exact commands it would run:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix plan \
+cd bench && uv --no-config run python -m voiceour_bench.capture_matrix plan \
   --prompts ../benchmarks/data/techterms/capture-prompts.jsonl \
   --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
   --output-dir ../benchmarks/data/techterms/real-speaker-audio \
@@ -142,7 +142,7 @@ cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix plan \
 Each printed command has the fixed executable contract:
 
 ```sh
-voiceoour-capture-bench --mode MODE --duration-ms 8000 \
+voiceour-capture-bench --mode MODE --duration-ms 8000 \
   --pre-roll-ms PRE --post-roll-ms POST --output PATH
 ```
 
@@ -150,7 +150,7 @@ After preparing each labeled condition, collect the planned rows. Real-speaker e
 blocked unless the operator explicitly acknowledges consent:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix run \
+cd bench && uv --no-config run python -m voiceour_bench.capture_matrix run \
   --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
   --results ../benchmarks/results/techterms-capture.results.jsonl \
   --consent-confirmed
@@ -162,7 +162,7 @@ Report ingestion rejects unknown/duplicate captures or mismatched prompt, take, 
 condition identities:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix report \
+cd bench && uv --no-config run python -m voiceour_bench.capture_matrix report \
   --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
   --results ../benchmarks/results/techterms-capture.results.jsonl \
   --output ../benchmarks/results/techterms-capture.report.json
@@ -181,7 +181,7 @@ not an audio-quality verdict. The report always uses `quality_verdict: not-evalu
    the manifest or filename. Keep speaker and acoustic splits held out by this id.
 3. Use the same written prompt and take id across every mode in a pair. Keep microphone, angle,
    distance, playback/noise levels, and route fixed except for the condition variable being
-   tested. Do not reuse ordinary VoiceOour session recordings: production session audio remains
+   tested. Do not reuse ordinary Voiceour session recordings: production session audio remains
    ephemeral and is never persisted.
 4. In Control Center, record the selected system Mic Mode before collection and hold it constant
    across the entire paired set. System Mic Mode can override app-level processing. If it or the
@@ -205,7 +205,7 @@ project-policy maximum regression of +0.35 percentage points U-WER (`0.0035` in 
 units):
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.compare \
+cd bench && uv --no-config run python -m voiceour_bench.compare \
   ../benchmarks/results/techterms-standard.report.json \
   ../benchmarks/results/techterms-candidate.report.json \
   --gate uwer_final:0.0035
@@ -226,7 +226,7 @@ The techterms manifest keeps the standard pipeline input contract (`id`, `audio_
 - `hard_negative_kind`: `null` for positives; `minimal_pair`, `homophone`, or `ordinary_language` for negatives that must not trigger a term replacement.
 - `speaker_id` / `speaker_kind`: provenance; every synthesized row is `macos-say-samantha` / `tts`.
 - `condition`: acoustic condition, `clean` for the synthesized tier.
-- `project_scope`: vocabulary scope for the term (`global`, or a project id such as `voiceoour`).
+- `project_scope`: vocabulary scope for the term (`global`, or a project id such as `voiceour`).
 
 Because every row is `speaker_kind: tts`, the tier exercises the term-comprehension plumbing and metric wiring end to end but is not evidence of real-speaker accuracy.
 
@@ -243,15 +243,15 @@ On top of the shared U-WER/CER/latency metrics, techterms reports add the follow
 
 ### Decoding and bias toggles
 
-- `VOICEOOUR_ASR_DECODING=beam` (set by `run.py --decoding beam`) switches the MLX Parakeet sidecar from the default greedy path to opt-in beam n-best, which returns ranked hypotheses with pre-bias raw scores. Greedy stays the default; the n-best metrics above require this toggle.
-- `VOICEOOUR_BENCH_BIAS=<truthy>` enables the opt-in decoder-bias measurement path in the Swift `voiceoour-bench` runner, which injects the manifest row's labeled canonical term as the sole bias phrase. Biasing requires the beam decoder, so pair it with `--decoding beam`. Unset (default) emits no bias, leaving the standard benchmark path byte-for-byte unchanged.
+- `VOICEOUR_ASR_DECODING=beam` (set by `run.py --decoding beam`) switches the MLX Parakeet sidecar from the default greedy path to opt-in beam n-best, which returns ranked hypotheses with pre-bias raw scores. Greedy stays the default; the n-best metrics above require this toggle.
+- `VOICEOUR_BENCH_BIAS=<truthy>` enables the opt-in decoder-bias measurement path in the Swift `voiceour-bench` runner, which injects the manifest row's labeled canonical term as the sole bias phrase. Biasing requires the beam decoder, so pair it with `--decoding beam`. Unset (default) emits no bias, leaving the standard benchmark path byte-for-byte unchanged.
 
 ### U-WER regression gate
 
-`voiceoour_bench.compare` prints metric deltas between two reports and fails any gate expressed as `metric:max_delta`. Enforce the project maximum regression of +0.35 percentage points U-WER (`0.0035` in fractional units) between a baseline and a candidate techterms report:
+`voiceour_bench.compare` prints metric deltas between two reports and fails any gate expressed as `metric:max_delta`. Enforce the project maximum regression of +0.35 percentage points U-WER (`0.0035` in fractional units) between a baseline and a candidate techterms report:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.compare \
+cd bench && uv --no-config run python -m voiceour_bench.compare \
   ../benchmarks/results/techterms-greedy.report.json \
   ../benchmarks/results/techterms-candidate.report.json \
   --gate uwer_final:0.0035
@@ -261,27 +261,27 @@ A candidate whose gated metric rises by more than `max_delta` exits non-zero; `-
 
 ### Analyses
 
-- `voiceoour_bench.disagreement` compares two backend or decoding runs for transcript disagreement and the term-recovery routing signal (which utterances one run gets and the other misses):
+- `voiceour_bench.disagreement` compares two backend or decoding runs for transcript disagreement and the term-recovery routing signal (which utterances one run gets and the other misses):
 
   ```sh
-  cd bench && uv --no-config run python -m voiceoour_bench.disagreement \
+  cd bench && uv --no-config run python -m voiceour_bench.disagreement \
     --run-a-results ../benchmarks/results/techterms-greedy.results.jsonl \
     --run-a-manifest ../benchmarks/data/techterms/manifest.jsonl \
     --run-b-results ../benchmarks/results/techterms-beam.results.jsonl \
     --run-b-manifest ../benchmarks/data/techterms/manifest.jsonl
   ```
 
-- `voiceoour_bench.calibrate` reads a report's per-mode confidence calibration and recommends the automatic-correction operating threshold with the most coverage inside an accepted-error bound. Reports resolved to `speaker_kind: tts` are flagged provisional rather than treated as a shippable calibration:
+- `voiceour_bench.calibrate` reads a report's per-mode confidence calibration and recommends the automatic-correction operating threshold with the most coverage inside an accepted-error bound. Reports resolved to `speaker_kind: tts` are flagged provisional rather than treated as a shippable calibration:
 
   ```sh
-  cd bench && uv --no-config run python -m voiceoour_bench.calibrate \
+  cd bench && uv --no-config run python -m voiceour_bench.calibrate \
     ../benchmarks/results/techterms.report.json
   ```
 
-- `voiceoour_bench.nbest_absence` measures how often a labeled canonical term is absent from the entire beam (rank-0 plus every alternative). Persistent absence is the Stage 5 keyword-spotting precondition: reranking cannot recover a term no hypothesis contains.
+- `voiceour_bench.nbest_absence` measures how often a labeled canonical term is absent from the entire beam (rank-0 plus every alternative). Persistent absence is the Stage 5 keyword-spotting precondition: reranking cannot recover a term no hypothesis contains.
 
   ```sh
-  cd bench && uv --no-config run python -m voiceoour_bench.nbest_absence \
+  cd bench && uv --no-config run python -m voiceour_bench.nbest_absence \
     --manifest ../benchmarks/data/techterms/manifest.jsonl \
     --results ../benchmarks/results/techterms-beam.results.jsonl
   ```
@@ -298,7 +298,7 @@ Every automatic-authority path (automatic term correction, decoder bias, keyword
 
 ## Adding a dataset tier
 
-1. Add a `prepare_<tier>()` function in `bench/src/voiceoour_bench/datasets_prep.py` that writes 16 kHz mono WAVs under `benchmarks/data/<tier>/audio/` and a `manifest.jsonl` matching the pipeline input contract: `id`, `audio_path`, `reference`, `formatted_reference`, and `audio_s`.
-2. Register the tier in `prepare_tier()` and in `voiceoour_bench.run` argparse choices.
+1. Add a `prepare_<tier>()` function in `bench/src/voiceour_bench/datasets_prep.py` that writes 16 kHz mono WAVs under `benchmarks/data/<tier>/audio/` and a `manifest.jsonl` matching the pipeline input contract: `id`, `audio_path`, `reference`, `formatted_reference`, and `audio_s`.
+2. Register the tier in `prepare_tier()` and in `voiceour_bench.run` argparse choices.
 3. Document the dataset source, license, default row count, and reference-field semantics in this file.
 4. Add a Make target only if the tier becomes a standard workflow.

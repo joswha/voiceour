@@ -31,7 +31,7 @@ Deterministic cleanup independently performed 459 word edits—about half the wo
 The code now enforces the conclusions above:
 
 - [`OmpRpcRefiner`](../../Sources/VoiceMac/OmpRpcRefiner.swift) filters terms through the shared cloud-eligibility policy before prompt construction.
-- [`TranscriptProcessingPipeline`](../../Sources/VoiceOour/TranscriptProcessingPipeline.swift) compiles one capture-scoped `VocabularySnapshot` and uses it throughout the stop path.
+- [`TranscriptProcessingPipeline`](../../Sources/Voiceour/TranscriptProcessingPipeline.swift) compiles one capture-scoped `VocabularySnapshot` and uses it throughout the stop path.
 - Every selection pass in [`VocabularyCompiler`](../../Sources/VoiceCore/Vocabulary.swift) checks the effective hard limit, including priority selection and deferred backfill.
 - [`SessionStageTimings`](../../Sources/VoiceCore/RecentSessionStore.swift) persists `stopReleaseToInsertionOutcomeMs`, `asrBackendId`, `asrLoadMs`, and `asrInferenceMs`.
 - Apple finalized-audio duration remains the source of persisted capture time.

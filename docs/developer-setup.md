@@ -65,7 +65,7 @@ scripts/ui_harness.sh --only console      # run just one area
 
 This is the preferred way to look at the UI. It renders SwiftUI views into a borderless window parked far offscreen, dumps the in-process accessibility tree, lints both, and diffs against the goldens in `fixtures/ui/`. No window appears on your display, the frontmost application does not change, and it needs neither Screen Recording nor Accessibility permission. Artifacts land in `.build/ui-harness/`: a PNG and an `.ax.txt` dump per scene, an `.ax.diff` when a dump moved, `manifest.jsonl`, and a `contact-sheet.png` tiling every scene. See [docs/ui-harness.md](ui-harness.md) for the CLI surface, the manifest schema, the lint rules, how to add a scene, and what an offscreen render cannot show you.
 
-The harness exits from the first statement of `VoiceOourApp.init()`, so it starts none of the app's real machinery. A normal launch is unaffected: `UIHarnessRequest` is nil unless `--ui-harness` is present.
+The harness exits from the first statement of `VoiceourApp.init()`, so it starts none of the app's real machinery. A normal launch is unaffected: `UIHarnessRequest` is nil unless `--ui-harness` is present.
 
 ## Screenshot the console
 
@@ -74,7 +74,7 @@ scripts/console_shot.sh                        # sessions -> .build/console-sess
 scripts/console_shot.sh voice /tmp/voice.png   # any section, custom output path
 ```
 
-Captures the console window for one section: `sessions` (default), `home`, `voice`, `glossary`, `refinement`, `system`, or `diagnostics`. Prefer `make ui-snap` above for everything except real glass; this script is the only way to see composited glass, on either render path, and the two paths fail in the harness for different reasons. Legacy behind-window `NSVisualEffectView`, implemented by `GlassSurfaces.swift`'s `FrostedGlassBackground`, rasterises as a flat opaque fill offscreen because there is no desktop to sample. Modern SwiftUI `.glassEffect` does not rasterise at all: `cacheDisplay(in:to:)` leaves those pixels transparent, so an `os26` golden photographs the app's own paint with the material missing (design bible §5.2). It builds, launches the fake backend (no microphone, model download, or network), then opens the real `Window("VoiceOour", id: "main")` console scene via the development-only `--show-console --no-activate --console-section=<name>` flags, captures just that window with `screencapture`, and quits the app. A fresh window opens at 1164x820, but macOS may restore the last console frame (e.g. a near-fullscreen size), which is handy for reproducing the layouts users actually see. The controlling terminal needs macOS Screen Recording permission or the capture will be blank.
+Captures the console window for one section: `sessions` (default), `home`, `voice`, `glossary`, `refinement`, `system`, or `diagnostics`. Prefer `make ui-snap` above for everything except real glass; this script is the only way to see composited glass, on either render path, and the two paths fail in the harness for different reasons. Legacy behind-window `NSVisualEffectView`, implemented by `GlassSurfaces.swift`'s `FrostedGlassBackground`, rasterises as a flat opaque fill offscreen because there is no desktop to sample. Modern SwiftUI `.glassEffect` does not rasterise at all: `cacheDisplay(in:to:)` leaves those pixels transparent, so an `os26` golden photographs the app's own paint with the material missing (design bible §5.2). It builds, launches the fake backend (no microphone, model download, or network), then opens the real `Window("Voiceour", id: "main")` console scene via the development-only `--show-console --no-activate --console-section=<name>` flags, captures just that window with `screencapture`, and quits the app. A fresh window opens at 1164x820, but macOS may restore the last console frame (e.g. a near-fullscreen size), which is handy for reproducing the layouts users actually see. The controlling terminal needs macOS Screen Recording permission or the capture will be blank.
 
 These launch flags are development-only and guarded like `--self-test`: `--show-console` posts a notification the menu-bar label observes to `openWindow(id: "main")`, so it drives the same production scene the "Open Console…" menu item does (nothing about the shipping flow changes). `--no-activate` suppresses the console's usual promotion to `.regular` (the Dock icon and Cmd-Tab entry that appear and disappear around a capture) plus the second `NSApp.activate` in `ConsoleView.onAppear`; it does **not** make the capture invisible, because the window has to be onscreen to be screenshotted and the show-console notification handler still activates the app. Expect a brief focus blip, just a smaller one. Use `make ui-snap` when you want no disruption at all. A normal user launch passes neither flag and behaves exactly as before. `scripts/find_console_window.swift` resolves the window id via `CGWindowListCopyWindowInfo`, which needs no Screen Recording permission.
 
@@ -92,7 +92,7 @@ and caches the model. Once its cache manifest exists the sidecar sets `HF_HUB_OF
 alive for the app run, and preloads at launch so later dictations pay inference rather than model
 startup.
 
-While recording, VoiceOour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `mlx` path) logs `VoiceOour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
+While recording, Voiceour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `mlx` path) logs `Voiceour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
 
 After granting Accessibility/event-post permission, restart the existing test bundle without rebuilding it:
 
@@ -100,11 +100,11 @@ After granting Accessibility/event-post permission, restart the existing test bu
 scripts/restart_real.sh
 ```
 
-Use this for repeated local tests. `scripts/restart_real.sh` enforces one running `.build/VoiceOour.app` instance for this repo before reopening the bundle. Before the first permission-sensitive build, run `scripts/setup_local_signing.sh` once. It creates a dedicated password-free `voiceoour-dev` keychain and identity; `scripts/bundle.sh` then unlocks and selects that identity without touching unrelated signing keychains. Grant Accessibility once to the resulting app. Its designated requirement remains stable across later rebuilds, so macOS keeps the grant. An explicit `VOICEOOUR_CODESIGN_IDENTITY` remains available for other identities; without either identity, the bundle is ad-hoc signed and requires a new grant after the code changes.
+Use this for repeated local tests. `scripts/restart_real.sh` enforces one running `.build/Voiceour.app` instance for this repo before reopening the bundle. Before the first permission-sensitive build, run `scripts/setup_local_signing.sh` once. It creates a dedicated password-free `voiceour-dev` keychain and identity; `scripts/bundle.sh` then unlocks and selects that identity without touching unrelated signing keychains. Grant Accessibility once to the resulting app. Its designated requirement remains stable across later rebuilds, so macOS keeps the grant. An explicit `VOICEOUR_CODESIGN_IDENTITY` remains available for other identities; without either identity, the bundle is ad-hoc signed and requires a new grant after the code changes.
 
 ## Configure the refiner
 
-Refinement is opt-in and disabled by default, and the Refinement pane offers exactly two providers: **Oh My Pi**, which hands the request to the locally installed `omp` CLI, and **Apple On-Device**. Neither takes a credential from VoiceOour, so there is no key to paste and no credential variable to export. Enable the refiner, pick a model, and dictate.
+Refinement is opt-in and disabled by default, and the Refinement pane offers exactly two providers: **Oh My Pi**, which hands the request to the locally installed `omp` CLI, and **Apple On-Device**. Neither takes a credential from Voiceour, so there is no key to paste and no credential variable to export. Enable the refiner, pick a model, and dictate.
 
 ```sh
 scripts/run_real.sh
@@ -116,11 +116,11 @@ A `settings.json` written by an older build that named `gemini`, `openAI`, `open
 
 ### Oh My Pi refiner (the default provider)
 
-Oh My Pi is the subscription-backed refiner provider. When OMP refinement is enabled and configured, VoiceOour starts one persistent `omp --mode rpc` child lazily from recording-stop warm-up (or the first direct refine) and reuses it for subsequent refines. The app needs no API key.
+Oh My Pi is the subscription-backed refiner provider. When OMP refinement is enabled and configured, Voiceour starts one persistent `omp --mode rpc` child lazily from recording-stop warm-up (or the first direct refine) and reuses it for subsequent refines. The app needs no API key.
 
-In Refinement → Oh My Pi, connected providers are grouped first; ChatGPT, Claude, Gemini, and Kimi remain visible with **CONNECT** or **RECONNECT** actions when no active account exists. **ADD** starts another login for an already-connected provider, while **BROWSE** opens OMP's complete current provider catalog. VoiceOour opens OMP's interactive login in a temporary Terminal window, waits for the command to finish, and selects a matching model from the provider-scoped `omp models <provider> --json` catalog. **REFRESH** runs `omp usage --json --redact` in the same credential-shadowed environment and retains only aggregate provider/account counts. OMP alone stores and refreshes the credentials; VoiceOour does not read the credential database, token values, or returned account identities.
+In Refinement → Oh My Pi, connected providers are grouped first; ChatGPT, Claude, Gemini, and Kimi remain visible with **CONNECT** or **RECONNECT** actions when no active account exists. **ADD** starts another login for an already-connected provider, while **BROWSE** opens OMP's complete current provider catalog. Voiceour opens OMP's interactive login in a temporary Terminal window, waits for the command to finish, and selects a matching model from the provider-scoped `omp models <provider> --json` catalog. **REFRESH** runs `omp usage --json --redact` in the same credential-shadowed environment and retains only aggregate provider/account counts. OMP alone stores and refreshes the credentials; Voiceour does not read the credential database, token values, or returned account identities.
 
-The default model is `anthropic/claude-haiku-4-5` (fastest measured on the production dictation prompt, ~1.4–1.7s median warm refine); `openai-codex/gpt-5.5` is ~1.9s median. The child runs with a hermetic profile under `~/Library/Application Support/VoiceOour/omp-rpc/` so refine requests carry no OMP memory or MCP tool context.
+The default model is `anthropic/claude-haiku-4-5` (fastest measured on the production dictation prompt, ~1.4–1.7s median warm refine); `openai-codex/gpt-5.5` is ~1.9s median. The child runs with a hermetic profile under `~/Library/Application Support/Voiceour/omp-rpc/` so refine requests carry no OMP memory or MCP tool context.
 
 ```sh
 bun install -g @oh-my-pi/pi-coding-agent
@@ -128,11 +128,11 @@ bun install -g @oh-my-pi/pi-coding-agent
 brew install can1357/tap/omp
 ```
 
-If the desired `omp` binary is not on the app's launch path, set `VOICEOOUR_OMP_BIN` in the launch environment to its absolute path. The manual fallback remains `omp auth-broker login <provider>`.
+If the desired `omp` binary is not on the app's launch path, set `VOICEOUR_OMP_BIN` in the launch environment to its absolute path. The manual fallback remains `omp auth-broker login <provider>`.
 
 ### Apple On-Device refiner (macOS 26+)
 
-The "Apple On-Device" provider runs Apple's system language model through the FoundationModels framework: no network, no API key, no model download managed by VoiceOour, measured p50 ~1.6–2.0 s per refine on M4 Pro with the production glossary (see `docs/performance-roadmap.md`). It requires Apple Intelligence to be enabled in System Settings (the OS downloads the model itself). If Apple Intelligence is off or the Mac is unsupported, the Refinement pane's status check reports why, and refinement falls back to deterministic cleanup. Outputs that look like assistant chatter (preambles, answered questions) are rejected by the shared faithfulness guards and also fall back deterministically.
+The "Apple On-Device" provider runs Apple's system language model through the FoundationModels framework: no network, no API key, no model download managed by Voiceour, measured p50 ~1.6–2.0 s per refine on M4 Pro with the production glossary (see `docs/performance-roadmap.md`). It requires Apple Intelligence to be enabled in System Settings (the OS downloads the model itself). If Apple Intelligence is off or the Mac is unsupported, the Refinement pane's status check reports why, and refinement falls back to deterministic cleanup. Outputs that look like assistant chatter (preambles, answered questions) are rejected by the shared faithfulness guards and also fall back deterministically.
 
 ## Run the real ASR proof
 
@@ -154,20 +154,20 @@ This proof is non-interactive; it does not record the manual GUI insertion matri
 
 ```sh
 scripts/bundle.sh
-open .build/VoiceOour.app
+open .build/Voiceour.app
 ```
 
 The bundle uses `Resources/Info.plist` with `LSUIElement=true` and a microphone usage string, plus
-`Resources/VoiceOour.entitlements` with audio input only; it is deliberately not sandboxed.
+`Resources/Voiceour.entitlements` with audio input only; it is deliberately not sandboxed.
 `scripts/verify_bundle.sh` checks the plist values, signature validity, and shipped entitlements.
 
-`scripts/bundle.sh` prefers the dedicated local `voiceoour-dev` identity installed by `scripts/setup_local_signing.sh`, uses `VOICEOOUR_CODESIGN_IDENTITY` when explicitly set, and otherwise warns before falling back to ad-hoc signing. Stable identity signing keeps Accessibility permission across rebuilds. For repeated permission-sensitive restarts without rebuilding, use `scripts/restart_real.sh`.
+`scripts/bundle.sh` prefers the dedicated local `voiceour-dev` identity installed by `scripts/setup_local_signing.sh`, uses `VOICEOUR_CODESIGN_IDENTITY` when explicitly set, and otherwise warns before falling back to ad-hoc signing. Stable identity signing keeps Accessibility permission across rebuilds. For repeated permission-sensitive restarts without rebuilding, use `scripts/restart_real.sh`.
 
 ## Release hardening
 
 `scripts/sign_notarize.sh` builds with the configured Developer ID identity, signs with hardened
 runtime, verifies signature and entitlements, submits to `notarytool`, staples and validates,
-assesses Gatekeeper, writes `.build/VoiceOour-release-manifest.txt`, and prints a SHA-256.
+assesses Gatekeeper, writes `.build/Voiceour-release-manifest.txt`, and prints a SHA-256.
 
 Non-credentialed local bundle verification:
 
@@ -180,14 +180,14 @@ scripts/run_dev.sh --self-test
 Credentialed release preferably stores the notary credentials in the login keychain. Run once; `notarytool` prompts for the Apple ID, team ID, and app-specific password:
 
 ```sh
-xcrun notarytool store-credentials "VoiceOour-notary"
+xcrun notarytool store-credentials "Voiceour-notary"
 ```
 
 Then release with the keychain profile:
 
 ```sh
 export DEVELOPER_ID_APPLICATION="Developer ID Application: ..."
-export NOTARY_KEYCHAIN_PROFILE="VoiceOour-notary"
+export NOTARY_KEYCHAIN_PROFILE="Voiceour-notary"
 scripts/sign_notarize.sh
 ```
 
@@ -214,10 +214,10 @@ target-safety policy, focus-race checks, and release insertion matrix.
 Real integrations are opt-in:
 
 ```sh
-VOICEOOUR_MLX_INTEGRATION=1 swift test
-VOICEOOUR_OMP_INTEGRATION=1 swift test
-VOICEOOUR_FM_INTEGRATION=1 swift test
-VOICEOOUR_APPLE_SPEECH_INTEGRATION=1 swift test
+VOICEOUR_MLX_INTEGRATION=1 swift test
+VOICEOUR_OMP_INTEGRATION=1 swift test
+VOICEOUR_FM_INTEGRATION=1 swift test
+VOICEOUR_APPLE_SPEECH_INTEGRATION=1 swift test
 ```
 
 They require, respectively, the MLX model download, an OMP login, macOS 26 with Apple Intelligence,
@@ -243,10 +243,10 @@ datasets; see [`docs/benchmarks.md`](benchmarks.md).
 |`run_dev.sh`|supported|Fake dev launch + `--self-test` smoke; wrapped by `make dev`.|
 |`run_real.sh`|supported|Real Parakeet bundle launch.|
 |`restart_real.sh`|supported|Relaunch existing real bundle without rebuild.|
-|`bundle.sh`|supported|Build + sign `.build/VoiceOour.app`; wrapped by `make bundle`. When an explicitly selected `VOICEOOUR_CODESIGN_IDENTITY` lives outside the default keychain search list, set `VOICEOOUR_CODESIGN_KEYCHAIN` to that keychain path; `bundle.sh` passes it to `codesign --keychain`.|
+|`bundle.sh`|supported|Build + sign `.build/Voiceour.app`; wrapped by `make bundle`. When an explicitly selected `VOICEOUR_CODESIGN_IDENTITY` lives outside the default keychain search list, set `VOICEOUR_CODESIGN_KEYCHAIN` to that keychain path; `bundle.sh` passes it to `codesign --keychain`.|
 |`verify_bundle.sh`|supported|Non-credentialed bundle assertions; wrapped by `make verify-bundle`; also run by `sign_notarize.sh` after the hardened-runtime re-sign.|
 |`sign_notarize.sh`|release-only|Credentialed Developer ID sign + notarize + staple.|
-|`setup_local_signing.sh`|supported|One-time password-free `voiceoour-dev` keychain identity so `bundle.sh` rebuilds keep the Accessibility/TCC grant.|
+|`setup_local_signing.sh`|supported|One-time password-free `voiceour-dev` keychain identity so `bundle.sh` rebuilds keep the Accessibility/TCC grant.|
 |`make_fixture.sh`|supported|Generates the WAV proof fixture; wrapped by `make fixture`.|
 |`phase0_asr_proof.py`|supported (model proof)|Loads the pinned model directly (not through the sidecar protocol; the sidecar path is covered by Swift/Python process tests) and prints transcript/latency/RSS.|
 |`ui_harness.sh`|supported|Offscreen UI render/dump/lint/diff; wrapped by `make ui-snap`, `make ui-update`, `make ui-list`. Never opens a window, never steals focus.|

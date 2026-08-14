@@ -1,6 +1,6 @@
 import Foundation
 
-/// Subscription choices VoiceOour names directly. `other` delegates provider
+/// Subscription choices Voiceour names directly. `other` delegates provider
 /// selection to OMP so newly added login providers remain reachable without an
 /// app update.
 public enum OmpSubscription: String, CaseIterable, Hashable, Sendable, Identifiable {
@@ -46,7 +46,7 @@ public enum OmpSubscription: String, CaseIterable, Hashable, Sendable, Identifia
 
 }
 
-/// The subset of OMP's model JSON VoiceOour needs for post-login selection.
+/// The subset of OMP's model JSON Voiceour needs for post-login selection.
 public struct OmpAvailableModel: Decodable, Equatable, Sendable {
     public let provider: String
     public let selector: String

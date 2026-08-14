@@ -9,14 +9,14 @@ public final class FakeAudioRecorder: AudioRecording, @unchecked Sendable {
     public init() {}
 
     public func start() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voiceoour", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voiceour", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
         startedAt = Date()
     }
 
     public func stop() async throws -> RecordedAudio {
-        let url = outputURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("voiceoour-fake.wav")
+        let url = outputURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("voiceour-fake.wav")
         let wav = Self.silenceWav(sampleRate: 16_000, milliseconds: 100)
         try wav.write(to: url, options: [.atomic])
         let durationMs = max(100, Int(Date().timeIntervalSince(startedAt ?? Date()) * 1000))

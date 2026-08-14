@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from voiceoour_bench.nbest_absence import hypothesis_texts, target_absence
+from voiceour_bench.nbest_absence import hypothesis_texts, target_absence
 
 
 def _man(row_id, term, expect):

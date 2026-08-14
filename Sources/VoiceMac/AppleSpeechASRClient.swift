@@ -48,7 +48,7 @@ public struct UnsupportedASRClient: ASRClienting {
     /// Native macOS 26 ASR backend: SpeechAnalyzer + SpeechTranscriber.
     ///
     /// Runs Apple's on-device dictation model with no Python sidecar, no model
-    /// download managed by VoiceOour, and no speech-recognition authorization
+    /// download managed by Voiceour, and no speech-recognition authorization
     /// prompt (the API is fully on-device). Benchmarked against the pinned
     /// Parakeet MLX backend on this machine (2026-07-17, identical scorer):
     /// LibriSpeech n=64 U-WER 3.07% vs 2.84%, FLEURS n=8 U-WER 3.85% vs 4.49%,

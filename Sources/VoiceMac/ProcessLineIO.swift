@@ -521,7 +521,7 @@ func forwardStderrToHost(
     PipeByteSource(
         reading: handle,
         qos: .utility,
-        label: "voiceoour.child.stderr",
+        label: "voiceour.child.stderr",
         onBytes: sink ?? { writeToHostStderr($0) },
         onEnd: {}
     )

@@ -55,7 +55,7 @@ enum OmpProcess {
 
         return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
-                try await withDedicatedThread(name: "voiceoour.omp.run") { try invocation.runBlocking() }
+                try await withDedicatedThread(name: "voiceour.omp.run") { try invocation.runBlocking() }
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(max(timeoutMs, 1)) * 1_000_000)

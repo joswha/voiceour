@@ -17,10 +17,10 @@ public struct SettingsStore: Sendable {
     }
 
     public func save(_ settings: Settings) throws {
-        try writeVoiceOourPrivateJSON(settings, to: url)
+        try writeVoiceourPrivateJSON(settings, to: url)
     }
 
     public static var defaultURL: URL {
-        URL.voiceOourSupportDirectory.appendingPathComponent("settings.json")
+        URL.voiceourSupportDirectory.appendingPathComponent("settings.json")
     }
 }

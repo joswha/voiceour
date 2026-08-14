@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from voiceoour_asr.backends.mlx import load_pcm16_mono_wav
+from voiceour_asr.backends.mlx import load_pcm16_mono_wav
 
 
 def write_wav(

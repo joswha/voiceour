@@ -25,12 +25,12 @@ struct SidecarLaunchConfiguration: Sendable {
 
     static func uv(projectDirectory: URL, backend: String = "fake") -> SidecarLaunchConfiguration {
         var env = ProcessInfo.processInfo.environment
-        env["VOICEOOUR_ASR_BACKEND"] = backend
-        env["VOICEOOUR_PRELOAD"] = "1"
+        env["VOICEOUR_ASR_BACKEND"] = backend
+        env["VOICEOUR_PRELOAD"] = "1"
         return SidecarLaunchConfiguration(
             executableURL: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: [
-                "uv", "--no-config", "run", "--project", projectDirectory.path, "python", "-m", "voiceoour_asr",
+                "uv", "--no-config", "run", "--project", projectDirectory.path, "python", "-m", "voiceour_asr",
             ],
             environment: env
         )
@@ -63,7 +63,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
 
     public convenience init(
         asrDirectory: URL,
-        backend: String = ProcessInfo.processInfo.environment["VOICEOOUR_ASR_BACKEND"] ?? "fake",
+        backend: String = ProcessInfo.processInfo.environment["VOICEOUR_ASR_BACKEND"] ?? "fake",
         expectedModel: ASRExpectedModel? = nil
     ) {
         self.init(launch: .uv(projectDirectory: asrDirectory, backend: backend), expectedModel: expectedModel)
@@ -498,7 +498,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
             let stderrSource = forwardStderrToHost(from: stderrHandle, sink: launch.stderrSink)
 
             let stdoutHandle = stdout.fileHandleForReading
-            let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceoour.sidecar.stdout")
+            let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceour.sidecar.stdout")
             let helloTask = Task.detached(priority: .userInitiated) { () throws -> ASRHello in
                 guard let helloLine = await stdoutReader.nextLine() else {
                     throw SidecarASRClientError.noHello

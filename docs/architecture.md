@@ -1,6 +1,6 @@
 # Architecture
 
-VoiceOour is split into three app Swift targets (plus the `voiceoour-bench` and `voiceoour-capture-bench` executables) and one Python sidecar.
+Voiceour is split into three app Swift targets (plus the `voiceour-bench` and `voiceour-capture-bench` executables) and one Python sidecar.
 
 ```mermaid
 flowchart LR
@@ -21,7 +21,7 @@ flowchart LR
 
 - `VoiceCore`: pure Swift contracts, ASR protocol wire types, session state, settings, deterministic cleanup, glossary persistence, and target safety classification. It imports Foundation only.
 - `VoiceMac`: macOS adapters for audio capture, synthetic fake audio, sidecar process management, frontmost-app tracking, pasteboard insertion, permissions, Fn/Globe hotkey capture and Escape-to-cancel via CGEventTap, and the optional refiner backends (`OmpRpcRefiner` for a persistent `omp --mode rpc` child process and `FoundationModelsRefiner` for Apple's on-device system model on macOS 26+), dispatched by provider through `RefinerProviderRegistry`.
-- `VoiceOour`: SwiftUI `MenuBarExtra`, settings UI, and `DictationCoordinator` orchestration.
+- `Voiceour`: SwiftUI `MenuBarExtra`, settings UI, and `DictationCoordinator` orchestration.
 
 ## Session flow
 
@@ -33,9 +33,9 @@ Recent-session state is normalized on the main actor, then complete snapshots ar
 
 `RecordingOverlayFocusTracker` places the recording island on the display containing the frontmost app's leading window, with the pointer display as a fallback. While the session is active it reacts to global clicks, app activation, active-Space changes, and display reconfiguration. A dragged island position is normalized within one display's visible frame and translated to the focused display, so saved coordinates never pin it to the monitor where it was first moved.
 
-`refining` is skipped unless the refiner is enabled, configured, and the target is not terminal, code-editor, or secure. `TranscriptRefining` has two production backends. `OmpRpcRefiner` is the only one that reaches the network, and it does so through a subprocess rather than an HTTP client of its own: it keeps one persistent `omp --mode rpc` child alive (when OMP refinement is enabled and configured, the child is spawned lazily by recording-stop `warmUp()` or by a first direct refine, and respawned lazily on exit) and drives it over newline-delimited JSON: `prompt` → `agent_end` → `get_last_assistant_text` → `new_session`. The awaited `new_session` reset (~12ms) makes every refine a fresh conversation, so utterances never contaminate each other. The child runs in a hermetic profile directory (`~/Library/Application Support/VoiceOour/omp-rpc/.omp/settings.json`) that disables omp memory, hides MCP/builtin tool schemas, and turns off marketplace traffic. Measurements show request context drops from ~22k tokens (inherited interactive config) to ~0.3k, and warm refine latency from 2.7–11.6s (old spawn-per-dictation print mode) to ~1–2s. On timeout the turn is aborted, the session reset, and deterministic cleanup text is used; a child that stops responding is terminated and respawned on the next refine. Both backends apply `RefinementGuards.passesFaithfulnessGuards` (length, glossary, and number preservation) and use deterministic cleanup fallback on guard failure or backend error.
+`refining` is skipped unless the refiner is enabled, configured, and the target is not terminal, code-editor, or secure. `TranscriptRefining` has two production backends. `OmpRpcRefiner` is the only one that reaches the network, and it does so through a subprocess rather than an HTTP client of its own: it keeps one persistent `omp --mode rpc` child alive (when OMP refinement is enabled and configured, the child is spawned lazily by recording-stop `warmUp()` or by a first direct refine, and respawned lazily on exit) and drives it over newline-delimited JSON: `prompt` → `agent_end` → `get_last_assistant_text` → `new_session`. The awaited `new_session` reset (~12ms) makes every refine a fresh conversation, so utterances never contaminate each other. The child runs in a hermetic profile directory (`~/Library/Application Support/Voiceour/omp-rpc/.omp/settings.json`) that disables omp memory, hides MCP/builtin tool schemas, and turns off marketplace traffic. Measurements show request context drops from ~22k tokens (inherited interactive config) to ~0.3k, and warm refine latency from 2.7–11.6s (old spawn-per-dictation print mode) to ~1–2s. On timeout the turn is aborted, the session reset, and deterministic cleanup text is used; a child that stops responding is terminated and respawned on the next refine. Both backends apply `RefinementGuards.passesFaithfulnessGuards` (length, glossary, and number preservation) and use deterministic cleanup fallback on guard failure or backend error.
 
-OMP authentication remains owned by OMP. `OmpOnboarding` asks `omp auth-broker list --json` for the current login catalog, creates a mode-`0700` one-shot `.command` file in a unique app-support directory, and opens it through `NSWorkspace` so Terminal supplies the TTY required by OMP's browser, device-code, paste-code, and key prompts. The command runs with the same credential-shadowed environment as refinement, writes only its integer exit status back to VoiceOour, and deletes itself; VoiceOour never reads `~/.omp/agent/agent.db` or receives a token. After a successful login, the app reads only the provider-scoped `omp models <provider> --json` catalog, selects a matching fast model for ChatGPT, Claude, Gemini, or Kimi, publishes the resulting reachability verdict, and removes the temporary session directory. `Other` delegates provider selection to OMP's live list.
+OMP authentication remains owned by OMP. `OmpOnboarding` asks `omp auth-broker list --json` for the current login catalog, creates a mode-`0700` one-shot `.command` file in a unique app-support directory, and opens it through `NSWorkspace` so Terminal supplies the TTY required by OMP's browser, device-code, paste-code, and key prompts. The command runs with the same credential-shadowed environment as refinement, writes only its integer exit status back to Voiceour, and deletes itself; Voiceour never reads `~/.omp/agent/agent.db` or receives a token. After a successful login, the app reads only the provider-scoped `omp models <provider> --json` catalog, selects a matching fast model for ChatGPT, Claude, Gemini, or Kimi, publishes the resulting reachability verdict, and removes the temporary session directory. `Other` delegates provider selection to OMP's live list.
 
 `OmpProviderStatusProbe` runs `omp usage --json --redact` plus the public provider catalog in the same credential-shadowed profile. It discards every identity and quota payload, aggregates only active/reporting/disabled account counts by provider, and feeds the Refinement pane's connected/attention/available groups. The four common subscriptions are UI constants so disconnected providers remain actionable; additional connected providers come from OMP's live catalog. Refresh generations prevent a stale subprocess result from overwriting a newer account inventory.
 
@@ -94,7 +94,7 @@ Which microphone a dictation used is not persisted. `MicrophoneCapture.Source` c
 
 The sidecar speaks newline-delimited JSON on stdio. stdout is protocol-only; logs go to stderr. Every message carries `protocol_version: 1`. The sidecar emits `hello` at startup, accepts `health`, `transcribe`, and `cancel`, and returns exactly one terminal `result`, `error`, or `cancelled` per `transcribe` request.
 
-The sidecar is a persistent process. `SidecarASRClient` spawns it once (lazily, or eagerly via `warmUp()` at app launch), validates the `hello` handshake, keeps stdin/stdout open, and multiplexes requests by `request_id`; the MLX model therefore loads once per app run, not once per utterance. On the Python side the stdin reader stays live while `transcribe` runs on a worker thread, so a `cancel` for the in-flight request id takes effect immediately. `VOICEOOUR_PRELOAD=1` (set by the client) makes the MLX backend load the model right after `hello` and then run one throwaway inference on silence, because MLX is lazy and the first `generate()` otherwise pays ~0.9s of kernel compilation on the first dictation. Transcribe requests for the app's native recordings (16 kHz mono 16-bit WAV) decode in-process via `load_pcm16_mono_wav` instead of parakeet's per-request ffmpeg subprocess; other formats fall back to `parakeet_mlx.load_audio`. Timeouts send `cancel`, wait briefly for a terminal message, then terminate the process; the next request respawns it. Sidecar stderr is drained continuously and forwarded to the app's stderr.
+The sidecar is a persistent process. `SidecarASRClient` spawns it once (lazily, or eagerly via `warmUp()` at app launch), validates the `hello` handshake, keeps stdin/stdout open, and multiplexes requests by `request_id`; the MLX model therefore loads once per app run, not once per utterance. On the Python side the stdin reader stays live while `transcribe` runs on a worker thread, so a `cancel` for the in-flight request id takes effect immediately. `VOICEOUR_PRELOAD=1` (set by the client) makes the MLX backend load the model right after `hello` and then run one throwaway inference on silence, because MLX is lazy and the first `generate()` otherwise pays ~0.9s of kernel compilation on the first dictation. Transcribe requests for the app's native recordings (16 kHz mono 16-bit WAV) decode in-process via `load_pcm16_mono_wav` instead of parakeet's per-request ffmpeg subprocess; other formats fall back to `parakeet_mlx.load_audio`. Timeouts send `cancel`, wait briefly for a terminal message, then terminate the process; the next request respawns it. Sidecar stderr is drained continuously and forwarded to the app's stderr.
 
 The process boundary is not a latency cost worth optimising, and this is measured rather than
 assumed. Driving the real sidecar over its real stdio protocol on an M4 Pro (FLEURS, n=32), the
@@ -105,7 +105,7 @@ paid, the JSON encode/decode is small, the pipe is local, and the WAV is handed 
 than copied through the pipe. Python's GIL does not appear because the MLX call releases it into
 Metal for the duration. What the mechanism *does* cost is one-time and hidden: ~130-320 ms from
 spawn to `hello`, and a first transcribe of ~1.3-1.5 s that absorbs model load plus MLX kernel
-compilation. `VOICEOOUR_PRELOAD=1` moves that work off the first dictation.
+compilation. `VOICEOUR_PRELOAD=1` moves that work off the first dictation.
 When an ASR backend is slow here, the model and its framework are the likely source. Rewriting the
 transport would buy back under a millisecond.
 
@@ -137,7 +137,7 @@ audio-route restoration past the paste. Measurement contradicted most of that:
   fade having finished.
 - The journal write, the largest of the prescribed deferrals, measures **1.5 ms** and is not worth moving.
 
-`Sources/VoiceOour/StopPathSignposts.swift` now carries an `OSSignposter` with six intervals over the
+`Sources/Voiceour/StopPathSignposts.swift` now carries an `OSSignposter` with six intervals over the
 stop path, which previously had none. The missing instrumentation meant the 120 ms fade had to be
 found by reading source rather than by measuring. Emission is verified only as far as `OSSignposter.isEnabled`;
 signposts are ephemeral and need Instruments to collect, as that file records.
@@ -173,7 +173,7 @@ Compute placement is a per-artifact hint to be measured, never an architectural 
 
 ## Apple Speech backend (opt-in, macOS 26+)
 
-`--asr-backend apple` selects the native on-device SpeechAnalyzer/SpeechTranscriber path instead of the Python sidecar. No Python process, no model download managed by VoiceOour (speech assets are system-managed per locale via `AssetInventory`), and no speech-recognition authorization prompt (the API is fully on-device; microphone permission is unchanged).
+`--asr-backend apple` selects the native on-device SpeechAnalyzer/SpeechTranscriber path instead of the Python sidecar. No Python process, no model download managed by Voiceour (speech assets are system-managed per locale via `AssetInventory`), and no speech-recognition authorization prompt (the API is fully on-device; microphone permission is unchanged).
 
 The backend is a fused recorder + ASR: `AppleSpeechDictationEngine` is injected as BOTH `AudioRecording` and `ASRClienting`, and transcribes WHILE recording. Each dictation is one single-use streaming session (probing showed a finished `SpeechAnalyzer` cannot be restarted): a `MicrophoneCapture` session feeds `CaptureConverter`, which converts its buffers once to 16 kHz mono Int16. This is simultaneously the WAV file format and `SpeechAnalyzer.bestAvailableAudioFormat`. The converter hands the buffers to an incrementally written WAV (fallback + existing cleanup invariants) and a live analyzer input stream. `stop()` drains the converter tail (mandatory; up to ~220 frames), transfers WAV ownership to the coordinator, and starts finalization; `transcribe()` awaits it. Measured stop-to-result is 43-285ms versus 220-900ms for batch file transcription. Any streaming failure falls back to batch transcription of the recorded WAV; foreign files (bench CLI, tests) always use the batch path (`AppleSpeechASRClient`). `SpeechAnalyzer.Options(modelRetention: .processLifetime)` plus a `prepareToAnalyze` warm-up keep the system model resident between dictations. On macOS < 26 the factory installs `UnsupportedASRClient`, which fails with `backend_unavailable`.
 
@@ -197,13 +197,13 @@ Technical jargon is recovered in three layers, none of which touch the ASR model
 
 ## Model pin
 
-The default backend uses `mlx-community/parakeet-tdt-0.6b-v3` pinned at Hugging Face revision `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`, recorded in `asr/src/voiceoour_asr/cache.py` as `PARAKEET` (still exported as `MODEL_ID`/`MODEL_REVISION`). The opt-in ARK backends pin `leope/ark-asr-0.6B-mlx` at `6ec069bd68cbbe165aa42728eac482c90cb58d2f` and `leope/ark-asr-3B-mlx` at `63d9fb8ba352c5c7c65ff2336019048170563d63` as `ARK_06B` and `ARK_3B`.
+The default backend uses `mlx-community/parakeet-tdt-0.6b-v3` pinned at Hugging Face revision `ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`, recorded in `asr/src/voiceour_asr/cache.py` as `PARAKEET` (still exported as `MODEL_ID`/`MODEL_REVISION`). The opt-in ARK backends pin `leope/ark-asr-0.6B-mlx` at `6ec069bd68cbbe165aa42728eac482c90cb58d2f` and `leope/ark-asr-3B-mlx` at `63d9fb8ba352c5c7c65ff2336019048170563d63` as `ARK_06B` and `ARK_3B`.
 
-Each pin is a `cache.ModelSpec`: repo id, revision, its own directory under `~/Library/Caches/VoiceOour/`, and for ARK an allow-list that fetches weights and tokenizer assets only, never the Python runtime the ARK repos ship. That runtime is vendored verbatim under `asr/src/voiceoour_asr/backends/ark_mlx/`, so the app never imports code downloaded at runtime. `cache.ensure_model(spec)` writes a manifest containing model id, revision, and snapshot path. Once a manifest exists, the sidecar sets `HF_HUB_OFFLINE=1` before loading.
+Each pin is a `cache.ModelSpec`: repo id, revision, its own directory under `~/Library/Caches/Voiceour/`, and for ARK an allow-list that fetches weights and tokenizer assets only, never the Python runtime the ARK repos ship. That runtime is vendored verbatim under `asr/src/voiceour_asr/backends/ark_mlx/`, so the app never imports code downloaded at runtime. `cache.ensure_model(spec)` writes a manifest containing model id, revision, and snapshot path. Once a manifest exists, the sidecar sets `HF_HUB_OFFLINE=1` before loading.
 
 ## Parakeet decoding
 
-The MLX Parakeet backend has two decoding modes. The default greedy path now emits per-token alignments, `words`, and a transcript `confidence` tagged `greedy_entropy`, at unchanged latency. The evidence is a byproduct of the existing greedy pass, not a second decode. An opt-in beam path (`VOICEOOUR_ASR_DECODING=beam`) returns ranked n-best `ASRHypothesis` with raw beam scores. Both modes preserve an unbiased (zero-boost) `rawScore` baseline for every hypothesis, so downstream authority decisions can always compare against a score that no decoder bias touched.
+The MLX Parakeet backend has two decoding modes. The default greedy path now emits per-token alignments, `words`, and a transcript `confidence` tagged `greedy_entropy`, at unchanged latency. The evidence is a byproduct of the existing greedy pass, not a second decode. An opt-in beam path (`VOICEOUR_ASR_DECODING=beam`) returns ranked n-best `ASRHypothesis` with raw beam scores. Both modes preserve an unbiased (zero-boost) `rawScore` baseline for every hypothesis, so downstream authority decisions can always compare against a score that no decoder bias touched.
 
 ## Vocabulary model
 
@@ -225,12 +225,12 @@ Decoder bias is likewise off by default (`Settings.decoderBiasEnabled = false`).
 
 Every automatic-authority path, including auto-correction, decoder bias, and keyword spotting, is gated on a consented real-speaker TechTerms corpus that does not yet exist; current TechTerms coverage is TTS smoke-only. Stage 5 keyword spotting is deferred: CTC word-spotting is blocked because the pinned checkpoint has no CTC head, and a separate local KWS model needs real-speaker plus resource and false-accept justification before it ships.
 
-Two of those gates do not discriminate on the shipping default decoding path, measured 2026-08-14, and this is recorded in `RiskAuthorizer`'s own doc comment as well because the prose above reads stronger than the code measures. The MLX greedy path returns exactly one hypothesis, and it is the transcript the candidate was extracted from, with `score` and `raw_score` both literally `0.0`. Therefore, `appearsInNBest` asks whether the candidate appears in the text it came from, and always answers yes. Only the opt-in beam path (`VOICEOOUR_ASR_DECODING=beam`, set nowhere in this repository) produces a real n-best list. `greedy_entropy` is not a calibrated probability: committed TechTerms reports put its expected calibration error between **0.235 and 0.419**, where 0 is perfect, against floors described as calibrated. Relatedly `runnerUpMargin` as supplied by `TranscriptProcessingPipeline` is a margin between the retriever's own blended phonetic/textual similarity scores, not between competing recognitions. None of it is live while the master switch is off. The switch, not the gates, is currently doing the work.
+Two of those gates do not discriminate on the shipping default decoding path, measured 2026-08-14, and this is recorded in `RiskAuthorizer`'s own doc comment as well because the prose above reads stronger than the code measures. The MLX greedy path returns exactly one hypothesis, and it is the transcript the candidate was extracted from, with `score` and `raw_score` both literally `0.0`. Therefore, `appearsInNBest` asks whether the candidate appears in the text it came from, and always answers yes. Only the opt-in beam path (`VOICEOUR_ASR_DECODING=beam`, set nowhere in this repository) produces a real n-best list. `greedy_entropy` is not a calibrated probability: committed TechTerms reports put its expected calibration error between **0.235 and 0.419**, where 0 is perfect, against floors described as calibrated. Relatedly `runnerUpMargin` as supplied by `TranscriptProcessingPipeline` is a margin between the retriever's own blended phonetic/textual similarity scores, not between competing recognitions. None of it is live while the master switch is off. The switch, not the gates, is currently doing the work.
 
-## Why VoiceOour holds no credentials
+## Why Voiceour holds no credentials
 
 This app stores no secret. Refinement has exactly two destinations, and neither
-takes a credential from VoiceOour: `omp` keeps every provider token in its own
+takes a credential from Voiceour: `omp` keeps every provider token in its own
 vault and brokers whichever subscription the user signed into, and Apple's
 on-device model needs no credential at all. There is no API-key field, no
 `api-key-<provider>` keychain item, no credential environment variable, and no
@@ -241,7 +241,7 @@ keeping after the code that motivated it. While the app did hold a refiner API
 key, the data protection keychain could not store it at all: on macOS that
 keychain resolves an item's access group from a code-signing entitlement which
 must be authorized by a provisioning profile. This bundle ships neither.
-`Resources/VoiceOour.entitlements` is audio-input only and `scripts/bundle.sh`
+`Resources/Voiceour.entitlements` is audio-input only and `scripts/bundle.sh`
 embeds no profile. `SecItemAdd` answered `errSecMissingEntitlement` (-34018),
 and adding `keychain-access-groups` to an ad-hoc signature instead got the
 process killed by AMFI (`"adhoc signed but contains restricted entitlements"`).
@@ -316,5 +316,5 @@ After Cmd-V is posted successfully, a deferred task (~1500 ms) clears the dictat
 - Swift: `make test` covers cleanup fixtures, glossary term-lock, protocol fixture decoding, classifier mapping, persistent sidecar client lifecycle (process reuse, timeout kill, stderr flood, cancel, respawn, request encoding) against stub processes, copy-only insertion paths, focus-race insertion, omp RPC refiner lifecycle (JSONL stub session, process reuse across refines, guard fallback, launch failure, mid-turn death, hung-turn timeout), refinement guards, and pure dictation policy (launch options, refinement eligibility, outcome mapping).
 - Python: `cd asr && uv --no-config run pytest` covers protocol fixtures, cache manifest corruption/recovery, and process-level sidecar behavior (health, persistence across requests, cancel-during-transcribe, stdout protocol purity, malformed-line recovery).
 - Real ASR: `scripts/phase0_asr_proof.py` validates the pinned model on a generated WAV fixture and prints latency/RSS.
-- Benchmarks: `docs/benchmarks.md` describes the accuracy/speed benchmark suite (`voiceoour-bench` + `bench/`).
+- Benchmarks: `docs/benchmarks.md` describes the accuracy/speed benchmark suite (`voiceour-bench` + `bench/`).
 - Packaging: `scripts/verify_bundle.sh` checks bundle plist values, signature validity, and entitlement metadata after `scripts/bundle.sh`.

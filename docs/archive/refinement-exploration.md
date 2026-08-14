@@ -2,7 +2,7 @@
 
 # Transcript refinement exploration
 
-This record preserves the research behind transcript refinement. It does not describe the current settings surface. The explored direct-provider design was removed: VoiceOour now exposes exactly `.omp` and `.appleOnDevice` in [`RefinerProvider.swift`](../../Sources/VoiceCore/RefinerProvider.swift). OMP brokers network models and owns their credentials; Apple remains the dedicated on-device path.
+This record preserves the research behind transcript refinement. It does not describe the current settings surface. The explored direct-provider design was removed: Voiceour now exposes exactly `.omp` and `.appleOnDevice` in [`RefinerProvider.swift`](../../Sources/VoiceCore/RefinerProvider.swift). OMP brokers network models and owns their credentials; Apple remains the dedicated on-device path.
 
 ## Problem and decision boundary
 
@@ -31,7 +31,7 @@ The durable boundary is stricter than the mode proposal:
 
 | Path considered | Historical latency | Privacy | Conclusion |
 |---|---:|---|---|
-| Direct cloud API | ~0.6–1.0 s p50 in the initial Gemini runs | Network; opt-in only | Quality was strong, but direct integrations made VoiceOour own credentials, endpoint policy, model catalogs, and provider-specific failure states. |
+| Direct cloud API | ~0.6–1.0 s p50 in the initial Gemini runs | Network; opt-in only | Quality was strong, but direct integrations made Voiceour own credentials, endpoint policy, model catalogs, and provider-specific failure states. |
 | Local MLX model | ~0.5–1.2 s warm estimated for a 1.5B 4-bit model on M4 | On-device | Plausible only with a persistent resident process; small models were not proven faithful enough for the default path. |
 | ASR punctuation/tiny punctuation model | Already in ASR / under ~200 ms | On-device | Useful only for L1. It cannot reliably resolve corrections or rambling. |
 
@@ -100,9 +100,9 @@ Defence in depth after every model result was the durable recommendation:
 The experiments originally led to direct integrations for several network services, each with its own endpoint, default model, API-key source, Keychain state, readiness logic, and settings branches. That design duplicated responsibilities already owned by OMP:
 
 - OMP exposes the user's available `provider/model` catalog at runtime.
-- OMP owns authentication and refresh; VoiceOour stores no network-provider API key.
+- OMP owns authentication and refresh; Voiceour stores no network-provider API key.
 - One persistent RPC process gives every network model the same launch, timeout, reset, and failure boundary.
-- Adding or removing a network service no longer requires a persisted provider-enum migration or new credential UI in VoiceOour.
+- Adding or removing a network service no longer requires a persisted provider-enum migration or new credential UI in Voiceour.
 
 Measured with OMP 17.0.2 on Apple Silicon, persistent RPC with a fresh session per utterance ran about 1.4–1.7 s median on `anthropic/claude-haiku-4-5`, about 1.9 s on `openai-codex/gpt-5.5`, and about 2.7 s on `openai-codex/gpt-5.3-codex-spark`. The discarded spawn-per-dictation mode took 2.7–11.6 s and inherited roughly 22k tokens of interactive tooling context; the hermetic persistent profile reduced inherited context to roughly 0.3k tokens.
 
@@ -114,6 +114,6 @@ Apple on-device refinement remains separate because it has no endpoint or creden
 
 - **One OMP process per dictation:** measured startup and inherited interactive context made it slower and less isolated than persistent RPC.
 - **A broker plus gateway daemon stack:** too much runtime machinery for an optional refiner.
-- **Linking OMP's internal AI package directly:** coupled VoiceOour to internal APIs, native dependencies, and a private database schema across OMP updates.
+- **Linking OMP's internal AI package directly:** coupled Voiceour to internal APIs, native dependencies, and a private database schema across OMP updates.
 - **A second local Python refinement sidecar:** duplicated model residency and crash-management machinery without beating the supported Apple path.
 - **Clean/Organize mode expansion:** the research was useful, but the extra user-visible authority and target-specific policy were not justified by the shipped single faithful cleanup contract.

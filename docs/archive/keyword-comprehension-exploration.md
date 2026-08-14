@@ -4,7 +4,7 @@
 
 This record preserves the measurements, conclusions, rejected approaches, and safety rationale from the superseded staged implementation exploration. It is not an implementation guide. The step-by-step build narrative and obsolete file inventory have been removed.
 
-External-paper results retain their sources. VoiceOour-specific results below were measured on the stated historical checkpoint. The project policy budget used by the exploration was an overall WER increase no greater than **0.35 percentage points**; proposed thresholds were never substitutes for calibration.
+External-paper results retain their sources. Voiceour-specific results below were measured on the stated historical checkpoint. The project policy budget used by the exploration was an overall WER increase no greater than **0.35 percentage points**; proposed thresholds were never substitutes for calibration.
 
 ## Problem: a lossy channel with asymmetric costs
 

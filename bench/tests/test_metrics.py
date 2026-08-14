@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from voiceoour_bench.compare import UWER_MAX_DELTA
-from voiceoour_bench.compare import main as compare_main
-from voiceoour_bench.metrics import (
+from voiceour_bench.compare import UWER_MAX_DELTA
+from voiceour_bench.compare import main as compare_main
+from voiceour_bench.metrics import (
     accepted_repair_precision,
     candidate_recall_at_k,
     canonical_term_prf,
@@ -27,7 +27,7 @@ from voiceoour_bench.metrics import (
     selector_accuracy,
     uwer,
 )
-from voiceoour_bench.report import build_report
+from voiceour_bench.report import build_report
 
 
 def test_uwer_identical_after_normalization() -> None:
@@ -381,7 +381,7 @@ def test_compare_refuses_reports_that_scored_different_rows(tmp_path, capsys):
     the 128 LibriSpeech rows -- and the dropped rows are the longest ones. A gate
     computed across that mismatch looks like evidence, which is worse than no gate.
     """
-    from voiceoour_bench import compare
+    from voiceour_bench import compare
 
     def write(path, scored, errors, uwer):
         path.write_text(

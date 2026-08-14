@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from threading import Event
 
-from voiceoour_asr.backends.fake import FakeBackend
-from voiceoour_asr.errors import ErrorCode
-from voiceoour_asr.protocol import AudioMeta, Cancelled, TranscribeRequest
+from voiceour_asr.backends.fake import FakeBackend
+from voiceour_asr.errors import ErrorCode
+from voiceour_asr.protocol import AudioMeta, Cancelled, TranscribeRequest
 
 
 def request(timeout_ms: int = 30000) -> TranscribeRequest:

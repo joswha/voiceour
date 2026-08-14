@@ -52,7 +52,7 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
 
     private let session = AVCaptureSession()
     private let output = AVCaptureAudioDataOutput()
-    private let queue = DispatchQueue(label: "com.voiceoour.microphone-capture")
+    private let queue = DispatchQueue(label: "com.voiceour.microphone-capture")
 
     private let lock = NSLock()
     private var startedAt: Date?

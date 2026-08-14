@@ -1,6 +1,6 @@
 # Contributing
 
-VoiceOour is fake-first. A contributor should be able to build, test, and smoke the app without downloading the Parakeet model, granting microphone permission, or configuring a network refiner.
+Voiceour is fake-first. A contributor should be able to build, test, and smoke the app without downloading the Parakeet model, granting microphone permission, or configuring a network refiner.
 
 ## Local checks
 
@@ -40,7 +40,7 @@ is media, so no gate diffs it. It needs `ffmpeg` on `PATH`. See `docs/ui-harness
 ## Test tiers
 
 - Required PR gate: every command in the local-checks block above plus CI's no-control-plane assertion.
-- Opt-in integration tests: set `VOICEOOUR_OMP_INTEGRATION`, `VOICEOOUR_FM_INTEGRATION`, `VOICEOOUR_APPLE_SPEECH_INTEGRATION`, or `VOICEOOUR_MLX_INTEGRATION` to enable the corresponding real OMP RPC, Foundation Models (macOS 26+), Apple Speech/SpeechAnalyzer (macOS 26+), or MLX sidecar tests in `swift test`. `VOICEOOUR_OMP_MODEL` overrides the OMP model (default `anthropic/claude-haiku-4-5`), and `VOICEOOUR_OMP_BIN` selects the OMP executable.
+- Opt-in integration tests: set `VOICEOUR_OMP_INTEGRATION`, `VOICEOUR_FM_INTEGRATION`, `VOICEOUR_APPLE_SPEECH_INTEGRATION`, or `VOICEOUR_MLX_INTEGRATION` to enable the corresponding real OMP RPC, Foundation Models (macOS 26+), Apple Speech/SpeechAnalyzer (macOS 26+), or MLX sidecar tests in `swift test`. `VOICEOUR_OMP_MODEL` overrides the OMP model (default `anthropic/claude-haiku-4-5`), and `VOICEOUR_OMP_BIN` selects the OMP executable.
 - App smoke: `scripts/run_dev.sh --self-test`.
 - Advisory UI snapshot check: `make ui-snap`. Renders every scene offscreen and diffs it against `fixtures/ui/`. No window appears, the frontmost app does not change, and no TCC permission is needed. Read `.build/ui-harness/<scene>.ax.diff` before blessing anything with `make ui-update`, and commit the goldens with the change. See `docs/ui-harness.md`.
 - UI flow gate: `make ui-flow`. Drives deterministic multi-step journeys through real views and the real `DictationCoordinator`, checks named semantics, and compares host-independent journals under `fixtures/ui/flows/`. A red flow cannot bless a golden or cover a ledger key. Use `make ui-flow-frames` when frame goldens are also relevant and `make ui-flow-update` only after reading `.build/ui-harness/flows/<flow>.flow.diff` and when the change is intended.

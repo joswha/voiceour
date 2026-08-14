@@ -8,10 +8,10 @@ import pytest
 
 @pytest.fixture
 def cache_module(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    import voiceoour_asr.cache as cache
+    import voiceour_asr.cache as cache
 
     with monkeypatch.context() as isolated_env:
-        isolated_env.setenv("VOICEOOUR_MODEL_CACHE", str(tmp_path))
+        isolated_env.setenv("VOICEOUR_MODEL_CACHE", str(tmp_path))
         cache = importlib.reload(cache)
         yield cache
     importlib.reload(cache)

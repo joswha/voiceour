@@ -91,7 +91,7 @@ public struct RefinerProviderRegistry: Sendable {
     ) -> any TranscriptRefining {
         switch provider {
         case .omp:
-            let omp = OmpExecutable.resolve(explicitPath: environment["VOICEOOUR_OMP_BIN"])
+            let omp = OmpExecutable.resolve(explicitPath: environment["VOICEOUR_OMP_BIN"])
             return OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: settings.refinerEnabled,

@@ -39,7 +39,7 @@ struct FoundationModelsRefinerTests {
     }
 
     @Test func foundationModelsRefinerRealIntegration() async {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_FM_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_FM_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
         guard FoundationModelsAvailability.summary().available else {
             Issue.record("Apple Intelligence unavailable; enable it before running the FM integration test")
@@ -122,7 +122,7 @@ struct FoundationModelsRefinerTests {
     }
 
     @Test func foundationModelsAdaptiveTimeoutAllowsLongTranscript() async {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_FM_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_FM_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
         guard FoundationModelsAvailability.summary().available else {
             Issue.record("Apple Intelligence unavailable; enable it before running the FM integration test")
@@ -168,7 +168,7 @@ struct FoundationModelsRefinerTests {
     }
 
     @Test func foundationModelsRefinerRealCancellationIntegration() async {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_FM_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_FM_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
         guard FoundationModelsAvailability.summary().available else {
             Issue.record("Apple Intelligence unavailable; enable it before running the FM integration test")
@@ -257,7 +257,7 @@ struct FoundationModelsRefinerTests {
     /// catch it. A failure here means the refined text is confidently wrong,
     /// not merely unpolished.
     @Test func foundationModelsPreservesDictatedIntentIntegration() async {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_FM_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_FM_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
         guard FoundationModelsAvailability.summary().available else {
             Issue.record("Apple Intelligence unavailable; enable it before running the FM integration test")

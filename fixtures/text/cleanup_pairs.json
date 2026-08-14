@@ -26,8 +26,8 @@
   },
   {
     "name": "path_preserved",
-    "raw": "open ~/src/VoiceOour/Package.swift",
-    "expected": "open ~/src/VoiceOour/Package.swift"
+    "raw": "open ~/src/Voiceour/Package.swift",
+    "expected": "open ~/src/Voiceour/Package.swift"
   },
   {
     "name": "identifier_preserved",

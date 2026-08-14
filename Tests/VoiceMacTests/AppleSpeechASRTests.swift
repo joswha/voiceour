@@ -8,7 +8,7 @@ import Testing
 ///
 /// `.serialized` because the live-capture tests each open a capture session on the
 /// one physical microphone this machine has. Run in parallel under
-/// `VOICEOOUR_APPLE_SPEECH_INTEGRATION` they deadlock: the run sat idle for 30
+/// `VOICEOUR_APPLE_SPEECH_INTEGRATION` they deadlock: the run sat idle for 30
 /// minutes with every thread parked in `CFRunLoopRun` and no frame of this code on
 /// any stack, waiting on continuations that never resolved. Serialized, the same
 /// seven tests finish in 4.7 seconds. The default gate is unaffected either way —
@@ -37,7 +37,7 @@ struct AppleSpeechASRTests {
     }
 
     @Test func appleSpeechASRClientRealIntegration() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
 
         let client = AppleSpeechASRClient()
@@ -59,7 +59,7 @@ struct AppleSpeechASRTests {
     }
 
     @Test func appleSpeechEngineForeignFileUsesBatchPath() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
 
         let engine = AppleSpeechDictationEngine()
@@ -73,7 +73,7 @@ struct AppleSpeechASRTests {
     }
 
     @Test func appleSpeechASRClientEmitsSegmentWordEvidence() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
 
         let client = AppleSpeechASRClient()
@@ -110,7 +110,7 @@ struct AppleSpeechASRTests {
     }
 
     @Test func appleSpeechEngineStreamedResultCarriesEvidence() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
 
         let engine = AppleSpeechDictationEngine()
@@ -138,7 +138,7 @@ struct AppleSpeechASRTests {
     }
 
     @Test func appleSpeechEngineStreamsLiveCaptureLifecycle() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
 
         let engine = AppleSpeechDictationEngine()
@@ -165,7 +165,7 @@ struct AppleSpeechASRTests {
     }
 
     @Test func appleSpeechEngineDiscardIsIdempotent() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_APPLE_SPEECH_INTEGRATION"] != nil else { return }
         guard #available(macOS 26.0, *) else { return }
 
         let engine = AppleSpeechDictationEngine()

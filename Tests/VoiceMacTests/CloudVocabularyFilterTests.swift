@@ -11,7 +11,7 @@ struct CloudVocabularyFilterTests {
     /// terms never cross the network boundary, while global/bundle cloud terms do.
     ///
     /// The subject is the message OMP is handed, because that message is the
-    /// whole payload: VoiceOour no longer builds a request body, and OMP
+    /// whole payload: Voiceour no longer builds a request body, and OMP
     /// forwards what it is given.
     @Test func cloudPromptOmitsIneligibleGlossaryTerms() {
         let glossary: [ProtectedTerm] = [

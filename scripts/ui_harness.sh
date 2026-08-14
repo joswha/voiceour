@@ -1,11 +1,11 @@
 #!/bin/sh
-# Offscreen UI harness: render, dump, lint and diff the VoiceOour UI.
+# Offscreen UI harness: render, dump, lint and diff the Voiceour UI.
 #
 # This never opens a window on a display and never steals focus. The app runs with
 # activation policy .prohibited and draws into a borderless window parked far offscreen,
 # so nothing appears on your screen and the frontmost application does not change. It
 # needs no Screen Recording and no Accessibility permission, and it starts none of the
-# app's real machinery: the harness exits from the first statement of VoiceOourApp.init,
+# app's real machinery: the harness exits from the first statement of VoiceourApp.init,
 # before the audio muter, the dictation coordinator or the menu bar item exist.
 #
 # Usage: scripts/ui_harness.sh [--list | --update | --flow-list | --flow-check | --flow-update | --coverage | --film] [options]
@@ -31,4 +31,4 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 swift build --package-path "$ROOT" -Xswiftc -DUI_HARNESS >/dev/null
 
 
-exec "$ROOT/.build/debug/VoiceOour" --ui-harness --repo-root "$ROOT" "$@"
+exec "$ROOT/.build/debug/Voiceour" --ui-harness --repo-root "$ROOT" "$@"

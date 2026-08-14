@@ -57,7 +57,7 @@ public enum OmpOnboardingError: Error, Equatable, LocalizedError {
 }
 
 /// Creates a one-shot `.command` file and lets Terminal host OMP's own
-/// interactive login. VoiceOour never parses prompts and never reads OMP's
+/// interactive login. Voiceour never parses prompts and never reads OMP's
 /// credential database; arbitrary provider-specific browser, device-code, and
 /// paste-code flows therefore remain owned by OMP.
 public enum OmpOnboarding {
@@ -96,7 +96,7 @@ public enum OmpOnboarding {
         argumentPrefix: [String],
         environment: [String: String] = ProcessInfo.processInfo.environment,
         profileDirectory: URL? = OmpRpcProfile.defaultDirectory(),
-        sessionRoot: URL = URL.voiceOourSupportDirectory
+        sessionRoot: URL = URL.voiceourSupportDirectory
             .appendingPathComponent("omp-onboarding", isDirectory: true),
         openScript: @escaping ScriptOpener = { url in
             await MainActor.run { NSWorkspace.shared.open(url) }
@@ -182,7 +182,7 @@ public enum OmpOnboarding {
                 return .signedIn(models: models, catalogWarning: nil)
             } catch {
                 let warning =
-                    "Sign-in completed, but VoiceOour could not load "
+                    "Sign-in completed, but Voiceour could not load "
                     + "OMP's model catalog: \(shortMessage(for: error))."
                 return .signedIn(models: [], catalogWarning: warning)
             }
@@ -268,8 +268,8 @@ public enum OmpOnboarding {
             #!/bin/sh
             umask 077
             cd \(shellQuote(files.directoryURL.path)) || exit 70
-            printf '\\033]0;VoiceOour · Oh My Pi sign-in\\007'
-            printf '\\nVoiceOour · Oh My Pi sign-in\\n%s\\n\\n' \(shellQuote(connecting))
+            printf '\\033]0;Voiceour · Oh My Pi sign-in\\007'
+            printf '\\nVoiceour · Oh My Pi sign-in\\n%s\\n\\n' \(shellQuote(connecting))
             \(invocation)
             status=$?
             result_path=\(shellQuote(files.resultURL.path))
@@ -279,10 +279,10 @@ public enum OmpOnboarding {
             /bin/rm -f -- "$0"
             printf '\\n'
             if [ "$status" -eq 0 ]; then
-                printf 'Sign-in complete. Return to VoiceOour; this window can be closed.\\n'
+                printf 'Sign-in complete. Return to Voiceour; this window can be closed.\\n'
             else
                 printf 'Sign-in did not complete (status %s). Review the message above, '
-                printf 'then return to VoiceOour.\\n' "$status"
+                printf 'then return to Voiceour.\\n' "$status"
             fi
             exit "$status"
             """ + "\n"

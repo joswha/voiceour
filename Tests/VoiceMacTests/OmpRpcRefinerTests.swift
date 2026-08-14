@@ -175,7 +175,7 @@ extension OmpSuites {
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: URL(fileURLWithPath: "/nonexistent/voiceoour-missing-omp"),
+                    executableURL: URL(fileURLWithPath: "/nonexistent/voiceour-missing-omp"),
                     argumentPrefix: [],
                     model: "test",
                     timeoutMs: 500
@@ -899,18 +899,18 @@ extension OmpSuites {
         }
 
         @Test func ompRpcRefinerRealIntegration() async throws {
-            guard ProcessInfo.processInfo.environment["VOICEOOUR_OMP_INTEGRATION"] != nil else { return }
+            guard ProcessInfo.processInfo.environment["VOICEOUR_OMP_INTEGRATION"] != nil else { return }
 
             let profileDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("VoiceMacOmpRpcIntegration-\(UUID().uuidString)", isDirectory: true)
             defer { try? FileManager.default.removeItem(at: profileDirectory) }
-            let omp = OmpExecutable.resolve(explicitPath: ProcessInfo.processInfo.environment["VOICEOOUR_OMP_BIN"])
+            let omp = OmpExecutable.resolve(explicitPath: ProcessInfo.processInfo.environment["VOICEOUR_OMP_BIN"])
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
                     executableURL: omp.url,
                     argumentPrefix: omp.prefix,
-                    model: ProcessInfo.processInfo.environment["VOICEOOUR_OMP_MODEL"] ?? "anthropic/claude-haiku-4-5",
+                    model: ProcessInfo.processInfo.environment["VOICEOUR_OMP_MODEL"] ?? "anthropic/claude-haiku-4-5",
                     timeoutMs: 30000,
                     profileDirectory: profileDirectory
                 ),

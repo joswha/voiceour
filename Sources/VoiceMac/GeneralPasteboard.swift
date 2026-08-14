@@ -1,7 +1,7 @@
 import AppKit
 
 /// Privacy-preserving write-only access to the general pasteboard.
-/// VoiceOour must never read, snapshot, or restore the user's prior clipboard contents.
+/// Voiceour must never read, snapshot, or restore the user's prior clipboard contents.
 public enum GeneralPasteboard {
     /// Clipboard-manager opt-out conventions. They are advisory because managers
     /// choose whether to honor them.

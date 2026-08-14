@@ -12,7 +12,7 @@ public enum OmpRpcProfile {
     ]
 
     public static func defaultDirectory() -> URL {
-        URL.voiceOourSupportDirectory.appendingPathComponent("omp-rpc", isDirectory: true)
+        URL.voiceourSupportDirectory.appendingPathComponent("omp-rpc", isDirectory: true)
     }
 
     static var settingsJSON: String {
@@ -408,7 +408,7 @@ public enum OmpModelsProbe {
                 profileDirectory: profileDirectory
             )
             guard !models.isEmpty else {
-                return .failed("no models — sign in from VoiceOour or run: omp auth-broker login <provider>")
+                return .failed("no models — sign in from Voiceour or run: omp auth-broker login <provider>")
             }
             guard models.contains(where: { $0.selector == model }) else {
                 return .failed("selected model unavailable: \(model) (\(models.count) models)")

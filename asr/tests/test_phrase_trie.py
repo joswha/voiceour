@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceoour_asr.decoding.trie import PhraseTrie
+from voiceour_asr.decoding.trie import PhraseTrie
 
 
 def feed(trie: PhraseTrie, tokens):
@@ -172,7 +172,7 @@ def test_no_mlx_import():
 
     code = (
         "import sys\n"
-        "import voiceoour_asr.decoding.trie as trie_mod\n"
+        "import voiceour_asr.decoding.trie as trie_mod\n"
         "assert 'mlx' not in trie_mod.__dict__\n"
         "leaked = [n for n in sys.modules if n == 'mlx' or n.startswith('mlx.')]\n"
         "assert not leaked, leaked\n"

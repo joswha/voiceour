@@ -83,7 +83,7 @@ private func captureOmpStderr(from handle: FileHandle, diagnostics: OmpProcessDi
     PipeByteSource(
         reading: handle,
         qos: .utility,
-        label: "voiceoour.omp.stderr",
+        label: "voiceour.omp.stderr",
         onBytes: { [diagnostics] bytes in diagnostics.append(byteCount: bytes.count) },
         onEnd: {}
     )
@@ -465,7 +465,7 @@ actor OmpRpcRuntime {
         let stderrSource = captureOmpStderr(from: stderrHandle, diagnostics: diagnostics)
 
         let stdoutHandle = stdout.fileHandleForReading
-        let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceoour.omp.stdout")
+        let stdoutReader = NDJSONLineReader(reading: stdoutHandle, label: "voiceour.omp.stdout")
         let readyTask = Task.detached(priority: .userInitiated) { () throws -> Void in
             while let line = await stdoutReader.nextLine() {
                 guard

@@ -5,20 +5,20 @@ from pathlib import Path
 
 import pytest
 
-from voiceoour_bench.calibrate import (
+from voiceour_bench.calibrate import (
     DEFAULT_ACCEPTED_ERROR_BOUND,
     calibrate_profile,
     select_operating_point,
 )
-from voiceoour_bench.calibrate import (
+from voiceour_bench.calibrate import (
     main as calibrate_main,
 )
-from voiceoour_bench.disagreement import (
+from voiceour_bench.disagreement import (
     align_ids,
     build_run,
     disagreement_summary,
 )
-from voiceoour_bench.disagreement import (
+from voiceour_bench.disagreement import (
     main as disagreement_main,
 )
 

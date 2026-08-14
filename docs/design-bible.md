@@ -1,4 +1,4 @@
-# VoiceOour Design Bible
+# Voiceour Design Bible
 
 > **Status: internal design reference.** A contributor-facing reference for UI work,
 > reconciled against the code as of 2026-08-03. Not a product spec; where this
@@ -10,17 +10,17 @@ Private APIs: **forbidden**
 
 Owner boundary:
 
-- `VoiceOour`: SwiftUI UI, design tokens, glass primitives, coordinator-facing UI state.
+- `Voiceour`: SwiftUI UI, design tokens, glass primitives, coordinator-facing UI state.
 - `VoiceCore`: pure Foundation models/settings/stores. No AppKit, no CoreAudio, no visual code.
 - `VoiceMac`: AppKit/CoreAudio side effects only: window seams where required, pasteboard/system services, system-audio mute implementation.
 
-This document is the source of truth for the VoiceOour console, recording overlay, menu bar popover, and audio-mute UX. **Every value below is verified against the code that ships today** (last reconciled 2026-08-03, the property-ledger pass: §7.1, §12.3, §12.7–§12.9, §14, §16, §17, §18). Aspirational items that were specified but never shipped are tracked in §29 rather than presented as current behavior.
+This document is the source of truth for the Voiceour console, recording overlay, menu bar popover, and audio-mute UX. **Every value below is verified against the code that ships today** (last reconciled 2026-08-03, the property-ledger pass: §7.1, §12.3, §12.7–§12.9, §14, §16, §17, §18). Aspirational items that were specified but never shipped are tracked in §29 rather than presented as current behavior.
 
 ---
 
 ## 1. Product Shape
 
-VoiceOour is a local-first dictation app. The main window is not a macOS preferences sheet. It uses a transparent-black console with glass, hairlines, tracked mono labels, stillness, and one live cyan signal.
+Voiceour is a local-first dictation app. The main window is not a macOS preferences sheet. It uses a transparent-black console with glass, hairlines, tracked mono labels, stillness, and one live cyan signal.
 
 The recording overlay pill defines the console's visual vocabulary.
 
@@ -43,20 +43,20 @@ Hard rules:
 The main scene:
 
 ```swift
-Window("VoiceOour", id: "main") {
+Window("Voiceour", id: "main") {
     ConsoleView(coordinator: coordinator, initialSection: LaunchOptions.consoleSection)
 }
 .defaultSize(
-    width: VoiceOourMetrics.Window.defaultWidth,
-    height: VoiceOourMetrics.Window.defaultHeight
+    width: VoiceourMetrics.Window.defaultWidth,
+    height: VoiceourMetrics.Window.defaultHeight
 )
 ```
 
-`VoiceOourApp.swift` also hosts a `MenuBarExtra` (§22) and owns the `RecordingOverlayController` (§21). The console is one of three coordinated surfaces, not the whole app.
+`VoiceourApp.swift` also hosts a `MenuBarExtra` (§22) and owns the `RecordingOverlayController` (§21). The console is one of three coordinated surfaces, not the whole app.
 
-Opening the console promotes the app from the idle menu-bar-only `.accessory` activation policy set once in `VoiceOourApp.init()` to `.regular` for as long as the window stays open (`ConsoleView.swift`'s `.onAppear`/`.onDisappear`), then returns to `.accessory` when it closes. This keeps the real console reachable through Cmd+Tab and the Dock after focus moves to another app. `.accessory` remains correct for the `MenuBarExtra` popover (§22) and recording overlay (§21); only the console toggles activation policy.
+Opening the console promotes the app from the idle menu-bar-only `.accessory` activation policy set once in `VoiceourApp.init()` to `.regular` for as long as the window stays open (`ConsoleView.swift`'s `.onAppear`/`.onDisappear`), then returns to `.accessory` when it closes. This keeps the real console reachable through Cmd+Tab and the Dock after focus moves to another app. `.accessory` remains correct for the `MenuBarExtra` popover (§22) and recording overlay (§21); only the console toggles activation policy.
 
-Rail sections (`ConsoleSection`, `Sources/VoiceOour/ConsoleSection.swift`):
+Rail sections (`ConsoleSection`, `Sources/Voiceour/ConsoleSection.swift`):
 
 ```swift
 enum ConsoleSection: String, CaseIterable, Identifiable {
@@ -100,17 +100,17 @@ Forbidden:
 The canonical vocabulary lives in:
 
 ```text
-Sources/VoiceOour/DesignTokens.swift
-Sources/VoiceOour/GlassWindowChrome.swift
-Sources/VoiceOour/GlassSurfaces.swift
-Sources/VoiceOour/GlassMarks.swift
-Sources/VoiceOour/SettingsBindings.swift
-Sources/VoiceOour/SettingsPaneScroll.swift
-Sources/VoiceOour/ContentCard.swift
-Sources/VoiceOour/SettingsSectionBlock.swift
-Sources/VoiceOour/SettingsRow.swift
-Sources/VoiceOour/CaptionText.swift
-Sources/VoiceOour/SegmentControl.swift
+Sources/Voiceour/DesignTokens.swift
+Sources/Voiceour/GlassWindowChrome.swift
+Sources/Voiceour/GlassSurfaces.swift
+Sources/Voiceour/GlassMarks.swift
+Sources/Voiceour/SettingsBindings.swift
+Sources/Voiceour/SettingsPaneScroll.swift
+Sources/Voiceour/ContentCard.swift
+Sources/Voiceour/SettingsSectionBlock.swift
+Sources/Voiceour/SettingsRow.swift
+Sources/Voiceour/CaptionText.swift
+Sources/Voiceour/SegmentControl.swift
 ```
 
 `SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, and `SegmentControl.swift` hold the persisted settings binding and the shared layout and surface primitives rather than raw tokens. View files compose these sources instead of creating a second convention.
@@ -118,7 +118,7 @@ Sources/VoiceOour/SegmentControl.swift
 ---
 ## 4. Color Tokens
 
-Verified against `Sources/VoiceOour/DesignTokens.swift`. All named text colors are opaque sRGB values; alpha belongs to materials and state fills, not to the text ladder.
+Verified against `Sources/Voiceour/DesignTokens.swift`. All named text colors are opaque sRGB values; alpha belongs to materials and state fills, not to the text ladder.
 
 ### 4.1 Grounds and material colors
 
@@ -201,7 +201,7 @@ Audio mute uses the cyan/amber family; there is no separate mute palette. Muting
 
 ### 5.1 Liquid Glass adoption
 
-VoiceOour keeps its `.macOS(.v14)` deployment floor and has one dual-path architecture:
+Voiceour keeps its `.macOS(.v14)` deployment floor and has one dual-path architecture:
 
 - On macOS 26, functional glass uses public SwiftUI Liquid Glass APIs behind `if #available(macOS 26.0, *)`: `.glassEffect` at the window ground and the recording-overlay island, the standard popover's own system chrome, and scroll-edge effects. The nav selection, segmented selection, overlay control discs, and menu primary action are painted on this path too. Controls that sit on glass are painted by choice, not by rendering necessity: the erasure that once justified the rule was produced by the offscreen harness's `cacheDisplay(in:to:)` capture, which does not rasterise `.glassEffect` at all, and a real onscreen window renders the same nested stack completely (§5.2). As a result, the app forgoes system glass, its lensing, and its morphing on every control to keep the interface restrained and uniformly legible.
 - On macOS 14 and 15, the same call sites use the public AppKit/painted implementation: `NSVisualEffectView` at the window or overlay ground, the shared tint and rims, and painted plates for controls. Controls that sit on glass are painted on macOS 26 as well.
@@ -463,7 +463,7 @@ The scaffold reserves the titlebar, applies the selected root material, overlays
 
 The rail footer has two sibling accessibility groups:
 
-1. Identity/status: the state mark, `VOICEOOUR`, `IDLE` / `WORKING` / `LIVE` / `ERROR`, and optional `AUDIO MUTED`, combined under one spoken label.
+1. Identity/status: the state mark, `VOICEOUR`, `IDLE` / `WORKING` / `LIVE` / `ERROR`, and optional `AUDIO MUTED`, combined under one spoken label.
 2. Capture hotkey: `KeyCap("Fn")`, the caption word `or`, and `KeyCap("Globe")`, labeled `"Capture hotkey"` with value `"Fn or Globe"`.
 
 The status mark carries state by shape as well as color: idle is a hollow 6pt ring, working/live are filled 6pt dots, and error is `exclamationmark.triangle.fill`. Cyan is reserved for live; working uses `Text.mid`, error crimson, idle `Mark.faint`. Live pulses between scale 1.0 and 1.08 over 1.6s; Reduce Motion leaves it static.
@@ -649,7 +649,7 @@ Sessions is an uncapped master-detail workspace. A full-width `ContentCard(eyebr
 
 TOTALS distributes four metrics evenly across its full card width. Full-height vertical `HairlineDivider`s sit between columns; no custom divider computes a stroke from spacing tokens.
 
-The list search field uses `GlassTextFieldStyle(font: VoiceOourTypography.bodyMono)`. Each session row is `Row.list` **64pt** total pitch with timestamp and compact outcome marks above a one-line preview. Selection uses `.isSelected`; Differentiate Without Color adds the leading selection bar.
+The list search field uses `GlassTextFieldStyle(font: VoiceourTypography.bodyMono)`. Each session row is `Row.list` **64pt** total pitch with timestamp and compact outcome marks above a one-line preview. Selection uses `.isSelected`; Differentiate Without Color adds the leading selection bar.
 
 ### 13.3 Detail and wells
 
@@ -854,7 +854,7 @@ The action uses the painted cyan capsule on every OS path: rest fill 0.08 and ri
 
 Two reasons for staying painted survive that measurement. macOS 14 needs the painted capsule regardless, so adopting the system style would add a second path rather than replace one. And the system prominent style paints the **system accent colour**, discarding the cyan `Signal` required by §4.4. Here cyan is state, not decoration, and the primary action is the app's one live affordance. The style otherwise uses the same disabled, focus, pressed-scale, Reduce Motion, Increase Contrast, and Differentiate Without Color behavior as the shared ladder.
 
-The geometry is a cost on top of those two, and it runs opposite to the old claim: the system style does not inflate the control, it shrinks it by 19pt. Measured two independent ways, a `GeometryReader` and an in-process accessibility walk: the painted capsule is `256x40`; `.glassProminent` is naturally **21pt**; `.glassProminent` plus `.frame(height: VoiceOourMetrics.Control.large)` keeps the 40pt layout slot but centres a 21pt control, AX `[12,80 256x21]`; `.controlSize(.extraLarge)` with `.buttonBorderShape(.capsule)` reaches **33pt**; only growing the label with `.frame(maxWidth: .infinity, minHeight: 32)` restores a true `256x40`. Taking the natural height would move every AX frame below the primary action up by 19pt. Any future adoption must account for that geometry change.
+The geometry is a cost on top of those two, and it runs opposite to the old claim: the system style does not inflate the control, it shrinks it by 19pt. Measured two independent ways, a `GeometryReader` and an in-process accessibility walk: the painted capsule is `256x40`; `.glassProminent` is naturally **21pt**; `.glassProminent` plus `.frame(height: VoiceourMetrics.Control.large)` keeps the 40pt layout slot but centres a 21pt control, AX `[12,80 256x21]`; `.controlSize(.extraLarge)` with `.buttonBorderShape(.capsule)` reaches **33pt**; only growing the label with `.frame(maxWidth: .infinity, minHeight: 32)` restores a true `256x40`. Taking the natural height would move every AX frame below the primary action up by 19pt. Any future adoption must account for that geometry change.
 
 ### 19.5 `GlassTextFieldStyle`
 
@@ -913,7 +913,7 @@ The recording-overlay comet remains the intentional product exception to the one
 ---
 ## 21. Recording Overlay
 
-This section reflects the complete implementation in `Sources/VoiceOour/RecordingOverlay{View,Controller,Panel,Layout,Buttons,Waveform,Comet,Model,Placement}.swift`.
+This section reflects the complete implementation in `Sources/Voiceour/RecordingOverlay{View,Controller,Panel,Layout,Buttons,Waveform,Comet,Model,Placement}.swift`.
 
 ### 21.1 Architecture
 
@@ -930,7 +930,7 @@ Recording gets the live waveform, and only once capture is live. `RecordingOverl
 ### 21.3 Rules
 
 1. Do not redesign this surface's glass/waveform/comet vocabulary independently of a specific, scoped need because it is intentionally allowed richer motion than the console (§1 rule 7).
-2. Overlay pill keeps its `Capsule` shape and its two-layer shadow, `VoiceOourMetrics.Shadow.overlayOuter`/`.overlayInner` (`black.opacity(0.26)`/`0.18`), on both render paths; Reduce Transparency keeps the outer layer alone on both (§6.4, §21.4).
+2. Overlay pill keeps its `Capsule` shape and its two-layer shadow, `VoiceourMetrics.Shadow.overlayOuter`/`.overlayInner` (`black.opacity(0.26)`/`0.18`), on both render paths; Reduce Transparency keeps the outer layer alone on both (§6.4, §21.4).
 3. **Never render audio-mute glyphs, labels, badges, or controls inside the recorder pill.** When recording and `isSystemAudioMuted == true`, the overlay still shows only its recording presentation. Mute state belongs in `MenuBarExtra`, System, Diagnostics, and session metadata rather than in the recorder pill. This exclusion is deliberate and was verified as correctly honored in the current implementation, not a gap.
 4. Control glyphs (`RecordingOverlayButton`, 22x22) are intentionally heavier-weight than `RowIconButton`. They use permanent fill+stroke at rest rather than hover-only because the discs sit on the island's glass and the pill floats over arbitrary desktop content with no window chrome to lean on for legibility. They remain painted on macOS 26 for that reason alone: a 22pt disc over an unpredictable backdrop needs permanent chrome, and paint is the only way to guarantee it at every state. The former second reason was that another glass material here would misrender as glass on glass. Section 5.2 retracts it. Do not change this to `RowIconButton`'s ghost style. Keep the documented distinction.
 5. **The waveform indicates that the microphone is receiving audio. It is not decoration for the recording state.** Draw it only after a buffer containing a non-zero sample has arrived, never on the first buffer to arrive: a cold Bluetooth link delivers digital silence for over a second before the first one (`docs/architecture.md`, *Microphone capture*). Moving bars would imply that the microphone is ready. Bars parked flat would imply a quiet room. Neither is accurate before the microphone exists, so keep `WARMING` visible for a beat longer.
@@ -980,8 +980,8 @@ Mute is a system side effect. The UI must describe its state clearly without ove
 - Mechanism lives in `VoiceMac` (`SystemAudioMuter`), using public CoreAudio HAL (`kAudioDevicePropertyMute`, `AudioObjectSetPropertyData`, property listener blocks). It uses no private CoreAudio APIs. `VoiceCore` stays pure Foundation.
 - `DictationCoordinator` owns orchestration: apply before recording starts (if enabled), restore on every terminal path (stop success, cancel, ASR failure, mic-permission failure, app termination, unexpected error).
 - Observable UI state: `public private(set) var isSystemAudioMuted: Bool` on the `@Observable` `DictationCoordinator`. The rail-footer status cluster (§10.1), System pane, Diagnostics, `MenuView`, and session history all read this directly. It is deliberately **not** mirrored into the recording overlay's model (§21.5 rule 3).
-- Crash safety: ownership is persisted to a flag file (`~/Library/Application Support/VoiceOour/mute-owned.flag`, never `UserDefaults`) before muting, verified and cleared on next launch before UI mounts.
-- User override: if the user changes mute/volume externally while VoiceOour owns it, drop ownership immediately, clear `isSystemAudioMuted`, and do not reassert. This preserves the user's override.
+- Crash safety: ownership is persisted to a flag file (`~/Library/Application Support/Voiceour/mute-owned.flag`, never `UserDefaults`) before muting, verified and cleared on next launch before UI mounts.
+- User override: if the user changes mute/volume externally while Voiceour owns it, drop ownership immediately, clear `isSystemAudioMuted`, and do not reassert. This preserves the user's override.
 - Device selection: whatever is the default output device. Transport type is not consulted. The retired `.builtInOutputOnly` default made the feature a silent no-op on Bluetooth headphones, which are the output people actually dictate through. Also, the second setting that fixed it was never found. Capture is the opposite case and *does* consult transport type (`docs/architecture.md`, *Microphone capture*); the asymmetry is deliberate, because a Bluetooth output is exactly what needs muting while a Bluetooth input is what cannot be recorded from at the start of an utterance.
 - The muter is not why a Bluetooth capture starts late, and that was measured rather than assumed: first real audio on a cold AirPods Max arrives at 1448 ms with output mute off and 1444 ms with it on. Do not trade the fade, the mute, or their ordering away for start latency on that theory.
 - Control selection is per device, measured: MacBook Pro Speakers publish a settable main mute and a settable main volume; AirPods Max publish a settable main mute and **no** main volume, only channels 1–2; a DisplayPort monitor publishes neither and cannot be silenced at all. The muter probes, it does not assume.
@@ -995,10 +995,10 @@ VoiceOver strings in use: "System audio muted" (live), "Recorded with system aud
 ## 24. Motion
 
 ```swift
-VoiceOourMotion.quick      = .easeInOut(duration: 0.14)
-VoiceOourMotion.standard   = .easeInOut(duration: 0.18)
-VoiceOourMotion.deliberate = .easeInOut(duration: 0.22)
-VoiceOourMotion.meter      = .easeOut(duration: 0.12)
+VoiceourMotion.quick      = .easeInOut(duration: 0.14)
+VoiceourMotion.standard   = .easeInOut(duration: 0.18)
+VoiceourMotion.deliberate = .easeInOut(duration: 0.22)
+VoiceourMotion.meter      = .easeOut(duration: 0.12)
 ```
 
 `quick` is hover/press/focus feedback and rail/segment/shared-control selection. `standard` is toggle and deliberate state, content, or provider transition. `deliberate` is reveal/confirmation/overlay transition. `meter` is the normal audio-level and waveform tier.

@@ -25,12 +25,12 @@ import pytest
 from parakeet_mlx.alignment import AlignedResult
 from parakeet_mlx.parakeet import Beam, DecodingConfig
 
-from voiceoour_asr.backends.mlx import MAX_BIAS_PHRASES, MLXBackend, _DecodeOutput
-from voiceoour_asr.decoding.nbest import NBestParakeetTDT
-from voiceoour_asr.decoding.trie import PhraseTrie
-from voiceoour_asr.decoding.vocabulary import WORD_BOUNDARY_MARKER, PieceVocabulary
-from voiceoour_asr.errors import ErrorCode
-from voiceoour_asr.protocol import (
+from voiceour_asr.backends.mlx import MAX_BIAS_PHRASES, MLXBackend, _DecodeOutput
+from voiceour_asr.decoding.nbest import NBestParakeetTDT
+from voiceour_asr.decoding.trie import PhraseTrie
+from voiceour_asr.decoding.vocabulary import WORD_BOUNDARY_MARKER, PieceVocabulary
+from voiceour_asr.errors import ErrorCode
+from voiceour_asr.protocol import (
     AudioMeta,
     BiasPhrase,
     ConfidenceMode,
@@ -226,7 +226,7 @@ def _bias_backend(monkeypatch, vocabulary):
 
 
 def test_unrepresentable_phrases_are_skipped_not_errored(monkeypatch, tmp_path):
-    monkeypatch.delenv("VOICEOOUR_ASR_DECODING", raising=False)
+    monkeypatch.delenv("VOICEOUR_ASR_DECODING", raising=False)
     backend, captured, recorder = _bias_backend(monkeypatch, PIECES)
 
     request = _request(
@@ -303,7 +303,7 @@ def test_biased_decode_is_a_single_mlx_submission(monkeypatch, tmp_path):
 
 
 def test_empty_bias_leaves_default_path_unchanged(monkeypatch, tmp_path):
-    monkeypatch.delenv("VOICEOOUR_ASR_DECODING", raising=False)
+    monkeypatch.delenv("VOICEOUR_ASR_DECODING", raising=False)
     backend, captured, recorder = _bias_backend(monkeypatch, PIECES)
 
     # No bias phrases -> default (greedy) submission, byte-identical two-arg call.

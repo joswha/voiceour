@@ -68,7 +68,7 @@ jobs:
       - name: Offline benchmark smoke
         run: make bench-smoke
 
-      # VoiceOour deliberately exposes no local IPC surface. A socket that
+      # Voiceour deliberately exposes no local IPC surface. A socket that
       # brokers this app's microphone and Accessibility grants to any same-uid
       # process would launder a per-code-identity TCC decision, so there is no
       # control plane and no terminal client, and this step keeps it that way.

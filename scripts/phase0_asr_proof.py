@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from voiceoour_asr import cache
+from voiceour_asr import cache
 
 
 def transcribe_once(path: Path) -> tuple[str, float, float, int]:

@@ -1,13 +1,13 @@
 <div align="center">
 
-# 👽 VoiceOour
+# 👽 Voiceour
 
 ### Tap `fn` to dictate where your cursor is.
 
-**VoiceOour is a local-first dictation app for macOS.** It runs in the menu bar. One tap of
+**Voiceour is a local-first dictation app for macOS.** It runs in the menu bar. One tap of
 Fn starts recording. Transcription runs on your Mac, and the result goes to the app you were using.
 
-Microphone access lets VoiceOour record speech, and Accessibility trust lets it consume the Fn tap
+Microphone access lets Voiceour record speech, and Accessibility trust lets it consume the Fn tap
 before macOS sees it. Posting Cmd-V needs event-post permission, which Accessibility trust also
 satisfies. Without that permission, delivery falls back to copy-only.
 
@@ -23,7 +23,7 @@ satisfies. Without that permission, delivery falls back to copy-only.
 <br>
 
 <img src="docs/media/dictation-island.gif" width="720"
-     alt="The VoiceOour recording island: a graphite pill with a cancel disc on the left, a live cyan waveform in the middle and a green finish disc on the right, moving through recording, finalizing, transcribing, cleaning, refining and ready to insert.">
+     alt="The Voiceour recording island: a graphite pill with a cancel disc on the left, a live cyan waveform in the middle and a green finish disc on the right, moving through recording, finalizing, transcribing, cleaning, refining and ready to insert.">
 
 <sub><i>The offscreen UI harness renders these frames from the app's SwiftUI views.<br>
 It captures the app's painted path without screen recording or mockups. Offscreen capture cannot<br>
@@ -37,7 +37,7 @@ rasterise system Liquid Glass. On macOS 26, the live island uses Liquid Glass ag
 
 ```text
    👆  TAP       Tap Fn / 🌐 once. Do not hold it or combine it with another key.
-   ┃             With Accessibility granted, VoiceOour consumes the tap so macOS
+   ┃             With Accessibility granted, Voiceour consumes the tap so macOS
    ┃             does not open its emoji picker.
    ┃
    🎤  SPEAK     A graphite pill appears next to the focused window and draws
@@ -55,15 +55,15 @@ rasterise system Liquid Glass. On macOS 26, the live island uses Liquid Glass ag
    ┃
    ✨  REFINE    Refinement is optional and off by default. Network refinement
    ┃             runs only through the locally installed omp CLI, which owns
-   ┃             its credentials. VoiceOour stores none. An on-device refiner
+   ┃             its credentials. Voiceour stores none. An on-device refiner
    ┃             is also available.
    ┃
-   📋  DELIVER   VoiceOour writes the transcript to the clipboard and attempts
+   📋  DELIVER   Voiceour writes the transcript to the clipboard and attempts
                  Cmd-V only in a verified normal text target. Terminals, code
                  editors, and password fields remain copy-only.
 ```
 
-VoiceOour does not use a wake word, a separate listening button, or a privacy modal. One tap
+Voiceour does not use a wake word, a separate listening button, or a privacy modal. One tap
 records one utterance.
 
 ---
@@ -72,13 +72,13 @@ records one utterance.
 
 This development setup does not download a model, open the microphone, or require an API key.
 It uses the deterministic fake ASR backend. This is the only backend that works on a machine that
-has never run VoiceOour.
+has never run Voiceour.
 
 ```sh
-git clone https://github.com/joswha/vociea.git voiceoour && cd voiceoour
+git clone https://github.com/joswha/vociea.git voiceour && cd voiceour
 
 scripts/run_dev.sh --self-test   # build + run cleanup and safety checks
-scripts/run_dev.sh               # launch VoiceOour in the menu bar
+scripts/run_dev.sh               # launch Voiceour in the menu bar
 ```
 
 You need macOS 14+, Command Line Tools (`xcode-select --install`), and
@@ -100,7 +100,7 @@ For the real-ASR, signing, UI, benchmark, and release recipes, see
 
 <div align="center">
 <img src="docs/media/console-home.png" width="820"
-     alt="The VoiceOour console, Home pane: time saved, your dictation rate against an editable typing speed, all-time counters, dictation charts, top apps and personal records.">
+     alt="The Voiceour console, Home pane: time saved, your dictation rate against an editable typing speed, all-time counters, dictation charts, top apps and personal records.">
 <br>
 <sub><i>Home shows words dictated, time saved against your typing speed, busiest hours, and top destinations.</i></sub>
 </div>
@@ -121,7 +121,7 @@ decrease.
 
 <div align="center">
 <img src="docs/media/menu.png" width="280"
-     alt="The VoiceOour menu bar popover: a PASTE ATTEMPTED chip, the Fn keycap, the last transcript with CLICK TO COPY, the delivery outcome, START DICTATION, Open Console and Quit.">
+     alt="The Voiceour menu bar popover: a PASTE ATTEMPTED chip, the Fn keycap, the last transcript with CLICK TO COPY, the delivery outcome, START DICTATION, Open Console and Quit.">
 <br>
 <sub><i>The popover is 280 pt wide. The <code>Fn</code> keycap is a reminder, not a button.<br>
 Every image on this page is an offscreen harness render of the real views and uses the painted path. None is a mockup.</i></sub>
@@ -131,7 +131,7 @@ Every image on this page is an offscreen harness render of the real views and us
 
 ## 🚦 Where your text is allowed to go
 
-VoiceOour always writes the transcript to the clipboard. It attempts `Cmd-V` only for a verified
+Voiceour always writes the transcript to the clipboard. It attempts `Cmd-V` only for a verified
 normal text target; terminals, code editors, secure fields, and targets it cannot classify remain
 copy-only. The target is checked again at delivery so a late focus change cannot redirect a paste
 into an unverified control.
@@ -144,16 +144,16 @@ and manual E2E checklists live in
 
 ## 🔒 Privacy, storage, and delivery
 
-VoiceOour applies these rules in code:
+Voiceour applies these rules in code:
 
-- 🚫 **VoiceOour never reads, snapshots, restores, or inspects your previous clipboard.** It writes
+- 🚫 **Voiceour never reads, snapshots, restores, or inspects your previous clipboard.** It writes
   the dictated text and nothing else.
-- 🧹 **After a successful paste, VoiceOour clears the dictated text from the clipboard about one
+- 🧹 **After a successful paste, Voiceour clears the dictated text from the clipboard about one
   second later.** If you copy something else first, the app leaves it alone. It detects this with
   the pasteboard *change count* and never reads the contents.
 - 📡 **The network is reachable in exactly two situations:** the first model download and optional
   network refinement that you enabled and configured. Network refinement is brokered by the local
-  `omp` CLI, which owns its credentials. VoiceOour has no telemetry, analytics, crash reporter, or
+  `omp` CLI, which owns its credentials. Voiceour has no telemetry, analytics, crash reporter, or
   account.
 - 🗂️ **Recent transcripts stay on your Mac** in the Sessions pane. System ▸ Clear history removes
   them. **Audio is never persisted.** Temporary files are deleted after success, cancellation, and
@@ -185,7 +185,7 @@ flowchart LR
 For the code-target diagram, layering boundaries, session state machine, persistence model, and ASR
 boundary, read [`docs/architecture.md`](docs/architecture.md).
 
-**Reading order for a first change:** `Sources/VoiceOour/DictationCoordinator.swift`, then the
+**Reading order for a first change:** `Sources/Voiceour/DictationCoordinator.swift`, then the
 port protocols in `Sources/VoiceCore/CorePorts.swift`, then whichever adapter you are touching.
 
 <details>
@@ -193,7 +193,7 @@ port protocols in `Sources/VoiceCore/CorePorts.swift`, then whichever adapter yo
 
 <br>
 
-VoiceOour keeps a local vocabulary of protected technical terms. It preserves commands, flags,
+Voiceour keeps a local vocabulary of protected technical terms. It preserves commands, flags,
 paths, versions, and product names through cleanup and refinement. Basic dictation does not require
 a custom vocabulary.
 
@@ -228,7 +228,7 @@ In Refinement, select `Enable refiner`, then choose one of two providers:
 | **Oh My Pi** | Default. Refines through the locally installed `omp` CLI, which brokers whichever subscription you signed into. |
 | **Apple on-device** | macOS 26 + Apple Intelligence. Nothing leaves the Mac. |
 
-VoiceOour has no API-key field and creates no keychain item for either provider. OMP owns its
+Voiceour has no API-key field and creates no keychain item for either provider. OMP owns its
 credentials, and the on-device model needs none.
 
 `Model` is a picker, not a text field. Its options come from `omp models --json` and reflect the
@@ -240,7 +240,7 @@ when disconnected. `CONNECT` and `RECONNECT` open OMP's interactive login in a t
 window. `ADD` adds another account. `BROWSE` opens OMP's live provider list.
 
 `REFRESH` reads aggregate provider and account status from `omp usage --json --redact`. OMP keeps
-all credentials in its own vault. VoiceOour does not read OAuth tokens, API keys, or account
+all credentials in its own vault. Voiceour does not read OAuth tokens, API keys, or account
 identities from this flow. A persistent `omp --mode rpc` child provides a warm refine in roughly
 1.4–2.7 s, depending on the model.
 
@@ -273,7 +273,7 @@ independently measured stage medians rather than one end-to-end stopwatch span. 
 predate the per-session `stopReleaseToInsertionOutcomeMs` timing that the app now records.
 
 The start-latency row measures arrival of the first buffer, not the first buffer containing sound.
-A Bluetooth headset can provide more than one second of digital silence first. VoiceOour now times
+A Bluetooth headset can provide more than one second of digital silence first. Voiceour now times
 from the hotkey to the first real audio and uses the Mac's built-in microphone when the default
 input is a Bluetooth headset. Earlier and later measurements are not comparable.
 
@@ -359,7 +359,7 @@ Apple's on-device model benefits from prewarming shortly before use. This test h
 | never | 1888.0 ms |
 
 **−383.5 ms paired median** (95% CI [−399.0, −361.6], 10/10 transcripts, sign p = 0.002).
-VoiceOour therefore prewarms at recording stop, where recorder finalization plus ASR supply the
+Voiceour therefore prewarms at recording stop, where recorder finalization plus ASR supply the
 lead time.
 
 | quantity | value |
@@ -419,7 +419,7 @@ is off by default.
 <details>
 <summary><b>Why did my text only get copied instead of pasted?</b></summary>
 <br>
-VoiceOour pastes only into a verified normal text target and only when Accessibility permits
+Voiceour pastes only into a verified normal text target and only when Accessibility permits
 synthetic `Cmd-V`. All other cases are copy-only. See the troubleshooting guide and target matrix
 in [`docs/permissions.md`](docs/permissions.md).
 </details>
@@ -435,7 +435,7 @@ and the active event tap.
 <details>
 <summary><b>Do I need an API key?</b></summary>
 <br>
-No. VoiceOour has no API-key field and stores no credentials. The optional network refiner uses the
+No. Voiceour has no API-key field and stores no credentials. The optional network refiner uses the
 `omp` CLI, which owns its credentials. The on-device provider and transcription do not need a key.
 </details>
 
@@ -492,7 +492,7 @@ instead of the SwiftPM CLI. This repository keeps a shell-first build that does 
 <br><br>
 Sidecar startup takes ~130–320 ms from spawn to `hello`. The first transcription also loads the
 model and compiles kernels. These one-time costs occur before the first dictation.
-`VOICEOOUR_PRELOAD=1` moves model loading and kernel compilation out of the first dictation.
+`VOICEOUR_PRELOAD=1` moves model loading and kernel compilation out of the first dictation.
 </details>
 
 ---
@@ -500,7 +500,7 @@ model and compiles kernels. These one-time costs occur before the first dictatio
 ## 🧰 Shipping it
 
 [`docs/developer-setup.md`](docs/developer-setup.md) documents bundling, stable local signing,
-bundle verification, and release notarization. `Resources/VoiceOour.entitlements` is a signing
+bundle verification, and release notarization. `Resources/Voiceour.entitlements` is a signing
 input, not a resource copied into the app bundle. Its entitlements are embedded in the code
 signature.
 

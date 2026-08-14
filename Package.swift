@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "voiceoour",
+    name: "voiceour",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "VoiceOour", targets: ["VoiceOour"]),
-        .executable(name: "voiceoour-bench", targets: ["VoiceOourBench"]),
-        .executable(name: "voiceoour-capture-bench", targets: ["VoiceOourCaptureBench"]),
+        .executable(name: "Voiceour", targets: ["Voiceour"]),
+        .executable(name: "voiceour-bench", targets: ["VoiceourBench"]),
+        .executable(name: "voiceour-capture-bench", targets: ["VoiceourCaptureBench"]),
         .library(name: "VoiceCore", targets: ["VoiceCore"]),
         .library(name: "VoiceMac", targets: ["VoiceMac"])
     ],
@@ -16,7 +16,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "VoiceOour",
+            name: "Voiceour",
             dependencies: ["VoiceCore", "VoiceMac"]
         ),
         .target(name: "VoiceCore"),
@@ -25,11 +25,11 @@ let package = Package(
             dependencies: ["VoiceCore"]
         ),
         .executableTarget(
-            name: "VoiceOourBench",
+            name: "VoiceourBench",
             dependencies: ["VoiceCore", "VoiceMac"]
         ),
         .executableTarget(
-            name: "VoiceOourCaptureBench",
+            name: "VoiceourCaptureBench",
             dependencies: ["VoiceCore", "VoiceMac"]
         ),
         .testTarget(
@@ -48,9 +48,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "VoiceOourTests",
+            name: "VoiceourTests",
             dependencies: [
-                "VoiceOour",
+                "Voiceour",
                 "VoiceMac",
                 "VoiceCore",
                 .product(name: "Testing", package: "swift-testing")

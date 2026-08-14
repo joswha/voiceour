@@ -1,7 +1,7 @@
 [project]
-name = "voiceoour-asr"
+name = "voiceour-asr"
 version = "0.1.0"
-description = "VoiceOour local ASR sidecar"
+description = "Voiceour local ASR sidecar"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -38,7 +38,7 @@ line-length = 120
 target-version = "py311"
 # The vendored ARK runtime is a verbatim upstream copy (see its NOTICE); linting it
 # would invite fixes that silently fork it.
-extend-exclude = ["src/voiceoour_asr/backends/ark_mlx"]
+extend-exclude = ["src/voiceour_asr/backends/ark_mlx"]
 
 [tool.ruff.lint]
 # Pyflakes, pycodestyle, isort, bugbear, comprehensions, pyupgrade. Deliberately

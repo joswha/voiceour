@@ -1,11 +1,11 @@
 // perf_probe_helper — a tiny CGWindow/CGEvent CLI used by scripts/archive/perf_probe.sh to
-// drive a repeatable render-performance measurement against a *running* VoiceOour.
+// drive a repeatable render-performance measurement against a *running* Voiceour.
 //
 // It reads window geometry (no permission needed) and synthesizes pointer activity
 // (needs Accessibility "post events" access; the `preflight` command verifies it).
 //
 // Subcommands:
-//   window                       -> prints "x y w h" of the largest on-screen VoiceOour
+//   window                       -> prints "x y w h" of the largest on-screen Voiceour
 //                                   window (the console); exits 2 if none is open.
 //   preflight                    -> prints "preflight=<bool> moved=<bool>"; exit 0 iff
 //                                   event injection is permitted AND empirically moves
@@ -27,12 +27,12 @@ import Foundation
 
 func die(_ msg: String, _ code: Int32 = 1) -> Never { stderrLine(msg); exit(code) }
 
-// Largest on-screen VoiceOour window (matches scripts/find_console_window.swift logic).
+// Largest on-screen Voiceour window (matches scripts/find_console_window.swift logic).
 func consoleWindowRect() -> CGRect? {
     let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
     guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else { return nil }
     return list.compactMap { info -> (CGRect, CGFloat)? in
-        guard (info[kCGWindowOwnerName as String] as? String) == "VoiceOour" else { return nil }
+        guard (info[kCGWindowOwnerName as String] as? String) == "Voiceour" else { return nil }
         guard let bd = info[kCGWindowBounds as String] as? NSDictionary,
               let r = CGRect(dictionaryRepresentation: bd as CFDictionary) else { return nil }
         guard r.height > 300 else { return nil }

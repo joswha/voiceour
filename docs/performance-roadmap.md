@@ -282,7 +282,7 @@ That advantage is not reproduced on this app's corpora or within its latency bud
 Both sizes were run through the community MLX conversions `leope/ark-asr-0.6B-mlx` and
 `leope/ark-asr-3B-mlx` (Apache-2.0, BF16, parity-validated against upstream PyTorch: identical greedy
 token IDs, initial-logit cosine 0.9999). Every row was scored with this repo's own
-`voiceoour_bench.metrics`, and Parakeet was re-run in-process with identical staging so the
+`voiceour_bench.metrics`, and Parakeet was re-run in-process with identical staging so the
 comparison comes down to the models. That control reproduced the committed FLEURS row exactly:
 U-WER 4.416%, F-WER 10.284%, case F1 0.921. It validates the staging used for the ARK columns.
 
@@ -357,8 +357,8 @@ remains the default and nothing changes unless you pick one. Benchmark them agai
 identical rows with `make bench-stt BACKEND=ark-0.6b N=64`. Reports are named per backend, so an A/B
 of the same tier no longer collides on timestamp alone.
 
-The shape is a second Python backend in the existing sidecar (`asr/src/voiceoour_asr/backends/ark.py`
-behind `VOICEOOUR_ASR_BACKEND=ark-0.6b|ark-3b`), with the ARK MLX runtime **vendored verbatim** under
+The shape is a second Python backend in the existing sidecar (`asr/src/voiceour_asr/backends/ark.py`
+behind `VOICEOUR_ASR_BACKEND=ark-0.6b|ark-3b`), with the ARK MLX runtime **vendored verbatim** under
 `backends/ark_mlx/` rather than imported from the model repo, so the app never executes code
 downloaded from Hugging Face. Model identity became per-descriptor along the way, which removed three
 standing assumptions that there is exactly one model: `cache.py`'s single `MODEL_ID`,
@@ -490,7 +490,7 @@ requirements independent of latency.
 ### Runtime comparison across Python/MLX, Rust/Metal, C/Metal, and CoreML/ANE
 
 Measured 2026-08-13, M4 Pro, FLEURS n=64, every leg run **serially under an exclusive hardware
-window** and scored with `voiceoour_bench.metrics`. Warm in every case: model resident, kernels
+window** and scored with `voiceour_bench.metrics`. Warm in every case: model resident, kernels
 compiled, two discarded warm-up passes, model load reported separately and never inside a row.
 
 **Framework comparison.** Whisper large-v3-turbo is the one non-trivial ASR architecture MLX, Candle
@@ -598,13 +598,13 @@ Ranked by estimated engineering value, not implementation ease:
 - Single-utterance ASR latency without a corpus: `scripts/make_fixture.sh`, then
   `cd asr && uv --no-config run python ../scripts/phase0_asr_proof.py ../fixtures/audio/hello_16k_mono.wav`.
 - Accuracy/latency tiers and gates: `docs/benchmarks.md`; compare with
-  `voiceoour_bench.compare … --gate uwer_final:0.0035`.
+  `voiceour_bench.compare … --gate uwer_final:0.0035`.
 - ARK-ASR comparison: the harness was a scratch package outside this repository and is not committed,
   in line with the other raw artifacts here. To rebuild it, `uv` a Python 3.12 env with
   `mlx==0.32.0`, `transformers==4.57.6`, `librosa`, `jiwer` and `whisper-normalizer`; `snapshot_download`
   `leope/ark-asr-0.6B-mlx` and `leope/ark-asr-3B-mlx`; put each snapshot's bundled `src/` on
   `sys.path` and drive `ark_asr_mlx.api.ArkASR`. Iterate `benchmarks/data/<tier>/manifest.jsonl`,
-  skipping rows over 30 s because ARK raises on them, and score with `voiceoour_bench.metrics`
+  skipping rows over 30 s because ARK raises on them, and score with `voiceour_bench.metrics`
   (`uwer`, `cer`, `fwer`, `case_f1`, `percentiles`) so the numbers stay comparable to the tables above.
   Two setup requirements affect timing. Warm up on a clip of representative length because the
   first `librosa.load` triggers a multi-second numba import that otherwise appears in row one as

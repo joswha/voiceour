@@ -31,7 +31,7 @@ struct CaptureWAVTarget {
         }
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "voiceoour", isDirectory: true)
+            "voiceour", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
 
@@ -106,7 +106,7 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             // exactly why a Bluetooth warm-up gap went unnoticed for so long. One line
             // on stderr, matching the Apple path's init breakdown.
             let line =
-                "VoiceOour: capture device=\(capture.source.name)"
+                "Voiceour: capture device=\(capture.source.name)"
                 + "\(capture.source.isRedirected ? " (redirected from system default)" : "")\n"
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
         }

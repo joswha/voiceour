@@ -1,0 +1,38 @@
+ark_mlx — vendored ARK-ASR MLX runtime
+======================================
+
+Upstream:  leope/ark-asr-0.6B-mlx (Hugging Face), directory src/ark_asr_mlx/
+License:   Apache-2.0 (see the LICENSE file next to this NOTICE, copied from
+           the same upstream snapshot)
+
+Pinned snapshots
+----------------
+leope/ark-asr-0.6B-mlx  6ec069bd68cbbe165aa42728eac482c90cb58d2f
+leope/ark-asr-3B-mlx    63d9fb8ba352c5c7c65ff2336019048170563d63
+
+The nine vendored modules are byte-identical between the two snapshots, so a
+single copy serves both the 0.6B and the 3B backend.
+
+Vendored verbatim
+-----------------
+__init__.py, api.py, cache.py, config.py, decoder.py, encoder.py,
+generation.py, model.py, processor.py
+
+No edits were made: the files are byte-for-byte copies of the upstream
+snapshot. Modifications, if any are ever needed, must be recorded here.
+
+Omitted
+-------
+cli.py         — command-line entry point, unused by the sidecar.
+conversion.py  — PyTorch -> MLX weight converter; requires torch, which
+                 Voiceour does not ship. The weights we download are already
+                 converted.
+
+Why vendored
+------------
+The upstream model repositories ship their runtime as Python source inside the
+model repo. Fetching and importing that source at runtime would mean the app
+executes code downloaded from Hugging Face. Vendoring the runtime here keeps
+every line of executed code in this repository and under review, and lets the
+model cache fetch weights and tokenizer assets only (see cache.ARK_06B /
+cache.ARK_3B allow_patterns).

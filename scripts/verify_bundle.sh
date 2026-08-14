@@ -2,8 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-APP="$ROOT/.build/VoiceOour.app"
-BIN="$APP/Contents/MacOS/VoiceOour"
+APP="$ROOT/.build/Voiceour.app"
+BIN="$APP/Contents/MacOS/Voiceour"
 
 fail() {
   echo "verify_bundle.sh: $*" >&2
@@ -12,10 +12,10 @@ fail() {
 
 [ -x "$BIN" ] || fail "missing executable $BIN; run scripts/bundle.sh first"
 
-plutil -lint "$ROOT/Resources/Info.plist" "$ROOT/Resources/VoiceOour.entitlements"
+plutil -lint "$ROOT/Resources/Info.plist" "$ROOT/Resources/Voiceour.entitlements"
 
 bundle_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Contents/Info.plist")
-[ "$bundle_id" = "com.voiceoour.app" ] || fail "unexpected CFBundleIdentifier: $bundle_id"
+[ "$bundle_id" = "com.voiceour.app" ] || fail "unexpected CFBundleIdentifier: $bundle_id"
 
 lsui_element=$(/usr/libexec/PlistBuddy -c 'Print LSUIElement' "$APP/Contents/Info.plist")
 [ "$lsui_element" = "true" ] || fail "unexpected LSUIElement: $lsui_element"
@@ -40,4 +40,4 @@ esac
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-printf '%s\n' "VoiceOour bundle verification passed"
+printf '%s\n' "Voiceour bundle verification passed"

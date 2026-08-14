@@ -1,16 +1,15 @@
-/// Every refinement destination VoiceOour offers.
+/// Every refinement destination Voiceour offers.
 ///
 /// There are exactly two, and the axis is where the text goes, not who trained
 /// the model: `omp` hands the request to the locally installed Oh My Pi CLI,
 /// which owns the provider credentials and brokers whichever subscription the
 /// user signed into; `appleOnDevice` never leaves the Mac.
 ///
-/// VoiceOour used to speak to Gemini, OpenAI, OpenRouter and a hand-typed
-/// OpenAI-compatible endpoint itself, each with its own base URL, Keychain item
-/// and API-key field. Every one of them is reachable through OMP without this
-/// app ever holding a credential, so they are gone and the entire API-key
-/// surface went with them. A settings file naming one of them is migrated by
-/// `Settings.init(from:)`.
+/// There is deliberately no third case for talking to a model vendor directly.
+/// OMP already reaches all of them without this app holding a credential, so
+/// Voiceour has no API-key field, no keychain item and no per-provider base
+/// URL. Adding one back would put a secret in a bundle that cannot use the
+/// data protection keychain; `docs/architecture.md` records that measurement.
 public enum RefinerProvider: String, Codable, Equatable, Sendable, CaseIterable {
     case omp
     case appleOnDevice
@@ -69,7 +68,7 @@ public enum RefinerReadiness: Equatable, Sendable {
 
     public var isReady: Bool { self == .ready }
 
-    /// Neither provider takes a credential from VoiceOour: OMP holds its own,
+    /// Neither provider takes a credential from Voiceour: OMP holds its own,
     /// and the on-device model needs none. So readiness is only ever "is it on"
     /// and "does it have a model", and the on-device provider always has one.
     public static func evaluate(settings: Settings) -> RefinerReadiness {
@@ -88,7 +87,7 @@ public enum RefinerReadiness: Equatable, Sendable {
 /// How the configured refiner answered when last asked.
 ///
 /// There is no `unauthorized`: neither provider takes a credential from
-/// VoiceOour, so nothing can reject one. OMP owns its own tokens and reports a
+/// Voiceour, so nothing can reject one. OMP owns its own tokens and reports a
 /// broken one as an ordinary failure reason.
 public enum RefinerReachability: Equatable, Sendable {
     case unknown, checking

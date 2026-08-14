@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceoour_asr.decoding.vocabulary import WORD_BOUNDARY_MARKER, PieceVocabulary
+from voiceour_asr.decoding.vocabulary import WORD_BOUNDARY_MARKER, PieceVocabulary
 
 M = WORD_BOUNDARY_MARKER  # "▁"
 

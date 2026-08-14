@@ -1,6 +1,6 @@
 # Offscreen UI harness
 
-The UI harness renders VoiceOour's SwiftUI views into a borderless window parked far offscreen, dumps the in-process accessibility tree, lints both, and diffs the result against committed goldens. It exists so a coding agent can see and check the UI without a window ever appearing on your display and without the frontmost application changing.
+The UI harness renders Voiceour's SwiftUI views into a borderless window parked far offscreen, dumps the in-process accessibility tree, lints both, and diffs the result against committed goldens. It exists so a coding agent can see and check the UI without a window ever appearing on your display and without the frontmost application changing.
 
 It replaces `scripts/console_shot.sh` for everything except the glass materials themselves. Neither the legacy behind-window tint nor modern `.glassEffect` survives an offscreen capture (see [Limitations](#limitations)). `console_shot.sh` launches the real app, opens a visible 1164x820 console on your main display and screenshots it; the harness never does either.
 
@@ -18,7 +18,7 @@ It is compiled only when `UI_HARNESS` is defined. What defines it is `scripts/ui
 
 `RenderOverrides` and its two payload types (`TextRoleSample`, `TextRoleRecorder`) are deliberately **not** gated: many production files read the overrides, and `DesignTokenInstrumentation` sits on the canonical `.roleStyle(_:)` path. Every field is nil (or false) in a normal build and every production read is `override ?? <the real value>`, so shipping behaviour is unchanged. The name `RenderOverrides` reflects that the type ships. A harness-named type read by production code invites someone to gate it alongside `UIHarness/`, which does not compile.
 
-`nm .build/release/VoiceOour | grep -ci uiharness` is therefore `0`, and `swift build -c release` links no harness object. This checks that the harness *implementation* is absent. It does not mean the binary shrank to nothing. `RenderOverrides` still contributes about fourteen symbols of static storage under its own name, and renaming the type moved roughly 320 bytes; the gating itself removed 795 KB.
+`nm .build/release/Voiceour | grep -ci uiharness` is therefore `0`, and `swift build -c release` links no harness object. This checks that the harness *implementation* is absent. It does not mean the binary shrank to nothing. `RenderOverrides` still contributes about fourteen symbols of static storage under its own name, and renaming the type moved roughly 320 bytes; the gating itself removed 795 KB.
 
 ## Commands
 
@@ -47,7 +47,7 @@ scripts/ui_harness.sh --stdout --no-sheet       # NDJSON manifest on stdout, ski
 scripts/ui_harness.sh --help
 ```
 
-`scripts/ui_harness.sh` builds the package, then execs `.build/debug/VoiceOour --ui-harness --repo-root <repo>` with your arguments appended. You can call the binary directly if you already built it.
+`scripts/ui_harness.sh` builds the package, then execs `.build/debug/Voiceour --ui-harness --repo-root <repo>` with your arguments appended. You can call the binary directly if you already built it.
 
 ### CLI surface
 
@@ -66,7 +66,7 @@ scripts/ui_harness.sh --help
 | `--no-frames` | skip golden reconciliation for flow `.capture` frames. PNG and AX-dump artifacts are still written and linted. |
 | `--no-sheet` | skip the scene `contact-sheet.png`. |
 | `--stdout` | also write the selected manifest to stdout. Prose then moves to stderr so stdout stays valid JSON or NDJSON. |
-| `--repo-root DIR` | resolves the default `--out` and `--golden`. Also readable from `VOICEOOUR_REPO_ROOT`; defaults to the working directory. |
+| `--repo-root DIR` | resolves the default `--out` and `--golden`. Also readable from `VOICEOUR_REPO_ROOT`; defaults to the working directory. |
 | `--help`, `-h` | print usage and exit 0. |
 
 Exit codes: `0` success; `1` a scene or flow changed, is missing a golden, failed, produced an `error`-severity finding, the coverage ledger has a regression, stale baseline entry, broken declaration or undeclared claim, or a film reel failed to record; `2` a malformed `--ui-harness` invocation.
@@ -144,9 +144,9 @@ fixtures/ui/
 
 ## Scenes
 
-A scene is one deterministic thing the harness can render, dump and lint: an id, a title, a logical size, a forced colour scheme, tags, an optional interaction script, and a closure that builds the view. The type is `UIScene` in `Sources/VoiceOour/UIHarness/UIHarnessContracts.swift`.
+A scene is one deterministic thing the harness can render, dump and lint: an id, a title, a logical size, a forced colour scheme, tags, an optional interaction script, and a closure that builds the view. The type is `UIScene` in `Sources/Voiceour/UIHarness/UIHarnessContracts.swift`.
 
-The catalog is the single place scenes are declared: `UISceneCatalog` in `Sources/VoiceOour/UIHarness/UISceneCatalog.swift`, where `all()` concatenates the portable area groups and `systemGlassScenes`. Adding another scene for an existing surface is one catalog edit: append to the matching group array, using a factory rather than a raw `UIScene`. A new UI surface also needs a `UICoverageRegistry` entry, and every new interactive behaviour needs a `UIFlow` that claims its required coverage key.
+The catalog is the single place scenes are declared: `UISceneCatalog` in `Sources/Voiceour/UIHarness/UISceneCatalog.swift`, where `all()` concatenates the portable area groups and `systemGlassScenes`. Adding another scene for an existing surface is one catalog edit: append to the matching group array, using a factory rather than a raw `UIScene`. A new UI surface also needs a `UICoverageRegistry` entry, and every new interactive behaviour needs a `UIFlow` that claims its required coverage key.
 
 | factory | size | what it gives you |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ The catalog is the single place scenes are declared: `UISceneCatalog` in `Source
 | `systemConsole`, `systemMenu`, `systemOverlay` | matching legacy measure | tag `os26`; builds the deterministic fixture first, then releases `forceLegacyGlass` only for the hosted scene and restores it at teardown |
 | `sheet(_ id, _ title, size:) { view }` | your size | component gallery, tag `atom`, same padding and backdrop as `pane` |
 
-Console and pane scenes render at 1164x820 because that is the app's first-launch window: `UISceneCatalog.consoleSize` is `VoiceOourMetrics.Window.defaultWidth` x `Window.defaultHeight`, so a scene shows exactly the geometry a fresh install shows. The rail is 176, the region is 988, and the padded content region is 940. This also clears `ConsoleScaffold`'s 1164x560 minimum. Change the tokens and every console scene moves with them. The exception is `UISceneCatalog.tallConsoleSize`, used by the five keyed Refinement scenes whose subject is the model picker or the Status row: the window is resizable, and at 820 pt those fall below the fold.
+Console and pane scenes render at 1164x820 because that is the app's first-launch window: `UISceneCatalog.consoleSize` is `VoiceourMetrics.Window.defaultWidth` x `Window.defaultHeight`, so a scene shows exactly the geometry a fresh install shows. The rail is 176, the region is 988, and the padded content region is 940. This also clears `ConsoleScaffold`'s 1164x560 minimum. Change the tokens and every console scene moves with them. The exception is `UISceneCatalog.tallConsoleSize`, used by the five keyed Refinement scenes whose subject is the model picker or the Status row: the window is resizable, and at 820 pt those fall below the fold.
 
 ```swift
 console("console.glossary.empty", "Glossary with every term removed",
@@ -279,7 +279,7 @@ At `--scale 2`, flow frame artifacts and goldens use the same `<flow-id>.<frame>
 A reel is one media clip: an id, a title, a logical size, a forced colour scheme, a per-frame
 delay, and a stage. The stage is the real hosted view plus a script that mutates the real
 observable model the view watches. The types are `UIFilmReel`, `UIFilmStage` and `UIFilmRecorder`
-in `Sources/VoiceOour/UIHarness/UIFilmCatalog.swift`, and the catalog is `UIFilmCatalog`.
+in `Sources/Voiceour/UIHarness/UIFilmCatalog.swift`, and the catalog is `UIFilmCatalog`.
 
 **Reels are media and sit outside every gate.** Nothing diffs a frame, digests it, lints it, or
 declares coverage for it, and no `make` gate runs `film`. The reel's subject is the animation a
@@ -384,7 +384,7 @@ Findings arrive pre-sorted by severity, rule, path, frame origin and message, an
 
 ## Reading the manifest
 
-`manifest.jsonl` is newline-delimited JSON with sorted keys and an explicit `type` discriminator, matching the conventions of `voiceoour-bench` and `voiceoour-capture-bench`. The first line is the run, every following line is one scene, in catalog order.
+`manifest.jsonl` is newline-delimited JSON with sorted keys and an explicit `type` discriminator, matching the conventions of `voiceour-bench` and `voiceour-capture-bench`. The first line is the run, every following line is one scene, in catalog order.
 The sample below is illustrative; exact scene counts depend on the catalog and `--only` / `--except` selection.
 
 ```jsonc
@@ -465,7 +465,7 @@ Never run scene or flow update mode without reading the relevant diff first. Upd
 
 Two guards keep the harness and the screenshot script out of your way.
 
-The harness exits from the **first statement** of `VoiceOourApp.init()`, before the audio muter, the dictation coordinator, the recording overlay and the menu bar item exist. `UIHarnessRuntime.prepareProcess()` then pins the activation policy to `.prohibited`, which is the only policy measured to reliably not self-activate.
+The harness exits from the **first statement** of `VoiceourApp.init()`, before the audio muter, the dictation coordinator, the recording overlay and the menu bar item exist. `UIHarnessRuntime.prepareProcess()` then pins the activation policy to `.prohibited`, which is the only policy measured to reliably not self-activate.
 
 `ConsoleView.onAppear` normally promotes the app to `.regular` and calls `NSApp.activate`, because a user who opens the console expects a normal, Cmd-Tab-reachable window. A scene hosting the real `ConsoleView` would otherwise activate the app, so both `onAppear` and `onDisappear` are skipped when the policy is already `.prohibited` (the harness) or when the process was launched with `--no-activate`. A normal user launch matches neither condition and behaves exactly as before.
 
@@ -493,7 +493,7 @@ A flow inherits every scene limitation and additionally cannot verify the conten
 - **The menu harness does not reproduce `MenuBarExtra` host chrome.** `menu.*` scenes host `MenuView` in a generic borderless window. The `*.os26` variants gate the content and ensure it adds no nested custom glass, but only the real system popover supplies its outer material and dismissal behavior.
 - **`cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all.** The modern material is absent from the capture rather than flattened; its area comes out fully transparent. Measured over the committed goldens, `overlay.island.recording.os26.png` is 0.0% opaque and 59.3% fully transparent and `console.voice.os26.png` is 37.6% fully transparent, against 100% opaque for the painted `console.home.populated.png`; every non-transparent pixel in an `os26` console golden is the app's own paint (`a=255`) or its own `GroundScrim.ink = Ink.void.opacity(0.88)` scrim (`a=224`). An `os26` scene therefore verifies the native branch's own painted content, geometry, control boundaries and accessibility tree, but never the material. `UIKnownLimitation.systemGlassMaterial` is the coverage vocabulary for the part it cannot reach. Deleting the `GlassEffectContainer` from a nested glass stack was measured to leave the PNG byte-identical, so a glass change can be invisible to this gate in both directions. `scripts/console_shot.sh` is the only way to see composited glass.
 - **The transparent overlay panel additionally has no offscreen backdrop.** Over and above the missing material, `cacheDisplay` never asks WindowServer to composite a desktop behind the clear panel, so there is nothing for the island to refract even where it does paint. The `overlay.*.os26` scenes still gate the waveform and both painted control discs, including their glyphs, boundaries, sizes, and positions. They never gate the island's live backdrop refraction.
-- **Legacy behind-window glass renders as a flat tint.** This applies only to the `NSVisualEffectView` path, not modern `.glassEffect`. `FrostedGlassBackground` in `Sources/VoiceOour/GlassSurfaces.swift` sets `blendingMode = .behindWindow`: the WindowServer composites it from the actual desktop behind a real onscreen window. There is no desktop behind an offscreen window, so it rasterises as a single opaque fill, measured as exactly one distinct colour over the sampled area. Placing an opaque window behind it does not help. This also improves determinism because changing your wallpaper cannot perturb a golden. To see the composited effect you still need `scripts/console_shot.sh`.
+- **Legacy behind-window glass renders as a flat tint.** This applies only to the `NSVisualEffectView` path, not modern `.glassEffect`. `FrostedGlassBackground` in `Sources/Voiceour/GlassSurfaces.swift` sets `blendingMode = .behindWindow`: the WindowServer composites it from the actual desktop behind a real onscreen window. There is no desktop behind an offscreen window, so it rasterises as a single opaque fill, measured as exactly one distinct colour over the sampled area. Placing an opaque window behind it does not help. This also improves determinism because changing your wallpaper cannot perturb a golden. To see the composited effect you still need `scripts/console_shot.sh`.
 - **`cacheDisplay` drops `.blur(radius:)` and `.shadow(...)`.** Those are Core Animation filters and are not composited by the capture path. A scene whose entire point is a blur or a drop shadow cannot be verified here.
 - **`NSColor.controlAccentColor` is machine-dependent.** It resolves to the user's System Settings accent colour and no environment key overrides it. A golden containing the system accent will not port between machines. Use SwiftUI's `Color.accentColor`, which is machine-independent.
 - **List row selection cannot be driven by a synthetic click.** `NSTableView` row selection requires the application to be active, and the harness is deliberately never active. Drive list selection through the model instead, or expose it as a separate scene with the selection already applied.

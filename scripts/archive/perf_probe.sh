@@ -1,12 +1,12 @@
 #!/bin/bash
 # perf_probe.sh — bounded render-performance baseline for the already-running
-# VoiceOour console. CPU proxy rows are always retained; Animation Hitches is
+# Voiceour console. CPU proxy rows are always retained; Animation Hitches is
 # fail-closed and is never reported unless capture and XML export fully validate.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER_SRC="$SCRIPT_DIR/perf_probe_helper.swift"
-OUT="${PERF_PROBE_OUT:-/tmp/voiceoour_perf_baseline.txt}"
+OUT="${PERF_PROBE_OUT:-/tmp/voiceour_perf_baseline.txt}"
 DUR_IDLE="${DUR_IDLE:-6}"
 DUR_HOVER="${DUR_HOVER:-10}"
 DUR_SCROLL="${DUR_SCROLL:-10}"
@@ -36,7 +36,7 @@ DUR_HOVER="$(validate_duration DUR_HOVER "$DUR_HOVER")" || exit $?
 DUR_SCROLL="$(validate_duration DUR_SCROLL "$DUR_SCROLL")" || exit $?
 XCTRACE_SECS="$(validate_duration XCTRACE_SECS "$XCTRACE_SECS")" || exit $?
 
-WORKDIR="$(/usr/bin/mktemp -d /tmp/voiceoour_perf.XXXXXX)" || exit 1
+WORKDIR="$(/usr/bin/mktemp -d /tmp/voiceour_perf.XXXXXX)" || exit 1
 BIN="$WORKDIR/perf_helper"
 JOB_SEQUENCE=0
 PENDING_PID=""
@@ -72,7 +72,7 @@ start_group() {
   base="$WORKDIR/job.$$.${JOB_SEQUENCE}.${RANDOM}"
   START_CONTROL="${base}.control"
   START_STATE="${base}.state"
-  START_TOKEN="voiceoour-perf-job.$$.${JOB_SEQUENCE}.${RANDOM}"
+  START_TOKEN="voiceour-perf-job.$$.${JOB_SEQUENCE}.${RANDOM}"
   : >"$START_CONTROL" || return 1
   : >"$START_STATE" || return 1
 
@@ -337,19 +337,19 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-APP_PID="${PERF_PROBE_APP_PID:-$(/usr/bin/pgrep -f 'VoiceOour.app/Contents/MacOS/VoiceOour' | /usr/bin/sed -n '1p')}"
+APP_PID="${PERF_PROBE_APP_PID:-$(/usr/bin/pgrep -f 'Voiceour.app/Contents/MacOS/Voiceour' | /usr/bin/sed -n '1p')}"
 WS_PID="${PERF_PROBE_WS_PID:-$(/usr/bin/pgrep -x WindowServer | /usr/bin/sed -n '1p')}"
-case "$APP_PID" in ''|*[!0-9]*) log 'ERROR: VoiceOour is not running.'; exit 1 ;; esac
+case "$APP_PID" in ''|*[!0-9]*) log 'ERROR: Voiceour is not running.'; exit 1 ;; esac
 case "$WS_PID" in ''|*[!0-9]*) log 'ERROR: WindowServer pid not found.'; exit 1 ;; esac
 APP_IDENTITY="$(/bin/ps -o lstart= -p "$APP_PID" 2>/dev/null)"
-[ -n "$APP_IDENTITY" ] || { log 'ERROR: VoiceOour pid is not alive.'; exit 1; }
+[ -n "$APP_IDENTITY" ] || { log 'ERROR: Voiceour pid is not alive.'; exit 1; }
 app_alive() {
   local identity
   /bin/kill -0 "$APP_PID" 2>/dev/null || return 1
   identity="$(/bin/ps -o lstart= -p "$APP_PID" 2>/dev/null)"
   [ -n "$identity" ] && [ "$identity" = "$APP_IDENTITY" ]
 }
-app_alive || { log 'ERROR: VoiceOour pid is not alive.'; exit 1; }
+app_alive || { log 'ERROR: Voiceour pid is not alive.'; exit 1; }
 log "app pid=$APP_PID  WindowServer pid=$WS_PID"
 
 if [ -n "${PERF_PROBE_HELPER_BIN:-}" ]; then
@@ -382,7 +382,7 @@ NEEDS_INPUT=0
 if [ "$DUR_HOVER" -gt 0 ] || [ "$DUR_SCROLL" -gt 0 ] || [ "$XCTRACE_SECS" -gt 0 ]; then NEEDS_INPUT=1; fi
 if [ "$NEEDS_INPUT" -eq 1 ]; then
   if [ "${PERF_PROBE_SKIP_ACTIVATE:-0}" -ne 1 ]; then
-    /usr/bin/osascript -e 'tell application "VoiceOour" to activate' >/dev/null 2>&1 || true
+    /usr/bin/osascript -e 'tell application "Voiceour" to activate' >/dev/null 2>&1 || true
     /bin/sleep 0.6
   fi
   PRE_OUT="$("$BIN" preflight 2>/dev/null)"; PRE_RC=$?
@@ -507,7 +507,7 @@ if [ "$XCTRACE_SECS" -gt 0 ]; then
             # Activate and settle before tracing, then revalidate process/window. Never
             # activate inside the trace window, so a valid count is hover-only injection.
             if [ "${PERF_PROBE_SKIP_ACTIVATE:-0}" -ne 1 ]; then
-              /usr/bin/osascript -e 'tell application "VoiceOour" to activate' >/dev/null 2>&1 || true
+              /usr/bin/osascript -e 'tell application "Voiceour" to activate' >/dev/null 2>&1 || true
               /bin/sleep 0.6
             fi
             TRACE_WIN="$("$BIN" window 2>/dev/null)"; TRACE_WIN_RC=$?
@@ -520,7 +520,7 @@ EOF
               if ! /usr/bin/awk "BEGIN{exit !($WW>100 && $WH>100)}"; then
                 XCTRACE_STATUS='app/window invalid before record'
               else
-                NOTIFY_KEY="com.voiceoour.perf.trace.$$.${RANDOM}"
+                NOTIFY_KEY="com.voiceour.perf.trace.$$.${RANDOM}"
                 NOTIFY_TOKEN=$((100000 + RANDOM))
                 if ! start_group "$WORKDIR/notify.out" "$WORKDIR/notify.err" "$NOTIFYUTIL" -1 "$NOTIFY_KEY"; then
                   stop_and_reap "$START_PID" "$START_CONTROL" "$START_STATE" "$START_TOKEN" 1 1
@@ -712,7 +712,7 @@ else
 fi
 
 if ! {
-  echo 'VoiceOour render-perf baseline'
+  echo 'Voiceour render-perf baseline'
   echo "date            : $(/bin/date '+%Y-%m-%d %H:%M:%S %Z')"
   echo "app pid         : $APP_PID    WindowServer pid: $WS_PID"
   echo "console window  : x=$WX y=$WY w=$WW h=$WH"

@@ -309,7 +309,7 @@ import VoiceCore
             let totalDuration = Date().timeIntervalSince(initStartedAt)
             let breakdown = String(
                 format:
-                    "VoiceOour: session init breakdown total=%.1fms capture_start=%.1fms analyzer=%.1fms file=%.1fms device=%@%@\n",
+                    "Voiceour: session init breakdown total=%.1fms capture_start=%.1fms analyzer=%.1fms file=%.1fms device=%@%@\n",
                 totalDuration * 1_000,
                 captureStartDuration * 1_000,
                 analyzerDuration * 1_000,

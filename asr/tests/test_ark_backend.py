@@ -7,20 +7,20 @@ from threading import Event
 
 import pytest
 
-from voiceoour_asr import cache
-from voiceoour_asr.__main__ import make_backend
-from voiceoour_asr.backends.ark import ArkBackend
-from voiceoour_asr.errors import ErrorCode
-from voiceoour_asr.protocol import AudioMeta, ExpectedModel, TranscribeRequest
+from voiceour_asr import cache
+from voiceour_asr.__main__ import make_backend
+from voiceour_asr.backends.ark import ArkBackend
+from voiceour_asr.errors import ErrorCode
+from voiceour_asr.protocol import AudioMeta, ExpectedModel, TranscribeRequest
 
 ARK_BACKENDS = [("ark-0.6b", cache.ARK_06B), ("ark-3b", cache.ARK_3B)]
 
 
 @pytest.fixture
 def default_cache(monkeypatch: pytest.MonkeyPatch):
-    """The cache module as an install without VOICEOOUR_MODEL_CACHE sees it."""
+    """The cache module as an install without VOICEOUR_MODEL_CACHE sees it."""
     with monkeypatch.context() as isolated_env:
-        isolated_env.delenv("VOICEOOUR_MODEL_CACHE", raising=False)
+        isolated_env.delenv("VOICEOUR_MODEL_CACHE", raising=False)
         yield importlib.reload(cache)
     importlib.reload(cache)
 
@@ -29,7 +29,7 @@ def transcribe_request(model_id: str, revision: str) -> TranscribeRequest:
     return TranscribeRequest(
         request_id="req",
         audio=AudioMeta(
-            path="/tmp/voiceoour-absent.wav",
+            path="/tmp/voiceour-absent.wav",
             format="wav",
             sample_rate_hz=16000,
             channels=1,
@@ -47,7 +47,7 @@ def local_spec(spec: cache.ModelSpec, tmp_path) -> cache.ModelSpec:
 
 @pytest.mark.parametrize("backend_name", [name for name, _ in ARK_BACKENDS])
 def test_make_backend_maps_ark_ids_to_ark_backend(monkeypatch: pytest.MonkeyPatch, backend_name):
-    monkeypatch.setenv("VOICEOOUR_ASR_BACKEND", backend_name)
+    monkeypatch.setenv("VOICEOUR_ASR_BACKEND", backend_name)
 
     backend = make_backend()
 
@@ -58,7 +58,7 @@ def test_make_backend_maps_ark_ids_to_ark_backend(monkeypatch: pytest.MonkeyPatc
 @pytest.mark.parametrize(("backend_name", "spec"), ARK_BACKENDS)
 def test_ark_backend_accepts_its_own_pinned_model(monkeypatch: pytest.MonkeyPatch, backend_name, spec):
     """A matching expected_model gets past the identity gate; the absent audio proves no model was loaded."""
-    monkeypatch.setenv("VOICEOOUR_ASR_BACKEND", backend_name)
+    monkeypatch.setenv("VOICEOUR_ASR_BACKEND", backend_name)
 
     result = make_backend().transcribe(transcribe_request(spec.model_id, spec.revision), Event())
 
@@ -68,7 +68,7 @@ def test_ark_backend_accepts_its_own_pinned_model(monkeypatch: pytest.MonkeyPatc
 @pytest.mark.parametrize(("backend_name", "spec"), ARK_BACKENDS)
 def test_ark_backend_rejects_the_other_ark_model(monkeypatch: pytest.MonkeyPatch, backend_name, spec):
     other = next(other for name, other in ARK_BACKENDS if name != backend_name)
-    monkeypatch.setenv("VOICEOOUR_ASR_BACKEND", backend_name)
+    monkeypatch.setenv("VOICEOUR_ASR_BACKEND", backend_name)
 
     result = make_backend().transcribe(transcribe_request(other.model_id, other.revision), Event())
 
@@ -78,7 +78,7 @@ def test_ark_backend_rejects_the_other_ark_model(monkeypatch: pytest.MonkeyPatch
 
 @pytest.mark.parametrize(("backend_name", "spec"), ARK_BACKENDS)
 def test_ark_backend_rejects_a_stale_revision(monkeypatch: pytest.MonkeyPatch, backend_name, spec):
-    monkeypatch.setenv("VOICEOOUR_ASR_BACKEND", backend_name)
+    monkeypatch.setenv("VOICEOUR_ASR_BACKEND", backend_name)
 
     result = make_backend().transcribe(transcribe_request(spec.model_id, "0" * 40), Event())
 
@@ -95,7 +95,7 @@ def test_model_caches_do_not_collide(default_cache):
 
 def test_parakeet_keeps_its_existing_cache_directory(default_cache):
     assert default_cache.PARAKEET.cache_dir.name == "parakeet"
-    assert default_cache.PARAKEET.cache_dir.parent.name == "VoiceOour"
+    assert default_cache.PARAKEET.cache_dir.parent.name == "Voiceour"
 
 
 @pytest.mark.parametrize("spec", [cache.ARK_06B, cache.ARK_3B])

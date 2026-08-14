@@ -89,7 +89,7 @@ private struct OmpProviderCounts {
     var disabled = 0
 }
 
-/// Reads OMP's redacted public usage inventory. VoiceOour deliberately ignores
+/// Reads OMP's redacted public usage inventory. Voiceour deliberately ignores
 /// account identities and receives only provider ids plus aggregate counts; it
 /// never opens OMP's credential database or handles access/refresh tokens.
 public enum OmpProviderStatusProbe {

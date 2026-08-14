@@ -14,7 +14,7 @@ import Testing
 struct ASRBackendRegistryTests {
     private let registry = ASRBackendRegistry.builtIn
     private let context = ASRBackendContext(
-        asrDirectory: URL(fileURLWithPath: "/tmp/voiceoour-asr"),
+        asrDirectory: URL(fileURLWithPath: "/tmp/voiceour-asr"),
         speechLocale: "en_US"
     )
 

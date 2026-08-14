@@ -3,7 +3,7 @@
   "protocol_version": 1,
   "request_id": "00000000-0000-0000-0000-000000000002",
   "audio": {
-    "path": "/tmp/voiceoour/00000000-0000-0000-0000-000000000002.wav",
+    "path": "/tmp/voiceour/00000000-0000-0000-0000-000000000002.wav",
     "format": "wav",
     "sample_rate_hz": 16000,
     "channels": 1,

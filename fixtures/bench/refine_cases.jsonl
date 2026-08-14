@@ -1,7 +1,7 @@
 {"id":"llm_p01_url_flag_number","raw_text":"the API is at https://x.io/v1 --port 8080","formatted_reference":"the API is at https://x.io/v1 --port 8080","reference":"the API is at https://x.io/v1 --port 8080"}
 {"id":"llm_p02_duplicate_stopwords","raw_text":"I want to ship","formatted_reference":"I want to ship","reference":"I want to ship"}
 {"id":"llm_p03_glossary_alias_done","raw_text":"send it with NSPasteboard","formatted_reference":"send it with NSPasteboard","reference":"send it with NSPasteboard"}
-{"id":"llm_p04_path_preserved","raw_text":"open ~/src/VoiceOour/Package.swift","formatted_reference":"open ~/src/VoiceOour/Package.swift","reference":"open ~/src/VoiceOour/Package.swift"}
+{"id":"llm_p04_path_preserved","raw_text":"open ~/src/Voiceour/Package.swift","formatted_reference":"open ~/src/Voiceour/Package.swift","reference":"open ~/src/Voiceour/Package.swift"}
 {"id":"llm_p05_identifiers_preserved","raw_text":"call AXUIElement and AVAudioEngine","formatted_reference":"call AXUIElement and AVAudioEngine","reference":"call AXUIElement and AVAudioEngine"}
 {"id":"llm_p06_number_preserved","raw_text":"set sample rate to 16000","formatted_reference":"set sample rate to 16000","reference":"set sample rate to 16000"}
 {"id":"llm_p07_self_correction","raw_text":"use terminal no use text edit","formatted_reference":"use terminal no use text edit","reference":"use terminal no use text edit"}
@@ -52,4 +52,4 @@
 {"id":"glossary_avaudioengine","raw_text":"preserve AVAudioEngine exactly","formatted_reference":"preserve AVAudioEngine exactly","reference":"preserve AVAudioEngine exactly"}
 {"id":"glossary_kubectl","raw_text":"preserve kubectl exactly","formatted_reference":"preserve kubectl exactly","reference":"preserve kubectl exactly"}
 {"id":"glossary_mlx_lm","raw_text":"preserve MLX-LM exactly","formatted_reference":"preserve MLX-LM exactly","reference":"preserve MLX-LM exactly"}
-{"id":"glossary_voiceoour","raw_text":"preserve VoiceOour exactly","formatted_reference":"preserve VoiceOour exactly","reference":"preserve VoiceOour exactly"}
+{"id":"glossary_voiceour","raw_text":"preserve Voiceour exactly","formatted_reference":"preserve Voiceour exactly","reference":"preserve Voiceour exactly"}

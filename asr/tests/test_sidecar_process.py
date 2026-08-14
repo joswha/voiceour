@@ -26,7 +26,7 @@ def transcribe_request(request_id: str) -> dict[str, object]:
         "protocol_version": PROTOCOL_VERSION,
         "request_id": request_id,
         "audio": {
-            "path": "/tmp/voiceoour-fake.wav",
+            "path": "/tmp/voiceour-fake.wav",
             "format": "wav",
             "sample_rate_hz": 16000,
             "channels": 1,
@@ -41,13 +41,13 @@ def transcribe_request(request_id: str) -> dict[str, object]:
 def sidecar(*, backend: str = "fake", extra_env: dict[str, str] | None = None) -> Iterator[subprocess.Popen[str]]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    env["VOICEOOUR_ASR_BACKEND"] = backend
-    env.pop("VOICEOOUR_FAKE_DELAY_MS", None)
+    env["VOICEOUR_ASR_BACKEND"] = backend
+    env.pop("VOICEOUR_FAKE_DELAY_MS", None)
     if extra_env:
         env.update(extra_env)
 
     proc = subprocess.Popen(
-        [sys.executable, "-m", "voiceoour_asr"],
+        [sys.executable, "-m", "voiceour_asr"],
         cwd=ASR_DIR,
         env=env,
         stdin=subprocess.PIPE,
@@ -181,7 +181,7 @@ def test_unknown_backend_env_returns_backend_unavailable_error():
 
 def test_delayed_transcribe_can_be_cancelled_before_fake_delay():
     delay_ms = 1000
-    with sidecar(extra_env={"VOICEOOUR_FAKE_DELAY_MS": str(delay_ms)}) as proc:
+    with sidecar(extra_env={"VOICEOUR_FAKE_DELAY_MS": str(delay_ms)}) as proc:
         assert_fake_hello(read_protocol(proc))
 
         start_ns = time.monotonic_ns()

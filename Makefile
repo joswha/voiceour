@@ -101,37 +101,37 @@ N ?= 200
 BACKEND ?= mlx
 
 bench-smoke:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode e2e --backend fake
+	cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode e2e --backend fake
 
 bench-stt:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend $(BACKEND) --n $(N)
+	cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend $(BACKEND) --n $(N)
 
 bench-refine:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier smoke --mode refine --refine deterministic
+	cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode refine --refine deterministic
 
 bench-e2e:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier fleurs --mode e2e --backend $(BACKEND) --n $(N)
+	cd bench && uv --no-config run python -m voiceour_bench.run --tier fleurs --mode e2e --backend $(BACKEND) --n $(N)
 
 bench-techterms:
-	cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend $(BACKEND)
+	cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend $(BACKEND)
 
 .PHONY: bench-capture-plan bench-capture-run bench-capture-report
 
 bench-capture-plan:
-	cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix plan \
+	cd bench && uv --no-config run python -m voiceour_bench.capture_matrix plan \
 	  --prompts ../benchmarks/data/techterms/capture-prompts.jsonl \
 	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
 	  --output-dir ../benchmarks/data/techterms/real-speaker-audio \
 	  --speaker-id speaker-001 --speaker-kind real --takes 2 --dry-run
 
 bench-capture-run:
-	cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix run \
+	cd bench && uv --no-config run python -m voiceour_bench.capture_matrix run \
 	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
 	  --results ../benchmarks/results/techterms-capture.results.jsonl \
 	  --consent-confirmed
 
 bench-capture-report:
-	cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix report \
+	cd bench && uv --no-config run python -m voiceour_bench.capture_matrix report \
 	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
 	  --results ../benchmarks/results/techterms-capture.results.jsonl \
 	  --output ../benchmarks/results/techterms-capture.report.json

@@ -15,21 +15,21 @@ from threading import Event
 import pytest
 from parakeet_mlx.alignment import AlignedResult, AlignedSentence, AlignedToken
 
-from voiceoour_asr import cache
-from voiceoour_asr.backends.mlx import MLXBackend, _DecodeOutput
-from voiceoour_asr.decoding import (
+from voiceour_asr import cache
+from voiceour_asr.backends.mlx import MLXBackend, _DecodeOutput
+from voiceour_asr.decoding import (
     aligned_result_to_transcript,
     geometric_mean_confidence,
     tokens_to_words,
 )
-from voiceoour_asr.decoding.nbest import (
+from voiceour_asr.decoding.nbest import (
     FORCED_CANDIDATE_SCORING_AVAILABLE,
     NBestHypothesis,
     build_nbest_model,
     forced_candidate_scoring_note,
     rank_hypotheses,
 )
-from voiceoour_asr.protocol import AudioMeta, ConfidenceMode, ErrorCode, TranscribeRequest
+from voiceour_asr.protocol import AudioMeta, ConfidenceMode, ErrorCode, TranscribeRequest
 
 
 def test_transcribe_fails_fast_while_parakeet_is_still_being_acquired(tmp_path, monkeypatch):
@@ -280,7 +280,7 @@ def _stub_backend(monkeypatch, output):
 
 
 def test_greedy_default_emits_single_rank0_and_greedy_decoder(monkeypatch, tmp_path):
-    monkeypatch.delenv("VOICEOOUR_ASR_DECODING", raising=False)
+    monkeypatch.delenv("VOICEOUR_ASR_DECODING", raising=False)
     primary = AlignedResult(
         text="hi there",
         sentences=[AlignedSentence(text="hi there", tokens=[_token(" hi", 0.0, 0.5, 0.9)])],
@@ -300,7 +300,7 @@ def test_greedy_default_emits_single_rank0_and_greedy_decoder(monkeypatch, tmp_p
 
 
 def test_beam_env_emits_ranked_hypotheses_and_beam_decoder(monkeypatch, tmp_path):
-    monkeypatch.setenv("VOICEOOUR_ASR_DECODING", "beam")
+    monkeypatch.setenv("VOICEOUR_ASR_DECODING", "beam")
     r0 = AlignedResult(text="best", sentences=[AlignedSentence(text="best", tokens=[_token(" best", 0.0, 0.4, 0.9)])])
     r1 = AlignedResult(text="rest", sentences=[AlignedSentence(text="rest", tokens=[_token(" rest", 0.0, 0.4, 0.7)])])
     output = _DecodeOutput(

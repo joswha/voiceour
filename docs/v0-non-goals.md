@@ -1,6 +1,6 @@
 # v0 non-goals
 
-VoiceOour v0 deliberately defers the following:
+Voiceour v0 deliberately defers the following:
 
 - No Mac App Store or App Sandbox target.
 - No bundled signed Python helper in the core development path.

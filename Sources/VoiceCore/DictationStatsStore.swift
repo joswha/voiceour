@@ -39,16 +39,16 @@ public struct DictationStatsStore: Sendable {
             try clear()
             return
         }
-        try writeVoiceOourPrivateJSON(ledger, to: url)
+        try writeVoiceourPrivateJSON(ledger, to: url)
     }
 
     public func clear() throws {
-        try removeVoiceOourPrivateState(at: url)
+        try removeVoiceourPrivateState(at: url)
     }
 
     public static let fileName = "dictation-stats.json"
 
     public static var defaultURL: URL {
-        URL.voiceOourSupportDirectory.appendingPathComponent(fileName)
+        URL.voiceourSupportDirectory.appendingPathComponent(fileName)
     }
 }

@@ -2,13 +2,13 @@
 
 ## Default Context
 
-VoiceOour is a macOS menu-bar dictation app. The intended user flow is: focus any text input, tap Fn/Globe by itself, speak one utterance, transcribe locally through the Python ASR sidecar, clean/refine text when configured, then paste or copy the final text into whichever target is focused when delivery begins.
+Voiceour is a macOS menu-bar dictation app. The intended user flow is: focus any text input, tap Fn/Globe by itself, speak one utterance, transcribe locally through the Python ASR sidecar, clean/refine text when configured, then paste or copy the final text into whichever target is focused when delivery begins.
 
-The product/repo name appears as `VoiceOour` / `voiceoour`. Do not rename either without explicit instruction.
+The product/repo name appears as `Voiceour` / `voiceour`. Do not rename either without explicit instruction.
 
 ## Terminology
 
-- **VoiceOour**: the Swift executable target and macOS app.
+- **Voiceour**: the Swift executable target and macOS app.
 - **VoiceCore**: pure Swift/Foundation domain logic and contracts.
 - **VoiceMac**: macOS adapters for audio, pasteboard, permissions, hotkeys, process management, and optional refinement.
 - **ASR sidecar**: the Python process under `asr/` that speaks the transcription protocol over stdio.
@@ -22,8 +22,8 @@ The product/repo name appears as `VoiceOour` / `voiceoour`. Do not rename either
 | --- | --- |
 | `Sources/VoiceCore/` | Foundation-only models, session state, settings, cleanup, glossary, ASR wire types, and safety classification. |
 | `Sources/VoiceMac/` | macOS-specific adapters: audio recording, fake audio, sidecar process client, target tracking, pasteboard insertion, permissions, Carbon hotkey binding, and the optional refiner backends. |
-| `Sources/VoiceOour/` | SwiftUI `MenuBarExtra`, settings UI, recording overlay, and `DictationCoordinator` orchestration. |
-| `Sources/VoiceOour/UIHarness/` | Offscreen UI harness: scene and flow catalogs, inert fixtures, deterministic runner, accessibility dump, UX lint, coverage ledger, and the `--ui-harness` CLI. |
+| `Sources/Voiceour/` | SwiftUI `MenuBarExtra`, settings UI, recording overlay, and `DictationCoordinator` orchestration. |
+| `Sources/Voiceour/UIHarness/` | Offscreen UI harness: scene and flow catalogs, inert fixtures, deterministic runner, accessibility dump, UX lint, coverage ledger, and the `--ui-harness` CLI. |
 | `asr/` | `uv`-managed Python package for the local ASR sidecar. |
 | `fixtures/protocol/` | Golden NDJSON/JSON protocol fixtures decoded by both Swift and Python tests. |
 | `fixtures/text/` | Text cleanup fixtures. |
@@ -36,7 +36,7 @@ The product/repo name appears as `VoiceOour` / `voiceoour`. Do not rename either
 
 - Keep `VoiceCore` pure Swift/Foundation. Do not import AppKit, SwiftUI, AVFoundation, Accessibility, CoreGraphics event posting, pasteboard APIs, process-launch APIs, or Keychain APIs there.
 - Put macOS APIs and side effects in `VoiceMac` behind small protocols/types consumed by the app layer.
-- Keep `VoiceOour` focused on UI and orchestration. `DictationCoordinator` owns the live session flow and should stay `@MainActor` for observable UI state.
+- Keep `Voiceour` focused on UI and orchestration. `DictationCoordinator` owns the live session flow and should stay `@MainActor` for observable UI state.
 - Preserve dependency injection around recording, ASR, target tracking, insertion, permissions, hotkeys, refinement, settings, and recent-session storage. Tests and fake development rely on substitutable services.
 - Keep fake-backend development intact. The fake ASR/audio path is the default smoke path and must not require microphone permission, model download, or network refiner configuration.
 
@@ -67,7 +67,7 @@ The sidecar protocol is newline-delimited JSON over stdio.
 - Startup emits `hello`.
 - Accepted request types are `health`, `transcribe`, and `cancel`.
 - Each `transcribe` request must produce exactly one terminal `result`, `error`, or `cancelled` response.
-- The sidecar is a persistent process: the Swift client spawns it once, keeps stdio open, and multiplexes requests by `request_id`; Python runs `transcribe` on a worker thread so `cancel` is actionable mid-request. `VOICEOOUR_PRELOAD=1` preloads the MLX model after `hello` and runs one warm-up inference so the first dictation skips MLX lazy kernel compilation.
+- The sidecar is a persistent process: the Swift client spawns it once, keeps stdio open, and multiplexes requests by `request_id`; Python runs `transcribe` on a worker thread so `cancel` is actionable mid-request. `VOICEOUR_PRELOAD=1` preloads the MLX model after `hello` and runs one warm-up inference so the first dictation skips MLX lazy kernel compilation.
 - Wire-contract changes must update Swift protocol models, Python protocol models, and shared fixtures in `fixtures/protocol/` together.
 - Keep Python protocol tests and Swift protocol tests decoding the same fixture set.
 
@@ -95,7 +95,7 @@ This app touches the user's active workspace. Treat insertion safety as product-
 - After the model cache manifest exists, the sidecar should load with `HF_HUB_OFFLINE=1`.
 - Network access is acceptable for first model download/cache setup or when the user explicitly enables/configures the optional refiner.
 - Never enable network refinement by default.
-- Network refinement leaves this machine only through the `omp` subprocess. VoiceOour holds no provider credential: no API-key field, no credential environment variable, no keychain item, and no per-provider base URL. Do not add one back — OMP already reaches every provider on the user's behalf, and the entitlement reason a keychain cannot work here is recorded in `docs/architecture.md`.
+- Network refinement leaves this machine only through the `omp` subprocess. Voiceour holds no provider credential: no API-key field, no credential environment variable, no keychain item, and no per-provider base URL. Do not add one back — OMP already reaches every provider on the user's behalf, and the entitlement reason a keychain cannot work here is recorded in `docs/architecture.md`.
 - The Model field is a picker whose options come from `omp models --json`; never reintroduce a free-text model id. `OmpModelCatalog.load` is the single loader behind both the picker and the CHECK probe so the two can never describe different lists.
 - That catalog query is the one `omp` call that runs with `shadowCredentials: false`, and it must stay that way. The single-space credential tombstones protect the transcript-bearing path, but OMP advertises a provider whenever its variable is *set*: shadowed, `omp models --json` returns 50 providers the refiner cannot reach, and `GITLAB_TOKEN=" "` makes it hang forever with nothing on stderr. Both measured; see `docs/architecture.md`.
 - Protected glossary terms must survive deterministic cleanup and optional refiner output exactly.
@@ -114,7 +114,7 @@ This app touches the user's active workspace. Treat insertion safety as product-
 
 - The ASR package is under `asr/` and requires Python 3.11+.
 - Use `uv --no-config` for Python commands in this environment; the repo docs call out a machine-level `uv` config issue.
-- Keep backend selection through `VOICEOOUR_ASR_BACKEND=fake|mlx|ark-0.6b|ark-3b`. `mlx` is the default real backend; the ARK ones are opt-in and share the runtime vendored under `asr/src/voiceoour_asr/backends/ark_mlx/`, which is a verbatim upstream copy — patch it only with a matching NOTICE entry.
+- Keep backend selection through `VOICEOUR_ASR_BACKEND=fake|mlx|ark-0.6b|ark-3b`. `mlx` is the default real backend; the ARK ones are opt-in and share the runtime vendored under `asr/src/voiceour_asr/backends/ark_mlx/`, which is a verbatim upstream copy — patch it only with a matching NOTICE entry.
 - Preserve the deterministic fake backend for tests and smoke runs.
 - Keep Pydantic protocol/schema validation strict enough to catch malformed wire messages.
 - Do not let dependency logs leak to stdout.
@@ -154,12 +154,12 @@ Do not use real-ASR or GUI/manual flows as routine verification unless the chang
 - For Swift app behavior or bundled-resource changes, do not stop at source edits or tests. Rebuild and restart the running menu-bar app before yielding so the user never tests a stale binary.
 - For UI changes, verify offscreen with `make ui-snap` first. Relaunching the app takes over the user's screen, so reserve it for changes that genuinely need the live app: menu-bar item behavior, hotkeys, real insertion, permission prompts, or either glass material — the offscreen capture shows neither the legacy behind-window tint nor modern `.glassEffect`.
 - Prefer the fake path for fast iteration when real ASR is not required: `scripts/run_dev.sh --self-test` for smoke verification and `scripts/run_dev.sh` for an interactive fake launch.
-- If `.build/VoiceOour.app` or a real-ASR instance is running, rebuild the bundle with `scripts/bundle.sh`, quit existing `VoiceOour` processes, then reopen with the correct launch path (`scripts/restart_real.sh` for MLX/real-bundle testing, `scripts/run_dev.sh` for fake development).
-- When a user reports stale UI or behavior, confirm the active `VoiceOour` process path/arguments after relaunch before declaring the fix visible.
+- If `.build/Voiceour.app` or a real-ASR instance is running, rebuild the bundle with `scripts/bundle.sh`, quit existing `Voiceour` processes, then reopen with the correct launch path (`scripts/restart_real.sh` for MLX/real-bundle testing, `scripts/run_dev.sh` for fake development).
+- When a user reports stale UI or behavior, confirm the active `Voiceour` process path/arguments after relaunch before declaring the fix visible.
 
 ## Offscreen UI Harness
 
-`VoiceOour --ui-harness` renders SwiftUI views into a borderless window parked at -30000,-30000, dumps the in-process accessibility tree, lints both, and diffs against the scene goldens in `fixtures/ui/`. Its flow layer drives real views and the real `DictationCoordinator` through deterministic multi-step journeys, checks named semantics, and reconciles journals and optional captured frames under `fixtures/ui/flows/`. It needs no Screen Recording or Accessibility permission, never orders a window onscreen, and leaves the frontmost application unchanged. It is the default way to inspect this app's UI and interactive UI behaviour. Full reference: `docs/ui-harness.md`.
+`Voiceour --ui-harness` renders SwiftUI views into a borderless window parked at -30000,-30000, dumps the in-process accessibility tree, lints both, and diffs against the scene goldens in `fixtures/ui/`. Its flow layer drives real views and the real `DictationCoordinator` through deterministic multi-step journeys, checks named semantics, and reconciles journals and optional captured frames under `fixtures/ui/flows/`. It needs no Screen Recording or Accessibility permission, never orders a window onscreen, and leaves the frontmost application unchanged. It is the default way to inspect this app's UI and interactive UI behaviour. Full reference: `docs/ui-harness.md`.
 
 Each invariant below was measured. Breaking one silently puts a window on the user's display or bakes machine-specific bytes into a golden.
 
@@ -188,9 +188,9 @@ The harness cannot show glass, and for two separate measured reasons. Legacy beh
 - Microphone permission applies to real recording, not fake development.
 - Event-post/Accessibility permission controls whether eligible targets receive synthetic Cmd-V. Missing permission should degrade to copy-only.
 - Ad-hoc signing can invalidate macOS TCC grants across rebuilds. Stable signing identity preserves permission grants more reliably.
-- Permission code belongs in `VoiceMac` adapters; user-facing state belongs in `VoiceOour` UI/coordinator.
-- Keep the shipped app entitlements narrow. `Resources/VoiceOour.entitlements` is currently audio-input-only, and the bundle is intentionally not sandboxed; change that only with matching README/setup/release documentation.
-- This bundle cannot use the data protection keychain at all, which is why the app stores no credential of its own; the measurement is recorded in `docs/architecture.md` under "Why VoiceOour holds no credentials". Read it before adding any secret storage here.
+- Permission code belongs in `VoiceMac` adapters; user-facing state belongs in `Voiceour` UI/coordinator.
+- Keep the shipped app entitlements narrow. `Resources/Voiceour.entitlements` is currently audio-input-only, and the bundle is intentionally not sandboxed; change that only with matching README/setup/release documentation.
+- This bundle cannot use the data protection keychain at all, which is why the app stores no credential of its own; the measurement is recorded in `docs/architecture.md` under "Why Voiceour holds no credentials". Read it before adding any secret storage here.
 
 ## Git and Collaboration
 

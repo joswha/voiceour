@@ -114,10 +114,10 @@ public struct RiskThresholds: Equatable, Sendable {
 /// - *Independent n-best support is vacuous under greedy decoding.* The MLX
 ///   backend's greedy path returns exactly one hypothesis, and it is the very
 ///   transcript the candidate was extracted from, with `score` and `raw_score`
-///   both literally `0.0` (`asr/src/voiceoour_asr/backends/mlx.py`, the `ranked`
+///   both literally `0.0` (`asr/src/voiceour_asr/backends/mlx.py`, the `ranked`
 ///   construction and its own docstring). So `appearsInNBest` asks whether the
 ///   candidate appears in the text it came from, which is always true. Only the
-///   opt-in beam path (`VOICEOOUR_ASR_DECODING=beam`, set nowhere in this
+///   opt-in beam path (`VOICEOUR_ASR_DECODING=beam`, set nowhere in this
 ///   repository) produces a real n-best list.
 /// - *`confidenceMode == .greedyEntropy` is not a calibrated probability.*
 ///   Committed benchmark reports put its expected calibration error between

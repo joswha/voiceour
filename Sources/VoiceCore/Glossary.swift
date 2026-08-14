@@ -190,7 +190,7 @@ public enum Glossary {
     }
 
     private static func containsTerm(_ canonical: String, in text: String) -> Bool {
-        replaceAlias(canonical, in: text, with: "__VOICEOOUR_TERM__").contains("__VOICEOOUR_TERM__")
+        replaceAlias(canonical, in: text, with: "__VOICEOUR_TERM__").contains("__VOICEOUR_TERM__")
     }
 }
 

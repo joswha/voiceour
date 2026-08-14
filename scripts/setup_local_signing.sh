@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-IDENTITY=voiceoour-dev
-KEYCHAIN="$HOME/Library/Keychains/voiceoour-dev.keychain-db"
+IDENTITY=voiceour-dev
+KEYCHAIN="$HOME/Library/Keychains/voiceour-dev.keychain-db"
 TMP_DIR=
 CREATED=0
 COMPLETE=0
@@ -45,7 +45,7 @@ if [ -f "$KEYCHAIN" ]; then
   exit 1
 fi
 
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/voiceoour-signing.XXXXXX")
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/voiceour-signing.XXXXXX")
 KEY_FILE="$TMP_DIR/$IDENTITY.key.pem"
 CERT_FILE="$TMP_DIR/$IDENTITY.cert.pem"
 P12_FILE="$TMP_DIR/$IDENTITY.p12"
@@ -61,7 +61,7 @@ openssl pkcs12 -export -legacy \
   -inkey "$KEY_FILE" \
   -in "$CERT_FILE" \
   -name "$IDENTITY" \
-  -passout pass:voiceoour-local-import \
+  -passout pass:voiceour-local-import \
   -out "$P12_FILE"
 
 security create-keychain -p "" "$KEYCHAIN"
@@ -70,7 +70,7 @@ security set-keychain-settings "$KEYCHAIN"
 security unlock-keychain -p "" "$KEYCHAIN"
 security import "$P12_FILE" \
   -k "$KEYCHAIN" \
-  -P voiceoour-local-import \
+  -P voiceour-local-import \
   -T /usr/bin/codesign \
   -T /usr/bin/security >/dev/null
 security set-key-partition-list \
@@ -94,4 +94,4 @@ register_keychain
 
 COMPLETE=1
 printf '%s\n' "Installed password-free local signing identity: $IDENTITY"
-printf '%s\n' "VoiceOour rebuilds can now preserve Accessibility permission."
+printf '%s\n' "Voiceour rebuilds can now preserve Accessibility permission."

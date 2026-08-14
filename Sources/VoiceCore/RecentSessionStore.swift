@@ -230,15 +230,15 @@ public struct RecentSessionStore: Sendable {
             return
         }
 
-        try writeVoiceOourPrivateJSON(sessions, to: url)
+        try writeVoiceourPrivateJSON(sessions, to: url)
     }
 
     public func clear() throws {
-        try removeVoiceOourPrivateState(at: url)
+        try removeVoiceourPrivateState(at: url)
     }
 
     public static var defaultURL: URL {
-        URL.voiceOourSupportDirectory.appendingPathComponent("recent-sessions.json")
+        URL.voiceourSupportDirectory.appendingPathComponent("recent-sessions.json")
     }
 
     public func normalized(_ sessions: [RecentSession]) -> [RecentSession] {

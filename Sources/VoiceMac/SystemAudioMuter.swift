@@ -194,7 +194,7 @@ public actor SystemAudioMuter: SystemAudioMuting {
     }
 
     /// Reasserts each owned mute, but only where the device is still muted: if
-    /// the user unmuted while VoiceOour held the device, the user wins.
+    /// the user unmuted while Voiceour held the device, the user wins.
     private static func restoreMuteControls(_ controls: [MuteControl], deviceID: AudioObjectID) {
         for control in controls where control.kind == .mute {
             guard let priorValue = control.priorUInt32,
@@ -285,7 +285,7 @@ public actor SystemAudioMuter: SystemAudioMuting {
     }
 
     /// Resolves the recorded device, refusing to write to a recycled ID: after
-    /// a reboot that number can name hardware VoiceOour never touched.
+    /// a reboot that number can name hardware Voiceour never touched.
     private static func recoveryDeviceID(for ownership: MuteOwnership) -> AudioObjectID? {
         let recordedID = AudioObjectID(ownership.deviceID)
         guard let uid = ownership.deviceUID else {
@@ -298,9 +298,6 @@ public actor SystemAudioMuter: SystemAudioMuting {
     }
 
     private static var durableOwnershipFlagURL: URL? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("VoiceOour", isDirectory: true)
-            .appendingPathComponent("mute-owned.flag", isDirectory: false)
+        URL.voiceourSupportDirectory.appendingPathComponent("mute-owned.flag", isDirectory: false)
     }
 }

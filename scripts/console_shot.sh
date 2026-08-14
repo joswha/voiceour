@@ -1,5 +1,5 @@
 #!/bin/sh
-# Capture a screenshot of the VoiceOour console window for a given section.
+# Capture a screenshot of the Voiceour console window for a given section.
 #
 # PREFER scripts/ui_harness.sh. That renders every console section offscreen with no
 # window on your display, no focus change and no Screen Recording permission, and it
@@ -32,13 +32,13 @@ if [ ! -x "$FINDER" ] || [ "$SRC" -nt "$FINDER" ]; then
     swiftc -O "$SRC" -o "$FINDER"
 fi
 
-pkill -f '.build/debug/VoiceOour' 2>/dev/null || true
+pkill -f '.build/debug/Voiceour' 2>/dev/null || true
 sleep 0.5
 
-VOICEOOUR_ASR_BACKEND="${VOICEOOUR_ASR_BACKEND:-fake}" \
-VOICEOOUR_REPO_ROOT="$ROOT" \
-VOICEOOUR_ASR_DIR="$ROOT/asr" \
-    "$ROOT/.build/debug/VoiceOour" --show-console --no-activate --console-section="$SECTION" >/dev/null 2>&1 &
+VOICEOUR_ASR_BACKEND="${VOICEOUR_ASR_BACKEND:-fake}" \
+VOICEOUR_REPO_ROOT="$ROOT" \
+VOICEOUR_ASR_DIR="$ROOT/asr" \
+    "$ROOT/.build/debug/Voiceour" --show-console --no-activate --console-section="$SECTION" >/dev/null 2>&1 &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
 

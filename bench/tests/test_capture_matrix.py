@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from voiceoour_bench.capture_matrix import (
+from voiceour_bench.capture_matrix import (
     CAPTURE_MODES,
     CONDITIONS,
     build_report,
@@ -89,13 +89,13 @@ def test_manifest_bytes_and_dry_run_commands_are_stable_without_subprocess(
     def microphone_must_not_be_touched(*args: object, **kwargs: object) -> None:
         raise AssertionError("dry-run started a subprocess")
 
-    monkeypatch.setattr("voiceoour_bench.capture_matrix.subprocess.run", microphone_must_not_be_touched)
+    monkeypatch.setattr("voiceour_bench.capture_matrix.subprocess.run", microphone_must_not_be_touched)
     commands = dry_run_commands(rows)
 
     assert first_path.read_bytes() == second_path.read_bytes()
     assert commands == [row["command"] for row in rows]
     assert commands[0] == [
-        "voiceoour-capture-bench",
+        "voiceour-capture-bench",
         "--mode",
         "standard",
         "--duration-ms",
@@ -121,7 +121,7 @@ def test_plan_cli_dry_run_writes_manifest_and_prints_commands_without_capture(
     def microphone_must_not_be_touched(*args: object, **kwargs: object) -> None:
         raise AssertionError("dry-run started a subprocess")
 
-    monkeypatch.setattr("voiceoour_bench.capture_matrix.subprocess.run", microphone_must_not_be_touched)
+    monkeypatch.setattr("voiceour_bench.capture_matrix.subprocess.run", microphone_must_not_be_touched)
     exit_code = main(
         [
             "plan",
@@ -156,8 +156,8 @@ def test_plan_cli_dry_run_writes_manifest_and_prints_commands_without_capture(
     assert len(read_json_lines := manifest_path.read_text(encoding="utf-8").splitlines()) == 2
     assert all(json.loads(line)["type"] == "capture_plan" for line in read_json_lines)
     assert output_lines[-2:] == [f"Manifest: {manifest_path}", "Planned captures: 2"]
-    assert output_lines[0].startswith("voiceoour-capture-bench --mode standard ")
-    assert output_lines[1].startswith("voiceoour-capture-bench --mode native ")
+    assert output_lines[0].startswith("voiceour-capture-bench --mode standard ")
+    assert output_lines[1].startswith("voiceour-capture-bench --mode native ")
 
 
 @pytest.mark.parametrize(
@@ -230,7 +230,7 @@ def test_run_requires_real_speaker_consent_before_starting_subprocess(
     def must_not_run(*args: object, **kwargs: object) -> None:
         raise AssertionError("capture started without consent")
 
-    monkeypatch.setattr("voiceoour_bench.capture_matrix.subprocess.run", must_not_run)
+    monkeypatch.setattr("voiceour_bench.capture_matrix.subprocess.run", must_not_run)
     with pytest.raises(ValueError, match="consent"):
         run_matrix(rows, tmp_path / "results.jsonl")
 
@@ -252,7 +252,7 @@ def test_run_decorates_single_json_result_for_strict_ingestion(tmp_path: Path, m
     def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(stdout=json.dumps(executable_result) + "\n")
 
-    monkeypatch.setattr("voiceoour_bench.capture_matrix.subprocess.run", fake_run)
+    monkeypatch.setattr("voiceour_bench.capture_matrix.subprocess.run", fake_run)
     results_path = tmp_path / "results.jsonl"
     result_rows = run_matrix(rows, results_path)
 

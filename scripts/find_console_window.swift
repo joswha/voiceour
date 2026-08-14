@@ -1,4 +1,4 @@
-// Prints the CGWindowID of VoiceOour's largest on-screen window (the console),
+// Prints the CGWindowID of Voiceour's largest on-screen window (the console),
 // or nothing if it is not open. Window ids/bounds/owner are available without
 // Screen Recording permission; only pixel capture (screencapture) needs it.
 import CoreGraphics
@@ -12,7 +12,7 @@ guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String:
 struct Candidate { let id: Int; let area: CGFloat }
 
 let best = list.compactMap { info -> Candidate? in
-    guard (info[kCGWindowOwnerName as String] as? String) == "VoiceOour" else { return nil }
+    guard (info[kCGWindowOwnerName as String] as? String) == "Voiceour" else { return nil }
     guard let id = info[kCGWindowNumber as String] as? Int else { return nil }
     // kCGWindowBounds is a toll-free-bridged dictionary of CFNumbers; parse it via
     // CGRect(dictionaryRepresentation:) rather than a fragile [String: CGFloat] cast.

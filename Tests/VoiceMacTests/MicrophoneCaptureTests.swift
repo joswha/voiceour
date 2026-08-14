@@ -235,7 +235,7 @@ import Testing
 /// value-level testing can reach: that naming a device UID actually opens THAT
 /// device and that liveness flips only once real samples arrive.
 ///
-/// Gated on `VOICEOOUR_CAPTURE_INTEGRATION` and `.serialized` for the same reason
+/// Gated on `VOICEOUR_CAPTURE_INTEGRATION` and `.serialized` for the same reason
 /// `AppleSpeechASRTests` is: it opens the one physical microphone, and concurrent
 /// sessions on a single input device deadlock.
 @Suite("Microphone capture integration", .serialized)
@@ -254,7 +254,7 @@ struct MicrophoneCaptureIntegrationTests {
     }
 
     @Test func pinningOpensTheNamedDeviceAndReportsLivenessFromRealAudio() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOOUR_CAPTURE_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_CAPTURE_INTEGRATION"] != nil else { return }
         guard let builtIn = CoreAudioInputDevice.all().first(where: \.isBuiltIn) else {
             Issue.record("no built-in input device on this host")
             return
