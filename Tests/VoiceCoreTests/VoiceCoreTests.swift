@@ -24,6 +24,47 @@ struct VoiceCoreTests {
         #expect(!CleanupEngine.clean("hello", glossary: []).isEmpty)
     }
 
+    /// A glossary alias rewrites every future utterance, so a surface that does
+    /// not mean its canonical everywhere must not be applied. Every case here
+    /// was taken from real dictation history, where these rules were live and
+    /// corrupting ordinary speech.
+    @Test func glossaryRefusesAliasesThatCannotGeneralize() {
+        func taught(_ canonical: String, _ surface: String) -> ProtectedTerm {
+            TermMutation.confirmingAlias(
+                surface,
+                on: ProtectedTerm(canonical: canonical, spokenAliases: []),
+                at: Date(timeIntervalSince1970: 5)
+            )
+        }
+
+        // A bare-integer canonical: the suggestion engine offered "one" as a
+        // mishearing of "1" and four such rules were accepted in 22 seconds.
+        // They rewrote prose that had nothing to do with counting.
+        let one = taught("1", "one")
+        #expect(!Glossary.aliasCanGeneralize("one", canonical: "1"))
+        #expect(CleanupEngine.clean("we want one-to-one parity", glossary: [one]) == "we want one-to-one parity")
+        #expect(CleanupEngine.clean("pick one of them", glossary: [one]) == "pick one of them")
+
+        // Ragged partial coverage was the visible symptom: only 1, 2, 5 and 6
+        // had been taught, so a spoken count came out half-converted.
+        let counting = [taught("1", "one"), taught("2", "two"), taught("5", "five"), taught("6", "six")]
+        #expect(
+            CleanupEngine.clean("one two three four five six", glossary: counting)
+                == "one two three four five six")
+
+        // A single-character alias fires on every stray letter.
+        let zed = taught("Zed", "Z")
+        #expect(!Glossary.aliasCanGeneralize("Z", canonical: "Zed"))
+        #expect(CleanupEngine.clean("the Z axis moved", glossary: [zed]) == "the Z axis moved")
+
+        // The guard is narrow: a real multi-word mishearing still canonicalizes,
+        // and a term still normalises its own surface.
+        #expect(Glossary.aliasCanGeneralize("cube cuddle", canonical: "kubectl"))
+        let kubectl = taught("kubectl", "cube cuddle")
+        #expect(CleanupEngine.clean("run cube cuddle now", glossary: [kubectl]) == "run kubectl now")
+        #expect(CleanupEngine.clean("run KUBECTL now", glossary: [kubectl]) == "run kubectl now")
+    }
+
     /// Filler stripping and repeat collapsing both run before canonicalization, so
     /// a surface taught out of a raw transcript — which carries whatever the
     /// recogniser emitted, hesitations and stutters included — had the very span it

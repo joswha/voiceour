@@ -28,7 +28,42 @@ from voiceoour_asr.decoding.nbest import (
     forced_candidate_scoring_note,
     rank_hypotheses,
 )
-from voiceoour_asr.protocol import AudioMeta, ConfidenceMode, TranscribeRequest
+from voiceoour_asr.protocol import AudioMeta, ConfidenceMode, ErrorCode, TranscribeRequest
+from voiceoour_asr import cache
+
+
+def test_transcribe_fails_fast_while_parakeet_is_still_being_acquired(tmp_path, monkeypatch):
+    """A cold Parakeet acquisition must not be charged to the utterance budget.
+
+    The ARK backends already guard this, but the default backend is the one that
+    actually meets a cold cache on a fresh install. Parakeet is 2.3 GB and the
+    client's transcribe timeout is 30 s, so blocking here spends the whole budget,
+    times out, and has the client terminate the sidecar mid-download -- leaving a
+    partial cache for the next attempt. Say so immediately instead.
+    """
+    monkeypatch.setattr(cache, "cache_ok", lambda spec: False)
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(b"RIFF" + b"\x00" * 40)
+    backend = MLXBackend()
+
+    response = backend.transcribe(
+        TranscribeRequest(
+            request_id="cold",
+            audio=AudioMeta(
+                path=str(wav),
+                format="wav",
+                sample_rate_hz=16_000,
+                channels=1,
+                duration_ms=8_000,
+                byte_count=wav.stat().st_size,
+            ),
+        ),
+        Event(),
+    )
+
+    assert response.type == "error"
+    assert response.code == ErrorCode.MODEL_NOT_INSTALLED
+    assert cache.MODEL_ID in (response.detail or "")
 
 
 def _token(text: str, start: float, duration: float, confidence: float) -> AlignedToken:

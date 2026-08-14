@@ -95,10 +95,49 @@ public enum Glossary {
         }.map(\.element)
     }
 
+    /// Whether `alias` may stand in for `canonical` *wherever it appears*.
+    ///
+    /// A glossary alias is not a suggestion, it is an unconditional rewrite of
+    /// every future utterance. The bar is therefore not "the user accepted this
+    /// once" but "this surface means the canonical everywhere". Two shapes fail
+    /// that test, and both were found corrupting real dictation history rather
+    /// than imagined:
+    ///
+    /// - **A canonical that is a bare integer.** The suggestion engine offered
+    ///   `one` as a mishearing of the canonical `1`, and four such rules were
+    ///   accepted in a 22-second click-through. They then rewrote ordinary
+    ///   speech: `one-to-one` became `1-to-1`, and `one two three four five six`
+    ///   became `1 2 three four 5 6` — ragged because only 1, 2, 5 and 6 had
+    ///   been taught. A digit is not an identifier, so a term protecting one
+    ///   protects nothing while still being able to damage prose.
+    /// - **A single-character alias.** One letter recurs constantly in ordinary
+    ///   speech and cannot carry a canonical's meaning, so `Z` -> `Zed` fires on
+    ///   every stray "z".
+    ///
+    /// This filters aliases only, never the canonical itself: a term still
+    /// matches its own surface, so case normalisation is untouched and a term
+    /// caught here degrades to inert rather than to broken.
+    ///
+    /// Deliberately not a common-word list. `RefinementPolicy` already records
+    /// that a stopword list cannot separate these cases — the surfaces that did
+    /// the damage here include `depth` and `Cloud`, which no stopword list
+    /// contains, so a list would give false confidence while missing the cases
+    /// that were actually measured.
+    public static func aliasCanGeneralize(_ alias: String, canonical: String) -> Bool {
+        let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedAlias.count > 1 else { return false }
+        let trimmedCanonical = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedCanonical.isEmpty, trimmedCanonical.allSatisfy(\.isNumber) { return false }
+        return true
+    }
+
     static func matchingAliases(for term: ProtectedTerm) -> [String] {
         var aliases: [String] = []
         var seen = Set<String>()
-        for alias in [term.canonical] + userAliases(for: term) + derivedAliases(for: term.canonical) {
+        let generalizable =
+            (userAliases(for: term) + derivedAliases(for: term.canonical))
+            .filter { aliasCanGeneralize($0, canonical: term.canonical) }
+        for alias in [term.canonical] + generalizable {
             let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let key = trimmed.lowercased()

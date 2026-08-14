@@ -238,6 +238,18 @@ class MLXBackend(Backend):
             return protocol_error(
                 ErrorCode.UNSUPPORTED_AUDIO_FORMAT, request_id=request.request_id, detail=request.audio.format
             )
+        # Same race the ARK backend guards, and the default backend is the one that
+        # actually meets a cold cache on a fresh install. Parakeet is 2.3 GB, so a
+        # cold acquisition cannot fit inside the client's 30 s transcribe timeout:
+        # blocking here would spend the whole budget, time out, and have the client
+        # terminate the sidecar mid-download, leaving a partial cache for the next
+        # attempt to trip over. The preload thread is already fetching after `hello`.
+        if not cache.cache_ok(cache.PARAKEET):
+            return protocol_error(
+                ErrorCode.MODEL_NOT_INSTALLED,
+                request_id=request.request_id,
+                detail=f"{cache.MODEL_ID} is still being acquired; retry once it has finished",
+            )
         try:
             self._load_model()
         except cache.ManifestMismatch as exc:

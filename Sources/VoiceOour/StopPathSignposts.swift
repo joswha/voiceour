@@ -11,15 +11,17 @@ import OSLog
 ///
 /// These are signposts rather than persisted timings on purpose. The persisted
 /// stages are product telemetry with a durability contract; these are developer
-/// instrumentation, free when nobody is recording, and readable with:
+/// instrumentation, free when nobody is recording, and captured with:
 ///
-///     Instruments.app -> Blank -> add the "os_signpost" instrument -> attach to VoiceOour
+///     xctrace record --instrument os_signpost --output /tmp/stop.trace --attach <pid>
+///     xctrace export --input /tmp/stop.trace \
+///       --xpath '/trace-toc/run[@number=1]/data/table[@schema="os-signpost"]' --output /tmp/stop.xml
 ///
-/// Signposts are NOT visible to `log show` or `log stream`. They are an ephemeral
-/// channel that only a recording tool collects, and no stock `xctrace` template
-/// enables the os_signpost instrument, so emission here has been verified only as
-/// far as `OSSignposter.isEnabled` and a clean run. That ephemerality is also why
-/// they cost nothing when nobody is looking.
+/// Verified 2026-08-14: that pipeline produces `os-signpost` rows carrying this
+/// category and these interval names. `log show` and `log stream` will NOT show
+/// them, and neither will a stock template such as `CPU Profiler` — signposts are
+/// an ephemeral channel that only a recording tool with the `os_signpost`
+/// instrument collects, which is also why they cost nothing when nobody is looking.
 ///
 /// Add a span whenever a stage lands on this path. An unmeasured stage is a stage
 /// that will eventually be discovered by reading source, at a cost.

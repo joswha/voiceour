@@ -707,8 +707,21 @@ public final class DictationCoordinator {
                 return nil
             case .bundled:
                 guard let restored = shipped[term.termId] else {
+                    // An orphaned default: shipped by an older build and since
+                    // removed from `defaultGlossary`. There is no shipped surface
+                    // set to restore it to, so it falls back to its canonical
+                    // alone. Stripping only `labeledAliases` here cleared the
+                    // user's own confirmations while preserving stale aliases
+                    // from a version that no longer exists — exactly backwards,
+                    // and it made a damaging alias unremovable by the button
+                    // whose whole job is removing it. A removed default shipped
+                    // `Cloud` as an alias of `Claude`, which rewrote every
+                    // "Google Cloud" this user dictated into "Google Claude".
+                    // The row survives because the canonical may still be a term
+                    // the user relies on; only the unshipped surfaces go.
                     var stripped = term
                     stripped.labeledAliases = []
+                    stripped.spokenAliases = []
                     return stripped
                 }
                 return restored

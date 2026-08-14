@@ -1764,6 +1764,43 @@ struct DictationCoordinatorTests {
         #expect(!coordinator.settings.glossary.contains { $0.canonical == "CGEvent" })
     }
 
+    /// An orphaned default — one an older build shipped and this build no longer
+    /// does — has no shipped surface set to be restored to, so the clear reduces
+    /// it to its canonical. Stripping only `labeledAliases` cleared the user's
+    /// confirmations while preserving aliases from a version that no longer
+    /// exists, which made a damaging shipped alias unremovable: a removed default
+    /// carried `Cloud` as an alias of `Claude` and rewrote every dictated
+    /// "Google Cloud" into "Google Claude".
+    @Test func clearingLearnedVocabularyDropsUnshippedSurfacesOfAnOrphanedDefault() throws {
+        let store = temporarySettingsStore()
+        var settings = VoiceCore.Settings()
+        let orphan = ProtectedTerm(
+            canonical: "Claude",
+            spokenAliases: ["Cloud"],
+            termId: "Claude",
+            source: .bundled
+        )
+        settings.glossary = Settings.defaultGlossary + [orphan]
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("")),
+            settings: settings,
+            settingsStore: store
+        )
+        #expect(
+            CleanupEngine.clean("deploy on Google Cloud", glossary: [orphan]) == "deploy on Google Claude",
+            "precondition: the orphaned alias is what corrupts the product name")
+
+        coordinator.clearLearnedVocabulary()
+
+        let claude = try #require(coordinator.settings.glossary.first { $0.canonical == "Claude" })
+        #expect(claude.spokenAliases.isEmpty)
+        #expect(claude.labeledAliases.isEmpty)
+        #expect(CleanupEngine.clean("deploy on Google Cloud", glossary: [claude]) == "deploy on Google Cloud")
+        // The row itself survives: the canonical may still be vocabulary the
+        // user relies on, and its own surface still normalises.
+        #expect(CleanupEngine.clean("ask claude about it", glossary: [claude]) == "ask Claude about it")
+    }
+
     /// The whole feature, end to end, on the surfaces the user actually touches:
     /// teach a mishearing off a transcript, dictate it again and get the canonical;
     /// edit the glossary row and it still matches; clear the row and it stops. The

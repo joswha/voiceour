@@ -210,6 +210,7 @@ Documented so nobody re-litigates them.
 | MLX 0.31.2 → 0.32.0 | 0.35 ms/request — noise. The v0.32 NAX path does not gate on this M4 (`applegpu_g16s`) |
 | Precomputing log-mel during capture | Log-mel is 0.56–1.13% of inference; ~1 ms |
 | **Sidecar IPC / wire-contract rewrite** | Total Swift-side overhead outside inference is **1.2–1.6 ms**. In-memory sample passing would save <0.3 ms. NDJSON health round-trip is 0.09 ms |
+| **Lengthening the MLX warm-up** to a realistic utterance | The 0.5 s silence warm-up was alleged to leave the first real request paying 2.2× inference. Refuted by an ABBA probe over four fresh processes on one 13.20 s clip: 0.5 s warm gave first/second/third of 179.3/152.5/148.2 ms in the very first process but **147.0/147.8/147.4 ms in a later one**, while 13.2 s warm gave 148.8/147.4/148.0 and 151.5/146.2/146.8. The one elevated run is cold page cache, not warm-up shape — its `_load_model` took 772 ms against ~510 ms everywhere after. A 13.2 s warm-up also costs 300–500 MB more peak (2188–2379 MB vs 1873–2053 MB) |
 
 ### The Rust and Metal question, answered directly
 

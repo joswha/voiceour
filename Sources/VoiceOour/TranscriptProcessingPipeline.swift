@@ -42,6 +42,12 @@ extension DictationCoordinator {
         guard !misheard.isEmpty else { return nil }
         // A span that already reads as the canonical needs no correction.
         if misheard.lowercased() == candidate.canonical.lowercased() { return nil }
+        // Never offer a rule the glossary would refuse to apply. Accepting a
+        // suggestion writes an unconditional rewrite of every future utterance,
+        // so a surface that cannot generalize is not a correction the user can
+        // meaningfully consent to — offering it produced four live digit rules
+        // in one 22-second click-through.
+        guard Glossary.aliasCanGeneralize(misheard, canonical: candidate.canonical) else { return nil }
         let dedupeKey = "\(candidate.termId)|\(misheard.lowercased())"
         guard seen.insert(dedupeKey).inserted else { return nil }
         return TermSuggestion(
