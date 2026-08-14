@@ -38,16 +38,16 @@ cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --
 
 `--mode stt` maps to the Swift runner's `pipeline --refine off`. `--mode e2e` maps to `pipeline --refine deterministic` unless `--refine omp` is explicitly supplied. `--mode refine` uses the text-only Swift `refine` command and defaults to deterministic refinement; with `--tier fleurs` it derives refine cases from FLEURS `transcription` and `raw_transcription`, otherwise it uses `fixtures/bench/refine_cases.jsonl`.
 
-`--backend apple` runs the native macOS 26 `SpeechAnalyzer`/`SpeechTranscriber` batch client through the identical harness, report, and scorer, so an Apple-vs-Parakeet comparison is two invocations of the same command over the same manifest rather than a hand-driven Swift-runner call. Row-match it — `prepare_tier` is deterministic first-N, so passing the same `--tier` and `--n` to both backends guarantees identical rows:
+`--backend apple` runs the native macOS 26 `SpeechAnalyzer`/`SpeechTranscriber` batch client through the identical harness, report, and scorer, so an Apple-vs-Parakeet comparison is two invocations of the same command over the same manifest rather than a hand-driven Swift-runner call. Row matching is deterministic: `prepare_tier` uses the first N rows, so passing the same `--tier` and `--n` to both backends guarantees identical rows:
 
 ```sh
 cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend mlx --n 64
 cd bench && uv --no-config run python -m voiceoour_bench.run --tier librispeech --mode stt --backend apple --n 64
 ```
 
-Run them one at a time: concurrent Metal work distorts the latency percentiles. Punctuation and case F1 need a tier that carries `formatted_reference`, which LibriSpeech does not — use `--tier fleurs` for any formatting comparison.
+Run them one at a time: concurrent Metal work distorts the latency percentiles. Punctuation and case F1 need a tier that carries `formatted_reference`, which LibriSpeech does not. Use `--tier fleurs` for any formatting comparison.
 
-`--refine omp` measures the shipping cloud path: the runner builds its refiner through the same `RefinerProviderRegistry.live` the app uses, so it cannot drift into measuring a refiner the app does not ship. `--refiner-model` picks an OMP model (empty means the provider default) and is the only refiner option there is — the runner holds no credential, because OMP owns them. Apple's on-device provider has no benchmark mode: it depends on Apple Intelligence being enabled on the host, which is not a condition a reproducible benchmark can assert.
+`--refine omp` measures the shipping cloud path: the runner builds its refiner through the same `RefinerProviderRegistry.live` the app uses, so it cannot drift into measuring a refiner the app does not ship. `--refiner-model` picks an OMP model (empty means the provider default) and is the only refiner option there is. The runner holds no credential because OMP owns them. Apple's on-device provider has no benchmark mode: it depends on Apple Intelligence being enabled on the host, which is not a condition a reproducible benchmark can assert.
 
 ## Metrics
 
@@ -74,10 +74,24 @@ FLEURS refine metrics use `raw_transcription` as the formatted reference because
 
 ## Noise robustness sweep
 
-`bench/src/voiceoour_bench/noise.py` regenerates the 64-utterance LibriSpeech baseline subset with deterministic additive Gaussian noise (seed 20260718, per-file RNG derived via SHA-256) at 20, 10, 5, and 0 dB SNR into `benchmarks/data/librispeech-noise/snr{XX}/`, then the Apple backend is swept over each manifest with the prebuilt `voiceoour-bench` runner:
+`bench/src/voiceoour_bench/noise.py` regenerates the 64-utterance LibriSpeech baseline subset with deterministic additive Gaussian noise (seed 20260718, per-file RNG derived via SHA-256) at 20, 10, 5, and 0 dB SNR into `benchmarks/data/librispeech-noise/snr{XX}/`. It only writes the noisy WAVs and manifests and prints each manifest path; it does not invoke a runner, select a backend, or write results:
 
 ```sh
-cd bench && uv --no-config run python -m voiceoour_bench.noise
+(cd bench && uv --no-config run python -m voiceoour_bench.noise)
+```
+
+Sweep a backend separately with the prebuilt runner. This is the `run.py` pipeline invocation repeated over the four generated manifests:
+
+```sh
+for snr in 20 10 05 00; do
+  VOICEOOUR_ASR_DECODING=greedy .build/release/voiceoour-bench pipeline \
+    --input "benchmarks/data/librispeech-noise/snr${snr}/manifest.jsonl" \
+    --output "benchmarks/results/manual-librispeech-apple-stt-noise-snr${snr}.results.jsonl" \
+    --asr-dir asr \
+    --backend apple \
+    --timeout-ms 120000 \
+    --refine off
+done
 ```
 
 Measured 2026-07-18 on macOS 26.5.2 (M4 Pro), Apple SpeechTranscriber batch path, U-WER: clean 3.07%, 20 dB 3.05%, 10 dB 6.07%, 5 dB 12.77%, 0 dB 28.86%. Accuracy is unaffected in quiet rooms (20 dB), roughly doubles around 10 dB, and collapses at or below 5 dB. Reports live under `benchmarks/results/*-noise-snrXX*`.
@@ -86,9 +100,9 @@ Measured 2026-07-18 on macOS 26.5.2 (M4 Pro), Apple SpeechTranscriber batch path
 
 `voiceoour_bench.capture_matrix` plans and collects the Stage 0 microphone matrix around the
 `voiceoour-capture-bench` executable. `standard` is the production baseline and tracks whatever
-production records through, which is now `MicrophoneRecorder` over `MicrophoneCapture` — an
+production records through, which is now `MicrophoneRecorder` over `MicrophoneCapture`. It uses an
 `AVCaptureSession` pinned to a chosen input device (`docs/architecture.md`, *Microphone capture*)
-— rather than the `AVAudioRecorder` the matrix was originally designed against. Rows collected
+rather than the `AVAudioRecorder` the matrix was originally designed against. Rows collected
 before that swap are therefore not paired with rows collected after it, and the
 `implementation` field distinguishes them: `production-av-audio-recorder` against
 `production-microphone-recorder`. `native` is the experimental hardware-native
@@ -224,7 +238,7 @@ On top of the shared U-WER/CER/latency metrics, techterms reports add the follow
 - **Hard-negative false-replacement rate**: fraction of observed hard-negative opportunities where the canonical term wrongly appears, with a per-10k-opportunity scaling.
 - **No-op preservation**: exact-preservation rate on rows the terminology layer should leave untouched.
 - **Candidate Recall@K**: whether the expected `term_id` is among the retrieved candidate ids at K = 1 and K = 5.
-- **N-best oracle coverage**: whether the canonical term is present in any decoded hypothesis (rank-0 plus every n-best alternative) — the ceiling any reranker could reach.
+- **N-best oracle coverage**: whether the canonical term is present in any decoded hypothesis (rank-0 plus every n-best alternative). This is the ceiling any reranker could reach.
 - **Per-mode reliability / ECE / risk-coverage**: Brier score, expected calibration error, equal-width reliability bins, and risk/coverage points bucketed by the transcript `confidenceMode`.
 
 ### Decoding and bias toggles

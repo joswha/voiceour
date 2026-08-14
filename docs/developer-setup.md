@@ -11,12 +11,28 @@
 
 ```sh
 make build
+make format-check
+make lint-python
 make test
 (cd asr && uv --no-config run pytest)
+(cd bench && uv --no-config run pytest)
 scripts/run_dev.sh --self-test
+make bench-smoke
+make ui-flow
+make ui-coverage
+make ui-snap
+make ui-flow-frames
 ```
 
-This repository standardises on `uv --no-config` for every Python command, and the scripts use it where they launch the sidecar. That is deliberate: a host-level `uv.toml` (`/etc/uv/uv.toml` or `~/.config/uv/uv.toml`) can otherwise change dependency resolution, so results would depend on whose machine ran them.
+This is the complete fake-backed verification inventory. The exact required-versus-advisory CI
+classification lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md). `make python-test` is the Makefile
+wrapper for the ASR pytest command above; `make format` applies Swift formatting rather than
+checking it.
+
+This repository standardises on `uv --no-config` for every Python command, and the scripts use it
+where they launch the sidecar. That is deliberate: a host-level `uv.toml` (`/etc/uv/uv.toml` or
+`~/.config/uv/uv.toml`) can otherwise change dependency resolution, so results would depend on
+whose machine ran them.
 
 ## Run the fake dev app
 
@@ -31,10 +47,20 @@ This is the fake development launch. It creates a synthetic WAV and uses the fak
 ## Inspect the UI offscreen
 
 ```sh
-make ui-snap                              # render every scene, check against fixtures/ui
-make ui-update                            # rewrite the goldens after an intended change
+make ui-snap                              # render portable scenes and check fixtures/ui
+make ui-flow                              # check host-independent journey journals
+make ui-coverage                          # enforce the UI coverage ledger
+make ui-flow-frames                       # check journey rasters and AX dumps
+make ui-all                               # ui-snap followed by ui-flow-frames
+make ui-update                            # rewrite portable scene goldens
+make ui-flow-update                       # rewrite intended flow journals and frames
 make ui-list                              # print the scene catalog as JSON
-scripts/ui_harness.sh --only console      # just one area
+make ui-flow-list                         # print the flow catalog
+make ui-snap-os26                         # native macOS 26 scenes
+make ui-update-os26                       # rewrite native macOS 26 scene goldens
+make ui-flow-os26                         # native macOS 26 journeys
+make ui-film                              # regenerate README media; not a gate
+scripts/ui_harness.sh --only console      # run just one area
 ```
 
 This is the preferred way to look at the UI. It renders SwiftUI views into a borderless window parked far offscreen, dumps the in-process accessibility tree, lints both, and diffs against the goldens in `fixtures/ui/`. No window appears on your display, the frontmost application does not change, and it needs neither Screen Recording nor Accessibility permission. Artifacts land in `.build/ui-harness/`: a PNG and an `.ax.txt` dump per scene, an `.ax.diff` when a dump moved, `manifest.jsonl`, and a `contact-sheet.png` tiling every scene. See [docs/ui-harness.md](ui-harness.md) for the CLI surface, the manifest schema, the lint rules, how to add a scene, and what an offscreen render cannot show you.
@@ -48,7 +74,7 @@ scripts/console_shot.sh                        # sessions -> .build/console-sess
 scripts/console_shot.sh voice /tmp/voice.png   # any section, custom output path
 ```
 
-Captures the console window for one section: `sessions` (default), `home`, `voice`, `glossary`, `refinement`, `system`, or `diagnostics`. Prefer `make ui-snap` above for everything except real glass; this script is the only way to see composited glass, on either render path, and the two paths fail in the harness for different reasons. Legacy behind-window `NSVisualEffectView` — `GlassSurfaces.swift`'s `FrostedGlassBackground` — rasterises as a flat opaque fill offscreen, because there is no desktop to sample. Modern SwiftUI `.glassEffect` does not rasterise at all: `cacheDisplay(in:to:)` leaves those pixels transparent, so an `os26` golden photographs the app's own paint with the material missing (design bible §5.2). It builds, launches the fake backend (no microphone, model download, or network), then opens the real `Window("VoiceOour", id: "main")` console scene via the development-only `--show-console --no-activate --console-section=<name>` flags, captures just that window with `screencapture`, and quits the app. A fresh window opens at 1164x820, but macOS may restore the last console frame (e.g. a near-fullscreen size), which is handy for reproducing the layouts users actually see. The controlling terminal needs macOS Screen Recording permission or the capture will be blank.
+Captures the console window for one section: `sessions` (default), `home`, `voice`, `glossary`, `refinement`, `system`, or `diagnostics`. Prefer `make ui-snap` above for everything except real glass; this script is the only way to see composited glass, on either render path, and the two paths fail in the harness for different reasons. Legacy behind-window `NSVisualEffectView`, implemented by `GlassSurfaces.swift`'s `FrostedGlassBackground`, rasterises as a flat opaque fill offscreen because there is no desktop to sample. Modern SwiftUI `.glassEffect` does not rasterise at all: `cacheDisplay(in:to:)` leaves those pixels transparent, so an `os26` golden photographs the app's own paint with the material missing (design bible §5.2). It builds, launches the fake backend (no microphone, model download, or network), then opens the real `Window("VoiceOour", id: "main")` console scene via the development-only `--show-console --no-activate --console-section=<name>` flags, captures just that window with `screencapture`, and quits the app. A fresh window opens at 1164x820, but macOS may restore the last console frame (e.g. a near-fullscreen size), which is handy for reproducing the layouts users actually see. The controlling terminal needs macOS Screen Recording permission or the capture will be blank.
 
 These launch flags are development-only and guarded like `--self-test`: `--show-console` posts a notification the menu-bar label observes to `openWindow(id: "main")`, so it drives the same production scene the "Open Console…" menu item does (nothing about the shipping flow changes). `--no-activate` suppresses the console's usual promotion to `.regular` (the Dock icon and Cmd-Tab entry that appear and disappear around a capture) plus the second `NSApp.activate` in `ConsoleView.onAppear`; it does **not** make the capture invisible, because the window has to be onscreen to be screenshotted and the show-console notification handler still activates the app. Expect a brief focus blip, just a smaller one. Use `make ui-snap` when you want no disruption at all. A normal user launch passes neither flag and behaves exactly as before. `scripts/find_console_window.swift` resolves the window id via `CGWindowListCopyWindowInfo`, which needs no Screen Recording permission.
 
@@ -60,7 +86,13 @@ scripts/run_real.sh
 
 `scripts/run_real.sh` is the recommended interactive test path for real ASR. It launches the `.app` bundle with `NSMicrophoneUsageDescription` metadata and passes `--repo-root`, `--asr-dir`, and `--asr-backend mlx` through `open --args`. The macOS microphone prompt may appear when you first start a real recording, not merely when the app launches; Parakeet may cold-load on first use, and the model and inference remain local.
 
-While recording, VoiceOour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `mlx` path) logs `VoiceOour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. If a transcript for a normal text target only lands on the clipboard, grant the macOS Accessibility permission VoiceOour requests for synthetic paste and Fn/Globe capture, then retry. Copy-only remains expected for terminal, code-editor, secure, unknown-risky, and target-change cases.
+The default is `mlx-community/parakeet-tdt-0.6b-v3`, pinned to revision
+`ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15`; Apple Silicon is required. The first launch downloads
+and caches the model. Once its cache manifest exists the sidecar sets `HF_HUB_OFFLINE=1`, stays
+alive for the app run, and preloads at launch so later dictations pay inference rather than model
+startup.
+
+While recording, VoiceOour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `mlx` path) logs `VoiceOour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
 
 After granting Accessibility/event-post permission, restart the existing test bundle without rebuilding it:
 
@@ -72,7 +104,7 @@ Use this for repeated local tests. `scripts/restart_real.sh` enforces one runnin
 
 ## Configure the refiner
 
-Refinement is opt-in and disabled by default, and the Refinement pane offers exactly two providers: **Oh My Pi**, which hands the request to the locally installed `omp` CLI, and **Apple On-Device**. Neither takes a credential from VoiceOour, so there is no key to paste and no credential variable to export — enable the refiner, pick a model, and dictate.
+Refinement is opt-in and disabled by default, and the Refinement pane offers exactly two providers: **Oh My Pi**, which hands the request to the locally installed `omp` CLI, and **Apple On-Device**. Neither takes a credential from VoiceOour, so there is no key to paste and no credential variable to export. Enable the refiner, pick a model, and dictate.
 
 ```sh
 scripts/run_real.sh
@@ -113,7 +145,7 @@ Example proof output:
 
 ```text
 transcript=Hello world testing NVIDIA Parakeet NN Spaceport.
-cold_load_ms=193738 warm_inference_ms=4360 rss_kb=1743880192
+cold_load_ms=193738 warm_inference_ms=4360 rss_bytes=1743880192
 ```
 
 This proof is non-interactive; it does not record the manual GUI insertion matrix.
@@ -125,9 +157,17 @@ scripts/bundle.sh
 open .build/VoiceOour.app
 ```
 
+The bundle uses `Resources/Info.plist` with `LSUIElement=true` and a microphone usage string, plus
+`Resources/VoiceOour.entitlements` with audio input only; it is deliberately not sandboxed.
+`scripts/verify_bundle.sh` checks the plist values, signature validity, and shipped entitlements.
+
 `scripts/bundle.sh` prefers the dedicated local `voiceoour-dev` identity installed by `scripts/setup_local_signing.sh`, uses `VOICEOOUR_CODESIGN_IDENTITY` when explicitly set, and otherwise warns before falling back to ad-hoc signing. Stable identity signing keeps Accessibility permission across rebuilds. For repeated permission-sensitive restarts without rebuilding, use `scripts/restart_real.sh`.
 
 ## Release hardening
+
+`scripts/sign_notarize.sh` builds with the configured Developer ID identity, signs with hardened
+runtime, verifies signature and entitlements, submits to `notarytool`, staples and validates,
+assesses Gatekeeper, writes `.build/VoiceOour-release-manifest.txt`, and prints a SHA-256.
 
 Non-credentialed local bundle verification:
 
@@ -161,27 +201,40 @@ export APPLE_APP_SPECIFIC_PASSWORD="..."
 scripts/sign_notarize.sh
 ```
 
-## Manual fake E2E
+Signing is the only v0 task intentionally gated on credentials.
 
-1. Launch with `scripts/run_dev.sh`.
-2. Focus a normal text target on one display.
-3. Tap Fn/Globe to start recording. Once Accessibility is granted, VoiceOour consumes the standalone tap and suppresses the macOS emoji popup; without it, the passive fallback may let the popup also appear.
-4. Expect the compact movable graphite island on the focused target's display. Drag the island body to reposition it. Recording shows the live waveform, initially flat until levels arrive; processing shows an uppercase state label and comet, and there is no transcript preview. Fake capture is live from the first tick, so the `WARMING` phase a real microphone can show never appears here.
-5. Focus a normal text target on another display. The island should move to that display while preserving its relative placement.
-6. Tap Fn/Globe again or use the check control to stop. The island should remain open during finalization, then the fake transcript should be copied and Cmd-V attempted in the target focused when insertion begins.
-7. If the transcript only lands on the clipboard for a normal text target, grant the macOS event-post/Accessibility synthetic-paste permission VoiceOour requests and retry.
-8. Deny synthetic paste permission or use a terminal/code/secure/unknown-risky delivery target. Expected: copy-only. Target identity is bundle id, pid and safety class, re-checked immediately before the pasteboard write and again before Cmd-V, so a focus change after the delivery snapshot — including to a secure field inside the same app — degrades to copy-only rather than pasting into an unverified target.
+## Manual insertion and permission checks
 
-## Test tiers
+Follow the fake and real E2E checklists in
+[`docs/permissions.md`](permissions.md). That guide owns the Fn/Globe flow, permission fallbacks,
+target-safety policy, focus-race checks, and release insertion matrix.
 
-- PR gate: the whole local-checks block in `CONTRIBUTING.md`; CI enforces every command in it.
-- App smoke: `scripts/run_dev.sh --self-test`.
-- UI gate: `make ui-flow` and `make ui-coverage` are enforced in CI; `make ui-snap` and `make ui-flow-frames` run as an advisory job on hosted runners because rasters are host-sensitive, so treat them as required locally (offscreen, no window, no focus change; see `docs/ui-harness.md`).
-- Interactive fake app: `scripts/run_dev.sh`.
-- Interactive real Parakeet app: `scripts/run_real.sh` on a logged-in desktop; the macOS microphone prompt may appear when real recording first starts, and Parakeet may cold-load on first use.
-- Real ASR proof: generated fixture plus `phase0_asr_proof.py`.
-- Release: signed/notarized app on a clean macOS account with the manual insertion matrix.
-- Benchmarks: `make bench-smoke` (offline, fake backend) and the accuracy/speed tiers in `docs/benchmarks.md`.
+## Optional integration and benchmark checks
+
+Real integrations are opt-in:
+
+```sh
+VOICEOOUR_MLX_INTEGRATION=1 swift test
+VOICEOOUR_OMP_INTEGRATION=1 swift test
+VOICEOOUR_FM_INTEGRATION=1 swift test
+VOICEOOUR_APPLE_SPEECH_INTEGRATION=1 swift test
+```
+
+They require, respectively, the MLX model download, an OMP login, macOS 26 with Apple Intelligence,
+or macOS 26 with SpeechAnalyzer. They skip when their environment variable is absent.
+
+The benchmark Make targets are:
+
+```sh
+make bench-smoke
+make bench-stt BACKEND=mlx N=64
+make bench-refine
+make bench-e2e BACKEND=mlx N=64
+make bench-techterms
+```
+
+`make bench-smoke` is offline and fake-backed. The real tiers need their documented models and
+datasets; see [`docs/benchmarks.md`](benchmarks.md).
 
 ## Script inventory
 
@@ -198,7 +251,7 @@ scripts/sign_notarize.sh
 |`phase0_asr_proof.py`|supported (model proof)|Loads the pinned model directly (not through the sidecar protocol; the sidecar path is covered by Swift/Python process tests) and prints transcript/latency/RSS.|
 |`ui_harness.sh`|supported|Offscreen UI render/dump/lint/diff; wrapped by `make ui-snap`, `make ui-update`, `make ui-list`. Never opens a window, never steals focus.|
 |`make_readme_gif.sh`|supported|Records the README's recording-island GIF from the harness film mode; wrapped by `make ui-film`. Needs `ffmpeg` and `ffprobe` on `PATH`. Media, not a gate: nothing diffs its output.|
-|`console_shot.sh`, `find_console_window.swift`|screenshot tooling|Onscreen console window capture. Superseded by `ui_harness.sh` except for real glass — behind-window `NSVisualEffectView` and modern `.glassEffect` alike, neither of which the offscreen path can rasterise.|
+|`console_shot.sh`, `find_console_window.swift`|screenshot tooling|Onscreen console window capture. Superseded by `ui_harness.sh` except for real glass. The offscreen path cannot rasterise either behind-window `NSVisualEffectView` or modern `.glassEffect`.|
 |`archive/perf_probe.sh`, `archive/perf_probe_helper.swift`|archived|Measuring render performance. Archived, not wired into `make` or CI: it needs a running bundled app plus an Accessibility grant, and it mutates focus and cursor state while sampling. Run it directly from `scripts/archive/` if you need a render baseline.|
 |`make_icon.sh`, `render_emoji_icon.swift`|asset regeneration|One-off generators that produced the committed `Resources/AppIcon.icns`.|
 
