@@ -71,11 +71,23 @@ public struct RecordedAudio: Equatable, Sendable {
     public var url: URL
     public var meta: ASRAudioMeta
     public var telemetry: CaptureTelemetry?
+    /// True only for the fake recorder, which writes literal silence and whose
+    /// transcript is synthesised. The no-speech gate in
+    /// `DictationPolicy.capturedSpeechIsAbsent` must not fire on it: fabricating a
+    /// transcript from silence is that recorder's contract. Declared by the producer
+    /// rather than inferred downstream, because only the recorder knows.
+    public var isSynthetic: Bool
 
-    public init(url: URL, meta: ASRAudioMeta, telemetry: CaptureTelemetry? = nil) {
+    public init(
+        url: URL,
+        meta: ASRAudioMeta,
+        telemetry: CaptureTelemetry? = nil,
+        isSynthetic: Bool = false
+    ) {
         self.url = url
         self.meta = meta
         self.telemetry = telemetry
+        self.isSynthetic = isSynthetic
     }
 }
 

@@ -36,7 +36,8 @@ public final class FakeAudioRecorder: AudioRecording, @unchecked Sendable {
                 durationMs: durationMs,
                 byteCount: wav.count
             ),
-            telemetry: telemetry
+            telemetry: telemetry,
+            isSynthetic: true
         )
     }
 

@@ -233,6 +233,22 @@ extension DictationCoordinator {
             beginSystemAudioRestore()
             try ensureCurrentProcessing(generation)
 
+            // No-speech gate, before inference rather than after. ASR models do not
+            // return nothing for noise, they invent: 8 s of quiet dither measured
+            // here yields "Esta mañana está en su mayor mayor mayor." from the
+            // default backend and "嗯。" from ark-0.6b. `shouldSkipTranscript` cannot
+            // catch that because it is not whitespace, and this app pastes it into
+            // the user's document. Placing the gate here also saves the inference.
+            if DictationPolicy.capturedSpeechIsAbsent(
+                telemetry: audio.telemetry,
+                isSynthetic: audio.isSynthetic
+            ) {
+                state = .cancelled
+                clearCapturedTargetAndRefreshLabel()
+                resetToIdleWhenInactive(generation: generation)
+                return
+            }
+
             // One vocabulary snapshot per utterance, compiled here and held for
             // the rest of the stop path. `settings.glossary` and
             // `activeProjectId` stay mutable across the ASR await, so compiling

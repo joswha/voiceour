@@ -129,6 +129,52 @@ struct CaptureTelemetryTests {
         expectFiniteCaptureMetrics(telemetry)
     }
 
+    // End-to-end proof of the no-speech gate: real analyzer, real policy, audio
+    // shaped like what a live-but-silent microphone actually delivers. This matters
+    // because ASR does not return nothing for noise, it invents — measured on this
+    // machine, 8 s of quiet dither produced "Esta mañana está en su mayor mayor
+    // mayor." from the default backend and "嗯。" from ark-0.6b.
+    //
+    // Speech is modelled as alternating loud and quiet 100 ms blocks, which is the
+    // property snrDB keys on (p90 vs p10 of 10 ms buffer RMS). Noise is flat, so its
+    // percentiles collapse together. Deliberately, the noise here is LOUDER than the
+    // speech, so this test would fail if the gate keyed on level instead: three real
+    // FLEURS clips peak at -44 to -49 dBFS, quieter than hiss.
+    @Test func theNoSpeechGateSuppressesNoiseAndPassesQuietSpeech() throws {
+        let rate = 16_000
+        var seed: UInt64 = 0x2545_F491_4F6C_DD1D
+        func nextNoise(_ amplitude: Int16) -> Int16 {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let span = Int32(amplitude) * 2 + 1
+            return Int16(Int32(truncatingIfNeeded: seed >> 33) % span - Int32(amplitude))
+        }
+
+        var flatNoise: [Int16] = []
+        for _ in 0..<(rate * 4) { flatNoise.append(nextNoise(400)) }
+
+        var quietSpeech: [Int16] = []
+        for block in 0..<40 {
+            let amplitude: Int16 = block.isMultiple(of: 2) ? 120 : 2
+            for _ in 0..<(rate / 10) { quietSpeech.append(nextNoise(amplitude)) }
+        }
+
+        let noiseTelemetry = try CaptureTelemetryAnalyzer.analyzeWAV(
+            data: pcm16WAV(samples: flatNoise, sampleRateHz: rate)
+        )
+        let speechTelemetry = try CaptureTelemetryAnalyzer.analyzeWAV(
+            data: pcm16WAV(samples: quietSpeech, sampleRateHz: rate)
+        )
+
+        #expect(noiseTelemetry.snrDB < DictationPolicy.minimumCaptureSNRDB)
+        #expect(speechTelemetry.snrDB >= DictationPolicy.minimumCaptureSNRDB)
+        #expect(noiseTelemetry.peakDBFS > speechTelemetry.peakDBFS, "noise must be the louder signal")
+
+        #expect(
+            DictationPolicy.capturedSpeechIsAbsent(telemetry: noiseTelemetry, isSynthetic: false))
+        #expect(
+            !DictationPolicy.capturedSpeechIsAbsent(telemetry: speechTelemetry, isSynthetic: false))
+    }
+
     private func pcm16WAV(samples: [Int16], sampleRateHz: Int) -> Data {
         let channels = 1
         let dataByteCount = samples.count * MemoryLayout<Int16>.size
