@@ -50,15 +50,15 @@ struct A11y: DynamicProperty {
     }
 
     var lineRule: Color {
-        escalatedLines ? Color.white.opacity(0.24) : VoiceOourPalette.Line.rule
+        escalatedLines ? VoiceOourPalette.Contrast.lineRule : VoiceOourPalette.Line.rule
     }
 
     var lineEdge: Color {
-        escalatedLines ? Color.white.opacity(0.30) : VoiceOourPalette.Line.edge
+        escalatedLines ? VoiceOourPalette.Contrast.lineEdge : VoiceOourPalette.Line.edge
     }
 
     var lineControl: Color {
-        escalatedLines ? Color.white.opacity(0.55) : VoiceOourPalette.Line.control
+        escalatedLines ? VoiceOourPalette.Contrast.lineControl : VoiceOourPalette.Line.control
     }
 
     var surface: Color {
@@ -75,7 +75,7 @@ struct A11y: DynamicProperty {
     }
 
     var meterRest: Color {
-        contrast == .increased ? Color.white.opacity(0.55) : VoiceOourPalette.Meter.rest
+        contrast == .increased ? VoiceOourPalette.Contrast.meterRest : VoiceOourPalette.Meter.rest
     }
 }
 /// Configures the host window for VoiceOour's edge-to-edge glass console using

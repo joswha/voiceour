@@ -30,24 +30,13 @@ enum CoreAudioInputDevice {
 
     /// Every device publishing at least one input channel.
     static func all() -> [Device] {
-        var devicesAddress = address(kAudioHardwarePropertyDevices, scope: kAudioObjectPropertyScopeGlobal)
-        var size: UInt32 = 0
-        let systemObject = AudioObjectID(kAudioObjectSystemObject)
-        guard AudioObjectGetPropertyDataSize(systemObject, &devicesAddress, 0, nil, &size) == noErr, size > 0 else {
-            return []
-        }
-
-        var deviceIDs = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(systemObject, &devicesAddress, 0, nil, &size, &deviceIDs) == noErr else {
-            return []
-        }
-        return deviceIDs.compactMap(describe)
+        CoreAudioProperty.deviceIDs()?.compactMap(describe) ?? []
     }
 
     static func systemDefault() -> Device? {
         var deviceID = AudioObjectID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        var defaultAddress = address(
+        var defaultAddress = CoreAudioProperty.address(
             kAudioHardwarePropertyDefaultInputDevice, scope: kAudioObjectPropertyScopeGlobal)
 
         let status = AudioObjectGetPropertyData(
@@ -110,7 +99,8 @@ enum CoreAudioInputDevice {
             name: name(deviceID: deviceID) ?? uid,
             transportType: readUInt32(
                 deviceID: deviceID,
-                address: address(kAudioDevicePropertyTransportType, scope: kAudioObjectPropertyScopeGlobal)
+                address: CoreAudioProperty.address(
+                    kAudioDevicePropertyTransportType, scope: kAudioObjectPropertyScopeGlobal)
             ) ?? 0
         )
     }
@@ -126,7 +116,7 @@ enum CoreAudioInputDevice {
     private static func readString(deviceID: AudioObjectID, selector: AudioObjectPropertySelector) -> String? {
         var value: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<CFString?>.size)
-        var stringAddress = address(selector, scope: kAudioObjectPropertyScopeGlobal)
+        var stringAddress = CoreAudioProperty.address(selector, scope: kAudioObjectPropertyScopeGlobal)
         guard AudioObjectHasProperty(deviceID, &stringAddress),
             AudioObjectGetPropertyData(deviceID, &stringAddress, 0, nil, &size, &value) == noErr,
             let string = value?.takeRetainedValue()
@@ -139,7 +129,7 @@ enum CoreAudioInputDevice {
     /// Input channels across every input stream. A device with none cannot
     /// record, which is how output-only hardware is filtered out.
     private static func inputChannelCount(deviceID: AudioObjectID) -> Int {
-        var configurationAddress = address(
+        var configurationAddress = CoreAudioProperty.address(
             kAudioDevicePropertyStreamConfiguration, scope: kAudioDevicePropertyScopeInput)
         var size: UInt32 = 0
         guard AudioObjectHasProperty(deviceID, &configurationAddress),
@@ -160,20 +150,6 @@ enum CoreAudioInputDevice {
     }
 
     private static func readUInt32(deviceID: AudioObjectID, address: AudioObjectPropertyAddress) -> UInt32? {
-        var value: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        var address = address
-        guard AudioObjectHasProperty(deviceID, &address) else {
-            return nil
-        }
-        return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr ? value : nil
-    }
-
-    private static func address(
-        _ selector: AudioObjectPropertySelector,
-        scope: AudioObjectPropertyScope,
-        element: UInt32 = kAudioObjectPropertyElementMain
-    ) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
+        CoreAudioProperty.read(address, from: deviceID, initialValue: UInt32(0))
     }
 }

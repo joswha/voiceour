@@ -35,7 +35,6 @@ enum StopPath {
         static let finalizeAudio: StaticString = "stop.finalizeAudio"
         static let vocabulary: StaticString = "stop.vocabulary"
         static let cleanup: StaticString = "stop.cleanup"
-        static let termAuthorization: StaticString = "stop.termAuthorization"
         static let journal: StaticString = "stop.journal"
         static let insert: StaticString = "stop.insert"
     }

@@ -22,7 +22,7 @@ struct GroundScrim: View {
     /// text is not a floor.
     var taper: CGFloat = 0
 
-    static let ink = VoiceOourPalette.Ink.void.opacity(0.88)
+    static let ink = VoiceOourPalette.Ink.scrim
 
     var body: some View {
         VStack(spacing: 0) {

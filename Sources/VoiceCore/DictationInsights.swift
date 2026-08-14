@@ -183,13 +183,6 @@ public struct DictationInsights: Equatable, Sendable {
         return Double(measuredWords) / (Double(elapsedMs) / 60_000)
     }
 
-    /// Words per minute of speech alone, excluding the wait. Rendered only
-    /// where it is named as speaking rate.
-    public var spokenWPM: Double? {
-        guard measuredWords > 0, spokenMs > 0 else { return nil }
-        return Double(measuredWords) / (Double(spokenMs) / 60_000)
-    }
-
     /// True once every counted dictation carries measured timing, at which
     /// point the coverage caption has nothing left to disclose.
     public var isFullyMeasured: Bool { measuredDictationCount == dictationCount }

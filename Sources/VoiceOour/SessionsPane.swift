@@ -114,7 +114,17 @@ struct SessionsPane: View {
                         sessionList(selectedID: selectedID)
                     }
                 } else {
-                    EmptySessionsView()
+                    // Keep an empty history inside the SESSIONS card instead of
+                    // replacing the pane's structure with bare ground.
+                    EmptyState(
+                        glyph: "tray",
+                        title: "No sessions yet",
+                        body: "Completed dictations are kept here with their transcripts, timestamps and word counts."
+                    ) {
+                        DictationHotkeyHint()
+                    }
+                    .padding(.vertical, VoiceOourMetrics.Space.xl)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
         }

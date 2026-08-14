@@ -2,6 +2,33 @@ import Dispatch
 import Foundation
 import VoiceCore
 
+struct OmpDeadline {
+    private let uptimeNanoseconds: UInt64
+
+    init(timeoutMs: Int) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        // Both steps saturate rather than trap. A corrupt settings file can hand us an
+        // absurd timeout, and crashing the app is a worse answer than waiting a long time.
+        let (duration, durationOverflow) = UInt64(max(timeoutMs, 1))
+            .multipliedReportingOverflow(by: 1_000_000)
+        let (deadline, deadlineOverflow) = now.addingReportingOverflow(
+            durationOverflow ? UInt64.max : duration
+        )
+        uptimeNanoseconds = deadlineOverflow ? UInt64.max : deadline
+    }
+
+    var remainingNanoseconds: UInt64 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        return uptimeNanoseconds > now ? uptimeNanoseconds - now : 0
+    }
+
+    var remainingMilliseconds: Int {
+        let remaining = remainingNanoseconds
+        guard remaining > 0 else { return 0 }
+        return Int(min(remaining / 1_000_000 + 1, UInt64(Int.max)))
+    }
+}
+
 /// Owns the RPC child process and the newline-delimited JSON conversation with it.
 ///
 /// Request lifecycle per refine:
@@ -147,7 +174,7 @@ actor OmpRpcRuntime {
         if starting != nil {
             terminateStarting()
         }
-        let deadline = Self.deadline(timeoutMs: timeoutMs)
+        let deadline = OmpDeadline(timeoutMs: timeoutMs)
         _ = try await ensureRunning(before: deadline)
     }
 
@@ -172,7 +199,7 @@ actor OmpRpcRuntime {
         }
 
         let promptId = UUID().uuidString
-        let deadline = Self.deadline(timeoutMs: timeoutMs)
+        let deadline = OmpDeadline(timeoutMs: timeoutMs)
         pendingTurnId = promptId
 
         let child: RunningChild
@@ -198,7 +225,7 @@ actor OmpRpcRuntime {
             throw CancellationError()
         }
 
-        let remaining = Self.remainingNanoseconds(until: deadline)
+        let remaining = deadline.remainingNanoseconds
         guard remaining > 0 else {
             pendingTurnId = nil
             stopRunning(terminate: true)
@@ -221,26 +248,10 @@ actor OmpRpcRuntime {
             do {
                 try write(["id": promptId, "type": "prompt", "message": message], to: child)
             } catch {
-                failActiveTurn(
-                    with: OmpRpcError.processExited(
-                        "stdin write failed: \(error.localizedDescription)\(diagnosticSuffix(child.diagnostics))"
-                    ))
-                stopRunning(terminate: true)
+                failWrite(error, to: child)
             }
         }
         return text
-    }
-
-    private static func deadline(timeoutMs: Int) -> UInt64 {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let duration = UInt64(max(timeoutMs, 1)) * 1_000_000
-        let (deadline, overflow) = now.addingReportingOverflow(duration)
-        return overflow ? UInt64.max : deadline
-    }
-
-    private static func remainingNanoseconds(until deadline: UInt64) -> UInt64 {
-        let now = DispatchTime.now().uptimeNanoseconds
-        return deadline > now ? deadline - now : 0
     }
 
     // MARK: - Turn state machine
@@ -328,12 +339,16 @@ actor OmpRpcRuntime {
         do {
             try write(frame, to: child)
         } catch {
-            failActiveTurn(
-                with: OmpRpcError.processExited(
-                    "stdin write failed: \(error.localizedDescription)\(diagnosticSuffix(child.diagnostics))"
-                ))
-            stopRunning(terminate: true)
+            failWrite(error, to: child)
         }
+    }
+
+    private func failWrite(_ error: Error, to child: RunningChild) {
+        failActiveTurn(
+            with: OmpRpcError.processExited(
+                "stdin write failed: \(error.localizedDescription)\(diagnosticSuffix(child.diagnostics))"
+            ))
+        stopRunning(terminate: true)
     }
 
     private func diagnosticSuffix(_ diagnostics: OmpProcessDiagnostics) -> String {
@@ -348,8 +363,8 @@ actor OmpRpcRuntime {
 
     // MARK: - Process lifecycle
 
-    private func ensureRunning(before deadline: UInt64) async throws -> RunningChild {
-        guard Self.remainingNanoseconds(until: deadline) > 0 else {
+    private func ensureRunning(before deadline: OmpDeadline) async throws -> RunningChild {
+        guard deadline.remainingNanoseconds > 0 else {
             throw OmpRpcError.timeout
         }
         if let running {
@@ -371,21 +386,21 @@ actor OmpRpcRuntime {
 
         do {
             let child = try await finishStarting(starting)
-            guard Self.remainingNanoseconds(until: deadline) > 0 else {
+            guard deadline.remainingNanoseconds > 0 else {
                 stopRunning(terminate: true)
                 throw OmpRpcError.timeout
             }
             return child
         } catch {
-            if Self.remainingNanoseconds(until: deadline) == 0 {
+            if deadline.remainingNanoseconds == 0 {
                 throw OmpRpcError.timeout
             }
             throw error
         }
     }
 
-    private func scheduleStartupTimeout(childId: UUID, deadline: UInt64) {
-        let remaining = Self.remainingNanoseconds(until: deadline)
+    private func scheduleStartupTimeout(childId: UUID, deadline: OmpDeadline) {
+        let remaining = deadline.remainingNanoseconds
         Task { [weak self] in
             if remaining > 0 {
                 try? await Task.sleep(nanoseconds: remaining)

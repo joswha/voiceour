@@ -8,6 +8,7 @@ import SwiftUI
 enum VoiceOourPalette {
     enum Ink {
         static let void = Color(.sRGB, red: 0.02, green: 0.03, blue: 0.05, opacity: 1.00)
+        static let scrim = void.opacity(0.88)
         /// The opaque stand-in for the glass ground under Reduce Transparency.
         /// It has to be *lighter* than `surface`, not darker: the vibrancy ground
         /// rasterises above the content plane (measured (47,48,51) at mid-window,
@@ -49,6 +50,13 @@ enum VoiceOourPalette {
         static let focus = Signal.cyan
     }
 
+    enum Contrast {
+        static let lineRule = Color.white.opacity(0.24)
+        static let lineEdge = Color.white.opacity(0.30)
+        static let lineControl = Color.white.opacity(0.55)
+        static let meterRest = Color.white.opacity(0.55)
+    }
+
     enum Meter {
         static let rest = Color.white.opacity(0.35)
         static let accent = Signal.cyan
@@ -61,6 +69,7 @@ enum VoiceOourPalette {
         static let amber = Color(.sRGB, red: 0.98, green: 0.78, blue: 0.42, opacity: 1.00)
         static let crimson = Color(.sRGB, red: 0.98, green: 0.44, blue: 0.44, opacity: 1.00)
         static let wash = cyan.opacity(0.45)
+        static let focusHalo = cyan.opacity(0.25)
     }
 
     static let specularRim = LinearGradient(
@@ -429,6 +438,7 @@ enum VoiceOourMetrics {
         static let small: CGFloat = 28
         static let medium: CGFloat = 32
         static let large: CGFloat = 40
+        static let pressedScale: CGFloat = 0.985
 
         enum Toggle {
             static let trackWidth: CGFloat = 42
@@ -531,6 +541,7 @@ enum VoiceOourMotion {
     static let quickDuration: Double = 0.14
     static let standardDuration: Double = 0.18
     static let deliberateDuration: Double = 0.22
+    static let livePulseDuration: Double = 1.6
 
     static let quick = Animation.easeInOut(duration: quickDuration)
     static let standard = Animation.easeInOut(duration: standardDuration)

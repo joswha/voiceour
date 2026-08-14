@@ -11,6 +11,13 @@ struct GlassToggleStyle: ToggleStyle {
     }
 }
 
+extension View {
+    func compactGlassToggle() -> some View {
+        toggleStyle(GlassToggleStyle())
+            .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
 private struct GlassToggleBody: View {
     let configuration: ToggleStyle.Configuration
     let harnessState: ControlState?
@@ -155,7 +162,7 @@ private struct GlassToggleVisualBody: View {
                 if hasFocusHalo {
                     Capsule()
                         .strokeBorder(
-                            VoiceOourPalette.Signal.cyan.opacity(0.25),
+                            VoiceOourPalette.Signal.focusHalo,
                             lineWidth: VoiceOourMetrics.Space.hair
                         )
                         .padding(-VoiceOourMetrics.Space.hair)

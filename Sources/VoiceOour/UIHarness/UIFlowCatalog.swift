@@ -190,7 +190,8 @@
                         .check("transcribing", [.state(.transcribing)]),
                         .release(.transcription),
                         // The first session is not persisted until refinement finishes, so HomePane
-                        // still renders HomeEmptyState here; WORKING belongs to the dashboard below.
+                        // still renders EmptyState with DictationHotkeyHint here; WORKING belongs to the
+                        // dashboard below.
                         .wait(.state(.refining)),
                         .check("refining", [.state(.refining)]),
                         .release(.refinement),

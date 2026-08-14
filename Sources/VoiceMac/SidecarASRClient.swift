@@ -369,38 +369,52 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         func transcribe(_ request: ASRTranscribeRequest) async throws -> ASRResult {
             let sidecar = try await ensureRunning()
             return try await withCheckedThrowingContinuation { continuation in
-                pending[request.requestId] = .transcribe(continuation)
-                do {
-                    try sidecar.stdin.write(contentsOf: ASRWire.encodeLine(request))
-                } catch {
-                    pending.removeValue(forKey: request.requestId)
-                    failAllAndStop(
-                        requestId: nil,
-                        requestError: nil,
-                        otherError: SidecarASRClientError.writeFailed(error.localizedDescription),
-                        terminate: true
-                    )
-                    continuation.resume(throwing: SidecarASRClientError.writeFailed(error.localizedDescription))
-                }
+                writePending(
+                    requestId: request.requestId,
+                    encode: { try ASRWire.encodeLine(request) },
+                    pendingRequest: .transcribe(continuation),
+                    continuation: continuation,
+                    to: sidecar
+                )
             }
         }
 
         func health(_ request: ASRHealthRequest) async throws -> ASRBackendHealth {
             let sidecar = try await ensureRunning()
             return try await withCheckedThrowingContinuation { continuation in
-                pending[request.requestId] = .health(continuation)
-                do {
-                    try sidecar.stdin.write(contentsOf: ASRWire.encodeLine(request))
-                } catch {
-                    pending.removeValue(forKey: request.requestId)
-                    failAllAndStop(
-                        requestId: nil,
-                        requestError: nil,
-                        otherError: SidecarASRClientError.writeFailed(error.localizedDescription),
-                        terminate: true
-                    )
-                    continuation.resume(throwing: SidecarASRClientError.writeFailed(error.localizedDescription))
-                }
+                writePending(
+                    requestId: request.requestId,
+                    encode: { try ASRWire.encodeLine(request) },
+                    pendingRequest: .health(continuation),
+                    continuation: continuation,
+                    to: sidecar
+                )
+            }
+        }
+
+        /// Encoding stays inside the same `do` as the write on purpose: an encoder
+        /// failure has to reach the sidecar teardown path too, otherwise the request
+        /// throws while the child keeps running with a half-written stdin frame.
+        private func writePending<Response>(
+            requestId: String,
+            encode: () throws -> Data,
+            pendingRequest: PendingRequest,
+            continuation: CheckedContinuation<Response, Error>,
+            to sidecar: RunningSidecar
+        ) {
+            pending[requestId] = pendingRequest
+            do {
+                try sidecar.stdin.write(contentsOf: encode())
+            } catch {
+                pending.removeValue(forKey: requestId)
+                let writeError = SidecarASRClientError.writeFailed(error.localizedDescription)
+                failAllAndStop(
+                    requestId: nil,
+                    requestError: nil,
+                    otherError: writeError,
+                    terminate: true
+                )
+                continuation.resume(throwing: writeError)
             }
         }
 

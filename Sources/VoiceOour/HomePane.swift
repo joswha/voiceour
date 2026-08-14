@@ -55,8 +55,17 @@ struct HomePane: View {
     var body: some View {
         Group {
             if coordinator.insights.dictationCount == 0 {
-                HomeEmptyState()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                // Keep first run on the populated grid's column and name the
+                // one keystroke the whole app turns on.
+                EmptyState(
+                    glyph: "chart.bar.xaxis",
+                    title: "No dictations yet",
+                    body: "Your instrument panel lights up after the first dictation — "
+                        + "time saved, how fast you speak, and your top apps."
+                ) {
+                    DictationHotkeyHint()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 HomeDashboard(
                     insights: coordinator.insights,

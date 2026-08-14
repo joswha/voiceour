@@ -81,7 +81,8 @@ public final class WorkspaceTargetTracker: TargetTracking, @unchecked Sendable {
         let status = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused)
         if status == .noValue { return .noFocusedElement }
         guard status == .success, let focusedElement = focused else { return .unavailable }
-        let element = focusedElement as! AXUIElement
+        guard CFGetTypeID(focusedElement) == AXUIElementGetTypeID() else { return .unavailable }
+        let element = unsafeDowncast(focusedElement, to: AXUIElement.self)
         var roleValue: CFTypeRef?
         var subroleValue: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)

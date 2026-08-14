@@ -80,4 +80,8 @@ enum SessionsFormatters {
         formatter.dateFormat = "EEEE · MMM d · yyyy"
         return formatter
     }()
+
+    static func wordCountLabel(_ count: Int, pluralOnly: Bool = false) -> String {
+        "\(count) \(pluralOnly || count != 1 ? "words" : "word")"
+    }
 }

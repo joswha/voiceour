@@ -13,16 +13,31 @@ struct MetricCell: Identifiable {
 
 // MARK: - Strip shelves
 
-/// The interior of a strip shelf: equal-flex metric cells dividing the card's
-/// own measure, separated by hairlines that run the full height of a cell.
-///
-/// This is the grammar the Sessions TOTALS strip speaks (`RecentSessionMetricStrip.swift`),
-/// down to the rule geometry — the rules are an overlay on the resolved row, so
-/// they run label-to-numeral and stop inside the card's content box instead of
-/// crossing its padding or its rim, and each sits centred in the gutter between
-/// two cells rather than pressed against one of them. The cells are card-local
-/// flex quarters, not global bento columns: this shelf is one cell of the
-/// twelve-column grid and divides itself.
+/// The shared rule geometry is an overlay on the resolved row, so each hairline
+/// spans the cells' content height and sits at the centre of its gutter instead
+/// of crossing card padding or pressing against either cell.
+struct MetricStripRules: View {
+    let columnCount: Int
+    let gutter: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let columns = CGFloat(columnCount)
+            let column = (proxy.size.width - gutter * (columns - 1)) / columns
+            ForEach((0..<columnCount).dropFirst(), id: \.self) { index in
+                HairlineDivider(axis: .vertical)
+                    .frame(height: proxy.size.height)
+                    .offset(x: CGFloat(index) * (column + gutter) - gutter / 2)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// The interior of a Home strip shelf: equal-flex metric cells dividing the
+/// card's own measure in the same grammar as Sessions' TOTALS strip. The cells
+/// are card-local flex quarters, not global bento columns: this shelf is one
+/// cell of the twelve-column grid and divides itself.
 struct HomeMetricRow: View {
     let cells: [MetricCell]
     let scale: MetricValue.Scale
@@ -42,7 +57,9 @@ struct HomeMetricRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .overlay { rules }
+        .overlay {
+            MetricStripRules(columnCount: cells.count, gutter: Self.gutter)
+        }
     }
 
     /// A labelled cell reads as one element ("Longest dictation, 16 words");
@@ -61,19 +78,6 @@ struct HomeMetricRow: View {
         } else {
             MetricValue(parts: cell.parts, scale: scale, color: cell.color)
         }
-    }
-
-    private var rules: some View {
-        GeometryReader { proxy in
-            let columns = CGFloat(cells.count)
-            let column = (proxy.size.width - Self.gutter * (columns - 1)) / columns
-            ForEach(cells.indices.dropFirst(), id: \.self) { index in
-                HairlineDivider(axis: .vertical)
-                    .frame(height: proxy.size.height)
-                    .offset(x: CGFloat(index) * (column + Self.gutter) - Self.gutter / 2)
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
 

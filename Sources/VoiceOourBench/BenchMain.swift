@@ -736,8 +736,8 @@ final class JSONLWriter {
 struct PipelineInputRow: Decodable {
     var id: String
     var audioPath: String
+    // Non-optional so decoding continues to enforce the pipeline manifest schema.
     var reference: String
-    var formattedReference: String?
     var audioS: Double?
     var canonicalTerm: String?
 
@@ -745,7 +745,6 @@ struct PipelineInputRow: Decodable {
         case id
         case audioPath = "audio_path"
         case reference
-        case formattedReference = "formatted_reference"
         case audioS = "audio_s"
         case canonicalTerm = "canonical_term"
     }
@@ -754,14 +753,10 @@ struct PipelineInputRow: Decodable {
 struct RefineInputRow: Decodable {
     var id: String
     var rawText: String
-    var reference: String?
-    var formattedReference: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case rawText = "raw_text"
-        case reference
-        case formattedReference = "formatted_reference"
     }
 }
 

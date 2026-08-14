@@ -205,6 +205,28 @@ extension DictationCoordinator {
         }
     }
 
+    func finishCancelledProcessing(generation: AsyncGenerationGate.Token) {
+        state = .cancelled
+        clearCapturedTargetAndRefreshLabel()
+        resetToIdleWhenInactive(generation: generation)
+    }
+
+    func finishFailedProcessing(
+        generation: AsyncGenerationGate.Token,
+        state failedState: SessionState,
+        errorMessage failureMessage: String?
+    ) async {
+        await restoreSystemAudioIfNeeded()
+        guard generations.isCurrent(generation) else { return }
+        if failedState == .cancelled {
+            finishCancelledProcessing(generation: generation)
+            return
+        }
+        state = failedState
+        errorMessage = failureMessage
+        clearCapturedTargetAndRefreshLabel()
+    }
+
     func processStop(generation: AsyncGenerationGate.Token, stopReleaseStarted: Date) async {
         // Foundation Models prewarming is most effective shortly before use.
         // Run it independently so recorder finalization and ASR provide the
@@ -224,8 +246,6 @@ extension DictationCoordinator {
         defer { StopPath.signposter.endInterval(StopPath.Stage.total, totalSpan) }
         do {
             try ensureCurrentProcessing(generation)
-            stopInputMetering()
-            state = .finalizingAudio
             let finalizeSpan = StopPath.signposter.beginInterval(StopPath.Stage.finalizeAudio)
             let audio = try await recorder.stop()
             StopPath.signposter.endInterval(StopPath.Stage.finalizeAudio, finalizeSpan)
@@ -249,9 +269,7 @@ extension DictationCoordinator {
                 telemetry: audio.telemetry,
                 isSynthetic: audio.isSynthetic
             ) {
-                state = .cancelled
-                clearCapturedTargetAndRefreshLabel()
-                resetToIdleWhenInactive(generation: generation)
+                finishCancelledProcessing(generation: generation)
                 return
             }
 
@@ -290,9 +308,7 @@ extension DictationCoordinator {
             try ensureCurrentProcessing(generation)
 
             if DictationPolicy.shouldSkipTranscript(deterministic) {
-                state = .cancelled
-                clearCapturedTargetAndRefreshLabel()
-                resetToIdleWhenInactive(generation: generation)
+                finishCancelledProcessing(generation: generation)
                 return
             }
 
@@ -536,23 +552,23 @@ extension DictationCoordinator {
             clearCapturedTargetAndRefreshLabel()
             resetToIdleWhenInactive(generation: generation)
         } catch is CancellationError {
-            await restoreSystemAudioIfNeeded()
-            guard generations.isCurrent(generation) else { return }
-            state = .cancelled
-            clearCapturedTargetAndRefreshLabel()
-            resetToIdleWhenInactive(generation: generation)
+            await finishFailedProcessing(
+                generation: generation,
+                state: .cancelled,
+                errorMessage: nil
+            )
         } catch let error as ASRErrorMessage {
-            await restoreSystemAudioIfNeeded()
-            guard generations.isCurrent(generation) else { return }
-            state = .error(error.code)
-            errorMessage = error.detail
-            clearCapturedTargetAndRefreshLabel()
+            await finishFailedProcessing(
+                generation: generation,
+                state: .error(error.code),
+                errorMessage: error.detail
+            )
         } catch {
-            await restoreSystemAudioIfNeeded()
-            guard generations.isCurrent(generation) else { return }
-            state = .error(.internalError)
-            errorMessage = error.localizedDescription
-            clearCapturedTargetAndRefreshLabel()
+            await finishFailedProcessing(
+                generation: generation,
+                state: .error(.internalError),
+                errorMessage: error.localizedDescription
+            )
         }
     }
 }

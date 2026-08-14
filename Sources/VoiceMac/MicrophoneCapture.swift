@@ -131,11 +131,7 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         lock.withLock { isCapturing ? meterLevel : nil }
     }
 
-    /// Normalised meter level for one buffer.
-    ///
-    /// The single copy of a curve that used to exist identically in
-    /// `AVAudioEngineRecorder.currentInputLevel()` and
-    /// `AppleSpeechDictationEngine.StreamingSession.rmsLevel(of:)`.
+    /// Shared meter curve used by the live capture delegate for each audio buffer.
     static func normalizedLevel(rms: Double) -> Float {
         let decibels = Float(20 * log10(max(rms, 1e-7)))
         let floor: Float = -55

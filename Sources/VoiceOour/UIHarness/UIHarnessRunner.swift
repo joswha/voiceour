@@ -463,50 +463,35 @@
                 size: scene.size,
                 textSamples: render.textSamples
             )
-            // A lint error is never blessed into a golden: a blank or #FFCC00 placeholder
-            // render would otherwise freeze the bug in place and assert nothing forever.
-            let blessable = !findings.contains { $0.severity == .error }
-            let axData = Data(render.axText.utf8)
-            let axGolden = goldenURL(scene, "ax.txt", request)
-            // The pixel golden is the sha256 of the PNG, not the PNG. 24 console-sized
-            // renders weigh 7.6 MB and every `--update` would rewrite half-megabyte binaries
-            // into git history; the digests are 65 bytes each and detect the same change.
-            // The rendered PNG still lands in the artifact directory, and the contact sheet
-            // is how you actually look at it.
-            let pixelGolden = goldenURL(scene, "png.sha256", request)
-            // Snapshotted before `reconcile`, which overwrites the golden in `update` mode.
-            let previousAX = FileManager.default.contents(atPath: axGolden.path)
-                .flatMap { String(data: $0, encoding: .utf8) }
-            let previousPixelDigest = FileManager.default.contents(atPath: pixelGolden.path)
-                .flatMap { String(data: $0, encoding: .utf8) }?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            writeArtifact(render.capture.png, to: artifactURL(scene, "png", request), warnings: &warnings)
-            writeArtifact(axData, to: artifactURL(scene, "ax.txt", request), warnings: &warnings)
-
-            let pixel = reconcile(
-                payload: Data((render.capture.sha256 + "\n").utf8),
-                golden: pixelGolden,
-                mode: request.mode,
-                blessable: blessable
-            )
-            let axOutcome = reconcile(payload: axData, golden: axGolden, mode: request.mode, blessable: blessable)
-            refreshDiff(
-                scene,
+            let reconciliation = reconcileCapture(
+                identifier: scene.id,
+                capture: render.capture,
                 axText: render.axText,
-                previous: previousAX,
-                status: axOutcome.status,
-                request: request,
-                warnings: &warnings
+                findings: findings,
+                pngArtifact: artifactURL(scene, "png", request),
+                axArtifact: artifactURL(scene, "ax.txt", request),
+                pngGolden: goldenURL(scene, "png.sha256", request),
+                axGolden: goldenURL(scene, "ax.txt", request),
+                mode: request.mode,
+                warnings: &warnings,
+                refreshAXDiff: { _, current, previous, status, diffWarnings in
+                    refreshDiff(
+                        scene,
+                        axText: current,
+                        previous: previous,
+                        status: status,
+                        request: request,
+                        warnings: &diffWarnings
+                    )
+                }
             )
-            warnings.append(contentsOf: [pixel.warning, axOutcome.warning].compactMap { $0 })
 
             let result = UISceneResult(
                 scene: scene,
                 capture: render.capture,
                 findings: findings,
-                pixelStatus: pixel.status,
-                axStatus: axOutcome.status,
+                pixelStatus: reconciliation.pixel.status,
+                axStatus: reconciliation.ax.status,
                 error: nil,
                 durationMs: elapsedMs(since: clock)
             )
@@ -514,8 +499,73 @@
                 result: result,
                 warnings: warnings,
                 axNodeCount: AXDump.nodeCount(render.root),
-                goldenPNGDigest: previousPixelDigest
+                goldenPNGDigest: reconciliation.previousPixelDigest
             )
+        }
+
+        static func reconcileCapture(
+            identifier: String,
+            capture: UICapture,
+            axText: String,
+            findings: [UIFinding],
+            pngArtifact: URL,
+            axArtifact: URL,
+            pngGolden: URL,
+            axGolden: URL,
+            mode: UIHarnessRequest.Mode,
+            warnings: inout [String],
+            refreshAXDiff: (
+                _ identifier: String,
+                _ current: String,
+                _ previous: String?,
+                _ status: UISceneResult.Status,
+                _ warnings: inout [String]
+            ) -> Void
+        ) -> (pixel: UIGoldenOutcome, ax: UIGoldenOutcome, previousPixelDigest: String?) {
+            let axData = Data(axText.utf8)
+            writeCaptureArtifacts(
+                capture: capture,
+                axData: axData,
+                pngArtifact: pngArtifact,
+                axArtifact: axArtifact,
+                warnings: &warnings
+            )
+
+            // The pixel golden is the sha256 of the PNG, not the PNG. 24 console-sized
+            // renders weigh 7.6 MB and every `--update` would rewrite half-megabyte binaries
+            // into git history; the digests are 65 bytes each and detect the same change.
+            // The rendered PNG still lands in the artifact directory, and the contact sheet
+            // is how you actually look at it.
+            let previousAX = FileManager.default.contents(atPath: axGolden.path)
+                .flatMap { String(data: $0, encoding: .utf8) }
+            let previousPixelDigest = FileManager.default.contents(atPath: pngGolden.path)
+                .flatMap { String(data: $0, encoding: .utf8) }?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // A lint error is never blessed into a golden: a blank or #FFCC00 placeholder
+            // render would otherwise freeze the bug in place and assert nothing forever.
+            let blessable = !findings.contains { $0.severity == .error }
+            let pixel = reconcile(
+                payload: Data((capture.sha256 + "\n").utf8),
+                golden: pngGolden,
+                mode: mode,
+                blessable: blessable
+            )
+            let ax = reconcile(payload: axData, golden: axGolden, mode: mode, blessable: blessable)
+            refreshAXDiff(identifier, axText, previousAX, ax.status, &warnings)
+            warnings.append(contentsOf: [pixel.warning, ax.warning].compactMap { $0 })
+            return (pixel: pixel, ax: ax, previousPixelDigest: previousPixelDigest)
+        }
+
+        static func writeCaptureArtifacts(
+            capture: UICapture,
+            axData: Data,
+            pngArtifact: URL,
+            axArtifact: URL,
+            warnings: inout [String]
+        ) {
+            writeArtifact(capture.png, to: pngArtifact, warnings: &warnings)
+            writeArtifact(axData, to: axArtifact, warnings: &warnings)
         }
     }
     // MARK: - Internal value types

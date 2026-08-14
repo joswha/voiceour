@@ -81,7 +81,7 @@ struct StatusChip: View {
             }
             Text(label.uppercased())
                 .font(size == .compact ? VoiceOourTypography.micro.monospacedDigit() : VoiceOourTypography.micro)
-                .kerning(size == .compact ? 0.4 : 0.8)
+                .kerning(size == .compact ? 0.4 : TextRole.micro.tracking)
                 .lineLimit(1)
         }
         .foregroundColor(foreground)
@@ -300,14 +300,14 @@ private struct RowIconButtonBody: View {
                         style: .continuous
                     )
                     .strokeBorder(
-                        VoiceOourPalette.Signal.cyan.opacity(0.25),
+                        VoiceOourPalette.Signal.focusHalo,
                         lineWidth: VoiceOourMetrics.Space.hair
                     )
                     .padding(-VoiceOourMetrics.Space.hair)
                     .allowsHitTesting(false)
                 }
             }
-            .scaleEffect(state == .pressed ? 0.985 : 1)
+            .scaleEffect(state == .pressed ? VoiceOourMetrics.Control.pressedScale : 1)
             .frame(
                 width: VoiceOourMetrics.Control.medium,
                 height: VoiceOourMetrics.Control.medium

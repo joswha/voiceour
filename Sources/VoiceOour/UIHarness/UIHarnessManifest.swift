@@ -271,7 +271,7 @@
         }
     }
 
-    private struct UIFindingRow: Encodable {
+    struct UIFindingRow: Encodable {
         let rule: String
         let severity: String
         let message: String

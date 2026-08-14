@@ -43,7 +43,7 @@ struct ContentCard<Content: View>: View {
         VStack(alignment: .leading, spacing: VoiceOourMetrics.Space.md) {
             Text(eyebrow)
                 .font(VoiceOourTypography.eyebrow)
-                .kerning(1.4)
+                .kerning(TextRole.eyebrow.tracking)
                 .foregroundStyle(a11y.textLow)
                 .recordTextRole(.eyebrow, foreground: a11y.textLow)
 

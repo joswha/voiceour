@@ -442,8 +442,7 @@ struct SystemPane: View {
             Toggle(
                 "Mute system audio while recording", isOn: settingBinding(coordinator, \.muteSystemAudioDuringCapture)
             )
-            .toggleStyle(GlassToggleStyle())
-            .fixedSize(horizontal: true, vertical: false)
+            .compactGlassToggle()
         } footer: {
             VStack(alignment: .leading, spacing: VoiceOourMetrics.Space.xs) {
                 CaptionText(muteReadout.detail)

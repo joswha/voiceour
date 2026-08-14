@@ -152,12 +152,19 @@
             let id = "\(flowID).\(frame)"
             let axText = AXDump.text(tree)
             let axData = Data(axText.utf8)
-            writeArtifact(capture.png, to: flowArtifactURL(id, "png", request), warnings: &warnings)
-            writeArtifact(axData, to: flowArtifactURL(id, "ax.txt", request), warnings: &warnings)
+            let pngArtifact = flowArtifactURL(id, "png", request)
+            let axArtifact = flowArtifactURL(id, "ax.txt", request)
 
             // Required CI runs use `--no-frames`: current artifacts and lint still exist, but
             // host-sensitive pixels and AX frame geometry neither read nor mutate goldens.
             guard request.reconcileFrames else {
+                writeCaptureArtifacts(
+                    capture: capture,
+                    axData: axData,
+                    pngArtifact: pngArtifact,
+                    axArtifact: axArtifact,
+                    warnings: &warnings
+                )
                 for warning in warnings { _ = report("flow \(flowID) frame \(frame): \(warning)") }
                 return UIFlowFrame(
                     name: frame,
@@ -171,45 +178,38 @@
                 )
             }
 
-            let axGolden = flowGoldenURL(id, "ax.txt", request)
-            let pixelGolden = flowGoldenURL(id, "png.sha256", request)
-            let previousAX = FileManager.default.contents(atPath: axGolden.path)
-                .flatMap { String(data: $0, encoding: .utf8) }
-            let previousPixelDigest = FileManager.default.contents(atPath: pixelGolden.path)
-                .flatMap { String(data: $0, encoding: .utf8) }?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let blessable = !findings.contains { $0.severity == .error }
-            let pixelOutcome = reconcile(
-                payload: Data((capture.sha256 + "\n").utf8),
-                golden: pixelGolden,
+            let reconciliation = reconcileCapture(
+                identifier: id,
+                capture: capture,
+                axText: axText,
+                findings: findings,
+                pngArtifact: pngArtifact,
+                axArtifact: axArtifact,
+                pngGolden: flowGoldenURL(id, "png.sha256", request),
+                axGolden: flowGoldenURL(id, "ax.txt", request),
                 mode: request.mode,
-                blessable: blessable
+                warnings: &warnings,
+                refreshAXDiff: { identifier, current, previous, status, diffWarnings in
+                    refreshFlowDiff(
+                        id: identifier,
+                        suffix: "ax",
+                        current: current,
+                        previous: previous,
+                        status: status,
+                        request: request,
+                        warnings: &diffWarnings
+                    )
+                }
             )
-            let axOutcome = reconcile(
-                payload: axData,
-                golden: axGolden,
-                mode: request.mode,
-                blessable: blessable
-            )
-            refreshFlowDiff(
-                id: id,
-                suffix: "ax",
-                current: axText,
-                previous: previousAX,
-                status: axOutcome.status,
-                request: request,
-                warnings: &warnings
-            )
-            warnings.append(contentsOf: [pixelOutcome.warning, axOutcome.warning].compactMap { $0 })
             for warning in warnings { _ = report("flow \(flowID) frame \(frame): \(warning)") }
 
             return UIFlowFrame(
                 name: frame,
                 id: id,
-                pixelStatus: pixelOutcome.status,
-                axStatus: axOutcome.status,
+                pixelStatus: reconciliation.pixel.status,
+                axStatus: reconciliation.ax.status,
                 pngDigest: capture.sha256,
-                goldenPngDigest: previousPixelDigest,
+                goldenPngDigest: reconciliation.previousPixelDigest,
                 nodeCount: AXDump.nodeCount(tree),
                 findings: findings
             )

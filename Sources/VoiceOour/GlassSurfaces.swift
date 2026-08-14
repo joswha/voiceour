@@ -208,7 +208,7 @@ struct PlateSurface: ViewModifier {
                         style: .continuous
                     )
                     .strokeBorder(
-                        VoiceOourPalette.Signal.cyan.opacity(0.25),
+                        VoiceOourPalette.Signal.focusHalo,
                         lineWidth: VoiceOourMetrics.Space.hair
                     )
                     .padding(-VoiceOourMetrics.Space.hair)

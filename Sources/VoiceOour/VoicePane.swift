@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import VoiceCore
 import VoiceMac
@@ -167,8 +166,7 @@ struct VoicePane: View {
         SettingsRow(label: "Auto-stop") {
             HStack(spacing: VoiceOourMetrics.Space.md) {
                 Toggle("Stop after silence", isOn: settingBinding(coordinator, \.autoStopEnabled))
-                    .toggleStyle(GlassToggleStyle())
-                    .fixedSize(horizontal: true, vertical: false)
+                    .compactGlassToggle()
 
                 HStack(alignment: .firstTextBaseline, spacing: VoiceOourMetrics.Space.xs) {
                     TextField(silencePlaceholder, text: silenceBinding)
@@ -199,8 +197,7 @@ struct VoicePane: View {
     private var cleanupRow: some View {
         SettingsRow(label: "Transcript cleanup") {
             Toggle("Clean up after capture", isOn: settingBinding(coordinator, \.cleanupEnabled))
-                .toggleStyle(GlassToggleStyle())
-                .fixedSize(horizontal: true, vertical: false)
+                .compactGlassToggle()
         } footer: {
             CaptionText("Removes filler words and normalizes protected terms before insertion.")
         }

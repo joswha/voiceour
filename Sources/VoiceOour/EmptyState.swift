@@ -15,8 +15,8 @@ private let emptyStateGlyphSlot = VoiceOourMetrics.Icon.empty + VoiceOourMetrics
 /// — this pane's list read left-flush and glyphless, its detail read centred
 /// behind a 48pt glyph, and the two sat side by side on one screen.
 ///
-/// Deliberately not `private`: `HomeEmptyState` and `GlossaryEmptyState` are
-/// this view with different strings and should route through it.
+/// Deliberately not `private`: pane-specific empty states route through it so
+/// their glyph, title, body, and hint share one treatment.
 struct EmptyState<Hint: View>: View {
     private let glyph: String
     private let title: String
@@ -52,5 +52,24 @@ struct EmptyState<Hint: View>: View {
 extension EmptyState where Hint == EmptyView {
     init(glyph: String, title: String, body: String) {
         self.init(glyph: glyph, title: title, body: body) { EmptyView() }
+    }
+}
+
+/// The visible first-run instruction and its spoken label must carry the same
+/// verb: this used to show "Fn or Globe TO DICTATE" while VoiceOver said "Hold".
+struct DictationHotkeyHint: View {
+    var body: some View {
+        HStack(spacing: VoiceOourMetrics.Space.xs) {
+            Text("HOLD")
+                .roleStyle(.micro)
+            KeyCap("Fn")
+            Text("or")
+                .roleStyle(.caption)
+            KeyCap("Globe")
+            Text("TO DICTATE")
+                .roleStyle(.micro)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Hold Fn or Globe to dictate")
     }
 }

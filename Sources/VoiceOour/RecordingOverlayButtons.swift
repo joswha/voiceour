@@ -132,7 +132,7 @@ private struct RecordingOverlayButtonBody: View {
                 if state == .focused {
                     Circle()
                         .strokeBorder(
-                            VoiceOourPalette.Signal.cyan.opacity(0.25),
+                            VoiceOourPalette.Signal.focusHalo,
                             lineWidth: VoiceOourMetrics.Space.hair
                         )
                         .padding(-VoiceOourMetrics.Space.hair)

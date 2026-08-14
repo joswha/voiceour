@@ -53,7 +53,15 @@ struct GlossaryPane: View {
             SettingsSectionBlock(eyebrow: "TERM LEDGER") {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if terms.isEmpty {
-                        GlossaryEmptyState()
+                        // Five row pitches say what a canonical term is without
+                        // turning the empty ledger into an unbounded void.
+                        EmptyState(
+                            glyph: "character.book.closed",
+                            title: "No canonical terms yet",
+                            body:
+                                "A canonical term is the spelling VoiceOour holds a word to when dictation keeps hearing it wrong. Add the first one below, or import a project word list."
+                        )
+                        .glossaryBand(height: VoiceOourMetrics.Row.table * 5, alignment: .leading)
                     } else {
                         GlossaryHeaderRow(showsPolicy: showsPolicy, showsScope: showsScope)
                         ForEach(terms) { term in
@@ -190,24 +198,5 @@ struct GlossaryPane: View {
     private var importFailure: String? {
         if case .failed(let message) = importOutcome { return message }
         return nil
-    }
-}
-
-/// The pane's one chance to say what a canonical term is, routed through the
-/// shared `EmptyState` so the app's three empty states are one treatment rather
-/// than three — left-flush on the column the populated ledger starts from, with
-/// the glyph on the shared slot that keeps two empty states' titles in line.
-/// Bounded to five row pitches rather than stretched: a panel with something in
-/// it beats a void. The column headers stay away until there is a row for them
-/// to label.
-private struct GlossaryEmptyState: View {
-    var body: some View {
-        EmptyState(
-            glyph: "character.book.closed",
-            title: "No canonical terms yet",
-            body:
-                "A canonical term is the spelling VoiceOour holds a word to when dictation keeps hearing it wrong. Add the first one below, or import a project word list."
-        )
-        .glossaryBand(height: VoiceOourMetrics.Row.table * 5, alignment: .leading)
     }
 }

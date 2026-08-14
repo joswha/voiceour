@@ -261,7 +261,7 @@
         let pngSha256: String?
         let goldenPngSha256: String?
         let axNodeCount: Int
-        let findings: [UIFlowFindingRow]
+        let findings: [UIFindingRow]
 
         enum CodingKeys: String, CodingKey {
             case type
@@ -285,7 +285,7 @@
             pngSha256 = frame.pngDigest
             goldenPngSha256 = frame.goldenPngDigest
             axNodeCount = frame.nodeCount
-            findings = frame.findings.map(UIFlowFindingRow.init)
+            findings = frame.findings.map(UIFindingRow.init)
         }
 
         func encode(to encoder: Encoder) throws {
@@ -356,30 +356,6 @@
             try container.encode(claimants, forKey: .claimants)
             try UINullable.encode(limitation, forKey: .limitation, into: &container)
             try UINullable.encode(problem, forKey: .problem, into: &container)
-        }
-    }
-
-    private struct UIFlowFindingRow: Encodable {
-        let rule: String
-        let severity: String
-        let message: String
-        let path: String
-        let frame: UIFrameRow
-
-        enum CodingKeys: String, CodingKey {
-            case rule
-            case severity
-            case message
-            case path
-            case frame
-        }
-
-        init(_ finding: UIFinding) {
-            rule = finding.rule
-            severity = finding.severity.rawValue
-            message = finding.message
-            path = finding.path
-            frame = UIFrameRow(finding.frame)
         }
     }
 

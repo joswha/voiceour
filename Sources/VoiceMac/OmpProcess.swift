@@ -2,6 +2,8 @@ import Darwin
 import Dispatch
 import Foundation
 
+private let processPollMicroseconds: useconds_t = 10_000
+
 /// Runs a blocking body on a thread of its own and suspends the caller until it
 /// finishes.
 ///
@@ -78,9 +80,9 @@ enum OmpProcessError: Error, Equatable {
     case launchFailed(String)
     case timeout
     case nonzeroExit(Int32, stderrBytes: Int)
-    /// The child exited but its stdout could not be drained in full. Reporting
-    /// this instead of returning the partial stream keeps a truncated read from
-    /// being misdiagnosed downstream as malformed output.
+    /// The child exited but stdout or stderr could not be drained in full.
+    /// Reporting this instead of returning potentially partial output keeps a
+    /// truncated read from being misdiagnosed downstream as malformed output.
     case outputTruncated
 
     var shortMessage: String {
@@ -102,7 +104,6 @@ enum OmpProcessError: Error, Equatable {
 /// Bounded teardown for the launched process and its descendants. The caller
 /// closes all owned pipes first; signals are limited to the observed child tree.
 enum OmpProcessTermination {
-    private static let pollMicroseconds: useconds_t = 10_000
     private static let termGraceNanoseconds: UInt64 = 100_000_000
     private static let killGraceNanoseconds: UInt64 = 300_000_000
 
@@ -170,7 +171,7 @@ enum OmpProcessTermination {
             if now &- start >= duration {
                 return false
             }
-            usleep(pollMicroseconds)
+            usleep(processPollMicroseconds)
         }
         return true
     }
@@ -216,6 +217,7 @@ private final class OmpProcessOutputCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var stdout = Data()
     private var stderrBytes = 0
+    private var drainFailed = false
 
     func setStdout(_ data: Data) {
         lock.lock()
@@ -229,10 +231,16 @@ private final class OmpProcessOutputCapture: @unchecked Sendable {
         lock.unlock()
     }
 
-    func snapshot() -> (stdout: Data, stderrBytes: Int) {
+    func recordDrainFailure() {
+        lock.lock()
+        drainFailed = true
+        lock.unlock()
+    }
+
+    func snapshot() -> (stdout: Data, stderrBytes: Int, drainFailed: Bool) {
         lock.lock()
         defer { lock.unlock() }
-        return (stdout, stderrBytes)
+        return (stdout, stderrBytes, drainFailed)
     }
 }
 
@@ -302,7 +310,9 @@ private final class OmpProcessInvocation: @unchecked Sendable {
             defer { drains.leave() }
             do {
                 capture.setStdout(try stdout.fileHandleForReading.readToEnd() ?? Data())
-            } catch {}
+            } catch {
+                capture.recordDrainFailure()
+            }
         }
         drains.enter()
         DispatchQueue.global(qos: .utility).async { [stderr] in
@@ -313,7 +323,9 @@ private final class OmpProcessInvocation: @unchecked Sendable {
                 {
                     capture.addStderrBytes(chunk.count)
                 }
-            } catch {}
+            } catch {
+                capture.recordDrainFailure()
+            }
         }
 
         while process.isRunning {
@@ -322,7 +334,7 @@ private final class OmpProcessInvocation: @unchecked Sendable {
                 terminateLaunchedProcessIfNeeded()
                 break
             }
-            usleep(10_000)
+            usleep(processPollMicroseconds)
         }
 
         // The child has exited, so the only thing that can still stall a drain is
@@ -341,7 +353,10 @@ private final class OmpProcessInvocation: @unchecked Sendable {
                 stderrBytes: result.stderrBytes
             )
         }
-        guard drained else {
+        // Keep the timeout check above this guard: timeout/cancellation closes the read handles
+        // concurrently and can surface as EBADF/EIO. Reaching here without a termination request
+        // makes a recorded drain failure a real I/O error rather than teardown noise.
+        guard drained, !result.drainFailed else {
             // Unblock the stuck reader before giving up on it.
             closePipeHandles()
             throw OmpProcessError.outputTruncated

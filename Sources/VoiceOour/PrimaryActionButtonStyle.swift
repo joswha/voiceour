@@ -146,14 +146,14 @@ private struct PrimaryActionBody: View {
                 if state == .focused {
                     Capsule(style: .continuous)
                         .strokeBorder(
-                            VoiceOourPalette.Signal.cyan.opacity(0.25),
+                            VoiceOourPalette.Signal.focusHalo,
                             lineWidth: VoiceOourMetrics.Space.hair
                         )
                         .padding(-VoiceOourMetrics.Space.hair)
                         .allowsHitTesting(false)
                 }
             }
-            .scaleEffect(state == .pressed ? 0.985 : 1)
+            .scaleEffect(state == .pressed ? VoiceOourMetrics.Control.pressedScale : 1)
             .animation(a11y.reduceMotion ? nil : VoiceOourMotion.quick, value: state)
             .contentShape(Capsule(style: .continuous))
             .onHover { isHovering = $0 }

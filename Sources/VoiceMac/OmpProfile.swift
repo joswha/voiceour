@@ -15,9 +15,13 @@ public enum OmpRpcProfile {
         URL.voiceOourSupportDirectory.appendingPathComponent("omp-rpc", isDirectory: true)
     }
 
-    static let settingsJSON = renderedSettingsJSON(
-        disabledProviders: discoveryProviderIDs
-    )
+    static var settingsJSON: String {
+        get throws {
+            try renderedSettingsJSON(
+                disabledProviders: discoveryProviderIDs
+            )
+        }
+    }
 
     static func provision(
         at directory: URL,
@@ -34,7 +38,7 @@ public enum OmpRpcProfile {
             .filter { seen.insert($0).inserted }
             .sorted()
         let payload = Data(
-            renderedSettingsJSON(
+            try renderedSettingsJSON(
                 disabledProviders: disabledProviders
             ).utf8)
 
@@ -47,7 +51,7 @@ public enum OmpRpcProfile {
         try payload.write(to: settingsURL, options: [.atomic])
     }
 
-    private static func renderedSettingsJSON(disabledProviders: [String]) -> String {
+    private static func renderedSettingsJSON(disabledProviders: [String]) throws -> String {
         let settings: [String: Any] = [
             "disabledProviders": disabledProviders,
             "marketplace": ["autoUpdate": "off"],
@@ -58,7 +62,7 @@ public enum OmpRpcProfile {
             "retry": ["modelFallback": false],
             "tools": ["approvalMode": "always-ask", "xdev": false],
         ]
-        let data = try! JSONSerialization.data(
+        let data = try JSONSerialization.data(
             withJSONObject: settings,
             options: [.prettyPrinted, .sortedKeys]
         )

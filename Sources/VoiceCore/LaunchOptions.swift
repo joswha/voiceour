@@ -31,6 +31,11 @@ public struct LaunchOptions: Equatable, Sendable {
         }
     }
 
+    /// Backend ids accepted when validation is not supplied by a registry.
+    public static let defaultBackendIDs: Set<String> = [
+        "fake", "mlx", "apple", "ark-0.6b", "ark-3b",
+    ]
+
     /// Normalizes a backend id, rejecting anything unregistered.
     ///
     /// The default keeps VoiceCore free of the registry (which must import
@@ -38,13 +43,12 @@ public struct LaunchOptions: Equatable, Sendable {
     /// `backendIDs` so there is one source of truth at runtime; the default is
     /// only the fallback for argument parsing during `init`.
     ///
-    /// That default has to track `ASRBackendRegistry.builtIn` in
-    /// `Sources/VoiceMac/ASRBackendRegistry.swift` by hand — VoiceCore cannot
-    /// import VoiceMac to read it. An id registered there but missing here is
-    /// rejected on the command line even though the app can build it.
+    /// `ASRBackendRegistryTests.launchOptionDefaultsMatchRegisteredBackends`
+    /// enforces exact equality between this default and
+    /// `ASRBackendRegistry.builtIn.backendIDs`.
     public static func validBackend(
         _ value: String?,
-        validBackendIDs: Set<String> = ["fake", "mlx", "apple", "ark-0.6b", "ark-3b"]
+        validBackendIDs: Set<String> = Self.defaultBackendIDs
     ) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

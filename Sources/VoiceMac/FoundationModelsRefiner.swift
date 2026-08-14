@@ -515,10 +515,12 @@ func foundationModelsAssetIdentity(_ assetIDs: [String]) -> String? {
             )
         }
 
+        private static let generationFailedReason = "generation_failed"
+
         /// Maps FoundationModels generation errors to session-trace reasons.
         static func fallbackReason(for error: Error) -> String {
             guard let error = error as? LanguageModelSession.GenerationError else {
-                return "generation_failed"
+                return generationFailedReason
             }
             switch error {
             case .guardrailViolation:
@@ -536,11 +538,11 @@ func foundationModelsAssetIdentity(_ assetIDs: [String]) -> String? {
             case .unsupportedLanguageOrLocale:
                 return "unsupported_language"
             case .decodingFailure:
-                return "generation_failed"
+                return generationFailedReason
             case .unsupportedGuide:
-                return "generation_failed"
+                return generationFailedReason
             @unknown default:
-                return "generation_failed"
+                return generationFailedReason
             }
         }
     }

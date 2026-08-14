@@ -134,7 +134,7 @@ public enum CleanupEngine {
         return tokens.enumerated().compactMap { index, value -> String? in
             guard !sheltered.contains(index) else { return value }
             guard !shouldSkipToken(value, glossary: glossary) else { return value }
-            let stripped = strippedToken(value).lowercased()
+            let stripped = strippedToken(value)
             return fillers.contains(stripped) ? nil : value
         }.joined(separator: " ")
     }
@@ -167,7 +167,7 @@ public enum CleanupEngine {
                 let words =
                     normalized
                     .split(separator: " ")
-                    .map { strippedToken(String($0)).lowercased() }
+                    .map { strippedToken(String($0)) }
                 guard !words.contains(where: \.isEmpty) else { continue }
                 fragile.append(words)
             }
@@ -178,7 +178,7 @@ public enum CleanupEngine {
     /// Token positions covered by an occurrence of a fragile surface.
     private static func shelteredIndices(in tokens: [String], fragile: [[String]]) -> Set<Int> {
         guard !fragile.isEmpty else { return [] }
-        let haystack = tokens.map { strippedToken($0).lowercased() }
+        let haystack = tokens.map { strippedToken($0) }
         var sheltered: Set<Int> = []
         for words in fragile where haystack.count >= words.count {
             for start in 0...(haystack.count - words.count)
@@ -243,7 +243,7 @@ public enum CleanupEngine {
     }
 
     private static func strippedToken(_ token: String) -> String {
-        token.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.symbols))
+        token.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.symbols)).lowercased()
     }
 
     private static func shouldSkipToken(_ token: String, glossary: [ProtectedTerm]) -> Bool {
@@ -251,7 +251,7 @@ public enum CleanupEngine {
         if token.contains("/") || token.contains("~") || token.contains("_") { return true }
         if token.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) }) { return true }
         if hasInternalCapital(token) { return true }
-        let stripped = strippedToken(token).lowercased()
+        let stripped = strippedToken(token)
         for term in glossary {
             // Filler removal runs before canonicalization, so a surface whose own
             // words include a filler ("cube uh cuddle") is only reachable if that

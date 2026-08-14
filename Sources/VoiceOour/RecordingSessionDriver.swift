@@ -11,6 +11,9 @@ import VoiceCore
 /// scopes `private` to one file, so an extension in another file cannot see them.
 @MainActor
 extension DictationCoordinator {
+    /// Input level and capture liveness are polled every 40 ms.
+    static let inputMeterPollNanoseconds: UInt64 = 40_000_000
+
     func beginRecording(generation: AsyncGenerationGate.Token) {
         let snapshot = tracker.snapshot()
         target = snapshot
@@ -82,10 +85,7 @@ extension DictationCoordinator {
             if let startError {
                 await restoreSystemAudioIfNeeded()
                 guard generations.isCurrent(generation), state == .checkingPermissions else { return }
-                stopInputMetering()
-                state = .error(.internalError)
-                errorMessage = startError.localizedDescription
-                clearCapturedTargetAndRefreshLabel()
+                publishRecordingError(.internalError, message: startError.localizedDescription)
             }
         }
     }
@@ -103,7 +103,7 @@ extension DictationCoordinator {
                 ? AutoStopDetector(silenceDwellMs: autoStopSilenceMs)
                 : nil
             while !Task.isCancelled {
-                try? await runtime.sleep(40_000_000)
+                try? await runtime.sleep(Self.inputMeterPollNanoseconds)
                 if Task.isCancelled { break }
 
                 let shouldContinue = await MainActor.run { [weak self] () -> Bool in
@@ -132,6 +132,13 @@ extension DictationCoordinator {
         }
     }
 
+    func publishRecordingError(_ code: ASRErrorCode, message: String) {
+        stopInputMetering()
+        state = .error(code)
+        errorMessage = message
+        clearCapturedTargetAndRefreshLabel()
+    }
+
     /// A denied microphone is a precondition that was never met, not a session
     /// that failed: nothing was captured and nothing was lost. So it reports the
     /// reason and returns to idle, the same shape as a cancel, rather than parking
@@ -141,10 +148,7 @@ extension DictationCoordinator {
     /// System → READINESS → Microphone, which offers the System Settings deep
     /// link that actually fixes it.
     func failMicrophonePermissionDenied() {
-        stopInputMetering()
-        state = .error(.backendUnavailable)
-        errorMessage = "Microphone permission denied."
-        clearCapturedTargetAndRefreshLabel()
+        publishRecordingError(.backendUnavailable, message: "Microphone permission denied.")
         resetToIdleWhenInactive()
     }
 

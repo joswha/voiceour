@@ -127,7 +127,8 @@ struct RailFooter: View {
                         a11y.reduceMotion
                             ? nil
                             : (status == .live
-                                ? .easeInOut(duration: 1.6).repeatForever(autoreverses: true)
+                                ? .easeInOut(duration: VoiceOourMotion.livePulseDuration)
+                                    .repeatForever(autoreverses: true)
                                 : VoiceOourMotion.quick),
                         value: status
                     )

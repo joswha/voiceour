@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 
 /// Subscription choices VoiceOour names directly. `other` delegates provider
@@ -45,10 +44,6 @@ public enum OmpSubscription: String, CaseIterable, Hashable, Sendable, Identifia
         }
     }
 
-    public static func matching(model: String) -> OmpSubscription? {
-        let provider = model.split(separator: "/", maxSplits: 1).first.map(String.init)
-        return allCases.first { $0.providerID == provider }
-    }
 }
 
 /// The subset of OMP's model JSON VoiceOour needs for post-login selection.
@@ -113,9 +108,7 @@ public enum OmpModelCatalog {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         profileDirectory: URL? = OmpRpcProfile.defaultDirectory()
     ) async throws -> [OmpAvailableModel] {
-        let start = DispatchTime.now().uptimeNanoseconds
-        let duration = UInt64(max(timeoutMs, 1)) * 1_000_000
-        let (deadline, overflow) = start.addingReportingOverflow(duration)
+        let deadline = OmpDeadline(timeoutMs: timeoutMs)
 
         if let profileDirectory {
             try OmpRpcProfile.provision(
@@ -127,13 +120,8 @@ public enum OmpModelCatalog {
             )
         }
 
-        let now = DispatchTime.now().uptimeNanoseconds
-        let remaining = overflow || deadline > now ? (overflow ? UInt64.max : deadline - now) : 0
-        guard remaining > 0 else { throw OmpProcessError.timeout }
-        let remainingMs =
-            remaining == UInt64.max
-            ? Int.max
-            : Int(min(remaining / 1_000_000 + 1, UInt64(Int.max)))
+        let remainingMs = deadline.remainingMilliseconds
+        guard remainingMs > 0 else { throw OmpProcessError.timeout }
         var arguments = argumentPrefix + ["models"]
         if let providerID, !providerID.isEmpty {
             arguments.append(providerID)

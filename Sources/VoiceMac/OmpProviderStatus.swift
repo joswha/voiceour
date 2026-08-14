@@ -28,20 +28,8 @@ public struct OmpProviderConnection: Equatable, Sendable, Identifiable {
 public struct OmpProviderStatusSnapshot: Equatable, Sendable {
     public let connections: [OmpProviderConnection]
 
-    public var connectedProviderCount: Int {
-        connections.reduce(0) { $0 + ($1.isConnected ? 1 : 0) }
-    }
-
-    public var activeAccountCount: Int {
-        connections.reduce(0) { $0 + $1.activeAccounts }
-    }
-
     public init(connections: [OmpProviderConnection]) {
         self.connections = connections
-    }
-
-    public func connection(providerID: String) -> OmpProviderConnection? {
-        connections.first { $0.providerID == providerID }
     }
 }
 

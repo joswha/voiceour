@@ -82,7 +82,7 @@ private struct PlateButtonBody: View {
                 baseState: baseState,
                 showsFocusHalo: isFocused && state == .selected
             )
-            .scaleEffect(state == .pressed ? 0.985 : 1)
+            .scaleEffect(state == .pressed ? VoiceOourMetrics.Control.pressedScale : 1)
             .disabled(harnessState == .disabled || harnessState == .inFlight)
             .focusEffectDisabled()
             .animation(a11y.reduceMotion ? nil : VoiceOourMotion.quick, value: state)

@@ -46,7 +46,8 @@ struct MenuBarLabel: View {
                         .opacity(isPulsing ? 0.58 : 1.0)
                         .animation(
                             isPulsing && !reduceMotion
-                                ? .easeInOut(duration: 1.6).repeatForever(autoreverses: true)
+                                ? .easeInOut(duration: VoiceOourMotion.livePulseDuration)
+                                    .repeatForever(autoreverses: true)
                                 : VoiceOourMotion.quick,
                             value: isPulsing
                         )

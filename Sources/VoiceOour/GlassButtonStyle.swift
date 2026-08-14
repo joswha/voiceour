@@ -118,7 +118,7 @@ private struct GlassButtonBody: View {
     var body: some View {
         configuration.label
             .font(VoiceOourTypography.micro)
-            .kerning(0.8)
+            .kerning(TextRole.micro.tracking)
             .foregroundStyle(foreground)
             .recordTextRole(.micro, foreground: foreground)
             .padding(.horizontal, VoiceOourMetrics.Button.horizontal)
@@ -142,14 +142,14 @@ private struct GlassButtonBody: View {
                         style: .continuous
                     )
                     .strokeBorder(
-                        VoiceOourPalette.Signal.cyan.opacity(0.25),
+                        VoiceOourPalette.Signal.focusHalo,
                         lineWidth: VoiceOourMetrics.Space.hair
                     )
                     .padding(-VoiceOourMetrics.Space.hair)
                     .allowsHitTesting(false)
                 }
             }
-            .scaleEffect(state == .pressed ? 0.985 : 1)
+            .scaleEffect(state == .pressed ? VoiceOourMetrics.Control.pressedScale : 1)
             .focusEffectDisabled()
             .animation(a11y.reduceMotion ? nil : VoiceOourMotion.quick, value: state)
             .onHover { isHovering = $0 }

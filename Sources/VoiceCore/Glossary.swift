@@ -1,5 +1,9 @@
 import Foundation
 
+private func aliasKey(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+}
+
 public enum Glossary {
     public static func derivedAliases(for canonical: String) -> [String] {
         let tokens = canonicalTokens(in: canonical)
@@ -28,9 +32,7 @@ public enum Glossary {
     /// the first occurrence winning. The canonical is excluded, and automatic
     /// aliases from `derivedAliases(for:)` are not added.
     public static func userAliases(for term: ProtectedTerm) -> [String] {
-        let canonicalKey = term.canonical
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let canonicalKey = aliasKey(term.canonical)
         let labeled = term.labeledAliases
             .filter { $0.rejectedAt == nil }
             .map(\.surface)
@@ -39,7 +41,7 @@ public enum Glossary {
         for alias in term.spokenAliases + labeled {
             let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            let key = trimmed.lowercased()
+            let key = aliasKey(alias)
             guard key != canonicalKey, seen.insert(key).inserted else { continue }
             aliases.append(trimmed)
         }
@@ -140,7 +142,7 @@ public enum Glossary {
         for alias in [term.canonical] + generalizable {
             let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            let key = trimmed.lowercased()
+            let key = aliasKey(alias)
             if seen.insert(key).inserted {
                 aliases.append(trimmed)
             }
@@ -223,14 +225,9 @@ public enum TermMutation {
     ) -> ProtectedTerm {
         var updated = term
         updated.spokenAliases = aliases
-        let aliasKeys = Set(
-            aliases.map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            })
+        let aliasKeys = Set(aliases.map(aliasKey))
         for index in updated.labeledAliases.indices {
-            let key = updated.labeledAliases[index].surface
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
+            let key = aliasKey(updated.labeledAliases[index].surface)
             if aliasKeys.contains(key) {
                 updated.labeledAliases[index].rejectedAt = nil
             } else {
@@ -275,9 +272,9 @@ public enum TermMutation {
         at date: Date = Date()
     ) -> ProtectedTerm {
         var updated = term
-        let key = surface.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let key = aliasKey(surface)
         updated.spokenAliases.removeAll {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key
+            aliasKey($0) == key
         }
         if let index = updated.labeledAliases.firstIndex(where: { $0.surface.lowercased() == key }) {
             updated.labeledAliases[index].rejectedAt = date

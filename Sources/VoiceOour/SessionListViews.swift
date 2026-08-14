@@ -103,7 +103,7 @@ struct RecentSessionRow: View {
                         .help(refinement.detailLine)
                 }
                 StatusChip(
-                    label: "\(session.wordCount) \(session.wordCount == 1 ? "word" : "words")",
+                    label: SessionsFormatters.wordCountLabel(session.wordCount),
                     mode: .neutral,
                     size: .compact
                 )
@@ -124,41 +124,12 @@ struct RecentSessionRow: View {
     }
 
     private var accessibilityLabel: String {
-        let prefix = "\(SessionsFormatters.timestamp.string(from: session.createdAt)), \(session.wordCount) words"
+        let prefix =
+            "\(SessionsFormatters.timestamp.string(from: session.createdAt)), \(SessionsFormatters.wordCountLabel(session.wordCount, pluralOnly: true))"
         if session.mutedDuringCapture {
             return "\(prefix), recorded with system audio muted, \(previewText)"
         }
         return "\(prefix), \(previewText)"
-    }
-}
-
-/// The first-run state keeps the pane's structure — it renders inside the
-/// SESSIONS card rather than replacing both cards with bare ground — and names
-/// the gesture that produces a session instead of only describing what will
-/// appear. The verb is spoken, not implied: the screen used to read "Fn or
-/// Globe TO DICTATE" while telling VoiceOver "Hold Fn or Globe to dictate".
-struct EmptySessionsView: View {
-    var body: some View {
-        EmptyState(
-            glyph: "tray",
-            title: "No sessions yet",
-            body: "Completed dictations are kept here with their transcripts, timestamps and word counts."
-        ) {
-            HStack(spacing: VoiceOourMetrics.Space.xs) {
-                Text("HOLD")
-                    .roleStyle(.micro)
-                KeyCap("Fn")
-                Text("or")
-                    .roleStyle(.caption)
-                KeyCap("Globe")
-                Text("TO DICTATE")
-                    .roleStyle(.micro)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Hold Fn or Globe to dictate")
-        }
-        .padding(.vertical, VoiceOourMetrics.Space.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

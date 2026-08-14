@@ -17,7 +17,8 @@ enum CoreAudioOutputDevice {
     static func defaultDevice() -> AudioObjectID? {
         var deviceID = AudioObjectID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        var address = address(kAudioHardwarePropertyDefaultOutputDevice, scope: kAudioObjectPropertyScopeGlobal)
+        var address = CoreAudioProperty.address(
+            kAudioHardwarePropertyDefaultOutputDevice, scope: kAudioObjectPropertyScopeGlobal)
 
         let status = AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject),
@@ -56,7 +57,8 @@ enum CoreAudioOutputDevice {
 
     /// The current mute value, but only when the device will let us write it.
     static func settableMute(deviceID: AudioObjectID) -> UInt32? {
-        var muteAddress = address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput)
+        var muteAddress = CoreAudioProperty.address(
+            kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput)
         guard isSettable(deviceID: deviceID, address: &muteAddress) else {
             return nil
         }
@@ -66,7 +68,7 @@ enum CoreAudioOutputDevice {
     static func mute(deviceID: AudioObjectID, element: UInt32) -> UInt32? {
         readUInt32(
             deviceID: deviceID,
-            address: address(
+            address: CoreAudioProperty.address(
                 kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, element: element))
     }
 
@@ -74,7 +76,8 @@ enum CoreAudioOutputDevice {
     static func setMute(deviceID: AudioObjectID, element: UInt32, value: UInt32) -> Bool {
         writeUInt32(
             deviceID: deviceID,
-            address: address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, element: element),
+            address: CoreAudioProperty.address(
+                kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, element: element),
             value: value
         )
     }
@@ -82,7 +85,7 @@ enum CoreAudioOutputDevice {
     static func volume(deviceID: AudioObjectID, element: UInt32) -> Float32? {
         readFloat32(
             deviceID: deviceID,
-            address: address(
+            address: CoreAudioProperty.address(
                 kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element))
     }
 
@@ -90,7 +93,7 @@ enum CoreAudioOutputDevice {
     static func setVolume(deviceID: AudioObjectID, element: UInt32, value: Float32) -> Bool {
         writeFloat32(
             deviceID: deviceID,
-            address: address(
+            address: CoreAudioProperty.address(
                 kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element),
             value: value
         )
@@ -99,7 +102,8 @@ enum CoreAudioOutputDevice {
     static func uid(deviceID: AudioObjectID) -> String? {
         var value: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<CFString?>.size)
-        var uidAddress = address(kAudioDevicePropertyDeviceUID, scope: kAudioObjectPropertyScopeGlobal)
+        var uidAddress = CoreAudioProperty.address(
+            kAudioDevicePropertyDeviceUID, scope: kAudioObjectPropertyScopeGlobal)
         guard AudioObjectHasProperty(deviceID, &uidAddress),
             AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &size, &value) == noErr,
             let uid = value?.takeRetainedValue()
@@ -110,22 +114,14 @@ enum CoreAudioOutputDevice {
     }
 
     static func device(forUID uid: String) -> AudioObjectID? {
-        var devicesAddress = address(kAudioHardwarePropertyDevices, scope: kAudioObjectPropertyScopeGlobal)
-        var size: UInt32 = 0
-        let systemObject = AudioObjectID(kAudioObjectSystemObject)
-        guard AudioObjectGetPropertyDataSize(systemObject, &devicesAddress, 0, nil, &size) == noErr, size > 0 else {
-            return nil
-        }
-
-        var deviceIDs = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(systemObject, &devicesAddress, 0, nil, &size, &deviceIDs) == noErr else {
+        guard let deviceIDs = CoreAudioProperty.deviceIDs() else {
             return nil
         }
         return deviceIDs.first { self.uid(deviceID: $0) == uid }
     }
 
     private static func settableVolume(deviceID: AudioObjectID, element: UInt32) -> Float32? {
-        var volumeAddress = address(
+        var volumeAddress = CoreAudioProperty.address(
             kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element)
         guard isSettable(deviceID: deviceID, address: &volumeAddress) else {
             return nil
@@ -134,7 +130,7 @@ enum CoreAudioOutputDevice {
     }
 
     private static func outputChannelCount(deviceID: AudioObjectID) -> Int {
-        var configAddress = address(
+        var configAddress = CoreAudioProperty.address(
             kAudioDevicePropertyStreamConfiguration, scope: kAudioDevicePropertyScopeOutput)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(deviceID, &configAddress, 0, nil, &size) == noErr, size > 0 else {
@@ -166,13 +162,7 @@ enum CoreAudioOutputDevice {
     }
 
     private static func readUInt32(deviceID: AudioObjectID, address: AudioObjectPropertyAddress) -> UInt32? {
-        var value: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        var address = address
-        guard AudioObjectHasProperty(deviceID, &address) else {
-            return nil
-        }
-        return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr ? value : nil
+        CoreAudioProperty.read(address, from: deviceID, initialValue: UInt32(0))
     }
 
     private static func writeUInt32(
@@ -191,13 +181,7 @@ enum CoreAudioOutputDevice {
     }
 
     private static func readFloat32(deviceID: AudioObjectID, address: AudioObjectPropertyAddress) -> Float32? {
-        var value: Float32 = 0
-        var size = UInt32(MemoryLayout<Float32>.size)
-        var address = address
-        guard AudioObjectHasProperty(deviceID, &address) else {
-            return nil
-        }
-        return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr ? value : nil
+        CoreAudioProperty.read(address, from: deviceID, initialValue: Float32(0))
     }
 
     private static func writeFloat32(
@@ -213,13 +197,5 @@ enum CoreAudioOutputDevice {
         let status = AudioObjectSetPropertyData(
             deviceID, &address, 0, nil, UInt32(MemoryLayout<Float32>.size), &newValue)
         return status == noErr
-    }
-
-    private static func address(
-        _ selector: AudioObjectPropertySelector,
-        scope: AudioObjectPropertyScope,
-        element: UInt32 = kAudioObjectPropertyElementMain
-    ) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
     }
 }

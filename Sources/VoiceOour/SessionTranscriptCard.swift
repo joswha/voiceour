@@ -110,7 +110,7 @@ struct TranscriptCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Transcript")
         .accessibilityValue(
-            "\(session.wordCount) \(session.wordCount == 1 ? "word" : "words"), recorded \(SessionsFormatters.detailStamp.string(from: session.createdAt))"
+            "\(SessionsFormatters.wordCountLabel(session.wordCount)), recorded \(SessionsFormatters.detailStamp.string(from: session.createdAt))"
         )
         .animation(
             a11y.reduceMotion ? nil : VoiceOourMotion.quick,
@@ -140,7 +140,7 @@ struct TranscriptCard: View {
             if let targetSafety = session.outcome?.targetSafety, targetSafety != .normalText {
                 StatusChip(label: "TARGET \(targetSafety.displayLabel)", mode: .neutral)
             }
-            StatusChip(label: "\(session.wordCount) \(session.wordCount == 1 ? "word" : "words")", mode: .neutral)
+            StatusChip(label: SessionsFormatters.wordCountLabel(session.wordCount), mode: .neutral)
         }
     }
 

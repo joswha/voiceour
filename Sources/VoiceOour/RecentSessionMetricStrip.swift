@@ -28,25 +28,14 @@ struct RecentSessionMetricStrip: View {
             // The rules are an overlay on the resolved strip, so they run the
             // height of a column — label and numeral — and stop inside the
             // card's content box rather than crossing its padding or its rim.
-            .overlay { rules }
+            .overlay {
+                MetricStripRules(columnCount: metrics.count, gutter: Self.gutter)
+            }
         }
         // ContentCard stretches to any offered height (bento rows rely on that);
         // in this full-height pane the totals strip must hug its content so the
         // sessions/detail row below keeps the remaining space.
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var rules: some View {
-        GeometryReader { proxy in
-            let columns = CGFloat(metrics.count)
-            let column = (proxy.size.width - Self.gutter * (columns - 1)) / columns
-            ForEach(1..<metrics.count, id: \.self) { index in
-                HairlineDivider(axis: .vertical)
-                    .frame(height: proxy.size.height)
-                    .offset(x: CGFloat(index) * (column + Self.gutter) - Self.gutter / 2)
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
 
