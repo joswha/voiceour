@@ -407,17 +407,37 @@ streaming-trained *and* runnable on this Mac, in order of fit:
 
 | candidate | size | lookahead | licence | Apple runtime | timestamps / confidence |
 |---|---|---|---|---|---|
-| `moonshine-ai/moonshine-streaming-medium` | 245M / ~289 MB ORT | 80 ms | MIT | official C++/Swift ONNX, macOS arm64 dylib | **word timestamps + confidence 0..1** |
+| `moonshine-ai/moonshine-streaming-medium` | 245M / ~289 MB ORT | 80 ms | MIT | official C++ core + ONNX Runtime 1.23.2 arm64 | word timestamps real; **confidence is a hardcoded 1.0** (see below) |
 | `nvidia/nemotron-speech-streaming-en-0.6b` | ~700 MB q8_0 GGUF | 80-1120 ms | NVIDIA Open Model | NeMo-Speech.cpp, Apache-2, Metal | timestamps yes; **word confidence is a 1.0 placeholder** |
 | `kyutai/stt-1b-en_fr-mlx` | ~1 GB BF16 | 500 ms delay | CC-BY-4.0 | MLX-native (`moshi-mlx`) | word timestamps; no confidence |
 | `mistralai/Voxtral-Mini-4B-Realtime-2602` | 4.42 GB int4 | 80-2400 ms | Apache-2 | ExecuTorch Metal | neither |
 
-Moonshine is the best-shaped first attempt: MIT, an order of magnitude smaller than what we ship, a
-real macOS arm64 runtime, and it is the only one that exposes both word timestamps and a confidence
-in 0..1, so `RiskAuthorizer`'s replace path could survive. Its published leaderboard U-WER (6.66%) is
-worse than our 5.66%, so this is explicitly a latency-for-accuracy trade and must be measured on our
-corpora before anyone ships it. Nemotron has the better WER but its confidence is a placeholder,
-which silently disables automatic term correction exactly as ARK does.
+**Moonshine was built and probed 2026-08-14, and it is not ready.** Upstream commit
+`06f74196`, native C++ core with a bundled ONNX Runtime 1.23.2 arm64 dylib, MIT, model release
+`medium-streaming-en/quantized_26_07_30` (291 MiB core, 431 MiB total download, warm RSS 1.5 GB,
+first session load 240 ms). Its latency profile is genuinely outstanding — smoke residuals of
+**4.5, 4.5 and 37.2 ms** against our 117.8 ms, and ~750 ms total for a 10 s clip, so ~14x real time.
+Word timestamps are real (19-20 aligned words per utterance) and volatile partials exist. Two things
+stop it:
+
+1. **Its confidence is a lie in the same way Nemotron's is.** The public header documents a 0..1
+   per-word confidence, but `core/word-alignment.cpp:366-369` unconditionally assigns
+   `tw.confidence = 1.0f; // default confidence`, and every observed word was 1.0. This invalidates
+   the earlier claim in this document that Moonshine was the one candidate whose confidence could
+   keep `RiskAuthorizer`'s replace path alive. It cannot.
+2. **Sequential utterances in one process corrupt.** The third clip decodes truncated and garbled
+   when it follows two others in the same process, and is correct when run alone. Disabling word
+   timestamps, disabling speculative decoding, reusing the stream, and warming on the longest clip
+   all failed to fix it. That is an upstream inter-utterance state or reset defect, and a persistent
+   process transcribing one utterance after another is exactly what a dictation app is, so no
+   corpus sweep was run.
+
+The generalisable lesson, now seen twice: **a documented capability is not a capability.** Both
+Moonshine and Nemotron advertise per-word confidence in their public API and both hardcode 1.0 in the
+implementation. Any backend's evidence claims must be verified against its source or against a
+falsification probe (constant confidence, uniformly spread timestamps), never against its header.
+Nemotron remains the better-WER candidate with the same confidence defect; `kyutai/stt-1b-en_fr-mlx`
+is the remaining untried option and is MLX-native, which suits this repo.
 
 ### Runtime bake-off: is a non-Python runtime faster? Rust, no. C and CoreML, yes.
 
@@ -506,15 +526,17 @@ Ranked by expected value, not by ease:
    because `parakeet-tdt-0.6b-v3` is full-context trained and cannot decode inside a small local
    attention window. There is no operating point on this checkpoint, so the next move is a different
    checkpoint, not a different setting.
-   First attempt should be **`moonshine-ai/moonshine-streaming-medium`**: MIT, 245M parameters
-   (~289 MB with its runtime, against our 463 MB), 80 ms trained lookahead, an official C++/Swift
-   ONNX runtime with a macOS arm64 dylib, and — uniquely among the candidates — both word timestamps
-   and a real 0..1 confidence, so `RiskAuthorizer`'s replace path can survive. Its published
-   leaderboard U-WER is 6.66% against our 5.66%, so this is an explicit latency-for-accuracy trade
-   that must be measured on our own corpora, with `bench-stt` and `bench-e2e`, before it ships even
-   as opt-in. `nemotron-speech-streaming-en-0.6b` via NeMo-Speech.cpp has better WER but reports word
-   confidence as a hardcoded 1.0, which would silently disable automatic term correction the same way
-   ARK does — that is a capability regression disguised as a latency win.
+   **Moonshine was tried first and is blocked** (built 2026-08-14, see above): its residuals are
+   excellent at 4.5-37 ms, but its per-word confidence is a hardcoded `1.0f` despite the header
+   documenting 0..1, and sequential utterances in one process corrupt — which is precisely how a
+   dictation app uses a model. Do not integrate it until upstream fixes the reset path, and do not
+   count on its confidence even then. `nemotron-speech-streaming-en-0.6b` has the better WER and the
+   same hardcoded-confidence defect. `kyutai/stt-1b-en_fr-mlx` is the remaining untried candidate and
+   is MLX-native, so it needs no new runtime here; it has word timestamps, no confidence, and a
+   500 ms delay that its authors reduce by flushing the tail faster than real time.
+   Whichever is next, the accuracy trade must be measured on our own corpora with `bench-stt` and
+   `bench-e2e` before it ships even as opt-in, and its evidence claims must be verified against
+   source rather than documentation.
 0b. **Or swap the ASR runtime, which is smaller but nearly free.** The bake-off above measured
    `parakeet.cpp` at 88.4 ms and FluidAudio at 71.5 ms against our 119.9 ms, both on our own model
    and both without Python. `parakeet.cpp` is the conservative pick: identical U-WER to three
