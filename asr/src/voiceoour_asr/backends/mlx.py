@@ -16,6 +16,7 @@ from voiceoour_asr.protocol import (
     Cancelled,
     ConfidenceMode,
     DecoderInfo,
+    ErrorMessage,
     HealthResponse,
     Hypothesis,
     Result,
@@ -24,7 +25,7 @@ from voiceoour_asr.protocol import (
     protocol_error,
 )
 
-from .base import Backend
+from .base import Backend, validate_transcribe_request
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; trie is pure Python
     from voiceoour_asr.decoding.trie import PhraseTrie
@@ -218,26 +219,14 @@ class MLXBackend(Backend):
     def transcribe(self, request: TranscribeRequest, cancelled: Event):
         if cancelled.is_set():
             return Cancelled(request_id=request.request_id)
-        if request.expected_model:
-            if request.expected_model.model_id and request.expected_model.model_id != cache.MODEL_ID:
-                return protocol_error(
-                    ErrorCode.MANIFEST_MISMATCH,
-                    request_id=request.request_id,
-                    detail="expected_model model_id mismatch",
-                )
-            if request.expected_model.revision and request.expected_model.revision != cache.MODEL_REVISION:
-                return protocol_error(
-                    ErrorCode.MANIFEST_MISMATCH,
-                    request_id=request.request_id,
-                    detail="expected_model revision mismatch",
-                )
-        audio_path = Path(request.audio.path)
-        if not audio_path.exists():
-            return protocol_error(ErrorCode.AUDIO_NOT_FOUND, request_id=request.request_id, detail=str(audio_path))
-        if request.audio.format.lower() != "wav":
-            return protocol_error(
-                ErrorCode.UNSUPPORTED_AUDIO_FORMAT, request_id=request.request_id, detail=request.audio.format
-            )
+        validation = validate_transcribe_request(
+            request,
+            model_id=cache.MODEL_ID,
+            model_revision=cache.MODEL_REVISION,
+        )
+        if isinstance(validation, ErrorMessage):
+            return validation
+        audio_path = validation
         # Same race the ARK backend guards, and the default backend is the one that
         # actually meets a cold cache on a fresh install. Parakeet is 2.3 GB, so a
         # cold acquisition cannot fit inside the client's 30 s transcribe timeout:

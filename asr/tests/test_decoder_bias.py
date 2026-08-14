@@ -75,7 +75,14 @@ def _decode(fake: _FakeTDT, *, steps: int = 1, top_k: int = 5, bias=None):
     features = mx.zeros((1, steps, 4))  # B=1, S=steps, joint dim=4
     lengths = mx.array([steps])
     config = DecodingConfig(decoding=Beam(beam_size=5, length_penalty=0.0))
-    per_batch, _ = NBestParakeetTDT.decode_beam_nbest(fake, features, lengths, config=config, top_k=top_k, bias=bias)
+    per_batch = NBestParakeetTDT.decode_beam_nbest(
+        fake,
+        features,
+        lengths,
+        config=config,
+        top_k=top_k,
+        bias=bias,
+    )
     return per_batch[0]
 
 

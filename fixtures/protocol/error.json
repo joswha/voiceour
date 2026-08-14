@@ -5,6 +5,6 @@
   "code": "model_not_installed",
   "category": "setup",
   "retryable": false,
-  "user_message_key": "asr.model_missing",
+  "user_message_key": "asr.model_not_installed",
   "detail": "redacted"
 }

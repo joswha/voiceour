@@ -1,4 +1,4 @@
-// perf_probe_helper — a tiny CGWindow/CGEvent CLI used by scripts/perf_probe.sh to
+// perf_probe_helper — a tiny CGWindow/CGEvent CLI used by scripts/archive/perf_probe.sh to
 // drive a repeatable render-performance measurement against a *running* VoiceOour.
 //
 // It reads window geometry (no permission needed) and synthesizes pointer activity

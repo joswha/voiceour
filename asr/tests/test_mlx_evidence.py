@@ -15,6 +15,7 @@ from threading import Event
 import pytest
 from parakeet_mlx.alignment import AlignedResult, AlignedSentence, AlignedToken
 
+from voiceoour_asr import cache
 from voiceoour_asr.backends.mlx import MLXBackend, _DecodeOutput
 from voiceoour_asr.decoding import (
     aligned_result_to_transcript,
@@ -29,7 +30,6 @@ from voiceoour_asr.decoding.nbest import (
     rank_hypotheses,
 )
 from voiceoour_asr.protocol import AudioMeta, ConfidenceMode, ErrorCode, TranscribeRequest
-from voiceoour_asr import cache
 
 
 def test_transcribe_fails_fast_while_parakeet_is_still_being_acquired(tmp_path, monkeypatch):

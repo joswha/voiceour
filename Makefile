@@ -1,4 +1,4 @@
-.PHONY: build test bundle verify-bundle fixture dev python-test asr-sync format format-check lint-python
+.PHONY: build test bundle verify-bundle fixture dev python-test format format-check lint-python
 
 build:
 	swift build -Xswiftc -warnings-as-errors
@@ -22,9 +22,6 @@ format-check:
 lint-python:
 	cd asr && uv --no-config run ruff check .
 	cd bench && uv --no-config run ruff check .
-
-asr-sync:
-	cd asr && uv --no-config sync
 
 bundle:
 	scripts/bundle.sh
@@ -117,3 +114,24 @@ bench-e2e:
 
 bench-techterms:
 	cd bench && uv --no-config run python -m voiceoour_bench.run --tier techterms --mode stt --backend $(BACKEND)
+
+.PHONY: bench-capture-plan bench-capture-run bench-capture-report
+
+bench-capture-plan:
+	cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix plan \
+	  --prompts ../benchmarks/data/techterms/capture-prompts.jsonl \
+	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
+	  --output-dir ../benchmarks/data/techterms/real-speaker-audio \
+	  --speaker-id speaker-001 --speaker-kind real --takes 2 --dry-run
+
+bench-capture-run:
+	cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix run \
+	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
+	  --results ../benchmarks/results/techterms-capture.results.jsonl \
+	  --consent-confirmed
+
+bench-capture-report:
+	cd bench && uv --no-config run python -m voiceoour_bench.capture_matrix report \
+	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
+	  --results ../benchmarks/results/techterms-capture.results.jsonl \
+	  --output ../benchmarks/results/techterms-capture.report.json

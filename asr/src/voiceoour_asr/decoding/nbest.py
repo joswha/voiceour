@@ -170,9 +170,8 @@ class NBestParakeetTDT(ParakeetTDT):
         stays the model's own evidence. With ``bias is None`` the two scores are
         identical and the result matches the unbiased fork.
 
-        Returns ``(per_batch_ranked, per_batch_hidden)`` where
-        ``per_batch_ranked`` is a list (one entry per batch item) of ranked
-        ``NBestHypothesis`` lists.
+        Returns a list (one entry per batch item) of ranked
+        :class:`NBestHypothesis` lists.
         """
         import mlx.core as mx
         import mlx.nn as nn
@@ -209,7 +208,6 @@ class NBestParakeetTDT(ParakeetTDT):
             last_token = list([None] * B)
 
         results: list[list[NBestHypothesis]] = []
-        results_hidden = []
         for batch in range(B):
             feature = features[batch : batch + 1]
             length = int(lengths[batch])
@@ -356,9 +354,8 @@ class NBestParakeetTDT(ParakeetTDT):
                 for hyp in finished_hypothesis
             ]
             results.append(rank_hypotheses(nbest, top_k=top_k, length_penalty=config.decoding.length_penalty))
-            results_hidden.append(hidden_state[batch])
 
-        return results, results_hidden
+        return results
 
     def generate_nbest(
         self,
@@ -385,7 +382,13 @@ class NBestParakeetTDT(ParakeetTDT):
         features, lengths = self.encoder(mel)
         mx.eval(features, lengths)
 
-        per_batch, _ = self.decode_beam_nbest(features, lengths, config=decoding_config, top_k=top_k, bias=bias)
+        per_batch = self.decode_beam_nbest(
+            features,
+            lengths,
+            config=decoding_config,
+            top_k=top_k,
+            bias=bias,
+        )
 
         out = []
         for hyps in per_batch:

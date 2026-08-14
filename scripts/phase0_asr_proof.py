@@ -37,7 +37,7 @@ def main() -> int:
         return 0
     text, load_ms, inference_ms, rss = transcribe_once(args.audio)
     print(f"transcript={text}")
-    print(f"cold_load_ms={load_ms:.0f} warm_inference_ms={inference_ms:.0f} rss_kb={rss}")
+    print(f"cold_load_ms={load_ms:.0f} warm_inference_ms={inference_ms:.0f} rss_bytes={rss}")
     lowered = text.lower()
     if not text.strip() or ("hello" not in lowered and "world" not in lowered):
         print("expected non-empty transcript containing hello/world", file=sys.stderr)

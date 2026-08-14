@@ -25,7 +25,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/VoiceOour"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
-cp "$ROOT/Resources/VoiceOour.entitlements" "$APP/Contents/Resources/VoiceOour.entitlements"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 chmod +x "$APP/Contents/MacOS/VoiceOour"
 if [ -n "$SIGN_KEYCHAIN" ]; then

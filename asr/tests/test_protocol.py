@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from voiceoour_asr.errors import ErrorCode
 from voiceoour_asr.protocol import (
     Cancelled,
     CancelRequest,
@@ -15,6 +16,7 @@ from voiceoour_asr.protocol import (
     Hello,
     Result,
     TranscribeRequest,
+    protocol_error,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +46,14 @@ def test_protocol_fixtures_round_trip(filename):
     data = json.loads((FIXTURES / filename).read_text())
     parsed = FIXTURE_MODELS[filename].model_validate(data)
     assert parsed.model_dump(mode="json", exclude_none=False) == data
+    if filename == "error.json":
+        assert parsed.user_message_key == f"asr.{parsed.code.value}"
+
+
+def test_protocol_error_message_keys_match_error_codes():
+    for code in ErrorCode:
+        message = protocol_error(code)
+        assert message.user_message_key == f"asr.{code.value}"
 
 
 def test_protocol_rejects_extra_fields():

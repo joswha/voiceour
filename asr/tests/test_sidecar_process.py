@@ -190,7 +190,7 @@ def test_delayed_transcribe_can_be_cancelled_before_fake_delay():
         response = read_protocol(proc, timeout=delay_ms / 1000 + 1)
         latency_ms = (time.monotonic_ns() - start_ns) / 1_000_000
 
-    print(f"cancel_latency_ms={latency_ms:.3f}")
+    print(f"cancel_latency_ms={latency_ms:.3f}", file=sys.stderr)
     assert response["type"] == "cancelled"
     assert response["request_id"] == "cancel-me"
     assert latency_ms < delay_ms, f"cancel latency {latency_ms:.3f}ms exceeded fake delay {delay_ms}ms"

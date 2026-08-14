@@ -32,7 +32,7 @@ jobs:
             bench/uv.lock
 
       - name: Build
-        run: swift build -Xswiftc -warnings-as-errors
+        run: make build
 
       # Enabled only after the repo-wide formatting commit landed green, so this
       # gate has never had to tolerate a pre-existing violation.
@@ -45,7 +45,7 @@ jobs:
       # -DUI_HARNESS: the offscreen harness and its test suites are compiled
       # out of a plain build, which is what keeps them out of the shipping binary.
       - name: Swift tests
-        run: swift test -Xswiftc -warnings-as-errors -Xswiftc -DUI_HARNESS
+        run: make test
 
       # Flow journals, named expectations, and the coverage ledger are semantic,
       # host-independent contracts, so they are required even though pixel and
@@ -57,7 +57,7 @@ jobs:
         run: make ui-coverage
 
       - name: ASR sidecar tests
-        run: cd asr && uv --no-config run pytest
+        run: make python-test
 
       - name: Benchmark tests
         run: cd bench && uv --no-config run pytest
