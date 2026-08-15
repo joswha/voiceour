@@ -93,6 +93,11 @@ public struct ASRHealthResponse: Codable, Equatable, Sendable {
     public var ready: Bool
     public var modelLoaded: Bool
     public var cacheOk: Bool
+    /// 0...1 while the backend is acquiring its artifact, nil when no download is running.
+    public var downloadFraction: Double?
+    /// True while the backend is loading the model and compiling its pipelines. Nil once the
+    /// model is loaded, so an idle-unloaded backend does not read as warming.
+    public var warming: Bool?
 
     public init(
         type: String = "health",
@@ -100,7 +105,9 @@ public struct ASRHealthResponse: Codable, Equatable, Sendable {
         requestId: String,
         ready: Bool,
         modelLoaded: Bool,
-        cacheOk: Bool
+        cacheOk: Bool,
+        downloadFraction: Double? = nil,
+        warming: Bool? = nil
     ) {
         self.type = type
         self.protocolVersion = protocolVersion
@@ -108,6 +115,8 @@ public struct ASRHealthResponse: Codable, Equatable, Sendable {
         self.ready = ready
         self.modelLoaded = modelLoaded
         self.cacheOk = cacheOk
+        self.downloadFraction = downloadFraction
+        self.warming = warming
     }
 }
 
@@ -117,13 +126,25 @@ public struct ASRBackendHealth: Equatable, Sendable {
     public var ready: Bool
     public var modelLoaded: Bool
     public var cacheOk: Bool
+    public var downloadFraction: Double?
+    public var warming: Bool?
 
-    public init(backendId: String, backendStatus: BackendStatus, ready: Bool, modelLoaded: Bool, cacheOk: Bool) {
+    public init(
+        backendId: String,
+        backendStatus: BackendStatus,
+        ready: Bool,
+        modelLoaded: Bool,
+        cacheOk: Bool,
+        downloadFraction: Double? = nil,
+        warming: Bool? = nil
+    ) {
         self.backendId = backendId
         self.backendStatus = backendStatus
         self.ready = ready
         self.modelLoaded = modelLoaded
         self.cacheOk = cacheOk
+        self.downloadFraction = downloadFraction
+        self.warming = warming
     }
 }
 

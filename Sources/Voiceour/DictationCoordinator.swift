@@ -195,6 +195,8 @@ public final class DictationCoordinator {
     private var processingTaskIdentity: UUID?
     var suggestionTask: Task<Void, Never>?
     private var backendHealthTask: Task<Void, Never>?
+    /// Repoll chain that runs only while the backend is downloading or warming.
+    private var backendAcquisitionPollTask: Task<Void, Never>?
     /// Guards refreshBackendHealth against duplicate sidecar probes: skip a
     /// fresh probe while one is in flight or within backendHealthTTL of the
     /// last completion. System and Diagnostics both probe from onAppear on
@@ -360,12 +362,13 @@ public final class DictationCoordinator {
 
     public var activeBackend: String { activeASRBackend }
 
-    public func refreshBackendHealth(timeoutMs: Int = 3_000) {
+    public func refreshBackendHealth(timeoutMs: Int = 3_000, force: Bool = false) {
         // Collapse duplicate probes: onAppear fires this on every System /
         // Diagnostics tab entry. Skip while a probe is in flight, or if the
-        // last completion (success or failure) landed within the TTL.
+        // last completion (success or failure) landed within the TTL. `force`
+        // is the acquisition repoll, whose whole job is to beat that TTL.
         if backendHealthProbeInFlight { return }
-        if let last = backendHealthLastRefresh,
+        if !force, let last = backendHealthLastRefresh,
             runtime.now().timeIntervalSince(last) < backendHealthTTL
         {
             return
@@ -384,6 +387,7 @@ public final class DictationCoordinator {
                     self?.backendHealthError = nil
                     self?.backendHealthLastRefresh = self?.runtime.now()
                     self?.backendHealthProbeInFlight = false
+                    self?.scheduleAcquisitionRepollIfNeeded(health)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -393,7 +397,33 @@ public final class DictationCoordinator {
                     self?.backendHealthError = String(describing: error)
                     self?.backendHealthLastRefresh = self?.runtime.now()
                     self?.backendHealthProbeInFlight = false
+                    self?.backendAcquisitionPollTask?.cancel()
+                    self?.backendAcquisitionPollTask = nil
                 }
+            }
+        }
+    }
+
+    /// Keeps the readiness readout moving while the backend downloads or warms.
+    ///
+    /// A percentage that only advances when the user re-enters the System tab is not progress
+    /// reporting. The chain stops on its own the moment neither condition holds, so a resting
+    /// backend costs nothing.
+    private func scheduleAcquisitionRepollIfNeeded(_ health: ASRBackendHealth) {
+        guard health.downloadFraction != nil || health.warming == true else {
+            backendAcquisitionPollTask?.cancel()
+            backendAcquisitionPollTask = nil
+            return
+        }
+        guard backendAcquisitionPollTask == nil else { return }
+        let runtime = runtime
+        backendAcquisitionPollTask = Task { [weak self] in
+            // The injectable runtime sleep, never a raw Task.sleep: the flow harness pins it.
+            try? await runtime.sleep(2_000_000_000)
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                self.backendAcquisitionPollTask = nil
+                self.refreshBackendHealth(force: true)
             }
         }
     }
@@ -540,6 +570,8 @@ public final class DictationCoordinator {
         suggestionTask = nil
         backendHealthTask?.cancel()
         backendHealthTask = nil
+        backendAcquisitionPollTask?.cancel()
+        backendAcquisitionPollTask = nil
         backendHealthProbeInFlight = false
         stopInputMetering()
         state = .cancelled

@@ -282,6 +282,24 @@ struct SystemPane: View {
                 detail:
                     "Fake backend is ready for first launch and does not require microphone access or a model download."
             )
+        } else if let fraction = coordinator.backendHealth?.downloadFraction {
+            // Formatted by hand rather than through ByteCountFormatter: that formatter is
+            // locale-aware and rendered "1,26 GB" on this host, which would bake the developer's
+            // region into a committed golden.
+            let sizeText = String(format: "%.2f GB", Double(ASRModelContract.sizeBytes) / 1_000_000_000)
+            return Readout(
+                status: "DOWNLOADING",
+                mode: .neutral,
+                detail: "\(activeModelLabel) — \(Int(fraction * 100))% of \(sizeText) fetched."
+            )
+        } else if coordinator.backendHealth?.warming == true {
+            // Ahead of READY on purpose: `ready` is already true while the model is loading, so
+            // the honest state during a 3.5 s cold load is "warming", not "ready".
+            return Readout(
+                status: "WARMING",
+                mode: .neutral,
+                detail: "\(activeBackendName) is loading its model and compiling Metal pipelines."
+            )
         } else if coordinator.backendHealth?.cacheOk == true && coordinator.backendHealth?.ready == true {
             return Readout(
                 status: "READY",

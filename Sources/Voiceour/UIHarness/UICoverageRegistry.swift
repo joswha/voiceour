@@ -172,6 +172,12 @@
             state(.system, "backend-ready", "Backend ready", scene: "console.system.granted"),
             state(.system, "backend-check-needed", "Backend check needed", scene: "console.system.denied"),
             state(.system, "backend-loading", "Backend probe loading"),
+            state(
+                .system,
+                "backend-downloading",
+                "Model download progress readout",
+                scene: "console.system.downloading"
+            ),
             state(.system, "backend-model-needed", "Backend MODEL NEEDED"),
             state(.system, "microphone-granted", "Microphone granted", scene: "console.system.granted"),
             state(.system, "microphone-denied", "Microphone denied", scene: "console.system.denied"),

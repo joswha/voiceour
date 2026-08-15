@@ -26,10 +26,28 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     private var context: ParakeetContext?
     private var loadMs = 0
     private var loadFailed = false
+    /// 0...1 while `warmUp` is acquiring the artifact; nil at every other moment.
+    private var downloadFraction: Double?
+    /// True from `warmUp` entry until it returns, the download included.
+    private var warmingInProgress = false
+    /// When the last decode finished, or the model was loaded. Drives the idle unload.
+    private var lastDecodeEndedAt = DispatchTime.now()
+    private var idleTimer: DispatchSourceTimer?
 
-    public init(cache: ParakeetModelCache, log: @escaping (String) -> Void) {
+    /// Idle time after which the loaded model is released, or 0 to keep it forever.
+    ///
+    /// 30 minutes by default: the model is 1.26 GB of wired-down weights, and a dictation app
+    /// spends most of a working day doing nothing. A reload costs ~314 ms plus one warm decode,
+    /// which is paid by the next dictation and not by the one that already ended.
+    private let idleUnloadMs: Int
+    private let idleQueue = DispatchQueue(label: "voiceour.asr.idle")
+    /// How often the idle check runs. Coarse on purpose: the deadline it guards is in minutes.
+    private static let idleTickSeconds = 60.0
+
+    public init(cache: ParakeetModelCache, log: @escaping (String) -> Void, idleUnloadMs: Int = 1_800_000) {
         self.cache = cache
         self.log = log
+        self.idleUnloadMs = idleUnloadMs
     }
 
     public func startupStatus() -> BackendStatus {
@@ -41,13 +59,19 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
         stateLock.lock()
         let loaded = context != nil
         let failed = loadFailed
+        let fraction = downloadFraction
+        let warming = warmingInProgress
         stateLock.unlock()
         return ASRBackendHealth(
             backendId: backendId,
             backendStatus: cacheOk ? .ready : .modelMissing,
             ready: cacheOk && !failed,
             modelLoaded: loaded,
-            cacheOk: cacheOk
+            cacheOk: cacheOk,
+            downloadFraction: fraction,
+            // Nil rather than false once the model is loaded, so an idle-unloaded backend does
+            // not read as warming when it is simply resting.
+            warming: warming && !loaded ? true : nil
         )
     }
 
@@ -58,11 +82,26 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     /// machine additionally compiles the embedded shader library (about 7.5 s, then cached by
     /// the OS). Paying both here keeps them off the user's first dictation.
     public func warmUp() throws {
+        withState { $0.warmingInProgress = true }
+        defer {
+            withState {
+                $0.warmingInProgress = false
+                $0.downloadFraction = nil
+            }
+        }
         try cache.ensureModel { fraction in
+            self.withState { $0.downloadFraction = fraction }
             self.log(String(format: "VOICEOUR_PRELOAD download %.0f%%", fraction * 100))
         }
+        withState { $0.downloadFraction = nil }
         let context = try loadContext()
         _ = try decode(context, samples: [Float](repeating: 0, count: 8000), isCancelled: { false })
+    }
+
+    private func withState(_ body: (ParakeetSidecarBackend) -> Void) {
+        stateLock.lock()
+        body(self)
+        stateLock.unlock()
     }
 
     /// Drops the model before the process exits. See `SidecarBackend.shutdown`: ggml's Metal
@@ -223,7 +262,9 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
             stateLock.lock()
             context = created
             loadMs = elapsed
+            lastDecodeEndedAt = DispatchTime.now()
             stateLock.unlock()
+            startIdleTimerIfNeeded()
             return created
         } catch {
             stateLock.lock()
@@ -231,6 +272,63 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
             stateLock.unlock()
             throw error
         }
+    }
+
+    // MARK: - Idle unload
+
+    /// Whether a loaded model has now been idle long enough to release.
+    ///
+    /// Split out from the timer so the decision is testable without a loadable 1.26 GB model;
+    /// the process-level behaviour is covered by the integration test in `SidecarProcessTests`.
+    static func isIdleUnloadDue(idleUnloadMs: Int, contextLoaded: Bool, idleMs: Int) -> Bool {
+        idleUnloadMs > 0 && contextLoaded && idleMs >= idleUnloadMs
+    }
+
+    func shouldUnloadNow(now: DispatchTime) -> Bool {
+        stateLock.lock()
+        let loaded = context != nil
+        let idleMs = Self.elapsedMs(from: lastDecodeEndedAt, to: now)
+        stateLock.unlock()
+        return Self.isIdleUnloadDue(idleUnloadMs: idleUnloadMs, contextLoaded: loaded, idleMs: idleMs)
+    }
+
+    private static func elapsedMs(from start: DispatchTime, to end: DispatchTime) -> Int {
+        guard end.uptimeNanoseconds > start.uptimeNanoseconds else { return 0 }
+        return Int((end.uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+    }
+
+    /// Starts the idle check once, after the first successful load.
+    private func startIdleTimerIfNeeded() {
+        guard idleUnloadMs > 0 else { return }
+        stateLock.lock()
+        var created: DispatchSourceTimer?
+        if idleTimer == nil {
+            created = DispatchSource.makeTimerSource(queue: idleQueue)
+            idleTimer = created
+        }
+        stateLock.unlock()
+
+        guard let timer = created else { return }
+        timer.schedule(deadline: .now() + Self.idleTickSeconds, repeating: Self.idleTickSeconds)
+        timer.setEventHandler { [weak self] in self?.unloadIfIdle() }
+        timer.resume()
+    }
+
+    private func unloadIfIdle() {
+        guard shouldUnloadNow(now: .now()) else { return }
+        // A decode owns the context for its whole duration. Skip this tick rather than make the
+        // user wait behind a timer that only ever needs to be approximately right.
+        guard decodeLock.try() else { return }
+        defer { decodeLock.unlock() }
+
+        stateLock.lock()
+        let idleMs = Self.elapsedMs(from: lastDecodeEndedAt, to: .now())
+        let released = context
+        context = nil
+        stateLock.unlock()
+
+        guard released != nil else { return }
+        log("idle unload after \(idleMs)ms; the next dictation reloads (~314 ms plus a warm decode)")
     }
 
     private func currentContext() -> ParakeetContext? {
@@ -248,7 +346,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
         -> [ParakeetSegmentRaw]
     {
         decodeLock.lock()
-        defer { decodeLock.unlock() }
+        defer {
+            withState { $0.lastDecodeEndedAt = DispatchTime.now() }
+            decodeLock.unlock()
+        }
         return try context.transcribe(samples: samples, isCancelled: isCancelled)
     }
 }

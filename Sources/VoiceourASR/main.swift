@@ -52,7 +52,13 @@ private func makeBackend(_ environment: [String: String]) -> SidecarBackend? {
     case "fake":
         return FakeASRBackend(environment: environment)
     case "parakeet":
-        return ParakeetSidecarBackend(cache: .standard(environment: environment), log: logLine)
+        // Unset keeps the 30-minute default; a value <= 0 disables the unload entirely.
+        let idleUnloadMs = environment["VOICEOUR_IDLE_UNLOAD_MS"].flatMap(Int.init)
+        return ParakeetSidecarBackend(
+            cache: .standard(environment: environment),
+            log: logLine,
+            idleUnloadMs: idleUnloadMs ?? 1_800_000
+        )
     default:
         return nil
     }
@@ -65,7 +71,13 @@ private func makeBackend(_ environment: [String: String]) -> SidecarBackend? {
 /// It drives the same `ParakeetSidecarBackend` the protocol loop uses, so a green `--prove`
 /// is evidence about the shipping path rather than about a parallel one.
 private func prove(wavPath: String, environment: [String: String]) -> Int32 {
-    let backend = ParakeetSidecarBackend(cache: .standard(environment: environment), log: logLine)
+    // No idle unload: --prove is one load and one decode, and a timer would only add a way
+    // for the measurement to change under it.
+    let backend = ParakeetSidecarBackend(
+        cache: .standard(environment: environment),
+        log: logLine,
+        idleUnloadMs: 0
+    )
     defer { backend.shutdown() }
 
     let loadStart = DispatchTime.now().uptimeNanoseconds

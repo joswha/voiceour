@@ -283,6 +283,12 @@
                     fixture: .backendUnavailable
                 ),
                 console(
+                    "console.system.downloading",
+                    "System readiness while the model is still downloading",
+                    section: .system,
+                    fixture: .backendDownloading
+                ),
+                console(
                     "console.system.confirm",
                     "System danger zone in its confirm state",
                     section: .system,

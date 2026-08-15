@@ -175,6 +175,8 @@
             case backendReady
             /// Real backend whose health probe fails, permissions denied.
             case backendUnavailable
+            /// Real backend part-way through acquiring its 1.26 GB artifact.
+            case backendDownloading
             /// Apple's system transcriber running and healthy, so every readout that
             /// used to hardcode Parakeet has another backend to name.
             case appleBackendReady
@@ -242,6 +244,13 @@
                     health: nil,
                     permissions: .denied,
                     muteUnavailable: true
+                )
+            case .backendDownloading:
+                return make(
+                    sessions: history,
+                    settings: settings(backend: realBackend),
+                    backend: realBackend,
+                    health: downloadingBackendHealth
                 )
             case .appleBackendReady:
                 return make(
@@ -416,6 +425,18 @@
             ready: true,
             modelLoaded: true,
             cacheOk: true
+        )
+
+        /// Mid-acquisition: no cache yet, so `ready` is false and the fraction is what the
+        /// System pane reads.
+        private static let downloadingBackendHealth = ASRBackendHealth(
+            backendId: "parakeet-cpp",
+            backendStatus: .modelMissing,
+            ready: false,
+            modelLoaded: false,
+            cacheOk: false,
+            downloadFraction: 0.42,
+            warming: nil
         )
 
         private static let appleBackendHealth = ASRBackendHealth(

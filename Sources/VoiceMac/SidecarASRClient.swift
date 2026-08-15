@@ -566,10 +566,15 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
                 pending.resumeHealth(
                     ASRBackendHealth(
                         backendId: running.hello.backendId,
-                        backendStatus: running.hello.backendStatus,
+                        // Derived from this probe, never from `hello`: the greeting is sent once
+                        // at spawn, so reusing its status reported `model_missing` forever after
+                        // a download that had already finished.
+                        backendStatus: response.cacheOk ? .ready : .modelMissing,
                         ready: response.ready,
                         modelLoaded: response.modelLoaded,
-                        cacheOk: response.cacheOk
+                        cacheOk: response.cacheOk,
+                        downloadFraction: response.downloadFraction,
+                        warming: response.warming
                     ))
             case "error":
                 guard let error = try? ASRWire.decode(ASRErrorMessage.self, from: data) else { return }

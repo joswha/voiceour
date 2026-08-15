@@ -99,7 +99,9 @@ public final class SidecarServer {
                     requestId: request.requestId,
                     ready: health.ready,
                     modelLoaded: health.modelLoaded,
-                    cacheOk: health.cacheOk
+                    cacheOk: health.cacheOk,
+                    downloadFraction: health.downloadFraction,
+                    warming: health.warming
                 )
             )
         case .cancel(let request):
