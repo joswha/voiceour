@@ -45,7 +45,11 @@ public final class DictationCoordinator {
     public private(set) var targetLabel: String = "No target"
     public internal(set) var lastOutcome: InsertionOutcome?
     public internal(set) var lastTranscript: String = ""
+    /// The last failure's plain-language cause, for surfaces that show one line.
     public internal(set) var errorMessage: String?
+    /// The same failure with its title, retry-ability and destination, for the menu
+    /// row that has to offer an action rather than just a sentence.
+    public internal(set) var lastFailure: UserFacingDictationFailure?
     public private(set) var backendHealth: ASRBackendHealth?
     public private(set) var backendHealthError: String?
     public internal(set) var recentSessions: [RecentSession] = []
@@ -202,6 +206,39 @@ public final class DictationCoordinator {
 
     public var activeBackend: String { activeASRBackend }
 
+    /// Fraction of the pinned model this backend has downloaded, or nil when no
+    /// acquisition is in flight. Read by the menu as well as the console: a 1.26 GB
+    /// download that is only visible on one settings tab looks like a hung app.
+    public var modelDownloadFraction: Double? {
+        backendHealth?.downloadFraction
+    }
+
+    /// True while the backend is loading the model and compiling pipelines.
+    public var isBackendWarming: Bool {
+        backendHealth?.warming == true
+    }
+
+    /// Why the backend cannot serve dictation, in the user's terms, or nil when it
+    /// can. Fed by the health probe and by `warmUp()`, which used to swallow its
+    /// failure entirely: a download that could not start left the app looking idle
+    /// and every dictation failing with a raw code.
+    public internal(set) var acquisitionFailure: UserFacingDictationFailure?
+
+    /// Starts the model acquisition the first dictation would otherwise wait for,
+    /// and keeps the readout moving while it runs.
+    public func warmUpBackend() {
+        let asr = asr
+        Task { [weak self] in
+            await asr.warmUp()
+            await MainActor.run {
+                guard let self else { return }
+                // `warmUp` cannot throw through the port, so its outcome is read from
+                // the health probe that follows it.
+                self.refreshBackendHealth(force: true)
+            }
+        }
+    }
+
     public func refreshBackendHealth(timeoutMs: Int = 3_000, force: Bool = false) {
         // Collapse duplicate probes: onAppear fires this on every System /
         // Diagnostics tab entry. Skip while a probe is in flight, or if the
@@ -314,8 +351,6 @@ public final class DictationCoordinator {
             components.usesSystemAudioMuter
             ? SystemAudioMuter()
             : NoOpSystemAudioMuter()
-        Task { await asr.warmUp() }
-
         let coordinator = DictationCoordinator(
             recorder: recorder,
             asr: asr,
@@ -331,6 +366,10 @@ public final class DictationCoordinator {
         if let settingsFailure {
             coordinator.errorMessage = settingsFailure
         }
+        // Acquisition starts at launch and reports through the coordinator, so the
+        // menu can show a first run's download instead of failing every dictation
+        // with a raw `model_not_installed` while it runs.
+        coordinator.warmUpBackend()
         return coordinator
     }
 
@@ -356,6 +395,7 @@ public final class DictationCoordinator {
         guard state != .recording, !isProcessingInFlight else { return }
         let generation = generations.begin(.recordingStart)
         errorMessage = nil
+        lastFailure = nil
         lastOutcome = nil
         lastTranscript = ""
         inputMeter.setLive(false)

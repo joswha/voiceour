@@ -88,6 +88,11 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
 
 public struct Settings: Codable, Equatable, Sendable {
     public var cleanupEnabled: Bool
+    /// The backend a fresh install dictates through. `parakeet` is the shipped
+    /// local sidecar; `fake` exists for development and the offscreen harness and
+    /// is reachable only through `--asr-backend`/`VOICEOUR_ASR_BACKEND` or the
+    /// debug pane, never by default. It used to BE the default, which meant a
+    /// release build transcribed synthetic text until the user found the picker.
     public var asrBackend: String
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
@@ -105,7 +110,7 @@ public struct Settings: Codable, Equatable, Sendable {
 
     public init(
         cleanupEnabled: Bool = true,
-        asrBackend: String = "fake",
+        asrBackend: String = "parakeet",
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
         autoStopEnabled: Bool = false,

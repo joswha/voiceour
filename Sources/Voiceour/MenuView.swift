@@ -75,11 +75,26 @@ struct MenuView: View {
                 dictationTitle: dictationTitle,
                 dictationRowTitle: dictationRowTitle,
                 savedSessionCountText: savedSessionCountText,
-                startOrStopDictation: { coordinator.toggle() }
+                startOrStopDictation: { coordinator.toggle() },
+                failure: coordinator.lastFailure ?? coordinator.acquisitionFailure,
+                retry: { coordinator.warmUpBackend() }
             )
         }
         .padding(VoiceourMetrics.Space.md)
         .frame(width: MenuLayout.popoverWidth, alignment: .topLeading)
+        .task(id: acquisitionTaskID) {
+            // The menu is where a first launch waits out a 1.26 GB download, so it
+            // asks for health on open and keeps asking while an acquisition runs.
+            // Without this the percentage only advanced when the user happened to
+            // open the console's System tab.
+            coordinator.refreshBackendHealth()
+        }
+    }
+
+    /// Re-runs the health probe whenever an acquisition's progress changes, which is
+    /// what keeps the percentage moving while the popover stays open.
+    private var acquisitionTaskID: String {
+        "\(coordinator.modelDownloadFraction ?? -1)-\(coordinator.isBackendWarming)"
     }
 
     private func menuBehavior<Content: View>(_ content: Content) -> some View {
@@ -114,17 +129,35 @@ struct MenuView: View {
 
     // MARK: Status
 
-    /// The status block's second line: the error, or the future-tense target
-    /// promise, never both. An error means the promise cannot be kept, and a
-    /// finished outcome means it is already spent and reported in the past
-    /// tense below — a promise stacked on a report about the same target, in
-    /// opposite tenses, is the surface not knowing its own state.
+    /// The status block's second line: the failure, the model's own progress, or
+    /// the future-tense target promise, in that order — never two at once. An error
+    /// means the promise cannot be kept; a model that has not arrived yet means the
+    /// promise cannot be kept either, and saying so is the difference between a
+    /// download and a hang.
     private var headline: (text: String, color: Color?)? {
+        if let failure = coordinator.lastFailure ?? coordinator.acquisitionFailure {
+            return (failure.cause, VoiceourPalette.Signal.crimson)
+        }
         if let error = coordinator.errorMessage {
             return (error, VoiceourPalette.Signal.crimson)
         }
+        if let acquisition = acquisitionHeadline {
+            return (acquisition, VoiceourPalette.Signal.amber)
+        }
         guard reportedOutcome == nil else { return nil }
         return (coordinator.targetLabel, nil)
+    }
+
+    /// What the model is doing when it is not ready. Downloading reports its own
+    /// percentage; warming has no fraction to report, only a reason to wait.
+    private var acquisitionHeadline: String? {
+        if let fraction = coordinator.modelDownloadFraction {
+            return "Downloading model — \(Int(min(max(fraction, 0), 1) * 100))%."
+        }
+        if coordinator.isBackendWarming {
+            return "Loading the speech model…"
+        }
+        return nil
     }
 
     // MARK: Report
@@ -176,8 +209,16 @@ struct MenuView: View {
         if let summary = reportedOutcome?.summary {
             return summary.label
         }
+        // The failure names itself: "MODEL NEEDED" and "MIC BLOCKED" say what to do
+        // about it, where a bare "ERROR" makes the user open the console to find out.
+        if let failure = coordinator.lastFailure ?? coordinator.acquisitionFailure {
+            return failure.title
+        }
         if coordinator.errorMessage != nil {
             return "ERROR"
+        }
+        if coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming {
+            return "PREPARING"
         }
 
         switch coordinator.state {
@@ -193,7 +234,7 @@ struct MenuView: View {
     }
 
     /// Same lifetime as `statusLabel`: the chip's colour has to agree with its
-    /// word, so both read `errorMessage` before falling through to the state.
+    /// word, so both read the failure before falling through to the state.
     private var statusMode: StatusChip.Mode {
         if let summary = reportedOutcome?.summary {
             switch summary.severity {
@@ -203,8 +244,13 @@ struct MenuView: View {
             case .neutral: return .neutral
             }
         }
-        if coordinator.errorMessage != nil {
+        if coordinator.errorMessage != nil || coordinator.lastFailure != nil
+            || coordinator.acquisitionFailure != nil
+        {
             return .crit
+        }
+        if coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming {
+            return .warn
         }
 
         switch coordinator.state {

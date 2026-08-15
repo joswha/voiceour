@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import VoiceCore
 
-enum RecorderError: Error, LocalizedError {
+public enum RecorderError: Error, LocalizedError {
     case alreadyRecording
     case notRecording
     case outputUnavailable
@@ -11,7 +11,7 @@ enum RecorderError: Error, LocalizedError {
     /// disconnected device, or a recording that ended with zero frames written.
     case captureFailed(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .alreadyRecording: "A recording is already in progress."
         case .notRecording: "No recording is in progress."

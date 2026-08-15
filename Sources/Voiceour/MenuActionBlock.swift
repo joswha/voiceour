@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VoiceCore
 
 struct MenuActionBlock: View {
     let isGated: Bool
@@ -7,6 +8,9 @@ struct MenuActionBlock: View {
     let dictationRowTitle: String
     let savedSessionCountText: String
     let startOrStopDictation: () -> Void
+    /// The failure the rows offer a way out of, when there is one.
+    let failure: UserFacingDictationFailure?
+    let retry: () -> Void
 
     @Environment(\.openWindow) private var openWindow
     private var a11y = A11y()
@@ -16,13 +20,17 @@ struct MenuActionBlock: View {
         dictationTitle: String,
         dictationRowTitle: String,
         savedSessionCountText: String,
-        startOrStopDictation: @escaping () -> Void
+        startOrStopDictation: @escaping () -> Void,
+        failure: UserFacingDictationFailure? = nil,
+        retry: @escaping () -> Void = {}
     ) {
         self.isGated = isGated
         self.dictationTitle = dictationTitle
         self.dictationRowTitle = dictationRowTitle
         self.savedSessionCountText = savedSessionCountText
         self.startOrStopDictation = startOrStopDictation
+        self.failure = failure
+        self.retry = retry
     }
 
     var body: some View {
@@ -51,6 +59,17 @@ struct MenuActionBlock: View {
 
     private var commandGroup: some View {
         VStack(spacing: 0) {
+            // A failure the user can act on gets its own row, pointing where the
+            // remedy actually is: a retry for a model that has to finish arriving,
+            // System Settings for a permission this app cannot grant itself.
+            if let failure, failure.isRetryable, failure.destination != .systemSettings {
+                MenuCommandRow(title: "Try Again", closingRule: true) { retry() }
+            } else if let failure, failure.destination == .systemSettings {
+                MenuCommandRow(title: "Open System Settings", accessory: .chevron, closingRule: true) {
+                    PrivacySettings.microphone.open()
+                }
+            }
+
             if isGated {
                 MenuCommandRow(title: dictationRowTitle, closingRule: true) {
                     startOrStopDictation()

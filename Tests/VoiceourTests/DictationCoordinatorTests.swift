@@ -707,7 +707,12 @@ struct DictationCoordinatorTests {
         // The reason survives the reset, but the session returns to idle: nothing
         // was captured, so parking the coordinator in .error would leave the
         // menu-bar dot crimson long after the user granted permission.
-        #expect(coordinator.errorMessage == "Microphone permission denied.")
+        //
+        // The reason is the user-facing sentence and it names where the remedy is,
+        // because the app cannot grant this itself.
+        #expect(coordinator.lastFailure == .microphoneDenied)
+        #expect(coordinator.errorMessage == UserFacingDictationFailure.microphoneDenied.cause)
+        #expect(coordinator.lastFailure?.destination == .systemSettings)
         await waitUntil { coordinator.state == .idle }
         #expect(coordinator.state == .idle)
     }

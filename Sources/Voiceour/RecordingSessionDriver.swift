@@ -85,7 +85,12 @@ extension DictationCoordinator {
             if let startError {
                 await restoreSystemAudioIfNeeded()
                 guard generations.isCurrent(generation), state == .checkingPermissions else { return }
-                publishRecordingError(.internalError, message: startError.localizedDescription)
+                publishRecordingError(
+                    .internalError,
+                    failure: UserFacingDictationFailure.captureFailed(
+                        reason: startError.localizedDescription
+                    )
+                )
             }
         }
     }
@@ -135,10 +140,11 @@ extension DictationCoordinator {
         }
     }
 
-    func publishRecordingError(_ code: ASRErrorCode, message: String) {
+    func publishRecordingError(_ code: ASRErrorCode, failure: UserFacingDictationFailure) {
         stopInputMetering()
         state = .error(code)
-        errorMessage = message
+        lastFailure = failure
+        errorMessage = failure.cause
         clearCapturedTargetAndRefreshLabel()
     }
 
@@ -151,7 +157,7 @@ extension DictationCoordinator {
     /// System → READINESS → Microphone, which offers the System Settings deep
     /// link that actually fixes it.
     func failMicrophonePermissionDenied() {
-        publishRecordingError(.backendUnavailable, message: "Microphone permission denied.")
+        publishRecordingError(.backendUnavailable, failure: .microphoneDenied)
         resetToIdleWhenInactive()
     }
 

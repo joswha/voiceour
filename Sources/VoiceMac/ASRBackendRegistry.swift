@@ -89,19 +89,18 @@ public struct ASRBackendRegistry: Sendable {
         Set(descriptors.map(\.id))
     }
 
-    /// The fake backend: no model download, no microphone, deterministic
-    /// transcripts. It is the default because it is the only backend that works
-    /// on a machine that has never run this app.
+    /// The backend used when no id resolves: the real local sidecar. It is the
+    /// fallback for a stale or unknown `settings.asrBackend` too, so a value from a
+    /// future build degrades to real dictation rather than to synthetic text.
     public var defaultDescriptor: ASRBackendDescriptor {
-        descriptor(for: Self.fakeBackendID) ?? descriptors[0]
+        descriptor(for: Self.parakeetBackendID) ?? descriptors[0]
     }
 
     public func descriptor(for id: String) -> ASRBackendDescriptor? {
         descriptors.first { $0.id == id }
     }
 
-    /// An unregistered id falls back to `defaultDescriptor`, matching the
-    /// `?? "fake"` the coordinator applied before. It never traps: a stale
+    /// An unregistered id falls back to `defaultDescriptor`. It never traps: a stale
     /// `settings.asrBackend` from a future build must not crash the app.
     public func liveComponents(for id: String, context: ASRBackendContext) -> ASRBackendComponents {
         (descriptor(for: id) ?? defaultDescriptor).makeComponents(context)

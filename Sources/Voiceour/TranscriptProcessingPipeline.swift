@@ -90,7 +90,7 @@ extension DictationCoordinator {
     func finishFailedProcessing(
         generation: AsyncGenerationGate.Token,
         state failedState: SessionState,
-        errorMessage failureMessage: String?
+        failure: UserFacingDictationFailure? = nil
     ) async {
         await recorder.discardRecording()
         await restoreSystemAudioIfNeeded()
@@ -100,7 +100,8 @@ extension DictationCoordinator {
             return
         }
         state = failedState
-        errorMessage = failureMessage
+        lastFailure = failure
+        errorMessage = failure?.cause
         clearCapturedTargetAndRefreshLabel()
     }
 
@@ -275,20 +276,41 @@ extension DictationCoordinator {
         } catch is CancellationError {
             await finishFailedProcessing(
                 generation: generation,
-                state: .cancelled,
-                errorMessage: nil
+                state: .cancelled
             )
         } catch let error as ASRErrorMessage {
+            // The wire's code names a mechanism; the user reads a sentence and a
+            // place to go. One translation, so the menu and any later surface
+            // cannot describe the same failure differently.
             await finishFailedProcessing(
                 generation: generation,
                 state: .error(error.code),
-                errorMessage: error.detail
+                failure: UserFacingDictationFailure(
+                    code: error.code,
+                    detail: error.detail,
+                    acquisitionFraction: modelDownloadFraction
+                )
+            )
+        } catch let error as RecorderError {
+            let reason: String
+            if case .captureFailed(let latched) = error {
+                reason = latched
+            } else {
+                reason = error.localizedDescription
+            }
+            await finishFailedProcessing(
+                generation: generation,
+                state: .error(.internalError),
+                failure: .captureFailed(reason: reason)
             )
         } catch {
             await finishFailedProcessing(
                 generation: generation,
                 state: .error(.internalError),
-                errorMessage: error.localizedDescription
+                failure: UserFacingDictationFailure(
+                    code: .internalError,
+                    detail: error.localizedDescription
+                )
             )
         }
     }

@@ -47,8 +47,14 @@ struct VoicePane: View {
 
     var body: some View {
         SettingsPaneScroll {
-            SettingsSectionBlock(eyebrow: "BACKEND") {
-                backendRow
+            // One real backend ships, so a release build has nothing to choose
+            // between: the picker exists to reach `fake` during development, and a
+            // release user who found it could only downgrade their own dictation to
+            // synthetic text. The running model is still stated, under SYSTEM.
+            if LaunchOptions.showsDebugPanes {
+                SettingsSectionBlock(eyebrow: "BACKEND") {
+                    backendRow
+                }
             }
 
             SettingsSectionBlock(eyebrow: "CAPTURE") {

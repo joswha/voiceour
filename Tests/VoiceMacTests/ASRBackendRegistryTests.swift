@@ -64,15 +64,17 @@ struct ASRBackendRegistryTests {
     }
 
     /// A stale `settings.asrBackend` written by a future build must not crash the
-    /// app, which is why an unknown id resolves to the fake backend instead of
-    /// trapping — the same `?? fake` the coordinator applied before.
-    @Test func unknownBackendFallsBackToFakeWithoutTrapping() {
+    /// app: an unknown id resolves to the default descriptor instead of trapping.
+    /// That default is the real local sidecar, so an unrecognised id degrades to
+    /// real dictation rather than to synthetic text the user cannot tell apart.
+    @Test func unknownBackendFallsBackToTheRealBackendWithoutTrapping() {
         #expect(registry.descriptor(for: "quantum-ears") == nil)
-        #expect(registry.defaultDescriptor.id == "fake")
+        #expect(registry.defaultDescriptor.id == "parakeet")
 
         let components = registry.liveComponents(for: "quantum-ears", context: context)
-        #expect(components.recorder is FakeAudioRecorder)
-        #expect(!components.usesSystemAudioMuter)
+        #expect(components.recorder is MicrophoneRecorder)
+        #expect(components.client is SidecarASRClient)
+        #expect(components.usesSystemAudioMuter)
     }
 
     @Test func launchOptionValidationCanBeDrivenByTheRegistry() {

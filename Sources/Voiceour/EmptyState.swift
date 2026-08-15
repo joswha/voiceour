@@ -56,11 +56,13 @@ extension EmptyState where Hint == EmptyView {
 }
 
 /// The visible first-run instruction and its spoken label must carry the same
-/// verb: this used to show "Fn or Globe TO DICTATE" while VoiceOver said "Hold".
+/// verb, and both must match what the binder does: `KeyboardShortcutsBinder`
+/// toggles on RELEASE of a solitary Fn/Globe tap, so "HOLD" described a gesture
+/// the app does not implement — holding Fn and speaking starts nothing.
 struct DictationHotkeyHint: View {
     var body: some View {
         HStack(spacing: VoiceourMetrics.Space.xs) {
-            Text("HOLD")
+            Text("TAP")
                 .roleStyle(.micro)
             KeyCap("Fn")
             Text("or")
@@ -70,6 +72,6 @@ struct DictationHotkeyHint: View {
                 .roleStyle(.micro)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Hold Fn or Globe to dictate")
+        .accessibilityLabel("Tap Fn or Globe to dictate")
     }
 }
