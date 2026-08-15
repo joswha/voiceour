@@ -83,6 +83,21 @@ def main(argv: list[str] | None = None) -> int:
 
     baseline = dict(_flatten_numbers("", baseline_report.get("metrics", {})))
     candidate = dict(_flatten_numbers("", candidate_report.get("metrics", {})))
+    baseline_meta = baseline_report.get("meta")
+    candidate_meta = candidate_report.get("meta")
+    baseline_meta = baseline_meta if isinstance(baseline_meta, dict) else {}
+    candidate_meta = candidate_meta if isinstance(candidate_meta, dict) else {}
+
+    # A gate was once run with baseline and candidate inverted and still exited 0, so keep the
+    # provenance visible in the output a human reads before the comparison table.
+    print(
+        f"baseline: {args.baseline.name} backend={baseline_meta.get('backend', '?')} "
+        f"started={baseline_meta.get('started_at', '?')}"
+    )
+    print(
+        f"candidate: {args.candidate.name} backend={candidate_meta.get('backend', '?')} "
+        f"started={candidate_meta.get('started_at', '?')}"
+    )
     keys = sorted(set(baseline) | set(candidate))
     print("| metric | baseline | candidate | delta |")
     print("| --- | ---: | ---: | ---: |")

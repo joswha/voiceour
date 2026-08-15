@@ -12,6 +12,8 @@ Voiceour benchmarks measure speech-to-text accuracy, deterministic/optional refi
 | `fleurs` | `google/fleurs`, config `en_us`, split `test` | 100 rows | FLEURS is CC-BY-4.0. `transcription` is the unformatted/content reference; `raw_transcription` is the formatted reference. |
 | refine fixture | `fixtures/bench/refine_cases.jsonl` | curated local rows | Cases were harvested from now-removed prototype refiner harnesses (see git history), their few-shot examples, and shared glossary terms; the live artifact is the fixture at `fixtures/bench/refine_cases.jsonl`. Rows without encoded expected output keep `formatted_reference: null`, so formatting metrics skip them. |
 
+`--n` is per split for LibriSpeech, so `--n 200` produces 400 rows across `test.clean` and `test.other`.
+
 Hugging Face downloads use `HF_HOME=benchmarks/data/hf-cache` so repeated runs can reuse the local cache. Prepared manifests and WAVs live under `benchmarks/data/<tier>/`.
 
 ## Commands

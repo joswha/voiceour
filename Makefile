@@ -1,4 +1,4 @@
-.PHONY: build test bundle verify-bundle fixture dev format format-check lint-python
+.PHONY: build test bundle verify-bundle fixture dev format format-check check-docs lint-python
 
 build:
 	swift build -Xswiftc -warnings-as-errors
@@ -15,6 +15,9 @@ format:
 
 format-check:
 	swift format lint --strict --recursive Sources Tests
+
+check-docs:
+	scripts/check_docs.sh
 
 # `bench/` is the only Python left in this repository, and it never ships.
 lint-python:
@@ -97,7 +100,7 @@ ui-all: ui-snap ui-flow-frames
 		echo "ui-all: skipping os26 gates (host < macOS 26)"; \
 	fi
 
-.PHONY: bench-smoke bench-stt bench-refine bench-e2e bench-techterms
+.PHONY: bench-smoke bench-stt bench-refine bench-e2e bench-techterms bench-gate
 
 N ?= 200
 # Parakeet stays the measured default; override to A/B another registered
@@ -118,6 +121,10 @@ bench-e2e:
 
 bench-techterms:
 	cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend $(BACKEND)
+
+# Usage: make bench-gate BASELINE=benchmarks/results/<a>.json CANDIDATE=benchmarks/results/<b>.json
+bench-gate:
+	cd bench && uv --no-config run python -m voiceour_bench.compare ../$(BASELINE) ../$(CANDIDATE) --gate uwer_final:0.0035
 
 .PHONY: bench-capture-plan bench-capture-run bench-capture-report
 

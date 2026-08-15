@@ -107,6 +107,12 @@ def main(argv: list[str] | None = None) -> int:
         manifest = prepare_tier(args.tier, args.n, root=root)
     if not manifest.exists():
         raise FileNotFoundError(f"benchmark input does not exist: {manifest}")
+    with manifest.open(encoding="utf-8") as manifest_file:
+        rows = sum(1 for _ in manifest_file)
+    print(
+        f"[bench] manifest {manifest.name}: {rows} rows "
+        "(librispeech counts test.clean+test.other; --n is per split)"
+    )
 
     # Refine mode never touches ASR, so tagging its output with a backend would lie.
     results_jsonl = _results_jsonl_path(root, args.tier, args.mode, None if args.mode == "refine" else args.backend)
