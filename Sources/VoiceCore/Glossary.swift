@@ -194,21 +194,6 @@ public enum Glossary {
     }
 }
 
-/// Pure privacy policy for vocabulary that may be sent to a cloud refiner.
-public enum RefinerPrivacy {
-    /// Returns live, explicitly cloud-eligible global and bundle-scoped terms.
-    ///
-    /// Project-scoped vocabulary is always device-local, regardless of its
-    /// `cloudEligible` value.
-    public static func cloudEligible(_ terms: [ProtectedTerm]) -> [ProtectedTerm] {
-        terms.filter { term in
-            guard term.tombstonedAt == nil, term.cloudEligible else { return false }
-            if case .projectID = term.scope { return false }
-            return true
-        }
-    }
-}
-
 /// Explicit, user-driven mutations for a `ProtectedTerm`. Only these helpers set
 /// alias `confirmedAt`/`rejectedAt`, keeping those fields off any automatic
 /// path.

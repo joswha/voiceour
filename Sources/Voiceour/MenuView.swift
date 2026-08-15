@@ -183,7 +183,7 @@ struct MenuView: View {
         switch coordinator.state {
         case .recording:
             return "LIVE"
-        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .refining, .readyToInsert:
+        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             return "WORKING"
         case .error:
             return "ERROR"
@@ -210,7 +210,7 @@ struct MenuView: View {
         switch coordinator.state {
         case .error:
             return .crit
-        case .recording, .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .refining, .readyToInsert:
+        case .recording, .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             return .live
         default:
             return .neutral

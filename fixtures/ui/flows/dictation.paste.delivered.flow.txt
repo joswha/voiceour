@@ -1,7 +1,7 @@
 flow: dictation.paste.delivered
 title: A complete menu dictation is pasted and persisted
 fixture: dictation
-transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> refining -> readyToInsert -> pasteAttempted -> idle
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
 PASS 1 checking-permissions | state == checkingPermissions | checkingPermissions
 PASS 2 checking-permissions | text == "WORKING" exactly 1 | 1 match
 PASS 3 live | state == recording | recording
@@ -11,14 +11,12 @@ PASS 6 finalizing-audio | state == finalizingAudio | finalizingAudio
 PASS 7 finalizing-audio | text == "WORKING" exactly 1 | 1 match
 PASS 8 transcribing | state == transcribing | transcribing
 PASS 9 transcribing | text == "WORKING" exactly 1 | 1 match
-PASS 10 refining | state == refining | refining
-PASS 11 refining | text == "WORKING" exactly 1 | 1 match
-PASS 12 ready-to-insert | state == readyToInsert | readyToInsert
-PASS 13 ready-to-insert | text == "WORKING" exactly 1 | 1 match
-PASS 14 delivered | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> refining -> readyToInsert -> pasteAttempted -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> refining -> readyToInsert -> pasteAttempted -> idle
-PASS 15 delivered | model deliveredText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
-PASS 16 delivered | model deliveryBundleID == "com.example.Writer" | "com.example.Writer"
-PASS 17 delivered | model deliveryDisposition == "paste" | "paste"
-PASS 18 delivered | model deliveryCount == "1" | 1
-PASS 19 delivered | model recentSessionCount == "1" | 1
-PASS 20 delivered | text == "PASTE ATTEMPTED" exactly 1 | 1 match
+PASS 10 ready-to-insert | state == readyToInsert | readyToInsert
+PASS 11 ready-to-insert | text == "WORKING" exactly 1 | 1 match
+PASS 12 delivered | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
+PASS 13 delivered | model deliveredText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 14 delivered | model deliveryBundleID == "com.example.Writer" | "com.example.Writer"
+PASS 15 delivered | model deliveryDisposition == "paste" | "paste"
+PASS 16 delivered | model deliveryCount == "1" | 1
+PASS 17 delivered | model recentSessionCount == "1" | 1
+PASS 18 delivered | text == "PASTE ATTEMPTED" exactly 1 | 1 match

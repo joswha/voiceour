@@ -64,37 +64,6 @@ func waitUntilTimeoutCondition(
     }
 }
 
-func makeExecutableScript(_ body: String) throws -> (directory: URL, url: URL) {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("VoiceMacOmpTests-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let script = directory.appendingPathComponent("fake-omp.sh")
-    try ("#!/bin/sh\n" + body + "\n").write(to: script, atomically: true, encoding: .utf8)
-    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-    return (directory, script)
-}
-
-func processIDs(in file: URL) -> [pid_t] {
-    guard let contents = try? String(contentsOf: file, encoding: .utf8) else { return [] }
-    return
-        contents
-        .split(separator: "\n", omittingEmptySubsequences: true)
-        .compactMap { pid_t($0) }
-}
-
-/// The scripts below record their pid as their first act, but a loaded test
-/// run can spawn slower than the deadline under test. Poll so a launch that
-/// lost the race to the (correctly enforced) timeout does not read as an
-/// unlaunched process.
-func awaitProcessIDs(in file: URL, count: Int = 1) async -> [pid_t] {
-    for _ in 0..<100 {
-        let pids = processIDs(in: file)
-        if pids.count >= count { return pids }
-        try? await Task.sleep(nanoseconds: 20_000_000)
-    }
-    return processIDs(in: file)
-}
-
 /// Iteration-counted rather than deadline-based so a descheduled test run
 /// still gets its full quota of polls instead of expiring while suspended.
 /// A non-positive pid is reported as already exited without asking the kernel:
@@ -112,11 +81,6 @@ func waitForProcessExit(_ pid: pid_t, timeout: TimeInterval = 5) async -> Bool {
         try? await Task.sleep(nanoseconds: 50_000_000)
     }
     return kill(pid, 0) == -1 && errno == ESRCH
-}
-
-func fellBackText(_ outcome: RefineOutcome) -> String? {
-    guard case .fellBack(let value, _) = outcome else { return nil }
-    return value
 }
 
 struct FakePermissions: PermissionsChecking {

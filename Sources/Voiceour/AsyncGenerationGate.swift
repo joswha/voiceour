@@ -2,10 +2,9 @@ import Foundation
 
 /// Monotonic generation counters for async work that a newer request supersedes.
 ///
-/// The coordinator hand-rolled one `Int` per concern and compared it by hand in
-/// roughly twenty-three guard blocks. The counters are all the same mechanism —
-/// take a token before launching, and on resume only commit if the token is still
-/// current — so they are one primitive with named scopes instead of five fields.
+/// Async invalidation has one mechanism across every concern: take a token
+/// before launching, and on resume only commit if the token is still current.
+/// Named scopes keep ownership explicit without parallel hand-written counters.
 ///
 /// Main-actor bound on purpose. Every read and bump happens while deciding
 /// whether to publish UI state, so a lock would buy nothing and an actor would
@@ -20,15 +19,6 @@ struct AsyncGenerationGate {
         /// The stop pipeline. Bumped by cancel and error paths as well as by a
         /// newer stop, because those also invalidate an in-flight result.
         case processing
-        /// Refiner rebinding on a settings change.
-        case refinerConfiguration
-        /// A reachability probe, so a slow verdict cannot overwrite a newer one.
-        case reachability
-        /// An OMP provider-status refresh.
-        case providerStatus
-        /// An OMP model-catalog refresh, so a slow `omp models` cannot replace
-        /// a list a newer refresh already published.
-        case modelCatalog
     }
 
     /// A claim on one scope, taken before launching async work.

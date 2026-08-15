@@ -21,7 +21,6 @@
             "The offscreen harness renders renders every console pane without stealing focus."
         private static let pasteBundleID = "com.example.Writer"
         private static let terminalBundleID = "com.apple.Terminal"
-        private static let codeEditorBundleID = "com.apple.dt.Xcode"
         private static let glossaryTerm = "FlowTerm"
         private static let glossaryAliases = "flow term, flow-term"
         private static let noMatchQuery = "definitely-not-a-transcript"
@@ -88,23 +87,6 @@
             // fixtures/ui/console.system.granted.ax.txt:17
             static let backendReady = UIQuery.label("Backend")
 
-            // fixtures/ui/console.refinement.off.ax.txt. Line numbers are omitted for
-            // this pane alone: every refinement golden is being regenerated with the
-            // provider set, so a cited line would be wrong before it was reviewed.
-            static let enableRefiner = UIQuery.label("Enable refiner")
-            static let checkRefiner = UIQuery.label("CHECK")
-
-            // The Model picker's rows are formed in OmpModelPickerView; the option
-            // identifier is `refinement.model.option.` plus the model's OMP selector
-            // verbatim. No committed golden holds a loaded catalog yet, so these are
-            // derived from that source rather than read off a dump.
-            static let modelFilter = UIQuery.id("refinement.model.filter")
-            static let modelRefresh = UIQuery.id("refinement.model.refresh")
-            static let defaultModel = UIQuery.id("refinement.model.option.default")
-
-            static func model(_ selector: String) -> UIQuery {
-                .id("refinement.model.option.\(selector)")
-            }
 
             // fixtures/ui/menu.transcript.ax.txt:4
             static let copyLastTranscript = UIQuery.label("Copy last transcript")
@@ -151,8 +133,8 @@
 
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
-            homeFlows + sessionFlows + voiceFlows + glossaryFlows + refinementFlows + systemFlows
-                + menuFlows + overlayFlows + atomFlows + modernFlows
+            homeFlows + sessionFlows + voiceFlows + glossaryFlows + systemFlows + menuFlows
+                + overlayFlows + atomFlows + modernFlows
         }
 
         /// Selection goes through `UIHarnessRequest.matches(id:tags:)`, the one spelling of
@@ -192,12 +174,6 @@
                         .wait(.state(.transcribing)),
                         .check("transcribing", [.state(.transcribing)]),
                         .release(.transcription),
-                        // The first session is not persisted until refinement finishes, so HomePane
-                        // still renders EmptyState with DictationHotkeyHint here; WORKING belongs to the
-                        // dashboard below.
-                        .wait(.state(.refining)),
-                        .check("refining", [.state(.refining)]),
-                        .release(.refinement),
                         .wait(.state(.readyToInsert)),
                         // HomePane.swift:81-89 is source-only here: the session has been recorded,
                         // so the empty branch has become the dashboard before insertion.
@@ -471,137 +447,6 @@
             ]
         }
 
-        // MARK: Refinement
-
-        private static var refinementFlows: [UIFlow] {
-            [
-                UIFlow(
-                    id: "refinement.enable-and-check",
-                    title: "Enable the Oh My Pi refiner and check reachability",
-                    tags: ["refinement", "console", "settings"],
-                    covers: [
-                        .state(.refinement, "reachability-checking"),
-                        .state(.refinement, "check-success"),
-                        .journey(.refinement, "enable-and-check"),
-                    ],
-                    host: .tallConsole(.refinement),
-                    fixture: .refinerCheck(),
-                    steps: [
-                        .check(
-                            "disabled",
-                            [
-                                .value(Selector.enableRefiner, .equals("0")),
-                                .enabled(Selector.checkRefiner, false),
-                                .model(.refinementEnabled, .equals("false")),
-                            ]
-                        ),
-                        .act(.press(Selector.enableRefiner)),
-                        .check(
-                            "enabled",
-                            [
-                                .value(Selector.enableRefiner, .equals("1")),
-                                .enabled(Selector.checkRefiner, true),
-                                .model(.refinementEnabled, .equals("true")),
-                            ]
-                        ),
-                        .act(.press(Selector.checkRefiner)),
-                        // RefinementConnectionSection.swift:39,78: while the probe is parked
-                        // on its gate the button's own title becomes the verdict, so the
-                        // CHECK label going away is the bounded signal that it started.
-                        .wait(.absent(Selector.checkRefiner)),
-                        .check(
-                            "checking",
-                            [
-                                .text(.equals("CHECKING…"), .atLeast(1)),
-                                .absent(Selector.checkRefiner),
-                            ]
-                        ),
-                        .release(.refinement),
-                        // RefinementConnectionSection.swift:79-82 defines this post-CHECK verdict.
-                        .wait(.element(.value("REACHABLE · 3 MODELS"))),
-                        .check(
-                            "reachable",
-                            [
-                                .text(.equals("REACHABLE · 3 MODELS"), .exactly(1)),
-                                .enabled(Selector.checkRefiner, true),
-                            ]
-                        ),
-                    ]
-                ),
-                UIFlow(
-                    id: "refinement.select-model",
-                    title: "Load the Oh My Pi model catalog, filter it and pick a model",
-                    tags: ["refinement", "console", "settings"],
-                    covers: [
-                        .state(.refinement, "model-catalog-loading"),
-                        .state(.refinement, "model-selected"),
-                        .journey(.refinement, "select-model"),
-                    ],
-                    host: .tallConsole(.refinement),
-                    fixture: .modelCatalog(),
-                    steps: [
-                        // RefinementPane.swift:82-93 asks OMP for the catalog on entry, so
-                        // the load is already parked on its gate by the time the first
-                        // checkpoint runs. Waiting on the chip is what makes that a fact
-                        // rather than an assumption about when the task was scheduled.
-                        .wait(.element(.value("LOADING…"))),
-                        .check(
-                            "loading",
-                            [
-                                .exists(Selector.modelFilter),
-                                .label(Selector.modelRefresh, .equals("Refresh Oh My Pi models")),
-                                .text(.equals("LOADING…"), .exactly(1)),
-                                .selected(Selector.defaultModel, true),
-                                .absent(Selector.model(UIFixtures.selectedModel)),
-                            ]
-                        ),
-                        .release(.refinement),
-                        .wait(.element(Selector.model(UIFixtures.selectedModel))),
-                        // One row per model and one row per provider group: the catalog
-                        // spans three providers precisely so a load that dropped a group
-                        // would fail here rather than look like a shorter list.
-                        .check(
-                            "loaded",
-                            [
-                                .text(.equals("7 MODELS"), .exactly(1)),
-                                .exists(Selector.model("anthropic/claude-haiku-4-5")),
-                                .exists(Selector.model("anthropic/claude-sonnet-4-5")),
-                                .exists(Selector.model("openai-codex/gpt-5.5")),
-                                .exists(Selector.model("google-gemini-cli/gemini-2.5-flash")),
-                                .selected(Selector.defaultModel, true),
-                            ]
-                        ),
-                        .act(.type(UIFixtures.modelFilter, into: Selector.modelFilter)),
-                        // The two non-Anthropic providers leaving the list is what makes
-                        // the filter observable; the Anthropic rows staying is what makes
-                        // it a filter rather than an empty result.
-                        .wait(.absent(Selector.model("google-gemini-cli/gemini-2.5-flash"))),
-                        .check(
-                            "filtered",
-                            [
-                                .exists(Selector.model("anthropic/claude-haiku-4-5")),
-                                .exists(Selector.model(UIFixtures.selectedModel)),
-                                .absent(Selector.model("openai-codex/gpt-5.5")),
-                                .absent(Selector.model("google-gemini-cli/gemini-2.5-flash")),
-                            ]
-                        ),
-                        .act(.press(Selector.model(UIFixtures.selectedModel))),
-                        // `selectRefinerModel` writes `settings.refinerModel`, and the
-                        // provider-default row exists only while that string is empty, so
-                        // its disappearance is the bounded proof that the write landed.
-                        .wait(.absent(Selector.defaultModel)),
-                        .check(
-                            "selected",
-                            [
-                                .selected(Selector.model(UIFixtures.selectedModel), true),
-                                .absent(Selector.defaultModel),
-                                .exists(Selector.model("anthropic/claude-haiku-4-5")),
-                            ]
-                        ),
-                    ]
-                ),
-            ]
-        }
 
         // MARK: System
 
@@ -677,7 +522,6 @@
             [
                 pasteDeliveredFlow,
                 copyOnlyFlow,
-                codeEditorRefinementSkipFlow,
                 cancelledFlow,
                 asrErrorFlow,
                 UIFlow(
@@ -727,8 +571,7 @@
                     terminalState: .pasteAttempted,
                     disposition: "paste",
                     bundleID: pasteBundleID,
-                    reportLabel: "PASTE ATTEMPTED",
-                    includesRefinement: true
+                    reportLabel: "PASTE ATTEMPTED"
                 )
             )
         }
@@ -745,78 +588,19 @@
                 host: .menu,
                 fixture: .dictation(
                     transcript: dictatedText,
-                    refined: dictatedText,
                     outcome: .copiedOnly(reason: "Terminal targets are copy-only."),
                     targetBundleID: terminalBundleID,
-                    targetSafety: .terminal,
-                    refinementEnabled: false
+                    targetSafety: .terminal
                 ),
-                // Terminal safety intentionally skips cloud refinement in the real policy.
                 steps: fullDeliverySteps(
                     terminalState: .copiedOnly,
                     disposition: "copy",
                     bundleID: terminalBundleID,
-                    reportLabel: "COPIED ONLY",
-                    includesRefinement: false
+                    reportLabel: "COPIED ONLY"
                 )
             )
         }
 
-        private static var codeEditorRefinementSkipFlow: UIFlow {
-            UIFlow(
-                id: "dictation.refinement-skipped.code-editor",
-                title: "A code-editor target skips refinement by policy",
-                tags: ["menu", "dictation", "delivery", "code-editor", "refinement"],
-                covers: [.journey(.menu, "dictation-code-editor-skips-refinement")],
-                host: .menu,
-                fixture: .dictation(
-                    transcript: dictatedRawText,
-                    refined: "This refiner result must never reach a code editor.",
-                    outcome: .copiedOnly(reason: "Code editor targets are copy-only."),
-                    targetBundleID: codeEditorBundleID,
-                    targetSafety: .codeEditor,
-                    refinementEnabled: true,
-                    reaches: [.permission, .recorderStop, .transcription, .insertion]
-                ),
-                steps: [
-                    .act(.press(Selector.startDictation)),
-                    .wait(.state(.checkingPermissions)),
-                    .release(.permission),
-                    .wait(.state(.recording)),
-                    .act(.press(Selector.stopDictation)),
-                    .wait(.state(.finalizingAudio)),
-                    .release(.recorderStop),
-                    .wait(.state(.transcribing)),
-                    .release(.transcription),
-                    .wait(.state(.readyToInsert)),
-                    .release(.insertion),
-                    .wait(.state(.idle)),
-                    .check(
-                        "refinement-skipped",
-                        [
-                            .transitions(
-                                [
-                                    .idle,
-                                    .checkingPermissions,
-                                    .recording,
-                                    .finalizingAudio,
-                                    .transcribing,
-                                    .cleaning,
-                                    .readyToInsert,
-                                    .copiedOnly,
-                                    .idle,
-                                ],
-                                .exact
-                            ),
-                            .model(.refinementEnabled, .equals("true")),
-                            .model(.deliveredText, .equals(dictatedText)),
-                            .model(.deliveryBundleID, .equals(codeEditorBundleID)),
-                            .model(.deliveryDisposition, .equals("copy")),
-                        ]
-                    ),
-                ]
-            )
-        }
 
         private static var cancelledFlow: UIFlow {
             UIFlow(
@@ -825,12 +609,11 @@
                 tags: ["menu", "dictation", "cancel"],
                 covers: [.journey(.menu, "dictation-cancel")],
                 host: .menu,
-                // Cancelling from `.recording` never reaches the recorder-stop, transcription,
-                // refinement or insertion boundaries, so arming them would leave four gates no
-                // script can release -- indistinguishable from a script that forgot to.
+                // Cancelling from `.recording` never reaches the recorder-stop,
+                // transcription or insertion boundaries, so arming them would leave
+                // three gates no script can release.
                 fixture: .dictation(
                     transcript: dictatedText,
-                    refined: dictatedText,
                     outcome: .pasteAttempted,
                     targetBundleID: pasteBundleID,
                     targetSafety: .normalText,
@@ -894,7 +677,6 @@
         private static var pasteFixture: UIFlowFixture {
             .dictation(
                 transcript: dictatedRawText,
-                refined: dictatedText,
                 outcome: .pasteAttempted,
                 targetBundleID: pasteBundleID,
                 targetSafety: .normalText
@@ -907,16 +689,15 @@
         /// the menu's LIVE chip breathes on a `.repeatForever` animation whose phase is
         /// wall-clock driven, so its golden flaps every run and trains reviewers to bless
         /// noise. The scene catalog avoids the same trap by refusing to snapshot a processing
-        /// overlay. The twenty semantic expectations below already carry the whole journey,
+        /// overlay. The semantic expectations below already carry the whole journey,
         /// and none of them is a pixel.
         private static func fullDeliverySteps(
             terminalState: UIStatePattern,
             disposition: String,
             bundleID: String,
-            reportLabel: String,
-            includesRefinement: Bool
+            reportLabel: String
         ) -> [UIFlowStep] {
-            var steps: [UIFlowStep] = [
+            [
                 .act(.press(Selector.startDictation)),
                 .wait(.state(.checkingPermissions)),
                 .check("checking-permissions", [.state(.checkingPermissions), .text(.equals("WORKING"), .exactly(1))]),
@@ -930,8 +711,6 @@
                         .exists(Selector.stopDictation),
                     ]
                 ),
-            ]
-            steps.append(contentsOf: [
                 .act(.press(Selector.stopDictation)),
                 .wait(.state(.finalizingAudio)),
                 .check("finalizing-audio", [.state(.finalizingAudio), .text(.equals("WORKING"), .exactly(1))]),
@@ -939,35 +718,27 @@
                 .wait(.state(.transcribing)),
                 .check("transcribing", [.state(.transcribing), .text(.equals("WORKING"), .exactly(1))]),
                 .release(.transcription),
-            ])
-            if includesRefinement {
-                steps.append(contentsOf: [
-                    .wait(.state(.refining)),
-                    .check("refining", [.state(.refining), .text(.equals("WORKING"), .exactly(1))]),
-                    .release(.refinement),
-                ])
-            }
-            steps.append(contentsOf: [
                 .wait(.state(.readyToInsert)),
                 .check("ready-to-insert", [.state(.readyToInsert), .text(.equals("WORKING"), .exactly(1))]),
                 .release(.insertion),
                 .wait(.state(.idle)),
-            ])
-            var transitionSequence: [UIStatePattern] = [
-                .idle,
-                .checkingPermissions,
-                .recording,
-                .finalizingAudio,
-                .transcribing,
-                .cleaning,
-            ]
-            if includesRefinement { transitionSequence.append(.refining) }
-            transitionSequence.append(contentsOf: [.readyToInsert, terminalState, .idle])
-            steps.append(
                 .check(
                     "delivered",
                     [
-                        .transitions(transitionSequence, .exact),
+                        .transitions(
+                            [
+                                .idle,
+                                .checkingPermissions,
+                                .recording,
+                                .finalizingAudio,
+                                .transcribing,
+                                .cleaning,
+                                .readyToInsert,
+                                terminalState,
+                                .idle,
+                            ],
+                            .exact
+                        ),
                         .model(.deliveredText, .equals(dictatedText)),
                         .model(.deliveryBundleID, .equals(bundleID)),
                         .model(.deliveryDisposition, .equals(disposition)),
@@ -976,9 +747,8 @@
                         // CaptureModels.swift:132-150 defines the exact outcome labels.
                         .text(.equals(reportLabel), .exactly(1)),
                     ]
-                )
-            )
-            return steps
+                ),
+            ]
         }
 
         // MARK: Overlay
@@ -1201,16 +971,14 @@
                     tags: ["console", "rail", "navigation", "os26"],
                     covers: [.journey(.home, "modern-rail-navigation")],
                     // Diagnostics is a debug pane: `ConsoleRailSections.swift:44-50` keeps it
-                    // on the rail only while it is the open pane, so opening it is the only way
-                    // to assert the full seven-row inventory. It is also the exact scene the
-                    // retracted postmortem said had lost ALL SEVEN rows to nested glass, which
-                    // makes it the row set worth driving.
+                    // on the rail only while it is the open pane. Opening it is therefore the
+                    // only way to assert the full six-row inventory.
                     host: .console(.diagnostics),
                     fixture: .static(.populated),
                     steps: [
                         .check(
                             "diagnostics",
-                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system, .diagnostics])
+                            railRows([.home, .sessions, .voice, .glossary, .system, .diagnostics])
                                 + [
                                     .selected(Selector.railItem(.diagnostics), true),
                                     .selected(Selector.railItem(.home), false),
@@ -1220,11 +988,11 @@
                         .wait(.element(Selector.paneHeading(.voice))),
                         .check(
                             "voice",
-                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system])
+                            railRows([.home, .sessions, .voice, .glossary, .system])
                                 + [
-                                    // The seventh row leaves with the pane, by design. Asserted
-                                    // rather than ignored: a row that lingered here would be the
-                                    // rail lying about where the reader is.
+                                    // The debug-only row leaves with the pane, by design. Asserted
+                                    // rather than ignored: a row that lingered here would make the
+                                    // rail lie about where the reader is.
                                     .absent(Selector.railItem(.diagnostics)),
                                     .selected(Selector.railItem(.voice), true),
                                     .selected(Selector.railItem(.home), false),
@@ -1234,7 +1002,7 @@
                         .wait(.element(Selector.paneHeading(.glossary))),
                         .check(
                             "glossary",
-                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system])
+                            railRows([.home, .sessions, .voice, .glossary, .system])
                                 + [
                                     .selected(Selector.railItem(.glossary), true),
                                     .selected(Selector.railItem(.voice), false),
@@ -1244,7 +1012,7 @@
                         .wait(.element(Selector.paneHeading(.home))),
                         .check(
                             "home",
-                            railRows([.home, .sessions, .voice, .glossary, .refinement, .system])
+                            railRows([.home, .sessions, .voice, .glossary, .system])
                                 + [
                                     .selected(Selector.railItem(.home), true),
                                     .selected(Selector.railItem(.glossary), false),
@@ -1263,7 +1031,6 @@
                     // can release.
                     fixture: .dictation(
                         transcript: dictatedText,
-                        refined: dictatedText,
                         outcome: .pasteAttempted,
                         targetBundleID: pasteBundleID,
                         targetSafety: .normalText,

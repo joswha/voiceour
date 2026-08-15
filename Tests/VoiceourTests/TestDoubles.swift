@@ -154,14 +154,6 @@ final class FakeHotkey: HotkeyBinding, @unchecked Sendable {
     }
 }
 
-struct FakeRefiner: TranscriptRefining {
-    func refine(_ raw: String, glossary: [ProtectedTerm], safety: TargetSafetyClass, style: RefinementStyle) async
-        -> RefineOutcome
-    {
-        .skipped(reason: "test")
-    }
-}
-
 /// The directory SwiftPM built this test bundle into, which is also where the `voiceour-asr`
 /// helper lands. The app resolves the sidecar as a sibling of its own executable; an
 /// integration test that wants the real sidecar has to apply the same rule.

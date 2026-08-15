@@ -58,7 +58,6 @@
                 (.finalizingAudio, .finalizingAudio),
                 (.transcribing, .transcribing),
                 (.cleaning, .cleaning),
-                (.refining, .refining),
                 (.readyToInsert, .readyToInsert),
                 (.pasteAttempted, .pasteAttempted),
                 (.copiedOnly(reason: "unsafe target"), .copiedOnly),
@@ -67,7 +66,7 @@
                 (.cancelled, .cancelled),
             ]
 
-            #expect(cases.count == 13)
+            #expect(cases.count == 12)
             #expect(Set(cases.map(\.1)) == Set(UIStatePattern.allCases))
             for (state, expected) in cases {
                 #expect(UIStatePattern.of(state) == expected)

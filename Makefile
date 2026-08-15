@@ -100,7 +100,7 @@ ui-all: ui-snap ui-flow-frames
 		echo "ui-all: skipping os26 gates (host < macOS 26)"; \
 	fi
 
-.PHONY: bench-smoke bench-stt bench-refine bench-e2e bench-techterms bench-gate
+.PHONY: bench-smoke bench-stt bench-e2e bench-techterms bench-gate
 
 N ?= 200
 # Parakeet stays the measured default; override to A/B another registered
@@ -112,9 +112,6 @@ bench-smoke:
 
 bench-stt:
 	cd bench && uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend $(BACKEND) --n $(N)
-
-bench-refine:
-	cd bench && uv --no-config run python -m voiceour_bench.run --tier smoke --mode refine --refine deterministic
 
 bench-e2e:
 	cd bench && uv --no-config run python -m voiceour_bench.run --tier fleurs --mode e2e --backend $(BACKEND) --n $(N)

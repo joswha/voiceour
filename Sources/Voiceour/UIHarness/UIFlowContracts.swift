@@ -162,7 +162,6 @@
         case finalizingAudio
         case transcribing
         case cleaning
-        case refining
         case readyToInsert
         case pasteAttempted
         case copiedOnly
@@ -182,7 +181,6 @@
             case .finalizingAudio: return .finalizingAudio
             case .transcribing: return .transcribing
             case .cleaning: return .cleaning
-            case .refining: return .refining
             case .readyToInsert: return .readyToInsert
             case .pasteAttempted: return .pasteAttempted
             case .copiedOnly: return .copiedOnly
@@ -231,8 +229,6 @@
         case typingSpeedWPM
         /// Decimal count of active glossary terms in settings.
         case glossaryTermCount
-        /// `true`/`false` for `settings.refinementEnabled`.
-        case refinementEnabled
         /// `true`/`false` for `settings.cleanupEnabled`.
         case cleanupEnabled
         /// Active ASR backend identifier.
@@ -355,8 +351,6 @@
         case transcription
         /// The ASR client returning a preview decode of the live utterance.
         case partialTranscription
-        /// The refiner returning refined text.
-        case refinement
         /// The insertion adapter returning an outcome.
         case insertion
         /// Recent-session persistence completing.
@@ -438,7 +432,6 @@
     /// so a flow frame and a scene snapshot of the same pane are directly comparable.
     enum UIFlowHost {
         case console(ConsoleSection)
-        case tallConsole(ConsoleSection)
         case menu
         case overlay
         case custom(size: CGSize, colorScheme: ColorScheme, build: @MainActor (UIFlowContext) -> AnyView)

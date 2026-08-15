@@ -132,7 +132,7 @@ struct NDJSONLineReaderTests {
             try? pipe.fileHandleForReading.close()
         }
 
-        // Label-scoped so a sidecar or refiner test running in parallel cannot
+        // Label-scoped so another transport test running in parallel cannot
         // move the number.
         #expect(PipeByteSource.liveCount(labelPrefix: "test.fd-release") == 0)
     }

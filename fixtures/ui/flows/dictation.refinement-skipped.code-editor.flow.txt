@@ -1,9 +1,0 @@
-flow: dictation.refinement-skipped.code-editor
-title: A code-editor target skips refinement by policy
-fixture: dictation
-transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle
-PASS 1 refinement-skipped | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle
-PASS 2 refinement-skipped | model refinementEnabled == "true" | true
-PASS 3 refinement-skipped | model deliveredText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
-PASS 4 refinement-skipped | model deliveryBundleID == "com.apple.dt.Xcode" | "com.apple.dt.Xcode"
-PASS 5 refinement-skipped | model deliveryDisposition == "copy" | "copy"

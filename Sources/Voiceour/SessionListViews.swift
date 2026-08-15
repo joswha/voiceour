@@ -98,10 +98,6 @@ struct RecentSessionRow: View {
                 if let outcome = session.outcome {
                     StatusChip(label: outcome.chip.label, mode: outcome.chip.mode, size: .compact)
                 }
-                if let refinement = session.refinement {
-                    StatusChip(label: refinement.badge.label, mode: refinement.badge.mode, size: .compact)
-                        .help(refinement.detailLine)
-                }
                 StatusChip(
                     label: SessionsFormatters.wordCountLabel(session.wordCount),
                     mode: .neutral,

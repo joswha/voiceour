@@ -48,10 +48,6 @@ struct SectionHeader: View {
             return .fact(coordinator.settings.asrBackend.uppercased())
         case .glossaryCount:
             return count(coordinator.settings.glossary.count, "TERM", "TERMS")
-        case .refinerState:
-            return coordinator.settings.refinerEnabled
-                ? .state("REFINER ON", .ok)
-                : .state("REFINER OFF", .neutral)
         case .systemReadiness:
             return systemReadiness
         case .diagnosticsStatus:

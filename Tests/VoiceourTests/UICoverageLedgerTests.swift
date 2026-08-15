@@ -152,7 +152,7 @@
                 entry(.state(.voice, "snapshot"), status: .snapshot),
                 entry(.state(.glossary, "not-verifiable"), status: .notVerifiable),
                 entry(.journey(.home, "zeta"), status: .uncovered),
-                entry(.state(.refinement, "not-selected"), status: .notSelected),
+                entry(.state(.sessions, "not-selected"), status: .notSelected),
                 entry(.state(.system, "broken"), status: .broken),
             ])
 

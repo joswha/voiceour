@@ -117,28 +117,6 @@ public protocol HotkeyBinding: Sendable {
     func setCancelArmed(_ isArmed: Bool)
 }
 
-public protocol TranscriptRefining: Sendable {
-    func refine(_ raw: String, glossary: [ProtectedTerm], safety: TargetSafetyClass, style: RefinementStyle) async
-        -> RefineOutcome
-    /// Optional startup hook so refiners with expensive backends (persistent
-    /// child processes, model sessions) can warm up off the dictation path.
-    func warmUp() async
-    /// The model that produced the most recent `refine` call's candidate, as
-    /// the backend identifies it, or nil when no model ran.
-    ///
-    /// Read-after-call like `ASRClienting.lastTranscriptionPath()`, and safe
-    /// for the same reason: the coordinator runs one refinement at a time. A
-    /// backend that answers this MUST clear it when a call fails before the
-    /// model ran, so a stale identity can never be attributed to a session the
-    /// model never saw.
-    func lastModelIdentity() -> String?
-}
-
-extension TranscriptRefining {
-    public func warmUp() async {}
-    public func lastModelIdentity() -> String? { nil }
-}
-
 public protocol SystemAudioMuting: Sendable {
     func mute() async -> Bool
     func restore() async

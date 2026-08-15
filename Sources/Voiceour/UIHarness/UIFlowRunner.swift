@@ -218,10 +218,6 @@
                     AnyView(ConsoleView(coordinator: context.coordinator, initialSection: section))
                 }
 
-            case .tallConsole(let section):
-                return Host(size: UISceneCatalog.tallConsoleSize, colorScheme: .dark) {
-                    AnyView(ConsoleView(coordinator: context.coordinator, initialSection: section))
-                }
 
             case .menu:
                 return Host(size: UISceneCatalog.menuSize, colorScheme: .dark) {

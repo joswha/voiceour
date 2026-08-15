@@ -179,8 +179,6 @@
                         try recorder.frames(12, settling: frameMilliseconds)
                         model.update(.cleaning)
                         try recorder.frames(7, settling: frameMilliseconds)
-                        model.update(.refining)
-                        try recorder.frames(14, settling: frameMilliseconds)
                         model.update(.readyToInsert)
                         try recorder.frames(10, settling: frameMilliseconds)
                     }

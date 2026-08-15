@@ -79,18 +79,6 @@ enum ConsolePaneRegistry {
             content: { AnyView(GlossaryPane(coordinator: $0)) }
         ),
         ConsolePaneDescriptor(
-            id: .refinement,
-            label: "Refinement",
-            eyebrow: "OPTIONAL REFINEMENT",
-            subtitle: "Optional cleanup pass before paste.",
-            symbol: "sparkle",
-            headerMeasure: VoiceourMetrics.Content.form,
-            contentBottomInset: 0,
-            railPlacement: .standard,
-            headerMetadata: .refinerState,
-            content: { AnyView(RefinementPane(coordinator: $0)) }
-        ),
-        ConsolePaneDescriptor(
             id: .system,
             label: "System",
             eyebrow: "ACCESS",

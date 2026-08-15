@@ -18,7 +18,7 @@ struct LeftRail: View {
         switch coordinator.state {
         case .recording:
             .live
-        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .refining, .readyToInsert:
+        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             .working
         case .error(_):
             .error

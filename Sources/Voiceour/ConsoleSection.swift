@@ -5,7 +5,6 @@ enum ConsoleSection: String, CaseIterable, Identifiable {
     case sessions
     case voice
     case glossary
-    case refinement
     case system
     case diagnostics
 
@@ -52,7 +51,6 @@ enum ConsolePaneHeaderMetadata {
     case recentSessionCount(singular: String, plural: String)
     case backendID
     case glossaryCount
-    case refinerState
     case systemReadiness
     case diagnosticsStatus
 }

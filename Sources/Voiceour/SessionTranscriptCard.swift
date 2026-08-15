@@ -65,22 +65,10 @@ struct TranscriptCard: View {
         isTeachEditorOpen ? nil : selectedSurface
     }
 
-    private var shouldShowRefinementMetadata: Bool {
-        guard let refinement = session.refinement else { return false }
-        guard refinement.kind == .skipped else { return true }
-        let reasonWords =
-            refinement.reason?
-            .lowercased()
-            .split(whereSeparator: { !$0.isLetter }) ?? []
-        // Production emits "disabled"; the harness fixture predates it and says
-        // "refiner disabled", so match the shared reason word.
-        return !reasonWords.contains("disabled")
-    }
-
     /// A `Grid` with every row suppressed still occupies a child slot in the
     /// stack below, so the card would spend a full `Space.md` step on nothing.
     private var hasMetadata: Bool {
-        shouldShowRefinementMetadata || session.stages != nil || rawTranscript != nil
+        session.stages != nil || rawTranscript != nil
     }
 
     var body: some View {
@@ -133,10 +121,6 @@ struct TranscriptCard: View {
             if let outcome = session.outcome {
                 StatusChip(label: outcome.chip.label, mode: outcome.chip.mode)
             }
-            if let refinement = session.refinement {
-                StatusChip(label: refinement.badge.label, mode: refinement.badge.mode)
-                    .help(refinement.detailLine)
-            }
             if let targetSafety = session.outcome?.targetSafety, targetSafety != .normalText {
                 StatusChip(label: "TARGET \(targetSafety.displayLabel)", mode: .neutral)
             }
@@ -165,26 +149,15 @@ struct TranscriptCard: View {
         }
     }
 
-    /// Label column and value column, one grid, so the timings row stops starting
-    /// under the refinement row's *label*.
+    /// Label and value columns share one grid so every metadata row aligns.
     private var metadata: some View {
         Grid(
             alignment: .leadingFirstTextBaseline,
             horizontalSpacing: VoiceourMetrics.Space.md,
             verticalSpacing: VoiceourMetrics.Space.xs
         ) {
-            if let refinement = session.refinement, shouldShowRefinementMetadata {
-                metadataRow("REFINEMENT", refinement.detailLine)
-            }
             if let stages = session.stages {
                 metadataRow("TIMINGS", stages.detailLine)
-            }
-            if let word = session.leastConfidentWord {
-                metadataRow(
-                    "LEAST SURE",
-                    "“\(word.text)” · min token p \(String(format: "%.2f", word.score))",
-                    mono: true
-                )
             }
             if let rawTranscript {
                 metadataRow("RAW", rawTranscript, mono: true)

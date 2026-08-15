@@ -2,9 +2,9 @@ import Foundation
 import VoiceCore
 import VoiceMac
 
-/// The stop pipeline: ASR, deterministic cleanup, term authorization, cloud
-/// vocabulary filtering, refinement, insertion, and session telemetry. It
-/// consumes the single per-utterance `VocabularySnapshot` compiled before ASR.
+/// The stop pipeline: ASR, deterministic cleanup, term suggestion retrieval,
+/// insertion, and session telemetry. It consumes the single per-utterance
+/// `VocabularySnapshot` compiled before ASR.
 ///
 /// Extracted from `DictationCoordinator` as an extension rather than a separate
 /// collaborator because every member here publishes to the coordinator's
@@ -100,14 +100,6 @@ extension DictationCoordinator {
         stopReleaseStarted: Date,
         trigger: DictationCoordinator.StopTrigger = .manual
     ) async {
-        // Foundation Models prewarming is most effective shortly before use.
-        // Run it independently so recorder finalization and ASR provide the
-        // lead time without adding an await to the post-ASR critical path.
-        // A disabled or incomplete configuration must not start a backend.
-        if settings.refinerEnabled, refinerReadiness.isReady {
-            let warmBinding = currentRefinerBinding()
-            Task { await warmBinding.backend.warmUp() }
-        }
         var audioURL: URL?
         defer { removeTemporaryAudio(&audioURL) }
         // The mute resolves concurrently with recorder start; await the pending
@@ -148,8 +140,8 @@ extension DictationCoordinator {
             // One vocabulary snapshot per utterance, compiled here and held for
             // the rest of the stop path. `settings.glossary` and
             // `activeProjectId` stay mutable across the ASR await, so compiling
-            // again later let an edit mid-transcription make the cleanup
-            // glossary and the refiner's terms disagree.
+            // again later let an edit mid-transcription change the glossary
+            // cleanup and suggestion retrieval disagree about.
             let vocabularySpan = StopPath.signposter.beginInterval(StopPath.Stage.vocabulary)
             let snapshot = target ?? tracker.snapshot()
             let vocabulary = VocabularyCompiler.compile(
@@ -202,92 +194,7 @@ extension DictationCoordinator {
                 return
             }
 
-            let readiness = refinerReadiness
-            let configuredIdentity = RefinerIdentity(settings: settings)
-            var finalText: String
-            var trace: RefinementTrace
-            let style = DictationPolicy.refinementStyle(forBundleId: snapshot.bundleId)
-            switch DictationPolicy.refinementDecision(
-                refinerEnabled: settings.refinerEnabled,
-                refinerConfigured: readiness.isReady,
-                targetSafety: snapshot.safety,
-                providerReadiness: readiness,
-                assessment: DictationPolicy.assessTranscript(rawTranscript, glossary: activeTerms)
-            ) {
-            case .refine:
-                let binding = currentRefinerBinding()
-                let providerTerms =
-                    binding.identity.isCloud
-                    ? RefinerPrivacy.cloudEligible(activeTerms)
-                    : activeTerms
-                let providerInput: String
-                if binding.identity.isCloud {
-                    if providerTerms.count == activeTerms.count {
-                        providerInput = deterministic
-                    } else {
-                        providerInput =
-                            settings.cleanupEnabled
-                            ? CleanupEngine.clean(composed, glossary: providerTerms)
-                            : composed
-                    }
-                } else {
-                    providerInput = deterministic
-                }
-
-                state = .refining
-                let started = runtime.now()
-                let outcome = await binding.backend.refine(
-                    providerInput,
-                    glossary: activeTerms,
-                    safety: snapshot.safety,
-                    style: style
-                )
-                let latencyMs = Int(runtime.now().timeIntervalSince(started) * 1000)
-                // Read straight after the call, before anything else can refine:
-                // this is the model that produced THIS candidate, which the
-                // configured label cannot say for the on-device provider.
-                let modelIdentity = binding.backend.lastModelIdentity()
-                switch outcome {
-                case .refined(let text):
-                    finalText =
-                        binding.identity.isCloud
-                        ? Glossary.canonicalize(text, terms: activeTerms)
-                        : text
-                    trace = RefinementTrace(
-                        kind: .refined,
-                        provider: binding.identity.label,
-                        model: modelIdentity,
-                        reason: nil,
-                        latencyMs: latencyMs
-                    )
-                case .fellBack(_, let reason):
-                    finalText = deterministic
-                    trace = RefinementTrace(
-                        kind: .fellBack,
-                        provider: binding.identity.label,
-                        model: modelIdentity,
-                        reason: reason,
-                        latencyMs: latencyMs
-                    )
-                    applyRefinerReachabilityFailureIfCurrent(reason, binding: binding)
-                case .skipped(let reason):
-                    finalText = deterministic
-                    trace = RefinementTrace(
-                        kind: .skipped,
-                        provider: binding.identity.label,
-                        reason: reason,
-                        latencyMs: latencyMs
-                    )
-                }
-            case .skip(let reason):
-                finalText = deterministic
-                trace = RefinementTrace(
-                    kind: .skipped,
-                    provider: configuredIdentity.label,
-                    reason: reason,
-                    latencyMs: nil
-                )
-            }
+            let finalText = deterministic
             try ensureCurrentProcessing(generation)
             lastTranscript = finalText
             let stages = SessionStageTimings(
@@ -304,23 +211,12 @@ extension DictationCoordinator {
                 asrInferenceMs: result.timingsMs.inference,
                 asrTotalMs: result.timingsMs.total
             )
-            // The one acoustic number a session keeps. Read from the RAW words, before cleanup
-            // and refinement rewrote them: the point is which word the decoder was unsure of,
-            // not what later stages made of it.
-            let leastConfidentWord =
-                result.transcript.segments?
-                .flatMap { $0.words ?? [] }
-                .compactMap { word in word.confidence.map { (word.text, $0) } }
-                .min { $0.1 < $1.1 }
-                .map { LeastConfidentWord(text: $0.0, score: $0.1) }
             let journalSpan = StopPath.signposter.beginInterval(StopPath.Stage.journal)
             let sessionID = await recordRecentSession(
                 text: finalText,
                 rawTranscript: rawTranscript,
-                refinement: trace,
                 mutedDuringCapture: mutedDuringCapture,
-                stages: stages,
-                leastConfidentWord: leastConfidentWord
+                stages: stages
             )
             StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
             try ensureCurrentProcessing(generation)

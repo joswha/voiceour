@@ -25,8 +25,8 @@ public enum CleanupEngine {
     /// `removeFillers` and `collapseAdjacentRepeats` only delete tokens, so a
     /// survivor can inherit a sentence-initial position it never had. The recogniser
     /// capitalized the word it *did* put there, and deleting that word left the
-    /// successor in lower case. Measured on 218 refinement-skipped real sessions,
-    /// 16 of them (7.3%) came out with a lower-case opening letter the raw
+    /// successor in lower case. Measured on 218 real sessions that ran deterministic
+    /// cleanup only, 16 of them (7.3%) came out with a lower-case opening letter the raw
     /// transcript did not have:
     ///
     ///     "Uh let's do a cleanup over the surfaces"  ->  "let's do a cleanup ..."

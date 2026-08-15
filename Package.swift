@@ -125,10 +125,6 @@ let package = Package(
             dependencies: ["VoiceCore"]
         ),
         .executableTarget(
-            name: "OmpRpcStub",
-            dependencies: []
-        ),
-        .executableTarget(
             name: "VoiceourBench",
             dependencies: ["VoiceCore", "VoiceMac"]
         ),

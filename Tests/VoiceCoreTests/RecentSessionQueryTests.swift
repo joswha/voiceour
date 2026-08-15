@@ -225,38 +225,3 @@ struct RecentSessionQueryTests {
     }
 }
 
-/// `RefinementTrace.model` records which model actually produced a refinement.
-/// It matters because Apple swaps the on-device model underneath the constant
-/// `on-device` selector on an OS update, so a stored history that predates the
-/// field must keep decoding, and a stored history that has it must keep it.
-@Suite("Refinement trace model identity")
-struct RefinementTraceModelTests {
-    @Test func decodesHistoryWrittenBeforeTheModelFieldExisted() throws {
-        let legacy = """
-            {"kind":"refined","provider":"appleOnDevice:on-device","latencyMs":1840}
-            """
-        let trace = try JSONDecoder().decode(RefinementTrace.self, from: Data(legacy.utf8))
-
-        #expect(trace.kind == .refined)
-        #expect(trace.provider == "appleOnDevice:on-device")
-        #expect(trace.model == nil)
-        #expect(trace.latencyMs == 1840)
-    }
-
-    @Test func roundTripsTheRecordedModelIdentity() throws {
-        let original = RefinementTrace(
-            kind: .fellBack,
-            provider: "appleOnDevice:on-device",
-            model: "com.apple.fm.language.instruct_3b.fm_api_generic_12.73.0.13.102476,0",
-            reason: "guard_rejected",
-            latencyMs: 1920
-        )
-        let decoded = try JSONDecoder().decode(
-            RefinementTrace.self, from: JSONEncoder().encode(original))
-
-        #expect(decoded == original)
-        // A guard rejection is the case worth attributing: the model ran and
-        // produced something unfaithful, so the identity must survive.
-        #expect(decoded.model?.isEmpty == false)
-    }
-}

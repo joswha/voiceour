@@ -42,27 +42,6 @@
             }
         }
 
-        /// The Refinement pane branches hard on the provider — Apple hides the
-        /// model row entirely, Oh My Pi carries the connections card and the model
-        /// picker — and the picker itself has two shapes worth pinning: the plain
-        /// loaded catalog and the filtered one. Add the sign-in failure and the
-        /// unreachable verdict, the states a user actually files a bug about, and
-        /// no single configured shape can stand in for any of them.
-        @Test func refinementCoversEveryProviderShapeAndBothFailures() {
-            let ids = Set(UISceneCatalog.all().map(\.id))
-            let expected = [
-                "console.refinement.off",
-                "console.refinement.configured",
-                "console.refinement.apple",
-                "console.refinement.omp",
-                "console.refinement.omp-login-failed",
-                "console.refinement.model-catalog",
-                "console.refinement.unreachable",
-            ]
-            for identifier in expected {
-                #expect(ids.contains(identifier), "missing refinement scene: \(identifier)")
-            }
-        }
     }
 
 #endif

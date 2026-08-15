@@ -35,7 +35,6 @@ state:home:untimed-coverage-caption
 state:home:working-checking-permissions
 state:home:working-cleaning
 state:home:working-finalizing-audio
-state:home:working-refining
 state:home:working-transcribing
 state:home:zero-words
 state:menu:copy-feedback
@@ -43,16 +42,6 @@ state:menu:failed-report
 state:menu:muted-header
 state:overlay:cancel-dictation-label
 state:overlay:processing
-state:refinement:omp-no-accounts
-state:refinement:omp-status-checking
-state:refinement:omp-status-failed
-state:refinement:omp-status-idle
-state:refinement:omp-status-stale
-state:refinement:omp-status-unknown
-state:refinement:onboarding-cancelled
-state:refinement:onboarding-opening
-state:refinement:onboarding-signed-in
-state:refinement:onboarding-terminal-open
 state:sessions:delete-armed
 state:sessions:delete-failure
 state:sessions:delete-in-flight

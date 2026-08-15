@@ -25,48 +25,6 @@ public struct RecentSessionOutcomeMetadata: Codable, Equatable, Sendable {
     }
 }
 
-public struct RefinementTrace: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable {
-        case refined
-        case fellBack = "fell_back"
-        case skipped
-    }
-
-    public var kind: Kind
-    public var provider: String?
-    /// The model that actually produced this text, as the backend identifies it
-    /// — not the configured selector, which `provider` already carries.
-    ///
-    /// It exists for Apple's on-device provider, whose configured model is the
-    /// constant `on-device` while the model behind it is swapped by the OS:
-    /// Apple changed it in macOS 26.4 and changes it again in macOS 27, and
-    /// documents both as a reason to re-test prompts. Without a recorded
-    /// identity every session before and after such an update reads the same,
-    /// and a refinement regression cannot be attributed to the swap. The
-    /// on-device refiner reports the response's model asset ids verbatim
-    /// (`com.apple.fm.language.instruct_3b.…`), which change with the model.
-    ///
-    /// Absent for traces recorded before this field existed, for skipped
-    /// traces, and for any backend whose configured model is already exact.
-    public var model: String?
-    public var reason: String?
-    public var latencyMs: Int?
-
-    public init(
-        kind: Kind,
-        provider: String? = nil,
-        model: String? = nil,
-        reason: String? = nil,
-        latencyMs: Int? = nil
-    ) {
-        self.kind = kind
-        self.provider = provider
-        self.model = model
-        self.reason = reason
-        self.latencyMs = latencyMs
-    }
-}
-
 public struct SessionStageTimings: Codable, Equatable, Sendable {
     /// Wall-clock microphone capture duration for the session's audio, as
     /// reported by the recorder at finalize. Absent for sessions recorded
@@ -107,21 +65,6 @@ public struct SessionStageTimings: Codable, Equatable, Sendable {
     }
 }
 
-/// The raw word the decoder was least sure of, and its per-token probability.
-///
-/// The one place a session keeps a number from the acoustics. Not calibrated and never treated
-/// as one: it exists so a reader who spots a wrong word in a transcript can see whether the
-/// model was already unsure about that exact word.
-public struct LeastConfidentWord: Codable, Equatable, Sendable {
-    public var text: String
-    public var score: Double
-
-    public init(text: String, score: Double) {
-        self.text = text
-        self.score = score
-    }
-}
-
 public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
     public var createdAt: Date
@@ -129,9 +72,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var mutedDuringCapture: Bool
     public var outcome: RecentSessionOutcomeMetadata?
     public var rawTranscript: String?
-    public var refinement: RefinementTrace?
     public var stages: SessionStageTimings?
-    public var leastConfidentWord: LeastConfidentWord?
     public var wordCount: Int {
         var count = 0
         var isInWord = false
@@ -155,9 +96,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         case mutedDuringCapture
         case outcome
         case rawTranscript
-        case refinement
         case stages
-        case leastConfidentWord
     }
 
     public init(
@@ -167,9 +106,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         mutedDuringCapture: Bool = false,
         outcome: RecentSessionOutcomeMetadata? = nil,
         rawTranscript: String? = nil,
-        refinement: RefinementTrace? = nil,
-        stages: SessionStageTimings? = nil,
-        leastConfidentWord: LeastConfidentWord? = nil
+        stages: SessionStageTimings? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -177,9 +114,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         self.mutedDuringCapture = mutedDuringCapture
         self.outcome = outcome
         self.rawTranscript = rawTranscript
-        self.refinement = refinement
         self.stages = stages
-        self.leastConfidentWord = leastConfidentWord
     }
 
     public init(from decoder: Decoder) throws {
@@ -190,9 +125,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         mutedDuringCapture = try container.decodeIfPresent(Bool.self, forKey: .mutedDuringCapture) ?? false
         outcome = try container.decodeIfPresent(RecentSessionOutcomeMetadata.self, forKey: .outcome)
         rawTranscript = try container.decodeIfPresent(String.self, forKey: .rawTranscript)
-        refinement = try container.decodeIfPresent(RefinementTrace.self, forKey: .refinement)
         stages = try container.decodeIfPresent(SessionStageTimings.self, forKey: .stages)
-        leastConfidentWord = try container.decodeIfPresent(LeastConfidentWord.self, forKey: .leastConfidentWord)
     }
 }
 

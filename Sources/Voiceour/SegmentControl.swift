@@ -96,9 +96,8 @@ private struct SegmentRowsLayout: Layout {
     }
 }
 
-/// One segment of a segmented choice control (ASR backend, refiner
-/// provider). Shared so every segmented picker in the console renders
-/// identically.
+/// One segment of a segmented choice control. Shared so every segmented picker
+/// in the console renders identically.
 ///
 /// Painted on both paths, deliberately. A segment is a plate inside a
 /// `SegmentGroup` inside a content card, and neither the material law

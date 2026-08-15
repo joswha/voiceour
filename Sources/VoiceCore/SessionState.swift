@@ -5,7 +5,6 @@ public enum SessionState: Equatable, Sendable {
     case finalizingAudio
     case transcribing
     case cleaning
-    case refining
     case readyToInsert
     case pasteAttempted
     case copiedOnly(reason: String)
@@ -39,7 +38,6 @@ public enum SessionState: Equatable, Sendable {
         case .finalizingAudio: "Finalizing audio"
         case .transcribing: "Transcribing"
         case .cleaning: "Cleaning"
-        case .refining: "Refining"
         case .readyToInsert: "Ready to insert"
         case .pasteAttempted: "Paste attempted"
         case .copiedOnly(let reason): "Copied: \(reason)"

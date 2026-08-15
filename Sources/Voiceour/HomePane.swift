@@ -94,7 +94,7 @@ struct HomePane: View {
         switch coordinator.state {
         case .recording:
             "LISTENING"
-        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .refining, .readyToInsert:
+        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             "WORKING"
         default:
             nil

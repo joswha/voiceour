@@ -50,7 +50,7 @@ final class RecordingOverlayModel: ObservableObject {
         switch state {
         case .checkingPermissions: "CHECKING"
         case .finalizingAudio: "FINALIZING"
-        case .transcribing, .cleaning, .refining, .readyToInsert: state.displayName.uppercased()
+        case .transcribing, .cleaning, .readyToInsert: state.displayName.uppercased()
         default: nil
         }
     }

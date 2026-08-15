@@ -31,77 +31,8 @@ public final class AudioLevelMeter: ObservableObject {
     }
 }
 
-public enum OmpOnboardingState: Equatable, Sendable {
-    case idle
-    case opening(OmpSubscription)
-    case terminalOpen(OmpSubscription)
-    case signedIn(OmpSubscription, model: String?, detail: String)
-    case cancelled(OmpSubscription)
-    case failed(OmpSubscription, String)
-
-    public var isInFlight: Bool {
-        switch self {
-        case .opening, .terminalOpen:
-            true
-        case .idle, .signedIn, .cancelled, .failed:
-            false
-        }
-    }
-}
-
-public enum OmpProviderStatusState: Equatable, Sendable {
-    case idle
-    case checking
-    case loaded
-    case failed(String)
-
-    public var isChecking: Bool {
-        if case .checking = self { return true }
-        return false
-    }
-}
-
-/// Progress of the `omp models` catalog the Refinement pane's Model picker
-/// offers. The list is inherited from OMP rather than hard-coded, so the pane
-/// has to be able to say that it is still asking, and why it could not.
-public enum OmpModelCatalogState: Equatable, Sendable {
-    case idle
-    case loading
-    case loaded
-    case failed(String)
-
-    public var isLoading: Bool {
-        if case .loading = self { return true }
-        return false
-    }
-}
-
 @Observable @MainActor
 public final class DictationCoordinator {
-    public typealias RefinerFactory = (VoiceCore.Settings) -> TranscriptRefining
-    public typealias OmpModelsProbeFunction = (
-        URL,
-        [String],
-        String,
-        Int
-    ) async -> RefinerReachability
-    public typealias OmpModelCatalogLoadFunction = (
-        URL,
-        [String],
-        Int
-    ) async throws -> [OmpAvailableModel]
-    public typealias OmpOnboardingStartFunction = (
-        OmpSubscription
-    ) async throws -> OmpOnboardingSession
-    public typealias OmpOnboardingFinishFunction = (
-        OmpOnboardingSession
-    ) async -> OmpOnboardingOutcome
-    public typealias OmpProviderStatusProbeFunction = (
-        URL,
-        [String],
-        Int
-    ) async throws -> OmpProviderStatusSnapshot
-
     public internal(set) var state: SessionState = .idle {
         didSet {
             stateSubject.send(state)
@@ -115,15 +46,7 @@ public final class DictationCoordinator {
             hotkey.setCancelArmed(state.isActive)
         }
     }
-    public var settings: VoiceCore.Settings {
-        didSet {
-            guard RefinerIdentity(settings: oldValue) != RefinerIdentity(settings: settings) else {
-                return
-            }
-            generations.invalidate(.refinerConfiguration)
-            refinerReachability = .unknown
-        }
-    }
+    public var settings: VoiceCore.Settings
     public private(set) var targetLabel: String = "No target"
     public internal(set) var lastOutcome: InsertionOutcome?
     public internal(set) var lastTranscript: String = ""
@@ -147,12 +70,6 @@ public final class DictationCoordinator {
     /// True when the last capture asked for a mute the output device could not
     /// provide. Sticky until the next capture answers the question again.
     public internal(set) var isSystemAudioMuteUnavailable: Bool = false
-    public internal(set) var refinerReachability: RefinerReachability = .unknown
-    public internal(set) var ompOnboardingState: OmpOnboardingState = .idle
-    public internal(set) var ompProviderConnections: [OmpProviderConnection] = []
-    public internal(set) var ompProviderStatusState: OmpProviderStatusState = .idle
-    public internal(set) var ompModels: [OmpAvailableModel] = []
-    public internal(set) var ompModelCatalogState: OmpModelCatalogState = .idle
     public internal(set) var pendingSuggestions: [TermSuggestion] = []
     public private(set) var activeProjectId: String?
     public private(set) var activeProjectName: String?
@@ -181,19 +98,12 @@ public final class DictationCoordinator {
     /// `AudioLevelMeter`.
     public let inputMeter = AudioLevelMeter()
 
-    public var refinerReadiness: RefinerReadiness {
-        RefinerReadiness.evaluate(settings: settings)
-    }
-
     let recorder: AudioRecording
     let asr: ASRClienting
     let tracker: TargetTracking
     let inserter: TextInserting
     private let permissions: PermissionsChecking
     private let hotkey: HotkeyBinding
-    var refiner: TranscriptRefining
-    let refinerFactory: RefinerFactory?
-    var boundRefinerIdentity: RefinerIdentity?
     private let settingsStore: SettingsStore
     let recentSessionStore: RecentSessionStore
     let statsStore: DictationStatsStore
@@ -202,11 +112,6 @@ public final class DictationCoordinator {
     let audioMuter: SystemAudioMuting
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
-    let ompModelsProbe: OmpModelsProbeFunction
-    let ompProviderStatusProbe: OmpProviderStatusProbeFunction
-    let ompModelCatalogLoad: OmpModelCatalogLoadFunction
-    let ompOnboardingStart: OmpOnboardingStartFunction
-    let ompOnboardingFinish: OmpOnboardingFinishFunction
     private let activeASRBackend: String
     var target: TargetSnapshot?
     var inputMeteringTask: Task<Void, Never>?
@@ -224,8 +129,8 @@ public final class DictationCoordinator {
     private var backendHealthLastRefresh: Date?
     private let backendHealthTTL: TimeInterval = 5
     /// Generation counters for async work a newer request supersedes. One
-    /// primitive with named scopes replaced five bare `Int` fields compared by
-    /// hand across roughly twenty-three guard blocks.
+    /// primitive with named scopes replaced bare `Int` fields compared by hand
+    /// across every guard block on the stop path.
     var generations = AsyncGenerationGate()
     var isPreparingForTermination = false
     /// FIFO tail for complete recent-session snapshots. Each detached element
@@ -260,8 +165,6 @@ public final class DictationCoordinator {
         inserter: TextInserting,
         permissions: PermissionsChecking,
         hotkey: HotkeyBinding,
-        refiner: TranscriptRefining,
-        refinerFactory: RefinerFactory? = nil,
         settings: VoiceCore.Settings = VoiceCore.Settings(),
         activeASRBackend: String? = nil,
         settingsStore: SettingsStore = SettingsStore(),
@@ -275,44 +178,6 @@ public final class DictationCoordinator {
             store, ledger in
             try store.save(ledger)
         },
-        ompModelsProbe: @escaping OmpModelsProbeFunction = { executableURL, argumentPrefix, model, timeoutMs in
-            await OmpModelsProbe.check(
-                executableURL: executableURL,
-                argumentPrefix: argumentPrefix,
-                model: model,
-                timeoutMs: timeoutMs
-            )
-        },
-        ompProviderStatusProbe: @escaping OmpProviderStatusProbeFunction = { executableURL, argumentPrefix, timeoutMs in
-            try await OmpProviderStatusProbe.load(
-                executableURL: executableURL,
-                argumentPrefix: argumentPrefix,
-                timeoutMs: timeoutMs
-            )
-        },
-        // The Model picker's options come from OMP itself rather than from a
-        // list this app maintains, so the catalog load is a seam: tests and the
-        // offscreen harness must never spawn `omp models`.
-        ompModelCatalogLoad: @escaping OmpModelCatalogLoadFunction = { executableURL, argumentPrefix, timeoutMs in
-            try await OmpModelCatalog.load(
-                executableURL: executableURL,
-                argumentPrefix: argumentPrefix,
-                timeoutMs: timeoutMs
-            )
-        },
-        ompOnboardingStart: @escaping OmpOnboardingStartFunction = { subscription in
-            let environment = ProcessInfo.processInfo.environment
-            let omp = OmpExecutable.resolve(explicitPath: environment["VOICEOUR_OMP_BIN"])
-            return try await OmpOnboarding.begin(
-                subscription: subscription,
-                executableURL: omp.url,
-                argumentPrefix: omp.prefix,
-                environment: environment
-            )
-        },
-        ompOnboardingFinish: @escaping OmpOnboardingFinishFunction = { session in
-            await OmpOnboarding.finish(session)
-        },
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
@@ -325,14 +190,6 @@ public final class DictationCoordinator {
         self.inserter = inserter
         self.permissions = permissions
         self.hotkey = hotkey
-        self.refiner = refiner
-        self.refinerFactory = refinerFactory
-        self.boundRefinerIdentity = refinerFactory == nil ? RefinerIdentity(settings: settings) : nil
-        self.ompModelsProbe = ompModelsProbe
-        self.ompProviderStatusProbe = ompProviderStatusProbe
-        self.ompOnboardingStart = ompOnboardingStart
-        self.ompOnboardingFinish = ompOnboardingFinish
-        self.ompModelCatalogLoad = ompModelCatalogLoad
         self.settings = settings
         self.activeASRBackend = activeASRBackend ?? settings.asrBackend
         self.settingsStore = settingsStore
@@ -479,13 +336,6 @@ public final class DictationCoordinator {
         let recorder = components.recorder
         let asr = components.client
         let inserter = PasteboardInserter(permissions: permissions, tracker: tracker)
-        let refinerFactory: RefinerFactory = { settings in
-            let refinerRegistry = RefinerProviderRegistry.live(
-                environment: env,
-                deterministicFallback: { $0 }
-            )
-            return refinerRegistry.make(settings: settings)
-        }
         let audioMuter: SystemAudioMuting =
             components.usesSystemAudioMuter
             ? SystemAudioMuter()
@@ -499,8 +349,6 @@ public final class DictationCoordinator {
             inserter: inserter,
             permissions: permissions,
             hotkey: KeyboardShortcutsBinder(),
-            refiner: UnsupportedRefiner(reason: "not_bound"),
-            refinerFactory: refinerFactory,
             settings: settings,
             activeASRBackend: backend,
             settingsStore: store,
@@ -515,7 +363,7 @@ public final class DictationCoordinator {
             start()
         case .recording:
             stopAndProcess()
-        case .finalizingAudio, .transcribing, .cleaning, .refining, .readyToInsert:
+        case .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             return
         default:
             cancel()

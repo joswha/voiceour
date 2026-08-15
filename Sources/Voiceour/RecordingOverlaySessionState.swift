@@ -7,7 +7,7 @@ extension SessionState {
 
     var isOverlayProcessing: Bool {
         switch self {
-        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .refining, .readyToInsert:
+        case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             true
         default:
             false

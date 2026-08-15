@@ -38,7 +38,6 @@
         case sessions
         case voice
         case glossary
-        case refinement
         case system
         case diagnostics
         case menu
@@ -54,7 +53,6 @@
             case .sessions: return .sessions
             case .voice: return .voice
             case .glossary: return .glossary
-            case .refinement: return .refinement
             case .system: return .system
             case .diagnostics: return .diagnostics
             case .menu, .overlay, .atoms: return nil

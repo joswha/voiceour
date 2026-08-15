@@ -72,7 +72,7 @@
     //     `DictationCoordinator.live()`, which spawns the ASR sidecar, taps the
     //     keyboard and opens the microphone;
     //   * never let a scene derive anything from `Date()`, `UUID()`, `.random`,
-    //     `NSColor.controlAccentColor`, the user's TCC state, or an `omp` subprocess
+    //     `NSColor.controlAccentColor` or the user's TCC state
     //     (see `RenderOverrides` for the pins that already exist);
     //   * avoid states dominated by a `.repeatForever` animation or a
     //     `TimelineView(.animation)` — once the run loop turns, those hash
@@ -91,17 +91,6 @@
             height: VoiceourMetrics.Window.defaultHeight
         )
 
-        /// Console measure for panes taller than a fresh install's window. Every OMP
-        /// refinement configuration pushes its CONNECTION card well past the 820 pt
-        /// fold, because the Model picker between them is a scrolling list of every
-        /// model the broker vends rather than a single field, and a scene whose whole
-        /// subject is one of those lower rows has to show it. The window is resizable,
-        /// so this is a geometry a user reaches by dragging, not one invented for the
-        /// harness.
-        static let tallConsoleSize = CGSize(
-            width: VoiceourMetrics.Window.defaultWidth,
-            height: 1_000
-        )
 
         /// `MenuBarExtra` popover measure: matches `MenuView`'s fixed 280 pt
         /// `MenuLayout.popoverWidth`, tall enough for the fullest menu state without clipping.
@@ -216,61 +205,6 @@
                     tags: ["empty"]
                 ),
                 console(
-                    "console.refinement.off",
-                    "Refinement pane with the refiner switched off",
-                    section: .refinement,
-                    fixture: .populated
-                ),
-                console(
-                    "console.refinement.configured",
-                    "Refinement pane with a model picked out of the loaded catalog",
-                    section: .refinement,
-                    fixture: .refinerConfigured,
-                    size: tallConsoleSize
-                ),
-                console(
-                    "console.refinement.apple",
-                    "Refinement pane on Apple's on-device model",
-                    section: .refinement,
-                    fixture: .refinerAppleOnDevice
-                ),
-                console(
-                    "console.refinement.omp",
-                    "Refinement pane on the brokered Oh My Pi sign-in",
-                    section: .refinement,
-                    fixture: .refinerOmp,
-                    size: tallConsoleSize
-                ),
-                console(
-                    "console.refinement.omp-login-failed",
-                    "Refinement pane after Oh My Pi sign-in could not start",
-                    section: .refinement,
-                    fixture: .refinerOmpLoginFailed,
-                    size: tallConsoleSize
-                ),
-                // A filter narrows the picker to one provider's rows, which is a
-                // rendering no other scene reaches: every list here is otherwise the
-                // whole catalog, grouped and complete.
-                console(
-                    "console.refinement.model-catalog",
-                    "Refinement model picker filtered to one provider",
-                    section: .refinement,
-                    fixture: .refinerConfigured,
-                    size: tallConsoleSize,
-                    tags: ["steps"],
-                    steps: [
-                        .type(UIFixtures.modelFilter, into: "refinement.model.filter"),
-                        .settle(120),
-                    ]
-                ),
-                console(
-                    "console.refinement.unreachable",
-                    "Refinement pane after the probe never got an answer",
-                    section: .refinement,
-                    fixture: .refinerUnreachable,
-                    size: tallConsoleSize
-                ),
-                console(
                     "console.system.granted",
                     "System readiness with every permission granted",
                     section: .system,
@@ -345,12 +279,6 @@
                     "Glossary on the native branch",
                     section: .glossary,
                     fixture: .populated
-                ),
-                systemConsole(
-                    "console.refinement.os26",
-                    "Configured refinement on the native branch",
-                    section: .refinement,
-                    fixture: .refinerConfigured
                 ),
                 systemConsole(
                     "console.system.os26",
@@ -971,7 +899,7 @@
                     TextField("Empty field", text: .constant(""))
                         .textFieldStyle(GlassTextFieldStyle())
                         .frame(width: VoiceourMetrics.Field.medium)
-                    TextField("Filled field", text: .constant(UIFixtures.Ledger.model))
+                    TextField("Filled field", text: .constant(UIFixtures.Ledger.fieldValue))
                         .textFieldStyle(GlassTextFieldStyle())
                         .frame(width: VoiceourMetrics.Field.medium)
                 }
@@ -981,9 +909,9 @@
         }
     }
 
-    /// Every `PropertyRow` ledger row in every mode, composed the way the System,
-    /// Diagnostics and Refinement panes compose them: inside `SettingsSectionBlock`
-    /// cards on the shared label/value grid. Hosting the real container is the point
+    /// Every `PropertyRow` ledger row in every mode, composed the way the System and
+    /// Diagnostics panes compose them: inside `SettingsSectionBlock` cards on the
+    /// shared label/value grid. Hosting the real container is the point
     /// — a ledger row has to publish the same row-bounds anchor `SettingsRow`
     /// publishes or the section's overlay hairlines land between the wrong rows, and
     /// a row rendered on its own can never show that.
@@ -992,9 +920,8 @@
         /// it, so it cannot be spelled twice.
         static let token = "CLEAR"
 
-        /// Interaction identifiers stay scene-local: `diagnostics.history` and
-        /// `refinement.key` belong to the panes, and a sheet that borrowed one would
-        /// make a search for that pane's own coverage ambiguous.
+        /// Interaction identifiers stay scene-local so a sheet cannot make a search
+        /// for a pane's own coverage ambiguous.
         static let failedIdentifier = "atom.confirm.failed"
         private static let armedIdentifier = "atom.confirm.armed"
         private static let collapsedIdentifier = "atom.confirm.collapsed"
@@ -1015,7 +942,6 @@
                 propertyRows
                 settingsRows
                 confirmActionRows
-                dependentGroup
             }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -1032,7 +958,7 @@
 
                 // Prose-only: no value, no rail. The caption takes the value slot
                 // on line one instead of stranding the label beside an empty band.
-                PropertyRow("On-device", caption: UIFixtures.Ledger.onDeviceProse)
+                PropertyRow("Local model", caption: UIFixtures.Ledger.localProcessingProse)
 
                 PropertyRow(
                     "Saved sessions",
@@ -1183,27 +1109,6 @@
             )
         }
 
-        // MARK: DependentGroup
-
-        /// The disabled half of the refinement pane's dependent block, which is the
-        /// one place the primitives' disabled tone is visible: label, machine value,
-        /// chip, caption and field all recede together, and nothing here sets a colour
-        /// to make that happen.
-        private var dependentGroup: some View {
-            DependentGroup(isEnabled: false, label: "Refiner configuration") {
-                SettingsSectionBlock(eyebrow: "DEPENDENTGROUP · DISABLED") {
-                    PropertyRow("Selected model", value: UIFixtures.Ledger.model, valueStyle: .mono)
-
-                    SettingsRow(label: "Timeout", status: (label: "OFF", mode: .warn)) {
-                        TextField(UIFixtures.Ledger.timeout, text: .constant(UIFixtures.Ledger.timeout))
-                            .textFieldStyle(GlassTextFieldStyle())
-                            .frame(width: VoiceourMetrics.Field.medium)
-                    } footer: {
-                        CaptionText("Sent with every refinement request.")
-                    }
-                }
-            }
-        }
     }
 
 #endif

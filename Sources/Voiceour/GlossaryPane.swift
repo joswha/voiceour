@@ -116,10 +116,8 @@ struct GlossaryPane: View {
         }
     }
 
-    /// Every other consumer of this array reads it through a tombstone filter
-    /// (`Glossary.lockedCanonicals`, `Glossary.activeTerms`, `VocabularyCompiler.compile`,
-    /// `CandidateRetriever.retrieve`, and `RefinerPolicy.cloudEligible`). A term the
-    /// engines treat as retired is not a live, editable row here either.
+    /// Tombstoned terms are retired from cleanup, vocabulary compilation, and
+    /// candidate retrieval, so they are not live, editable rows here either.
     private var visibleTerms: [ProtectedTerm] {
         coordinator.settings.glossary.filter { $0.tombstonedAt == nil }
     }

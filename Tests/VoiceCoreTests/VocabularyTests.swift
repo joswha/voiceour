@@ -361,36 +361,3 @@ struct GlossaryVocabularyTests {
     }
 }
 
-@Suite("RefinerPrivacy")
-struct RefinerPrivacyTests {
-    @Test func cloudEligibleFiltersEveryScopeFlagAndTombstoneCombination() {
-        let tombstone = Date(timeIntervalSince1970: 1)
-        let terms = [
-            ProtectedTerm(canonical: "GlobalCloud", spokenAliases: [], scope: .global, cloudEligible: true),
-            ProtectedTerm(
-                canonical: "BundleCloud", spokenAliases: [], scope: .bundleID("com.example.app"), cloudEligible: true),
-            ProtectedTerm(
-                canonical: "ProjectCloud", spokenAliases: [], scope: .projectID("project"), cloudEligible: true),
-            ProtectedTerm(canonical: "GlobalLocal", spokenAliases: [], scope: .global, cloudEligible: false),
-            ProtectedTerm(
-                canonical: "BundleLocal", spokenAliases: [], scope: .bundleID("com.example.app"), cloudEligible: false),
-            ProtectedTerm(
-                canonical: "ProjectLocal", spokenAliases: [], scope: .projectID("project"), cloudEligible: false),
-            ProtectedTerm(
-                canonical: "GlobalDead", spokenAliases: [], scope: .global, cloudEligible: true, tombstonedAt: tombstone
-            ),
-            ProtectedTerm(
-                canonical: "BundleDead", spokenAliases: [], scope: .bundleID("com.example.app"), cloudEligible: true,
-                tombstonedAt: tombstone),
-            ProtectedTerm(
-                canonical: "ProjectDead", spokenAliases: [], scope: .projectID("project"), cloudEligible: true,
-                tombstonedAt: tombstone),
-        ]
-
-        #expect(
-            RefinerPrivacy.cloudEligible(terms).map(\.canonical) == [
-                "GlobalCloud",
-                "BundleCloud",
-            ])
-    }
-}

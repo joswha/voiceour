@@ -273,8 +273,6 @@
                 return scalarProbe(coordinator.settings.typingSpeedWPM)
             case .glossaryTermCount:
                 return scalarProbe(coordinator.settings.glossary.filter { $0.tombstonedAt == nil }.count)
-            case .refinementEnabled:
-                return scalarProbe(coordinator.settings.refinerEnabled)
             case .cleanupEnabled:
                 return scalarProbe(coordinator.settings.cleanupEnabled)
             case .activeBackend:

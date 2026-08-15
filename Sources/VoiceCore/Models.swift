@@ -86,10 +86,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public enum RefinementStyle: String, Codable, Equatable, Sendable {
-    case standard, casual, formal
-}
-
 /// The one normalizer for the `speech_locale` setting.
 ///
 /// This is the only free-text field the app hands straight to a system
@@ -121,10 +117,6 @@ public enum SpeechLocale {
 public struct Settings: Codable, Equatable, Sendable {
     public var cleanupEnabled: Bool
     public var asrBackend: String
-    public var refinerEnabled: Bool
-    public var refinerProvider: RefinerProvider
-    public var refinerModel: String
-    public var refinerTimeoutMs: Int
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
     public var autoStopEnabled: Bool
@@ -140,10 +132,6 @@ public struct Settings: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
         case asrBackend = "asr_backend"
-        case refinerEnabled = "refiner_enabled"
-        case refinerProvider = "refiner_provider"
-        case refinerModel = "refiner_model"
-        case refinerTimeoutMs = "refiner_timeout_ms"
         case glossary
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
         case autoStopEnabled = "auto_stop_enabled"
@@ -155,10 +143,6 @@ public struct Settings: Codable, Equatable, Sendable {
     public init(
         cleanupEnabled: Bool = true,
         asrBackend: String = "fake",
-        refinerEnabled: Bool = false,
-        refinerProvider: RefinerProvider = .omp,
-        refinerModel: String = "",
-        refinerTimeoutMs: Int = 3000,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
         autoStopEnabled: Bool = false,
@@ -168,10 +152,6 @@ public struct Settings: Codable, Equatable, Sendable {
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
-        self.refinerEnabled = refinerEnabled
-        self.refinerProvider = refinerProvider
-        self.refinerModel = refinerModel
-        self.refinerTimeoutMs = refinerTimeoutMs
         self.glossary = glossary
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
         self.autoStopEnabled = autoStopEnabled
@@ -185,15 +165,6 @@ public struct Settings: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         cleanupEnabled = try container.decodeIfPresent(Bool.self, forKey: .cleanupEnabled) ?? defaults.cleanupEnabled
         asrBackend = try container.decodeIfPresent(String.self, forKey: .asrBackend) ?? defaults.asrBackend
-        // An unrecognised provider id falls back to the default rather than failing
-        // the whole decode, which keeps one bad field from costing the user every
-        // other setting in the file.
-        let storedProviderID = try container.decodeIfPresent(String.self, forKey: .refinerProvider)
-        refinerProvider = storedProviderID.flatMap(RefinerProvider.init(rawValue:)) ?? defaults.refinerProvider
-        refinerEnabled = try container.decodeIfPresent(Bool.self, forKey: .refinerEnabled) ?? defaults.refinerEnabled
-        refinerModel = try container.decodeIfPresent(String.self, forKey: .refinerModel) ?? defaults.refinerModel
-        refinerTimeoutMs =
-            try container.decodeIfPresent(Int.self, forKey: .refinerTimeoutMs) ?? defaults.refinerTimeoutMs
         glossary = try container.decodeIfPresent([ProtectedTerm].self, forKey: .glossary) ?? defaults.glossary
         muteSystemAudioDuringCapture =
             try container.decodeIfPresent(Bool.self, forKey: .muteSystemAudioDuringCapture)

@@ -95,13 +95,6 @@ enum BenchError: Error, CustomStringConvertible {
 
 enum BenchCommand: String {
     case pipeline
-    case refine
-}
-
-enum BenchRefineMode: String {
-    case off
-    case deterministic
-    case omp
 }
 
 struct BenchOptions {
@@ -110,8 +103,6 @@ struct BenchOptions {
     var output: URL
     var backend: String?
     var timeoutMs: Int
-    var refineMode: BenchRefineMode
-    var refinerModel: String?
 }
 
 enum BenchCLI {
@@ -121,24 +112,19 @@ enum BenchCLI {
         Usage:
           voiceour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
               [--backend \(backendChoices)] [--timeout-ms 120000]
-              [--refine off|deterministic|omp] [--refiner-model M]
-          voiceour-bench refine --input <cases.jsonl> --output <results.jsonl>
-              --refine deterministic|omp [--refiner-model M]
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
 
     static func parse(_ arguments: [String]) throws -> BenchOptions {
         guard let commandValue = arguments.first, let command = BenchCommand(rawValue: commandValue) else {
-            throw BenchError.usage("expected subcommand: pipeline or refine")
+            throw BenchError.usage("expected subcommand: pipeline")
         }
 
         var input: URL?
         var output: URL?
-        var backend = command == .pipeline ? ASRBackendRegistry.builtIn.defaultDescriptor.id : nil
+        var backend = ASRBackendRegistry.builtIn.defaultDescriptor.id
         var timeoutMs = 120_000
-        var refineMode: BenchRefineMode? = command == .pipeline ? .deterministic : nil
-        var refinerModel: String?
 
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
@@ -149,7 +135,6 @@ enum BenchCLI {
             case "--output":
                 output = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--backend":
-                guard command == .pipeline else { throw BenchError.usage("--backend is only valid for pipeline") }
                 let value = try value(for: parsed, in: arguments, index: &index)
                 guard
                     let normalized = VoiceCore.LaunchOptions.validBackend(
@@ -162,20 +147,11 @@ enum BenchCLI {
                 }
                 backend = normalized
             case "--timeout-ms":
-                guard command == .pipeline else { throw BenchError.usage("--timeout-ms is only valid for pipeline") }
                 let value = try value(for: parsed, in: arguments, index: &index)
                 guard let parsedTimeout = Int(value), parsedTimeout > 0 else {
                     throw BenchError.usage("--timeout-ms must be a positive integer")
                 }
                 timeoutMs = parsedTimeout
-            case "--refine":
-                let value = try value(for: parsed, in: arguments, index: &index)
-                guard let mode = BenchRefineMode(rawValue: value) else {
-                    throw BenchError.usage("--refine must be off, deterministic, or omp")
-                }
-                refineMode = mode
-            case "--refiner-model":
-                refinerModel = try value(for: parsed, in: arguments, index: &index)
             default:
                 throw BenchError.usage("unknown option: \(arguments[index])")
             }
@@ -184,19 +160,13 @@ enum BenchCLI {
 
         guard let input else { throw BenchError.usage("missing --input") }
         guard let output else { throw BenchError.usage("missing --output") }
-        guard let refineMode else { throw BenchError.usage("missing --refine") }
-        if command == .refine && refineMode == .off {
-            throw BenchError.usage("refine mode cannot use --refine off")
-        }
 
         return BenchOptions(
             command: command,
             input: input,
             output: output,
             backend: backend,
-            timeoutMs: timeoutMs,
-            refineMode: refineMode,
-            refinerModel: refinerModel
+            timeoutMs: timeoutMs
         )
     }
 
@@ -244,8 +214,6 @@ struct BenchRunner {
         switch options.command {
         case .pipeline:
             try await runPipeline()
-        case .refine:
-            try await runRefine()
         }
     }
 
@@ -267,7 +235,6 @@ struct BenchRunner {
         try writer.write(meta(mode: .pipeline))
         let reader = try JSONLLineReader(url: options.input)
         let asr = Self.makeASRClient(backend: options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id)
-        let refinement = RefinementPipeline(mode: options.refineMode, options: options)
         let decoder = JSONDecoder()
         var lineNumber = 0
         var rowCount = 0
@@ -284,7 +251,7 @@ struct BenchRunner {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
 
-            let outputRow = await processPipelineRow(inputRow, asr: asr, refinement: refinement)
+            let outputRow = await processPipelineRow(inputRow, asr: asr)
             try writer.write(outputRow)
             rowCount += 1
             print("processed \(inputRow.id)")
@@ -292,44 +259,13 @@ struct BenchRunner {
         print("wrote \(rowCount) pipeline rows to \(options.output.path)")
     }
 
-    private func runRefine() async throws {
-        let writer = try JSONLWriter(url: options.output)
-        try writer.write(meta(mode: .refine))
-        let reader = try JSONLLineReader(url: options.input)
-        let refinement = RefinementPipeline(mode: options.refineMode, options: options)
-        let decoder = JSONDecoder()
-        var lineNumber = 0
-        var rowCount = 0
-
-        while let line = try reader.nextLine() {
-            lineNumber += 1
-            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw BenchError.malformedInput(line: lineNumber, detail: "empty line")
-            }
-            let inputRow: RefineInputRow
-            do {
-                inputRow = try decoder.decode(RefineInputRow.self, from: Data(line.utf8))
-            } catch {
-                throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
-            }
-
-            let outputRow = await processRefineRow(inputRow, refinement: refinement)
-            try writer.write(outputRow)
-            rowCount += 1
-            print("processed \(inputRow.id)")
-        }
-        print("wrote \(rowCount) refine rows to \(options.output.path)")
-    }
-
     private func meta(mode: BenchCommand) -> BenchMeta {
-        let backend = mode == .pipeline ? options.backend : nil
-        let model = Self.modelIdentity(for: backend)
+        let model = Self.modelIdentity(for: options.backend)
         return BenchMeta(
             mode: mode.rawValue,
-            backend: backend,
+            backend: options.backend,
             modelId: model.id,
             modelRevision: model.revision,
-            refineMode: options.refineMode.rawValue,
             startedAt: ISO8601DateFormatter().string(from: Date())
         )
     }
@@ -340,9 +276,8 @@ struct BenchRunner {
     ///
     /// A descriptor with a model but no pinned revision is system-managed (Apple
     /// Speech ships with the OS), so the OS version is the only revision that
-    /// means anything. A backend with no model at all — `fake`, and refine runs,
-    /// which never touch ASR — reports its own name rather than borrowing
-    /// another backend's model.
+    /// means anything. A backend with no model at all — `fake` — reports its own
+    /// name rather than borrowing another backend's model.
     private static func modelIdentity(for backend: String?) -> (id: String, revision: String) {
         guard
             let backend,
@@ -357,17 +292,14 @@ struct BenchRunner {
 
     private func processPipelineRow(
         _ input: PipelineInputRow,
-        asr: any ASRClienting,
-        refinement: RefinementPipeline
+        asr: any ASRClienting
     ) async -> BenchOutputRow {
         let totalStart = BenchClock.mark()
         var rawTranscript = ""
         var cleanedText = ""
         var finalText = ""
-        var timings = BenchOutputTimings(asr: nil, asrLoad: nil, asrInference: nil, cleanup: 0, refine: nil, total: 0)
+        var timings = BenchOutputTimings(asr: nil, asrLoad: nil, asrInference: nil, cleanup: 0, total: 0)
         var rowError: String?
-        var refined = false
-        var refineSkipReason: String?
         var confidence: Double?
         var confidenceMode: String?
 
@@ -389,13 +321,10 @@ struct BenchRunner {
             confidence = result.transcript.confidence
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
-            let processed = await refinement.process(rawTranscript)
-            cleanedText = processed.cleanedText
-            finalText = processed.finalText
-            refined = processed.refined
-            refineSkipReason = processed.skipReason
-            timings.cleanup = processed.cleanupMs
-            timings.refine = processed.refineMs
+            let cleanupStart = BenchClock.mark()
+            cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
+            timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
+            finalText = cleanedText
         } catch {
             rowError = BenchError.describe(error)
         }
@@ -406,37 +335,11 @@ struct BenchRunner {
             rawTranscript: rawTranscript,
             cleanedText: cleanedText,
             finalText: finalText,
-            refined: refined,
-            refineSkipReason: refineSkipReason,
             timingsMs: timings,
             audioS: input.audioS,
             error: rowError,
             confidence: confidence,
             confidenceMode: confidenceMode
-        )
-    }
-
-    private func processRefineRow(_ input: RefineInputRow, refinement: RefinementPipeline) async -> BenchOutputRow {
-        let totalStart = BenchClock.mark()
-        let processed = await refinement.process(input.rawText)
-        let timings = BenchOutputTimings(
-            asr: nil,
-            asrLoad: nil,
-            asrInference: nil,
-            cleanup: processed.cleanupMs,
-            refine: processed.refineMs,
-            total: BenchClock.elapsedMilliseconds(since: totalStart)
-        )
-        return BenchOutputRow(
-            id: input.id,
-            rawTranscript: input.rawText,
-            cleanedText: processed.cleanedText,
-            finalText: processed.finalText,
-            refined: processed.refined,
-            refineSkipReason: processed.skipReason,
-            timingsMs: timings,
-            audioS: nil,
-            error: nil
         )
     }
 
@@ -455,145 +358,6 @@ struct BenchRunner {
         )
         return RecordedAudio(url: audioURL, meta: meta)
     }
-}
-
-struct RefinementPipeline {
-    private let mode: BenchRefineMode
-    private let refiner: (any TranscriptRefining)?
-    private let readiness: RefinerReadiness
-    private let glossary: [ProtectedTerm] = []
-    private let safeTargetSafety: TargetSafetyClass = .normalText
-
-    init(mode: BenchRefineMode, options: BenchOptions) {
-        self.mode = mode
-        switch mode {
-        case .off, .deterministic:
-            self.refiner = nil
-            self.readiness = mode == .off ? .disabled : .ready
-        case .omp:
-            // Construction goes through the same two-provider registry the app
-            // uses, so a measurement can never come from a refiner assembled
-            // differently from the shipping one.
-            //
-            // The timeout floor is the benchmark's own. The app's interactive
-            // default is short enough that a cold `omp --mode rpc` spawn would be
-            // recorded as a timeout rather than as refine latency.
-            let settings = Settings(
-                refinerEnabled: true,
-                refinerProvider: .omp,
-                refinerModel: options.refinerModel ?? "",
-                refinerTimeoutMs: 15_000,
-                glossary: []
-            )
-            self.readiness = RefinerReadiness.evaluate(settings: settings)
-            self.refiner =
-                RefinerProviderRegistry
-                .live(
-                    environment: ProcessInfo.processInfo.environment,
-                    deterministicFallback: { CleanupEngine.clean($0, glossary: []) }
-                )
-                .make(settings: settings)
-        }
-    }
-
-    func process(_ raw: String) async -> ProcessedText {
-        switch mode {
-        case .off:
-            return ProcessedText(
-                cleanedText: raw,
-                finalText: raw,
-                refined: false,
-                skipReason: nil,
-                cleanupMs: 0,
-                refineMs: nil
-            )
-        case .deterministic:
-            let cleanupStart = BenchClock.mark()
-            let cleaned = CleanupEngine.clean(raw, glossary: glossary)
-            return ProcessedText(
-                cleanedText: cleaned,
-                finalText: cleaned,
-                refined: false,
-                skipReason: nil,
-                cleanupMs: BenchClock.elapsedMilliseconds(since: cleanupStart),
-                refineMs: nil
-            )
-        case .omp:
-            let cleanupStart = BenchClock.mark()
-            let cleaned = CleanupEngine.clean(raw, glossary: glossary)
-            let cleanupMs = BenchClock.elapsedMilliseconds(since: cleanupStart)
-            let assessment = DictationPolicy.assessTranscript(raw, glossary: [])
-            let decision = DictationPolicy.refinementDecision(
-                refinerEnabled: true,
-                refinerConfigured: readiness.isReady,
-                targetSafety: safeTargetSafety,
-                providerReadiness: readiness,
-                assessment: assessment
-            )
-            guard decision.shouldRefine else {
-                return ProcessedText(
-                    cleanedText: cleaned,
-                    finalText: cleaned,
-                    refined: false,
-                    skipReason: decision.skipReason,
-                    cleanupMs: cleanupMs,
-                    refineMs: nil
-                )
-            }
-            guard let refiner else {
-                return ProcessedText(
-                    cleanedText: cleaned,
-                    finalText: cleaned,
-                    refined: false,
-                    skipReason: "unconfigured",
-                    cleanupMs: cleanupMs,
-                    refineMs: nil
-                )
-            }
-
-            let refineStart = BenchClock.mark()
-            let outcome = await refiner.refine(cleaned, glossary: glossary, safety: safeTargetSafety, style: .standard)
-            let refineMs = BenchClock.elapsedMilliseconds(since: refineStart)
-            switch outcome {
-            case .refined(let text):
-                return ProcessedText(
-                    cleanedText: cleaned,
-                    finalText: text,
-                    refined: true,
-                    skipReason: nil,
-                    cleanupMs: cleanupMs,
-                    refineMs: refineMs
-                )
-            case .fellBack(let text, let reason):
-                return ProcessedText(
-                    cleanedText: cleaned,
-                    finalText: text,
-                    refined: false,
-                    skipReason: reason,
-                    cleanupMs: cleanupMs,
-                    refineMs: refineMs
-                )
-            case .skipped(let reason):
-                return ProcessedText(
-                    cleanedText: cleaned,
-                    finalText: cleaned,
-                    refined: false,
-                    skipReason: reason,
-                    cleanupMs: cleanupMs,
-                    refineMs: refineMs
-                )
-            }
-        }
-    }
-}
-
-struct ProcessedText {
-    var cleanedText: String
-    var finalText: String
-    var refined: Bool
-    var skipReason: String?
-    var cleanupMs: Int
-    var refineMs: Int?
 }
 
 struct BenchClock {
@@ -712,23 +476,12 @@ struct PipelineInputRow: Decodable {
     }
 }
 
-struct RefineInputRow: Decodable {
-    var id: String
-    var rawText: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case rawText = "raw_text"
-    }
-}
-
 struct BenchMeta: Encodable {
     var type = "bench_meta"
     var mode: String
     var backend: String?
     var modelId: String
     var modelRevision: String
-    var refineMode: String
     var startedAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -737,7 +490,6 @@ struct BenchMeta: Encodable {
         case backend
         case modelId = "model_id"
         case modelRevision = "model_revision"
-        case refineMode = "refine_mode"
         case startedAt = "started_at"
     }
 
@@ -752,7 +504,6 @@ struct BenchMeta: Encodable {
         }
         try container.encode(modelId, forKey: .modelId)
         try container.encode(modelRevision, forKey: .modelRevision)
-        try container.encode(refineMode, forKey: .refineMode)
         try container.encode(startedAt, forKey: .startedAt)
     }
 }
@@ -762,7 +513,6 @@ struct BenchOutputTimings: Encodable {
     var asrLoad: Int?
     var asrInference: Int?
     var cleanup: Int
-    var refine: Int?
     var total: Int
 
     enum CodingKeys: String, CodingKey {
@@ -770,7 +520,6 @@ struct BenchOutputTimings: Encodable {
         case asrLoad = "asr_load"
         case asrInference = "asr_inference"
         case cleanup
-        case refine
         case total
     }
 
@@ -792,11 +541,6 @@ struct BenchOutputTimings: Encodable {
             try container.encodeNil(forKey: .asrInference)
         }
         try container.encode(cleanup, forKey: .cleanup)
-        if let refine {
-            try container.encode(refine, forKey: .refine)
-        } else {
-            try container.encodeNil(forKey: .refine)
-        }
         try container.encode(total, forKey: .total)
     }
 }
@@ -807,8 +551,6 @@ struct BenchOutputRow: Encodable {
     var rawTranscript: String
     var cleanedText: String
     var finalText: String
-    var refined: Bool
-    var refineSkipReason: String?
     var timingsMs: BenchOutputTimings
     var audioS: Double?
     var error: String?
@@ -821,8 +563,6 @@ struct BenchOutputRow: Encodable {
         case rawTranscript = "raw_transcript"
         case cleanedText = "cleaned_text"
         case finalText = "final_text"
-        case refined
-        case refineSkipReason = "refine_skip_reason"
         case timingsMs = "timings_ms"
         case audioS = "audio_s"
         case error
@@ -837,12 +577,6 @@ struct BenchOutputRow: Encodable {
         try container.encode(rawTranscript, forKey: .rawTranscript)
         try container.encode(cleanedText, forKey: .cleanedText)
         try container.encode(finalText, forKey: .finalText)
-        try container.encode(refined, forKey: .refined)
-        if let refineSkipReason {
-            try container.encode(refineSkipReason, forKey: .refineSkipReason)
-        } else {
-            try container.encodeNil(forKey: .refineSkipReason)
-        }
         try container.encode(timingsMs, forKey: .timingsMs)
         if let audioS {
             try container.encode(audioS, forKey: .audioS)

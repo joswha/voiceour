@@ -16,7 +16,7 @@ struct VoiceCoreTests {
 
     @Test func cleanupReducesSilentOrFillerOnlyCaptureToEmpty() {
         // The coordinator treats a blank cleaned transcript as "nothing captured" and skips
-        // both refinement and insertion. These are the inputs that must reduce to empty.
+        // insertion. These are the inputs that must reduce to empty.
         #expect(CleanupEngine.clean("", glossary: []).isEmpty)
         #expect(CleanupEngine.clean("   \n\t ", glossary: []).isEmpty)
         #expect(CleanupEngine.clean("um uh um", glossary: []).isEmpty)
@@ -115,58 +115,6 @@ struct VoiceCoreTests {
             !Glossary.validateTermLock(original: "use NSPasteboard", candidate: "use pasteboard safely", terms: terms))
     }
 
-    @Test func refinementGuardsNumbersPreserved() {
-        #expect(
-            RefinementGuards.numbersPreserved(
-                original: "the budget is 15,000 not 50,000", candidate: "The budget is 15,000, not 50,000."))
-        #expect(
-            !RefinementGuards.numbersPreserved(
-                original: "the budget is 15,000 not 50,000", candidate: "The budget is 15,000."))
-        #expect(RefinementGuards.numbersPreserved(original: "hello world", candidate: "Hello world."))
-        #expect(
-            RefinementGuards.numbersPreserved(
-                original: "set sample rate to 16000", candidate: "Set the sample rate to 16,000."))
-        #expect(RefinementGuards.numbersPreserved(original: "open port 8080", candidate: "Open port 8080."))
-    }
-
-    @Test func refinementGuardsPassFaithfulCleanupButRejectDroppedNumbersAndTerms() {
-        #expect(
-            RefinementGuards.passesFaithfulnessGuards(
-                original: "um the budget is 15,000 not 50000",
-                candidate: "The budget is 15,000, not 50000.",
-                glossary: []
-            ))
-
-        #expect(
-            !RefinementGuards.passesFaithfulnessGuards(
-                original: "meet at 3",
-                candidate: "meet at three",
-                glossary: []
-            ))
-
-        #expect(
-            !RefinementGuards.passesFaithfulnessGuards(
-                original: "deploy NeuroDock now",
-                candidate: "deploy the service now",
-                glossary: [ProtectedTerm(canonical: "NeuroDock", spokenAliases: [])]
-            ))
-    }
-
-    @Test func refinementGuardsRejectOverTwiceLength() {
-        #expect(
-            !RefinementGuards.passesFaithfulnessGuards(
-                original: "hi",
-                candidate: "hello!",
-                glossary: []
-            ))
-        #expect(
-            RefinementGuards.passesFaithfulnessGuards(
-                original: "hi",
-                candidate: "Hi.",
-                glossary: []
-            ))
-    }
-
     @Test func safetyClassifier() {
         let ordinary = TargetFocusInspection.inspected(role: nil, subrole: nil)
         #expect(SafetyClassifier.classify(bundleId: "com.apple.Terminal", focus: ordinary) == .terminal)
@@ -254,124 +202,6 @@ struct VoiceCoreTests {
         for testCase in cases {
             #expect(testCase.outcome.summary == testCase.expected, "\(testCase.name) summary")
         }
-    }
-
-    @Test func refinerResolvedDerivesEveryProviderModel() {
-        for provider in RefinerProvider.allCases {
-            #expect(RefinerResolved.model(Settings(refinerProvider: provider)) == provider.defaultModel)
-        }
-
-        // On OMP the stored selector wins; an empty one means "not chosen yet".
-        #expect(
-            RefinerResolved.model(Settings(refinerProvider: .omp, refinerModel: "openai/gpt-5.1-codex"))
-                == "openai/gpt-5.1-codex")
-        #expect(
-            RefinerResolved.model(Settings(refinerProvider: .omp, refinerModel: "")) == "anthropic/claude-haiku-4-5")
-
-        // Apple has exactly one model, so the field is ignored rather than
-        // honoured or cleared: that is what lets an OMP selector survive a round
-        // trip through the on-device provider.
-        #expect(
-            RefinerResolved.model(
-                Settings(refinerProvider: .appleOnDevice, refinerModel: "anthropic/claude-haiku-4-5"))
-                == "on-device")
-        #expect(RefinerResolved.model(Settings(refinerProvider: .appleOnDevice, refinerModel: "")) == "on-device")
-    }
-
-    @Test func refinerReadinessTruthTable() {
-        #expect(RefinerReadiness.evaluate(settings: Settings(refinerEnabled: false)) == .disabled)
-        #expect(
-            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: true, refinerProvider: .omp)) == .ready)
-        #expect(
-            RefinerReadiness.evaluate(
-                settings: Settings(refinerEnabled: true, refinerProvider: .omp, refinerModel: "anthropic/claude-opus-4")
-            ) == .ready)
-
-        // Apple On-Device needs no model choice; runtime availability is the
-        // refiner's concern, not readiness's.
-        #expect(
-            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: true, refinerProvider: .appleOnDevice))
-                == .ready)
-        #expect(
-            RefinerReadiness.evaluate(settings: Settings(refinerEnabled: false, refinerProvider: .appleOnDevice))
-                == .disabled)
-
-        // `needsModel` is only reachable if a provider ever resolves to an empty
-        // model, so it is pinned on the state rather than on a Settings value
-        // that cannot currently produce it.
-        #expect(RefinerReadiness.needsModel.label == "NEEDS MODEL")
-        #expect(!RefinerReadiness.needsModel.isReady)
-        #expect(RefinerReadiness.ready.isReady)
-    }
-
-    @Test func settingsDecodesProviderDefaultAndRoundTrips() throws {
-        // A partial file: no `refiner_provider` key, plus one key this build does
-        // not know. Settings is written to tolerate both so a hand-edited or
-        // truncated file costs the user one field rather than every field.
-        let partialJSON = """
-            {
-              "cleanup_enabled": false,
-              "asr_backend": "mlx",
-              "model_id": "unused-model-id",
-              "model_revision": "unused-revision",
-              "refiner_enabled": true,
-              "refiner_base_url": "https://unknown.example/v1",
-              "refiner_model": "stored-model",
-              "refiner_timeout_ms": 2500
-            }
-            """
-
-        let partialSettings = try JSONDecoder().decode(Settings.self, from: Data(partialJSON.utf8))
-        #expect(partialSettings.refinerProvider == .omp)
-        #expect(partialSettings.refinerEnabled)
-        #expect(partialSettings.refinerModel == "stored-model")
-        #expect(partialSettings.cleanupEnabled == false)
-        #expect(partialSettings.asrBackend == "mlx")
-        #expect(partialSettings.autoStopEnabled == false)
-        #expect(partialSettings.autoStopSilenceMs == 2500)
-        #expect(partialSettings.speechLocale == "en_US")
-
-        let encoded = try JSONEncoder().encode(
-            Settings(
-                refinerProvider: .appleOnDevice,
-                autoStopEnabled: true,
-                autoStopSilenceMs: 1800,
-                speechLocale: "de_DE"
-            ))
-        let decoded = try JSONDecoder().decode(Settings.self, from: encoded)
-
-        #expect(decoded.refinerProvider == .appleOnDevice)
-        #expect(decoded.autoStopEnabled)
-        #expect(decoded.autoStopSilenceMs == 1800)
-        #expect(decoded.speechLocale == "de_DE")
-    }
-
-    /// Both providers decode with exactly the state they stored.
-    @Test func settingsDecodesBothProvidersWithTheirStoredState() throws {
-        let json = """
-            {
-              "refiner_provider": "omp",
-              "refiner_enabled": true,
-              "refiner_model": "anthropic/claude-haiku-4-5"
-            }
-            """
-        let decoded = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
-
-        #expect(decoded.refinerProvider == .omp)
-        #expect(decoded.refinerEnabled)
-        #expect(decoded.refinerModel == "anthropic/claude-haiku-4-5")
-
-        let onDeviceJSON = """
-            {
-              "refiner_provider": "appleOnDevice",
-              "refiner_enabled": true,
-              "refiner_model": ""
-            }
-            """
-        let onDevice = try JSONDecoder().decode(Settings.self, from: Data(onDeviceJSON.utf8))
-
-        #expect(onDevice.refinerProvider == .appleOnDevice)
-        #expect(onDevice.refinerEnabled)
     }
 
     /// A build before the settings pane committed on submit persisted
@@ -500,33 +330,6 @@ struct VoiceCoreTests {
         let decoded = try JSONDecoder().decode(RecentSession.self, from: encoded)
 
         #expect(decoded.stages == stages)
-    }
-
-    @Test func recentSessionLeastConfidentWordRoundTrips() throws {
-        let word = LeastConfidentWord(text: "offscreen", score: 0.42)
-        let session = RecentSession(text: "observed transcript", leastConfidentWord: word)
-
-        let encoded = try JSONEncoder().encode(session)
-        let decoded = try JSONDecoder().decode(RecentSession.self, from: encoded)
-
-        #expect(decoded.leastConfidentWord == word)
-    }
-
-    /// Every session written before this field existed must still load. The corpus holds 500
-    /// of them and a throwing decode would drop the lot.
-    @Test func aSessionWrittenWithoutTheLeastConfidentWordDecodesNil() throws {
-        let legacyJSON = """
-            {
-              "id": "00000000-0000-0000-0000-000000000103",
-              "createdAt": 42,
-              "text": "a transcript from before the field existed"
-            }
-            """
-
-        let session = try JSONDecoder().decode(RecentSession.self, from: Data(legacyJSON.utf8))
-
-        #expect(session.leastConfidentWord == nil)
-        #expect(session.text == "a transcript from before the field existed")
     }
 
     @Test func sessionStageTimingsMissingFieldsDecodeAsNil() throws {

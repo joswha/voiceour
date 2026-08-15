@@ -98,7 +98,7 @@ struct SystemPane: View {
                         PropertyRow(
                             "Data handling",
                             caption:
-                                "Recent transcript history is saved locally on this Mac for the Sessions view. Audio temp files are removed after ASR. Network is used only when optional refinement is enabled and configured."
+                                "Recent transcript history is saved locally on this Mac for the Sessions view. Audio temp files are removed after ASR. Network is used only to download the local speech model."
                         )
                     }
 

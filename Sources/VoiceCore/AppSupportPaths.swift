@@ -2,7 +2,7 @@ import Foundation
 
 extension URL {
     /// `~/Library/Application Support/Voiceour/` — the base for persisted
-    /// settings, recent-session history, and OMP onboarding/RPC state.
+    /// settings and recent-session history.
     ///
     /// Deliberately not named `applicationSupportDirectory`: Foundation already
     /// vends that symbol for the container itself, and shadowing it with this

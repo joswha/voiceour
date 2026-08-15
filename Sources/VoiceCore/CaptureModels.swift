@@ -202,12 +202,6 @@ private func humanizedInsertionOutcomeReason(_ reason: String) -> String {
     return first.uppercased() + spaced.dropFirst()
 }
 
-public enum RefineOutcome: Equatable, Sendable {
-    case refined(String)
-    case skipped(reason: String)
-    case fellBack(String, reason: String)
-}
-
 public enum PermissionState: String, Codable, Equatable, Sendable {
     case granted
     case denied

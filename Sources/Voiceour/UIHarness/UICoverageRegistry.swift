@@ -17,19 +17,12 @@
             surface(.sessions, "Sessions pane renders", "console.sessions.populated"),
             surface(.voice, "Voice pane renders", "console.voice.default"),
             surface(.glossary, "Glossary pane renders", "console.glossary.populated"),
-            surface(.refinement, "Refinement pane renders", "console.refinement.configured"),
             surface(.system, "System pane renders", "console.system.granted"),
             surface(.diagnostics, "Diagnostics pane renders", "console.diagnostics.healthy"),
             surface(.menu, "Menu popover content renders", "menu.idle"),
             surface(.overlay, "Recording overlay renders", "overlay.panel.recording"),
             state(.overlay, "partial-preview", "Live partial transcript line", scene: "overlay.panel.partial"),
             journey(.overlay, "partial-preview", "Partial preview appears while recording and clears after"),
-            state(
-                .sessions,
-                "least-confident-word",
-                "Least-confident raw word readout",
-                scene: "console.sessions.populated"
-            ),
             surface(.atoms, "Shared property atoms render", "atom.properties"),
 
             // Home
@@ -40,7 +33,6 @@
             state(.home, "working-finalizing-audio", "WORKING while finalizing audio"),
             state(.home, "working-transcribing", "WORKING while transcribing"),
             state(.home, "working-cleaning", "WORKING while cleaning"),
-            state(.home, "working-refining", "WORKING while refining"),
             state(.home, "working-ready-to-insert", "WORKING while ready to insert"),
             state(.home, "zero-words", "Dashboard with zero dictated words"),
             state(.home, "untimed-coverage-caption", "Coverage caption while untimed dictations remain"),
@@ -106,75 +98,6 @@
             journey(.glossary, "remove-term", "Remove a term through its row action"),
             journey(.glossary, "import-word-list", "Import a glossary word list", limitation: .systemPanel),
 
-            // Refinement
-            state(.refinement, "disabled", "Refinement disabled", scene: "console.refinement.off"),
-            state(.refinement, "provider-omp", "Oh My Pi provider", scene: "console.refinement.omp"),
-            state(
-                .refinement,
-                "provider-apple-on-device",
-                "Apple on-device provider",
-                scene: "console.refinement.apple"
-            ),
-            state(
-                .refinement,
-                "reachability-unknown",
-                "Reachability not checked",
-                scene: "console.refinement.omp-login-failed"
-            ),
-            // No scene renders a probe in flight any more: the only remaining probe
-            // spawns `omp`, and a scene that could reach it is a scene that could
-            // spawn a subprocess. The flow holds that probe behind a gate instead,
-            // which is the stronger reading anyway.
-            state(.refinement, "reachability-checking", "Reachability probe in flight"),
-            state(.refinement, "reachability-ok", "Reachable provider", scene: "console.refinement.omp"),
-            state(.refinement, "reachability-failed", "Provider unreachable", scene: "console.refinement.unreachable"),
-            state(
-                .refinement,
-                "model-catalog-loaded",
-                "Model picker offering the loaded catalog",
-                scene: "console.refinement.configured"
-            ),
-            state(.refinement, "model-catalog-loading", "Model catalog load in flight"),
-            state(
-                .refinement,
-                "model-catalog-failed",
-                "Model catalog load failed",
-                scene: "console.refinement.unreachable"
-            ),
-            state(
-                .refinement,
-                "model-catalog-filtered",
-                "Model picker narrowed by a typed filter",
-                scene: "console.refinement.model-catalog"
-            ),
-            state(.refinement, "model-selected", "Model chosen out of the catalog"),
-            state(
-                .refinement,
-                "model-defaulted",
-                "Empty model field resolved to the provider default",
-                scene: "console.refinement.omp"
-            ),
-            state(.refinement, "omp-status-idle", "OMP status not checked"),
-            state(.refinement, "omp-status-checking", "OMP status check in flight"),
-            state(.refinement, "omp-status-failed", "OMP status check failed"),
-            state(.refinement, "omp-connected", "Connected OMP accounts", scene: "console.refinement.omp"),
-            state(.refinement, "omp-no-accounts", "OMP returned no accounts"),
-            state(.refinement, "omp-status-unknown", "OMP account status unknown"),
-            state(.refinement, "omp-status-stale", "OMP account status stale"),
-            state(.refinement, "onboarding-opening", "OMP onboarding opening"),
-            state(.refinement, "onboarding-terminal-open", "OMP onboarding terminal open"),
-            state(.refinement, "onboarding-cancelled", "OMP onboarding cancelled"),
-            state(.refinement, "onboarding-signed-in", "OMP onboarding signed in"),
-            state(
-                .refinement,
-                "onboarding-failed",
-                "OMP onboarding failed",
-                scene: "console.refinement.omp-login-failed"
-            ),
-            state(.refinement, "check-success", "Successful CHECK verdict for the current fingerprint"),
-            journey(.refinement, "enable-and-check", "Enable refinement and check provider reachability"),
-            journey(.refinement, "select-model", "Load the Oh My Pi model catalog, filter it and select a model"),
-            journey(.refinement, "connect-omp-provider", "Connect an Oh My Pi provider", limitation: .systemPanel),
 
             // System
             state(.system, "backend-ready", "Backend ready", scene: "console.system.granted"),
@@ -272,11 +195,6 @@
             state(.menu, "copy-feedback", "Transcript copy feedback"),
             state(.menu, "host-chrome", "System MenuBarExtra chrome and dismissal", limitation: .menuHostChrome),
             journey(.menu, "dictation-paste-delivered", "Dictate and paste to an eligible target"),
-            journey(
-                .menu,
-                "dictation-code-editor-skips-refinement",
-                "Skip refinement for a configured code-editor target"
-            ),
             journey(.menu, "dictation-copy-only", "Dictate to a terminal or secure target and copy only"),
             journey(.menu, "dictation-cancel", "Cancel a live dictation"),
             journey(.menu, "dictation-asr-error", "Surface an ASR failure without delivery"),

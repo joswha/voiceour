@@ -149,8 +149,6 @@
         }
 
         private(set) var deliveries: [Delivery] = []
-        /// Refiner inputs, so a flow can prove cloud filtering happened before the request.
-        private(set) var refinerPrompts: [String] = []
         /// Transcription requests, so a flow can prove exactly one decode per utterance.
         private(set) var transcriptionRequests = 0
         /// Everything the app wrote to `NSPasteboard.general`, captured through
@@ -158,7 +156,6 @@
         private(set) var pasteboardWrites: [String] = []
 
         func record(delivery: Delivery) { deliveries.append(delivery) }
-        func record(refinerPrompt: String) { refinerPrompts.append(refinerPrompt) }
         func recordTranscriptionRequest() { transcriptionRequests += 1 }
         func record(pasteboardWrite text: String) { pasteboardWrites.append(text) }
 

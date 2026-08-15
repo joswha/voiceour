@@ -38,35 +38,26 @@
             return build()
         }
 
-        /// - Parameters:
-        ///   - refinementEnabled: also decides whether `.refinement` is armed. A disabled
-        ///     refiner never reaches that gate, and arming a gate the pipeline never crosses
-        ///     is dead configuration that reads like coverage.
-        ///   - reaches: narrows the armed set for a journey that stops early. A cancel flow
-        ///     crosses `.permission` and nothing else; arming the rest would leave four gates
-        ///     that no script can release, which is indistinguishable from a script that
-        ///     forgot to release them.
+        /// - Parameter reaches: Narrows the armed set for a journey that stops early.
+        ///   A cancel flow crosses `.permission` and nothing else; arming the rest would
+        ///   leave three gates that no script can release, which is indistinguishable
+        ///   from a script that forgot to release them.
         static func dictation(
             transcript: String,
-            refined: String,
             outcome: InsertionOutcome,
             targetBundleID: String,
             targetSafety: TargetSafetyClass,
-            refinementEnabled: Bool = true,
             reaches: Set<UIGate>? = nil
         ) -> UIFlowFixture {
-            var wholePath: Set<UIGate> = [.permission, .recorderStop, .transcription, .insertion]
-            if refinementEnabled { wholePath.insert(.refinement) }
+            let wholePath: Set<UIGate> = [.permission, .recorderStop, .transcription, .insertion]
             let gates = reaches ?? wholePath
             return UIFlowFixture(name: "dictation", armedGates: gates) {
                 makeDictationContext(
                     armedGates: gates,
                     transcription: .success(scriptedASRResult(transcript: transcript)),
-                    refinement: .refined(refined),
                     insertion: outcome,
                     targetBundleID: targetBundleID,
-                    targetSafety: targetSafety,
-                    refinementEnabled: refinementEnabled
+                    targetSafety: targetSafety
                 )
             }
         }
@@ -77,11 +68,9 @@
                 makeDictationContext(
                     armedGates: gates,
                     transcription: .failure(scriptedASRError(code: code)),
-                    refinement: .skipped(reason: "transcription failed"),
                     insertion: .failed(reason: "transcription failed"),
                     targetBundleID: "com.apple.TextEdit",
-                    targetSafety: .normalText,
-                    refinementEnabled: false
+                    targetSafety: .normalText
                 )
             }
         }
@@ -128,20 +117,18 @@
         /// microphone. This fixture is that window with the wall clock taken out of it:
         /// the capture stays not-live until the script opens `.captureLive`.
         ///
-        /// Only two gates are armed. The journey never stops the recorder, transcribes,
-        /// refines or delivers, and arming a boundary no script can release is
-        /// indistinguishable from a script that forgot to.
+        /// Only two gates are armed. The journey never stops the recorder, transcribes
+        /// or delivers, and arming a boundary no script can release is indistinguishable
+        /// from a script that forgot to.
         static func captureWarmup() -> UIFlowFixture {
             let gates: Set<UIGate> = [.permission, .captureLive]
             return UIFlowFixture(name: "capture-warmup", armedGates: gates) {
                 makeDictationContext(
                     armedGates: gates,
                     transcription: .success(scriptedASRResult(transcript: "The warm-up journey never transcribes.")),
-                    refinement: .skipped(reason: "the warm-up journey never refines"),
                     insertion: .failed(reason: "the warm-up journey never delivers"),
                     targetBundleID: "com.apple.TextEdit",
                     targetSafety: .normalText,
-                    refinementEnabled: false,
                     capture: UICaptureWarmup()
                 )
             }
@@ -160,81 +147,15 @@
                     transcription: .success(
                         scriptedASRResult(transcript: "The partial journey never finishes a transcript.")
                     ),
-                    refinement: .skipped(reason: "the partial journey never refines"),
                     insertion: .failed(reason: "the partial journey never delivers"),
                     targetBundleID: "com.apple.TextEdit",
                     targetSafety: .normalText,
-                    refinementEnabled: false,
                     partialSamples: 24_000,
                     partialTranscript: "Partial preview text"
                 )
             }
         }
 
-        /// Refinement switched off over an OMP configuration that is otherwise
-        /// complete, so the script can turn it on and press CHECK.
-        ///
-        /// The verdict parks on `.refinement`; see `modelCatalog()` below for why
-        /// that gate. Without it the probe answers inside the press and CHECKING is
-        /// a state no checkpoint can ever see.
-        static func refinerCheck() -> UIFlowFixture {
-            UIFlowFixture(name: "refiner-check", armedGates: [.refinement]) {
-                let probeLink = UIAdapterLink(gate: .refinement)
-                var settings = UIFixtures.settings()
-                settings.refinerEnabled = false
-                settings.refinerProvider = .omp
-                settings.refinerModel = UIFixtures.selectedModel
-                let coordinator = UIFixtures.make(
-                    sessions: UIFixtures.history,
-                    settings: settings,
-                    ompModelsProbe: { _, _, _, _ in
-                        await probeLink.arrive()
-                        return .ok(models: 3)
-                    }
-                )
-                let context = UIFlowContext(coordinator: coordinator, armedGates: [.refinement])
-                probeLink.bind(to: context)
-                return context
-            }
-        }
-
-        /// An OMP configuration whose model is still the provider default and whose
-        /// catalog has not been asked for yet, so the pane's own entry task loads it
-        /// and the script drives the rest: filter, then pick.
-        ///
-        /// This is the one fixture that passes `ompModelCatalogState: nil`. Every
-        /// other one installs a value so `RefinementPane`'s `.task(id: provider)`
-        /// skips the load entirely; here the load IS the subject, so the override
-        /// stays absent and the injected loader parks on `.refinement` instead. The
-        /// gate vocabulary is closed and names the boundaries of one dictation, but
-        /// this is the same subsystem's asynchronous boundary and the flow never
-        /// dictates, so there is nothing for it to collide with. Holding it is also
-        /// the only way `.loading` is a checkpoint rather than a state the run loop
-        /// skips past between two pumps.
-        static func modelCatalog() -> UIFlowFixture {
-            UIFlowFixture(name: "model-catalog", armedGates: [.refinement]) {
-                let catalogLink = UIAdapterLink(gate: .refinement)
-                // Read on the main actor and captured by value: the load closure runs
-                // off it, and `UIFixtures` is main-actor isolated.
-                let catalog = UIFixtures.ompModels
-                var settings = UIFixtures.settings()
-                settings.refinerEnabled = true
-                settings.refinerProvider = .omp
-                settings.refinerModel = ""
-                let coordinator = UIFixtures.make(
-                    sessions: UIFixtures.history,
-                    settings: settings,
-                    ompModelCatalogState: nil,
-                    ompModelCatalogLoad: { _, _, _ in
-                        await catalogLink.arrive()
-                        return catalog
-                    }
-                )
-                let context = UIFlowContext(coordinator: coordinator, armedGates: [.refinement])
-                catalogLink.bind(to: context)
-                return context
-            }
-        }
 
         private static func scriptedASRResult(transcript: String) -> ASRResult {
             ASRResult(
@@ -262,11 +183,9 @@
         private static func makeDictationContext(
             armedGates: Set<UIGate>,
             transcription: Result<ASRResult, ASRErrorMessage>,
-            refinement: RefineOutcome,
             insertion: InsertionOutcome,
             targetBundleID: String,
             targetSafety: TargetSafetyClass,
-            refinementEnabled: Bool,
             capture: UICaptureWarmup? = nil,
             partialSamples: Int? = nil,
             partialTranscript: String? = nil
@@ -275,13 +194,10 @@
             let partialLink = UIAdapterLink(gate: .partialTranscription)
             let recorderLink = UIAdapterLink(gate: .recorderStop)
             let transcriptionLink = UIAdapterLink(gate: .transcription)
-            let refinementLink = UIAdapterLink(gate: .refinement)
             let insertionLink = UIAdapterLink(gate: .insertion)
             let scratch = UIFixtures.nextScratchDirectory()
             let clock = UIScriptClock(now: UIFixtures.pinnedNow, calendar: UIFixtures.pinnedCalendar)
-            var settings = UIFixtures.settings(backend: "ui-flow", glossary: [])
-            settings.refinerEnabled = refinementEnabled
-            settings.refinerProvider = .appleOnDevice
+            let settings = UIFixtures.settings(backend: "ui-flow", glossary: [])
             RenderOverrides.permissions = HarnessPermissions(state: .granted)
 
             let coordinator = DictationCoordinator(
@@ -301,7 +217,6 @@
                 inserter: UIGatedInserter(link: insertionLink, outcome: insertion),
                 permissions: UIGatedPermissions(link: permissionLink),
                 hotkey: HarnessHotkey(),
-                refiner: UIGatedRefiner(link: refinementLink, outcome: refinement),
                 settings: settings,
                 activeASRBackend: "ui-flow",
                 settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
@@ -310,16 +225,11 @@
                 ),
                 recentSessionSnapshotSave: { _, _ in },
                 statsSnapshotSave: { _, _ in },
-                ompModelsProbe: { _, _, _, _ in .failed("ui flow fixture") },
-                ompProviderStatusProbe: { _, _, _ in OmpProviderStatusSnapshot(connections: []) },
-                ompModelCatalogLoad: { _, _, _ in [] },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )
             let context = UIFlowContext(coordinator: coordinator, armedGates: armedGates)
-            for link in [
-                permissionLink, recorderLink, transcriptionLink, partialLink, refinementLink, insertionLink,
-            ] {
+            for link in [permissionLink, recorderLink, transcriptionLink, partialLink, insertionLink] {
                 link.bind(to: context)
             }
             if let capture {
@@ -363,9 +273,6 @@
             effects?.recordTranscriptionRequest()
         }
 
-        func record(refinerPrompt: String) {
-            effects?.record(refinerPrompt: refinerPrompt)
-        }
 
         func record(delivery: UIEffectRecorder.Delivery) {
             effects?.record(delivery: delivery)
@@ -521,23 +428,6 @@
         func lastTranscriptionPath() -> String? { "ui-flow" }
     }
 
-    struct UIGatedRefiner: TranscriptRefining {
-        let link: UIAdapterLink
-        let outcome: RefineOutcome
-
-        func refine(
-            _ raw: String,
-            glossary: [ProtectedTerm],
-            safety: TargetSafetyClass,
-            style: RefinementStyle
-        ) async -> RefineOutcome {
-            await link.arrive()
-            await link.record(refinerPrompt: raw)
-            return outcome
-        }
-
-        func warmUp() async {}
-    }
 
     struct UIGatedInserter: TextInserting {
         let link: UIAdapterLink

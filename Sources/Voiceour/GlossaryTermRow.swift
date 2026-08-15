@@ -87,7 +87,7 @@ struct GlossaryTermRow: View {
                 Image(systemName: "lock.fill")
                     .font(VoiceourTypography.micro)
                     .foregroundStyle(a11y.textLow)
-                    .help("Protected — never rewritten by the refiner")
+                    .help("Protected — deterministic cleanup keeps this canonical spelling")
                     .accessibilityLabel("Protected term \(term.canonical)")
                     .accessibilityIdentifier("protected.\(term.termId)")
             }
