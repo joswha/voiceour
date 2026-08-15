@@ -789,6 +789,45 @@ Reports: `benchmarks/results/20260815T143055Z-librispeech-parakeet-stt.json` and
 `20260814T173544Z-*` and `20260814T173557Z-*`. Promotion remains a separate decision; the case for
 it would be a machine short of disk or memory, not this one.
 
+### Partial previews measured, 2026-08-15: adoption reverted, cadence flagged
+
+Two measurements against the shipped sidecar, taken the day after partial previews landed.
+
+**Adoption is not free, and it is now off.** The feature let auto-stop reuse the last preview as
+the final transcript, on the argument that every sample after the preview's snapshot had already
+been shown to be below the silence threshold. Comparing a decode of the audio up to silence onset
+against a decode of the same audio plus the 2.5 s dwell, over 32 LibriSpeech rows:
+
+| Tail appended | Transcripts differing verbatim | Normalized U-WER | CER |
+|---|---:|---:|---:|
+| 2.5 s digital silence | 25 / 32 | 0.493% | 0.105% |
+| 2.5 s sub-threshold noise (0.02 FS) | 21 / 32 | 0.583% | 0.194% |
+
+Against a pinned model at 2.81% U-WER and a `uwer_final:0.0035` gate, adoption spends more than
+the entire gate budget to save the 347 ms median ASR stage. The encoder is not causal over the
+utterance: trailing frames move its representation of earlier ones, and punctuation, casing and
+word-joining move with them (`here, and however` → `here. And however`, `new born` → `newborn`,
+`ou best, When I was certain` → `you best when I was certain`). `partialAdoptionEnabled` is
+`false`; the preview itself is unaffected.
+
+**The preview cadence is quadratic in utterance length.** Each preview re-decodes the whole
+growing buffer, and decode time is linear in buffer length at about 10.1 ms per second of audio
+(measured 32 ms at 1.5 s, 100 ms at 10 s, 267 ms at 30 s, 932 ms at 92 s). With the shipped
+cadence — first at 1.5 s, then every additional second of audio — the cumulative GPU cost of one
+utterance is:
+
+| Utterance | Previews | Decode time spent |
+|---|---:|---:|
+| 10 s (capture p50) | 9 | 0.59 s |
+| 37 s (capture p90) | 36 | **6.27 s** |
+| 46 s (capture p95) | 45 | 9.60 s |
+| 92 s (capture max) | 91 | **39.95 s** |
+
+All of it burned while the user is still speaking, for one line of on-screen text. The capture
+percentiles are from the baseline table above, so the p90 case is ordinary rather than
+pathological. With adoption off, preview staleness no longer affects the transcript, which makes a
+geometric cadence (or a decode-time duty cycle) straightforwardly correct. Not yet changed.
+
 
 ## Ranked next steps
 

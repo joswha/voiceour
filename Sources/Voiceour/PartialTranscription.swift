@@ -4,20 +4,39 @@ import VoiceCore
 /// Whether a partial may be adopted as the final transcript when auto-stop proves the tail was
 /// silence.
 ///
-/// One constant, deliberately: the preview and the adoption are separable. If live use ever
-/// shows adopted text drifting from a batch decode of the whole file, setting this false keeps
-/// the preview working and reverts only the post-stop saving.
-let partialAdoptionEnabled = true
-
-/// Whether the last partial's snapshot is old enough to stand in for the final transcript.
+/// **Off, and measured off.** The argument for adoption was that every sample after the
+/// snapshot had already been shown to be below the silence threshold, so re-decoding could not
+/// change the words. That reasoning ignores that the encoder is not causal over the utterance:
+/// trailing frames change its representation of earlier ones, and the decoder's punctuation,
+/// casing and word-joining shift with them.
 ///
-/// The snapshot was taken at `snapshotTakenAt`; auto-stop fired because every sample from
-/// `silenceStartedAt` onwards stayed below the silence threshold for the full dwell. If the
-/// snapshot was taken at or after that moment, every sample the partial did not see was already
-/// known to be silence — by the identical criterion that authorized stopping.
-func partialAdoptionIsSound(snapshotTakenAt: Date?, silenceStartedAt: Date) -> Bool {
-    guard partialAdoptionEnabled, let snapshotTakenAt else { return false }
+/// Measured 2026-08-15 on 32 LibriSpeech rows through the shipped sidecar, comparing a decode of
+/// the audio up to silence onset against a decode of the same audio plus the 2.5 s auto-stop
+/// dwell: **25 of 32 transcripts differ verbatim** with a digitally silent tail and 21 of 32
+/// with a sub-threshold noise tail. Scored with the repo's own jiwer + whisper-normalizer, the
+/// normalized divergence is **0.493% U-WER** (quiet) and **0.583%** (noisy) — against a pinned
+/// model at 2.81% and a regression gate of 0.35 pp, so adopting spends more than the entire gate
+/// budget to save ~347 ms at the median. Examples: `here, and however` → `here. And however`,
+/// `new born` → `newborn`, `ou best, When I was certain` → `you best when I was certain`.
+///
+/// The preview itself is unaffected and stays on. Re-enabling this requires a measurement that
+/// clears the gate, not an argument.
+let partialAdoptionEnabled = false
+
+/// Whether the last partial's snapshot covers everything but the trailing silence.
+///
+/// The timing rule alone, independent of whether adoption is switched on: the snapshot was taken
+/// at `snapshotTakenAt`, and auto-stop fired because every sample from `silenceStartedAt`
+/// onwards stayed below the threshold for the full dwell.
+func partialSnapshotCoversSpeech(snapshotTakenAt: Date?, silenceStartedAt: Date) -> Bool {
+    guard let snapshotTakenAt else { return false }
     return snapshotTakenAt >= silenceStartedAt
+}
+
+/// Whether the stop path may use the last preview instead of decoding the WAV.
+func partialAdoptionIsSound(snapshotTakenAt: Date?, silenceStartedAt: Date) -> Bool {
+    partialAdoptionEnabled
+        && partialSnapshotCoversSpeech(snapshotTakenAt: snapshotTakenAt, silenceStartedAt: silenceStartedAt)
 }
 
 /// Drives preview-only re-decodes of the growing capture buffer.

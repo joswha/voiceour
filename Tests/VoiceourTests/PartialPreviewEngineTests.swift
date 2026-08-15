@@ -103,19 +103,37 @@ struct PartialPreviewEngineTests {
 
     // MARK: - Adoption predicate
 
-    @Test func adoptionNeedsASnapshotTakenAtOrAfterSilenceBegan() {
+    @Test func theTimingRuleNeedsASnapshotTakenAtOrAfterSilenceBegan() {
         let silenceStartedAt = Date(timeIntervalSince1970: 1_000)
 
-        #expect(!partialAdoptionIsSound(snapshotTakenAt: nil, silenceStartedAt: silenceStartedAt))
+        #expect(!partialSnapshotCoversSpeech(snapshotTakenAt: nil, silenceStartedAt: silenceStartedAt))
         #expect(
-            !partialAdoptionIsSound(
+            !partialSnapshotCoversSpeech(
                 snapshotTakenAt: silenceStartedAt.addingTimeInterval(-0.001),
                 silenceStartedAt: silenceStartedAt
             )
         )
-        #expect(partialAdoptionIsSound(snapshotTakenAt: silenceStartedAt, silenceStartedAt: silenceStartedAt))
         #expect(
-            partialAdoptionIsSound(
+            partialSnapshotCoversSpeech(snapshotTakenAt: silenceStartedAt, silenceStartedAt: silenceStartedAt)
+        )
+        #expect(
+            partialSnapshotCoversSpeech(
+                snapshotTakenAt: silenceStartedAt.addingTimeInterval(2),
+                silenceStartedAt: silenceStartedAt
+            )
+        )
+    }
+
+    /// Adoption is off on measured evidence: appending the 2.5 s auto-stop dwell to 32
+    /// LibriSpeech rows changed 25 transcripts verbatim and 0.493% of normalized words, against
+    /// a 0.35 pp regression gate. The timing rule above stays correct and stays tested; the
+    /// switch above it is what says no.
+    @Test func adoptionIsDisabledWhateverTheTimingSays() {
+        let silenceStartedAt = Date(timeIntervalSince1970: 1_000)
+
+        #expect(!partialAdoptionEnabled)
+        #expect(
+            !partialAdoptionIsSound(
                 snapshotTakenAt: silenceStartedAt.addingTimeInterval(2),
                 silenceStartedAt: silenceStartedAt
             )
