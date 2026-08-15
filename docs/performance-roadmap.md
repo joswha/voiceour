@@ -753,6 +753,42 @@ no Python and no `uv`. First run of a given binary on a machine spends 7.5 s com
 Metal shader library; afterwards the OS shader cache serves it in 9 ms. `leaks --atExit` on a full
 `--prove` reports 0 leaks.
 
+### q8_0 measured pass, 2026-08-15: no pin change
+
+The pinned revision carries five artifacts. `q8_0` is the interesting one: 638 MB against f16's
+1.17 GiB, for weights that are already only 0.6 B parameters. Measured by pointing
+`VOICEOUR_MODEL_CACHE` at a synthetic cache holding the q8_0 file under the f16 name (`cacheOK()`
+checks the manifest's id, revision and the file's size, so this is a supported substitution) and
+running both STT tiers unchanged on the same M4 Pro.
+
+| Metric | f16 (pinned) | q8_0 | Delta |
+|---|---:|---:|---|
+| LibriSpeech U-WER (n=64/split, 128 rows) | 2.807% | 2.782% | −0.025 pp |
+| LibriSpeech CER | 0.882% | 0.873% | −0.009 pp |
+| LibriSpeech ASR p50 / p95 | 202.5 / 272.7 ms | 216.5 / 329.4 ms | +14.0 / +56.8 ms |
+| LibriSpeech RTFx | 113.5 | 103.4 | −10.0 |
+| FLEURS U-WER (n=64) | 4.416% | 4.416% | 0 |
+| FLEURS CER | 1.929% | 1.929% | 0 |
+| FLEURS F-WER | 10.032% | 10.032% | 0 |
+| FLEURS punctuation micro F1 | 0.8380 | 0.8351 | −0.0029 |
+| FLEURS case overall F1 | 0.9218 | 0.9218 | 0 |
+| FLEURS ASR p50 / p95 | 90.5 / 125.4 ms | 109.0 / 156.5 ms | +18.5 / +31.1 ms |
+| FLEURS RTFx | 99.7 | 84.1 | −15.6 |
+| Artifact size | 1 255 897 319 B | 668 757 119 B | −46.7% |
+| `make bench-gate` (`uwer_final:0.0035`) | — | passes on both tiers | — |
+
+**Accuracy is a wash and speed is worse, so the pin does not move.** Quantization buys 587 MB of
+disk and roughly a third off the cold load (2111 ms against 3525 ms on `--prove`), and costs 7-19%
+of throughput at every percentile on both corpora. On a machine with unified memory and a GPU that
+is happy with f16, the dequantization work per matmul is not free and there is no bandwidth
+shortage for it to pay for. FLEURS is bit-identical apart from a single punctuation mark, and
+LibriSpeech differs by a quarter of a word in 128 utterances, which is noise at this corpus size.
+
+Reports: `benchmarks/results/20260815T143055Z-librispeech-parakeet-stt.json` and
+`20260815T143116Z-fleurs-parakeet-stt.json`, against the f16 baselines
+`20260814T173544Z-*` and `20260814T173557Z-*`. Promotion remains a separate decision; the case for
+it would be a machine short of disk or memory, not this one.
+
 
 ## Ranked next steps
 

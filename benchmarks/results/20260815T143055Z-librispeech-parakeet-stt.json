@@ -1,0 +1,1018 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 128,
+    "result_rows": 128,
+    "successful_rows": 128
+  },
+  "generated_at": "2026-08-15T14:30:55.401692+00:00",
+  "inputs": {
+    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/librispeech/manifest.jsonl",
+    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260815T143024Z-librispeech-parakeet-stt.results.jsonl"
+  },
+  "meta": {
+    "backend": "parakeet",
+    "mode": "pipeline",
+    "model_id": "ggml-org/parakeet-GGUF",
+    "model_revision": "35156454d1a39de06863303dd209fd2bed6ee079",
+    "refine_mode": "off",
+    "started_at": "2026-08-15T14:30:24Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.008732107286792978,
+    "confidence_by_mode": {
+      "greedy_token_prob": {
+        "count": 128,
+        "mean_confidence": 0.9722850605475422,
+        "reliability": {
+          "bins": [
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.0,
+              "mean_confidence": null,
+              "upper": 0.1
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.1,
+              "mean_confidence": null,
+              "upper": 0.2
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.2,
+              "mean_confidence": null,
+              "upper": 0.3
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.3,
+              "mean_confidence": null,
+              "upper": 0.4
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.4,
+              "mean_confidence": null,
+              "upper": 0.5
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.5,
+              "mean_confidence": null,
+              "upper": 0.6
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.6,
+              "mean_confidence": null,
+              "upper": 0.7
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.7,
+              "mean_confidence": null,
+              "upper": 0.8
+            },
+            {
+              "accuracy": 0.0,
+              "calibration_gap": 0.8947970526120097,
+              "count": 1,
+              "lower": 0.8,
+              "mean_confidence": 0.8947970526120097,
+              "upper": 0.9
+            },
+            {
+              "accuracy": 0.3543307086614173,
+              "calibration_gap": 0.6185644936808927,
+              "count": 127,
+              "lower": 0.9,
+              "mean_confidence": 0.9728952023423101,
+              "upper": 1.0
+            }
+          ],
+          "brier": 0.6087161981812366,
+          "count": 128,
+          "ece": 0.620722560547542
+        },
+        "risk_coverage": [
+          {
+            "coverage": 0.0,
+            "covered": 0,
+            "risk": null,
+            "threshold": null
+          },
+          {
+            "coverage": 0.0078125,
+            "covered": 1,
+            "risk": 0.0,
+            "threshold": 0.9958074383246593
+          },
+          {
+            "coverage": 0.015625,
+            "covered": 2,
+            "risk": 0.5,
+            "threshold": 0.9949178230127639
+          },
+          {
+            "coverage": 0.0234375,
+            "covered": 3,
+            "risk": 0.6666666666666666,
+            "threshold": 0.9945512896981733
+          },
+          {
+            "coverage": 0.03125,
+            "covered": 4,
+            "risk": 0.75,
+            "threshold": 0.9942780813823143
+          },
+          {
+            "coverage": 0.0390625,
+            "covered": 5,
+            "risk": 0.6,
+            "threshold": 0.9912116869636204
+          },
+          {
+            "coverage": 0.046875,
+            "covered": 6,
+            "risk": 0.6666666666666666,
+            "threshold": 0.9909046378135681
+          },
+          {
+            "coverage": 0.0546875,
+            "covered": 7,
+            "risk": 0.7142857142857143,
+            "threshold": 0.9908158115193814
+          },
+          {
+            "coverage": 0.0625,
+            "covered": 8,
+            "risk": 0.625,
+            "threshold": 0.9907857072605214
+          },
+          {
+            "coverage": 0.0703125,
+            "covered": 9,
+            "risk": 0.5555555555555556,
+            "threshold": 0.990623605063581
+          },
+          {
+            "coverage": 0.078125,
+            "covered": 10,
+            "risk": 0.6,
+            "threshold": 0.9906142719901434
+          },
+          {
+            "coverage": 0.0859375,
+            "covered": 11,
+            "risk": 0.6363636363636364,
+            "threshold": 0.9898329478389812
+          },
+          {
+            "coverage": 0.09375,
+            "covered": 12,
+            "risk": 0.6666666666666666,
+            "threshold": 0.9892045259475708
+          },
+          {
+            "coverage": 0.1015625,
+            "covered": 13,
+            "risk": 0.6923076923076923,
+            "threshold": 0.9891254087643964
+          },
+          {
+            "coverage": 0.109375,
+            "covered": 14,
+            "risk": 0.6428571428571429,
+            "threshold": 0.9889843748250139
+          },
+          {
+            "coverage": 0.1171875,
+            "covered": 15,
+            "risk": 0.6,
+            "threshold": 0.9889635507342884
+          },
+          {
+            "coverage": 0.125,
+            "covered": 16,
+            "risk": 0.5625,
+            "threshold": 0.9878065009117126
+          },
+          {
+            "coverage": 0.1328125,
+            "covered": 17,
+            "risk": 0.5882352941176471,
+            "threshold": 0.9876282854566296
+          },
+          {
+            "coverage": 0.140625,
+            "covered": 18,
+            "risk": 0.6111111111111112,
+            "threshold": 0.9869986933011275
+          },
+          {
+            "coverage": 0.1484375,
+            "covered": 19,
+            "risk": 0.5789473684210527,
+            "threshold": 0.9867951117905994
+          },
+          {
+            "coverage": 0.15625,
+            "covered": 20,
+            "risk": 0.55,
+            "threshold": 0.9866490308511056
+          },
+          {
+            "coverage": 0.1640625,
+            "covered": 21,
+            "risk": 0.5714285714285714,
+            "threshold": 0.9865871329945842
+          },
+          {
+            "coverage": 0.171875,
+            "covered": 22,
+            "risk": 0.5909090909090909,
+            "threshold": 0.9863907021860923
+          },
+          {
+            "coverage": 0.1796875,
+            "covered": 23,
+            "risk": 0.5652173913043478,
+            "threshold": 0.9862692936573153
+          },
+          {
+            "coverage": 0.1875,
+            "covered": 24,
+            "risk": 0.5416666666666666,
+            "threshold": 0.9859228211641312
+          },
+          {
+            "coverage": 0.1953125,
+            "covered": 25,
+            "risk": 0.52,
+            "threshold": 0.9857185474015716
+          },
+          {
+            "coverage": 0.203125,
+            "covered": 26,
+            "risk": 0.5,
+            "threshold": 0.9852775542863778
+          },
+          {
+            "coverage": 0.2109375,
+            "covered": 27,
+            "risk": 0.48148148148148145,
+            "threshold": 0.9845312827703904
+          },
+          {
+            "coverage": 0.21875,
+            "covered": 28,
+            "risk": 0.4642857142857143,
+            "threshold": 0.9843563934167227
+          },
+          {
+            "coverage": 0.2265625,
+            "covered": 29,
+            "risk": 0.4827586206896552,
+            "threshold": 0.9843361982400867
+          },
+          {
+            "coverage": 0.234375,
+            "covered": 30,
+            "risk": 0.4666666666666667,
+            "threshold": 0.9838064956349253
+          },
+          {
+            "coverage": 0.2421875,
+            "covered": 31,
+            "risk": 0.45161290322580644,
+            "threshold": 0.983633969265681
+          },
+          {
+            "coverage": 0.25,
+            "covered": 32,
+            "risk": 0.4375,
+            "threshold": 0.9835900048846784
+          },
+          {
+            "coverage": 0.2578125,
+            "covered": 33,
+            "risk": 0.45454545454545453,
+            "threshold": 0.9834236950874329
+          },
+          {
+            "coverage": 0.265625,
+            "covered": 34,
+            "risk": 0.47058823529411764,
+            "threshold": 0.9832982912896171
+          },
+          {
+            "coverage": 0.2734375,
+            "covered": 35,
+            "risk": 0.45714285714285713,
+            "threshold": 0.9832370569417764
+          },
+          {
+            "coverage": 0.28125,
+            "covered": 36,
+            "risk": 0.4444444444444444,
+            "threshold": 0.9832298465677209
+          },
+          {
+            "coverage": 0.2890625,
+            "covered": 37,
+            "risk": 0.43243243243243246,
+            "threshold": 0.9832215546506696
+          },
+          {
+            "coverage": 0.296875,
+            "covered": 38,
+            "risk": 0.42105263157894735,
+            "threshold": 0.9830372656070734
+          },
+          {
+            "coverage": 0.3046875,
+            "covered": 39,
+            "risk": 0.41025641025641024,
+            "threshold": 0.9830247048035409
+          },
+          {
+            "coverage": 0.3125,
+            "covered": 40,
+            "risk": 0.4,
+            "threshold": 0.9829534920117328
+          },
+          {
+            "coverage": 0.3203125,
+            "covered": 41,
+            "risk": 0.4146341463414634,
+            "threshold": 0.982843423931344
+          },
+          {
+            "coverage": 0.328125,
+            "covered": 42,
+            "risk": 0.42857142857142855,
+            "threshold": 0.9826580690748897
+          },
+          {
+            "coverage": 0.3359375,
+            "covered": 43,
+            "risk": 0.4418604651162791,
+            "threshold": 0.9822063866208811
+          },
+          {
+            "coverage": 0.34375,
+            "covered": 44,
+            "risk": 0.45454545454545453,
+            "threshold": 0.9818077044827598
+          },
+          {
+            "coverage": 0.3515625,
+            "covered": 45,
+            "risk": 0.4666666666666667,
+            "threshold": 0.9815004732873704
+          },
+          {
+            "coverage": 0.359375,
+            "covered": 46,
+            "risk": 0.4782608695652174,
+            "threshold": 0.9810910495286135
+          },
+          {
+            "coverage": 0.3671875,
+            "covered": 47,
+            "risk": 0.46808510638297873,
+            "threshold": 0.9804309922456741
+          },
+          {
+            "coverage": 0.375,
+            "covered": 48,
+            "risk": 0.4791666666666667,
+            "threshold": 0.9803991234794105
+          },
+          {
+            "coverage": 0.3828125,
+            "covered": 49,
+            "risk": 0.46938775510204084,
+            "threshold": 0.9803684140429084
+          },
+          {
+            "coverage": 0.390625,
+            "covered": 50,
+            "risk": 0.46,
+            "threshold": 0.9803192075026237
+          },
+          {
+            "coverage": 0.3984375,
+            "covered": 51,
+            "risk": 0.45098039215686275,
+            "threshold": 0.9802842788325931
+          },
+          {
+            "coverage": 0.40625,
+            "covered": 52,
+            "risk": 0.46153846153846156,
+            "threshold": 0.9799544333337663
+          },
+          {
+            "coverage": 0.4140625,
+            "covered": 53,
+            "risk": 0.4716981132075472,
+            "threshold": 0.9799052449030297
+          },
+          {
+            "coverage": 0.421875,
+            "covered": 54,
+            "risk": 0.48148148148148145,
+            "threshold": 0.9798770826934968
+          },
+          {
+            "coverage": 0.4296875,
+            "covered": 55,
+            "risk": 0.4909090909090909,
+            "threshold": 0.9797783980369568
+          },
+          {
+            "coverage": 0.4375,
+            "covered": 56,
+            "risk": 0.48214285714285715,
+            "threshold": 0.9797086065014203
+          },
+          {
+            "coverage": 0.4453125,
+            "covered": 57,
+            "risk": 0.49122807017543857,
+            "threshold": 0.9793734450376671
+          },
+          {
+            "coverage": 0.453125,
+            "covered": 58,
+            "risk": 0.4827586206896552,
+            "threshold": 0.9785913233043385
+          },
+          {
+            "coverage": 0.4609375,
+            "covered": 59,
+            "risk": 0.4915254237288136,
+            "threshold": 0.9777696576611749
+          },
+          {
+            "coverage": 0.46875,
+            "covered": 60,
+            "risk": 0.48333333333333334,
+            "threshold": 0.977535147840778
+          },
+          {
+            "coverage": 0.4765625,
+            "covered": 61,
+            "risk": 0.4918032786885246,
+            "threshold": 0.9774756541488864
+          },
+          {
+            "coverage": 0.484375,
+            "covered": 62,
+            "risk": 0.4838709677419355,
+            "threshold": 0.9770267388530981
+          },
+          {
+            "coverage": 0.4921875,
+            "covered": 63,
+            "risk": 0.47619047619047616,
+            "threshold": 0.9768673207448877
+          },
+          {
+            "coverage": 0.5,
+            "covered": 64,
+            "risk": 0.484375,
+            "threshold": 0.9766599640250206
+          },
+          {
+            "coverage": 0.5078125,
+            "covered": 65,
+            "risk": 0.49230769230769234,
+            "threshold": 0.9764581568368519
+          },
+          {
+            "coverage": 0.515625,
+            "covered": 66,
+            "risk": 0.5,
+            "threshold": 0.9758972350893349
+          },
+          {
+            "coverage": 0.5234375,
+            "covered": 67,
+            "risk": 0.5074626865671642,
+            "threshold": 0.9758182954922151
+          },
+          {
+            "coverage": 0.53125,
+            "covered": 68,
+            "risk": 0.5,
+            "threshold": 0.975590777252951
+          },
+          {
+            "coverage": 0.5390625,
+            "covered": 69,
+            "risk": 0.5072463768115942,
+            "threshold": 0.9755188616968337
+          },
+          {
+            "coverage": 0.546875,
+            "covered": 70,
+            "risk": 0.5142857142857142,
+            "threshold": 0.9752497767733637
+          },
+          {
+            "coverage": 0.5546875,
+            "covered": 71,
+            "risk": 0.5070422535211268,
+            "threshold": 0.9751373775508425
+          },
+          {
+            "coverage": 0.5625,
+            "covered": 72,
+            "risk": 0.5138888888888888,
+            "threshold": 0.9747131391005083
+          },
+          {
+            "coverage": 0.5703125,
+            "covered": 73,
+            "risk": 0.5205479452054794,
+            "threshold": 0.9746579546649177
+          },
+          {
+            "coverage": 0.578125,
+            "covered": 74,
+            "risk": 0.527027027027027,
+            "threshold": 0.9741883892185834
+          },
+          {
+            "coverage": 0.5859375,
+            "covered": 75,
+            "risk": 0.5333333333333333,
+            "threshold": 0.9738908346775359
+          },
+          {
+            "coverage": 0.59375,
+            "covered": 76,
+            "risk": 0.5394736842105263,
+            "threshold": 0.9737040968063999
+          },
+          {
+            "coverage": 0.6015625,
+            "covered": 77,
+            "risk": 0.5324675324675324,
+            "threshold": 0.973656596224985
+          },
+          {
+            "coverage": 0.609375,
+            "covered": 78,
+            "risk": 0.5384615384615384,
+            "threshold": 0.973611142900255
+          },
+          {
+            "coverage": 0.6171875,
+            "covered": 79,
+            "risk": 0.5443037974683544,
+            "threshold": 0.973265304908914
+          },
+          {
+            "coverage": 0.625,
+            "covered": 80,
+            "risk": 0.55,
+            "threshold": 0.9729911083849068
+          },
+          {
+            "coverage": 0.6328125,
+            "covered": 81,
+            "risk": 0.5555555555555556,
+            "threshold": 0.9728144467887232
+          },
+          {
+            "coverage": 0.640625,
+            "covered": 82,
+            "risk": 0.5487804878048781,
+            "threshold": 0.9727717705882422
+          },
+          {
+            "coverage": 0.6484375,
+            "covered": 83,
+            "risk": 0.5542168674698795,
+            "threshold": 0.972539510819819
+          },
+          {
+            "coverage": 0.65625,
+            "covered": 84,
+            "risk": 0.5476190476190477,
+            "threshold": 0.9723603600805456
+          },
+          {
+            "coverage": 0.6640625,
+            "covered": 85,
+            "risk": 0.5529411764705883,
+            "threshold": 0.9720281007744017
+          },
+          {
+            "coverage": 0.671875,
+            "covered": 86,
+            "risk": 0.5465116279069767,
+            "threshold": 0.9720182179235944
+          },
+          {
+            "coverage": 0.6796875,
+            "covered": 87,
+            "risk": 0.5517241379310345,
+            "threshold": 0.9716911584723229
+          },
+          {
+            "coverage": 0.6875,
+            "covered": 88,
+            "risk": 0.5568181818181818,
+            "threshold": 0.971308912399789
+          },
+          {
+            "coverage": 0.6953125,
+            "covered": 89,
+            "risk": 0.5617977528089888,
+            "threshold": 0.9705234478860005
+          },
+          {
+            "coverage": 0.703125,
+            "covered": 90,
+            "risk": 0.5666666666666667,
+            "threshold": 0.969985262421537
+          },
+          {
+            "coverage": 0.7109375,
+            "covered": 91,
+            "risk": 0.5604395604395604,
+            "threshold": 0.9698252270192457
+          },
+          {
+            "coverage": 0.71875,
+            "covered": 92,
+            "risk": 0.5652173913043478,
+            "threshold": 0.9697925683031691
+          },
+          {
+            "coverage": 0.7265625,
+            "covered": 93,
+            "risk": 0.5698924731182796,
+            "threshold": 0.969761408473316
+          },
+          {
+            "coverage": 0.734375,
+            "covered": 94,
+            "risk": 0.574468085106383,
+            "threshold": 0.9696783311384961
+          },
+          {
+            "coverage": 0.7421875,
+            "covered": 95,
+            "risk": 0.5789473684210527,
+            "threshold": 0.9691211722113869
+          },
+          {
+            "coverage": 0.75,
+            "covered": 96,
+            "risk": 0.5833333333333334,
+            "threshold": 0.9684610328775771
+          },
+          {
+            "coverage": 0.7578125,
+            "covered": 97,
+            "risk": 0.5876288659793815,
+            "threshold": 0.9682887419361934
+          },
+          {
+            "coverage": 0.765625,
+            "covered": 98,
+            "risk": 0.5816326530612245,
+            "threshold": 0.9674897650340656
+          },
+          {
+            "coverage": 0.7734375,
+            "covered": 99,
+            "risk": 0.5757575757575758,
+            "threshold": 0.9674835067858799
+          },
+          {
+            "coverage": 0.78125,
+            "covered": 100,
+            "risk": 0.58,
+            "threshold": 0.9671324599872936
+          },
+          {
+            "coverage": 0.7890625,
+            "covered": 101,
+            "risk": 0.5841584158415841,
+            "threshold": 0.9658386360094385
+          },
+          {
+            "coverage": 0.796875,
+            "covered": 102,
+            "risk": 0.5784313725490197,
+            "threshold": 0.9656184499080365
+          },
+          {
+            "coverage": 0.8046875,
+            "covered": 103,
+            "risk": 0.5825242718446602,
+            "threshold": 0.9655581348009042
+          },
+          {
+            "coverage": 0.8125,
+            "covered": 104,
+            "risk": 0.5865384615384616,
+            "threshold": 0.9640577018260956
+          },
+          {
+            "coverage": 0.8203125,
+            "covered": 105,
+            "risk": 0.5904761904761905,
+            "threshold": 0.9638535661426016
+          },
+          {
+            "coverage": 0.828125,
+            "covered": 106,
+            "risk": 0.5849056603773585,
+            "threshold": 0.9628938257694244
+          },
+          {
+            "coverage": 0.8359375,
+            "covered": 107,
+            "risk": 0.5887850467289719,
+            "threshold": 0.9616294292962715
+          },
+          {
+            "coverage": 0.84375,
+            "covered": 108,
+            "risk": 0.5925925925925926,
+            "threshold": 0.9561618371256466
+          },
+          {
+            "coverage": 0.8515625,
+            "covered": 109,
+            "risk": 0.5963302752293578,
+            "threshold": 0.9536647501501064
+          },
+          {
+            "coverage": 0.859375,
+            "covered": 110,
+            "risk": 0.6,
+            "threshold": 0.9536230809710644
+          },
+          {
+            "coverage": 0.8671875,
+            "covered": 111,
+            "risk": 0.6036036036036037,
+            "threshold": 0.9528920621099607
+          },
+          {
+            "coverage": 0.875,
+            "covered": 112,
+            "risk": 0.6071428571428571,
+            "threshold": 0.952765778408331
+          },
+          {
+            "coverage": 0.8828125,
+            "covered": 113,
+            "risk": 0.6106194690265486,
+            "threshold": 0.9526688316646887
+          },
+          {
+            "coverage": 0.890625,
+            "covered": 114,
+            "risk": 0.6140350877192983,
+            "threshold": 0.9520832464719812
+          },
+          {
+            "coverage": 0.8984375,
+            "covered": 115,
+            "risk": 0.6173913043478261,
+            "threshold": 0.9501781832604181
+          },
+          {
+            "coverage": 0.90625,
+            "covered": 116,
+            "risk": 0.6206896551724138,
+            "threshold": 0.9435224770745144
+          },
+          {
+            "coverage": 0.9140625,
+            "covered": 117,
+            "risk": 0.6239316239316239,
+            "threshold": 0.9420573792674325
+          },
+          {
+            "coverage": 0.921875,
+            "covered": 118,
+            "risk": 0.6271186440677966,
+            "threshold": 0.9415688224633535
+          },
+          {
+            "coverage": 0.9296875,
+            "covered": 119,
+            "risk": 0.6302521008403361,
+            "threshold": 0.939706276357174
+          },
+          {
+            "coverage": 0.9375,
+            "covered": 120,
+            "risk": 0.6333333333333333,
+            "threshold": 0.9373196439968573
+          },
+          {
+            "coverage": 0.9453125,
+            "covered": 121,
+            "risk": 0.6363636363636364,
+            "threshold": 0.936272506875203
+          },
+          {
+            "coverage": 0.953125,
+            "covered": 122,
+            "risk": 0.639344262295082,
+            "threshold": 0.9354078851248089
+          },
+          {
+            "coverage": 0.9609375,
+            "covered": 123,
+            "risk": 0.6422764227642277,
+            "threshold": 0.9302534899492373
+          },
+          {
+            "coverage": 0.96875,
+            "covered": 124,
+            "risk": 0.6451612903225806,
+            "threshold": 0.9280138130581707
+          },
+          {
+            "coverage": 0.9765625,
+            "covered": 125,
+            "risk": 0.648,
+            "threshold": 0.9213559039031403
+          },
+          {
+            "coverage": 0.984375,
+            "covered": 126,
+            "risk": 0.6507936507936508,
+            "threshold": 0.9130723676148881
+          },
+          {
+            "coverage": 0.9921875,
+            "covered": 127,
+            "risk": 0.6456692913385826,
+            "threshold": 0.9094509419467715
+          },
+          {
+            "coverage": 1.0,
+            "covered": 128,
+            "risk": 0.6484375,
+            "threshold": 0.8947970526120097
+          }
+        ]
+      }
+    },
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 216.5,
+        "p95": 329.4499999999999
+      },
+      "asr_inference": {
+        "p50": 213.5,
+        "p95": 326.0999999999999
+      },
+      "asr_load": {
+        "p50": 408.0,
+        "p95": 408.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 217.0,
+        "p95": 330.4499999999999
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 103.4377675048486,
+    "uwer_final": 0.027823035468103774,
+    "uwer_raw": 0.027823035468103774
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "Way back in the days when Grandpa Buzzard had his little falling out with old King Eagle, and done fly so high he scorched the feathers off in his head, he had a cousin, did Grandpa Buzzard, and this cousin was just naturally lazy and no count.",
+      "id": "librispeech-test.other-000051",
+      "raw_transcript": "Way back in the days when Grandpa Buzzard had his little falling out with old King Eagle, and done fly so high he scorched the feathers off in his head, he had a cousin, did Grandpa Buzzard, and this cousin was just naturally lazy and no count.",
+      "reference": "way back in the days when grandpap buzzard had his lil falling out with ol king eagle and done fly so high he sco'tch the feathers offen his haid he had a cousin did grandpap buzzard and this cousin was jes naturally lazy and no count",
+      "uwer_final": 0.2127659574468085
+    },
+    {
+      "error": null,
+      "final_text": "Every year she solemnly renewed her vows, and at the moment of taking the oath she said to the priest Monseigneur Saint Francois gave it to Monsignor Saint Julien, Monsignor Saint Julien gave it to Monsignor Saint Eusebius, Monseigneur Saint Eusebius gave it to Monsignor Saint Procopius, etcetera, etcetera,",
+      "id": "librispeech-test.other-000043",
+      "raw_transcript": "Every year she solemnly renewed her vows, and at the moment of taking the oath she said to the priest Monseigneur Saint Francois gave it to Monsignor Saint Julien, Monsignor Saint Julien gave it to Monsignor Saint Eusebius, Monseigneur Saint Eusebius gave it to Monsignor Saint Procopius, etcetera, etcetera,",
+      "reference": "every year she solemnly renewed her vows and at the moment of taking the oath she said to the priest monseigneur saint francois gave it to monseigneur saint julien monseigneur saint julien gave it to monseigneur saint eusebius monseigneur saint eusebius gave it to monseigneur saint procopius et cetera et cetera",
+      "uwer_final": 0.1568627450980392
+    },
+    {
+      "error": null,
+      "final_text": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the wife beaters. I allers thought a gentle reproof would be enough punishment for a wife beater, 'cause he probably has a lot of provocation that nobody knows. And the fire bugs can't think of the right name something like sendiaries. And the breakers of the peace, and what not, and yet the law has nothin' to say to a man like Han Lord.",
+      "id": "librispeech-test.clean-000015",
+      "raw_transcript": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the wife beaters. I allers thought a gentle reproof would be enough punishment for a wife beater, 'cause he probably has a lot of provocation that nobody knows. And the fire bugs can't think of the right name something like sendiaries. And the breakers of the peace, and what not, and yet the law has nothin' to say to a man like Han Lord.",
+      "reference": "well as i say it's an awful queer world they clap all the burglars into jail and the murderers and the wife beaters i've allers thought a gentle reproof would be enough punishment for a wife beater cause he probably has a lot o provocation that nobody knows and the firebugs can't think o the right name something like cendenaries an the breakers o the peace an what not an yet the law has nothin to say to a man like hen lord",
+      "uwer_final": 0.13953488372093023
+    },
+    {
+      "error": null,
+      "final_text": "Hark you, my masters, you that love the wine. Copse body, follow me, for Saint Anthony burned me as freely as a faggot. Did they get leave to taste one drop of the liquor that would not now come and fight for relief of the vine?",
+      "id": "librispeech-test.other-000063",
+      "raw_transcript": "Hark you, my masters, you that love the wine. Copse body, follow me, for Saint Anthony burned me as freely as a faggot. Did they get leave to taste one drop of the liquor that would not now come and fight for relief of the vine?",
+      "reference": "hark you my masters you that love the wine cop's body follow me for sanct anthony burn me as freely as a faggot if they get leave to taste one drop of the liquor that will not now come and fight for relief of the vine",
+      "uwer_final": 0.1276595744680851
+    },
+    {
+      "error": null,
+      "final_text": "The grand dame whom he supplied with faggots, the merchant whom he rescued from robbers, the king's counselor to whom he gave aid, all became his friends. Up and down the land, to beggar or lord, homeless wanderer or high born dame, he gladly gave unselfish service all unsought, and such as he helped straight away became his friends.",
+      "id": "librispeech-test.other-000035",
+      "raw_transcript": "The grand dame whom he supplied with faggots, the merchant whom he rescued from robbers, the king's counselor to whom he gave aid, all became his friends. Up and down the land, to beggar or lord, homeless wanderer or high born dame, he gladly gave unselfish service all unsought, and such as he helped straight away became his friends.",
+      "reference": "the grandame whom he supplied with fagots the merchant whom he rescued from robbers the king's councillor to whom he gave aid all became his friends up and down the land to beggar or lord homeless wanderer or high born dame he gladly gave unselfish service all unsought and such as he helped straightway became his friends",
+      "uwer_final": 0.10344827586206896
+    },
+    {
+      "error": null,
+      "final_text": "Zawamakan bowed his head awhile, and then said I accept the position. For indeed there was no refusing, and he was certified that the chamberlain had counselled him well and wisely, and set him on the right way.",
+      "id": "librispeech-test.other-000052",
+      "raw_transcript": "Zawamakan bowed his head awhile, and then said I accept the position. For indeed there was no refusing, and he was certified that the chamberlain had counselled him well and wisely, and set him on the right way.",
+      "reference": "zau al makan bowed his head awhile and then said i accept this position for indeed there was no refusing and he was certified that the chamberlain had counselled him well and wisely and set him on the right way",
+      "uwer_final": 0.1
+    },
+    {
+      "error": null,
+      "final_text": "But reckoning time, whose million'd accidents, Creep in twixt vows, And change decrees of kings? Tan's sacred beauty, blunt the sharpest intense, Divert strong minds to the course of altering things Alas, why fearing of time's tyranny? Might I not then say, Now I love you best, When I was certain o'er in certainty, Crowning the present, doubting of the rest?",
+      "id": "librispeech-test.clean-000009",
+      "raw_transcript": "But reckoning time, whose million'd accidents, Creep in twixt vows, And change decrees of kings? Tan's sacred beauty, blunt the sharpest intense, Divert strong minds to the course of altering things Alas, why fearing of time's tyranny? Might I not then say, Now I love you best, When I was certain o'er in certainty, Crowning the present, doubting of the rest?",
+      "reference": "but reckoning time whose million'd accidents creep in twixt vows and change decrees of kings tan sacred beauty blunt the sharp'st intents divert strong minds to the course of altering things alas why fearing of time's tyranny might i not then say now i love you best when i was certain o'er incertainty crowning the present doubting of the rest",
+      "uwer_final": 0.09375
+    },
+    {
+      "error": null,
+      "final_text": "Thus accomplished, he excited the admiration of every silly cocket, and the envy of every flattering bochomb. But by all young gentlemen and ladies of understanding, he was heartily despised as a mere civilized monkey.",
+      "id": "librispeech-test.other-000048",
+      "raw_transcript": "Thus accomplished, he excited the admiration of every silly cocket, and the envy of every flattering bochomb. But by all young gentlemen and ladies of understanding, he was heartily despised as a mere civilized monkey.",
+      "reference": "thus accomplished he excited the admiration of every silly coquette and the envy of every fluttering coxcomb but by all young gentlemen and ladies of understanding he was heartily despised as a mere civilized monkey",
+      "uwer_final": 0.08571428571428572
+    },
+    {
+      "error": null,
+      "final_text": "The Radian was just beginning to praise Arsenaux also as a special friend and connoisseur of the sculpture's art when Kratz, Hermann's fellow student, asked the blind artist, in behalf of his beautiful companion, why his demeter was placed upon a pedestal which, to others as well as himself, seemed too high for the size of the statue.",
+      "id": "librispeech-test.other-000040",
+      "raw_transcript": "The Radian was just beginning to praise Arsenaux also as a special friend and connoisseur of the sculpture's art when Kratz, Hermann's fellow student, asked the blind artist, in behalf of his beautiful companion, why his demeter was placed upon a pedestal which, to others as well as himself, seemed too high for the size of the statue.",
+      "reference": "the rhodian was just beginning to praise arsinoe also as a special friend and connoisseur of the sculptor's art when crates hermon's fellow student asked the blind artist in behalf of his beautiful companion why his demeter was placed upon a pedestal which to others as well as himself seemed too high for the size of the statue",
+      "uwer_final": 0.08333333333333333
+    },
+    {
+      "error": null,
+      "final_text": "The stories regarding Joseph, their traditional father Ephraim and Manasseh, imply that these strong central tribes, possibly together with the southern tribes of Benjamin and Judo, were the chief actors in this opening scene in Israel's history.",
+      "id": "librispeech-test.other-000049",
+      "raw_transcript": "The stories regarding Joseph, their traditional father Ephraim and Manasseh, imply that these strong central tribes, possibly together with the southern tribes of Benjamin and Judo, were the chief actors in this opening scene in Israel's history.",
+      "reference": "the stories regarding joseph the traditional father of ephraim and manasseh imply that these strong central tribes possibly together with the southern tribes of benjamin and judah were the chief actors in this opening scene in israel's history",
+      "uwer_final": 0.07692307692307693
+    }
+  ]
+}
