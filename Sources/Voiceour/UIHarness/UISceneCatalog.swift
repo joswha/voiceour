@@ -418,20 +418,6 @@
                     )
                 },
                 UISceneDescriptor(
-                    id: "overlay.panel.partial",
-                    title: "Recording overlay panel with a live transcript preview",
-                    size: RecordingOverlayMetrics.windowSize,
-                    tags: ["overlay"]
-                ) {
-                    AnyView(
-                        RecordingOverlayView(
-                            model: partialPreviewOverlayModel(),
-                            onCancel: {},
-                            onFinish: {}
-                        )
-                    )
-                },
-                UISceneDescriptor(
                     id: "overlay.island.recording",
                     title: "Recording overlay island, listening",
                     size: RecordingOverlayMetrics.islandSize,
@@ -743,15 +729,6 @@
             for level in waveformLevels {
                 model.record(level)
             }
-            return model
-        }
-
-        /// The same live capture, plus one preview line. Panel-only by construction: the island
-        /// variant has no band to draw it in, which the unchanged `overlay.island.*` goldens
-        /// keep honest.
-        private static func partialPreviewOverlayModel() -> RecordingOverlayModel {
-            let model = listeningOverlayModel()
-            model.updatePartial("The offscreen harness renders every console pane")
             return model
         }
 

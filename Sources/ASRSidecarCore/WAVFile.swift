@@ -104,3 +104,23 @@ public enum WAVFile {
             | (UInt32(data[base + 3]) << 24)
     }
 }
+
+/// The one Int16 -> normalized Float conversion every decode reads its samples through.
+enum PCMSamples {
+    static func decodeInt16(_ data: Data, in range: Range<Int>) -> [Float] {
+        let count = range.count / 2
+        guard count > 0 else { return [] }
+        let scale = Float(1.0 / 32768.0)
+        return data.withUnsafeBytes { raw -> [Float] in
+            [Float](unsafeUninitializedCapacity: count) { buffer, initialized in
+                for index in 0..<count {
+                    // Unaligned: in a WAV the data chunk starts wherever the preceding chunks
+                    // leave it, and a mapped Data carries no alignment guarantee either.
+                    let bits = raw.loadUnaligned(fromByteOffset: range.lowerBound + index * 2, as: UInt16.self)
+                    buffer[index] = Float(Int16(bitPattern: UInt16(littleEndian: bits))) * scale
+                }
+                initialized = count
+            }
+        }
+    }
+}

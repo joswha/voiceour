@@ -36,11 +36,6 @@ public final class DictationCoordinator {
     public internal(set) var state: SessionState = .idle {
         didSet {
             stateSubject.send(state)
-            // The preview line belongs to a live utterance and nothing else. Clearing it here
-            // covers every exit — stop, cancel, error — with one rule instead of three.
-            if state != .recording, partialTranscript != nil {
-                partialTranscript = nil
-            }
             // Escape belongs to the focused app at every other moment, so the
             // binder only claims it while the overlay is on screen.
             hotkey.setCancelArmed(state.isActive)
@@ -74,25 +69,11 @@ public final class DictationCoordinator {
     public private(set) var activeProjectId: String?
     public private(set) var activeProjectName: String?
     public private(set) var isProcessingInFlight: Bool = false
-    /// The most recent preview decode of the live utterance, or nil when there is none. Never
-    /// inserted and never persisted: the overlay reads it, and the stop path may adopt it.
-    public internal(set) var partialTranscript: String? {
-        didSet { partialTranscriptSubject.send(partialTranscript) }
-    }
 
     private let stateSubject = CurrentValueSubject<SessionState, Never>(.idle)
     public var statePublisher: AnyPublisher<SessionState, Never> {
         stateSubject.eraseToAnyPublisher()
     }
-
-    private let partialTranscriptSubject = CurrentValueSubject<String?, Never>(nil)
-    public var partialTranscriptPublisher: AnyPublisher<String?, Never> {
-        partialTranscriptSubject.eraseToAnyPublisher()
-    }
-
-    /// Preview engine for the live utterance. Ticked by the metering poll, so it needs no timer
-    /// of its own and stays deterministic under the flow harness.
-    let partialPreview = PartialPreviewEngine()
 
     /// Dedicated meter for the 25Hz input-level / capture-live stream; see
     /// `AudioLevelMeter`.
@@ -381,8 +362,6 @@ public final class DictationCoordinator {
         errorMessage = nil
         lastOutcome = nil
         lastTranscript = ""
-        partialTranscript = nil
-        partialPreview.cancelAndReset()
         inputMeter.setLive(false)
         stopInputMetering()
         state = .checkingPermissions
@@ -421,9 +400,6 @@ public final class DictationCoordinator {
         guard state == .recording, !isProcessingInFlight else { return }
         let stopReleaseStarted = runtime.now()
         stopInputMetering()
-        // Frees the decode queue for the final. The client's cancel frame aborts the sidecar
-        // decode, which comes back as `cancelled` rather than an inference failure.
-        partialPreview.cancelInFlight()
         state = .finalizingAudio
         let generation = generations.begin(.processing)
         let identity = runtime.makeUUID()

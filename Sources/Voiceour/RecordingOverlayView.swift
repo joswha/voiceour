@@ -32,7 +32,6 @@ struct RecordingOverlayView: View {
         } else {
             VStack(spacing: 6) {
                 island
-                partialLine
             }
             .padding(.top, RecordingOverlayMetrics.contentTopInset)
             .frame(
@@ -41,28 +40,6 @@ struct RecordingOverlayView: View {
                 alignment: .top
             )
             .background(Color.clear)
-        }
-    }
-
-    /// The live preview, panel variant only: the 180x34 island has no room for a line of text,
-    /// and the 260x80 panel has exactly the band below the capsule. Head truncation keeps the
-    /// most recent words visible, which is the half of a growing transcript worth reading.
-    @ViewBuilder
-    private var partialLine: some View {
-        if model.isRecording, let partial = model.partialText {
-            Text(partial)
-                .roleStyle(.micro)
-                .foregroundStyle(VoiceourPalette.Text.high)
-                .lineLimit(1)
-                .truncationMode(.head)
-                .padding(.horizontal, 12)
-                .contentTransition(.opacity)
-                .animation(
-                    a11y.reduceMotion ? nil : VoiceourMotion.deliberate,
-                    value: partial
-                )
-                .accessibilityLabel("Live transcript preview")
-                .accessibilityValue(partial)
         }
     }
 

@@ -349,8 +349,6 @@
         case recorderStop
         /// The ASR client returning a transcript.
         case transcription
-        /// The ASR client returning a preview decode of the live utterance.
-        case partialTranscription
         /// The insertion adapter returning an outcome.
         case insertion
         /// Recent-session persistence completing.

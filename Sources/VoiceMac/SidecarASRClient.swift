@@ -95,31 +95,6 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         }
     }
 
-    /// Preview decode of the live capture tee.
-    ///
-    /// Reuses `runRequest` and the same multiplexed runtime as a final transcribe, so
-    /// cancellation, timeouts and respawn behave identically; only the type string, the audio
-    /// format and the byte accounting differ.
-    public func transcribePartial(pcmURL: URL, sampleCount: Int, timeoutMs: Int) async throws -> ASRResult {
-        let request = ASRTranscribeRequest(
-            type: "transcribe_partial",
-            requestId: UUID().uuidString,
-            audio: ASRAudioMeta(
-                path: pcmURL.path,
-                format: "pcm_s16le",
-                sampleRateHz: 16_000,
-                channels: 1,
-                durationMs: sampleCount / 16,
-                byteCount: sampleCount * 2
-            ),
-            expectedModel: expectedModel,
-            timeoutMs: timeoutMs
-        )
-        return try await runRequest(requestId: request.requestId, timeoutMs: timeoutMs) {
-            try await self.runtime.transcribe(request)
-        }
-    }
-
     public func health(timeoutMs: Int) async throws -> ASRBackendHealth {
         let request = ASRHealthRequest(requestId: UUID().uuidString)
         return try await runRequest(requestId: request.requestId, timeoutMs: timeoutMs) {

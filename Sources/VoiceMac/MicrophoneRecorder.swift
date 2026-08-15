@@ -74,13 +74,6 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     private var converter: CaptureConverter?
     private var file: AVAudioFile?
     private var outputURL: URL?
-    /// Append-only raw s16le sibling of the WAV, written for partial previews.
-    ///
-    /// A second file rather than a re-read of the WAV: `AVAudioFile` owns the WAV's header and
-    /// only finalises its sizes on release, so a live WAV declares a data chunk length that has
-    /// not been written yet. The tee has no header to be wrong about.
-    private var pcmURL: URL?
-    private var pcmHandle: FileHandle?
     private var writtenFrames: AVAudioFramePosition = 0
     private var lastStartLatency: Int?
 
@@ -98,17 +91,10 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
                 preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
             let converter = CaptureConverter(targetFormat: wav.format)
 
-            let pcm = wav.url.deletingPathExtension().appendingPathExtension("pcm")
-            FileManager.default.createFile(atPath: pcm.path, contents: nil)
-
             self.file = wav.file
             self.converter = converter
             self.capture = capture
             outputURL = wav.url
-            pcmURL = pcm
-            // A tee that cannot be opened is not a reason to refuse a dictation: partials
-            // simply do not appear, and the recording itself is unaffected.
-            pcmHandle = try? FileHandle(forWritingTo: pcm)
             writtenFrames = 0
             lastStartLatency = nil
 
@@ -154,12 +140,6 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             // Releasing the file is what flushes the WAV header's final sizes.
             file = nil
             self.outputURL = nil
-            // The tee exists only for the live preview. Dropping it here is what keeps the
-            // "no audio history" promise: only the WAV survives, and only until insertion.
-            try? pcmHandle?.close()
-            pcmHandle = nil
-            if let pcmURL { try? FileManager.default.removeItem(at: pcmURL) }
-            pcmURL = nil
             lastStartLatency = latency
             return (outputURL, frames, latency)
         }
@@ -197,23 +177,16 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         let claimed: MicrophoneCapture? = lock.withLock { capture }
         claimed?.stop()
 
-        let urls = lock.withLock { () -> (wav: URL?, pcm: URL?) in
+        let claimedURL = lock.withLock { () -> URL? in
             capture = nil
             converter = nil
             file = nil
             let url = outputURL
             outputURL = nil
-            try? pcmHandle?.close()
-            pcmHandle = nil
-            let pcm = pcmURL
-            pcmURL = nil
-            return (url, pcm)
+            return url
         }
-        if let url = urls.wav {
+        if let url = claimedURL {
             try? FileManager.default.removeItem(at: url)
-        }
-        if let pcm = urls.pcm {
-            try? FileManager.default.removeItem(at: pcm)
         }
     }
 
@@ -233,17 +206,6 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         lock.withLock {
             guard let converter, let file else { return }
             for chunk in converter.convert(buffer) where chunk.frameLength > 0 {
-                // The tee first, and never fatal: the WAV is the deliverable, the tee is a
-                // preview convenience, and `writtenFrames` only advances once the WAV took it.
-                if let pcmHandle, let channel = chunk.int16ChannelData?[0] {
-                    let byteCount = Int(chunk.frameLength) * 2
-                    let bytes = Data(
-                        bytesNoCopy: UnsafeMutableRawPointer(channel),
-                        count: byteCount,
-                        deallocator: .none
-                    )
-                    try? pcmHandle.write(contentsOf: bytes)
-                }
                 do {
                     try file.write(from: chunk)
                     writtenFrames += AVAudioFramePosition(chunk.frameLength)
@@ -256,14 +218,3 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     }
 }
 
-extension MicrophoneRecorder: PartialAudioProviding {
-    public func partialAudio() -> PartialAudioSnapshot? {
-        lock.withLock {
-            guard let pcmURL, writtenFrames > 0 else { return nil }
-            // `writtenFrames` counts frames the WAV accepted, and the tee is always written
-            // first, so the file holds at least this many samples. A reader that stops at this
-            // count can never see a torn write.
-            return PartialAudioSnapshot(pcmURL: pcmURL, sampleCount: Int(writtenFrames))
-        }
-    }
-}

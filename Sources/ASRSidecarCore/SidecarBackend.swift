@@ -32,12 +32,6 @@ public protocol SidecarBackend: AnyObject, Sendable {
     func startupStatus() -> BackendStatus
     func health() -> ASRBackendHealth
     func transcribe(_ request: ASRTranscribeRequest, isCancelled: @escaping () -> Bool) -> SidecarTerminal
-    /// Decodes the utterance so far, for preview only.
-    ///
-    /// Same one-terminal contract as `transcribe`. The default refuses, so a backend opts in by
-    /// implementing it rather than by advertising a capability that could drift.
-    func transcribePartial(_ request: ASRTranscribeRequest, isCancelled: @escaping () -> Bool)
-        -> SidecarTerminal
     /// Acquire and warm whatever the first real request would otherwise pay for.
     /// Runs on a background thread; network work must not touch the decode queue.
     func warmUp() throws
@@ -52,12 +46,6 @@ public protocol SidecarBackend: AnyObject, Sendable {
 extension SidecarBackend {
     public func warmUp() throws {}
     public func shutdown() {}
-
-    public func transcribePartial(_ request: ASRTranscribeRequest, isCancelled: @escaping () -> Bool)
-        -> SidecarTerminal
-    {
-        .failure(code: .invalidRequest, detail: "backend does not support transcribe_partial", fatal: false)
-    }
 }
 
 /// Request validation shared by every backend, in the order the Python `base.py` applied it.
@@ -69,14 +57,10 @@ public enum SidecarRequestValidation {
 
     /// An empty `expected_model` field is a wildcard, so an older client that only pins the
     /// model id keeps working against a sidecar whose revision moved.
-    ///
-    /// `format` is the one thing a partial changes: the preview reads the recorder's headerless
-    /// `pcm_s16le` tee, everything else about the request is identical.
     public static func validate(
         _ request: ASRTranscribeRequest,
         modelId: String,
-        modelRevision: String,
-        format: String = "wav"
+        modelRevision: String
     ) -> Outcome {
         if let expected = request.expectedModel {
             if !expected.modelId.isEmpty, expected.modelId != modelId {
@@ -90,7 +74,7 @@ public enum SidecarRequestValidation {
         guard FileManager.default.fileExists(atPath: path.path) else {
             return .failure(code: .audioNotFound, detail: path.path)
         }
-        guard request.audio.format.lowercased() == format else {
+        guard request.audio.format.lowercased() == "wav" else {
             return .failure(code: .unsupportedAudioFormat, detail: request.audio.format)
         }
         return .audioPath(path)

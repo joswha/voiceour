@@ -75,26 +75,4 @@ public final class FakeASRBackend: SidecarBackend {
             timings: ASRTimings(load: 0, inference: 0, total: 0)
         )
     }
-
-    /// Answers with the sample count it was handed, so a process test can assert that the
-    /// request's byte accounting survived the wire without owning any audio.
-    public func transcribePartial(
-        _ request: ASRTranscribeRequest,
-        isCancelled: @escaping () -> Bool
-    ) -> SidecarTerminal {
-        if isCancelled() { return .cancelled }
-        return .result(
-            transcript: ASRTranscript(
-                text: "fake partial samples=\(request.audio.byteCount / 2)",
-                language: "en",
-                segments: nil,
-                confidence: nil,
-                confidenceMode: nil
-            ),
-            backendId: backendId,
-            modelId: "fake",
-            modelRevision: "dev",
-            timings: ASRTimings(load: 0, inference: 0, total: 0)
-        )
-    }
 }

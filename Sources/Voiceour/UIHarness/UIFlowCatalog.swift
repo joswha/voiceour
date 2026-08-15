@@ -106,9 +106,6 @@
             // by fixtures/ui/overlay.island.warmup.ax.txt.
             static let warmingStatus = UIQuery.all([.label("Dictation status"), .value("Microphone starting")])
             static let listeningStatus = UIQuery.all([.label("Dictation status"), .value("Recording")])
-            // fixtures/ui/overlay.panel.partial.ax.txt — panel variant only; the island has no
-            // band for a line of text, which the unchanged island goldens keep honest.
-            static let partialPreview = UIQuery.label("Live transcript preview")
 
             // These flow-local identifiers follow ConfirmActionRow.swift:128-159. No scene
             // contains the `flow.confirm` instance; its controls are verified at runtime.
@@ -776,7 +773,6 @@
                     ]
                 ),
                 warmupFlow,
-                partialPreviewFlow,
             ]
         }
 
@@ -850,52 +846,6 @@
                     // in the process for every flow that comes after this one.
                     .act(.dictate(.cancel)),
                     .wait(.state(.idle)),
-                ]
-            )
-        }
-
-        /// The preview line appears while recording and leaves with the session.
-        ///
-        /// Everything here is gated: the preview lands when the script says so, not when a
-        /// 40 ms poll and a decode happen to line up. The `.exactly(1)` count is the point —
-        /// a poll that re-requests a preview it already has would publish the line twice.
-        private static var partialPreviewFlow: UIFlow {
-            UIFlow(
-                id: "overlay.partial-preview",
-                title: "A live partial transcript appears under the island and clears with the session",
-                tags: ["overlay", "dictation", "partial"],
-                covers: [.journey(.overlay, "partial-preview")],
-                host: .overlay,
-                fixture: .partialPreview(),
-                steps: [
-                    .check("idle", [.state(.idle), .absent(Selector.partialPreview)]),
-                    .act(.dictate(.start)),
-                    .wait(.state(.checkingPermissions)),
-                    .release(.permission),
-                    .wait(.state(.recording)),
-                    // Recording, and the preview decode has not answered yet: the line must
-                    // not appear before there is anything to show.
-                    .check("recording", [.state(.recording), .absent(Selector.partialPreview)]),
-                    .release(.partialTranscription),
-                    .wait(.element(Selector.partialPreview)),
-                    .check(
-                        "preview",
-                        [
-                            .state(.recording),
-                            .count(Selector.partialPreview, .exactly(1)),
-                            .value(Selector.partialPreview, .equals("Partial preview text")),
-                        ]
-                    ),
-                    .act(.dictate(.cancel)),
-                    .wait(.state(.idle)),
-                    .check(
-                        "cleared",
-                        [
-                            .state(.idle),
-                            .absent(Selector.partialPreview),
-                            .transitions([.idle, .checkingPermissions, .recording, .cancelled, .idle], .exact),
-                        ]
-                    ),
                 ]
             )
         }

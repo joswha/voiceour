@@ -134,29 +134,6 @@
             }
         }
 
-        /// A live capture whose preview decode is parked on its own gate.
-        ///
-        /// The recorder offers a fixed sample count at the engine's first-snapshot threshold,
-        /// so the 40 ms metering poll asks for exactly one preview however many times it ticks;
-        /// the script decides when that preview lands.
-        static func partialPreview() -> UIFlowFixture {
-            let gates: Set<UIGate> = [.permission, .partialTranscription]
-            return UIFlowFixture(name: "partial-preview", armedGates: gates) {
-                makeDictationContext(
-                    armedGates: gates,
-                    transcription: .success(
-                        scriptedASRResult(transcript: "The partial journey never finishes a transcript.")
-                    ),
-                    insertion: .failed(reason: "the partial journey never delivers"),
-                    targetBundleID: "com.apple.TextEdit",
-                    targetSafety: .normalText,
-                    partialSamples: 24_000,
-                    partialTranscript: "Partial preview text"
-                )
-            }
-        }
-
-
         private static func scriptedASRResult(transcript: String) -> ASRResult {
             ASRResult(
                 requestId: "ui-flow",
@@ -186,12 +163,9 @@
             insertion: InsertionOutcome,
             targetBundleID: String,
             targetSafety: TargetSafetyClass,
-            capture: UICaptureWarmup? = nil,
-            partialSamples: Int? = nil,
-            partialTranscript: String? = nil
+            capture: UICaptureWarmup? = nil
         ) -> UIFlowContext {
             let permissionLink = UIAdapterLink(gate: .permission)
-            let partialLink = UIAdapterLink(gate: .partialTranscription)
             let recorderLink = UIAdapterLink(gate: .recorderStop)
             let transcriptionLink = UIAdapterLink(gate: .transcription)
             let insertionLink = UIAdapterLink(gate: .insertion)
@@ -204,14 +178,11 @@
                 recorder: UIGatedRecorder(
                     link: recorderLink,
                     audioURL: scratch.appendingPathComponent("capture.wav"),
-                    capture: capture,
-                    partialSamples: partialSamples
+                    capture: capture
                 ),
                 asr: UIGatedASR(
                     link: transcriptionLink,
-                    result: transcription,
-                    partialLink: partialTranscript == nil ? nil : partialLink,
-                    partialResult: partialTranscript.map { scriptedASRResult(transcript: $0) }
+                    result: transcription
                 ),
                 tracker: HarnessTracker(bundleID: targetBundleID, safety: targetSafety),
                 inserter: UIGatedInserter(link: insertionLink, outcome: insertion),
@@ -229,7 +200,7 @@
                 runtimeOverride: clock.runtime
             )
             let context = UIFlowContext(coordinator: coordinator, armedGates: armedGates)
-            for link in [permissionLink, recorderLink, transcriptionLink, partialLink, insertionLink] {
+            for link in [permissionLink, recorderLink, transcriptionLink, insertionLink] {
                 link.bind(to: context)
             }
             if let capture {
@@ -335,25 +306,12 @@
         func accessibility() -> PermissionState { .granted }
     }
 
-    struct UIGatedRecorder: AudioRecording, PartialAudioProviding {
+    struct UIGatedRecorder: AudioRecording {
         let link: UIAdapterLink
         let audioURL: URL
         /// Non-nil only for `UIFlowFixture.captureWarmup()`. Absent, the capture behaves
         /// like every other fixture's and is live from the first poll.
         var capture: UICaptureWarmup?
-        /// Non-nil only for `UIFlowFixture.partialPreview()`. Absent, the recorder offers no
-        /// partial audio at all, which is what keeps every other flow's preview engine idle.
-        var partialSamples: Int?
-
-        /// A fixed count at or above the engine's first-snapshot threshold, so exactly one
-        /// preview is requested however many times the 40 ms poll ticks.
-        func partialAudio() -> PartialAudioSnapshot? {
-            guard let partialSamples else { return nil }
-            return PartialAudioSnapshot(
-                pcmURL: audioURL.deletingPathExtension().appendingPathExtension("pcm"),
-                sampleCount: partialSamples
-            )
-        }
 
         func start() throws {}
 
@@ -390,23 +348,6 @@
     struct UIGatedASR: ASRClienting {
         let link: UIAdapterLink
         let result: Result<ASRResult, ASRErrorMessage>
-        /// Non-nil only for `UIFlowFixture.partialPreview()`. Absent, `transcribePartial`
-        /// falls through to the protocol default and the engine disables itself, which is the
-        /// production behaviour for every backend without a partial path.
-        var partialLink: UIAdapterLink?
-        var partialResult: ASRResult?
-
-        func transcribePartial(pcmURL: URL, sampleCount: Int, timeoutMs: Int) async throws -> ASRResult {
-            guard let partialLink, let partialResult else {
-                throw ASRErrorMessage(
-                    code: .backendUnavailable,
-                    requestId: nil,
-                    detail: "partial transcription unsupported"
-                )
-            }
-            await partialLink.arrive()
-            return partialResult
-        }
 
         func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
             await link.arrive()
@@ -427,7 +368,6 @@
         func warmUp() async {}
         func lastTranscriptionPath() -> String? { "ui-flow" }
     }
-
 
     struct UIGatedInserter: TextInserting {
         let link: UIAdapterLink

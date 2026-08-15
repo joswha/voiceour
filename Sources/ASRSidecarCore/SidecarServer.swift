@@ -124,9 +124,6 @@ public final class SidecarServer {
         case .transcribe(let request):
             guard let backend = requireBackend(requestId: request.requestId) else { return }
             start(request, on: backend) { backend.transcribe($0, isCancelled: $1) }
-        case .transcribePartial(let request):
-            guard let backend = requireBackend(requestId: request.requestId) else { return }
-            start(request, on: backend) { backend.transcribePartial($0, isCancelled: $1) }
         }
     }
 
@@ -140,8 +137,7 @@ public final class SidecarServer {
 
     /// Registers, runs and answers one decode request. `decode` selects which backend entry
     /// point runs; everything else — duplicate-id rejection, the single terminal, cancellation
-    /// and the fatal-exit check — is shared, because a partial must obey the same protocol
-    /// promises as a final.
+    /// and the fatal-exit check — is shared.
     private func start(
         _ request: ASRTranscribeRequest,
         on backend: SidecarBackend,
@@ -311,9 +307,6 @@ enum SidecarRequestParser {
     enum Parsed {
         case health(ASRHealthRequest)
         case transcribe(ASRTranscribeRequest)
-        /// A preview decode of a live utterance. Same struct, same one-terminal promise; only
-        /// the type string and the audio format differ.
-        case transcribePartial(ASRTranscribeRequest)
         case cancel(ASRCancelRequest)
         case malformed(ASRErrorMessage)
     }
@@ -342,8 +335,6 @@ enum SidecarRequestParser {
                 return .health(try ASRWire.decode(ASRHealthRequest.self, from: data))
             case "transcribe":
                 return .transcribe(try ASRWire.decode(ASRTranscribeRequest.self, from: data))
-            case "transcribe_partial":
-                return .transcribePartial(try ASRWire.decode(ASRTranscribeRequest.self, from: data))
             case "cancel":
                 return .cancel(try ASRWire.decode(ASRCancelRequest.self, from: data))
             case let other:

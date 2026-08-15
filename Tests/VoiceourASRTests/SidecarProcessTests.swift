@@ -190,43 +190,6 @@ struct SidecarProcessTests {
         #expect(error["detail"] as? String == "request_id already in flight")
     }
 
-    @Test func aFakePartialAnswersAndLeavesTheProcessServing() throws {
-        let pcm = try TemporaryPCM(sampleCount: 16_000)
-        defer { pcm.remove() }
-        let audio = try TemporaryWAV()
-        defer { audio.remove() }
-
-        let session = try Sidecar.run(lines: [
-            partialRequest(id: "p1", pcm: pcm.meta),
-            transcribeRequest(id: "t1", audio: audio.meta),
-        ])
-
-        #expect(session.types == ["hello", "result", "result"])
-        let partial = try #require(session.objects.first { $0["request_id"] as? String == "p1" })
-        let transcript = try #require(partial["transcript"] as? [String: Any])
-        #expect(transcript["text"] as? String == "fake partial samples=16000")
-    }
-
-    /// The preview path decoding real audio. Opt in with `VOICEOUR_PARAKEET_INTEGRATION=1`.
-    @Test func aRealPartialDecodesThePrefixOfALiveCapture() throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
-        let samples = try RealAudioFixture().pcmPayload()
-        let pcm = try TemporaryPCM(bytes: samples + samples + samples)
-        defer { pcm.remove() }
-
-        let session = try Sidecar.run(
-            lines: [partialRequest(id: "p1", pcm: pcm.meta)],
-            environment: ["VOICEOUR_ASR_BACKEND": "parakeet", "VOICEOUR_PRELOAD": "1"],
-            timeout: 300
-        )
-
-        #expect(session.types == ["hello", "result"])
-        let result = try #require(session.object(type: "result"))
-        let transcript = try #require(result["transcript"] as? [String: Any])
-        let text = try #require(transcript["text"] as? String)
-        #expect(text.lowercased().contains("hello"))
-    }
-
     /// The first exercise of parakeet.cpp's dynamic-encoder path: past 5000 mel frames the
     /// runtime rebuilds its graph rather than using the static one, and nothing in this
     /// repository had ever decoded audio long enough to reach it.
@@ -325,13 +288,6 @@ struct SidecarProcessTests {
         """
     }
 
-    private func partialRequest(id: String, pcm: AudioFixture) -> String {
-        """
-        {"type":"transcribe_partial","protocol_version":1,"request_id":"\(id)",\
-        "audio":{"path":"\(pcm.url.path)","format":"pcm_s16le","sample_rate_hz":16000,\
-        "channels":1,"duration_ms":\(pcm.byteCount / 32),"byte_count":\(pcm.byteCount)},"timeout_ms":5000}
-        """
-    }
 }
 
 /// What a transcribe request needs to name a WAV on disk.
@@ -380,28 +336,6 @@ private struct RealAudioFixture {
         while tiled.count < wanted { tiled.append(one) }
         return tiled
     }
-}
-
-/// A headerless raw s16le buffer, the format the recorder's live preview tee writes.
-private struct TemporaryPCM {
-    let url: URL
-    let byteCount: Int
-
-    var meta: AudioFixture { AudioFixture(url: url, byteCount: byteCount) }
-
-    init(bytes: Data) throws {
-        url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sidecar-process-tests-" + UUID().uuidString)
-            .appendingPathExtension("pcm")
-        try bytes.write(to: url)
-        byteCount = bytes.count
-    }
-
-    init(sampleCount: Int) throws {
-        try self.init(bytes: Data(count: sampleCount * 2))
-    }
-
-    func remove() { try? FileManager.default.removeItem(at: url) }
 }
 
 /// A 16 kHz mono 16-bit WAV, the one format the sidecar accepts.
