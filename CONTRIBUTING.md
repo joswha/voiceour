@@ -10,6 +10,7 @@ required `ci` job runs:
 ```sh
 make build
 make format-check
+make check-docs
 make lint-python
 make test
 make ui-flow

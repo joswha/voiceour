@@ -35,7 +35,7 @@ make ui-flow-update                            # rewrite intended flow goldens a
 make ui-flow-list                              # print the flow catalog as one JSON object
 make ui-coverage                               # validate coverage declarations and the baseline without hosting a window
 make ui-film                                   # record the README's recording-island GIF; media, not a golden
-make ui-all                                    # run ui-snap, then ui-flow-frames
+make ui-all                                    # ui-snap, ui-flow-frames, plus the os26 legs on macOS 26
 
 scripts/ui_harness.sh --only console           # ids containing, or tags exactly matching, "console"
 scripts/ui_harness.sh --only console,overlay   # comma-separated, OR-ed
@@ -165,13 +165,13 @@ console("console.glossary.empty", "Glossary with every term removed",
 
 Raw `UIScene(...)` is used only by the three portable overlay scenes, which need odd sizes and no backdrop. The id is the artifact basename, so keep it filesystem-safe and dot-separated: lowercase, `area.thing.state`. Native Liquid Glass counterparts use an `*.os26` id and the matching system factory. The harness discovers the scene, renders it, and reports `missing-golden` until the owner blesses new fixtures; no other change is required.
 
-The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 49 entries: 37 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 23 console, one pane, three menu, three overlay, two atom, five accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
+The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 51 entries: 39 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 24 console, one pane, three menu, four overlay, two atom, five accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
 
 ### Determinism
 
 Two mechanisms in `UIFixtures.swift` carry it:
 
-- App state comes from `UIFixtures.coordinator(_:)`: kinds `.firstRun`, `.populated`, `.emptyGlossary`, `.recording`, `.micDenied`, `.backendReady`, `.backendUnavailable`, `.arkBackendReady`, `.backendSwitchPending`, `.refinerConfigured`, `.refinerAppleOnDevice`, `.refinerOmp`, `.refinerOmpLoginFailed`, `.refinerUnreachable`, `.completedDictation`. The refiner kinds are all one of the two shipping providers: `.refinerConfigured` is Oh My Pi with a model picked out of a loaded catalog, `.refinerOmp` is Oh My Pi on the provider default, and `.refinerUnreachable` is an OMP install that answers neither the reachability probe nor the model catalog, because both run the same binary. `.arkBackendReady` is the one fixture running an opt-in ARK backend, because the readiness sentences name whichever backend is running and every other real-backend fixture runs Parakeet. It builds a `DictationCoordinator` out of inert fakes and never calls `DictationCoordinator.live()`, so no Python ASR sidecar is spawned, no CGEvent tap is installed, no microphone is opened and no warm-up task runs. The reachability probes are inert too, so no scene can spawn `omp` or reach the network even if one grows a `CHECK` step.
+- App state comes from `UIFixtures.coordinator(_:)`: kinds `.firstRun`, `.populated`, `.emptyGlossary`, `.recording`, `.micDenied`, `.backendReady`, `.backendUnavailable`, `.backendDownloading`, `.appleBackendReady`, `.backendSwitchPending`, `.refinerConfigured`, `.refinerAppleOnDevice`, `.refinerOmp`, `.refinerOmpLoginFailed`, `.refinerUnreachable`, `.completedDictation`. The refiner kinds are all one of the two shipping providers: `.refinerConfigured` is Oh My Pi with a model picked out of a loaded catalog, `.refinerOmp` is Oh My Pi on the provider default, and `.refinerUnreachable` is an OMP install that answers neither the reachability probe nor the model catalog, because both run the same binary. `.backendDownloading` is the one fixture mid-acquisition, so the System pane's DOWNLOADING row has a scene, and `.appleBackendReady` runs the other real backend so no readout can hardcode Parakeet and still pass.
 - `UIFixtures.pinProcessSeams()`, called on every `coordinator(_:)`, pins `RenderOverrides`: the render clock (`2025-06-15T14:26:40Z`), Gregorian calendar, UTC time zone, `en_US_POSIX` locale, the permission snapshot the System and Diagnostics panes display, the two storage paths Diagnostics prints, the Apple Intelligence readiness sentence the Refinement pane appends, the recording overlay's otherwise-random comet head, and the legacy glass path. The Refinement pane's probe verdict, its OMP model catalog (`ompModels`) and that catalog's load state (`ompModelCatalogState`) are per fixture rather than process-wide, so `make` installs them and `pinProcessSeams()` clears them. Foundation formatters and SwiftUI environment values resolve these overrides before the machine's real values. Optional production overrides stay `nil` and production reads use `override ?? <the real value>`; `forceLegacyGlass` defaults false. `textRoleRecorder` is installed and restored only around a hosted harness scene and otherwise remains nil, so shipping behaviour is unchanged.
 
 Beyond that, never let a scene derive anything from `Date()`, `UUID()`, `.random`, TCC, a subprocess, or `NSColor.controlAccentColor`. The latter resolves to the *user's* system accent and no environment key overrides it; SwiftUI's `Color.accentColor` is safe. The app holds no credential store to read from, so there is none to forbid. Avoid states dominated by `.repeatForever` or `TimelineView(.animation)`. In this app that is `FrostedCometIndicator`, whose orbit phase is wall-clock driven, so no scene renders a processing overlay. Settling itself is a fixed pump budget, identical every run, never adaptive.
@@ -195,16 +195,16 @@ A step that cannot find its target does not abort the scene; it records a warnin
 
 A scene answers whether one state still renders, reads and lints correctly. A `UIFlow` answers whether a real journey still works. It hosts a real app view with an inert `UIFlowFixture`, drives the real `DictationCoordinator` through an ordered script, and checks named semantic expectations at each checkpoint. Its stable id is the artifact basename; its title, tags and `covers` keys make the journey discoverable and connect it to the coverage ledger.
 
-The current catalog has 24 flows, comprising 22 portable and two tagged `os26`, in `UIFlowCatalog.everything()` execution order:
+The current catalog has 25 flows, comprising 23 portable and two tagged `os26`, in `UIFlowCatalog.everything()` execution order:
 
 - Home: `home.empty-to-populated`, `home.set-typing-speed`
 - Sessions: `sessions.search.no-results`, `sessions.search.clear`
-- Voice: `voice.toggle-cleanup`, `voice.auto-stop-dependency`, `voice.select-ark-backend`
+- Voice: `voice.toggle-cleanup`, `voice.auto-stop-dependency`, `voice.select-backend`
 - Glossary: `glossary.add-term`, `glossary.remove-term`
 - Refinement: `refinement.enable-and-check`, `refinement.select-model`
 - System: `system.recheck-backend`, `system.clear-history.confirm`
 - Menu and dictation: `menu.copy-transcript`, `dictation.paste.delivered`, `dictation.copy-only.terminal`, `dictation.refinement-skipped.code-editor`, `dictation.cancelled`, `dictation.asr-error`
-- Overlay: `overlay.recording.controls`, `overlay.capture.warmup`
+- Overlay: `overlay.recording.controls`, `overlay.capture.warmup`, `overlay.partial-preview`
 - Atoms: `atoms.confirm-row`
 - Native macOS 26: `console.rail.navigation.os26`, `menu.primary-action.os26`
 
@@ -351,7 +351,7 @@ A filtered `--only` run cannot judge the rest of the catalog. Keys it did not ev
 
 Review every `coverage-baseline.txt` diff as coverage, not fixture churn. A removed line is a gap closed by a passing flow. An added line means coverage was dropped or a new required gap was introduced and needs explicit justification; the committed ratchet is expected to shrink, not grow.
 
-`make ui-coverage` evaluates declarations, claims and the baseline without hosting a view. `make ui-flow` is the host-independent semantic gate, `make ui-flow-frames` adds host-sensitive frame reconciliation, and `make ui-all` runs the portable scene gate followed by the full flow-frame gate.
+`make ui-coverage` evaluates declarations, claims and the baseline without hosting a view. `make ui-flow` is the host-independent semantic gate, `make ui-flow-frames` adds host-sensitive frame reconciliation, and `make ui-all` runs the portable scene gate, then the full flow-frame gate, then — on a macOS 26 host only — `ui-snap-os26` and `ui-flow-os26`. The os26 legs are conditional rather than excluded because a host that can render system glass has no excuse for skipping them, and one that cannot must not fail on them.
 
 ## Lint rules
 

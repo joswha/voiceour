@@ -229,7 +229,7 @@ for true mishearings like "cube cuddle" → `kubectl`. Those surfaces live in tw
 or rejected. `Glossary.userAliases(for:)` is the one read accessor over both, so the ledger's
 DETECTED AS column, `matchingAliases`, cleanup's disfluency shelter (which keeps filler stripping
 and repeat collapsing from eating a surface that spells a hesitation or stutter as part of itself),
-the refiner prompt, and risk-authorizer suggestions cannot disagree about what a term has been
+the refiner prompt, and retrieval's suggestions cannot disagree about what a term has been
 taught; the inline editor commits through `TermMutation.settingAliases(_:on:)`, which reconciles
 both stores so deleting a surface actually stops it matching. Layer 2, routing:
 `assessTranscript` flags 1–4-word n-grams within a bounded edit distance of any alias as a near-miss,
@@ -248,7 +248,10 @@ The `parakeet` backend uses `ggml-org/parakeet-GGUF` at revision
 `VOICEOUR_MODEL_CACHE` overrides the default flat cache directory
 `~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml/`. The directory holds the `.bin` and
 `manifest.json` with `model_id`, `revision`, `file`, `sha256`, and `size_bytes`. The digest is
-verified once at download; subsequent launches check file presence and size. The retired snapshot
+verified once at download; subsequent launches check file presence and size, and a *model-load
+failure* re-hashes the file before blaming the runtime — a same-size corrupt cache was otherwise a
+permanent failure with no way out, so it is now deleted and re-downloaded. A partial `.download`
+file survives a failed transfer and is resumed by byte range across attempts and process restarts. The retired snapshot
 cache's `HF_HUB_OFFLINE` mechanism is gone. Old `~/Library/Caches/Voiceour/parakeet/` and
 `~/Library/Caches/Voiceour/ark-*/` directories are user disk state: the app never reads them and
 never deletes them automatically, and they are safe to remove manually.

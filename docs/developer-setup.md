@@ -36,7 +36,7 @@ make ui-snap                              # render portable scenes and check fix
 make ui-flow                              # check host-independent journey journals
 make ui-coverage                          # enforce the UI coverage ledger
 make ui-flow-frames                       # check journey rasters and AX dumps
-make ui-all                               # ui-snap followed by ui-flow-frames
+make ui-all                               # ui-snap, ui-flow-frames, plus os26 legs on macOS 26
 make ui-update                            # rewrite portable scene goldens
 make ui-flow-update                       # rewrite intended flow journals and frames
 make ui-list                              # print the scene catalog as JSON
@@ -92,7 +92,7 @@ The old `~/Library/Caches/Voiceour/parakeet/` and
 `~/Library/Caches/Voiceour/ark-*/` directories are no longer read or deleted automatically and
 are safe to remove by hand.
 
-While recording, Voiceour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet, and there is no transcript preview. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `parakeet` path) logs `Voiceour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
+While recording, Voiceour shows a compact movable graphite island with cancel/check controls. Drag the island body to reposition it. Escape discards the session and is claimed only while the island is on screen. Recording shows a static `WARMING` label until the microphone delivers real audio and the live waveform from then on; processing shows an uppercase state label and comet. On the parakeet backend the panel also shows a one-line live transcript preview under the island while you speak, updated as the utterance grows; it is preview only and never becomes the delivered text. In real mode, silence should keep the waveform bars low, and speaking should raise and move them. With a Bluetooth headset as the default input, capture is deliberately redirected to the built-in microphone, so the waveform should replace `WARMING` promptly rather than a second later and the first words of the utterance should survive; `docs/architecture.md`, *Microphone capture*, records why the headset microphone is skipped. Both real backends name the microphone they opened on stderr: `MicrophoneRecorder` (the `parakeet` path) logs `Voiceour: capture device=<name>`, adding `(redirected from system default)` when the policy moved it, and `--asr-backend apple` reports the same device in its `session init breakdown` line. Permission fallback and insertion-safety outcomes are covered by [`docs/permissions.md`](permissions.md).
 
 After granting Accessibility/event-post permission, restart the existing test bundle without rebuilding it:
 
@@ -233,6 +233,8 @@ make bench-stt BACKEND=parakeet N=64
 make bench-refine
 make bench-e2e BACKEND=parakeet N=64
 make bench-techterms
+make bench-gate BASELINE=benchmarks/results/<a>.json CANDIDATE=benchmarks/results/<b>.json
+make check-docs
 ```
 
 `make bench-smoke` is offline and fake-backed. The real tiers need their documented models and
@@ -250,6 +252,8 @@ datasets; see [`docs/benchmarks.md`](benchmarks.md).
 |`sign_notarize.sh`|release-only|Credentialed Developer ID sign + notarize + staple.|
 |`setup_local_signing.sh`|supported|One-time password-free `voiceour-dev` keychain identity so `bundle.sh` rebuilds keep the Accessibility/TCC grant.|
 |`make_fixture.sh`|supported|Generates the WAV proof fixture; wrapped by `make fixture`.|
+|`check_docs.sh`|supported|Asserts README, AGENTS, architecture and developer-setup all carry the model id and revision that `ASRProtocol.swift` declares, and that the retired revision appears in none of the user-facing ones; wrapped by `make check-docs` and run in CI.|
+|`vendor_parakeet.sh`|supported|Re-vendors `Vendor/parakeet` from an upstream checkout at the pinned commit and reapplies `patches/`; `--check` diffs the vendored tree against upstream-plus-patches and fails on unexplained drift. Not wrapped by `make`: it needs a whisper.cpp checkout to point at.|
 |`ui_harness.sh`|supported|Offscreen UI render/dump/lint/diff; wrapped by `make ui-snap`, `make ui-update`, `make ui-list`. Never opens a window, never steals focus.|
 |`make_readme_gif.sh`|supported|Records the README's recording-island GIF from the harness film mode; wrapped by `make ui-film`. Needs `ffmpeg` and `ffprobe` on `PATH`. Media, not a gate: nothing diffs its output.|
 |`console_shot.sh`, `find_console_window.swift`|screenshot tooling|Onscreen console window capture. Superseded by `ui_harness.sh` except for real glass. The offscreen path cannot rasterise either behind-window `NSVisualEffectView` or modern `.glassEffect`.|

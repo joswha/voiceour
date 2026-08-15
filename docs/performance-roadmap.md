@@ -174,8 +174,8 @@ the no-cross-utterance-contamination privacy contract is unchanged. At the time 
 | # | Candidate | Measured result | Blocker |
 |---|---|---:|---|
 | 1 | Cut glossary prompt tokens | 55–464 ms | **Quality.** Every trim tested produced ≥1 worse output |
-| 2 | INT8 quantized Parakeet | 32 ms @10 s, 41 ms @20 s, −1.05 GiB peak | No accuracy validation; needs a new model pin |
-| 3 | Drop per-request `mx.clear_cache()` | 8–9 ms | Retains ~1 GiB Metal cache |
+| 2 | ~~INT8 quantized Parakeet~~ | ~~32 ms @10 s, 41 ms @20 s, −1.05 GiB peak~~ | **Closed 2026-08-15.** Measured on the shipped runtime as q8_0: accuracy a wash, 7–19% SLOWER. See "q8_0 measured pass" below |
+| 3 | ~~Drop per-request `mx.clear_cache()`~~ | ~~8–9 ms~~ | **Moot.** MLX-only; the shipped sidecar is Swift/ggml and has no such call |
 
 **1. Glossary tokens.** Measured options were: drop derived aliases (−91 tokens, −54.8 ms), dedupe
 canonical-equivalent aliases (−9 tokens, −5.3 ms), cap at two aliases per term (−159 tokens,
@@ -865,7 +865,9 @@ Ranked by estimated engineering value, not implementation ease:
   The 353-session table above came from one contributor's private history and cannot be reproduced from
   this repository; nothing here reads or ships a session store.
 - Single-utterance ASR latency without a corpus: `scripts/make_fixture.sh`, then
-  `cd asr && uv --no-config run python ../scripts/phase0_asr_proof.py ../fixtures/audio/hello_16k_mono.wav`.
+  `.build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav`, which prints the transcript
+  plus cold-load and warm-inference milliseconds. The retired `asr/` package and its
+  `phase0_asr_proof.py` are gone; `--prove` replaced both.
 - Accuracy/latency tiers and gates: `docs/benchmarks.md`; compare with
   `voiceour_bench.compare … --gate uwer_final:0.0035`.
 - ARK-ASR comparison: the harness was a scratch package outside this repository and is not committed,
