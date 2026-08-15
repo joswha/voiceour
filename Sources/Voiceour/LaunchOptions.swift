@@ -9,7 +9,7 @@ enum LaunchOptions {
     }
 
     /// `--no-activate` stops the console window from promoting the app to `.regular`
-    /// and calling `NSApp.activate` in `ConsoleView.onAppear`. `scripts/console_shot.sh`
+    /// and calling `NSApp.activate` in `ConsoleWindowView.onAppear`. `scripts/console_shot.sh`
     /// passes it to shrink its focus blip; it cannot remove it, because the window still
     /// has to be onscreen to be screenshotted and the show-console notification handler
     /// in `MenuBarLabel.body`'s `.onReceive` (`MenuBarLabel.swift`) still activates. The offscreen UI harness needs no flag at all — it is
@@ -19,18 +19,23 @@ enum LaunchOptions {
         CommandLine.arguments.contains("--no-activate")
     }
 
-    /// Reveals the machine-facing panes (`ConsolePaneRailPlacement.debug`) in the
-    /// rail. A launch argument rather than a setting: these panes report on the
-    /// install, not on anything the user configures, and a shipped user should never
-    /// be one mis-click away from a page of paths and probe evidence.
+    /// Reveals the development-only backend picker on the General tab — the one
+    /// control that can switch dictation to the synthetic `fake` recogniser. A
+    /// launch argument rather than a setting: it configures how the install is
+    /// developed, not anything a shipped user has a reason to choose, and a
+    /// release user who found it could only downgrade their own dictation.
     static var showsDebugPanes: Bool {
         CommandLine.arguments.contains("--debug")
     }
 
-    static var consoleSection: ConsoleSection {
+    /// The tab the console window opens on. `--console-section=` keeps its
+    /// spelling: it is a development deep link that predates the tabs, and
+    /// nothing outside this app types it. An unrecognised value falls back to the
+    /// window's own landing tab rather than failing the launch.
+    static var consoleSection: ConsoleTab {
         CommandLine.arguments
             .first { $0.hasPrefix("--console-section=") }
-            .flatMap { ConsoleSection(rawValue: String($0.dropFirst("--console-section=".count))) } ?? .sessions
+            .flatMap { ConsoleTab(rawValue: String($0.dropFirst("--console-section=".count))) } ?? .general
     }
 }
 

@@ -110,10 +110,10 @@
         private static let gridUnit: CGFloat = 4
         private static let gridEpsilon: CGFloat = 0.01
 
-        /// Reference hit area, in square points: `RowIconButton`'s own 22x22 footprint.
-        /// Tested as an area rather than per-edge because a full-width `GlassToggleStyle`
-        /// row is 528x18 -- twenty times easier to hit than the reference, yet a naive
-        /// per-edge test called it undersized.
+        /// Reference hit area, in square points: the surviving `RowIconButton`'s
+        /// own 22x22 footprint. Tested as an area rather than per-edge because a
+        /// full-width toggle row is much easier to hit than the reference even
+        /// when one edge is visually narrow.
         private static let minimumHitArea: CGFloat = minimumHitTarget * minimumHitTarget
 
         /// Thinnest edge a control may have before it is unhittable however long it is.
@@ -293,6 +293,12 @@
                 guard isMeasurable(frame) else { continue }
                 // Scrolled content below the fold is correct, not escaped layout.
                 guard !isInsideScrollContainer(entry, in: flat) else { continue }
+                // AppKit draws a `TabView`'s tab strip one point above its hosting view's
+                // top edge — the selected tab's border is meant to merge with the frame's.
+                // That is the platform's geometry, not this app's layout, and nothing in a
+                // native `TabView` lets a caller move it. The exemption is deliberately
+                // narrow: only a tab button, only the top edge, only one point.
+                guard !isNativeTabStripOverhang(entry.node, in: sceneBounds) else { continue }
                 let edges = overflowEdges(of: frame, in: sceneBounds)
                 guard !edges.isEmpty else { continue }
                 findings.append(
@@ -327,6 +333,9 @@
                 // A scroll viewport publishes its clip rect; its children publish document
                 // positions. Overflow against it is the mechanism, not a defect.
                 guard !isScrollContainer(parent.node) else { continue }
+                // Same AppKit tab-strip geometry as `out-of-bounds`: the tab buttons sit one
+                // point above the `TabView` they belong to, by AppKit's own drawing.
+                guard !isNativeTabStripOverhang(entry.node, in: parent.node.frame) else { continue }
                 let edges = overflowEdges(of: frame, in: parent.node.frame)
                 guard !edges.isEmpty else { continue }
                 findings.append(
@@ -543,6 +552,11 @@
             for entry in flat where isInteractive(entry.node) {
                 let frame = entry.node.frame
                 guard isMeasurable(frame) else { continue }
+                // A native switch is 18 pt because AppKit draws it that way; no modifier
+                // moves it onto this project's control scale. The scale governs the
+                // surfaces this app paints — the menu and the overlay — not the system
+                // controls in the console's forms.
+                guard trimmed(entry.node.subrole)?.lowercased() != "axswitch" else { continue }
                 let height = (frame.height * 10).rounded() / 10
                 guard !allowedControlHeights.contains(height) else { continue }
                 if height > containerHeightFloor {
@@ -579,9 +593,9 @@
         /// E7. All origins are exempt. Their positions accumulate intrinsic type metrics
         ///     as well as token spacing, so AX cannot attribute an off-grid origin to a
         ///     designer-controlled value without crying wolf.
-        /// E8. Scroll heights and outer viewports whose width fills the window remainder
-        ///     are derived from available space. Only bounded internal viewport widths,
-        ///     such as Sessions columns, remain controlled subjects.
+        /// E8. Scroll heights and outer viewports that span the scene are derived from
+        ///     available space, whatever container inset the host applies. Only bounded
+        ///     internal viewport widths remain controlled subjects.
         private static func offGrid(
             flat: [FlatNode],
             size: CGSize
@@ -617,15 +631,17 @@
             return findings
         }
 
-        /// The outer pane scroll view is sized by the scene remainder, not by a fixed
-        /// content-width token. In every harness shell it occupies more than half the
-        /// scene and terminates at the standard 24 pt trailing content inset.
+        /// A native form's outer scroll view is sized by the scene remainder, not
+        /// by a fixed content-width token. A viewport that occupies most of the
+        /// scene and reaches the standard trailing inset is therefore exempt.
         private static func isWindowRemainderViewport(_ frame: CGRect, sceneSize: CGSize) -> Bool {
-            let trailingContentInset: CGFloat = 24
+            // Spans the scene rather than matching one hard-coded inset: the bespoke shell
+            // inset its viewport by 24 pt and a native `TabView` insets its form by 3, and
+            // neither number is a layout decision this project makes.
+            let spanShare: CGFloat = 0.9
             return isMeasurable(frame)
                 && sceneSize.width > 0
-                && frame.width > sceneSize.width / 2
-                && abs(frame.maxX - (sceneSize.width - trailingContentInset)) <= gridEpsilon
+                && frame.width >= sceneSize.width * spanShare
         }
 
         // MARK: - Flattened tree
@@ -793,6 +809,21 @@
                 cursor = flat[current].parent
             }
             return false
+        }
+
+        /// True for a native `TabView` tab button whose only escape is the single point
+        /// AppKit's tab strip draws above its hosting view.
+        ///
+        /// Measured: every tab button reports y = -1 with the scene's own height, on every
+        /// tab and in both appearances. Anything wider than that one point, on any other
+        /// edge, or on any other kind of node is still a finding.
+        private static func isNativeTabStripOverhang(_ node: AXNode, in sceneBounds: CGRect) -> Bool {
+            guard trimmed(node.subrole)?.lowercased() == "axtabbutton" else { return false }
+            let frame = node.frame
+            guard frame.minY >= sceneBounds.minY - 1, frame.minY < sceneBounds.minY else { return false }
+            return frame.minX >= sceneBounds.minX
+                && frame.maxX <= sceneBounds.maxX
+                && frame.maxY <= sceneBounds.maxY
         }
 
         private static func isResolved(_ color: (r: Double, g: Double, b: Double)) -> Bool {

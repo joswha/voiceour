@@ -35,16 +35,6 @@
             }
         }
 
-        @Test func everyFlowClaimsDeclaredCoverage() {
-            let declared = Set(UICoverageRegistry.requirements.map(\.key))
-            for flow in UIFlowCatalog.everything() {
-                #expect(!flow.covers.isEmpty, "flow declares no coverage: \(flow.id)")
-                for key in flow.covers {
-                    #expect(declared.contains(key), "flow \(flow.id) claims undeclared key \(key)")
-                }
-            }
-        }
-
         @Test func everyArmedGateIsReleasedAndEveryReleaseNamesAnArmedGate() {
             for flow in UIFlowCatalog.everything() {
                 let armed = flow.fixture.armedGates

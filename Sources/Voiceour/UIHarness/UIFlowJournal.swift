@@ -22,13 +22,10 @@
     //   FAIL <ordinal> <checkpoint> | <expectation> | <observed>
     //         selector: <selector>
     //         candidate: <candidate>
-    //   frame: <name> nodes=<count>
     //   warnings: <warning>
     //
-    // Checkpoints and frames retain script order, failure details retain candidate order,
-    // warning lines are last, and the file is UTF-8 with LF endings and one trailing LF.
-    // Reconciliation state is intentionally absent: frame pixels and AX geometry can vary
-    // with hosted-runner font rasterisation, while the required journal golden cannot.
+    // Checkpoints retain script order, failure details retain candidate order, warning lines
+    // are last, and the file is UTF-8 with LF endings and one trailing LF.
 
     enum UIFlowJournal {
         static func render(_ result: UIFlowResult) -> String {
@@ -40,19 +37,12 @@
             ]
 
             var expectationIndex = result.lines.startIndex
-            var frameIndex = result.frames.startIndex
             for step in result.flow.steps {
                 switch step {
                 case .check(_, let expectations):
                     for _ in expectations where expectationIndex < result.lines.endIndex {
                         append(result.lines[expectationIndex], to: &rendered)
                         expectationIndex = result.lines.index(after: expectationIndex)
-                    }
-                case .capture:
-                    if frameIndex < result.frames.endIndex {
-                        let frame = result.frames[frameIndex]
-                        rendered.append("frame: \(frame.name) nodes=\(frame.nodeCount)")
-                        frameIndex = result.frames.index(after: frameIndex)
                     }
                 case .act, .release, .wait:
                     break
@@ -65,11 +55,6 @@
             while expectationIndex < result.lines.endIndex {
                 append(result.lines[expectationIndex], to: &rendered)
                 expectationIndex = result.lines.index(after: expectationIndex)
-            }
-            while frameIndex < result.frames.endIndex {
-                let frame = result.frames[frameIndex]
-                rendered.append("frame: \(frame.name) nodes=\(frame.nodeCount)")
-                frameIndex = result.frames.index(after: frameIndex)
             }
 
             rendered.append(contentsOf: result.warnings.map { "warnings: \($0)" })
@@ -115,7 +100,6 @@
             )
             refreshFlowDiff(
                 id: result.flow.id,
-                suffix: "flow",
                 current: journal,
                 previous: previous,
                 status: outcome.status,
@@ -124,95 +108,6 @@
             )
             if let warning = outcome.warning { warnings.append(warning) }
             return (outcome.status, warnings)
-        }
-
-        static func reconcileFlowFrame(
-            flowID: String,
-            frame: String,
-            tree: AXNode,
-            capture: UICapture,
-            findings: [UIFinding],
-            request: UIHarnessRequest
-        ) -> UIFlowFrame {
-            var warnings: [String] = []
-            guard prepareFlowDirectories(request, warnings: &warnings) else {
-                for warning in warnings { _ = report("flow \(flowID) frame \(frame): \(warning)") }
-                return UIFlowFrame(
-                    name: frame,
-                    id: "\(flowID).\(frame)",
-                    pixelStatus: .failed,
-                    axStatus: .failed,
-                    pngDigest: capture.sha256,
-                    goldenPngDigest: nil,
-                    nodeCount: AXDump.nodeCount(tree),
-                    findings: findings
-                )
-            }
-
-            let id = "\(flowID).\(frame)"
-            let axText = AXDump.text(tree)
-            let axData = Data(axText.utf8)
-            let pngArtifact = flowArtifactURL(id, "png", request)
-            let axArtifact = flowArtifactURL(id, "ax.txt", request)
-
-            // Required CI runs use `--no-frames`: current artifacts and lint still exist, but
-            // host-sensitive pixels and AX frame geometry neither read nor mutate goldens.
-            guard request.reconcileFrames else {
-                writeCaptureArtifacts(
-                    capture: capture,
-                    axData: axData,
-                    pngArtifact: pngArtifact,
-                    axArtifact: axArtifact,
-                    warnings: &warnings
-                )
-                for warning in warnings { _ = report("flow \(flowID) frame \(frame): \(warning)") }
-                return UIFlowFrame(
-                    name: frame,
-                    id: id,
-                    pixelStatus: .ok,
-                    axStatus: .ok,
-                    pngDigest: capture.sha256,
-                    goldenPngDigest: nil,
-                    nodeCount: AXDump.nodeCount(tree),
-                    findings: findings
-                )
-            }
-
-            let reconciliation = reconcileCapture(
-                identifier: id,
-                capture: capture,
-                axText: axText,
-                findings: findings,
-                pngArtifact: pngArtifact,
-                axArtifact: axArtifact,
-                pngGolden: flowGoldenURL(id, "png.sha256", request),
-                axGolden: flowGoldenURL(id, "ax.txt", request),
-                mode: request.mode,
-                warnings: &warnings,
-                refreshAXDiff: { identifier, current, previous, status, diffWarnings in
-                    refreshFlowDiff(
-                        id: identifier,
-                        suffix: "ax",
-                        current: current,
-                        previous: previous,
-                        status: status,
-                        request: request,
-                        warnings: &diffWarnings
-                    )
-                }
-            )
-            for warning in warnings { _ = report("flow \(flowID) frame \(frame): \(warning)") }
-
-            return UIFlowFrame(
-                name: frame,
-                id: id,
-                pixelStatus: reconciliation.pixel.status,
-                axStatus: reconciliation.ax.status,
-                pngDigest: capture.sha256,
-                goldenPngDigest: reconciliation.previousPixelDigest,
-                nodeCount: AXDump.nodeCount(tree),
-                findings: findings
-            )
         }
 
         private static func prepareFlowDirectories(
@@ -238,40 +133,24 @@
             request.goldenDirectory.appendingPathComponent("flows", isDirectory: true)
         }
 
-        private static func flowBasename(_ id: String, _ suffix: String, _ scale: Int) -> String {
-            scale == 1 ? "\(id).\(suffix)" : "\(id)@\(scale)x.\(suffix)"
-        }
-
-        private static func flowArtifactURL(_ id: String, _ suffix: String, _ request: UIHarnessRequest) -> URL {
-            flowOutputDirectory(request).appendingPathComponent(flowBasename(id, suffix, request.scale))
-        }
-
-        private static func flowGoldenURL(_ id: String, _ suffix: String, _ request: UIHarnessRequest) -> URL {
-            flowGoldenDirectory(request).appendingPathComponent(flowBasename(id, suffix, request.scale))
-        }
-
         private static func refreshFlowDiff(
             id: String,
-            suffix: String,
             current: String,
             previous: String?,
             status: UISceneResult.Status,
             request: UIHarnessRequest,
             warnings: inout [String]
         ) {
-            let scale = suffix == "flow" ? 1 : request.scale
-            let diff = flowOutputDirectory(request)
-                .appendingPathComponent(flowBasename(id, "\(suffix).diff", scale))
+            let diff = flowOutputDirectory(request).appendingPathComponent("\(id).flow.diff")
             guard status != .written, let previous, previous != current else {
                 try? FileManager.default.removeItem(at: diff)
                 return
             }
-            let textSuffix = suffix == "flow" ? "flow.txt" : "ax.txt"
             let text = UIHarnessDiff.unified(
                 old: previous.components(separatedBy: "\n"),
                 new: current.components(separatedBy: "\n"),
-                oldLabel: "fixtures/ui/flows/\(flowBasename(id, textSuffix, scale))",
-                newLabel: ".build/ui-harness/flows/\(flowBasename(id, textSuffix, scale))"
+                oldLabel: "fixtures/ui/flows/\(id).flow.txt",
+                newLabel: ".build/ui-harness/flows/\(id).flow.txt"
             )
             writeArtifact(Data(text.utf8), to: diff, warnings: &warnings)
         }

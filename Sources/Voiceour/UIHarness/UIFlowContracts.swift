@@ -265,8 +265,7 @@
         case enabled(UIQuery, Bool)
         /// The single matching node publishes the `.isSelected` accessibility trait (or not).
         ///
-        /// `AXDump` never prints this, so it is a flow-only contract: the committed dumps
-        /// record a rail whose selected row is indistinguishable from its siblings.
+        /// `AXDump` never prints this, so it remains a flow-only contract for native tabs.
         case selected(UIQuery, Bool)
         /// The single matching node's value satisfies the text rule.
         case value(UIQuery, UIText)
@@ -345,6 +344,10 @@
         case transcription
         /// The insertion adapter returning an outcome.
         case insertion
+        /// Initial System-tab health probe returning its unavailable snapshot.
+        case backendHealthUnavailable
+        /// Backend health probing returning its next readiness snapshot.
+        case backendHealth
         /// Recent-session persistence completing.
         case persistence
 
@@ -372,8 +375,8 @@
         case type(String, into: UIQuery)
         /// Drive the coordinator directly.
         case dictate(UIDictateAction)
-        /// Press the console rail button for a section. Sugar over `press(.label(...))`.
-        case navigate(ConsoleSection)
+        /// Press a native console tab. Sugar over `press(.label(...))`.
+        case navigate(ConsoleTab)
 
         var description: String {
             switch self {
@@ -414,16 +417,13 @@
         case wait(UIWait)
         /// Named checkpoint. Every expectation is evaluated; none short-circuits.
         case check(String, [UIExpectation])
-        /// Named frame: raster + accessibility dump + lint, reconciled like a scene golden.
-        case capture(String)
     }
 
     // MARK: - Hosting
 
-    /// Which surface a flow drives. Sizes come from the same tokens the scene catalog uses,
-    /// so a flow frame and a scene snapshot of the same pane are directly comparable.
+    /// Which surface a flow drives. Sizes come from the same tokens the scene catalog uses.
     enum UIFlowHost {
-        case console(ConsoleSection)
+        case console(ConsoleTab)
         case menu
         case overlay
         case custom(size: CGSize, colorScheme: ColorScheme, build: @MainActor (UIFlowContext) -> AnyView)
@@ -439,8 +439,6 @@
         let title: String
         /// Free-form grouping for `--only` / `--except`.
         let tags: [String]
-        /// Coverage keys this flow claims. The ledger fails when a required key has no claimant.
-        let covers: [UICoverageKey]
         let host: UIFlowHost
         let fixture: UIFlowFixture
         let steps: [UIFlowStep]
@@ -449,7 +447,6 @@
             id: String,
             title: String,
             tags: [String] = [],
-            covers: [UICoverageKey] = [],
             host: UIFlowHost,
             fixture: UIFlowFixture,
             steps: [UIFlowStep]
@@ -457,7 +454,6 @@
             self.id = id
             self.title = title
             self.tags = tags
-            self.covers = covers
             self.host = host
             self.fixture = fixture
             self.steps = steps
@@ -500,8 +496,6 @@
             case wait
             /// A checkpoint expectation was not satisfied.
             case expectation
-            /// A captured frame produced an error-severity lint finding.
-            case lint
             /// The flow violated a harness safety invariant.
             case safety
         }
@@ -515,19 +509,6 @@
         let candidates: [String]
     }
 
-    /// A named frame captured mid-flow, reconciled against `fixtures/ui/flows/`.
-    struct UIFlowFrame {
-        let name: String
-        /// `<flow-id>.<frame-name>`; the artifact basename.
-        let id: String
-        let pixelStatus: UISceneResult.Status
-        let axStatus: UISceneResult.Status
-        let pngDigest: String?
-        let goldenPngDigest: String?
-        let nodeCount: Int
-        let findings: [UIFinding]
-    }
-
     /// Outcome of one flow.
     struct UIFlowResult {
         enum Status: String {
@@ -536,24 +517,11 @@
             case changed
             case missingGolden
             case written
-
-            /// Precedence for the worst-of reduction below: failure beats changed beats
-            /// missing-golden beats written beats ok.
-            var severity: Int {
-                switch self {
-                case .ok: return 0
-                case .written: return 1
-                case .missingGolden: return 2
-                case .changed: return 3
-                case .failed: return 4
-                }
-            }
         }
 
         let flow: UIFlow
         let lines: [UIExpectationLine]
         let transitions: [UIStatePattern]
-        let frames: [UIFlowFrame]
         let failures: [UIFlowFailure]
         let warnings: [String]
         /// Non-nil when the flow could not run at all.
@@ -563,27 +531,16 @@
 
         var passed: Bool { failures.isEmpty && error == nil }
 
-        /// Worst verdict across the journal golden and every captured frame.
-        ///
-        /// A strict precedence over the WHOLE set, not a first-source-wins scan: a flow whose
-        /// journal is merely missing a golden while a frame genuinely changed must report
-        /// `changed`, because `missing-golden` reads as "new, go bless it" and would send a
-        /// reviewer past a real regression.
+        /// Journal reconciliation verdict after script execution succeeds.
         var status: Status {
             if error != nil || !failures.isEmpty { return .failed }
-            var worst = Status.ok
-            for candidate in [journalStatus] + frames.flatMap({ [$0.pixelStatus, $0.axStatus] }) {
-                let mapped: Status
-                switch candidate {
-                case .ok: mapped = .ok
-                case .written: mapped = .written
-                case .missingGolden: mapped = .missingGolden
-                case .changed: mapped = .changed
-                case .failed: mapped = .failed
-                }
-                if mapped.severity > worst.severity { worst = mapped }
+            switch journalStatus {
+            case .ok: return .ok
+            case .written: return .written
+            case .missingGolden: return .missingGolden
+            case .changed: return .changed
+            case .failed: return .failed
             }
-            return worst
         }
     }
 

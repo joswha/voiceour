@@ -25,111 +25,72 @@
         private static let glossaryAliases = "flow term, flow-term"
         private static let noMatchQuery = "definitely-not-a-transcript"
 
-        /// Queries are grounded in committed AX dumps unless the comment explicitly
-        /// names the source-only branch from which the runtime selector is derived.
+        /// Queries are exact. Every action and single-node expectation rejects zero
+        /// or multiple matches rather than silently retargeting a nearby control.
         private enum Selector {
-            // fixtures/ui/menu.idle.ax.txt:5
             static let startDictation = UIQuery.label("START DICTATION")
-            // No scene reaches recording MenuView. Derived from MenuView.swift:153-160.
             static let stopDictation = UIQuery.label("STOP DICTATION")
 
-            // fixtures/ui/console.sessions.populated.ax.txt:22
-            static let sessionSearch = UIQuery.placeholder("Search transcripts or timestamps")
-            // fixtures/ui/console.sessions.search.ax.txt:23
+            static let sessionSearch = UIQuery.id("sessions.search.field")
             static let clearSessionSearch = UIQuery.id("sessions.search.clear")
+            static let restoredTranscript = UIQuery.value(
+                "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay."
+            )
 
-            // fixtures/ui/console.system.granted.ax.txt
-            static let historyArm = UIQuery.id("system.history.arm")
-            // fixtures/ui/console.system.confirm.ax.txt
-            static let historyConfirmation = UIQuery.id("system.history.confirmation")
-            // fixtures/ui/console.system.confirm.ax.txt
-            static let historyConfirm = UIQuery.id("system.history.confirm")
-
-            // fixtures/ui/console.glossary.empty.ax.txt:23-25
-            static let canonicalTerm = UIQuery.placeholder("Canonical term")
-            static let aliases = UIQuery.placeholder("Detected as (comma-separated)")
-            static let addTerm = UIQuery.label("ADD TERM")
-            // No golden contains a term created during a flow. The identifier is formed at
-            // GlossaryTermRow.swift:65-66; ProtectedTerm.termId defaults to canonical at Models.swift:40-54.
+            static let canonicalTerm = UIQuery.id("glossary.add-term.canonical")
+            static let aliases = UIQuery.id("glossary.add-term.aliases")
+            static let addTerm = UIQuery.id("glossary.add-term.submit")
             static let addedTermRemove = UIQuery.id("remove.FlowTerm")
-            // fixtures/ui/console.glossary.populated.ax.txt:47
             static let bundledTermRemove = UIQuery.id("remove.kubectl")
 
-            // fixtures/ui/console.voice.default.ax.txt:35-40
-            static let autoStop = UIQuery.label("Stop after silence")
-            static let autoStopDuration = UIQuery.label("Auto-stop silence, milliseconds")
-            static let cleanup = UIQuery.label("Clean up after capture")
+            static let autoStop = UIQuery.id("voice.auto-stop.toggle")
+            static let autoStopDuration = UIQuery.id("voice.auto-stop.duration")
+            static let cleanup = UIQuery.id("voice.cleanup.toggle")
 
-            // One segment per registry descriptor, labelled with its display name:
-            // fixtures/ui/console.voice.default.ax.txt:18-20 for the three that
-            // predate ARK, VoicePane.swift:108-115 for the shape the pair follows.
-            static func backendOption(_ displayName: String) -> UIQuery {
-                .label(displayName)
-            }
-            // fixtures/ui/console.voice.restart-required.ax.txt:21. Published only
-            // while a saved backend differs from the one running.
-            static let backendRestart = UIQuery.id("voice.backend.restart")
-
-
-            // fixtures/ui/console.system.denied.ax.txt:19
             static let backendRecheck = UIQuery.id("system.backend.recheck")
-            // fixtures/ui/console.system.granted.ax.txt:17
-            static let backendReady = UIQuery.label("Backend")
+            static let backendStatus = UIQuery.id("system.backend.status")
 
+            static func backendStatusWithValue(_ value: String) -> UIQuery {
+                .all([backendStatus, .value(value)])
+            }
 
-            // fixtures/ui/menu.transcript.ax.txt:4
             static let copyLastTranscript = UIQuery.label("Copy last transcript")
 
-            // fixtures/ui/overlay.panel.recording.ax.txt:2-4
             static let cancelRecording = UIQuery.label("Cancel recording")
             static let dictationStatus = UIQuery.label("Dictation status")
             static let finishRecording = UIQuery.label("Finish recording")
-            // The idle island's leading control. `RecordingOverlayView.cancelButton`
-            // swaps the label on `model.isRecording`; no scene renders an idle overlay.
             static let cancelDictation = UIQuery.label("Cancel dictation")
+            static let warmingStatus = UIQuery.all([
+                .label("Dictation status"),
+                .value("Microphone starting")
+            ])
+            static let listeningStatus = UIQuery.all([
+                .label("Dictation status"),
+                .value("Recording")
+            ])
 
-            // The centre readout addressed by label AND value, which is the whole point of
-            // the warm-up flow: both phases publish one element with the same stable label
-            // in the same slot, and only the value says which phase it is.
-            // `RecordingOverlayModel.accessibilityStatus`; the warm-up half is also pinned
-            // by fixtures/ui/overlay.island.warmup.ax.txt.
-            static let warmingStatus = UIQuery.all([.label("Dictation status"), .value("Microphone starting")])
-            static let listeningStatus = UIQuery.all([.label("Dictation status"), .value("Recording")])
+            static let generalContent = UIQuery.id("capture.hotkey")
+            static let glossaryContent = canonicalTerm
+            static let historyContent = sessionSearch
+            static let systemContent = UIQuery.id("system.diagnostics.copy")
 
-            // These flow-local identifiers follow ConfirmActionRow.swift:128-159. No scene
-            // contains the `flow.confirm` instance; its controls are verified at runtime.
-            static let confirmArm = UIQuery.id("flow.confirm.arm")
-            static let confirmField = UIQuery.id("flow.confirm.confirmation")
-            static let confirmButton = UIQuery.id("flow.confirm.confirm")
-
-            /// One rail row. Addressed by role AND label because every pane publishes an
-            /// `AXHeading` carrying its section's label too -- `fixtures/ui/
-            /// console.diagnostics.healthy.ax.txt:2-8` for the rows, `:11` for the heading --
-            /// so a bare label query would match two nodes and fail as ambiguous.
-            static func railItem(_ section: ConsoleSection) -> UIQuery {
-                .all([.role("AXButton"), .label(section.label)])
-            }
-
-            /// The pane heading a rail selection lands on. The one bounded signal that the
-            /// selection change finished, rather than a settle count guessed at.
-            static func paneHeading(_ section: ConsoleSection) -> UIQuery {
-                .all([.role("AXHeading"), .label(section.label)])
+            static func tab(_ tab: ConsoleTab) -> UIQuery {
+                .id("console.tab.\(tab.rawValue)")
             }
         }
 
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
-            sessionFlows + voiceFlows + glossaryFlows + systemFlows + menuFlows
-                + overlayFlows + atomFlows + modernFlows
+            sessionFlows + voiceFlows + glossaryFlows + systemFlows + consoleFlows + menuFlows
+                + overlayFlows + modernFlows
         }
 
         /// Selection goes through `UIHarnessRequest.matches(id:tags:)`, the one spelling of
-        /// `--only`/`--except` shared with the scene and film catalogs. Parsing installs the
-        /// default `os26` exclusion.
+        /// `--only`/`--except` shared with the scene catalog. Parsing installs the default
+        /// `os26` exclusion.
         static func all(request: UIHarnessRequest) -> [UIFlow] {
             everything().filter { request.matches(id: $0.id, tags: $0.tags) }
         }
-
 
         // MARK: Sessions
 
@@ -139,15 +100,10 @@
                     id: "sessions.search.no-results",
                     title: "A transcript search reaches the no-match state",
                     tags: ["sessions", "console", "search"],
-                    covers: [
-                        .state(.sessions, "search-no-results"),
-                        .journey(.sessions, "search-no-results"),
-                    ],
-                    host: .console(.sessions),
+                    host: .console(.history),
                     fixture: .static(.populated),
                     steps: [
                         .act(.type(noMatchQuery, into: Selector.sessionSearch)),
-                        // SessionsPane.swift:159-167 is source-only; no committed scene reaches no matches.
                         .wait(.element(.value("Nothing matches “\(noMatchQuery)”"))),
                         .check(
                             "no-results",
@@ -157,14 +113,12 @@
                                 .exists(Selector.clearSessionSearch),
                             ]
                         ),
-                    ]
-                ),
+                    ]),
                 UIFlow(
                     id: "sessions.search.clear",
                     title: "Clearing transcript search restores the complete list",
                     tags: ["sessions", "console", "search"],
-                    covers: [.journey(.sessions, "search-clear")],
-                    host: .console(.sessions),
+                    host: .console(.history),
                     fixture: .static(.populated),
                     steps: [
                         .act(.type(noMatchQuery, into: Selector.sessionSearch)),
@@ -172,17 +126,17 @@
                         .check("filtered", [.text(.equals("0 of 9 sessions match"), .exactly(1))]),
                         .act(.press(Selector.clearSessionSearch)),
                         .wait(.absent(Selector.clearSessionSearch)),
-                        // fixtures/ui/console.sessions.populated.ax.txt:12,22,28-33
+                        .wait(.element(Selector.restoredTranscript)),
                         .check(
                             "restored",
                             [
-                                .text(.equals("9 SESSIONS"), .exactly(1)),
                                 .value(Selector.sessionSearch, .isEmpty),
                                 .absent(.value("Nothing matches “\(noMatchQuery)”")),
+                                .exists(Selector.restoredTranscript),
+                                .model(.recentSessionCount, .equals("9"))
                             ]
                         ),
-                    ]
-                ),
+                    ]),
             ]
         }
 
@@ -194,11 +148,7 @@
                     id: "voice.toggle-cleanup",
                     title: "Transcript cleanup can be switched off",
                     tags: ["voice", "console", "settings"],
-                    covers: [
-                        .state(.voice, "cleanup-off"),
-                        .journey(.voice, "toggle-cleanup"),
-                    ],
-                    host: .console(.voice),
+                    host: .console(.general),
                     fixture: .static(.populated),
                     steps: [
                         .check(
@@ -210,17 +160,12 @@
                             "disabled",
                             [.value(Selector.cleanup, .equals("0")), .model(.cleanupEnabled, .equals("false"))]
                         ),
-                    ]
-                ),
+                    ]),
                 UIFlow(
                     id: "voice.auto-stop-dependency",
                     title: "Auto-stop controls the silence field enablement",
                     tags: ["voice", "console", "settings"],
-                    covers: [
-                        .state(.voice, "auto-stop-enabled"),
-                        .journey(.voice, "auto-stop-dependency"),
-                    ],
-                    host: .console(.voice),
+                    host: .console(.general),
                     fixture: .static(.populated),
                     steps: [
                         .check(
@@ -238,8 +183,7 @@
                                 .enabled(Selector.autoStopDuration, true),
                             ]
                         ),
-                    ]
-                ),
+                    ]),
             ]
         }
 
@@ -249,16 +193,11 @@
             [
                 UIFlow(
                     id: "glossary.add-term",
-                    title: "A canonical term can be added through the ledger",
+                    title: "A canonical term can be added through the glossary",
                     tags: ["glossary", "console", "settings"],
-                    covers: [
-                        .state(.glossary, "manual-add-result"),
-                        .journey(.glossary, "add-term"),
-                    ],
                     host: .console(.glossary),
                     fixture: .static(.emptyGlossary),
                     steps: [
-                        // fixtures/ui/console.glossary.empty.ax.txt:21-25
                         .check("empty", [.text(.equals("No canonical terms yet"), .exactly(1))]),
                         .act(.type(glossaryTerm, into: Selector.canonicalTerm)),
                         .act(.type(glossaryAliases, into: Selector.aliases)),
@@ -272,29 +211,21 @@
                                 .model(.glossaryTermCount, .equals("1")),
                             ]
                         ),
-                    ]
-                ),
+                    ]),
                 UIFlow(
                     id: "glossary.remove-term",
                     title: "A glossary row can be removed immediately",
                     tags: ["glossary", "console", "settings"],
-                    covers: [
-                        .state(.glossary, "removal"),
-                        .journey(.glossary, "remove-term"),
-                    ],
                     host: .console(.glossary),
                     fixture: .static(.populated),
                     steps: [
-                        // fixtures/ui/console.glossary.populated.ax.txt:45-47
                         .check("present", [.exists(.value("kubectl")), .exists(Selector.bundledTermRemove)]),
                         .act(.press(Selector.bundledTermRemove)),
                         .wait(.absent(Selector.bundledTermRemove)),
                         .check("removed", [.absent(.value("kubectl")), .absent(Selector.bundledTermRemove)]),
-                    ]
-                ),
+                    ]),
             ]
         }
-
 
         // MARK: System
 
@@ -304,63 +235,55 @@
                     id: "system.recheck-backend",
                     title: "Re-checking the backend updates its readiness row",
                     tags: ["system", "console", "settings"],
-                    covers: [.journey(.system, "recheck-backend")],
                     host: .console(.system),
                     fixture: .backendRecovery(),
                     steps: [
-                        // SystemPane.swift:217-223; fixtures/ui/console.system.denied.ax.txt:17-20.
+                        .wait(.element(Selector.backendStatusWithValue("CHECKING…"))),
+                        .check(
+                            "initial-probe",
+                            [.value(Selector.backendStatus, .equals("CHECKING…"))]
+                        ),
+                        .release(.backendHealthUnavailable),
+                        .wait(.element(Selector.backendStatusWithValue("CHECK NEEDED"))),
                         .check(
                             "unavailable",
                             [
-                                .exists(.value("CHECK NEEDED")),
+                                .value(Selector.backendStatus, .equals("CHECK NEEDED")),
                                 .label(Selector.backendRecheck, .equals("Re-check backend health")),
-                                .role(Selector.backendRecheck, "AXButton"),
+                                .role(Selector.backendRecheck, "AXButton")
                             ]
                         ),
                         .act(.press(Selector.backendRecheck)),
-                        // fixtures/ui/console.system.granted.ax.txt:17
-                        .wait(.element(Selector.backendReady)),
+                        .wait(.element(Selector.backendStatusWithValue("CHECKING…"))),
+                        .check(
+                            "checking",
+                            [.value(Selector.backendStatus, .equals("CHECKING…"))]
+                        ),
+                        .release(.backendHealth),
+                        .wait(.element(Selector.backendStatusWithValue("READY"))),
                         .check(
                             "ready",
                             [
-                                .value(
-                                    Selector.backendReady,
-                                    .equals("READY, PARAKEET is configured for local transcription.")
+                                .value(Selector.backendStatus, .equals("READY")),
+                                .text(
+                                    .equals("PARAKEET is configured for local transcription."),
+                                    .exactly(1)
                                 )
                             ]
-                        ),
-                    ]
-                ),
-                UIFlow(
-                    id: "system.clear-history.confirm",
-                    title: "Confirmed history clearing reaches empty Sessions",
-                    tags: ["system", "sessions", "console", "cross-pane"],
-                    covers: [
-                        .state(.system, "clear-history-success"),
-                        .journey(.system, "clear-history-confirm"),
-                    ],
-                    host: .console(.system),
-                    fixture: .static(.populated),
-                    steps: [
-                        .check("available", [.enabled(Selector.historyArm, true)]),
-                        .act(.press(Selector.historyArm)),
-                        .wait(.element(Selector.historyConfirmation)),
-                        .act(.type("CLEAR", into: Selector.historyConfirmation)),
-                        .check("armed", [.enabled(Selector.historyConfirm, true)]),
-                        .act(.press(Selector.historyConfirm)),
-                        .act(.navigate(.sessions)),
-                        // fixtures/ui/console.sessions.empty.ax.txt:16-17
-                        .wait(.element(.value("No sessions yet"))),
-                        .check(
-                            "empty-sessions",
-                            [
-                                .text(.equals("No sessions yet"), .exactly(1)),
-                                .text(.equals("Nothing recorded yet"), .exactly(1)),
-                                .model(.recentSessionCount, .equals("0")),
-                            ]
-                        ),
-                    ]
-                ),
+                        )
+                    ])
+            ]
+        }
+
+        // MARK: Console tabs
+
+        private static var consoleFlows: [UIFlow] {
+            [
+                tabNavigationFlow(
+                    id: "console.tab.navigation",
+                    title: "The native console switches through every tab",
+                    tags: ["console", "tab", "navigation"]
+                )
             ]
         }
 
@@ -376,7 +299,6 @@
                     id: "menu.copy-transcript",
                     title: "The last transcript can be copied from its card",
                     tags: ["menu", "clipboard"],
-                    covers: [.journey(.menu, "copy-transcript")],
                     host: .menu,
                     fixture: .static(.completedDictation),
                     steps: [
@@ -398,8 +320,7 @@
                                 .model(.pasteboardWrites, .equals("1")),
                             ]
                         ),
-                    ]
-                ),
+                    ]),
             ]
         }
 
@@ -408,11 +329,6 @@
                 id: "dictation.paste.delivered",
                 title: "A complete menu dictation is pasted and persisted",
                 tags: ["menu", "dictation", "delivery"],
-                covers: [
-                    .state(.menu, "live"),
-                    .state(.menu, "working"),
-                    .journey(.menu, "dictation-paste-delivered"),
-                ],
                 host: .menu,
                 fixture: pasteFixture,
                 steps: fullDeliverySteps(
@@ -420,8 +336,7 @@
                     disposition: "paste",
                     bundleID: pasteBundleID,
                     reportLabel: "PASTE ATTEMPTED"
-                )
-            )
+                ))
         }
 
         private static var copyOnlyFlow: UIFlow {
@@ -429,10 +344,6 @@
                 id: "dictation.copy-only.terminal",
                 title: "A terminal target receives copy-only delivery",
                 tags: ["menu", "dictation", "delivery", "terminal"],
-                covers: [
-                    .state(.menu, "copy-only-report"),
-                    .journey(.menu, "dictation-copy-only"),
-                ],
                 host: .menu,
                 fixture: .dictation(
                     transcript: dictatedText,
@@ -445,17 +356,14 @@
                     disposition: "copy",
                     bundleID: terminalBundleID,
                     reportLabel: "COPIED ONLY"
-                )
-            )
+                ))
         }
-
 
         private static var cancelledFlow: UIFlow {
             UIFlow(
                 id: "dictation.cancelled",
                 title: "Cancelling a live dictation delivers nothing",
                 tags: ["menu", "dictation", "cancel"],
-                covers: [.journey(.menu, "dictation-cancel")],
                 host: .menu,
                 // Cancelling from `.recording` never reaches the recorder-stop,
                 // transcription or insertion boundaries, so arming them would leave
@@ -483,8 +391,7 @@
                             .model(.recentSessionCount, .equals("0")),
                         ]
                     ),
-                ]
-            )
+                ])
         }
 
         private static var asrErrorFlow: UIFlow {
@@ -492,7 +399,6 @@
                 id: "dictation.asr-error",
                 title: "An ASR error is terminal and delivers nothing",
                 tags: ["menu", "dictation", "error"],
-                covers: [.journey(.menu, "dictation-asr-error")],
                 host: .menu,
                 fixture: .dictationError(code: .backendUnavailable),
                 steps: [
@@ -518,8 +424,7 @@
                             .model(.recentSessionCount, .equals("0")),
                         ]
                     ),
-                ]
-            )
+                ])
         }
 
         private static var pasteFixture: UIFlowFixture {
@@ -531,14 +436,9 @@
             )
         }
 
-        /// No `.capture` step anywhere in this journey, deliberately.
-        ///
-        /// A frame taken at `.recording` measured 59 pt wide on one run and 58 pt on the next:
-        /// the menu's LIVE chip breathes on a `.repeatForever` animation whose phase is
-        /// wall-clock driven, so its golden flaps every run and trains reviewers to bless
-        /// noise. The scene catalog avoids the same trap by refusing to snapshot a processing
-        /// overlay. The semantic expectations below already carry the whole journey,
-        /// and none of them is a pixel.
+        /// The menu's LIVE chip breathes on a wall-clock-driven animation. The semantic
+        /// expectations below therefore carry the complete journey without sampling an
+        /// arbitrary animation phase.
         private static func fullDeliverySteps(
             terminalState: UIStatePattern,
             disposition: String,
@@ -607,7 +507,6 @@
                     id: "overlay.recording.controls",
                     title: "The recording overlay exposes both labelled controls",
                     tags: ["overlay", "dictation"],
-                    covers: [.journey(.overlay, "recording-controls")],
                     host: .overlay,
                     fixture: .static(.recording),
                     steps: [
@@ -621,8 +520,7 @@
                                 .label(Selector.finishRecording, .equals("Finish recording")),
                             ]
                         )
-                    ]
-                ),
+                    ]),
                 warmupFlow,
             ]
         }
@@ -637,17 +535,14 @@
         /// the hole. This journey stands inside that window: one element, one stable
         /// label, and a value that changes at the moment the capture actually wakes up.
         ///
-        /// No `.capture` step, deliberately. The centre slot crossfades on
-        /// `centerPhaseToken` with a wall-clock curve, so a frame taken here records
-        /// whatever opacity this host happened to reach. `overlay.island.warmup` pins the
-        /// warm-up pixels with no transition in flight, and `overlay.island.recording`
-        /// pins the meter; what a flow adds is the ORDER, which is semantic.
+        /// The centre slot crossfades on `centerPhaseToken` with a wall-clock curve.
+        /// `overlay.island.warmup` and `overlay.island.recording` pin the stable endpoints;
+        /// this journey verifies their order.
         private static var warmupFlow: UIFlow {
             UIFlow(
                 id: "overlay.capture.warmup",
                 title: "The island says WARMING until the microphone is really delivering audio",
                 tags: ["overlay", "dictation", "warmup"],
-                covers: [.state(.overlay, "capture-warmup"), .state(.overlay, "idle")],
                 host: .overlay,
                 fixture: .captureWarmup(),
                 steps: [
@@ -697,125 +592,26 @@
                     // in the process for every flow that comes after this one.
                     .act(.dictate(.cancel)),
                     .wait(.state(.idle)),
-                ]
-            )
+                ])
         }
 
-        // MARK: Atoms
-
-        private static var atomFlows: [UIFlow] {
-            [
-                UIFlow(
-                    id: "atoms.confirm-row",
-                    title: "ConfirmActionRow arms, runs and returns after durable success",
-                    tags: ["atoms", "confirm"],
-                    covers: [
-                        .state(.atoms, "confirm-in-flight"),
-                        .state(.atoms, "confirm-success"),
-                        .journey(.atoms, "confirm-row"),
-                    ],
-                    host: .custom(
-                        size: CGSize(width: 808, height: 160),
-                        colorScheme: .dark,
-                        build: { context in AnyView(FlowConfirmRow(context: context)) }
-                    ),
-                    fixture: .static(.firstRun, armedGates: [.persistence]),
-                    steps: [
-                        .check("collapsed", [.enabled(Selector.confirmArm, true)]),
-                        .act(.press(Selector.confirmArm)),
-                        .wait(.element(Selector.confirmField)),
-                        .check("armed", [.exists(Selector.confirmField), .enabled(Selector.confirmButton, false)]),
-                        .act(.type("CLEAR", into: Selector.confirmField)),
-                        .act(.press(Selector.confirmButton)),
-                        // ConfirmActionRow.swift:14-17,150-157 defines this source-only in-flight state.
-                        .wait(.element(.label("CLEARING…"))),
-                        .check(
-                            "in-flight",
-                            [
-                                .label(Selector.confirmButton, .equals("CLEARING…")),
-                                .enabled(Selector.confirmButton, false),
-                            ]
-                        ),
-                        .release(.persistence),
-                        .wait(.element(Selector.confirmArm)),
-                        .check(
-                            "success",
-                            [
-                                .enabled(Selector.confirmArm, true),
-                                .absent(Selector.confirmField),
-                                .absent(Selector.confirmButton),
-                            ]
-                        ),
-                    ]
-                )
-            ]
-        }
 
         // MARK: Modern render path (macOS 26)
 
-        /// The only flows that drive the native branch.
-        ///
-        /// Every other flow runs with `RenderOverrides.forceLegacyGlass` pinned true by
-        /// `UIFixtures.pinProcessSeams()`, so until these landed the repo exercised no
-        /// interactive behaviour on the macOS 26 code path anywhere. The `os26` tag is what
-        /// releases the seam (`UIFlowRunner.run`) and what excludes them from `make ui-flow`.
-        ///
-        /// Neither flow captures a frame. `cacheDisplay` does not rasterise SwiftUI
-        /// `.glassEffect`, so a native-branch frame golden would record the absence of the
-        /// material as stably as its presence; what these flows assert is what the native
-        /// branch really does publish -- content, labels, roles, selection and state.
+        /// The menu journey drives its macOS 26 branch. The console journey keeps
+        /// the renamed compatibility contract while exercising the same native
+        /// `TabView` hierarchy under the `os26` harness tag.
         private static var modernFlows: [UIFlow] {
             [
-                UIFlow(
-                    id: "console.rail.navigation.os26",
-                    title: "Rail navigation keeps every row on the native render path",
-                    tags: ["console", "rail", "navigation", "os26"],
-                    covers: [.journey(.sessions, "modern-rail-navigation")],
-                    // Diagnostics is a debug pane: `ConsoleRailSections.swift:44-50` keeps it
-                    // on the rail only while it is the open pane. Opening it is therefore the
-                    // only way to assert the full five-row inventory.
-                    host: .console(.diagnostics),
-                    fixture: .static(.populated),
-                    steps: [
-                        .check(
-                            "diagnostics",
-                            railRows([.sessions, .voice, .glossary, .system, .diagnostics])
-                                + [
-                                    .selected(Selector.railItem(.diagnostics), true),
-                                    .selected(Selector.railItem(.sessions), false),
-                                ]
-                        ),
-                        .act(.navigate(.voice)),
-                        .wait(.element(Selector.paneHeading(.voice))),
-                        .check(
-                            "voice",
-                            railRows([.sessions, .voice, .glossary, .system])
-                                + [
-                                    // The debug-only row leaves with the pane, by design. Asserted
-                                    // rather than ignored: a row that lingered here would make the
-                                    // rail lie about where the reader is.
-                                    .absent(Selector.railItem(.diagnostics)),
-                                    .selected(Selector.railItem(.voice), true),
-                                    .selected(Selector.railItem(.sessions), false),
-                                ]
-                        ),
-                        .act(.navigate(.glossary)),
-                        .wait(.element(Selector.paneHeading(.glossary))),
-                        .check(
-                            "glossary",
-                            railRows([.sessions, .voice, .glossary, .system])
-                                + [
-                                    .selected(Selector.railItem(.glossary), true),
-                                    .selected(Selector.railItem(.voice), false),
-                                ]
-                        ),
-                    ]
+                tabNavigationFlow(
+                    id: "console.tab.navigation.os26",
+                    title: "The native console switches tabs under the os26 harness path",
+                    tags: ["console", "tab", "navigation", "os26"]
                 ),
                 UIFlow(
                     id: "menu.primary-action.os26",
                     title: "The menu primary action drives a dictation on the native render path",
                     tags: ["menu", "dictation", "os26"],
-                    covers: [.journey(.menu, "modern-primary-action")],
                     host: .menu,
                     // Modelled on `dictation.cancelled`: cancelling from `.recording` never
                     // reaches the later boundaries, so arming them would leave gates no script
@@ -871,43 +667,67 @@
                                 .model(.deliveryCount, .equals("0")),
                             ]
                         ),
-                    ]
-                ),
+                    ]),
             ]
         }
 
-        /// One expectation per rail row rather than one count over all of them: a count that
-        /// drops from seven to three names no row, and naming the row that vanished is the
-        /// entire point of this assertion.
-        private static func railRows(_ sections: [ConsoleSection]) -> [UIExpectation] {
-            sections.map { .role(Selector.railItem($0), "AXButton") }
-        }
-    }
-
-    private struct FlowConfirmRow: View {
-        let context: UIFlowContext
-        @State private var isConfirming = false
-
-        var body: some View {
-            ConfirmActionRow(
-                label: "Clear history",
-                subject: "Transcript history",
-                scope: "Clear local transcript history. Settings and glossary terms are kept.",
-                token: "CLEAR",
-                actionTitle: "CLEAR HISTORY",
-                inFlightTitle: "CLEARING…",
-                failureLabel: "NOT ERASED",
-                failureText: "Transcript history could not be erased from disk — it will come back on relaunch.",
-                identifier: "flow.confirm",
-                isAvailable: true,
-                isConfirming: $isConfirming,
-                perform: {
-                    await context.box(.persistence).arrive()
-                    return true
-                }
+        private static func tabNavigationFlow(
+            id: String,
+            title: String,
+            tags: [String]
+        ) -> UIFlow {
+            UIFlow(
+                id: id,
+                title: title,
+                tags: tags,
+                host: .console(.general),
+                fixture: .static(.populated),
+                steps: [
+                    .check(
+                        "general",
+                        [
+                            .count(Selector.generalContent, .exactly(1)),
+                            .value(Selector.tab(.general), .equals("1")),
+                            .absent(Selector.glossaryContent)
+                        ]
+                    ),
+                    .act(.navigate(.glossary)),
+                    .wait(.element(Selector.glossaryContent)),
+                    .check(
+                        "glossary",
+                        [
+                            .count(Selector.glossaryContent, .exactly(1)),
+                            .absent(Selector.generalContent),
+                            .value(Selector.tab(.glossary), .equals("1")),
+                            .value(Selector.tab(.general), .equals("0"))
+                        ]
+                    ),
+                    .act(.navigate(.history)),
+                    .wait(.element(Selector.historyContent)),
+                    .check(
+                        "history",
+                        [
+                            .count(Selector.historyContent, .exactly(1)),
+                            .absent(Selector.glossaryContent),
+                            .value(Selector.tab(.history), .equals("1")),
+                            .value(Selector.tab(.glossary), .equals("0"))
+                        ]
+                    ),
+                    .act(.navigate(.system)),
+                    .wait(.element(Selector.systemContent)),
+                    .check(
+                        "system",
+                        [
+                            .count(Selector.systemContent, .exactly(1)),
+                            .absent(Selector.historyContent),
+                            .value(Selector.tab(.system), .equals("1")),
+                            .value(Selector.tab(.history), .equals("0"))
+                        ]
+                    )
+                ]
             )
-            .padding(VoiceourMetrics.Space.xl)
         }
     }
+
 
 #endif

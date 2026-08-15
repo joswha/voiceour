@@ -2,10 +2,10 @@ import AppKit
 import Darwin
 import VoiceMac
 
-/// Internal rather than private: `VoicePane`'s restart action reaches the
-/// live delegate through `VoiceourAppDelegate.shared`. That pane receives
-/// only the coordinator today, and threading a delegate reference through
-/// `ConsoleView` for one action is not worth the signature churn.
+/// Internal rather than private: the console's restart action reaches the live
+/// delegate through `VoiceourAppDelegate.shared`. The General tab receives only
+/// the coordinator, and threading a delegate reference through the window for one
+/// action is not worth the signature churn.
 @MainActor
 final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
     /// `@NSApplicationDelegateAdaptor` does **not** install this object as

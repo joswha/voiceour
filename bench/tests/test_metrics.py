@@ -351,54 +351,157 @@ def test_report_populates_nbest_and_confidence_from_asr_evidence(tmp_path) -> No
     assert "confidence_by_mode" not in plain_report["metrics"]
 
 
+def _write_report(
+    path,
+    *,
+    successful_ids: list[str],
+    error_ids: list[str] | None = None,
+    uwer: float = 0.1,
+    tier: str = "librispeech",
+    backend: str = "parakeet",
+    model_id: str = "model",
+    model_revision: str = "revision",
+):
+    error_ids = error_ids or []
+    path.write_text(
+        json.dumps(
+            {
+                "tier": tier,
+                "meta": {
+                    "backend": backend,
+                    "model_id": model_id,
+                    "model_revision": model_revision,
+                },
+                "counts": {
+                    "successful_rows": len(successful_ids),
+                    "error_rows": len(error_ids),
+                },
+                "successful_row_ids": successful_ids,
+                "error_row_ids": error_ids,
+                "metrics": {"uwer_final": uwer},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_report_rejects_unknown_result_id(tmp_path) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    results = tmp_path / "results.jsonl"
+    _write_jsonl(manifest, [{"id": "known", "reference": "hello"}])
+    _write_jsonl(
+        results,
+        [
+            {"type": "bench_meta"},
+            {"type": "row", "id": "unknown", "raw_transcript": "hello", "final_text": "hello"},
+        ],
+    )
+
+    with pytest.raises(ValueError, match=r"unknown result id.*unknown"):
+        build_report(results, manifest, "smoke", "stt", tmp_path / "reports")
+
+
+@pytest.mark.parametrize("duplicate_source", ["manifest", "results"])
+def test_report_rejects_duplicate_ids(tmp_path, duplicate_source: str) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    results = tmp_path / "results.jsonl"
+    manifest_rows = [{"id": "duplicate", "reference": "hello"}]
+    result_rows = [{"type": "row", "id": "duplicate", "raw_transcript": "hello", "final_text": "hello"}]
+    if duplicate_source == "manifest":
+        manifest_rows.append({"id": "duplicate", "reference": "hello again"})
+    else:
+        result_rows.append(
+            {"type": "row", "id": "duplicate", "raw_transcript": "hello", "final_text": "hello"}
+        )
+    _write_jsonl(manifest, manifest_rows)
+    _write_jsonl(results, [{"type": "bench_meta"}, *result_rows])
+    expected_source = duplicate_source.removesuffix("s")
+    with pytest.raises(ValueError, match=rf"duplicate {expected_source} id.*duplicate"):
+        build_report(results, manifest, "smoke", "stt", tmp_path / "reports")
+
+
 def test_compare_gate_uses_formal_uwer_delta_and_returns_nonzero(tmp_path, capsys) -> None:
-    baseline = tmp_path / "baseline.json"
-    candidate = tmp_path / "candidate.json"
-    baseline.write_text(json.dumps({"metrics": {"uwer_final": 0.1}}), encoding="utf-8")
-    candidate.write_text(json.dumps({"metrics": {"uwer_final": 0.104}}), encoding="utf-8")
+    baseline = _write_report(tmp_path / "baseline.json", successful_ids=["row"])
+    candidate = _write_report(tmp_path / "candidate.json", successful_ids=["row"], uwer=0.104)
     assert UWER_MAX_DELTA == 0.0035
     assert compare_main([str(baseline), str(candidate), "--gate", f"uwer_final:{UWER_MAX_DELTA}"]) == 1
     assert "GATE FAILED" in capsys.readouterr().err
 
-    candidate.write_text(json.dumps({"metrics": {"uwer_final": 0.1035}}), encoding="utf-8")
+    _write_report(candidate, successful_ids=["row"], uwer=0.1035)
     assert compare_main([str(baseline), str(candidate), "--gate", f"uwer_final:{UWER_MAX_DELTA}"]) == 0
 
 
 def test_compare_gate_fails_closed_when_metric_is_missing(tmp_path, capsys) -> None:
-    baseline = tmp_path / "baseline.json"
-    candidate = tmp_path / "candidate.json"
-    baseline.write_text(json.dumps({"metrics": {}}), encoding="utf-8")
-    candidate.write_text(json.dumps({"metrics": {"uwer_final": 0.1}}), encoding="utf-8")
+    baseline = _write_report(tmp_path / "baseline.json", successful_ids=["row"])
+    candidate = _write_report(tmp_path / "candidate.json", successful_ids=["row"])
+    baseline_data = json.loads(baseline.read_text(encoding="utf-8"))
+    baseline_data["metrics"] = {}
+    baseline.write_text(json.dumps(baseline_data), encoding="utf-8")
+
     assert compare_main([str(baseline), str(candidate), "--gate", "uwer_final:0.0035"]) == 1
     assert "unavailable" in capsys.readouterr().err
 
 
-def test_compare_refuses_reports_that_scored_different_rows(tmp_path, capsys):
-    """A delta between different row sets is not a delta.
+@pytest.mark.parametrize("row_kind", ["successful", "errors"])
+def test_compare_refuses_equal_counts_with_different_row_ids(tmp_path, capsys, row_kind: str) -> None:
+    baseline_kwargs = {"successful_ids": ["shared"], "error_ids": ["baseline-error"]}
+    candidate_kwargs = {"successful_ids": ["shared"], "error_ids": ["candidate-error"]}
+    if row_kind == "successful":
+        baseline_kwargs["successful_ids"] = ["baseline-row"]
+        candidate_kwargs["successful_ids"] = ["candidate-row"]
+        baseline_kwargs["error_ids"] = []
+        candidate_kwargs["error_ids"] = []
+    baseline = _write_report(tmp_path / "baseline.json", **baseline_kwargs)
+    candidate = _write_report(tmp_path / "candidate.json", **candidate_kwargs)
 
-    Only rows without an `error` are scored, so a backend that rejects some inputs
-    is measured on an easier corpus. ARK rejects clips over 30 s, which drops 16 of
-    the 128 LibriSpeech rows -- and the dropped rows are the longest ones. A gate
-    computed across that mismatch looks like evidence, which is worse than no gate.
-    """
-    from voiceour_bench import compare
+    assert compare_main([str(baseline), str(candidate)]) == 2
+    refusal = capsys.readouterr().err
+    assert "REFUSING TO COMPARE" in refusal
+    assert "missing" in refusal
+    assert "extra" in refusal
 
-    def write(path, scored, errors, uwer):
-        path.write_text(
-            json.dumps(
-                {
-                    "counts": {"successful_rows": scored, "error_rows": errors},
-                    "metrics": {"uwer_final": uwer},
-                }
-            )
-        )
-        return path
 
-    baseline = write(tmp_path / "base.json", 128, 0, 0.028)
-    candidate = write(tmp_path / "cand.json", 112, 16, 0.022)
+def test_compare_accepts_identical_row_ids_in_different_order(tmp_path) -> None:
+    baseline = _write_report(tmp_path / "baseline.json", successful_ids=["a", "b"])
+    candidate = _write_report(tmp_path / "candidate.json", successful_ids=["b", "a"], uwer=0.11)
 
-    assert compare.main([str(baseline), str(candidate)]) == 2
-    assert "REFUSING TO COMPARE" in capsys.readouterr().err
+    assert compare_main([str(baseline), str(candidate)]) == 0
 
-    matched = write(tmp_path / "matched.json", 128, 0, 0.030)
-    assert compare.main([str(baseline), str(matched)]) == 0
+
+@pytest.mark.parametrize(
+    ("field", "candidate_overrides"),
+    [
+        ("tier", {"tier": "fleurs"}),
+        ("backend", {"backend": "fake"}),
+        ("model_id", {"model_id": "other-model"}),
+        ("model_revision", {"model_revision": "other-revision"}),
+    ],
+)
+def test_compare_refuses_different_report_provenance(tmp_path, capsys, field, candidate_overrides) -> None:
+    baseline = _write_report(tmp_path / "baseline.json", successful_ids=["row"])
+    candidate = _write_report(
+        tmp_path / "candidate.json",
+        successful_ids=["row"],
+        **candidate_overrides,
+    )
+
+    assert compare_main([str(baseline), str(candidate)]) == 2
+    assert field in capsys.readouterr().err
+
+
+def test_compare_refuses_when_complete_row_ids_are_unavailable(tmp_path, capsys) -> None:
+    baseline = _write_report(tmp_path / "baseline.json", successful_ids=["row"])
+    candidate = _write_report(tmp_path / "candidate.json", successful_ids=["row"])
+    for path in (baseline, candidate):
+        report = json.loads(path.read_text(encoding="utf-8"))
+        report.pop("successful_row_ids")
+        report.pop("error_row_ids")
+        report["worst_10"] = [{"id": "row"}]
+        path.write_text(json.dumps(report), encoding="utf-8")
+
+    assert compare_main([str(baseline), str(candidate)]) == 2
+    refusal = capsys.readouterr().err
+    assert "predates row-id recording" in refusal
+    assert "baseline" in refusal
+    assert "candidate" in refusal

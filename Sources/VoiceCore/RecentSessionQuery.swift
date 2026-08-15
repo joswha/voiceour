@@ -15,8 +15,8 @@ public struct RecentSessionDayGroup: Identifiable, Equatable, Sendable {
 
 /// Searching and day-grouping recent sessions.
 ///
-/// Extracted from `SessionsPane` so the logic is reachable without a SwiftUI
-/// view: as private members of a `View` none of it could be tested, and the
+/// Extracted from the console's history surface so the logic is reachable without
+/// a SwiftUI view: as private members of a `View` none of it could be tested, and
 /// time-zone and month boundaries are exactly where a date bug hides.
 ///
 /// Every entry point takes its `Calendar`, `TimeZone`-bearing formatters and

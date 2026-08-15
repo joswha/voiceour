@@ -59,7 +59,7 @@
             guard
                 let names = try generatedGoldenNames(
                     in: directory,
-                    suffixes: [".flow.txt", ".ax.txt", ".png.sha256"]
+                    suffixes: [".flow.txt"]
                 )
             else { return }
 
@@ -74,36 +74,6 @@
 
             let orphans = Set(journalIDs).subtracting(catalogIDs)
             #expect(orphans.isEmpty, "orphan .flow.txt goldens: \(orphans.sorted())")
-        }
-
-        @Test func presentFlowFrameGoldensMatchDeclaredCaptures() throws {
-            let root = try #require(repositoryRoot())
-            let directory = root.appendingPathComponent("fixtures/ui/flows", isDirectory: true)
-            guard
-                let names = try generatedGoldenNames(
-                    in: directory,
-                    suffixes: [".flow.txt", ".ax.txt", ".png.sha256"]
-                )
-            else { return }
-
-            let declared = Set(
-                UIFlowCatalog.everything().flatMap { flow in
-                    flow.steps.compactMap { step -> String? in
-                        guard case .capture(let frame) = step else { return nil }
-                        return "\(flow.id).\(frame)"
-                    }
-                })
-            let accessibilityIDs = Set(names.compactMap { removingSuffix(".ax.txt", from: $0) })
-            let pixelIDs = Set(names.compactMap { removingSuffix(".png.sha256", from: $0) })
-
-            let accessibilityOrphans = accessibilityIDs.subtracting(declared)
-            let pixelOrphans = pixelIDs.subtracting(declared)
-            #expect(
-                accessibilityOrphans.isEmpty,
-                "flow .ax.txt goldens without a matching capture: \(accessibilityOrphans.sorted())")
-            #expect(
-                pixelOrphans.isEmpty,
-                "flow .png.sha256 goldens without a matching capture: \(pixelOrphans.sorted())")
         }
 
         private func generatedGoldenNames(

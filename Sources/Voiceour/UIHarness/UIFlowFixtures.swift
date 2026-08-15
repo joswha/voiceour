@@ -84,27 +84,52 @@
             }
         }
 
-        /// Backend health starts unavailable and the scripted ASR answers `ready` only after
-        /// both automatic probes have seeded and preserved that unavailable state. The first
-        /// failure is consumed by `UIFixtures.make`'s settled bootstrap probe; the System
-        /// pane's automatic on-appear probe consumes the second; explicit RE-CHECK recovers.
+        /// The System tab's automatic probe returns an unavailable snapshot only
+        /// after the script releases `.backendHealthUnavailable`. Explicit Re-check
+        /// then parks at `.backendHealth` before returning ready. Both asynchronous
+        /// state changes are therefore checkpoints rather than scheduler races.
         ///
-        /// This is the one fixture with a stepped clock. The six-second step carries each
-        /// later call past the coordinator's five-second de-duplication TTL, so neither the
-        /// pane's probe nor the explicit RE-CHECK is swallowed by the bootstrap result.
+        /// The stepped clock carries Re-check past the coordinator's five-second
+        /// de-duplication TTL.
         static func backendRecovery() -> UIFlowFixture {
-            UIFlowFixture(name: "backend-recovery", armedGates: []) {
-                // A registered picker id, not a fixture-shaped one: the readiness
-                // row names whichever backend is running, so an unknown id would
-                // put "UI-FLOW" in a committed sentence.
+            let gates: Set<UIGate> = [.backendHealthUnavailable, .backendHealth]
+            return UIFlowFixture(name: "backend-recovery", armedGates: gates) {
+                let unavailableLink = UIAdapterLink(gate: .backendHealthUnavailable)
+                let readyLink = UIAdapterLink(gate: .backendHealth)
                 let coordinator = UIFixtures.make(
                     sessions: UIFixtures.history,
                     settings: UIFixtures.settings(backend: "parakeet"),
                     backend: "parakeet",
-                    asrOverride: UIRecoveringASR(),
-                    clockStep: UIScriptClock.backendProbeStep
+                    asrOverride: UIRecoveringASR(
+                        unavailableLink: unavailableLink,
+                        readyLink: readyLink
+                    ),
+                    clockStep: UIScriptClock.backendProbeStep,
+                    resolveBackendHealth: false
                 )
-                return UIFlowContext(coordinator: coordinator, armedGates: [])
+                let context = UIFlowContext(coordinator: coordinator, armedGates: gates)
+                unavailableLink.bind(to: context)
+                readyLink.bind(to: context)
+                return context
+            }
+        }
+
+        /// Clearing history owns a detached persistence task. The synchronous save
+        /// seam blocks on a sticky condition while the flow's named `.persistence`
+        /// gate controls when the task may complete.
+        static func historyClear() -> UIFlowFixture {
+            let barrier = UIBlockingGate()
+            let gates: Set<UIGate> = [.persistence]
+            return UIFlowFixture(name: "history-clear", armedGates: gates) {
+                let coordinator = UIFixtures.make(
+                    sessions: UIFixtures.history,
+                    recentSessionSnapshotSave: { _, _ in barrier.arrive() }
+                )
+                return UIFlowContext(
+                    coordinator: coordinator,
+                    armedGates: gates,
+                    releaseHooks: [.persistence: { barrier.release() }]
+                )
             }
         }
 
@@ -249,10 +274,16 @@
         }
     }
 
-    /// Bootstrap and on-appear health probes fail to preserve the unavailable row; every
-    /// explicit RE-CHECK afterward returns the same ready snapshot.
+    /// Each health result waits on the named link for the state it publishes.
     private actor UIRecoveringASR: ASRClienting {
+        private let unavailableLink: UIAdapterLink
+        private let readyLink: UIAdapterLink
         private var healthRequests = 0
+
+        init(unavailableLink: UIAdapterLink, readyLink: UIAdapterLink) {
+            self.unavailableLink = unavailableLink
+            self.readyLink = readyLink
+        }
 
         func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
             ASRResult(
@@ -267,7 +298,8 @@
 
         func health(timeoutMs: Int) async throws -> ASRBackendHealth {
             healthRequests += 1
-            guard healthRequests > 2 else {
+            if healthRequests == 1 {
+                await unavailableLink.arrive()
                 throw ASRErrorMessage(
                     requestId: "ui-flow-health",
                     code: .backendUnavailable,
@@ -277,6 +309,7 @@
                     detail: "Scripted backend unavailable."
                 )
             }
+            await readyLink.arrive()
             return ASRBackendHealth(
                 backendId: "ui-flow",
                 backendStatus: .ready,
@@ -288,6 +321,25 @@
 
         func warmUp() async {}
         nonisolated func lastTranscriptionPath() -> String? { "ui-flow" }
+    }
+    /// One-shot synchronous bridge for a detached persistence closure. Release is
+    /// sticky so the script may open the named gate just before the save arrives.
+    private final class UIBlockingGate: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var isReleased = false
+
+        func arrive() {
+            condition.lock()
+            while !isReleased { condition.wait() }
+            condition.unlock()
+        }
+
+        func release() {
+            condition.lock()
+            isReleased = true
+            condition.broadcast()
+            condition.unlock()
+        }
     }
 
     struct UIGatedPermissions: PermissionsChecking {

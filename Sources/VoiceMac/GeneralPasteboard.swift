@@ -11,11 +11,11 @@ public enum GeneralPasteboard {
     /// Offscreen-harness seam, `nil` in every shipping build.
     ///
     /// Three SwiftUI actions copy straight to the pasteboard rather than through the
-    /// insertion adapter -- the menu's transcript copy, the Sessions transcript copy and
-    /// `PropertyRow`'s value copy -- so a UI flow that presses one of them would clobber
-    /// the clipboard of whoever is running the harness. That is not a golden churning; it
-    /// is the harness reaching out of its box into the user's workspace, which the privacy
-    /// rules forbid outright.
+    /// insertion adapter -- the menu's transcript copy, the History tab's transcript copy
+    /// and the System tab's Copy Diagnostics -- so a UI flow that presses one of them would
+    /// clobber the clipboard of whoever is running the harness. That is not a golden
+    /// churning; it is the harness reaching out of its box into the user's workspace,
+    /// which the privacy rules forbid outright.
     ///
     /// Shaped like `RenderOverrides`: nil by default, every read is
     /// `override ?? <the real write>`, and nothing in production assigns it. Only

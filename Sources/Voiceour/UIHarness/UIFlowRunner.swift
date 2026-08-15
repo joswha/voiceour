@@ -46,7 +46,6 @@
 
             let host = resolve(flow.host, context: context)
             var lines: [UIExpectationLine] = []
-            var frames: [UIFlowFrame] = []
             var failures: [UIFlowFailure] = []
             var errorDescription: String?
             var expectationOrdinal = 0
@@ -68,6 +67,7 @@
                                 view: view,
                                 window: window,
                                 context: context,
+                                navigateConsole: host.navigateConsole,
                                 failures: &failures
                             )
                             UIHarnessRuntime.pump(iterations: actionSettle)
@@ -143,38 +143,6 @@
                                 }
                             }
 
-                        case .capture(let name):
-                            let tree = AXDump.tree(of: view)
-                            let capture = try UIHarnessRuntime.capture(view, scale: request.scale)
-                            let findings = UILint.evaluate(
-                                root: tree,
-                                capture: capture,
-                                size: host.size,
-                                textSamples: recorder.samples
-                            )
-                            let frame = UIHarnessMain.reconcileFlowFrame(
-                                flowID: flow.id,
-                                frame: name,
-                                tree: tree,
-                                capture: capture,
-                                findings: findings,
-                                request: request
-                            )
-                            frames.append(frame)
-
-                            for finding in findings where finding.severity == .error {
-                                failures.append(
-                                    UIFlowFailure(
-                                        ordinal: stepOrdinal,
-                                        checkpoint: name,
-                                        domain: .lint,
-                                        expectation: "captured frame lint clean",
-                                        observed: "\(finding.rule): \(finding.message)",
-                                        selector: nil,
-                                        candidates: []
-                                    )
-                                )
-                            }
                         }
                     }
                 }
@@ -186,7 +154,6 @@
                 flow: flow,
                 lines: lines,
                 transitions: context.transitions.recorded,
-                frames: frames,
                 failures: failures,
                 warnings: UIHarnessRuntime.lastInteractionWarnings,
                 error: errorDescription,
@@ -197,7 +164,6 @@
                 flow: flow,
                 lines: lines,
                 transitions: context.transitions.recorded,
-                frames: frames,
                 failures: failures,
                 warnings: UIHarnessRuntime.lastInteractionWarnings + reconciliation.warnings,
                 error: errorDescription,
@@ -208,19 +174,34 @@
         private struct Host {
             let size: CGSize
             let colorScheme: ColorScheme
+            let navigateConsole: ((ConsoleTab) -> Void)?
             let build: @MainActor () -> AnyView
         }
 
         private static func resolve(_ host: UIFlowHost, context: UIFlowContext) -> Host {
             switch host {
-            case .console(let section):
-                return Host(size: UISceneCatalog.consoleSize, colorScheme: .dark) {
-                    AnyView(ConsoleView(coordinator: context.coordinator, initialSection: section))
+            case .console(let tab):
+                let bridge = ConsoleNavigationBridge(tab: tab)
+                return Host(
+                    size: UISceneCatalog.consoleSize,
+                    colorScheme: .dark,
+                    navigateConsole: { bridge.tab = $0 }
+                ) {
+                    AnyView(
+                        ConsoleFlowHost(
+                            coordinator: context.coordinator,
+                            navigation: bridge
+                        )
+                    )
                 }
 
 
             case .menu:
-                return Host(size: UISceneCatalog.menuSize, colorScheme: .dark) {
+                return Host(
+                    size: UISceneCatalog.menuSize,
+                    colorScheme: .dark,
+                    navigateConsole: nil
+                ) {
                     AnyView(
                         MenuView(coordinator: context.coordinator)
                             .frame(width: UISceneCatalog.menuSize.width, alignment: .top)
@@ -231,7 +212,11 @@
 
             case .overlay:
                 let bridge = OverlayBridge(coordinator: context.coordinator)
-                return Host(size: RecordingOverlayMetrics.windowSize, colorScheme: .dark) {
+                return Host(
+                    size: RecordingOverlayMetrics.windowSize,
+                    colorScheme: .dark,
+                    navigateConsole: nil
+                ) {
                     AnyView(
                         RecordingOverlayView(
                             model: bridge.model,
@@ -242,7 +227,7 @@
                 }
 
             case .custom(let size, let colorScheme, let build):
-                return Host(size: size, colorScheme: colorScheme) {
+                return Host(size: size, colorScheme: colorScheme, navigateConsole: nil) {
                     build(context)
                 }
             }
@@ -254,6 +239,7 @@
             view: NSView,
             window: NSWindow,
             context: UIFlowContext,
+            navigateConsole: ((ConsoleTab) -> Void)?,
             failures: inout [UIFlowFailure]
         ) {
             switch action {
@@ -265,15 +251,14 @@
                 case .toggle: context.coordinator.toggle()
                 }
 
-            case .navigate(let section):
-                performInteraction(
-                    .press,
-                    query: .label(section.label),
-                    expectation: action.description,
+            case .navigate(let tab):
+                performNavigation(
+                    to: tab,
+                    action: action,
                     ordinal: ordinal,
                     view: view,
-                    window: window,
                     context: context,
+                    navigate: navigateConsole,
                     failures: &failures
                 )
 
@@ -313,6 +298,68 @@
                     failures: &failures
                 )
             }
+        }
+
+        /// Native TabView radio buttons expose exact ids and selected values in
+        /// the offscreen tree, but their live elements implement no AX press
+        /// action and a prohibited never-key window cannot accept their mouse
+        /// tracking loop. Resolve the real control exactly, then move the binding
+        /// that backs that control. The checkpoints still verify exclusive
+        /// content and both selected/unselected AX values after every move.
+        private static func performNavigation(
+            to tab: ConsoleTab,
+            action: UIFlowAction,
+            ordinal: Int,
+            view: NSView,
+            context: UIFlowContext,
+            navigate: ((ConsoleTab) -> Void)?,
+            failures: inout [UIFlowFailure]
+        ) {
+            let query = UIQuery.id("console.tab.\(tab.rawValue)")
+            let tree = AXDump.tree(of: view)
+            let nodes = UIFlowExpectations.matches(query, in: tree)
+            guard nodes.count == 1 else {
+                let candidates =
+                    nodes.isEmpty
+                    ? UIFlowExpectations.evaluate(
+                        .exists(query),
+                        tree: tree,
+                        context: context,
+                        capture: nil,
+                        findings: [],
+                        warnings: UIHarnessRuntime.lastInteractionWarnings,
+                        checkpoint: "action",
+                        ordinal: ordinal
+                    ).candidates
+                    : []
+                failures.append(
+                    UIFlowFailure(
+                        ordinal: ordinal,
+                        checkpoint: nil,
+                        domain: .action,
+                        expectation: action.description,
+                        observed: "\(nodes.count) matches",
+                        selector: query.description,
+                        candidates: candidates
+                    )
+                )
+                return
+            }
+            guard let navigate else {
+                failures.append(
+                    UIFlowFailure(
+                        ordinal: ordinal,
+                        checkpoint: nil,
+                        domain: .action,
+                        expectation: action.description,
+                        observed: "the hosted surface has no console selection binding",
+                        selector: query.description,
+                        candidates: []
+                    )
+                )
+                return
+            }
+            navigate(tab)
         }
 
         private enum InteractionKind {
@@ -504,6 +551,28 @@
                 return description
             }
             return String(describing: error)
+        }
+    }
+
+    @MainActor
+    private final class ConsoleNavigationBridge: ObservableObject {
+        @Published var tab: ConsoleTab
+
+        init(tab: ConsoleTab) {
+            self.tab = tab
+        }
+    }
+
+    @MainActor
+    private struct ConsoleFlowHost: View {
+        var coordinator: DictationCoordinator
+        @ObservedObject var navigation: ConsoleNavigationBridge
+
+        var body: some View {
+            ConsoleWindowView(
+                coordinator: coordinator,
+                selection: $navigation.tab
+            )
         }
     }
 

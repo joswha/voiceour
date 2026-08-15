@@ -49,14 +49,11 @@ jobs:
       - name: Swift tests
         run: make test
 
-      # Flow journals, named expectations, and the coverage ledger are semantic,
-      # host-independent contracts, so they are required even though pixel and
-      # accessibility-frame goldens remain advisory on hosted runners below.
+      # Flow journals and named expectations are host-independent semantic contracts,
+      # so they are required. Scene accessibility dumps, PNG digests, and their lint
+      # findings remain advisory on hosted runners below.
       - name: Semantic UI flows
         run: make ui-flow
-
-      - name: UI coverage ledger
-        run: make ui-coverage
 
       - name: Benchmark tests
         run: cd bench && uv --no-config run pytest
@@ -80,12 +77,29 @@ jobs:
             echo "control-plane symbols have appeared"; exit 1
           fi
 
-  # Not a required gate yet. The PNG-digest and flow-frame goldens were generated
-  # on the maintainer's Apple Silicon Mac, and an offscreen AppKit render on a
-  # hosted runner may still differ in display scale, font rasterisation, or AX
-  # frame geometry even now that the OS matches. The semantic flow gate is
-  # required above because it skips frame reconciliation; promote these visual
-  # gates only after two consecutive green runs on main.
+  release:
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build release configuration
+        run: swift build -c release
+
+      - name: Bundle release app
+        run: scripts/bundle.sh
+
+      - name: Verify release bundle
+        run: scripts/verify_bundle.sh
+
+  # Not a required gate yet. The scene PNG digests and accessibility dumps were
+  # generated on the maintainer's Apple Silicon Mac, and an offscreen AppKit render
+  # on a hosted runner may still differ in display scale, font rasterisation, or AX
+  # geometry even now that the OS matches. The semantic flow-journal gate is required
+  # above; promote the scene snapshots and their lint findings only after two
+  # consecutive green runs on main.
   ui-snapshots:
     runs-on: macos-26
     continue-on-error: true
@@ -95,5 +109,3 @@ jobs:
           persist-credentials: false
       - name: Portable UI snapshots
         run: make ui-snap
-      - name: Portable UI flow frames
-        run: make ui-flow-frames

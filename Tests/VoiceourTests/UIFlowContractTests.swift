@@ -254,49 +254,30 @@
             }
         }
 
-        @Test func flowResultStatusUsesGlobalPrecedence() {
+        @Test func flowResultStatusMatchesJournalVerdict() {
             let flow = UIFlow(
                 id: "contract.status",
-                title: "Status precedence contract",
+                title: "Status contract",
                 host: .menu,
                 fixture: UIFlowFixture.static(.firstRun),
                 steps: [.check("contract", [.lintClean])]
             )
-            let failureFrame = frame(pixel: .failed, accessibility: .ok)
-            let changedFrame = frame(pixel: .changed, accessibility: .ok)
-            let missingFrame = frame(pixel: .missingGolden, accessibility: .ok)
-            let writtenFrame = frame(pixel: .written, accessibility: .ok)
 
-            #expect(result(flow: flow, journal: .changed, frames: [failureFrame]).status == .failed)
-            #expect(result(flow: flow, journal: .missingGolden, frames: [changedFrame]).status == .changed)
-            #expect(result(flow: flow, journal: .written, frames: [missingFrame]).status == .missingGolden)
-            #expect(result(flow: flow, journal: .ok, frames: [writtenFrame]).status == .written)
-            #expect(result(flow: flow, journal: .ok, frames: []).status == .ok)
-        }
-
-        private func frame(pixel: UISceneResult.Status, accessibility: UISceneResult.Status) -> UIFlowFrame {
-            UIFlowFrame(
-                name: "checkpoint",
-                id: "contract.status.checkpoint",
-                pixelStatus: pixel,
-                axStatus: accessibility,
-                pngDigest: nil,
-                goldenPngDigest: nil,
-                nodeCount: 0,
-                findings: []
-            )
+            #expect(result(flow: flow, journal: .failed).status == .failed)
+            #expect(result(flow: flow, journal: .changed).status == .changed)
+            #expect(result(flow: flow, journal: .missingGolden).status == .missingGolden)
+            #expect(result(flow: flow, journal: .written).status == .written)
+            #expect(result(flow: flow, journal: .ok).status == .ok)
         }
 
         private func result(
             flow: UIFlow,
-            journal: UISceneResult.Status,
-            frames: [UIFlowFrame]
+            journal: UISceneResult.Status
         ) -> UIFlowResult {
             UIFlowResult(
                 flow: flow,
                 lines: [],
                 transitions: [],
-                frames: frames,
                 failures: [],
                 warnings: [],
                 error: nil,

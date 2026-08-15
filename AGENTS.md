@@ -1,211 +1,263 @@
-# Development Rules
+# Development rules
 
-## Default Context
+## Default context
 
-Voiceour is a macOS menu-bar dictation app. The intended user flow is: focus any text input, tap Fn/Globe by itself, speak one utterance, transcribe locally through the ASR sidecar, clean/refine text when configured, then paste or copy the final text into whichever target is focused when delivery begins.
+Voiceour is a macOS menu-bar dictation app. The intended user flow is: focus a text input, tap Fn/Globe by itself, speak one utterance, stop once, transcribe locally through the Parakeet sidecar, apply deterministic cleanup and glossary canonicalization, then paste or copy into the target focused when delivery begins.
 
-The product/repo name appears as `Voiceour` / `voiceour`. Do not rename either without explicit instruction.
+The product/repository names are `Voiceour` and `voiceour`. Do not rename either without explicit instruction.
 
 ## Terminology
 
-- **Voiceour**: the Swift executable target and macOS app.
-- **VoiceCore**: pure Swift/Foundation domain logic and contracts.
-- **VoiceMac**: macOS adapters for audio, pasteboard, permissions, hotkeys, process management, and optional refinement.
-- **ASR sidecar**: the Swift `voiceour-asr` executable under `Sources/VoiceourASR/`, linking the vendored parakeet.cpp under `Vendor/parakeet/`, that speaks the transcription protocol over stdio.
-- **Refiner**: the optional text refinement layer. It has exactly two destinations: `omp`, the locally installed Oh My Pi CLI, which brokers every network model and owns every credential involved; and Apple's on-device system model. It is not the ASR model and must remain opt-in.
-- **Capture target**: the app/window context captured before recording starts for vocabulary, cleanup, and refinement decisions.
-- **Delivery target**: the app/window/text destination focused immediately before insertion begins.
+- **Voiceour** — the Swift executable target and macOS app.
+- **VoiceCore** — Foundation-only domain models, policies, and contracts.
+- **VoiceMac** — macOS adapters for capture, sidecar launch, targets, pasteboard, permissions, hotkeys, and system audio.
+- **ASR sidecar** — the signed sibling `voiceour-asr` executable. It links vendored parakeet.cpp/ggml and speaks NDJSON v1 over stdio.
+- **Capture target** — app/window context snapshotted before recording; it selects app-scoped vocabulary.
+- **Delivery target** — app/window/control context snapshotted immediately before persistence and insertion, then identity-checked again by the inserter.
+- **Cleanup** — deterministic filler removal and glossary canonicalization. It is the only text-processing stage after ASR.
+- **Console** — the native `Window("Voiceour", id: "main")` containing General, Glossary, History, and System tabs.
+- **Secure delivery** — concealed pasteboard copy, never Cmd-V and never a History row.
 
-## Repository Structure
+## Repository structure
 
-| Path | Purpose |
+| path | purpose |
 | --- | --- |
-| `Sources/VoiceCore/` | Foundation-only models, session state, settings, cleanup, glossary, ASR wire types, and safety classification. |
-| `Sources/VoiceMac/` | macOS-specific adapters: audio recording, fake audio, sidecar process client, target tracking, pasteboard insertion, permissions, Carbon hotkey binding, and the optional refiner backends. |
-| `Sources/Voiceour/` | SwiftUI `MenuBarExtra`, settings UI, recording overlay, and `DictationCoordinator` orchestration. |
-| `Sources/Voiceour/UIHarness/` | Offscreen UI harness: scene and flow catalogs, inert fixtures, deterministic runner, accessibility dump, UX lint, coverage ledger, and the `--ui-harness` CLI. |
-| `Vendor/parakeet/` | Vendored parakeet.cpp and ggml sources, with the upstream pin and local patch ledger in `NOTICE.md`. |
-| `Sources/ASRSidecarCore/` | Model cache, WAV reader, parakeet context wrapper, token mapping, fake backend, and NDJSON server. |
-| `Sources/VoiceourASR/` | Swift executable target for the shipped `voiceour-asr` sidecar. |
-| `Sources/ASRSidecarStub/` | Test-only executable for exercising sidecar transport failures; never shipped. |
-| `fixtures/protocol/` | Golden NDJSON/JSON protocol fixtures decoded by Swift protocol tests. |
-| `fixtures/text/` | Text cleanup fixtures. |
-| `fixtures/ui/` | Committed UI goldens: one accessibility dump and one PNG digest per scene. |
-| `Resources/` | App plist and entitlements. |
-| `docs/` | Architecture, permissions, setup, and scoped product notes. |
-| `scripts/` | Developer, smoke, fixture, bundle, signing, and real/fake run scripts. |
+| `Sources/VoiceCore/` | Foundation-only settings, state, cleanup, glossary, ASR wire types, history models, failure presentation, and safety policy. |
+| `Sources/VoiceMac/` | AVFoundation/AppKit/CoreGraphics adapters: recording, fake audio, sidecar process client, targets, pasteboard insertion, permissions, hotkeys, and muting. |
+| `Sources/Voiceour/` | SwiftUI menu, overlay, four-tab console, persistence journal, and coordinator/pipeline orchestration. |
+| `Sources/Voiceour/UIHarness/` | Compile-gated scene renderer, AX dump, PNG digest, lint, semantic flow runner, and NDJSON reports. |
+| `Sources/ASRSidecarCore/` | Model cache, WAV loading, Parakeet context/token mapping, fake/real sidecar backends, and server. |
+| `Sources/VoiceourASR/` | `voiceour-asr` executable entry point. |
+| `Sources/ASRSidecarStub/` | Protocol/process test helper. |
+| `Sources/VoiceourBench/` | Swift production-path benchmark executable. |
+| `Vendor/parakeet/` | Vendored parakeet.cpp and ggml, pin/patch ledger, and embedded Metal source. |
+| `Tests/` | Swift Testing suites aligned to the target boundaries. |
+| `fixtures/protocol/` | Canonical protocol-v1 JSON fixtures. |
+| `fixtures/ui/` | Scene AX/PNG-digest goldens and semantic flow journals. |
+| `bench/` | Non-shipping Python dataset, report, comparison, and metric tools. |
+| `benchmarks/` | Prepared data and committed benchmark reports. |
+| `scripts/` | Build, launch, bundle, signing, harness, fixture, and vendor workflows. |
+| `docs/` | Current architecture, permissions, UI, benchmark, and performance contracts; superseded records live under `docs/archive/`. |
 
-## Architecture Boundaries
+## Architecture boundaries
 
-- Keep `VoiceCore` pure Swift/Foundation. Do not import AppKit, SwiftUI, AVFoundation, Accessibility, CoreGraphics event posting, pasteboard APIs, process-launch APIs, or Keychain APIs there.
-- Put macOS APIs and side effects in `VoiceMac` behind small protocols/types consumed by the app layer.
-- Keep `Voiceour` focused on UI and orchestration. `DictationCoordinator` owns the live session flow and should stay `@MainActor` for observable UI state.
-- Preserve dependency injection around recording, ASR, target tracking, insertion, permissions, hotkeys, refinement, settings, and recent-session storage. Tests and fake development rely on substitutable services.
-- Keep fake-backend development intact. The fake ASR/audio path is the default smoke path and must not require microphone permission, model download, or network refiner configuration.
+- Keep `VoiceCore` Foundation-only. Never import AppKit, SwiftUI, AVFoundation, Accessibility, CoreGraphics event posting, pasteboard, process-launch, or Keychain APIs there.
+- Put macOS APIs and side effects in `VoiceMac` behind small contracts consumed by the app layer.
+- Keep `Voiceour` focused on UI and orchestration. `DictationCoordinator` remains `@MainActor` for observable state.
+- Preserve dependency injection around recording, ASR, target tracking, insertion, permissions, hotkeys, muting, settings, and recent sessions. Fake development and tests depend on substitutable services.
+- Production defaults to `parakeet`; `fake` is deterministic development infrastructure and a debug-only choice.
+- The sidecar is the only child process. The pinned model acquisition is the only network path.
+- The console is native macOS: one `TabView`, four grouped Forms, standard controls, and native confirmation dialogs. Do not create custom window/navigation chrome.
+- Bespoke glass styling is limited to the menu popover and recording overlay.
 
-## Runtime Flow
+## Runtime flow
 
-The core session flow is:
+The session state machine is:
 
 ```text
-idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> refining -> readyToInsert -> pasteAttempted/copiedOnly -> idle
+idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning
+     -> readyToInsert -> pasteAttempted | copiedOnly | insertFailed -> idle
 ```
 
-Important invariants:
+`error` and `cancelled` are terminal outcomes before return to idle.
 
-- Snapshot the capture target before recording starts and use it for utterance context. Snapshot the delivery target again immediately before insertion; insertion safety and recent-session destination metadata use that latest target.
-- Keep the recording overlay on the focused target's display. A saved manual position is relative to the display, never an absolute pin to one monitor.
-- Ignore stale async work with generation/cancellation checks. Do not let an old transcription/refinement result update current UI state.
-- Remove temporary audio files on success, cancellation, and error paths when the coordinator still owns the file.
-- Skip refinement unless it is enabled/configured and the target class allows it.
-- Surface unsafe or unavailable paste paths as copy-only behavior, not silent failure.
+Required invariants:
 
-## ASR Sidecar Protocol
+- One solitary Fn/Globe tap toggles recording on release. Modified Fn combinations are not dictation gestures.
+- With Accessibility trust, consume the Globe assigned-action event and an unmodified Escape during an active session. Without trust, use the passive monitor and degrade insertion to copy-only.
+- Recreate `HotkeyEventRouter` whenever the tap is torn down or rebuilt. Passive routing ignores Globe keycode 179.
+- Keep the overlay on the focused target's display. Store manual placement relative to a display, never as an absolute pin to one monitor.
+- Stop always finalizes one WAV and performs one final decode. There is no in-progress ASR request path.
+- Ignore stale asynchronous work through generation/cancellation checks. An old recording or decode cannot update a newer session.
+- Capture startup failure removes its WAV. Once finalization begins, the processing pipeline owns discard; cancellation must not race a second owner.
+- Capture latches runtime errors and active-device disconnects. Reject a latched or zero-successfully-written-frame recording before ASR.
+- Run blocking `AVCaptureSession.startRunning()`/`stopRunning()` on their dedicated serial queue, not the main actor.
+- Run capture telemetry analysis off the main actor.
+- Apply `CleanupEngine` exactly once after ASR, then snapshot the delivery target before persistence.
+- A secure delivery target skips the journal entirely and receives concealed copy-only delivery.
+- Surface capture, permission, acquisition, and every wire failure through `UserFacingDictationFailure`; never show raw codes as the primary sentence.
+- Model progress must remain visible in the menu while download or warmup is active.
+- A second app instance terminates at launch.
 
-The sidecar protocol is newline-delimited JSON over stdio.
+## ASR sidecar protocol
 
-- **stdout is protocol-only.** Never print logs, progress bars, tracebacks, warnings, or dependency output to stdout from the sidecar.
-- Diagnostics, progress, and backend logs go to stderr.
-- Every message carries `protocol_version: 1`.
-- Startup emits `hello`.
-- Accepted request types are `health`, `transcribe`, and `cancel`.
-- Each `transcribe` request must produce exactly one terminal `result`, `error`, or `cancelled` response.
-- The sidecar is a persistent process: the Swift client spawns it once, keeps stdio open, and multiplexes requests by `request_id`; the sidecar serializes decodes on one queue while keeping cancellation and health handling actionable during an in-flight request.
-- `VOICEOUR_PRELOAD=1` acquires the pinned model in the background after `hello`, loads it, and runs one throwaway decode so the first dictation does not pay Metal pipeline materialisation.
-- The wire no longer carries `bias_phrases`, `bias_snapshot_id`, `hypotheses`, or `decoder`; `ASRConfidenceMode` contains only `none` and `greedy_token_prob`.
-- Wire-contract changes must update Swift protocol models and the shared fixtures in `fixtures/protocol/` together.
+The sidecar protocol is newline-delimited JSON over stdin/stdout.
 
-## Privacy and Insertion Safety
+- Protocol version is 1 on every frame. Reject any mismatched response, not only `hello`.
+- Stdout is protocol-only; logs go to stderr. Keep stderr continuously drainable.
+- Startup emits `hello` with sidecar/backend status and capabilities.
+- Accepted requests are `health`, `transcribe`, and `cancel`.
+- Every decode request gets exactly one terminal `result`, `error`, or `cancelled`.
+- `health` reports ready/model/cache state plus optional download fraction and warming state.
+- `transcribe` carries request id, WAV metadata, expected model identity, and timeout.
+- Preserve request ids end-to-end so concurrent client bookkeeping cannot cross responses.
+- Keep one persistent sidecar per client. Timeout, malformed frame, EOF, or crash must fail pending work and permit a clean later spawn.
+- Server decode work stays serialized. Cancellation remains readable while decode runs.
+- The server owns its preload thread, sets shutdown before EOF exit, and performs a bounded join. Never add an unbounded Darwin `waitUntilExit()` after bounded shutdown.
+- A successful model load clears an earlier load-failure latch.
+- Model context construction/freeing is serialized; concurrent contexts can destroy ggml's shared Metal device.
 
-This app touches the user's active workspace. Treat insertion safety as product-critical.
+Change protocol models, client/server encoding, and `fixtures/protocol/` together. A field or request type present on only one side is a broken change.
 
-- Never read, snapshot, restore, upload, or inspect the user's previous clipboard contents.
-- Write only the final dictated text needed for copy/paste to `NSPasteboard.general`.
-- Do not paste into terminal, code-editor, secure, or unknown-risky targets. These must degrade to copy-only.
-- Re-check target identity before writing the pasteboard and again before synthetic paste.
-- Use pasteboard write plus Cmd-V event posting for eligible insertion. Do not mutate text fields directly with Accessibility APIs.
-- Secure keyboard entry is a target-safety signal, not just an AX role. `WorkspaceTargetTracker` samples `IsSecureEventInputEnabled()` and an active flag forces `.secure` (copy-only). Do not remove it because AX already covers the known password managers: it exists for the ones AX cannot see.
-- Copy-only text carries `org.nspasteboard.ConcealedType` and pasted text carries `org.nspasteboard.TransientType` so clipboard-history managers can skip it. Always keep writing the plain `.string` type too.
-- Strip exactly one trailing newline for terminal copy-only text so a copied command is not accidentally executed on paste.
-- If event-post/Accessibility permission is missing or unstable, copy only and report the reason.
-- Recent transcripts must remain local and clearable from the Sessions view. Do not persist audio history; temporary audio files should be removed when no longer needed.
-- Dictation history is two files with different bounds: `recent-sessions.json` (newest 500 transcripts) and `dictation-stats.json` (`DictationStatsLedger`, uncapped aggregates). Both are written behind one FIFO and "durable" means both took the change. Never derive a lifetime statistic from the capped transcript corpus, and never estimate the time economy — a dictation without capture timing is excluded from it, not given an assumed speaking rate.
-- The ledger stores no transcript text beyond one 320-character record preview. Clearing history resets it; deleting a single transcript keeps the lifetime counts and drops any quote sourced from that session.
+## Model contract and vendor rules
 
-## Local-First and Network Policy
+The production pin is:
 
-- Real ASR is local through the `parakeet` backend and its Swift/C sidecar. The current model is `ggml-org/parakeet-GGUF` at revision `35156454d1a39de06863303dd209fd2bed6ee079`, file `ggml-parakeet-tdt-0.6b-v3-f16.bin`. An opt-in `apple` backend (macOS 26+) uses the on-device SpeechAnalyzer/SpeechTranscriber instead of the sidecar; it is also fully local.
-- Do not replace the model id or revision casually. `Vendor/parakeet/` and the model pin move together; treat model identity, cache manifest behavior, docs, and tests as one compatibility contract.
-- The cache manifest records `model_id`, `revision`, `file`, `sha256`, and `size_bytes`. The digest is verified once at download; later launches check the pinned file's presence and size. No separate offline-mode environment flag or Hugging Face snapshot layout is involved.
-- Network access is acceptable for first model download/cache setup or when the user explicitly enables/configures the optional refiner.
-- Never enable network refinement by default.
-- Network refinement leaves this machine only through the `omp` subprocess. Voiceour holds no provider credential: no API-key field, no credential environment variable, no keychain item, and no per-provider base URL. Do not add one back — OMP already reaches every provider on the user's behalf, and the entitlement reason a keychain cannot work here is recorded in `docs/architecture.md`.
-- The Model field is a picker whose options come from `omp models --json`; never reintroduce a free-text model id. `OmpModelCatalog.load` is the single loader behind both the picker and the CHECK probe so the two can never describe different lists.
-- That catalog query is the one `omp` call that runs with `shadowCredentials: false`, and it must stay that way. The single-space credential tombstones protect the transcript-bearing path, but OMP advertises a provider whenever its variable is *set*: shadowed, `omp models --json` returns 50 providers the refiner cannot reach, and `GITLAB_TOKEN=" "` makes it hang forever with nothing on stderr. Both measured; see `docs/architecture.md`.
-- Protected glossary terms must survive deterministic cleanup and optional refiner output exactly.
+- model `ggml-org/parakeet-GGUF`
+- revision `35156454d1a39de06863303dd209fd2bed6ee079`
+- file `ggml-parakeet-tdt-0.6b-v3-f16.bin`
+- SHA-256 `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f`
+- size 1,255,897,319 bytes
 
-## Swift Conventions
+Rules:
+
+- Treat model id, revision, filename, digest, size, descriptor metadata, cache manifest, docs, fixtures, and tests as one compatibility contract.
+- `cacheOK` requires the full manifest to equal the compiled pin and the file's on-disk size to equal the pinned size. Download completion verifies digest; load failure may force rehash.
+- Vendor parakeet.cpp/ggml from `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage), preserving upstream-relative paths.
+- Mark each local change to an upstream file with `VOICEOUR PATCH` and list it in `Vendor/parakeet/NOTICE.md`.
+- `scripts/vendor_parakeet.sh --check` must reject unexpected files and verify embedded Metal regeneration is byte-reproducible.
+- Never add `-mcpu=native`; the app bundle must run beyond the build host.
+
+## Privacy and insertion safety
+
+This app touches the user's microphone, active workspace, clipboard, and keyboard. Treat safety as product-critical.
+
+- Snapshot capture context before recording and delivery context immediately before journal/insertion.
+- `InsertionSafetyPolicy` is the single class-to-disposition mapping. Only `.normalText` may paste.
+- Terminal, code-editor, secure, and unknown-risky classes are copy-only. There is no “paste everywhere” switch.
+- Strip exactly one trailing newline for terminal and unknown-risky copies.
+- Classify Ghostty (`com.mitchellh.ghostty`) as terminal and Zed (`dev.zed.Zed`) as code editor.
+- Re-check bundle id, pid, safety class, and secure-input flag before writing the pasteboard and again before Cmd-V.
+- An AX inspection failure is unknown-risky. `kAXErrorNoValue` is the narrow “no focused element” answer; secure input and known risky bundles still outrank it.
+- Never read, save, restore, or later clear the user's previous clipboard. Write only the transcript.
+- Secure output carries the concealed marker, remains copy-only, and creates no `recent-sessions.json` row.
+- Ordinary paste attempts carry the transient marker. Other copy-only output remains plain string.
+- Never persist audio. Remove temporary files after success, cancellation, error, and stale-file scavenging.
+- History is one local file, newest 500. Settings/history load failures quarantine the unreadable file as `<name>.corrupt-<ISO8601>` and report the reset.
+- Settings saves and history snapshots share the ordered persistence tail. Do not suppress write failures.
+- Durable mute ownership survives launch when the recorded device UID cannot currently resolve; clear it only after a real restore attempt can be made.
+
+## Glossary rules
+
+- Glossary canonicalization is deterministic and one-pass over the original text.
+- Gather all alias matches, resolve overlap longest-first then leftmost, and apply accepted replacements right-to-left.
+- Escape canonical text with `NSRegularExpression.escapedTemplate` before replacement.
+- Reject an alias that case-insensitively equals another term's canonical or alias. Enforce this in Teach, add, accept, and import.
+- Only explicit user action may confirm, tombstone, import, or clear learned vocabulary. Automatic/background paths never teach.
+- Keep each utterance's active vocabulary snapshot bounded and selected from the capture target.
+- Ephemeral candidate retrieval remains in memory and never becomes persisted authority without explicit acceptance.
+
+## Local-first and network policy
+
+- Real ASR is local through `parakeet`; the fake backend is non-production.
+- The only acceptable network access is acquisition of the compiled model URL. Do not add network text processing, telemetry, crash reporting, accounts, update checks, or arbitrary URLs.
+- The sidecar launch environment is an allowlist: `PATH`, `HOME`, `TMPDIR`, proxy/TLS names needed by acquisition, and `VOICEOUR_*`. Never inherit the full parent environment.
+- Voiceour stores no credential and has no credential UI, environment contract, base URL, or keychain item.
+
+The absence of a secret store is measured. This bundle cannot use the macOS data-protection keychain: it ships no provisioning profile, and `Resources/Voiceour.entitlements` is audio-input only. `SecItemAdd` returned `errSecMissingEntitlement` (-34018); adding `keychain-access-groups` to an ad-hoc signature caused AMFI to kill it as “adhoc signed but contains restricted entitlements.” Do not introduce a feature that quietly depends on that keychain.
+
+## Swift conventions
 
 - Swift tools version is 5.9; deployment target is macOS 14.
-- Prefer concrete, explicit types at target boundaries and protocol contracts.
-- Keep UI-observable coordinator state on the main actor.
-- Keep async cancellation explicit. Check cancellation around side effects and before committing UI-visible results.
-- Keep side-effecting macOS behavior behind injectable adapters rather than embedding it in pure logic.
-- Use Swift Testing for Swift test targets already configured in `Package.swift`.
-- Do not add `sindresorhus/KeyboardShortcuts` back without verifying the command-line toolchain issue described in the repo docs is resolved. The current Carbon hotkey binder is intentionally small and replaceable.
+- Prefer concrete, explicit target-boundary types and small protocols.
+- Keep observable UI state main-actor isolated. Move blocking capture, file I/O, hashing, and model work off the main actor.
+- Use structured ownership for files, processes, capture sessions, and persistence tails. Identity-check teardown where a stale owner can race a newer resource.
+- Prefer existing patterns and delete obsolete callers/types in the same change. Do not leave compatibility shims for internal APIs.
+- Avoid avoidable allocations/copies in compiled hot paths.
 
-## Vendored parakeet.cpp
+## Developer commands
 
-- Vendor parakeet.cpp and ggml from `ggml-org/whisper.cpp` at commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage), preserving upstream-relative paths.
-- Mark every local change to an upstream file with a `VOICEOUR PATCH` comment and list it in `Vendor/parakeet/NOTICE.md`.
-- Preserve the existing patch for `ggml-org/whisper.cpp#3932`: the TDT decode loop chooses duration slots from raw pre-log-softmax logits rather than log-softmax output guarded by the `-1e10f` sentinel.
-- `Vendor/parakeet/ggml/embed/ggml-metal-embed.metal` is generated. Regenerate it with `Vendor/parakeet/ggml/embed/regenerate.sh` after any re-vendor of the Metal sources.
-- Do not enable `-mcpu=native`; the copyable app must remain compatible with older Apple Silicon Macs rather than target the build host's exact CPU.
-- Keep backend selection through `VOICEOUR_ASR_BACKEND=fake|parakeet|apple`; `parakeet` is the real sidecar backend and `apple` is the opt-in in-process backend.
+Use the smallest command that proves the change.
 
-## Developer Commands
-
-Use the smallest command that verifies the change.
-
-| Purpose | Command |
+| task | command |
 | --- | --- |
-| Swift build | `make build` |
-| Swift tests | `make test` |
-| UI scene gate (offscreen) | `make ui-snap` |
-| Bless intended scene change | `make ui-update` |
-| UI semantic flow gate (offscreen) | `make ui-flow` |
-| UI flow frame gate | `make ui-flow-frames` |
-| Bless intended flow change | `make ui-flow-update` |
-| List UI flows | `make ui-flow-list` |
-| UI coverage ledger | `make ui-coverage` |
-| Full scene and flow-frame gate | `make ui-all` |
-| Re-record the README GIF (media, not a gate) | `make ui-film` |
+| Build with warnings as errors | `make build` |
+| Swift tests including harness suites | `make test` |
+| Format sources/tests | `make format` |
+| Check formatting | `make format-check` |
+| Check model-doc consistency | `make check-docs` |
+| Lint Python benchmark package | `make lint-python` |
+| Bundle app | `make bundle` |
+| Verify bundle | `make verify-bundle` |
 | Fake app self-test | `scripts/run_dev.sh --self-test` |
 | Fake app launch | `scripts/run_dev.sh` |
-| Real ASR launch | `scripts/run_real.sh` |
-| Real ASR proof fixture | `swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
-| Bundle app | `scripts/bundle.sh` |
-| Restart existing real bundle | `scripts/restart_real.sh` |
-| Benchmark smoke (offline, fake) | `make bench-smoke` |
-| Benchmark suite | `docs/benchmarks.md` (`make bench-stt`, `bench-refine`, `bench-e2e`) |
+| Real app build/launch | `scripts/run_real.sh` |
+| Relaunch existing real bundle | `scripts/restart_real.sh` |
+| Real model proof | `swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
+| Portable scene gate | `make ui-snap` |
+| Native scene gate | `make ui-snap-os26` |
+| Bless intended portable scene change | `make ui-update` |
+| List scenes | `make ui-list` |
+| Portable semantic flow gate | `make ui-flow` |
+| Native semantic flow gate | `make ui-flow-os26` |
+| Bless intended portable flow journal | `make ui-flow-update` |
+| List flows | `make ui-flow-list` |
+| Complete local UI gate | `make ui-all` |
+| Offline benchmark smoke | `make bench-smoke` |
+| LibriSpeech benchmark | `make bench-stt N=64` |
+| FLEURS end-to-end report | `make bench-e2e N=64` |
+| Technical-term smoke | `make bench-techterms` |
+| U-WER comparison gate | `make bench-gate BASELINE=... CANDIDATE=...` |
+| Python benchmark tests | `(cd bench && uv --no-config run pytest)` |
+| Vendor integrity | `scripts/vendor_parakeet.sh --check` |
 
-Do not use real-ASR or GUI/manual flows as routine verification unless the change affects them. Prefer fake-first checks for fast, deterministic coverage.
+Benchmark commands must retain `uv --no-config`. Do not run real model or microphone checks unless the task needs them and prerequisites are present.
 
-## Fast Iteration Runtime
+## Fast iteration runtime
 
-- For Swift app behavior or bundled-resource changes, do not stop at source edits or tests. Rebuild and restart the running menu-bar app before yielding so the user never tests a stale binary.
-- For UI changes, verify offscreen with `make ui-snap` first. Relaunching the app takes over the user's screen, so reserve it for changes that genuinely need the live app: menu-bar item behavior, hotkeys, real insertion, permission prompts, or either glass material — the offscreen capture shows neither the legacy behind-window tint nor modern `.glassEffect`.
-- Prefer the fake path for fast iteration when real ASR is not required: `scripts/run_dev.sh --self-test` for smoke verification and `scripts/run_dev.sh` for an interactive fake launch.
-- If `.build/Voiceour.app` or a real-ASR instance is running, rebuild the bundle with `scripts/bundle.sh`, quit existing `Voiceour` processes, then reopen with the correct launch path (`scripts/restart_real.sh` for PARAKEET/real-bundle testing, `scripts/run_dev.sh` for fake development).
-- When a user reports stale UI or behavior, confirm the active `Voiceour` process path/arguments after relaunch before declaring the fix visible.
+- Source edits are not a runtime proof. Rebuild/restart the surface the user will exercise when app behavior or bundled resources changed.
+- Use the fake path for deterministic coordinator/menu/window behavior.
+- Use the real bundle for microphone, model acquisition, hotkey, insertion, entitlement, signature, helper-placement, or material behavior.
+- `scripts/restart_real.sh` reuses an existing bundle. Use `scripts/run_real.sh` after source or bundle changes.
+- A second app instance terminates, so verify the intended PID/bundle rather than assuming another launch won.
 
-## Offscreen UI Harness
+## Offscreen UI harness
 
-`Voiceour --ui-harness` renders SwiftUI views into a borderless window parked at -30000,-30000, dumps the in-process accessibility tree, lints both, and diffs against the scene goldens in `fixtures/ui/`. Its flow layer drives real views and the real `DictationCoordinator` through deterministic multi-step journeys, checks named semantics, and reconciles journals and optional captured frames under `fixtures/ui/flows/`. It needs no Screen Recording or Accessibility permission, never orders a window onscreen, and leaves the frontmost application unchanged. It is the default way to inspect this app's UI and interactive UI behaviour. Full reference: `docs/ui-harness.md`.
+`Voiceour --ui-harness` is compiled only with `-DUI_HARNESS`. It renders real SwiftUI into a borderless offscreen window, captures via `NSHostingView.cacheDisplay`, dumps in-process AX, lints, compares scene digests/dumps, and runs semantic journeys that write `.flow.txt` journals.
 
-Each invariant below was measured. Breaking one silently puts a window on the user's display or bakes machine-specific bytes into a golden.
+Current scene inventory covers General, Glossary, History, System, menu, overlay, accessibility adaptations, and representative macOS 26 menu/overlay branches. Flows cover the four tabs and core delivered/copy-only/cancel/error journeys. Use `make ui-list` and `make ui-flow-list` as authoritative inventories.
 
-- Keep the harness activation policy `.prohibited`. `.accessory` self-activated in 20 of 30 measured runs.
-- Keep the window `[.borderless]` and keep `constrainFrameRect(_:to:)` overridden to return the rect unchanged. AppKit otherwise drags an offscreen window back onto a display.
-- Leave the harness window unordered. Reaching for `orderFront`, `orderFrontRegardless`, `makeKey`, or `NSApp.activate` on this path defeats the whole design.
-- Keep every scene settle and flow wait to a fixed run-loop pump count, never a wall-clock deadline. Adaptive pumping goes nondeterministic against `.repeatForever` animation, and elapsed time makes flow verdicts host-dependent.
-- Rasterise through `NSHostingView` plus `cacheDisplay` into a hand-built `.deviceRGB` `NSBitmapImageRep`. `ImageRenderer` stubs every `NSViewRepresentable` and `ProgressView` with an opaque `#FFCC00` placeholder, and `bitmapImageRepForCachingDisplay` embeds the developer's display ICC profile.
-- Keep the `ConsoleView` activation guard. Hosting the real `ConsoleView` otherwise promotes the app to `.regular` and activates it.
-- Keep every `RenderOverrides` field `nil` in production and every production read shaped as `override ?? <real value>`. The seams pin the clock, permission snapshot, storage paths, and overlay comet so goldens do not encode one machine.
-- Keep production seams value-only, never behavioural. `DictationCoordinator` takes a `DictationRuntime` for `now`, `makeUUID`, and `sleep` and falls back with `runtimeOverride ?? .live`; `GeneralPasteboard.writeOverride` and `clearOverride` stay nil in shipping builds. Never add `#if UI_HARNESS` control flow to a shipping method.
-- Keep flow selectors exact and reject ambiguity. A substring that silently retargets is the regression a flow exists to catch.
-- Hold every asynchronous flow boundary behind a named gate that the script releases. Intermediate coordinator states are otherwise races rather than checkpoints.
-- Declare new scenes in `UISceneCatalog` only. Every new UI surface needs a `UICoverageRegistry` entry; a static surface needs both entries, and every new interactive behaviour needs a `UIFlow` that claims its required key.
-- Treat `fixtures/ui/coverage-baseline.txt` as a shrink-only ratchet: an uncovered required key absent from the file and a covered key still present both fail. A red flow blesses nothing and covers nothing.
-- Keep lint rules quiet on correct UI. The first rule set produced 173 findings of which 172 were false, and a rule that cries wolf trains every later agent to ignore the harness.
+Load-bearing measured invariants:
 
-Scene goldens are the accessibility dump plus a PNG digest, never the images: committing the renders is 7.6 MB and rewrites half-megabyte binaries on every update. Flow goldens add a host-independent semantic journal and optional named-frame dump/digest pairs. Read `.build/ui-harness/<scene>.ax.diff` before `make ui-update` and `.build/ui-harness/flows/<flow>.flow.diff` before `make ui-flow-update`, then commit the corresponding files under `fixtures/ui/`.
+- Set `.prohibited` before any hosted view. It activated in 0/24 runs versus 20/30 under `.accessory`; key refusal alone was insufficient.
+- Ignore the false return from `setActivationPolicy(.prohibited)`; the policy is still applied.
+- Create `NSApplication.shared` and call `finishLaunching()` before CoreGraphics window APIs.
+- Park at (-30,000, -30,000). Override `constrainFrameRect` without `super`; a probe at (-12,000, -12,000) was moved visibly to (320, 480) for 2.4 seconds.
+- The window cannot become key/main and may never order front. Swallow normal ordering and `orderFrontRegardless`; allow only order-out for close. Unordered capture was byte-identical.
+- `ConsoleWindowView.managesActivationPolicy` must observe `.prohibited`; reassert it before/after hosting so appearance/disappearance cannot change policy.
+- Enhanced accessibility is mandatory: measured 1 AX node before enabling and 23 after.
+- Pump fixed counts: 150 one-millisecond iterations before and after interaction, 30 at teardown. Never adapt to “stable”; a 200 ms animated probe produced 6/6 unique hashes.
+- Each pump includes a run-loop slice and posted-event drain; sleep or run-loop alone did not deliver queued AppKit events.
+- Capture into an owned interleaved RGBA8 `.deviceRGB` bitmap. The system caching bitmap embedded a 3,149-byte monitor profile plus cICP data.
+- Keep alpha; disabling it reintroduced subpixel font smoothing, the largest measured raster drift.
+- Never replace capture with `ImageRenderer`; it painted AppKit-backed controls/representables as `#FFCC00` placeholders.
+- The harness cannot show either glass path: behind-window `NSVisualEffectView` becomes a flat opaque fill without desktop content, while SwiftUI `.glassEffect` is absent/transparent under `cacheDisplay` (a measured island was 0.0% opaque and 59.3% fully transparent). Use an onscreen material check for glass itself.
+- `cacheDisplay` also omits blur/shadow filters. Do not weaken offscreen/activation guarantees to recover them.
 
-`docs/media/` is the one place rendered images are committed, and it is not a golden set. `make ui-film` records the harness's `dictation-island` reel frame by frame and assembles `docs/media/dictation-island.gif`; the two console/menu stills beside it were exported from ordinary scene renders. Film reels are deliberately outside the scene, flow, lint and coverage gates — the reel's subject is a wall-clock-driven animation, which is exactly what a reproducible golden may never contain. Declare a reel in `UIFilmCatalog` only, never in `UISceneCatalog`, and never let a `make` gate depend on one.
+`RenderOverrides` is production-compiled because real views read it. Every field stays nil/false in normal launches and every production read stays `override ?? realValue`. Seams may pin time, locale/calendar/time zone, permissions, paths, accessibility adaptations, comet choice, selection, portable glass, and text-role instrumentation; they may not create a harness-only control-flow branch.
 
-The harness cannot show glass, and for two separate measured reasons. Legacy behind-window glass: an offscreen window has no desktop to sample, so `FrostedGlassBackground` rasterises as a flat opaque tint. Modern system glass: `cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all — the material is absent rather than flattened, and its area captures fully transparent (`overlay.island.recording.os26.png` is 0.0% opaque and 59.3% fully transparent, `console.voice.os26.png` 37.6% fully transparent, against 100% opaque for the painted `console.home.populated.png`). An `os26` scene therefore gates the native `#available(macOS 26, *)` branch's own painted content, geometry, control boundaries and accessibility tree, never the material. Use `scripts/console_shot.sh` when the composited glass itself is the subject.
+Read `.ax.diff` or `.flow.diff` before update mode. Error-severity lint findings and red flows cannot be blessed. Filtered runs accelerate iteration but do not prove the full catalog.
 
-## macOS Permissions and Signing
+## macOS permissions and signing
 
-- Microphone permission applies to real recording, not fake development.
-- Event-post/Accessibility permission controls whether eligible targets receive synthetic Cmd-V. Missing permission should degrade to copy-only.
-- Ad-hoc signing can invalidate macOS TCC grants across rebuilds. Stable signing identity preserves permission grants more reliably.
-- Permission code belongs in `VoiceMac` adapters; user-facing state belongs in `Voiceour` UI/coordinator.
-- Keep the shipped app entitlements narrow. `Resources/Voiceour.entitlements` is currently audio-input-only, and the bundle is intentionally not sandboxed; change that only with matching README/setup/release documentation.
-- This bundle cannot use the data protection keychain at all, which is why the app stores no credential of its own; the measurement is recorded in `docs/architecture.md` under "Why Voiceour holds no credentials". Read it before adding any secret storage here.
+- Microphone permission applies to real capture, not fake development.
+- Accessibility trust enables active key suppression and synthetic Cmd-V. Missing trust degrades to passive hotkey observation and copy-only delivery.
+- Accessibility inspection detects secure roles; it never mutates text.
+- Input Monitoring is not requested.
+- Use stable local signing for repeated TCC testing. Ad-hoc identity can change after rebuild.
+- Release verification must include the signed sibling helper, hardened runtime, entitlements, and clean-account permission behavior.
 
-## Git and Collaboration
+## Git and collaboration
 
-- Default branch: `main`.
-- Commit changes by default: once a change builds and its tests pass, stage the related files and commit with a clear, scoped message. Do not wait to be asked.
-- Do not push. Leave commits local unless the user asks for a push, a PR, or a fork.
-- Never commit secrets. `.env` is gitignored and must stay untracked; do not `git add` it or other credential files.
-- Do not create GitHub issues, pull requests, comments, releases, or tags unless explicitly asked.
-- Treat unexpected local changes as user work: prefer staging the specific files you changed over `git add -A` when unrelated modifications are present, and avoid overwriting them.
-- Prefer updating existing docs/tests over creating parallel conventions.
+- Default branch is `main`.
+- Commit completed, verified related changes by default with a clear scoped message; never push unless asked.
+- Do not discard or rewrite unrelated user changes.
+- Keep generated benchmark data/build artifacts out of commits unless the repository explicitly tracks that artifact type.
+- Commit intended UI AX/digest/journal goldens with the behavior change that requires them.
 
-## Documentation Rules
+## Documentation rules
 
-- Keep docs declarative and repo-specific. Do not copy Oh My Pi/Bun/TypeScript/catalog rules into this Swift app and its Python benchmark harness.
-- If behavior changes, update the closest existing doc: `README.md` for user-visible behavior, `docs/architecture.md` for design contracts, `docs/developer-setup.md` for setup/run instructions, `docs/ui-harness.md` for the offscreen UI harness, and `CONTRIBUTING.md` for contributor rules.
-- Keep `bench/` command examples aligned with `uv --no-config`; a host-level uv config must not be able to change benchmark results.
+- Keep live docs declarative and repository-specific. Describe the app as it is, not the sequence of deletions that produced it.
+- Put superseded but useful measurements under `docs/archive/` with an explicit archive notice and date.
+- Update `README.md` for user-visible behavior, `docs/architecture.md` for design contracts, `docs/developer-setup.md` for commands, `docs/permissions.md` for TCC/insertion, `docs/ui-harness.md` for harness behavior, `docs/benchmarks.md` for measurement contracts, and `CONTRIBUTING.md` for gates.
+- Every command example must exist in the current Makefile/scripts or executable CLI.

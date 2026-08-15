@@ -88,8 +88,8 @@
     ///   in kind from the bullet above: the legacy material rasterises as a flat fill, the
     ///   modern one is absent and its area captures fully transparent.
     ///   `overlay.island.recording.os26.png` captures 0.0% opaque and 59.3% fully
-    ///   transparent, and `console.voice.os26.png` 37.6% fully transparent, against 100%
-    ///   opaque for the painted `console.sessions.populated.png`. An `os26` scene therefore
+    ///   transparent; `menu.idle.os26.png` likewise omits its glass, against 100% opaque
+    ///   for the painted `console.sessions.populated.png`. An `os26` scene therefore
     ///   verifies the native branch's own painted content, geometry, control boundaries and
     ///   accessibility tree; it never verifies the material. `scripts/console_shot.sh` is
     ///   the only way to see composited glass.
@@ -165,8 +165,8 @@
 
             // SHOWSTOPPER: `.prohibited` is the only policy that never self-activates —
             // measured 0/24 runs activated, against 20/30 under `.accessory` where
-            // `canBecomeKey == false` did not help. It is also what `ConsoleView`'s harness
-            // guard tests before it promotes the app to `.regular` and activates.
+            // `canBecomeKey == false` did not help. It is also what `ConsoleWindowView`'s
+            // activation guard tests before it promotes the app to `.regular` and activates.
             // The call RETURNS FALSE even though the policy is applied; discarding that
             // result is deliberate, so do not "fix" it into a precondition.
             _ = application.setActivationPolicy(.prohibited)
@@ -194,9 +194,9 @@
         ) rethrows -> T {
             prepareProcess()
             // A previous scene's `onDisappear` can drop the policy back to `.accessory`
-            // (ConsoleView does exactly that). Correct it BEFORE this scene's `onAppear` can
-            // observe it, because ConsoleView promotes the app to `.regular` and activates
-            // unless it sees `.prohibited`.
+            // (`ConsoleWindowView` does exactly that). Correct it BEFORE this scene's `onAppear`
+            // can observe it, because `ConsoleWindowView` promotes the app to `.regular` and
+            // activates unless it sees `.prohibited`.
             reassertProhibitedActivationPolicy()
             lastInteractionWarnings = []
 
@@ -322,9 +322,9 @@
             NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         }
 
-        /// SHOWSTOPPER backstop: hosted app code promotes the process to `.regular` and
-        /// activates (`ConsoleView.onAppear`). `ConsoleView.managesActivationPolicy` guards that call on the policy still
-        /// being `.prohibited`, so the policy must never be allowed to drift back.
+        /// SHOWSTOPPER backstop: hosted app code can promote the process to `.regular` and
+        /// activate (`ConsoleWindowView.onAppear`). Its activation guard observes the current
+        /// `.prohibited` policy, so the policy must never be allowed to drift back.
         private static func reassertProhibitedActivationPolicy() {
             guard NSApp.activationPolicy() != .prohibited else { return }
             _ = NSApp.setActivationPolicy(.prohibited)

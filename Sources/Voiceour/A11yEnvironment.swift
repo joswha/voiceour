@@ -1,9 +1,15 @@
-import AppKit
 import SwiftUI
 
-/// Resolves the app-owned harness overrides against SwiftUI's read-only
-/// accessibility environments. Shared primitives use this reader so the
-/// shipping behavior and offscreen accessibility fixtures exercise one path.
+/// The accessibility environment this app renders against, as one value.
+///
+/// Two jobs in one place. It mirrors the four SDK environment values the views
+/// actually adapt to — Reduce Transparency, Reduce Motion, Differentiate Without
+/// Color and Increase Contrast — through `RenderOverrides`, because the SDK
+/// exposes them get-only and the offscreen harness has to be able to render an
+/// adaptation this Mac is not configured for. And it resolves the escalated
+/// colour ladder those adaptations share, so a surface cannot adapt to one
+/// setting and forget the other.
+
 struct A11y: DynamicProperty {
     @Environment(\.accessibilityReduceTransparency) private var envReduceTransparency
     @Environment(\.accessibilityReduceMotion) private var envReduceMotion
@@ -76,59 +82,5 @@ struct A11y: DynamicProperty {
 
     var meterRest: Color {
         contrast == .increased ? VoiceourPalette.Contrast.meterRest : VoiceourPalette.Meter.rest
-    }
-}
-/// Configures the host window for Voiceour's edge-to-edge glass console using
-/// only public AppKit window chrome APIs available on macOS 13.
-///
-/// Note on the native title bar strip: AppKit inserts an opaque
-/// `NSTitlebarContainerView` above the content view for any `.titled` window
-/// (confirmed at runtime by walking `standardWindowButton(.closeButton)`'s
-/// ancestor chain — `NSTitlebarView`/`NSTitlebarContainerView`, both
-/// `isOpaque == true`). `titlebarAppearsTransparent` only changes what that
-/// container paints; it does not make it see-through to content behind it, so
-/// the traffic-light strip can never show our own vibrancy/gradient through it
-/// while `.titled` remains in the style mask. Dynamically dropping `.titled`
-/// after the window has appeared (to reclaim that strip for content) was
-/// tried and reproducibly crashes deep in AppKit's constraint-based layout
-/// engine (`-[NSView _layoutSubtreeWithOldSize:]`, `EXC_BAD_ACCESS`) — every
-/// button re-hosting order tested hit the same internal AppKit fault, so that
-/// transition is unsupported here, not a fixable ordering bug on our side.
-/// `ConsoleScaffold`'s own top overlay tapers to a matching dark tone at its top
-/// edge instead (see `ConsoleScaffold.swift`, using the existing `Ink.void` token),
-/// so the seam reads as a deliberate two-tone rail rather than a broken
-/// vibrancy boundary.
-struct WindowChromeConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WindowChromeConfigurationView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? WindowChromeConfigurationView)?.configureWindowIfAvailable()
-    }
-
-    private final class WindowChromeConfigurationView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            configureWindowIfAvailable()
-        }
-
-        func configureWindowIfAvailable() {
-            guard let window = window else {
-                return
-            }
-
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.backgroundColor = .clear
-            window.isOpaque = false
-            window.isMovableByWindowBackground = true
-            window.appearance = NSAppearance(named: .vibrantDark)
-            window.minSize = NSSize(
-                width: VoiceourMetrics.Window.minWidth,
-                height: VoiceourMetrics.Window.minHeight
-            )
-        }
     }
 }

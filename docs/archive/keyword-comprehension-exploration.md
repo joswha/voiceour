@@ -1,4 +1,4 @@
-> Archived 2026-08-14. Historical research record; superseded by the current [architecture](../architecture.md), [benchmark contract](../benchmarks.md), and source tree.
+> Archived 2026-08-15. Historical research record: the experimental capture, decoder-bias, and automatic correction mechanisms discussed below were deleted by 2026-08-15; current glossary behavior is defined by the live architecture and source tree.
 
 # Keyword and technical-term comprehension exploration
 

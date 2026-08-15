@@ -16,7 +16,6 @@
     extension UIHarnessMain {
         static func reportFlows(
             _ results: [UIFlowResult],
-            coverage: UICoverageReport,
             request: UIHarnessRequest
         ) -> Bool {
             let machineMode = request.stdoutManifest
@@ -32,77 +31,20 @@
                     )
                 }
             }
-            // Broken declarations and undeclared claims are always fatal: the ledger itself is
-            // wrong. A merely UNCOVERED key is judged by the ratchet below instead, because
-            // this app has real gaps today and a gate that is red on day one gets bypassed.
-            for entry in coverage.entries where entry.status == .broken {
-                let detail = entry.problem ?? entry.requirement.title
-                note("ui-flow: BROKEN \(entry.requirement.key) | \(detail)", machineMode: machineMode)
-            }
-            for key in coverage.undeclared {
-                note("ui-flow: UNDECLARED \(key)", machineMode: machineMode)
-            }
-
-            var baselineWarnings: [String] = []
-            let ratchet = UICoverageBaseline.evaluate(coverage, request: request)
-            var baselineWritten = false
-            if request.mode == .flowUpdate {
-                baselineWritten = UICoverageBaseline.write(
-                    coverage,
-                    request: request,
-                    warnings: &baselineWarnings
-                )
-            }
-            for key in ratchet.regressions {
-                note(
-                    "ui-flow: UNCOVERED \(key) | not in \(UICoverageBaseline.fileName): coverage regressed",
-                    machineMode: machineMode
-                )
-            }
-            for key in ratchet.stale {
-                note(
-                    "ui-flow: STALE-BASELINE \(key) | now covered; prune it with make ui-flow-update",
-                    machineMode: machineMode
-                )
-            }
-            if ratchet.missing {
-                note(
-                    "ui-flow: no \(UICoverageBaseline.fileName); generate it with make ui-flow-update",
-                    machineMode: machineMode
-                )
-            }
-            if baselineWritten {
-                note("ui-flow: written \(UICoverageBaseline.fileName)", machineMode: machineMode)
-            }
-            for warning in baselineWarnings {
-                flowError("ui-flow: \(warning)")
-            }
-
             for result in results {
                 if let error = result.error {
                     flowError("ui-flow: ERROR \(result.flow.id) | \(error)")
                 }
-                for frame in result.frames {
-                    for finding in frame.findings where finding.severity == .error {
-                        flowError(
-                            "ui-flow: ERROR \(result.flow.id) \(frame.name) \(finding.rule) | \(finding.message)"
-                        )
-                    }
-                }
             }
 
-            note("ui-flow: \(flowTallyLine(flowTally(results), coverage: coverage))", machineMode: machineMode)
+            note("ui-flow: \(flowTallyLine(flowTally(results)))", machineMode: machineMode)
             let artifacts = request.outputDirectory.appendingPathComponent("flows", isDirectory: true).path
             note("ui-flow: artifacts \(artifacts)", machineMode: machineMode)
 
             let artifactFailure = results.contains { result in
                 result.status != .ok && result.status != .written
             }
-            let ledgerFailure =
-                coverage.entries.contains { $0.status == .broken }
-                || !coverage.undeclared.isEmpty
-                || ratchet.failing
-            return !artifactFailure && !ledgerFailure
+            return !artifactFailure
         }
 
         static func flowTally(_ results: [UIFlowResult]) -> UIFlowTally {
@@ -119,10 +61,6 @@
                 tally.expectations += result.lines.count
                 tally.expectationsPassed += result.lines.filter(\.passed).count
                 tally.expectationsFailed += result.lines.filter { !$0.passed }.count
-                for frame in result.frames {
-                    tally.errorFindings += frame.findings.filter { $0.severity == .error }.count
-                    tally.warningFindings += frame.findings.filter { $0.severity == .warning }.count
-                }
             }
             return tally
         }
@@ -135,19 +73,11 @@
         }
 
         private static func flowResultLine(_ result: UIFlowResult) -> String {
-            let frames: String
-            if result.frames.isEmpty {
-                frames = "none"
-            } else {
-                frames = result.frames.map { frame in
-                    "\(frame.name)(pixel=\(statusLabel(frame.pixelStatus)),ax=\(statusLabel(frame.axStatus)))"
-                }.joined(separator: ",")
-            }
-            return "ui-flow: \(flowStatusLabel(result.status)) \(result.flow.id) "
-                + "journal=\(statusLabel(result.journalStatus)) frames=\(frames)"
+            "ui-flow: \(flowStatusLabel(result.status)) \(result.flow.id) "
+                + "journal=\(statusLabel(result.journalStatus))"
         }
 
-        private static func flowTallyLine(_ tally: UIFlowTally, coverage: UICoverageReport) -> String {
+        private static func flowTallyLine(_ tally: UIFlowTally) -> String {
             var parts = [
                 "\(tally.flows) flow\(tally.flows == 1 ? "" : "s")",
                 "\(tally.passed) passed",
@@ -157,13 +87,9 @@
             if tally.written > 0 { parts.append("\(tally.written) written") }
             if tally.failed > 0 { parts.append("\(tally.failed) failed") }
             parts.append("\(tally.expectations) expectations")
-            if tally.expectationsFailed > 0 { parts.append("\(tally.expectationsFailed) expectation-failures") }
-            if tally.errorFindings > 0 { parts.append("\(tally.errorFindings) lint-errors") }
-            if tally.warningFindings > 0 { parts.append("\(tally.warningFindings) lint-warnings") }
-            parts.append("\(coverage.count(.covered)) covered")
-            if coverage.count(.uncovered) > 0 { parts.append("\(coverage.count(.uncovered)) uncovered") }
-            if coverage.count(.broken) > 0 { parts.append("\(coverage.count(.broken)) broken") }
-            if !coverage.undeclared.isEmpty { parts.append("\(coverage.undeclared.count) undeclared") }
+            if tally.expectationsFailed > 0 {
+                parts.append("\(tally.expectationsFailed) expectation-failures")
+            }
             return parts.joined(separator: ", ")
         }
 
@@ -182,8 +108,6 @@
         var expectations = 0
         var expectationsPassed = 0
         var expectationsFailed = 0
-        var errorFindings = 0
-        var warningFindings = 0
     }
 
 #endif

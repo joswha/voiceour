@@ -35,7 +35,7 @@ fixture:
 dev:
 	scripts/run_dev.sh
 
-.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-frames ui-flow-update ui-flow-list ui-coverage ui-film ui-all
+.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-update ui-flow-list ui-all
 
 # The portable gate. Runs on any host: every scene is pinned to the painted
 # path by `RenderOverrides.forceLegacyGlass`, so these goldens are the ones CI
@@ -57,43 +57,27 @@ ui-update-os26:
 ui-list:
 	scripts/ui_harness.sh --list
 
-# The required semantic flow gate skips host-sensitive frame reconciliation;
-# journals and named expectations are deterministic across hosted runners.
+# The required semantic flow gate checks deterministic journals and named expectations.
 ui-flow:
-	scripts/ui_harness.sh --mode flow-check --except os26 --no-frames
+	scripts/ui_harness.sh --mode flow-check --except os26
 
 # The native gate for interactive behaviour. These flows release
 # `RenderOverrides.forceLegacyGlass`, so they drive the native macOS 26 branch and
 # only mean anything on a macOS 26 host; they are excluded from `ui-flow` above.
 ui-flow-os26:
-	scripts/ui_harness.sh --mode flow-check --only os26 --no-frames
+	scripts/ui_harness.sh --mode flow-check --only os26
 
-# Frame rasters and accessibility geometry share the snapshot gate's display
-# scale and font-rasterisation sensitivity, but remain valuable on known hosts.
-ui-flow-frames:
-	scripts/ui_harness.sh --mode flow-check --except os26
-
-# Flow updates bless journals and frame goldens together so review sees one
-# intentional semantic and visual cutover.
+# Flow updates bless intended journal changes.
 ui-flow-update:
 	scripts/ui_harness.sh --mode flow-update --except os26
 
 ui-flow-list:
 	scripts/ui_harness.sh --mode flow-list
 
-# Coverage is a pure declaration/claim ledger and never hosts or renders views.
-ui-coverage:
-	scripts/ui_harness.sh --mode coverage
-
-# Media, never a golden: this records the README's recording-island GIF and
-# nothing diffs, lints or gates its output. Needs ffmpeg on PATH.
-ui-film:
-	scripts/make_readme_gif.sh
-
-# The complete local UI gate includes both scene and flow-frame goldens. The
-# os26 legs need a macOS 26 host to render native glass, so they are conditional
+# The complete local UI gate includes scene snapshots and semantic flow journals.
+# The os26 legs need a macOS 26 host to render native glass, so they are conditional
 # rather than excluded: on this hardware they are part of the gate.
-ui-all: ui-snap ui-flow-frames
+ui-all: ui-snap ui-flow
 	@if [ "$$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then \
 		$(MAKE) ui-snap-os26 ui-flow-os26; \
 	else \

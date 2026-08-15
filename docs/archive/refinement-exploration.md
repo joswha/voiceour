@@ -1,8 +1,8 @@
-> Archived 2026-08-14. Historical decision record; superseded by the current [refinement architecture](../architecture.md) and source tree.
+> Archived 2026-08-15. Historical decision record: the entire transcript-refinement subsystem was deleted on 2026-08-15; none of the providers, settings, processes, or APIs below describe the current app.
 
 # Transcript refinement exploration
 
-This record preserves the research behind transcript refinement. It does not describe the current settings surface. The explored direct-provider design was removed: Voiceour now exposes exactly `.omp` and `.appleOnDevice` in [`RefinerProvider.swift`](../../Sources/VoiceCore/RefinerProvider.swift). OMP brokers network models and owns their credentials; Apple remains the dedicated on-device path.
+This record preserves research behind a subsystem that no longer ships. Provider and credential designs below are historical evidence only; current Voiceour performs deterministic cleanup and glossary canonicalization after ASR.
 
 ## Problem and decision boundary
 
@@ -99,16 +99,16 @@ Defence in depth after every model result was the durable recommendation:
 
 The experiments originally led to direct integrations for several network services, each with its own endpoint, default model, API-key source, Keychain state, readiness logic, and settings branches. That design duplicated responsibilities already owned by OMP:
 
-- OMP exposes the user's available `provider/model` catalog at runtime.
-- OMP owns authentication and refresh; Voiceour stores no network-provider API key.
-- One persistent RPC process gives every network model the same launch, timeout, reset, and failure boundary.
-- Adding or removing a network service no longer requires a persisted provider-enum migration or new credential UI in Voiceour.
+- OMP exposed the user's available `provider/model` catalog at runtime.
+- OMP owned authentication and refresh, so Voiceour did not store a network-provider API key.
+- One persistent RPC process gave every network model the same launch, timeout, reset, and failure boundary.
+- Adding or removing a network service no longer required a persisted provider-enum migration or new credential UI in Voiceour.
 
 Measured with OMP 17.0.2 on Apple Silicon, persistent RPC with a fresh session per utterance ran about 1.4–1.7 s median on `anthropic/claude-haiku-4-5`, about 1.9 s on `openai-codex/gpt-5.5`, and about 2.7 s on `openai-codex/gpt-5.3-codex-spark`. The discarded spawn-per-dictation mode took 2.7–11.6 s and inherited roughly 22k tokens of interactive tooling context; the hermetic persistent profile reduced inherited context to roughly 0.3k tokens.
 
-Each successful RPC turn retrieves the final assistant text and resets the session, preventing cross-utterance conversation state. The persistent process also removes repeated CLI startup from the decode path. Any empty output, timeout, subprocess failure, or faithfulness-guard failure still falls back to deterministic cleanup.
+Each successful RPC turn retrieved the final assistant text and reset the session, preventing cross-utterance conversation state. The persistent process also removed repeated CLI startup from the decode path. Empty output, timeout, subprocess failure, or faithfulness-guard failure fell back to deterministic cleanup.
 
-Apple on-device refinement remains separate because it has no endpoint or credential and never sends text off the Mac. This is why the current enum has two destinations, not a list of network vendors: `.omp` means “network model selected through the OMP catalog,” while `.appleOnDevice` means “system model on this Mac.”
+Apple on-device rewriting was analyzed separately because it had no endpoint or credential and never sent text off the Mac. The historical enum therefore had two destinations: `.omp` meant “network model selected through the OMP catalog,” while `.appleOnDevice` meant “system model on this Mac.”
 
 ## Rejected alternatives
 

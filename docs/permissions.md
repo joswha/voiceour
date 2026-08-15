@@ -1,47 +1,69 @@
 # Permissions and insertion matrix
 
-## Permissions
+## Permission model
 
-- Microphone: required only for real recording. `scripts/run_real.sh` launches the `.app` bundle with `NSMicrophoneUsageDescription`; the macOS microphone prompt may appear when you first start real recording, not merely when the app launches. `scripts/restart_real.sh` reopens the existing bundle without rebuilding it for repeated tests after permissions are granted. `scripts/run_dev.sh` stays fake-backed and TCC-free.
-- Accessibility for synthetic paste and Fn/Globe capture: required to post Cmd-V and to install the active session-level `CGEventTap` (`.cgSessionEventTap`) that toggles on a standalone Fn/Globe tap. With it, Voiceour consumes the Globe "assigned action" key event so the macOS emoji/dictation popup is suppressed, while Fn+other-key combinations pass through. The same tap claims an unmodified Escape while a session is live, discarding it without the focused app seeing the key. Without it, Voiceour falls back to a passive monitor, so toggling and the Escape cancel still work but macOS may also show the popup and the focused app also receives the Escape; insertion falls back to copy-only when Cmd-V cannot be posted. The fallback is not permanent: when install-time tap creation fails the app requests Accessibility once (the system prompt adds Voiceour to the list), and a watchdog retries tap creation every two seconds, so granting — or restoring a grant an ad-hoc re-sign invalidated — upgrades the running app to the suppressing tap without a relaunch, and a tap whose mach port macOS invalidates mid-run is rebuilt the same way. A TCC entry can also stick in a denied state that System Settings does not surface; `tccutil reset Accessibility com.voiceour.app` clears it, and the next launch re-prompts. The active path is observable without a reproduction: `log stream --predicate 'subsystem == "com.voiceour.app" AND category == "hotkey"'` reports tap-vs-passive at install, every upgrade, and each consumed Globe key event (`keycode=179`).
-- Accessibility target inspection: optional for secure-control detection. When trusted, Voiceour can detect secure focused controls and classify them as copy-only; it does not use Accessibility APIs to mutate focused controls.
+- **Microphone** is required only for real recording. `scripts/run_real.sh` launches the bundle carrying `NSMicrophoneUsageDescription`; macOS normally prompts when the first recording starts, not at application launch. The fake path is microphone-free.
+- **Accessibility trust** enables the active session-level `CGEventTap` and synthetic Cmd-V. With trust, Voiceour consumes a solitary Fn/Globe tap before macOS opens its assigned action and consumes an unmodified Escape while a session is active. Fn/Globe plus another key passes through.
+- Without Accessibility trust, a passive monitor still observes the toggle and Escape, but cannot suppress the key in the focused app. Delivery is clipboard-only because Voiceour cannot post Cmd-V.
+- Accessibility inspection is used to identify focused secure controls. It is never used to mutate text.
+- Voiceour does not request Input Monitoring.
 
-Voiceour does not request Input Monitoring in v0 and does not mutate focused controls through AX APIs.
+The hotkey tap is recreated after teardown and watchdog rebuild so armed state cannot leak across taps. Passive routing explicitly ignores Globe keycode 179. A fresh install that grants Accessibility later upgrades from passive to active capture without requiring an app restart.
 
-For real ASR, `scripts/run_real.sh` launches the bundle with the `parakeet` backend. The app starts the sibling Swift executable `voiceour-asr`, which links the vendored parakeet.cpp runtime. Parakeet may cold-load on first use, but the model and inference remain local.
-
-Run `scripts/setup_local_signing.sh` once before repeated local builds. It installs a dedicated password-free `voiceour-dev` identity, and `scripts/bundle.sh` selects it without opening unrelated keychains. The stable certificate gives every rebuild the same designated requirement, so a single Accessibility grant survives later builds. `VOICEOUR_CODESIGN_IDENTITY` can explicitly select another identity; without either identity, the bundler warns and uses an ad-hoc signature whose per-build cdhash requires a new grant after code changes.
+Use `scripts/setup_local_signing.sh` before repeated real-bundle testing. A stable local identity lets one Accessibility grant survive rebuilds. Ad-hoc signatures can change code identity and require a new grant.
 
 ## Target-safety policy
 
-Insertion is pasteboard plus synthetic `Cmd-V`, never Accessibility text mutation. The transcript is
-always available on the clipboard, but automatic paste and refinement depend on the target:
+Insertion is pasteboard plus synthetic Cmd-V, never Accessibility text mutation. `InsertionSafetyPolicy` allows automatic paste only for verified normal text.
 
-| Target class | Insertion | Refinement | Reason |
-| --- | --- | --- | --- |
-| Normal text field | Paste attempted | Allowed | The focused control is verified as ordinary text. |
-| Terminal | Copy-only; strip exactly one trailing newline | Never | A pasted newline could execute a command. |
-| Code editor | Copy-only | Never | Source code is not prose and must not be rewritten by a refiner. |
-| Secure field | Copy-only | Never | Detected through AX secure roles and `IsSecureEventInputEnabled()`, because AX cannot see every secure target. |
-| Unknown or unreadable target | Copy-only | Allowed | Failure to classify is an insertion safety veto; refinement happens before the independent delivery decision. |
+| target class | delivery | reason |
+| --- | --- | --- |
+| Normal text | Clipboard write, then Cmd-V when permission and identity checks pass | The focused destination is verified as ordinary text. |
+| Terminal | Copy-only; strip exactly one trailing newline | A trailing newline can execute a command. |
+| Code editor | Copy-only | Source-editing targets are deliberately never auto-pasted into. |
+| Secure | Concealed copy-only; no history row | Spoken secrets must not be auto-pasted or stored in the transcript journal. |
+| Unknown-risky | Copy-only; strip exactly one trailing newline | Missing or failed inspection is not evidence of safety and may hide a shell. |
 
-Secure copy-only text is flagged `org.nspasteboard.ConcealedType`; text written for an attempted
-paste is flagged `org.nspasteboard.TransientType`. The plain `.string` type is always written.
-Terminal, code-editor, unknown-risky, and other non-secure copy-only writes add neither marker.
+Known terminal mappings include Ghostty (`com.mitchellh.ghostty`); known code-editor mappings include Zed (`dev.zed.Zed`). Active secure input and secure AX roles outrank bundle classification.
 
-## Automated insertion checks
+Secure copy uses both `.string` and `org.nspasteboard.ConcealedType`. Text written for an attempted normal paste uses `org.nspasteboard.TransientType`. Other copy-only writes use plain string without either marker.
 
-`make test` passed these insertion contracts:
+Voiceour writes only its transcript. It never reads, saves, or restores the user's previous clipboard. Clipboard contents are not later cleared by a timer: after the write, the pasteboard is the delivery mechanism.
 
-- Terminal targets strip one trailing newline, write clipboard, and never post Cmd-V.
-- Missing synthetic paste permission is requested once per app run before falling back; subsequent attempts remain copy-only without reopening the prompt, and begin pasting automatically after the permission becomes granted.
-- Target identity is bundle id, pid, safety class **and** the secure-input flag, re-checked immediately before the pasteboard write and again before Cmd-V. Any change, including a focus move to a secure field inside the same process, degrades to copy-only.
-- An AX inspection that cannot be completed classifies the target `.unknownRisky` rather than ordinary text, so an unreadable focus is copy-only rather than pasteable.
-- `kAXErrorNoValue` is the one AX status treated as an answer rather than a failure: the app supports the attribute and reports that nothing holds keyboard focus, which is the ordinary state of an Electron app whose composer has not been clicked. That target classifies by bundle id. Active secure input, a secure AX role, and the secure/terminal/code-editor bundle sets all still outrank it, and every other AX status stays `.unknownRisky`.
-- Past the pasteboard write the clipboard is the delivery mechanism: a Cmd-V that cannot be posted, and cancellation after the write, both report copy-only and never schedule the transient clipboard clear.
-- A focus switch during transcription uses the latest frontmost target when insertion begins; recent-session destination metadata records that delivery target.
+## Focus-race rules
 
-## Manual fake E2E checklist
+The capture target and delivery target are intentionally different snapshots:
+
+1. The capture target selects app-scoped vocabulary before recording.
+2. Immediately before persistence/insertion, the coordinator snapshots the current frontmost target.
+3. Immediately before the pasteboard write, `PasteboardInserter` checks full target identity: bundle id, pid, safety class, and secure-input flag.
+4. Immediately before Cmd-V, it checks identity again.
+
+A change at either delivery check becomes copy-only. A focus move from app A to eligible app B before the delivery snapshot may paste into B. A focus move after that snapshot can never redirect a paste.
+
+An AX inspection failure maps to unknown-risky. `kAXErrorNoValue` is the narrow exception: the attribute exists and reports no focused element, common when an Electron composer has not been clicked, so bundle classification still applies. Secure input and known risky bundle sets continue to outrank it.
+
+## Persistence rule for secure targets
+
+The delivery snapshot is taken before the history append. If its safety class is secure, Voiceour delivers a concealed clipboard item and does not create or update a `recent-sessions.json` entry. The absence covers transcript text, raw ASR text, timings, and destination metadata. Audio is temporary and is removed through the ordinary pipeline cleanup.
+
+## Automated contracts
+
+`make test` covers these outcomes without posting Cmd-V into a live application:
+
+- terminals and unknown-risky targets strip one trailing newline and never post Cmd-V;
+- code editors and secure targets remain copy-only;
+- secure delivery appends no history row;
+- missing event-post permission prompts at most once per run and degrades to copy-only;
+- target changes before copy or after copy become distinct copy-only outcomes;
+- cancellation or event-post failure after the pasteboard write stays copy-only;
+- Ghostty and Zed classify into their intended risky classes;
+- unreadable focus stays fail-closed;
+- normal focus switching before delivery records the delivery destination, not the capture destination.
+
+No required automated check sends keys to another live app. That boundary stays manual so CI remains TCC-free and cannot modify a user's documents.
+
+## Manual fake E2E
 
 Run:
 
@@ -49,18 +71,21 @@ Run:
 scripts/run_dev.sh
 ```
 
-Then:
+1. Focus TextEdit and tap Fn/Globe once. With Accessibility trust, macOS's assigned Globe action must not appear; without it, both Voiceour and macOS may observe the tap.
+2. Confirm the movable island appears on the focused target's display. Fake capture becomes live immediately.
+3. Move focus to another eligible app/display. The island should follow while keeping its display-relative placement.
+4. Tap Fn/Globe, press the finish control, or press Escape as appropriate. The stop path performs one final fake decode, deterministic cleanup, clipboard write, and eligible Cmd-V.
+5. Confirm a pre-delivery move to an eligible app B attempts delivery in B.
+6. Confirm a terminal, editor, secure field, unknown target, denied permission, or post-snapshot focus change remains copy-only.
+7. In a secure field, confirm no new History row appears.
 
-1. Focus TextEdit on one display.
-2. Tap Fn/Globe to start. With Accessibility granted, Voiceour consumes the standalone tap and suppresses the macOS emoji popup; without it, the passive fallback may let the popup also appear.
-3. Expect the compact movable island on the focused target's display. Drag its body to reposition it. Fake capture is live from the first tick, so its waveform appears without the `WARMING` phase a real microphone can show.
-4. Focus a normal text target on another display. The island should follow while preserving its relative placement.
-5. Tap Fn/Globe again or use the check control to stop. The island should remain open through finalization. Expected fake mode: the app obtains `fake transcript duration_ms=<n>`, runs cleanup/glossary, writes it to the clipboard, and attempts Cmd-V for the target focused when insertion begins.
-6. If a normal text target only receives the clipboard copy, grant the macOS event-post/Accessibility synthetic-paste permission Voiceour requests and retry.
-7. Switch from app A to an eligible app B before insertion begins. Expected: Cmd-V is attempted in B.
-8. A focus change after the delivery snapshot, denied paste permission, or a terminal/code/secure/unknown-risky delivery target remains copy-only.
+Headless fake wiring proof:
 
-## Manual real Parakeet E2E checklist
+```sh
+scripts/run_dev.sh --self-test
+```
+
+## Manual real Parakeet E2E
 
 Run:
 
@@ -68,39 +93,28 @@ Run:
 scripts/run_real.sh
 ```
 
-Then:
+1. On a fresh cache, confirm the menu reports the 1.26 GB model download percentage and the System tab reports acquisition state. Wait for readiness.
+2. Focus TextEdit and tap Fn/Globe. Grant microphone permission if prompted.
+3. Confirm the island says the microphone is warming until a non-zero audio buffer arrives, then shows the waveform. A cold Bluetooth route may take longer; when a built-in microphone is available, Voiceour deliberately pins capture there.
+4. Speak one English utterance and stop once. The app finalizes one WAV and performs one final local decode through the sibling `voiceour-asr` process.
+5. During finalization or transcription, move to another eligible target. Confirm the island follows and delivery uses the target current at insertion time.
+6. Confirm deterministic cleanup and glossary canonicalization preserve protected terms.
+7. Confirm normal text receives Cmd-V when trusted; otherwise it receives clipboard-only delivery with a reason.
+8. Confirm Ghostty, Zed, a secure field, and an unreadable target never receive Cmd-V. Verify a terminal/unknown copied command has no single trailing newline.
+9. Confirm secure-field dictation creates no History entry.
 
-1. Focus TextEdit or another normal text target.
-2. Tap Fn/Globe to start recording. If this is your first real recording, macOS may request microphone permission at this point. With Accessibility granted, Voiceour consumes the standalone tap and suppresses the macOS emoji popup; without it, the passive fallback may let the popup also appear.
-3. While recording, expect a compact movable graphite island with cancel/check controls on the focused target's display. Drag the island body to reposition it. The centre reads `WARMING` until the selected microphone delivers real audio, and only then does the live waveform replace it; processing displays the uppercase state label and comet. On the parakeet backend the panel also carries a one-line live transcript preview beneath the island while you speak; it is preview only and never becomes the delivered text. When a Bluetooth device is the default input and a built-in microphone exists, Voiceour deliberately captures from the built-in microphone, so the waveform should replace `WARMING` promptly; without a built-in input a cold Bluetooth microphone can remain warming for over a second. Silence should keep the waveform bars low, and speaking should raise and move them.
-4. Speak one utterance and finish with the check control or Fn/Globe. During finalization/transcription, focus an eligible text target in another app or on another display. The island should follow that display and remain visible through insertion.
-5. Expected real mode: Parakeet may cold-load on first use, then the local Swift ASR sidecar produces a transcript that follows the normal cleanup/glossary path and attempts Cmd-V in the target focused when insertion begins.
-6. If a normal text target only receives the clipboard copy, grant the macOS event-post/Accessibility synthetic-paste permission Voiceour requests and retry.
-7. A focus change after the final delivery snapshot, denied paste permission, or a terminal/code/secure/unknown-risky delivery target must show copy-only and never post Cmd-V into an unverified target.
+## Release matrix
 
-Example headless verification run:
-
-```sh
-scripts/run_dev.sh --self-test
-```
-
-Result: passed. It verifies app launch wiring plus cleanup/classifier invariants without opening a GUI session.
-
-## Release insertion matrix
-
-| Target | Expected v0 behavior | Recorded result |
+| target | expected behavior | qualification |
 | --- | --- | --- |
-| TextEdit | Paste attempted | Manual GUI run required; automated self-test passed only |
-| Notes/Mail | Paste attempted | Manual GUI run required |
-| Safari/Chrome contenteditable | Paste attempted | Manual GUI run required |
-| Electron/chat app | Paste attempted unless classified risky | Manual GUI run required |
-| Terminal | Copy-only, strip one trailing newline | Covered by Swift unit test |
-| iTerm | Copy-only | Classifier covered by map; manual GUI run required |
-| VS Code | Copy-only | Classifier covered by map; manual GUI run required |
-| Xcode | Copy-only | Classifier covered by map; manual GUI run required |
-| Password field | Copy-only when AX secure role is detectable | Classifier covered; manual GUI run required |
-| Focus switch before insertion | Paste into the latest eligible target; a post-snapshot race is copy-only | Covered by Swift unit test; multi-display GUI run required |
+| TextEdit | Paste attempted | Manual clean-account run required. |
+| Notes / Mail | Paste attempted | Manual run required. |
+| Safari / Chrome contenteditable | Paste attempted | Manual run required. |
+| Electron/chat composer | Paste attempted when ordinary text is established | Manual run required. |
+| Terminal / iTerm / Ghostty | Copy-only, one trailing newline stripped | Classifier and policy tests; manual run required. |
+| VS Code / Xcode / Zed | Copy-only | Classifier tests; manual run required. |
+| Password field | Concealed copy-only and no History row | Automated policy/history tests; manual run required. |
+| Focus switch before delivery | Paste into the latest eligible target | Automated race test; multi-display manual run required. |
+| Focus switch after snapshot | Copy-only; never redirect Cmd-V | Automated race test; manual run required. |
 
-Release qualification also requires a clean-account launch from the notarized app/archive, then confirmation that the microphone prompt, Accessibility grant, paste-eligible target, and copy-only unsafe target still behave as listed above.
-
-No automated test posts Cmd-V into a live app. That is intentional: the PR gate remains TCC-free and fake-backed. The real Parakeet checklist above is not recorded as passed here unless a future session updates the matrix; release qualification still requires the manual matrix on a logged-in macOS account.
+Release qualification uses the bundled, signed, notarized app on a clean macOS account. Verify microphone prompting, Accessibility grant persistence, one eligible paste target, one risky copy-only target, secure no-history behavior, and the real model path.

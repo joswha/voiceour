@@ -1,9 +1,0 @@
-flow: system.clear-history.confirm
-title: Confirmed history clearing reaches empty Sessions
-fixture: static
-transitions: idle
-PASS 1 available | enabled(true) id=system.history.arm | true
-PASS 2 armed | enabled(true) id=system.history.confirm | true
-PASS 3 empty-sessions | text == "No sessions yet" exactly 1 | 1 match
-PASS 4 empty-sessions | text == "Nothing recorded yet" exactly 1 | 1 match
-PASS 5 empty-sessions | model recentSessionCount == "0" | 0

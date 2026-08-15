@@ -164,9 +164,6 @@
             case backendUnavailable
             /// Real backend part-way through acquiring its 1.26 GB artifact.
             case backendDownloading
-            /// The saved backend differs from the one running, so the warning mark
-            /// is the one-click restart action.
-            case backendSwitchPending
             /// One dictation driven end to end: `lastTranscript` and `lastOutcome`
             /// are populated and exactly one session was recorded.
             case completedDictation
@@ -223,12 +220,6 @@
                     backend: realBackend,
                     health: downloadingBackendHealth
                 )
-            case .backendSwitchPending:
-                return make(
-                    sessions: history,
-                    settings: settings(backend: realBackend),
-                    backend: "fake"
-                )
             case .completedDictation:
                 return makeCompletedDictation()
             }
@@ -259,40 +250,12 @@
             RenderOverrides.cometHead = CometEmoji(glyph: "☄️", hue: 0.08, saturation: 0.85)
         }
 
-        // MARK: Property-ledger sample data
+        // MARK: Pinned storage paths
 
-        /// Every value `atom.properties` renders.
-        ///
-        /// `PropertyRow`'s rows are pure-value views, so that scene's reproducibility
-        /// is entirely a property of the data handed to them: a real bundle version, a
-        /// real `~/Library` path or a live health report would churn its golden on
-        /// every machine and on every rebuild. The storage paths come from the same
-        /// constants `pinProcessSeams()` installs above, so the sheet renders the
-        /// panes' own values instead of a second spelling of them.
         enum Ledger {
             static let settingsPath = "/Users/harness/Library/Application Support/Voiceour/settings.json"
-            static let recentSessionsPath = "/Users/harness/Library/Application Support/Voiceour/recent-sessions.json"
-
-            /// Never `Bundle.main.infoDictionary`: the harness runs from a bare
-            /// executable whose short version and build number are not the app's.
-            static let version = "1.4.0 (build 812)"
-
-            /// Illustrative, not derived from `history`: the sheet renders row
-            /// shapes, not this fixture's session list.
-            static let savedSessions = "9"
-            static let savedSessionsSize = "2.4 MB"
-
-            static let fieldValue = "Pinned value"
-            static let localProcessingProse = "Transcription stays on this Mac after model download."
-            static let timeout = "3000"
-
-            /// The advisory prose the conditional caption states carry, and the
-            /// payload the copy accessory hands to the pasteboard.
-            static let healthFailure = "The last probe could not reach the sidecar socket: connection refused."
-            static let healthReport = "backend=parakeet-cpp status=backendUnavailable cache=ok model=not loaded"
-            static let microphonePrompt = "macOS may ask for microphone access when the first real recording starts."
-            static let historyFailure =
-                "Transcript history could not be erased from disk — it will come back on relaunch."
+            static let recentSessionsPath =
+                "/Users/harness/Library/Application Support/Voiceour/recent-sessions.json"
         }
 
         // MARK: Composition
@@ -359,7 +322,11 @@
             asrOverride: ASRClienting? = nil,
             // Zero keeps `now` frozen, which is what every scene golden depends on. Only a
             // flow that has to defeat the backend-probe TTL asks for a step.
-            clockStep: TimeInterval = 0
+            clockStep: TimeInterval = 0,
+            resolveBackendHealth: Bool = true,
+            recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
+                _, _ in
+            }
         ) -> DictationCoordinator {
             RenderOverrides.permissions = HarnessPermissions(state: permissions)
             let scratch = nextScratchDirectory()
@@ -377,20 +344,22 @@
                 activeASRBackend: backend,
                 settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
                 recentSessionStore: seededStore(sessions, in: scratch),
-                recentSessionSnapshotSave: { _, _ in },
+                recentSessionSnapshotSave: recentSessionSnapshotSave,
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )
 
-            // Resolve backend health here rather than leaving it to the System /
-            // Diagnostics `onAppear` probe: an answer that lands mid-capture would
-            // make those two scenes race the renderer. Settling now also puts the
-            // coordinator's 5s de-dupe TTL in front of the pane's own probe.
-            coordinator.refreshBackendHealth(timeoutMs: 500)
-            settle { coordinator.backendHealth != nil || coordinator.backendHealthError != nil }
+            // Scene fixtures resolve health before rendering so a result cannot
+            // land mid-capture. A flow that scripts the System tab opts out and
+            // gates that tab's own probe instead.
+            if resolveBackendHealth {
+                coordinator.refreshBackendHealth(timeoutMs: 500)
+                settle { coordinator.backendHealth != nil || coordinator.backendHealthError != nil }
+            }
             coordinator.isSystemAudioMuteUnavailable = muteUnavailable
             return coordinator
         }
+
 
         private static func makeRecording() -> DictationCoordinator {
             let coordinator = make(sessions: history)

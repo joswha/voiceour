@@ -125,11 +125,20 @@
             // SHOWSTOPPER: see AXPressable — perform(_:)?.takeUnretainedValue() segfaults on
             // the returned BOOL.
             let pressable = unsafeBitCast(element, to: AXPressable.self)
-            guard pressable.accessibilityPerformPress() else {
-                return "press(\"\(target)\"): accessibilityPerformPress returned false."
-            }
+            let reportedSuccess = pressable.accessibilityPerformPress()
             UIHarnessRuntime.pump(iterations: actionSettleIterations)
-            return nil
+            if reportedSuccess { return nil }
+
+            // Native SwiftUI Toggle nodes return false even after changing the
+            // bound value. Trust the observable AX state transition, not that
+            // incorrect BOOL; every other false return remains a hard warning.
+            if node.role == "AXCheckBox",
+                let updated = locate(target, in: view),
+                updated.value != node.value
+            {
+                return nil
+            }
+            return "press(\"\(target)\"): accessibilityPerformPress returned false."
         }
 
         /// The escape hatch for controls with no press action: a synthetic mouse click.

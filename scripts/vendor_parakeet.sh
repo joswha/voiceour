@@ -2,8 +2,9 @@
 set -euo pipefail
 
 PIN=592feef04a1802b18cbeffd0fd0eb5d02570c2ec
-# Local-only: LICENSE, NOTICE.md, patches/, ggml/embed/, and ggml/include/module.modulemap.
+# Every upstream-derived file shipped under Vendor/parakeet.
 MANIFEST=(
+    'LICENSE'
     'ggml/include/ggml-alloc.h'
     'ggml/include/ggml-backend.h'
     'ggml/include/ggml-blas.h'
@@ -76,7 +77,15 @@ MANIFEST=(
     'src/parakeet-arch.h'
     'src/parakeet.cpp'
 )
-readonly PIN MANIFEST
+LOCAL_FILES=(
+    'NOTICE.md'
+    'patches/0001-tdt-duration-argmax-raw-logits.patch'
+    'ggml/include/module.modulemap'
+    'ggml/embed/ggml-metal-embed.metal'
+    'ggml/embed/ggml-metal-embed.c'
+    'ggml/embed/regenerate.sh'
+)
+readonly PIN MANIFEST LOCAL_FILES
 export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -84,7 +93,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENDOR_ROOT="$REPO_ROOT/Vendor/parakeet"
 
 usage() {
-    echo "usage: $0 <upstream-checkout> [--check]" >&2
+    echo "usage: $0 --check | $0 <upstream-checkout> [--check]" >&2
     exit 64
 }
 
@@ -128,54 +137,142 @@ apply_patches() {
     done
 }
 
-[[ $# -ge 1 && $# -le 2 ]] || usage
-UPSTREAM=$1
-MODE=${2:-}
-[[ -z "$MODE" || "$MODE" == '--check' ]] || usage
-[[ -d "$UPSTREAM" ]] || {
-    echo "error: upstream checkout is not a directory: $UPSTREAM" >&2
-    exit 1
-}
-UPSTREAM="$(cd -- "$UPSTREAM" && pwd)"
+is_expected_file() {
+    local relative=$1
+    local expected
 
-ACTUAL_PIN=$(git -C "$UPSTREAM" rev-parse HEAD 2>/dev/null) || {
-    echo "error: cannot read git HEAD from upstream checkout: $UPSTREAM" >&2
-    exit 1
+    for expected in "${MANIFEST[@]}" "${LOCAL_FILES[@]}"; do
+        if [[ "$relative" == "$expected" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
-if [[ "$ACTUAL_PIN" != "$PIN" ]]; then
-    echo "error: upstream checkout is at $ACTUAL_PIN; expected $PIN" >&2
-    exit 1
+
+check_file_set() {
+    local relative
+    local expected
+    local unexpected=0
+
+    for expected in "${MANIFEST[@]}" "${LOCAL_FILES[@]}"; do
+        if [[ ! -f "$VENDOR_ROOT/$expected" ]]; then
+            echo "[vendor] missing: $expected" >&2
+            unexpected=1
+        fi
+    done
+
+    while IFS= read -r relative; do
+        relative=${relative#"$VENDOR_ROOT/"}
+        if ! is_expected_file "$relative"; then
+            echo "[vendor] unexpected: $relative" >&2
+            unexpected=1
+        fi
+    done < <(find "$VENDOR_ROOT" \( -type f -o -type l \) -print)
+
+    if ((unexpected != 0)); then
+        echo "error: Vendor/parakeet contains files outside the vendor manifest" >&2
+        return 1
+    fi
+}
+
+check_embed_reproducible() {
+    local temp_root=$1
+    local tool
+    local regen_root="$temp_root/embed-check"
+    local embed_relative='ggml/embed/ggml-metal-embed.metal'
+
+    for tool in sed wc tr rm cmp cp mkdir; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "[vendor] embed regeneration skipped: required tool '$tool' is unavailable" >&2
+            return 0
+        fi
+    done
+
+    mkdir -p "$regen_root/ggml/embed" "$regen_root/ggml/src/ggml-metal"
+    cp "$VENDOR_ROOT/ggml/embed/regenerate.sh" "$regen_root/ggml/embed/regenerate.sh"
+    cp "$VENDOR_ROOT/ggml/src/ggml-common.h" "$regen_root/ggml/src/ggml-common.h"
+    cp "$VENDOR_ROOT/ggml/src/ggml-metal/ggml-metal.metal" "$regen_root/ggml/src/ggml-metal/ggml-metal.metal"
+    cp "$VENDOR_ROOT/ggml/src/ggml-metal/ggml-metal-impl.h" "$regen_root/ggml/src/ggml-metal/ggml-metal-impl.h"
+
+    if ! "$regen_root/ggml/embed/regenerate.sh" >/dev/null; then
+        echo "error: embedded Metal regeneration failed" >&2
+        return 1
+    fi
+    if ! cmp -s "$regen_root/$embed_relative" "$VENDOR_ROOT/$embed_relative"; then
+        echo "[vendor] drift: $embed_relative" >&2
+        diff -u "$regen_root/$embed_relative" "$VENDOR_ROOT/$embed_relative" || true
+        echo "error: committed embedded Metal source is not reproducible" >&2
+        return 1
+    fi
+    echo "[vendor] embedded Metal source is byte-reproducible"
+}
+
+UPSTREAM=
+MODE=
+if [[ $# -eq 1 && "$1" == '--check' ]]; then
+    MODE=--check
+elif [[ $# -ge 1 && $# -le 2 ]]; then
+    UPSTREAM=$1
+    MODE=${2:-}
+    [[ -z "$MODE" || "$MODE" == '--check' ]] || usage
+else
+    usage
 fi
-if ! git -C "$UPSTREAM" diff --quiet HEAD -- "${MANIFEST[@]}"; then
-    echo "error: upstream checkout has modified manifest files; use a clean checkout at $PIN" >&2
-    exit 1
+
+if [[ -n "$UPSTREAM" ]]; then
+    [[ -d "$UPSTREAM" ]] || {
+        echo "error: upstream checkout is not a directory: $UPSTREAM" >&2
+        exit 1
+    }
+    UPSTREAM="$(cd -- "$UPSTREAM" && pwd)"
+
+    ACTUAL_PIN=$(git -C "$UPSTREAM" rev-parse HEAD 2>/dev/null) || {
+        echo "error: cannot read git HEAD from upstream checkout: $UPSTREAM" >&2
+        exit 1
+    }
+    if [[ "$ACTUAL_PIN" != "$PIN" ]]; then
+        echo "error: upstream checkout is at $ACTUAL_PIN; expected $PIN" >&2
+        exit 1
+    fi
+    if ! git -C "$UPSTREAM" diff --quiet HEAD -- "${MANIFEST[@]}"; then
+        echo "error: upstream checkout has modified manifest files; use a clean checkout at $PIN" >&2
+        exit 1
+    fi
 fi
 
 if [[ "$MODE" == '--check' ]]; then
     TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/voiceour-vendor-check.XXXXXX")
     trap 'rm -rf "$TEMP_ROOT"' EXIT
-
-    copy_manifest "$UPSTREAM" "$TEMP_ROOT"
-    apply_patches "$TEMP_ROOT"
-
     drift=0
-    for relative in "${MANIFEST[@]}"; do
-        if ! cmp -s "$TEMP_ROOT/$relative" "$VENDOR_ROOT/$relative"; then
-            echo "[vendor] drift: $relative" >&2
-            diff -u "$TEMP_ROOT/$relative" "$VENDOR_ROOT/$relative" || true
-            drift=1
-        fi
-    done
 
+    if [[ -n "$UPSTREAM" ]]; then
+        copy_manifest "$UPSTREAM" "$TEMP_ROOT"
+        apply_patches "$TEMP_ROOT"
+        for relative in "${MANIFEST[@]}"; do
+            if ! cmp -s "$TEMP_ROOT/$relative" "$VENDOR_ROOT/$relative"; then
+                echo "[vendor] drift: $relative" >&2
+                diff -u "$TEMP_ROOT/$relative" "$VENDOR_ROOT/$relative" || true
+                drift=1
+            fi
+        done
+    fi
+
+    check_file_set || drift=1
+    check_embed_reproducible "$TEMP_ROOT" || drift=1
     if ((drift != 0)); then
-        echo "error: vendored upstream files contain unexplained drift" >&2
+        echo "error: vendored source check failed" >&2
         exit 1
     fi
 
-    echo "[vendor] check passed: ${#MANIFEST[@]} manifest files match $PIN"
+    if [[ -n "$UPSTREAM" ]]; then
+        echo "[vendor] check passed: ${#MANIFEST[@]} manifest files match $PIN; file set is exact"
+    else
+        echo "[vendor] check passed: file set is exact (upstream drift not checked without a checkout)"
+    fi
     exit 0
 fi
 
+[[ -n "$UPSTREAM" ]] || usage
 copy_manifest "$UPSTREAM" "$VENDOR_ROOT"
 apply_patches "$VENDOR_ROOT"
 "$VENDOR_ROOT/ggml/embed/regenerate.sh"

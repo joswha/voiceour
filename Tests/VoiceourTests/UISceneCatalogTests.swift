@@ -7,10 +7,10 @@
     import Testing
     @testable import Voiceour
 
-    /// App-target smoke coverage for the offscreen harness catalog, in the same
-    /// spirit as `ConsoleSectionTests`: a scene id is the artifact basename on both
-    /// sides of the golden diff, so a collision never fails loudly — it silently
-    /// makes two scenes share one golden and lets the later render win.
+    /// App-target smoke coverage for the offscreen harness catalog: a scene id is the
+    /// artifact basename on both sides of the golden diff, so a collision never fails
+    /// loudly — it silently makes two scenes share one golden and lets the later
+    /// render win.
     ///
     /// `UISceneCatalog.all()` installs `UIFixtures.pinProcessSeams()` as a side
     /// effect, which is why these assertions are grouped in one suite: the pins are
@@ -41,7 +41,6 @@
                 #expect(scene.size.height > 0, "empty measure: \(scene.id)")
             }
         }
-
     }
 
 #endif

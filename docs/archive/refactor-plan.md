@@ -1,4 +1,4 @@
-> Archived 2026-08-14. Historical planning record; superseded by the current [architecture](../architecture.md) and source tree.
+> Archived 2026-08-15. Historical planning record: the old control-plane, optional text-processing, analytics, secondary-recognizer, and custom-console directions were deleted or superseded by 2026-08-15; the current architecture and source tree are authoritative.
 
 # Open-source readiness refactor plan
 

@@ -34,14 +34,12 @@
                 return true
             }
 
-            // Catalog and ledger modes are pure data paths. In particular, coverage must
-            // never create the NSApplication or touch a window just to verify declarations.
+            // Flow catalog mode is a pure data path and never needs to create the
+            // NSApplication or touch a window.
             switch request.mode {
             case .flowList:
                 return emitFlowCatalog(request)
-            case .coverage:
-                return reportCoverage(request)
-            case .list, .check, .update, .flowCheck, .flowUpdate, .film:
+            case .list, .check, .update, .flowCheck, .flowUpdate:
                 break
             }
 
@@ -58,9 +56,7 @@
                 return runScenes(request)
             case .flowCheck, .flowUpdate:
                 return runFlows(request)
-            case .film:
-                return runFilm(request)
-            case .flowList, .coverage:
+            case .flowList:
                 preconditionFailure("pure-data harness mode reached the hosting dispatch")
             }
         }
@@ -95,11 +91,11 @@
             // `os26` flows release `RenderOverrides.forceLegacyGlass` so the script drives the
             // native macOS 26 branch. `#available` resolves against the RUNTIME OS, so on
             // macOS 14/15 releasing the seam changes nothing: every one of them would re-run
-            // the painted path a portable flow already covers and claim native-branch
-            // coverage for it.
+            // the painted path a portable flow already verifies while pretending to exercise
+            // the native branch.
             //
             // Skip them rather than abort, exactly as the scene path does: `--only console`
-            // substring-matches `console.rail.navigation.os26` alongside the portable console
+            // substring-matches `console.tab.navigation.os26` alongside the portable console
             // flows, and that focused run is the documented everyday workflow. Fail only when
             // nothing runnable is left.
             if #unavailable(macOS 26) {
@@ -121,42 +117,8 @@
             }
 
             let results = flows.map { UIFlowRunner.run($0, request: request) }
-            let coverage = evaluateCoverage(
-                selectedFlows: flows,
-                passingFlows: results.filter(\.passed).map(\.flow)
-            )
-            _ = writeFlowManifest(request: request, results: results, coverage: coverage)
-            return reportFlows(results, coverage: coverage, request: request)
-        }
-
-        private static func reportCoverage(_ request: UIHarnessRequest) -> Bool {
-            let flows = UIFlowCatalog.everything()
-            let coverage = evaluateCoverage(selectedFlows: flows, passingFlows: flows)
-            return reportFlows([], coverage: coverage, request: request)
-        }
-
-        private static func evaluateCoverage(
-            selectedFlows: [UIFlow],
-            passingFlows: [UIFlow]
-        ) -> UICoverageReport {
-            let allFlows = UIFlowCatalog.everything()
-            return UICoverageLedger.evaluate(
-                requirements: UICoverageRegistry.requirements,
-                passingClaims: coverageClaims(for: passingFlows),
-                selectedClaims: Set(selectedFlows.flatMap(\.covers)),
-                allClaims: coverageClaims(for: allFlows),
-                sceneIDs: Set(UISceneCatalog.everything().map(\.id))
-            )
-        }
-
-        private static func coverageClaims(for flows: [UIFlow]) -> [UICoverageKey: [String]] {
-            var claims: [UICoverageKey: [String]] = [:]
-            for flow in flows {
-                for key in flow.covers {
-                    claims[key, default: []].append(flow.id)
-                }
-            }
-            return claims
+            _ = writeFlowManifest(request: request, results: results)
+            return reportFlows(results, request: request)
         }
     }
 
@@ -169,7 +131,6 @@
         let id: String
         let title: String
         let tags: [String]
-        let covers: [String]
         let checkpoints: Int
         let expectations: Int
 
@@ -178,155 +139,11 @@
             id = flow.id
             title = flow.title
             tags = flow.tags
-            covers = flow.covers.map(\.description)
             checkpoints = flow.checkpointCount
             expectations = flow.expectationCount
         }
     }
 
-    // MARK: - Film run
-
-    extension UIHarnessMain {
-        private static func runFilm(_ request: UIHarnessRequest) -> Bool {
-            let reels = UIFilmCatalog.all(request: request)
-            guard !reels.isEmpty else {
-                return report("no film reel matched the request filters")
-            }
-            var ok = true
-            for reel in reels {
-                ok = record(reel, request: request) && ok
-            }
-            return ok
-        }
-
-        /// Records one reel and writes its `reel.json` sidecar.
-        ///
-        /// No golden, no digest, no lint: a reel is media. The failure modes it does own --
-        /// a capture that throws, a frame that cannot be written -- return false so the
-        /// process exits 1 rather than leaving a half-written reel to be turned into a GIF.
-        private static func record(_ reel: UIFilmReel, request: UIHarnessRequest) -> Bool {
-            let directory =
-                request.outputDirectory
-                .appendingPathComponent("film", isDirectory: true)
-                .appendingPathComponent(reel.id, isDirectory: true)
-            guard prepareReelDirectory(directory) else { return false }
-
-            // The stage is built before hosting so the script and the hierarchy share one
-            // observable model. The builder is hoisted out of the call because `withLiveScene`
-            // already takes a trailing closure.
-            let stage = reel.stage()
-            let build: @MainActor () -> AnyView = { stage.view }
-            var frameCount = 0
-            do {
-                try UIHarnessRuntime.withLiveScene(
-                    size: reel.size,
-                    colorScheme: reel.colorScheme,
-                    scale: request.scale,
-                    build: build
-                ) { view, _ in
-                    let recorder = UIFilmRecorder(view: view, scale: request.scale, directory: directory)
-                    try stage.script(recorder)
-                    frameCount = recorder.frameCount
-                }
-            } catch {
-                return report("failed \(reel.id): \(describe(error))")
-            }
-
-            guard writeReelDocument(reel, request: request, frameCount: frameCount, directory: directory) else {
-                return false
-            }
-            let pixels = pixelSize(of: reel, scale: request.scale)
-            note(
-                "\(tool): film \(reel.id) \(frameCount) frames, \(pixels.width)x\(pixels.height) px, "
-                    + "\(reel.frameMilliseconds) ms/frame",
-                machineMode: request.stdoutManifest
-            )
-            note("\(tool): artifacts \(directory.path)", machineMode: request.stdoutManifest)
-            return true
-        }
-
-        /// Recreated from empty on every run. A reel that gets shorter would otherwise leave
-        /// the previous run's trailing `frame-NNNN.png` behind, and ffmpeg's `frame-%04d.png`
-        /// pattern would splice those orphans onto the end of the GIF.
-        private static func prepareReelDirectory(_ directory: URL) -> Bool {
-            let fileManager = FileManager.default
-            do {
-                if fileManager.fileExists(atPath: directory.path) {
-                    try fileManager.removeItem(at: directory)
-                }
-                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            } catch {
-                return report("cannot prepare \(directory.path): \(describe(error))")
-            }
-            return true
-        }
-
-        private static func writeReelDocument(
-            _ reel: UIFilmReel,
-            request: UIHarnessRequest,
-            frameCount: Int,
-            directory: URL
-        ) -> Bool {
-            let pixels = pixelSize(of: reel, scale: request.scale)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-            var blob = Data()
-            do {
-                blob.append(
-                    try encoder.encode(
-                        UIFilmReelRow(
-                            id: reel.id,
-                            title: reel.title,
-                            frameCount: frameCount,
-                            frameMilliseconds: reel.frameMilliseconds,
-                            width: pixels.width,
-                            height: pixels.height,
-                            scale: request.scale
-                        )))
-                blob.append(0x0A)
-            } catch {
-                return report("cannot encode \(reel.id): \(describe(error))")
-            }
-            if request.stdoutManifest {
-                print(String(decoding: blob, as: UTF8.self), terminator: "")
-            }
-            do {
-                try blob.write(to: directory.appendingPathComponent("reel.json"), options: .atomic)
-            } catch {
-                return report("cannot write \(reel.id) reel.json: \(describe(error))")
-            }
-            return true
-        }
-
-        /// PIXEL dimensions, matching what every frame's PNG IHDR carries, so the GIF
-        /// assembler never has to multiply by the scale itself.
-        private static func pixelSize(of reel: UIFilmReel, scale: Int) -> (width: Int, height: Int) {
-            let clamped = CGFloat(max(1, scale))
-            return (Int((reel.size.width * clamped).rounded()), Int((reel.size.height * clamped).rounded()))
-        }
-    }
-
-    private struct UIFilmReelRow: Encodable {
-        let type = "ui_film_reel"
-        let id: String
-        let title: String
-        let frameCount: Int
-        let frameMilliseconds: Int
-        let width: Int
-        let height: Int
-        let scale: Int
-
-        enum CodingKeys: String, CodingKey {
-            case type
-            case id
-            case title
-            case frameCount = "frame_count"
-            case frameMilliseconds = "frame_milliseconds"
-            case width
-            case height
-            case scale
-        }
-    }
     // MARK: - Scene run
 
     extension UIHarnessMain {

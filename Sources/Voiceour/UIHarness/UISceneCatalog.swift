@@ -61,8 +61,8 @@
 
     // The curated list of things the offscreen UI harness renders, dumps and lints.
     //
-    // Adding coverage is a one-place edit: append a `UIScene` to the matching group
-    // array below (`consoleScenes`, `menuScenes`, `overlayScenes`, `atomScenes`,
+    // Adding a scene is a one-place edit: append a `UIScene` to the matching group
+    // array below (`consoleScenes`, `menuScenes`, `overlayScenes`,
     // `accessibilityScenes`, `systemGlassScenes`), which is all `all()` concatenates.
     // Prefer the area factories over a raw `UIScene(...)` so sizes, tags and appearance
     // stay consistent. Every scene must be reproducible byte for
@@ -85,7 +85,7 @@
     enum UISceneCatalog {
         /// Console window measure: the app's own first-launch size, so goldens show
         /// exactly what a fresh install shows. Matches what `scripts/console_shot.sh`
-        /// captures from the real app, and clears `ConsoleScaffold`'s 1164x560 minimum.
+        /// captures from the real app.
         static let consoleSize = CGSize(
             width: VoiceourMetrics.Window.defaultWidth,
             height: VoiceourMetrics.Window.defaultHeight
@@ -97,18 +97,17 @@
         static let menuSize = CGSize(width: 280, height: 420)
 
         /// Ordered so the contact sheet reads top-down like the app does: the
-        /// console section by section, then the pieces that live outside it.
+        /// console tab by tab, then the pieces that live outside it.
         private static var registry: [UISceneDescriptor] {
             consoleScenes
                 + menuScenes
                 + overlayScenes
-                + atomScenes
                 + accessibilityScenes
                 + systemGlassScenes
         }
 
         static func everything() -> [UIScene] {
-            // Covers direct atom/overlay scenes as well as coordinator-backed ones.
+            // Covers direct overlay scenes as well as coordinator-backed ones.
             // Portable scenes stay pinned to the painted path; only the explicitly
             // tagged system-glass scenes below release that pin for their lifetime.
             UIFixtures.pinProcessSeams()
@@ -119,153 +118,96 @@
             everything().filter(request.matches)
         }
 
-        /// Unfiltered catalog access for structural tests and coverage accounting.
+        /// Unfiltered catalog access for structural tests.
         static func all() -> [UIScene] {
             everything()
         }
 
-        // MARK: Console — one per ConsoleSection, plus its notable states
+        // MARK: Console — one per native tab, plus its notable states
 
         private static var consoleScenes: [UISceneDescriptor] {
             [
                 console(
+                    "console.general.default",
+                    "General settings: capture, cleanup and audio",
+                    tab: .general,
+                    fixture: .populated
+                ),
+                console(
+                    "console.glossary.populated",
+                    "Glossary with the bundled canonical terms",
+                    tab: .glossary,
+                    fixture: .populated
+                ),
+                console(
+                    "console.glossary.empty",
+                    "Glossary with every term removed",
+                    tab: .glossary,
+                    fixture: .emptyGlossary,
+                    tags: ["empty"]
+                ),
+                console(
                     "console.sessions.populated",
-                    "Sessions list, day groups and transcript detail",
-                    section: .sessions,
+                    "History list, day groups and transcript detail",
+                    tab: .history,
                     fixture: .populated
                 ),
                 console(
                     "console.sessions.selection",
-                    "Sessions transcript with a selected surface ready to teach",
-                    section: .sessions,
+                    "History transcript with a selected surface ready to teach",
+                    tab: .history,
                     fixture: .populated,
                     transcriptSelectionSurface: "offscreen renderer"
                 ),
                 console(
                     "console.sessions.empty",
-                    "Sessions with nothing dictated yet",
-                    section: .sessions,
+                    "History with nothing dictated yet",
+                    tab: .history,
                     fixture: .firstRun,
                     tags: ["empty"]
                 ),
                 console(
                     "console.sessions.search",
-                    "Sessions filtered by a typed query",
-                    section: .sessions,
+                    "History filtered by a typed query",
+                    tab: .history,
                     fixture: .populated,
                     tags: ["steps"],
                     steps: [
-                        .type("accessibility", into: "Search transcripts or timestamps"),
-                        .settle(120),
+                        .type("accessibility", into: "sessions.search.field"),
+                        .settle(120)
                     ]
-                ),
-                console(
-                    "console.voice.default",
-                    "Voice pane: hotkey, backend picker and cleanup",
-                    section: .voice,
-                    fixture: .populated
-                ),
-                console(
-                    "console.voice.restart-required",
-                    "Voice pane with a saved backend waiting for restart",
-                    section: .voice,
-                    fixture: .backendSwitchPending
-                ),
-                console(
-                    "console.glossary.populated",
-                    "Glossary table with the bundled canonical terms",
-                    section: .glossary,
-                    fixture: .populated
-                ),
-                console(
-                    "console.glossary.empty",
-                    "Glossary table with every term removed",
-                    section: .glossary,
-                    fixture: .emptyGlossary,
-                    tags: ["empty"]
                 ),
                 console(
                     "console.system.granted",
                     "System readiness with every permission granted",
-                    section: .system,
+                    tab: .system,
                     fixture: .backendReady
                 ),
                 console(
                     "console.system.denied",
                     "System readiness with permissions denied",
-                    section: .system,
+                    tab: .system,
                     fixture: .backendUnavailable
                 ),
                 console(
                     "console.system.downloading",
                     "System readiness while the model is still downloading",
-                    section: .system,
+                    tab: .system,
                     fixture: .backendDownloading
-                ),
-                console(
-                    "console.system.confirm",
-                    "System danger zone in its confirm state",
-                    section: .system,
-                    fixture: .populated,
-                    tags: ["steps"],
-                    steps: [.press("CLEAR HISTORY"), .settle(120)]
-                ),
-                console(
-                    "console.diagnostics.healthy",
-                    "Diagnostics ledger with a ready backend",
-                    section: .diagnostics,
-                    fixture: .backendReady
-                ),
-                console(
-                    "console.diagnostics.unavailable",
-                    "Diagnostics ledger with an unreachable backend",
-                    section: .diagnostics,
-                    fixture: .backendUnavailable
-                ),
+                )
             ]
         }
 
-        /// One representative state for every console section on the native macOS 26
-        /// render path. These are intentionally separate from the portable scenes:
-        /// they have no meaning on a host where the SDK symbols cannot execute.
+        /// Representative native-material scenes for each surviving surface with
+        /// a macOS 26 availability branch. The console itself is now a native
+        /// `TabView`/`Form` hierarchy and has no separate branch.
         ///
-        /// What they verify is the app's own painted content, geometry, control
+        /// What these verify is the app's own painted content, geometry, control
         /// boundaries and accessibility tree on that branch -- NOT the system material.
         /// `cacheDisplay` does not rasterise SwiftUI `.glassEffect`, so the material is
-        /// absent from these captures rather than flattened, and `scripts/console_shot.sh`
-        /// stays the only way to see it composited.
+        /// absent from these captures rather than flattened.
         private static var systemGlassScenes: [UISceneDescriptor] {
             [
-                systemConsole(
-                    "console.sessions.os26",
-                    "Sessions on the native branch",
-                    section: .sessions,
-                    fixture: .populated
-                ),
-                systemConsole(
-                    "console.voice.os26",
-                    "Voice settings on the native branch",
-                    section: .voice,
-                    fixture: .populated
-                ),
-                systemConsole(
-                    "console.glossary.os26",
-                    "Glossary on the native branch",
-                    section: .glossary,
-                    fixture: .populated
-                ),
-                systemConsole(
-                    "console.system.os26",
-                    "Granted system access on the native branch",
-                    section: .system,
-                    fixture: .backendReady
-                ),
-                systemConsole(
-                    "console.diagnostics.os26",
-                    "Healthy diagnostics on the native branch",
-                    section: .diagnostics,
-                    fixture: .backendReady
-                ),
                 systemMenu(
                     "menu.idle.os26",
                     "Menu bar popover at rest on the native branch",
@@ -298,37 +240,32 @@
 
         // MARK: Accessibility adaptations
 
-        /// Each scene is the named base scene with exactly one accessibility
+        /// Each scene is a native console tab with exactly one accessibility
         /// adaptation enabled. The app-owned seams are necessary because the SDK
         /// environment values are get-only.
         private static var accessibilityScenes: [UISceneDescriptor] {
             [
                 accessibilityConsole(
+                    "a11y.reduce-transparency",
+                    "History transcript with Reduce Transparency enabled",
+                    tab: .history,
+                    fixture: .populated,
+                    adaptation: .reduceTransparency
+                ),
+                accessibilityConsole(
                     "a11y.increase-contrast",
-                    "Voice pane with Increase Contrast enabled",
-                    section: .voice,
+                    "General settings with Increase Contrast enabled",
+                    tab: .general,
                     fixture: .populated,
                     adaptation: .increaseContrast
                 ),
                 accessibilityConsole(
                     "a11y.differentiate-without-color",
                     "Denied system state with Differentiate Without Color enabled",
-                    section: .system,
+                    tab: .system,
                     fixture: .backendUnavailable,
                     adaptation: .differentiateWithoutColor
-                ),
-                // The System pane used to carry the mute-scope `SegmentGroup`,
-                // so the scene above doubled as the golden for the rule that a
-                // selected segment gains a leading checkmark under this
-                // adaptation. Retiring that picker left the rule ungated; the
-                // Voice pane's BACKEND group gates it now.
-                accessibilityConsole(
-                    "a11y.differentiate-without-color.voice",
-                    "Voice pane segmented controls with Differentiate Without Color enabled",
-                    section: .voice,
-                    fixture: .populated,
-                    adaptation: .differentiateWithoutColor
-                ),
+                )
             ]
         }
 
@@ -393,56 +330,16 @@
             ]
         }
 
-        // MARK: Component sheets
-
-        private static var atomScenes: [UISceneDescriptor] {
-            [
-                sheet(
-                    "atom.controls",
-                    "GlassMarks control atoms in every mode",
-                    size: CGSize(width: 760, height: 620)
-                ) {
-                    ControlAtomSheet()
-                },
-                sheet(
-                    "atom.properties",
-                    "Property ledger rows in every mode",
-                    // The measure the ledger panes hand their rows, plus the sheet's
-                    // own padding: every row is exactly as wide here as it ships.
-                    size: CGSize(
-                        width: VoiceourMetrics.Content.form + VoiceourMetrics.Space.xl * 2,
-                        height: 1_080
-                    ),
-                    tags: ["steps"],
-                    // `ConfirmActionRow` owns `didFail`, so the failure line is only
-                    // reachable through the state machine that publishes it: fill the
-                    // token, confirm, and let the failed sample's `perform` answer
-                    // false. Every other state on this sheet is a value.
-                    steps: [
-                        .type(
-                            PropertyAtomSheet.token,
-                            into: "\(PropertyAtomSheet.failedIdentifier).confirmation"
-                        ),
-                        .press("\(PropertyAtomSheet.failedIdentifier).confirm"),
-                        .settle(120),
-                    ]
-                ) {
-                    PropertyAtomSheet()
-                },
-            ]
-        }
 
         // MARK: - Factories
 
-        /// A full console window, at the first-launch measure unless a section is
-        /// taller than one. `ConsoleView`'s `onAppear` activation is suppressed
-        /// while the activation policy is `.prohibited`, which
-        /// `UIHarnessRuntime.prepareProcess()` sets before any scene builds, so the
-        /// real shell — left rail, section header, pane — is safe to host.
+        /// A full native console window, at the app's first-launch measure.
+        /// `ConsoleWindowView` suppresses activation while the harness keeps the
+        /// process policy `.prohibited`, so hosting it can never take focus.
         private static func console(
             _ identifier: String,
             _ title: String,
-            section: ConsoleSection,
+            tab: ConsoleTab,
             fixture: UIFixtures.Kind,
             transcriptSelectionSurface: String? = nil,
             // Optional rather than `= consoleSize`: a default argument expression is
@@ -464,46 +361,18 @@
                     return AnyView(
                         UIHarnessTranscriptSelectionScope(surface: transcriptSelectionSurface) {
                             AnyView(
-                                ConsoleView(
+                                ConsoleWindowView(
                                     coordinator: UIFixtures.coordinator(fixture),
-                                    initialSection: section
+                                    initialTab: tab
                                 )
                             )
                         }
                     )
                 }
-                return AnyView(ConsoleView(coordinator: UIFixtures.coordinator(fixture), initialSection: section))
+                return AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
             }
         }
 
-        /// Builds the fixture before releasing the glass seam: coordinator construction
-        /// re-pins every process seam, so the override must be installed after it and
-        /// before `NSHostingView` evaluates the hierarchy.
-        private static func systemConsole(
-            _ identifier: String,
-            _ title: String,
-            section: ConsoleSection,
-            fixture: UIFixtures.Kind
-        ) -> UISceneDescriptor {
-            UISceneDescriptor(
-                id: identifier,
-                title: title,
-                size: consoleSize,
-                colorScheme: .dark,
-                tags: ["console", "os26"]
-            ) {
-                AnyView(
-                    UIHarnessSystemGlassScope {
-                        AnyView(
-                            ConsoleView(
-                                coordinator: UIFixtures.coordinator(fixture),
-                                initialSection: section
-                            )
-                        )
-                    }
-                )
-            }
-        }
 
         /// A full-console accessibility variant. The scene contract installs the
         /// selected adaptation before SwiftUI evaluates the hierarchy and restores
@@ -511,7 +380,7 @@
         private static func accessibilityConsole(
             _ identifier: String,
             _ title: String,
-            section: ConsoleSection,
+            tab: ConsoleTab,
             fixture: UIFixtures.Kind,
             adaptation: UIHarnessAccessibilityAdaptation
         ) -> UISceneDescriptor {
@@ -523,7 +392,7 @@
                 tags: ["console", "a11y"],
                 accessibilityAdaptation: adaptation
             ) {
-                AnyView(ConsoleView(coordinator: UIFixtures.coordinator(fixture), initialSection: section))
+                AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
             }
         }
 
@@ -569,7 +438,7 @@
             }
         }
 
-        /// Native-material overlay coverage at both production measures. The model
+        /// Native-material overlay scenes at both production measures. The model
         /// is built while the process is pinned, then the seam is released exactly
         /// as it is for the system console and menu scenes.
         private static func systemOverlay(
@@ -599,26 +468,6 @@
             }
         }
 
-        /// A component sheet: pure-value views with no coordinator behind them. A
-        /// sheet carries an interaction script only when the state it has to show is
-        /// owned by the component itself and cannot be handed in as a value.
-        private static func sheet<Content: View>(
-            _ identifier: String,
-            _ title: String,
-            size: CGSize,
-            tags: [String] = [],
-            steps: [UIStep] = [],
-            @ViewBuilder content: @escaping @MainActor () -> Content
-        ) -> UISceneDescriptor {
-            UISceneDescriptor(id: identifier, title: title, size: size, tags: ["atom"] + tags, steps: steps) {
-                AnyView(
-                    content()
-                        .padding(VoiceourMetrics.Space.xl)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .background(backdrop(for: .dark))
-                )
-            }
-        }
 
         /// Literal fills, not `NSColor` system colours: a dynamic system colour
         /// resolves against this Mac's accent and appearance settings and would not
@@ -709,300 +558,5 @@
         }
     }
 
-    // MARK: - Component sheets
-
-    /// One labelled shelf of related atoms.
-    private struct AtomRow<Content: View>: View {
-        let title: String
-        let content: Content
-
-        init(_ title: String, @ViewBuilder content: () -> Content) {
-            self.title = title
-            self.content = content()
-        }
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Text(title)
-                    .font(VoiceourTypography.eyebrow)
-                    .kerning(1.4)
-                    .foregroundStyle(VoiceourPalette.Text.low)
-
-                HStack(alignment: .center, spacing: VoiceourMetrics.Space.md) {
-                    content
-                    Spacer(minLength: 0)
-                }
-
-                HairlineDivider()
-            }
-        }
-    }
-
-    /// Every `GlassMarks` control atom in every mode it ships, on one deterministic
-    /// grid. Pure-value views: no coordinator, no app state, nothing to settle.
-    private struct ControlAtomSheet: View {
-        var body: some View {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
-                AtomRow("STATUSCHIP") {
-                    StatusChip(label: "neutral", mode: .neutral)
-                    StatusChip(label: "ok", mode: .ok)
-                    StatusChip(label: "warn", mode: .warn)
-                    StatusChip(label: "crit", mode: .crit)
-                    StatusChip(label: "compact", mode: .ok, size: .compact)
-                }
-
-                AtomRow("GLASSBUTTONSTYLE") {
-                    Button("GHOST") {}
-                        .buttonStyle(GlassButtonStyle(kind: .ghost))
-                    Button("PRIMARY") {}
-                        .buttonStyle(GlassButtonStyle(kind: .accent))
-                    Button("DANGER") {}
-                        .buttonStyle(GlassButtonStyle(kind: .danger))
-                    Button("DISABLED") {}
-                        .buttonStyle(GlassButtonStyle(kind: .accent))
-                        .disabled(true)
-                }
-
-                AtomRow("PLATEBUTTONSTYLE") {
-                    Button("ROW") {}
-                        .buttonStyle(PlateButtonStyle(isSelected: false))
-                    Button("SELECTED ROW") {}
-                        .buttonStyle(PlateButtonStyle(isSelected: true))
-                }
-
-                AtomRow("GLASSTOGGLESTYLE") {
-                    Toggle("Switched on", isOn: .constant(true))
-                        .toggleStyle(GlassToggleStyle())
-                    Toggle("Switched off", isOn: .constant(false))
-                        .toggleStyle(GlassToggleStyle())
-                }
-
-                AtomRow("KEYCAP") {
-                    KeyCap("fn")
-                    KeyCap("⌘")
-                    KeyCap("⌘⇧V")
-                    KeyCap("esc")
-                }
-
-                AtomRow("ROWICONBUTTON") {
-                    RowIconButton(systemName: "doc.on.doc", accessibilityLabel: "Copy sample") {}
-                    RowIconButton(systemName: "trash", kind: .danger, accessibilityLabel: "Remove sample") {}
-                }
-
-                AtomRow("GLASSTEXTFIELDSTYLE") {
-                    TextField("Empty field", text: .constant(""))
-                        .textFieldStyle(GlassTextFieldStyle())
-                        .frame(width: VoiceourMetrics.Field.medium)
-                    TextField("Filled field", text: .constant(UIFixtures.Ledger.fieldValue))
-                        .textFieldStyle(GlassTextFieldStyle())
-                        .frame(width: VoiceourMetrics.Field.medium)
-                }
-
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    /// Every `PropertyRow` ledger row in every mode, composed the way the System and
-    /// Diagnostics panes compose them: inside `SettingsSectionBlock` cards on the
-    /// shared label/value grid. Hosting the real container is the point
-    /// — a ledger row has to publish the same row-bounds anchor `SettingsRow`
-    /// publishes or the section's overlay hairlines land between the wrong rows, and
-    /// a row rendered on its own can never show that.
-    private struct PropertyAtomSheet: View {
-        /// The confirm token both armed samples take. The scene's step script types
-        /// it, so it cannot be spelled twice.
-        static let token = "CLEAR"
-
-        /// Interaction identifiers stay scene-local so a sheet cannot make a search
-        /// for a pane's own coverage ambiguous.
-        static let failedIdentifier = "atom.confirm.failed"
-        private static let armedIdentifier = "atom.confirm.armed"
-        private static let collapsedIdentifier = "atom.confirm.collapsed"
-        private static let unavailableIdentifier = "atom.confirm.unavailable"
-
-        /// Armed through real state rather than `.constant(true)`: `ConfirmActionRow`
-        /// writes this binding false the moment its work succeeds, and a constant
-        /// binding would silently swallow the one transition these samples exist to
-        /// hold open. Neither sample's `perform` ever succeeds, so both stay armed.
-        @State private var isArmed = true
-        @State private var isArmedAfterFailure = true
-
-        var body: some View {
-            // `ContentCard` fills `maxHeight: .infinity`, so without `fixedSize` each
-            // card would stretch to a quarter of the scene instead of to its own
-            // content: this sheet has no scroll view to propose an ideal height.
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
-                propertyRows
-                settingsRows
-                confirmActionRows
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        }
-
-        // MARK: PropertyRow
-
-        /// Every value and accessory shape the panes ask for: a prose value, a
-        /// trailing metadata datum with an accessibility override, a machine value
-        /// with its copy action, a valueless status row whose caption carries the
-        /// failure, and a status row whose remediation is a real action button.
-        private var propertyRows: some View {
-            SettingsSectionBlock(eyebrow: "PROPERTYROW") {
-                PropertyRow("Version", value: UIFixtures.Ledger.version)
-
-                // Prose-only: no value, no rail. The caption takes the value slot
-                // on line one instead of stranding the label beside an empty band.
-                PropertyRow("Local model", caption: UIFixtures.Ledger.localProcessingProse)
-
-                PropertyRow(
-                    "Saved sessions",
-                    value: UIFixtures.Ledger.savedSessions,
-                    accessories: [.metadata(UIFixtures.Ledger.savedSessionsSize)],
-                    accessibilityValue:
-                        "\(UIFixtures.Ledger.savedSessions) sessions, \(UIFixtures.Ledger.savedSessionsSize) on disk"
-                )
-
-                PropertyRow(
-                    "Settings",
-                    value: UIFixtures.Ledger.settingsPath,
-                    valueStyle: .mono,
-                    accessories: [
-                        .copy(
-                            payload: UIFixtures.Ledger.settingsPath,
-                            label: "Copy SETTINGS PATH",
-                            identifier: "atom.property.settings.copy"
-                        )
-                    ]
-                )
-
-                PropertyRow(
-                    "Health probe",
-                    caption: UIFixtures.Ledger.healthFailure,
-                    captionColor: VoiceourPalette.Signal.crimson,
-                    accessories: [
-                        .status("ERROR", .crit),
-                        .copy(
-                            payload: UIFixtures.Ledger.healthReport,
-                            label: "Copy the backend health report",
-                            identifier: "atom.property.health.copy"
-                        ),
-                    ]
-                )
-
-                PropertyRow(
-                    "Microphone",
-                    caption: UIFixtures.Ledger.microphonePrompt,
-                    accessories: [
-                        .status("WILL PROMPT", .warn),
-                        .action(
-                            title: "OPEN SYSTEM SETTINGS…",
-                            kind: .ghost,
-                            label: "Open Microphone privacy settings",
-                            identifier: "atom.property.microphone.settings",
-                            isEnabled: true,
-                            isInFlight: false,
-                            perform: {}
-                        ),
-                    ]
-                )
-            }
-        }
-
-        // MARK: SettingsRow
-
-        /// The two slots `SettingsRow` grew: a trailing status chip over a footer
-        /// stack holding the state readout plus the live "applies next" note (the
-        /// System mute row's shape — one explanatory caption per state, with scope
-        /// left to the picker that owns it), and a footer with no chip (the
-        /// mute-scope row's shape), which is the other half of the overload surface
-        /// callers now compile against.
-        private var settingsRows: some View {
-            SettingsSectionBlock(eyebrow: "SETTINGSROW") {
-                SettingsRow(label: "Mute during capture", status: (label: "MUTE ON", mode: .neutral)) {
-                    Toggle("Mute system audio while recording", isOn: .constant(true))
-                        .toggleStyle(GlassToggleStyle())
-                        .fixedSize(horizontal: true, vertical: false)
-                } footer: {
-                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                        CaptionText("System audio will be muted during recording and restored when the session ends.")
-
-                        CaptionText("Applies from the next recording.")
-                    }
-                }
-
-                SettingsRow(label: "Timeout") {
-                    TextField(UIFixtures.Ledger.timeout, text: .constant(UIFixtures.Ledger.timeout))
-                        .textFieldStyle(GlassTextFieldStyle(font: VoiceourTypography.bodyMono))
-                        .frame(width: VoiceourMetrics.Field.short)
-                } footer: {
-                    CaptionText("Clamped to 500–30000 ms when the field commits.")
-                }
-            }
-        }
-
-        // MARK: ConfirmActionRow
-
-        /// Every state the row reaches without a pane behind it: collapsed with
-        /// nothing to erase, collapsed and available, armed, and armed after a refused
-        /// erase. The collapsed pair takes a constant binding because a still life is
-        /// all they are; the armed pair owns real state above.
-        private var confirmActionRows: some View {
-            SettingsSectionBlock(eyebrow: "CONFIRMACTIONROW") {
-                confirmRow(
-                    identifier: Self.unavailableIdentifier,
-                    isAvailable: false,
-                    isConfirming: .constant(false),
-                    succeeds: true
-                )
-
-                confirmRow(
-                    identifier: Self.collapsedIdentifier,
-                    isAvailable: true,
-                    isConfirming: .constant(false),
-                    succeeds: true
-                )
-
-                confirmRow(
-                    identifier: Self.armedIdentifier,
-                    isAvailable: true,
-                    isConfirming: $isArmed,
-                    succeeds: true
-                )
-
-                confirmRow(
-                    identifier: Self.failedIdentifier,
-                    isAvailable: true,
-                    isConfirming: $isArmedAfterFailure,
-                    succeeds: false
-                )
-            }
-        }
-
-        /// One sample per state, differing only in availability, arming and whether
-        /// the work succeeds: the copy is the pane's copy, so a change to the danger
-        /// grammar shows up here as a diff rather than as four sheets to update.
-        private func confirmRow(
-            identifier: String,
-            isAvailable: Bool,
-            isConfirming: Binding<Bool>,
-            succeeds: Bool
-        ) -> some View {
-            ConfirmActionRow(
-                label: "Clear history",
-                subject: "Transcript history",
-                scope: "Clear local transcript history. Settings and glossary terms are kept.",
-                token: Self.token,
-                actionTitle: "CLEAR HISTORY",
-                inFlightTitle: "CLEARING…",
-                failureLabel: "NOT ERASED",
-                failureText: UIFixtures.Ledger.historyFailure,
-                identifier: identifier,
-                isAvailable: isAvailable,
-                isConfirming: isConfirming,
-                perform: { succeeds }
-            )
-        }
-
-    }
 
 #endif

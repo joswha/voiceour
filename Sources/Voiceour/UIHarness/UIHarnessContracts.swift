@@ -259,24 +259,19 @@
             case update = "update"
             /// Print the flow catalog as JSON and exit.
             case flowList = "flow-list"
-            /// Drive flows and compare their journals and frames against goldens.
+            /// Drive flows and compare their semantic journals against goldens.
             case flowCheck = "flow-check"
-            /// Same as `flowCheck`, but rewrite the flow goldens instead of failing.
+            /// Same as `flowCheck`, but rewrite the journal goldens instead of failing.
             case flowUpdate = "flow-update"
-            /// Evaluate the declared UI coverage ledger without hosting views.
-            case coverage = "coverage"
-            /// Render a media reel frame by frame. Media, never a golden.
-            case film = "film"
 
             /// Whether this mode blesses goldens instead of failing on a difference.
             ///
-            /// One predicate rather than `mode == .update` scattered through the reconcilers:
-            /// the flow layer's first `--flow-update` silently blessed nothing, because a
-            /// second reconciler still tested the scene mode by hand.
+            /// Shared by the scene and journal reconcilers so each update mode writes only
+            /// its own selected goldens.
             var writesGoldens: Bool {
                 switch self {
                 case .update, .flowUpdate: return true
-                case .list, .check, .flowList, .flowCheck, .coverage, .film: return false
+                case .list, .check, .flowList, .flowCheck: return false
                 }
             }
         }
@@ -292,8 +287,6 @@
         var contactSheet: Bool = true
         /// Emit the manifest to stdout as well as to disk.
         var stdoutManifest: Bool = false
-        /// Reconcile flow frame rasters and dumps against goldens.
-        var reconcileFrames: Bool = true
 
         static let flag = "--ui-harness"
 
@@ -339,10 +332,6 @@
                 mode = .flowCheck
             } else if arguments.contains("--flow-update") {
                 mode = .flowUpdate
-            } else if arguments.contains("--coverage") {
-                mode = .coverage
-            } else if arguments.contains("--film") {
-                mode = .film
             }
 
             let rawOnly = Self.value(for: "--only", in: arguments)
@@ -369,7 +358,6 @@
             }
             if arguments.contains("--no-sheet") { contactSheet = false }
             if arguments.contains("--stdout") { stdoutManifest = true }
-            if arguments.contains("--no-frames") { reconcileFrames = false }
         }
 
         func matches(_ scene: UIScene) -> Bool {
@@ -395,24 +383,21 @@
 
     extension UIHarnessRequest {
         static let usage = """
-            usage: Voiceour --ui-harness [--list | --update | --flow-list | --flow-check | --flow-update | --coverage | --film] [options]
+            usage: Voiceour --ui-harness [--list | --update | --flow-list | --flow-check | --flow-update] [options]
 
               --list             print the scene catalog as JSON and exit
               --update           rewrite scene goldens instead of failing on a difference
               --flow-list        print the flow catalog as JSON and exit
-              --flow-check       run flows and compare against goldens
-              --flow-update      run flows and rewrite goldens instead of failing on a difference
-              --coverage         evaluate the UI coverage ledger without hosting views
-              --film             record the selected media reels frame by frame; writes no golden
-              --mode MODE        list|check|update|flow-list|flow-check|flow-update|coverage|film (default check)
-              --only a,b         only scenes, flows or reels whose id contains, or whose tags include, a or b
-              --except a,b       exclude scenes, flows or reels whose id contains, or whose tags include, a or b; applied after --only
+              --flow-check       run flows and compare semantic journals against goldens
+              --flow-update      run flows and rewrite semantic journal goldens
+              --mode MODE        list|check|update|flow-list|flow-check|flow-update (default check)
+              --only a,b         only scenes or flows whose id contains, or whose tags include, a or b
+              --except a,b       exclude scenes or flows whose id contains, or whose tags include, a or b; applied after --only
               --out DIR          artifact directory (default <repo>/.build/ui-harness)
               --golden DIR       golden directory (default <repo>/fixtures/ui)
               --repo-root DIR    resolves default --out/--golden (also VOICEOUR_REPO_ROOT)
               --scale 1|2        raster scale (default 1)
               --no-sheet         skip the contact sheet
-              --no-frames        skip golden reconciliation for flow frame rasters and dumps; the artifacts are still written and still linted
               --stdout           also write the manifest to stdout
 
             Renders offscreen. Never activates the app, never places a window on a display,

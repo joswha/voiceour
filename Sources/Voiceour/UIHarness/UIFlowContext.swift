@@ -180,9 +180,15 @@
         let effects = UIEffectRecorder()
 
         private var gates: [UIGate: UIGateBox]
+        private let releaseHooks: [UIGate: () -> Void]
 
-        init(coordinator: DictationCoordinator, armedGates: Set<UIGate>) {
+        init(
+            coordinator: DictationCoordinator,
+            armedGates: Set<UIGate>,
+            releaseHooks: [UIGate: () -> Void] = [:]
+        ) {
             self.coordinator = coordinator
+            self.releaseHooks = releaseHooks
             gates = Dictionary(
                 uniqueKeysWithValues: UIGate.allCases.map { gate in
                     (gate, UIGateBox(armed: armedGates.contains(gate)))
@@ -193,11 +199,11 @@
 
         /// Redirects `GeneralPasteboard` into the effect recorder for the life of this flow.
         ///
-        /// Three SwiftUI actions copy straight to the pasteboard instead of going through the
-        /// insertion adapter -- the menu's transcript copy, the Sessions transcript copy and
-        /// `PropertyRow`'s value copy. Faking the inserter does not cover them, so without
-        /// this seam a flow that presses one would overwrite the clipboard of whoever ran the
-        /// harness. The harness must never reach into the user's workspace.
+        /// Two SwiftUI actions copy straight to the pasteboard instead of going through the
+        /// insertion adapter -- the menu's transcript copy and the History transcript copy.
+        /// Faking the inserter does not cover them, so without this seam a flow that presses
+        /// one would overwrite the clipboard of whoever ran the harness. The harness must
+        /// never reach into the user's workspace.
         ///
         /// `assumeIsolated` is sound here because every call site the override can reach is a
         /// SwiftUI button action on the main actor: the one off-main caller of
@@ -230,6 +236,7 @@
         func release(_ gate: UIGate) -> Bool {
             let target = box(gate)
             guard target.armed else { return false }
+            releaseHooks[gate]?()
             target.release()
             return true
         }
@@ -239,6 +246,7 @@
         /// Called on every exit path so a parked fake never outlives its flow.
         func teardown() {
             transitions.detach()
+            for hook in releaseHooks.values { hook() }
             for gate in UIGate.allCases { box(gate).drain() }
         }
     }

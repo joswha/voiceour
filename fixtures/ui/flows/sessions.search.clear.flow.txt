@@ -3,6 +3,7 @@ title: Clearing transcript search restores the complete list
 fixture: static
 transitions: idle
 PASS 1 filtered | text == "0 of 9 sessions match" exactly 1 | 1 match
-PASS 2 restored | text == "9 SESSIONS" exactly 1 | 1 match
-PASS 3 restored | value placeholder="Search transcripts or timestamps" is empty | ""
-PASS 4 restored | absent value="Nothing matches “definitely-not-a-transcript”" | 0 matches
+PASS 2 restored | value id=sessions.search.field is empty | ""
+PASS 3 restored | absent value="Nothing matches “definitely-not-a-transcript”" | 0 matches
+PASS 4 restored | exists value="Wire the offscreen renderer to NSHostingView and capture with cacheDisplay." | 1 match
+PASS 5 restored | model recentSessionCount == "9" | 9

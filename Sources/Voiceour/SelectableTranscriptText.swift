@@ -5,12 +5,13 @@ import SwiftUI
 /// changes and prepends a "Fix / Teach" item to the native context menu.
 /// SwiftUI's `Text.textSelection` exposes neither the selected substring nor
 /// an extensible selection menu on
-/// the macOS 14 deployment target, so this wraps `NSTextView` directly, matching
-/// the `NSViewRepresentable` shape used by `FrostedGlassBackground` in
-/// `GlassSurfaces.swift`.
-/// Styling mirrors `VoiceourTypography.body`, `VoiceourPalette.Text.high`, and
-/// `VoiceourMetrics.Space.hair` line spacing so it reads identically to the
-/// SwiftUI `Text` it replaces.
+/// the macOS 14 deployment target, so this wraps `NSTextView` directly.
+///
+/// Every colour here is a semantic system colour, so the transcript reads
+/// correctly in both appearances. It used to paint the console's own near-white
+/// ink on a cyan selection wash, which was legible only because the window
+/// pinned a dark scheme — a native window follows the appearance the user chose,
+/// and this is the one view in it that holds arbitrary user text.
 struct SelectableTranscriptText: NSViewRepresentable {
     /// Identifies the transcript the text belongs to, not just its characters.
     /// SwiftUI reuses the backing `NSTextView` across sessions, and two sessions
@@ -22,10 +23,8 @@ struct SelectableTranscriptText: NSViewRepresentable {
     var onFixTeach: (String) -> Void
     var onSelectionChange: ((String?) -> Void)?
 
-    private var a11y = A11y()
-
     private static let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-    private static let textColor = NSColor(VoiceourPalette.Text.high)
+    private static let textColor = NSColor.labelColor
 
     init(
         identity: UUID,
@@ -39,13 +38,14 @@ struct SelectableTranscriptText: NSViewRepresentable {
         self.onSelectionChange = onSelectionChange
     }
 
-    /// Selecting a phrase is how this view is used now, so the wash has to survive
-    /// Increase Contrast. It cannot borrow the 0.72/0.90 pair every selected
-    /// control uses: this one sits behind body copy, and cyan that opaque swallows
-    /// the words the user is reading to decide what to teach.
-    private var selectionFill: NSColor {
-        NSColor(VoiceourPalette.Signal.cyan.opacity(a11y.contrast == .increased ? 0.44 : 0.28))
-    }
+    /// Deliberately not `selectedTextBackgroundColor`: that one is derived from
+    /// the user's System Settings accent, which no environment key overrides, so a
+    /// committed golden containing it would not port between machines. The
+    /// unemphasized pair is the system's own answer for a selection in a text view
+    /// that does not hold focus — appearance-aware, contrast-aware, and the same
+    /// on every Mac. It also keeps the wash light enough not to swallow the words
+    /// the user is reading to decide what to teach.
+    private static let selectionFill = NSColor.unemphasizedSelectedTextBackgroundColor
 
     private var attributed: NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
@@ -97,12 +97,14 @@ struct SelectableTranscriptText: NSViewRepresentable {
         }
     }
 
-    /// Left unset, NSTextView paints the user's system accent — the one colour the
-    /// console bans — across the widest selectable surface in the app. Reapplied on
-    /// update so a live Increase Contrast change reaches the existing view.
+    /// Left unset, NSTextView paints the user's system accent across the widest
+    /// selectable surface in the app, which no golden can reproduce on another
+    /// Mac. Both colours are dynamic, so a single assignment survives an
+    /// appearance or Increase Contrast change; it is still reapplied on update
+    /// because a recycled view may be carrying another mount's attributes.
     private func applySelectionStyle(to view: FixTeachTextView) {
         view.selectedTextAttributes = [
-            .backgroundColor: selectionFill,
+            .backgroundColor: Self.selectionFill,
             .foregroundColor: Self.textColor,
         ]
     }

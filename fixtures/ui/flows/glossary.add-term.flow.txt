@@ -1,5 +1,5 @@
 flow: glossary.add-term
-title: A canonical term can be added through the ledger
+title: A canonical term can be added through the glossary
 fixture: static
 transitions: idle
 PASS 1 empty | text == "No canonical terms yet" exactly 1 | 1 match

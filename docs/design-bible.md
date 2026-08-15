@@ -1,1253 +1,158 @@
-# Voiceour Design Bible
+# Voiceour design bible
 
-> **Status: internal design reference.** A contributor-facing reference for UI work,
-> reconciled against the code as of 2026-08-03. Not a product spec; where this
-> document and the code disagree, the code wins.
+> **Scope:** current product UI. The native console window deliberately follows macOS. The bespoke visual language applies only to the menu popover and recording overlay.
 
-Target: **SwiftUI macOS 14.0+**
-Dependencies: **none**
-Private APIs: **forbidden**
+## 1. Product shape
 
-Owner boundary:
+Voiceour has three user-visible surfaces:
 
-- `Voiceour`: SwiftUI UI, design tokens, glass primitives, coordinator-facing UI state.
-- `VoiceCore`: pure Foundation models/settings/stores. No AppKit, no CoreAudio, no visual code.
-- `VoiceMac`: AppKit/CoreAudio side effects only: window seams where required, pasteboard/system services, system-audio mute implementation.
+1. a menu-bar item and popover for status, last outcome, recovery, start/stop, console, and quit;
+2. a compact recording island that follows the active target and stays present through processing;
+3. a native macOS window for settings, vocabulary, history, readiness, privacy, and destructive actions.
 
-This document is the source of truth for the Voiceour console, recording overlay, menu bar popover, and audio-mute UX. **Every value below is verified against the code that ships today** (last reconciled 2026-08-03, the property-ledger pass: §7.1, §12.3, §12.7–§12.9, §14, §16, §17, §18). Aspirational items that were specified but never shipped are tracked in §29 rather than presented as current behavior.
+The first two surfaces are momentary and identity-bearing, so they keep Voiceour's dark glass treatment. The window is long-lived, form-heavy, and keyboard/VoiceOver intensive, so it uses standard macOS navigation and controls rather than imitating them.
 
----
+## 2. Information architecture
 
-## 1. Product Shape
-
-Voiceour is a local-first dictation app. The main window is not a macOS preferences sheet. It uses a transparent-black console with glass, hairlines, tracked mono labels, stillness, and one live cyan signal.
-
-The recording overlay pill defines the console's visual vocabulary.
-
-Hard rules:
-
-1. Delete `TabView` from the main window.
-2. Delete SwiftUI `Form` from settings surfaces.
-3. Do not use opaque system backgrounds inside the console.
-4. Do not use default macOS blue buttons.
-5. Do not add scanlines, neon gradients, fake terminal noise, glow spam, or decorative icon chrome.
-6. One accent at a time. Cyan means live / selected / focused / primary. It is rare.
-7. Motion is restrained. The live dot is the only perpetual motion in the console. (See §21 for the recording overlay's documented comet exception.)
-8. All UI must be implementable on macOS 14 with public SDK APIs only.
-9. **Every pane sits on one shared grid.** A field, toggle, or picker never claims the full window width just because nothing stops it. See §12, the Manifest Grid.
-
----
-
-## 2. Information Architecture
-
-The main scene:
+The scene remains:
 
 ```swift
 Window("Voiceour", id: "main") {
-    ConsoleView(coordinator: coordinator, initialSection: LaunchOptions.consoleSection)
-}
-.defaultSize(
-    width: VoiceourMetrics.Window.defaultWidth,
-    height: VoiceourMetrics.Window.defaultHeight
-)
-```
-
-`VoiceourApp.swift` also hosts a `MenuBarExtra` (§22) and owns the `RecordingOverlayController` (§21). The console is one of three coordinated surfaces, not the whole app.
-
-Opening the console promotes the app from the idle menu-bar-only `.accessory` activation policy set once in `VoiceourApp.init()` to `.regular` for as long as the window stays open (`ConsoleView.swift`'s `.onAppear`/`.onDisappear`), then returns to `.accessory` when it closes. This keeps the real console reachable through Cmd+Tab and the Dock after focus moves to another app. `.accessory` remains correct for the `MenuBarExtra` popover (§22) and recording overlay (§21); only the console toggles activation policy.
-
-Rail sections (`ConsoleSection`, `Sources/Voiceour/ConsoleSection.swift`):
-
-```swift
-enum ConsoleSection: String, CaseIterable, Identifiable {
-    case home
-    case sessions
-    case voice
-    case glossary
-    case refinement
-    case system
-    case diagnostics
+    ConsoleWindowView(coordinator: coordinator)
 }
 ```
 
-Default landing: `home`. All seven ship; there is no reduced/phased subset, but Diagnostics is omitted from the rail unless the app launches with `--debug` or Diagnostics is already selected. `home` gets the same "pinned above a divider" rail treatment `sessions` used to have alone (§10.2); `LaunchOptions.consoleSection` (`LaunchOptions.swift`) and `ConsoleView`'s own `initialSection` default both fall back to `.home`. Rail labels are the plain-English case names (`Home`, `Sessions`, `Voice`, `Glossary`, `Refinement`, `System`, `Diagnostics`). They do not use the all-caps mono treatment reserved for eyebrows and chips.
+`ConsoleWindowView` is a `TabView` containing four grouped forms in this order:
 
-Do not reintroduce tabs.
+| tab | contents |
+| --- | --- |
+| **General** | Fn/Globe gesture, stop-after-silence and dwell, deterministic cleanup, mute-during-capture, and a debug-only ASR picker. |
+| **Glossary** | project lexicon import, canonical terms and aliases, add/edit/remove, and learned suggestions. |
+| **History** | search, day-grouped transcript list, selected transcript detail, copy/delete, and Fix/Teach. |
+| **System** | backend/model readiness, microphone and Accessibility capabilities, remediation links, diagnostics copy, clear history, and clear learned vocabulary. |
 
----
+`ConsoleTab` is the shared identity for selection and the development deep link `--console-section=<general|glossary|history|system>`. General is the fallback.
 
-## 3. API / Platform Constraints
+The menu item opens the same `Window("Voiceour", id: "main")`; no second settings scene exists.
 
-Deployment floor is `.macOS(.v14)`. Public macOS 26 Liquid Glass APIs are allowed only behind `if #available(macOS 26, *)` in a `@ViewBuilder`, with a complete legacy path and deterministic force-legacy harness branch.
+## 3. Native window contract
 
-Allowed:
+The window uses native `TabView`, `Form(.grouped)`, `Section`, `Toggle`, `Picker`, `TextField`, `LabeledContent`, `Button`, searchable list behavior, context menus, and confirmation dialogs.
 
-- SwiftUI and public AppKit APIs.
-- `NSVisualEffectView` on the legacy functional-glass path.
-- Public Liquid Glass APIs on the guarded modern path.
-- Public `NSWindow` configuration and CoreAudio HAL in `VoiceMac`.
-- SF Symbols, SF Pro, and SF Mono.
+Do not add custom window chrome, navigation chrome, control skins, cards around every section, or a forced dark appearance. The window must inherit the user's appearance, accent color, keyboard focus behavior, control metrics, VoiceOver semantics, Reduce Motion, Reduce Transparency, and Full Keyboard Access behavior from macOS.
 
-Forbidden:
+App-owned styling in the window is narrow:
 
-- private blur APIs or undocumented AppKit selectors;
-- third-party UI libraries;
-- `Form` or `TabView` for console navigation;
-- default system blue as the app's primary grammar;
-- arbitrary colors, font sizes, radii, spacing, or control metrics in view files;
-- claiming that modern lensing, adaptive refraction, or morphing is reproduced on macOS 14/15.
+- monospaced text where a value is genuinely code-like;
+- semantic state words through `ConsoleStateMark`;
+- explanatory sentences through `ConsoleCaption`;
+- restrained row spacing through `ConsoleRow`;
+- selected transcript fill and transcript detail grouping where native Form alone does not express master/detail state.
 
-The canonical vocabulary lives in:
+These helpers shape content, not chrome. A new window control should begin as a stock macOS control. A custom treatment needs an interaction or semantic requirement that the native control cannot satisfy.
 
-```text
-Sources/Voiceour/DesignTokens.swift
-Sources/Voiceour/GlassWindowChrome.swift
-Sources/Voiceour/GlassSurfaces.swift
-Sources/Voiceour/GlassMarks.swift
-Sources/Voiceour/SettingsBindings.swift
-Sources/Voiceour/SettingsPaneScroll.swift
-Sources/Voiceour/ContentCard.swift
-Sources/Voiceour/SettingsSectionBlock.swift
-Sources/Voiceour/SettingsRow.swift
-Sources/Voiceour/CaptionText.swift
-Sources/Voiceour/SegmentControl.swift
-```
+Destructive actions use native confirmation dialogs with a visible title and explicit destructive role. They do not invent an inline two-step control.
 
-`SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, and `SegmentControl.swift` hold the persisted settings binding and the shared layout and surface primitives rather than raw tokens. View files compose these sources instead of creating a second convention.
+### Activation
 
----
-## 4. Color Tokens
+At idle the menu-bar app uses `.accessory`. While the console is visible it promotes to `.regular` so the user can return through Cmd-Tab, then returns to `.accessory` when the window closes.
 
-Verified against `Sources/Voiceour/DesignTokens.swift`. All named text colors are opaque sRGB values; alpha belongs to materials and state fills, not to the text ladder.
+`ConsoleWindowView.managesActivationPolicy` must remain false when launch passes `--no-activate` or the process is `.prohibited`. This is required by the screenshot tool and offscreen harness.
 
-### 4.1 Grounds and material colors
+## 4. Bespoke visual vocabulary
 
-```swift
-Ink.void    = sRGB(0.020, 0.030, 0.050, 1.00)  // opaque fallback ground
-Ink.pane    = sRGB(0.060, 0.070, 0.090, 0.62)  // root glass tint stop only
-Ink.rimDark = sRGB(0.000, 0.000, 0.000, 0.34)  // glass definition rim
-Ink.surface = sRGB(0.055, 0.065, 0.085, 1.00)  // content surface
-Ink.well    = sRGB(0.030, 0.036, 0.048, 1.00)  // recessed reading region
-```
+The surviving bespoke surfaces use one quiet graphite ground and a small semantic signal family:
 
-`Ink.surface` is the quiet, opaque plane under settings sections, ledger cards, Home cells, tables, and Sessions regions. `Ink.well` is the darker opaque plane under transcript and detail wells. Neither is glass.
+| role | value |
+| --- | --- |
+| `Ink.void` | sRGB (0.02, 0.03, 0.05), opaque |
+| `Text.high` | sRGB (0.89, 0.91, 0.95) |
+| `Text.mid` | sRGB (0.64, 0.71, 0.80) |
+| `Text.low` | sRGB (0.51, 0.56, 0.64) |
+| cyan | active/live/focus |
+| mint | successful outcome |
+| amber | degraded or waiting |
+| crimson | failure or destructive action |
 
-The legacy glass tint remains a vertical gradient: white at 0.05 opacity at the top, `Ink.pane` at the 38% stop, and black at 0.28 opacity at the bottom. Its specular rim is white at 0.55 → 0.16 → 0.06 → 0.22 opacity, composited with `.plusLighter`.
+One signal color should dominate a view. Cyan means live work, not generic decoration. Amber means the app can proceed only after waiting or with a degraded capability. Crimson names an actual failure or destructive choice. Muted system audio is not an error and stays in the cyan/amber family.
 
-### 4.2 Plates, lines, and meters
+Text roles for these surfaces remain the tokenized 10–17 pt ladder in `DesignTokens.swift`, with monospaced eyebrow/micro labels used sparingly. Do not apply tracked uppercase microcopy to the native window merely to make it resemble the popover.
 
-Plates are painted interaction regions, never independent glass:
+Spacing uses the 4 pt vocabulary (`xs` 4, `sm` 8, `md` 12, `lg` 16, `xl` 24, `xxl` 32). Control heights are 24, 28, 32, and 40 pt. The recording island's 22 pt visual disc inside a 28 pt hit frame is a deliberate exception, not a new grid unit.
 
-```swift
-Plate.rest    = white opacity 0.05
-Plate.hover   = white opacity 0.09
-Plate.pressed = white opacity 0.14
-```
+## 5. Menu popover
 
-Line tokens have one job each:
+The popover is 280 pt wide and contains three whitespace-separated blocks:
 
-```swift
-Line.rule         = white opacity 0.13  // decorative rules and disabled rims
-Line.edge         = white opacity 0.18  // content-surface definition
-Line.control      = white opacity 0.35  // interactive boundary at rest
-Line.controlHover = white opacity 0.48  // hover, press, and in-flight boundary
-Line.focus        = Signal.cyan         // keyboard-focus boundary
-```
+1. **Status** — state chip, mute state when relevant, Fn keycap, and one current headline.
+2. **Report** — failure, last transcript, or delivery outcome; absent when there is nothing to report.
+3. **Actions** — one primary dictation action followed by one grouped command list.
 
-`Line.rule` and `Line.edge` define structure; they are not interactive boundaries. Every enabled painted control has at least `Line.control` at rest. `Meter.rest` is white at 0.35 opacity and `Meter.accent` is `Signal.cyan`; chart rails, baselines, ordinary bars, and empty-day marks use the former.
+The headline has strict precedence: user-facing failure, model acquisition/warmup, then current target. Never display a future target promise beside a failure or completed outcome.
 
-### 4.3 Text and marks
+The model's first-run download belongs in the menu because a 1.26 GB wait visible only in System looks like a hung application. Show `Downloading model — N%`, warmup, or the mapped acquisition failure. Recovery uses the failure taxonomy's retry/settings destination.
 
-```swift
-Text.high       = sRGB(0.89, 0.91, 0.95, 1.00)
-Text.mid        = sRGB(0.64, 0.71, 0.80, 1.00)
-Text.low        = sRGB(0.51, 0.56, 0.64, 1.00)
-Text.mono       = sRGB(0.64, 0.75, 0.86, 1.00)
-Text.monoStrong = sRGB(0.84, 0.92, 0.98, 1.00)
-Mark.faint      = sRGB(0.38, 0.42, 0.48, 1.00)
-```
+The last transcript is readable and copyable. Report success and copy-only honestly; do not render raw wire codes. The Fn keycap is a reminder, not an interactive control.
 
-`Text.low` is the lowest legal text foreground and is also the disabled foreground. `Mark.faint` is not a text color: it is reserved for decorative empty-state glyphs, tick rules, the idle rail mark, and the disabled toggle knob. It never carries a label or caption.
+On macOS 26 the standard popover owns system material. On earlier systems and forced-portable harness scenes, the app paints one opaque rounded graphite ground and edge; it must not stack another rounded shell inside AppKit's popover.
 
-At standard contrast, the weakest legal text pairing is `Text.low` over `Plate.hover` on `Ink.surface`, at 4.62:1. A plate fill above `Plate.rest` therefore uses `Text.high`; `Text.low` never sits on `Plate.pressed`. Under Increase Contrast the shared `A11y` resolver raises low → mid and mid → high.
+## 6. Recording overlay
 
-### 4.4 Signal
+The panel is 260×80 pt, but only the centered 180×34 pt capsule is visible. The transparent remainder protects an outer shadow from clipping. Place the visible pill 44 pt below the display's visible top edge with a 16 pt screen margin.
 
-One signal color per view:
+The island has three regions:
 
-```swift
-Signal.cyan     = sRGB(0.62, 0.86, 1.00, 1.00)  // live, selected, focused, accent
-Signal.cyanDeep = sRGB(0.32, 0.60, 0.92, 1.00)  // pressed accent fill
-Signal.mint     = sRGB(0.66, 0.96, 0.82, 1.00)  // safe completion / ready / granted
-Signal.amber    = sRGB(0.98, 0.78, 0.42, 1.00)  // permission / recovery / warning
-Signal.crimson  = sRGB(0.98, 0.44, 0.44, 1.00)  // destructive / hard error
-Signal.wash     = Signal.cyan opacity 0.45       // reduced decorative accent
-```
+- **Cancel** at leading edge: quiet rest treatment, explicit “Cancel recording” label.
+- **State** in the center: microphone warming, live waveform, or uppercase processing state.
+- **Finish / processing mark** at trailing edge: finish while recording; comet while finishing, transcribing, or cleaning.
 
-Rules:
+There is no in-progress transcript line. The stop action always leads to one final decode.
 
-- Cyan is state, not decoration. `Signal.wash` is the only reduced cyan value used as a decorative accent.
-- Mint is safe completion, saved, success, or granted acknowledgement.
-- Amber is a permission gate, advisory, or recovery state.
-- Crimson is destructive action or hard error.
-- Color is never the sole state channel. With Differentiate Without Color enabled, selections gain bars or checkmarks, status marks gain symbols, live/idle marks become filled/hollow, and focus retains its outer halo. §20 and §25 record the complete behavior.
+Both discs have a 28 pt hit target and 22 pt visual circle. Finish is visually stronger than cancel because it is the affirmative action. The view and `RecordingOverlayHostingView` must both derive hit regions from `RecordingOverlayMetrics.controlRects`; matching pixels do not prove matching clicks.
 
-### 4.5 Audio-mute color
+The waveform uses 4 pt bars and gaps, 4–20 pt height, a perceptual level exponent of 0.6, and recency opacity. Under Reduce Motion, maximum travel drops to 12 pt rather than removing signal feedback. Microphone warmup is text, not a fake flat waveform.
 
-Audio mute uses the cyan/amber family; there is no separate mute palette. Muting is a system side effect, not an error, and never renders in crimson.
+During processing, the comet replaces the finish control. Reduce Motion lowers its temporal rate and may remove orbiting movement, but the state label remains the primary non-color signal.
 
----
-## 5. Material and Glass
+The island follows app, display, and Space changes during a session. Manual drag position is stored relative to a display and clamped by the visible pill, never by the transparent shadow box.
 
-### 5.1 Liquid Glass adoption
+### Overlay material
 
-Voiceour keeps its `.macOS(.v14)` deployment floor and has one dual-path architecture:
+On macOS 26, the island uses `.glassEffect(.regular, in: .capsule)`. The older path uses the behind-window frosted adapter plus the app's tint/rim treatment. Reduce Transparency replaces either with an opaque, high-contrast ground.
 
-- On macOS 26, functional glass uses public SwiftUI Liquid Glass APIs behind `if #available(macOS 26.0, *)`: `.glassEffect` at the window ground and the recording-overlay island, the standard popover's own system chrome, and scroll-edge effects. The nav selection, segmented selection, overlay control discs, and menu primary action are painted on this path too. Controls that sit on glass are painted by choice, not by rendering necessity: the erasure that once justified the rule was produced by the offscreen harness's `cacheDisplay(in:to:)` capture, which does not rasterise `.glassEffect` at all, and a real onscreen window renders the same nested stack completely (§5.2). As a result, the app forgoes system glass, its lensing, and its morphing on every control to keep the interface restrained and uniformly legible.
-- On macOS 14 and 15, the same call sites use the public AppKit/painted implementation: `NSVisualEffectView` at the window or overlay ground, the shared tint and rims, and painted plates for controls. Controls that sit on glass are painted on macOS 26 as well.
+The `NSPanel` must remain clear, non-opaque, and shadowless; the visible surface owns its own shape and shadow. Changing those panel properties breaks behind-window material sampling.
 
-`RenderOverrides.forceLegacyGlass` forces the legacy branch in committed harness scenes. This seam exists because `#available` follows the **runtime OS**, not the package deployment floor: a harness running on macOS 26 would otherwise silently render the modern path and make goldens depend on the host. Production leaves the seam false.
+## 7. Motion and state
 
-Both paths share geometry, tokens, content surfaces, and accessibility semantics. They differ only where the system can provide real lensing, morphing, or scroll-edge material.
+Motion explains state or continuity; it does not decorate resting settings.
 
-### 5.2 Layer discipline
+- Respect Reduce Motion at every animation boundary.
+- Use the shared quick/standard/deliberate timing vocabulary.
+- The menu animates report/state changes so resizing does not jump under the pointer.
+- The overlay waveform and comet are the only continuous visual signals.
+- Native console controls keep system motion and focus behavior.
 
-Only **ground** and **functional glass** are glass. Content surfaces, plates, wells, marks, and scrims are paint.
+A static state must remain understandable with all motion disabled.
 
-```text
-ground  ─┬─ functional glass ─── plate | well | mark
-         └─ content surface  ─── plate | well ─── mark
-```
+## 8. Accessibility
 
-A glass element never sits on a second independently composited glass material. Each shipped functional surface owns its material independently; the console has no coordinating glass container or shared namespace, and controls above its ground are paint. This is a hierarchy rule. A content surface never contains another content surface. A bounded nested reading region is a well; an interactive region is a plate. A segment group is the one two-level plate case: the group has a clear fill and owns only its boundary, while its segments derive their radius inside it.
+- Every interactive element needs a stable, human label and enough help to explain a nonstandard outcome.
+- State is never color-only. Chips/marks carry words; Differentiate Without Color adds symbols.
+- Explanatory captions are siblings, not folded into a control's accessibility label.
+- Selectable transcript text remains selectable and copyable without collapsing child controls into one accessibility element.
+- Reduce Transparency, Increase Contrast, Differentiate Without Color, and Reduce Motion must be represented in harness scenes where they alter app-owned drawing.
+- Unknown permission is not failure. Accessibility denial is degraded copy-only behavior, not a crimson fatal state. Microphone denial is fatal because no audio can enter the pipeline.
 
-That rule was once written here as a rendering-safety requirement, on the strength of an `os26` harness render in which a glass nav selection on the glass window ground erased the contiguous rail band above it while its accessibility tree stayed byte-identical to the painted render. That reading is retracted. The lost band was real in that render and misattributed: `NSHostingView.cacheDisplay(in:to:)` does not rasterise `.glassEffect`, so the harness photographs the absence of the material rather than a renderer defect. A standalone probe combined a tinted interactive glass selection, `glassEffectID`, a matched-geometry transition inside a `GlassEffectContainer`, and a glass ground. It lost four of seven rail rows offscreen and lost nothing in a real onscreen window, where the nested pill visibly lenses the desktop a second time; deleting the `GlassEffectContainer` produced a byte-identical offscreen PNG, so the container was never even a contributing factor. The `MenuBarExtra` popover nesting was measured separately and behaves the same way: `.glassProminent` renders correctly in the live popover and vanishes only through `cacheDisplay` (§19.4, §22.1). What both probes covered is one host, dark appearance, 2x, static frames, no Reduce Transparency, no Increase Contrast. Animated morph, light appearance, Reduce Transparency, and Increase Contrast remain unmeasured, so this is not a licence for nested glass everywhere.
+## 9. Harness and visual review
 
-What survives is narrower and not about glass at all: an accessibility golden cannot gate a visual regression of any kind, so AX parity is never evidence that a render is correct. An `os26` harness scene cannot gate the system material either because the material is absent from that render. For the same reason, `overlay.island.recording.os26.png` is 0.0% opaque. An `os26` scene verifies the app's own painted content, geometry, control boundaries, and accessibility tree on the native code branch, which is worth having. Composited glass is visible in one place only: `scripts/console_shot.sh` against a real onscreen window.
+The offscreen harness is authoritative for app-owned paint, geometry, accessibility, lint, and semantic journeys. Portable scenes force the painted path through `RenderOverrides.forceLegacyGlass`; native `os26` scenes release it.
 
-### 5.3 Ground and functional glass
+It cannot prove system material. Behind-window `NSVisualEffectView` becomes a flat fill without a desktop sample, while SwiftUI `.glassEffect` is absent from `cacheDisplay`. Use `scripts/console_shot.sh` or a live app for composited-material review, and use [`ui-harness.md`](ui-harness.md) for the measured activation and raster constraints.
 
-The console ground is functional glass. On the legacy path `GlassSurface` paints:
+Review rules:
 
-1. `FrostedGlassBackground` using `.hudWindow`, `.behindWindow`, and dark vibrancy.
-2. `glassTint`.
-3. The `specularRim` at `Stroke.specular`.
-4. An inset `Ink.rimDark` definition rim.
-
-The console window forces `NSAppearance(named: .vibrantDark)` and SwiftUI forces the dark color scheme. The legacy console root and recording overlay are the entire `NSVisualEffectView` budget; no content card creates another instance.
-
-On the modern path the root uses system regular glass. Functional glass is otherwise restricted to the named scroll-edge treatments, the recording-overlay island, and the menu-bar popover's host material. The rail selection, overlay control discs, and menu primary action are painted overlays under the layer discipline above, and each additionally has its own standing reason to stay paint (§19.4, §21.3 rule 4, §22.1); segmented selection is painted inside its content surface. Nothing else is glass.
-
-The former interior-glass exception is resolved. Settings sections, ledger cards, Home dashboard cells, the Glossary table, and Sessions' TOTALS / SESSIONS / SESSION regions are `ContentCard` surfaces: opaque `Ink.surface`, one `Line.edge` rim, `Radius.card`, and no tint, specular rim, shadow, vibrancy, or offscreen compositing group.
-
-### 5.4 Content surfaces, plates, wells, marks, and scrims
-
-`ContentCard` is a quiet plane. Its default accessibility behavior leaves children independently addressable. A static read-only leaf may opt into a combined summary; a card containing a button, toggle, field, selectable text, or chart data does not combine its subtree. `interactive: true` belongs only to a card that is itself an affordance. A read-only ledger card does not claim the hover wash for facts nobody can press.
-
-`PlateSurface` paints interaction states with a continuous rounded rectangle. Kinds are `.row`, `.hover`, `.selected`, `.input`, `.well`, and `.group`. A well always fills `Ink.well`; a group fills clear; other kinds resolve through the shared state ladder in §19. Painted bordered surfaces use `RoundedRectangle(...).strokeBorder(...)` on both OS paths.
-
-Marks include `StatusChip`, `KeyCap`, status symbols, chart bars, rules, dots, and the static in-flight glyph. A mark increases no material depth and contains nothing.
-
-The only scrims are the non-interactive titlebar taper and legacy scroll-edge fades. They always use `.allowsHitTesting(false)`.
-
-### 5.5 Reduce Transparency
-
-Reduce Transparency is automatic for system Liquid Glass and explicit on the legacy painted path. Legacy `GlassSurface` replaces frost, tint, and specular rim with opaque `Ink.frost` while retaining the definition rim. The legacy recording overlay and legacy menu popover use opaque `Ink.void` with `Line.edge`; that darker ground is correct for surfaces that host no content card, while the console needs the lighter frost ground to preserve separation from `Ink.surface`. Content surfaces, plates, wells, and marks need no branch because they are already paint over opaque grounds.
-
----
-## 6. Shape, Stroke, Shadow
-
-### 6.1 Concentric radii
-
-```swift
-Radius.window = 16
-Radius.card   = 20
-Radius.row    = 8
-Radius.chip   = 6
-Radius.keycap = 4
-
-Radius.nested(outer, inset: padding) = max(outer - padding, 0)
-```
-
-The derivation closes exactly:
-
-```text
-20 card − 12 content padding = 8 row/well
- 8 group −  4 segment inset  = 4 segment/keycap
-```
-
-A full-bleed child whose corners enter its parent's corner region derives its radius with `Radius.nested`. A free-standing field, chip, or button floating inside padding keeps its class radius. No nested shape invents an unrelated literal.
-
-Painted descendant fills and borders use a continuous `RoundedRectangle`; bordered surfaces use `strokeBorder`, and inset corners derive their radius with `Radius.nested`. The modern root glass effect supplies its rounded-rectangle shape directly. The recording-overlay island and toggle track remain semantic capsules.
-
-### 6.2 Stroke widths
-
-```swift
-Stroke.specular = 0.75
-Stroke.hairline = 0.5
-```
-
-`Stroke.hairline(contrast)` resolves to 0.5pt standard / 1.0pt increased. `Stroke.selected(contrast)` resolves to 1.5pt standard / 2.0pt increased. `HairlineDivider` also clamps its thickness to at least one device pixel with `max(1 / displayScale, Stroke.hairline(contrast))`.
-
-Focus and selection use the selected width. Focus is visually distinct: `Line.focus` plus a 2pt outer cyan halo at 0.25 opacity. Selection uses a cyan rim without that halo.
-
-### 6.3 Control and row scale
-
-```swift
-Control.compactMark = 20  // StatusChip.compact only; a mark, not a control
-Control.mini        = 24
-Control.small       = 28
-Control.medium      = 32
-Control.large       = 40
-
-Row.nav      = 32
-Row.table    = 40
-Row.settings = 44
-Row.list     = 64
-```
-
-`Control.medium` is the default for buttons, fields, segments, nav rows, and real row-icon hit frames. Mini/Small/Medium controls use rounded rectangles in dense macOS layouts. `Control.large` is reserved for the single capsule primary action. Toggle geometry is 42×24 for the track, a 20pt knob with 18pt travel, and a 44×28 hit frame.
-
-Every `Row.*` value is total pitch. Dividers are overlays and consume no layout height. Pixel alignment is a property of the complete row, overlay-divider, and display-scale calculation; the invariant is `origin × displayScale` integral.
-
-### 6.4 Shadow
-
-Only the recording-overlay island casts a shadow:
-
-```swift
-Shadow.overlayOuter = (black opacity 0.26, radius 18, y 6)
-Shadow.overlayInner = (black opacity 0.18, radius 4,  y 1)
-```
-
-Both layers are carried on the macOS 26 `.glassEffect` capsule and the legacy painted capsule. Both paths drop to the outer layer alone under Reduce Transparency (§21.4). The shadow belongs to the island, not to either material recipe; the system glass does not supply one.
-
-No content surface, plate, well, control, rail item, or console scaffold gets a shadow. If an interior component needs a shadow to read, repair its spacing, fill, or boundary instead.
-
----
-## 7. Spacing and Measures
-
-The spacing scale is a 4pt grid with a 2pt optical mark adjustment:
-
-```swift
-Space.hair     = 2
-Space.xs       = 4
-Space.sm       = 8
-Space.md       = 12
-Space.lg       = 16
-Space.xl       = 24
-Space.xxl      = 32
-Space.section  = 40
-Space.titlebar = 32
-```
-
-Ownership is fixed:
-
-- `hair`: optical adjustment inside marks only.
-- `xs`: intra-component gaps and the segment inset.
-- `sm`: label/control gaps, row vertical padding, rail and popover inset.
-- `md`: content-surface padding, grid gutter, control-to-caption gap.
-- `lg`: gap between surfaces or blocks; nav icon slot.
-- `xl`: pane horizontal padding, settings label/content gutter, header-to-first-surface gap.
-- `xxl`: reserved step; no current owner.
-- `section`: pane-region gap and final scroll inset.
-- `titlebar`: native titlebar reservation only.
-
-Control padding tokens remain:
-
-```swift
-Button.horizontal = 12
-Chip.horizontal = 10
-TextField.horizontal = 12
-```
-
-### 7.1 Content measures
-
-```swift
-Content.form  = 760   // Voice, Refinement, System, Diagnostics
-Content.table = 940   // Glossary
-Content.grid  = 1360  // Home, clamped to its region
-```
-
-A capped measure is **centered** in the pane region, not flushed to its leading edge: header and body each cap to the measure and then center that cap, so the two declare one left *and* one right edge at any window width (§11, §12.1). Sessions has no cap: its master-detail region is the measure and its header stays full width. Every other pane's header and content use the same measure. Do not add an intermediate width to hide a layout defect.
-
-System and Diagnostics are read as sentences, not scanned as a matrix, so the property-ledger pass moved them from `Content.table` to `Content.form`; `ConsoleSection.headerMeasure` returns `.form` for them too, and their headers keep declaring the same left and right edge as their content. `Content.table` is the Glossary's alone, and `Window.minWidth` still keys off it (§7.2) because the Glossary is now the widest pane.
-
-### 7.2 Columns, fields, and window
-
-```swift
-Column.rail              = 176
-Column.settingsLabel     = 176
-Column.glossaryCanonical = 176
-Column.glossaryAliases   = 320
-Column.glossaryPolicy    = 64
-Column.glossaryScopeMin  = 140
-Column.rowAction         = Control.medium  // 32
-
-Field.short  = 120
-Field.medium = 280
-
-Window.minWidth      = Column.rail + 2 * Space.xl + Content.table  // 1164
-Window.minHeight     = 560
-Window.defaultWidth  = Window.minWidth  // 1164
-Window.defaultHeight = 820
-```
-
-`Window.defaultWidth` **is** `Window.minWidth`, so the console opens at its tightest legal, geometrically fitted width. At 1164 the rail takes `Column.rail` 176 and leaves a region of **988**; the two `Space.xl` pane insets leave a padded content region of exactly **940**, so `Content.table` fits the Glossary edge to edge and `Content.form` 760 sits with **90pt symmetric gutters**. Widening the window grows both gutters evenly instead of opening one dead band beside a leading-flush column. `Window.defaultHeight` is the first-launch height of 820, well above the 560 floor.
-
-A purpose-sized field uses `Field.short` or `Field.medium`; free-form URLs, model identifiers, and keys remain flexible within their row slot. In the Glossary, SCOPE is the one flexible column and the 32pt action column stays fixed at the trailing edge.
-
----
-## 8. Typography
-
-Only SF Pro and SF Mono system fonts are used. `TextRole` is the canonical type vocabulary: it resolves font, tracking, and default foreground together so tracked labels cannot silently ship without their tracking.
-
-| role | size | weight / design | tracking | default foreground |
-|---|---:|---|---:|---|
-| `heroMetric` | 64 | thin mono | 0 | `Text.high` |
-| `metric` | 32 | light mono | 0 | `Text.high` |
-| `tileValue` | 20 | medium mono | 0 | `Text.monoStrong` |
-| `title` | 17 | semibold default | 0 | `Text.high` |
-| `label` | 13 | medium default | 0 | `Text.high` |
-| `body` | 13 | regular default | 0 | `Text.high` |
-| `bodyMono` | 13 | regular mono | 0 | `Text.mono` |
-| `caption` | 12 | regular default | 0 | `Text.low` |
-| `eyebrow` | 11 | semibold mono | 1.4 | `Text.low` |
-| `micro` | 10 | medium mono | 0.8 | `Text.low` |
-| `emptyGlyph` | 48 | thin default | 0 | `Mark.faint` |
-
-Use `.roleStyle(_:)` for SwiftUI views. Canvas labels use the matching `Text.roleStyle(_:)` overload so they stay on the same tokens.
-
-Rules:
-
-- Mono is for data, identifiers, timings, paths, and status, not prose.
-- Eyebrows are uppercase tracked mono. Micro labels are uppercase unless a mixed-case datum requires tracking 0.
-- `heroMetric` is the Home saved-time numeral role and carries exactly one figure on that pane; `metric` is the Sessions/Home numeric-strip role.
-- `tileValue` is the Home RECORDS strip's face. A ledger pane never promotes a fact to it; prominence there is a `StatusChip` mode, not a bigger numeral.
-- `emptyGlyph` is decorative and accessibility-hidden.
-- A caption defaults to `Text.low`; its optional color override is reserved for semantic error or advisory foregrounds.
-
----
-## 9. Window Shell
-
-### 9.1 NSWindow configuration
-
-`WindowChromeConfigurator` idempotently applies:
-
-```swift
-window.styleMask.insert(.fullSizeContentView)
-window.titlebarAppearsTransparent = true
-window.titleVisibility = .hidden
-window.backgroundColor = .clear
-window.isOpaque = false
-window.isMovableByWindowBackground = true
-window.appearance = NSAppearance(named: .vibrantDark)
-window.minSize = NSSize(width: Window.minWidth, height: Window.minHeight)
-```
-
-Default size is **1164×820** (`Window.defaultWidth` × `Window.defaultHeight`). Minimum is **1164×560**: `Column.rail` 176 + two `Space.xl` pane insets (48) + `Content.table` 940. Default width and minimum width are the same number by construction (§7.2) because the widest measure fits the region exactly at first launch. The rail separator is an overlay and consumes no width.
-
-Do not hide or re-host the traffic lights. A titled window owns an opaque AppKit titlebar container. Dynamically dropping `.titled` after appearance was tried and reproducibly crashes in AppKit layout; it is not an ordering bug to retry. The scaffold reserves `Space.titlebar` and uses the non-interactive dark taper to make that native strip deliberate.
-
-### 9.2 Root layout and render paths
-
-`ConsoleScaffold` is `HStack { LeftRail; ConsoleContent }`. The rail's trailing `HairlineDivider` is an overlay, so content starts on the integral x origin instead of after a laid-out half-point divider.
-
-The scaffold reserves the titlebar, applies the selected root material, overlays the titlebar taper, expands outside the safe area, and finally enforces `Window.minWidth` / `Window.minHeight`. Modifier order is required: safe-area expansion stays outside the glass surface.
-
-`ConsoleScaffold` owns one root `GlassSurface`. On macOS 26, unless `RenderOverrides.forceLegacyGlass` is true, that modifier applies system regular glass; on macOS 14/15 and in committed harness scenes it applies the legacy material stack. No coordinating container or shared namespace participates. Neither path applies `backgroundExtensionEffect()`. The scaffold itself casts no shadow.
-
----
-## 10. Left Rail and Status Cluster
-
-### 10.1 Rail footer
-
-The rail footer has two sibling accessibility groups:
-
-1. Identity/status: the state mark, `VOICEOUR`, `IDLE` / `WORKING` / `LIVE` / `ERROR`, and optional `AUDIO MUTED`, combined under one spoken label.
-2. Capture hotkey: `KeyCap("Fn")`, the caption word `or`, and `KeyCap("Globe")`, labeled `"Capture hotkey"` with value `"Fn or Globe"`.
-
-The status mark carries state by shape as well as color: idle is a hollow 6pt ring, working/live are filled 6pt dots, and error is `exclamationmark.triangle.fill`. Cyan is reserved for live; working uses `Text.mid`, error crimson, idle `Mark.faint`. Live pulses between scale 1.0 and 1.08 over 1.6s; Reduce Motion leaves it static.
-
-### 10.2 Left rail
-
-Width is `Column.rail` **176pt**. Navigation is inset by `Space.sm`, uses `Space.xs` between items, pins Home above one rule, and leaves the remaining six sections below it. A flexible spacer pushes the ruled footer to the bottom.
-
-The rail is a region of the window ground, not another surface. Its only boundary is the trailing `Line.rule` divider overlay.
-
-#### `RailItem`
-
-Each item is `Row.nav` 32pt high. The 13pt icon occupies `Icon.navSlot` 16; the label uses the 13pt `label` role.
-
-```text
-rest:      no plate; icon Text.low, label Text.mid
-hover:     Plate.hover + Line.controlHover
-pressed:   Plate.pressed + Line.controlHover, scale 0.985
-focused:   Line.focus at selected width + halo
-selected:  Plate.hover + cyan rim on every supported OS path
-```
-
-Selection publishes `.isSelected`. Under Differentiate Without Color it also adds a 3×16pt leading bar and raises the label to semibold. The native focus ring stays suppressed; the app-owned focus rim and halo are the only focus grammar.
-
----
-## 11. Console Pane Header
-
-Every pane begins with `SectionHeader`, a baseline-aligned title field:
-
-```text
-eyebrow uses eyebrow role
-title uses title role + heading trait
-subtitle uses caption role, Text.mid
-trailing metadata uses StatusChip
-```
-
-Top padding is `Space.titlebar` 32. Bottom padding is `Space.xl` 24 and is the sole owner of the header-to-content gap.
-
-Header and body declare the same left and right edges: each caps to the pane measure and then centers that cap in the region. Voice, Refinement, System, and Diagnostics cap to `Content.form`; Glossary caps to `Content.table`; Home and Sessions use the full region, where centering an uncapped frame is the identity. The trailing metadata reflects state rather than using an untyped micro string. Counts remain neutral, while refiner/system/backend health may use ok/warn.
-
-No underline or independent hero band belongs under the header. Spacing, type, and the content measure carry the hierarchy.
-
----
-## 12. The Manifest Grid
-
-The Manifest Grid is the canonical layout for settings and ledger panes. Its shared primitives live in `SettingsBindings.swift`, `SettingsPaneScroll.swift`, `ContentCard.swift`, `SettingsSectionBlock.swift`, `SettingsRow.swift`, `CaptionText.swift`, `SegmentControl.swift`, `PropertyRow.swift`, `ConfirmActionRow.swift`, and `DependentGroup.swift`; their chrome comes from `GlassSurfaces.swift` and the control styles beside it.
-
-### 12.1 `SettingsPaneScroll`
-
-```swift
-SettingsPaneScroll(maxContentWidth: Content.form) { ... }
-SettingsPaneScroll(maxContentWidth: Content.table) { ... }
-```
-
-The scroll shell caps one **centered** content column by applying `.frame(maxWidth: measure, alignment: .leading)` and then `.frame(maxWidth: .infinity, alignment: .center)`. This is the same two-frame idiom `SectionHeader` uses (§11). The shell stacks its surfaces at `Space.lg`. Voice, Refinement, System, and Diagnostics use `Content.form` 760. Glossary uses `Content.table` 940. Home uses its centered `Content.grid` measure; Sessions is an uncapped master-detail workspace.
-
-Centering is the rule, not a preference: at the 1164 default window the padded content region is 940, so the Glossary table is an exact fit and the form measure carries 90pt gutters on both sides. Growing the window grows those two gutters evenly, where a leading-flush column would instead open one widening dead band at the trailing edge. Capping a body without centering it, or centering a body under a flushed header, breaks the shared-edge contract in §11.
-
-The pane header owns the `Space.xl` gap above the first surface. The scroll shell owns only its `Space.section` bottom inset.
-
-### 12.2 `ContentCard` and `SettingsSectionBlock`
-
-`ContentCard` is an opaque content surface: `Ink.surface`, `Radius.card` 20, `Space.md` 12 padding, a `Line.edge` rim, and no glass stack or shadow. `interactive: true` adds a reduce-motion-gated `Plate.hover` wash and `Line.controlHover` rim, and belongs only to a card that is genuinely an affordance. Default accessibility leaves children contained; a caller may supply a combined summary only for a static read-only leaf.
-
-`SettingsSectionBlock(eyebrow:)` wraps its rows in `ContentCard`. The eyebrow is the card eyebrow. Rows stack at zero spacing; the container draws `HairlineDivider` overlays **between** row bounds. The final row has no trailing rule against empty card padding.
-
-### 12.3 `SettingsRow`
-
-```swift
-SettingsRow(label: "Saved ASR backend") { control }
-
-SettingsRow(label: "Mute during capture", status: ("MUTE ON", .neutral)) {
-    control
-} footer: {
-    CaptionText(explanation)
-}
-```
-
-Every row is a `label | content` grid:
-
-- label column: `Column.settingsLabel` 176.
-- label/content gutter: `Space.xl` 24.
-- vertical padding: `Space.sm` 8.
-- minimum total pitch: `Row.settings` 44.
-- a 28pt toggle produces 44pt exactly; a 32pt control grows the row to 48pt.
-
-The card's 12pt padding leaves **536pt** for the content slot in a 760pt form: `760 − 12 − 176 − 24 − 12`.
-
-Two declarative slots replace the stacks call sites used to hand-roll:
-
-- `status:` puts one `StatusChip(.compact)` trailing on the control line.
-- `footer:` renders under the control band at the **value-column origin** (§12.7), `Space.xs` below it. A footer holds `CaptionText` and static marks only, never a control; concurrent notes stack as several `CaptionText`s at `Space.xs`. `caption:` / `captionColor:` are the single-caption convenience over the same slot.
-
-A caption hung after a trailing chip wraps against the chip instead of the column, which is why the footer slot exists and why call sites no longer build `VStack { control; caption }` compositions themselves. Overloads keep every existing two-argument caller compiling.
-
-A two-option group like the Refinement provider picker fits this measure in one row. `SegmentGroup` takes a row count because a six-option group did not: the retired six-provider Refinement picker measured 649pt intrinsic, expanded the card by about 121pt, and put its final segment about 101pt past the 760pt cap, so it was laid out as two rows of three at 323pt and 314pt, both inside the 528pt inner group width. Wrap any group that overflows the cap by row count; never describe such an overflow as margin.
-
-### 12.4 `CaptionText`
-
-`CaptionText` is the width-safe secondary-text primitive: caption typography, `Text.low` by default, vertical growth enabled, and leading alignment across the available row slot. Its optional color override is for semantic error/advisory foregrounds; ordinary hints keep the default.
-
-It reads `@Environment(\.isEnabled)` through `A11y`. Inside a disabled row or `DependentGroup` (§12.9) it resolves to the low tone and the semantic override is dropped, because a crimson advisory under a dead control reads as a live error. Enabled rendering is unchanged.
-
-### 12.5 Segmented controls
-
-`SegmentGroup(rows:)` owns the clear group plate, `Line.control` boundary, 8pt radius, 4pt inset, 4pt inter-segment spacing, and its local container shape. `SegmentOption` is 32pt high and derives its 4pt radius from the group.
-
-Every segmented choice uses `SegmentOption`; it carries the selected accessibility trait and fixed-width label. Under Differentiate Without Color, the selected segment gains a leading checkmark. The group has an explicit accessibility label. Hand-rolled conditional button-kind pickers are prohibited.
-
-### 12.6 Compact repeated-row primitives
-
-- `RowIconButton` has a 24pt visual body inside a real 32pt hit frame. It is for a singular repeated row action, not a replacement for labeled choices.
-- `StatusChip(.compact)` is the one 20pt mark outside the control scale. Its label remains fixed-size and never truncates. Regular chips are 24pt.
-
-Repeated controls require instance-scoped accessibility labels and identifiers. Badge rows show the exceptional state, not an unconditional badge repeated on every row.
-
-### 12.7 The property row family and the ledger row
-
-`PropertyRow.swift` holds the read-mostly half of the grid: the rows System, Diagnostics, and Refinement use to state a fact, with `ConfirmActionRow.swift` and `DependentGroup.swift` beside it. Its rows publish the same row-bounds anchors and `settingsContentLead` as `SettingsRow`, so one card may mix both kinds and `SettingsSectionBlock`'s overlay rules still land between row bounds.
-
-```swift
-PropertyRow(_ label: String, value: String? = nil, valueStyle: PropertyValueStyle = .body,
-            caption: String? = nil, captionColor: Color? = nil,
-            accessories: [PropertyAccessory] = [], accessibilityValue: String? = nil)
-
-enum PropertyAccessory {
-    case metadata(String)                              // micro, Text.low, monospaced digits
-    case status(String, StatusChip.Mode)               // StatusChip(.compact)
-    case copy(payload:label:identifier:)               // RowIconButton
-    case action(title:kind:label:identifier:isEnabled:isInFlight:perform:)
-}
-```
-
-Geometry, all from tokens:
-
-- label column `Column.settingsLabel` 176, `label` role, at the same tone `SettingsRow` uses. One label column, one tone.
-- the **value-column origin is 200pt**, published as `PropertyGrid.valueOrigin` (`Column.settingsLabel` 176 + `Space.xl` 24). Value, caption, and footer text all start there. The Glossary's 188pt seam is table grammar (§15.1, §29.3), not this measure.
-- line 1 is a `Control.medium` 32pt minimum band with `Space.xs` above and below, so a caption-less row is `Row.table` 40 exactly. A caption adds `Space.xs` plus its own height and the row grows naturally; `Row.settings` 44 is the floor.
-- the line-1 value is single-line. `value` is optional: a status-only row is label plus rail on line 1, with its caption on line 2.
-- accessories render in declaration order as a trailing rail at `Space.sm` gaps, closing on the card's trailing content edge. The chip comes first to identify what is wrong. Remediation follows with what to do about it.
-- text-bearing occupants align on `firstTextBaseline`: label, value, `metadata`, and `status`, because a chip has a real text baseline. Icon and button accessories center in the 32pt band; a control is never baseline-hung.
-
-The row enforces these rules for every call site:
-
-- **Machine values** (`valueStyle: .mono`) are `bodyMono` in `Text.mono`, single-line, middle-truncated, with the full string in `.help`. They are deliberately **not** selectable: selectable text cannot live inside a combined accessibility subtree, and the copy accessory is the explicit affordance for a path, model id, endpoint, or command.
-- **Copy** is `RowIconButton` with the call site's own label and identifier. It provides press feedback and a pasteboard write, with no acknowledgement state of its own. A copy action appears only when there is a payload to copy.
-- **Captions** carry the state's existing detail sentence verbatim, healthy states included. Quietness comes from the type scale and the chip, not from deleting the explanation. A caption starts at the value origin and never indents behind a chip. A prose-only row has no value or accessories. It renders its caption **in the value slot on line one**, sharing the label's first baseline; dropping it to a second line would strand the label beside an empty band.
-- **Disabled** is resolved by the primitives, not the call site: `PropertyRow` reads `@Environment(\.isEnabled)` and drops label, value, and metadata to the `A11y` low tone; `StatusChip` and `CaptionText` do the same in their own files (§19.2, §12.4).
-- **Accessibility**: with no interactive accessory the row is one combined leaf whose value joins value, status label, caption, and metadata unless `accessibilityValue` overrides it. Any `action` or `copy` accessory keeps the row's texts and controls as direct siblings of the pane. Glossary and Sessions rows already use this flat treatment. A `.contain` wrapper is prohibited here: SwiftUI reports the contained group's frame as the text band rather than the padded row, so the 32pt control "escapes" a 17pt parent and trips the harness clipped-child rule on visually correct geometry.
-
-The `atom.properties` harness scene renders the whole vocabulary, including body and mono values, caption-less and caption-bearing pitch, every accessory kind, `SettingsRow` with status and footer, `ConfirmActionRow` in each of its four states, and a disabled `DependentGroup`.
-
-### 12.8 `ConfirmActionRow`
-
-One row owns every typed destructive confirmation:
-
-```swift
-ConfirmActionRow(label:subject:scope:token: "CLEAR",
-                 actionTitle:inFlightTitle:failureLabel:failureText:identifier:
-                 isAvailable:isConfirming:perform: () async -> Bool)
-```
-
-- Collapsed: the scope sentence at the value origin in the caption role, single-line, and one `.danger` action on the trailing rail.
-- Armed: a `Field.medium` 280 field prompting `Type CLEAR`, then confirm `.danger` and cancel `.ghost` at `Space.sm` gaps. Confirm stays disabled until the field's trimmed text equals the token. Surrounding whitespace is a typo, not a different answer. The confirm action shows `inFlightTitle` while the write runs; cancel is disabled in flight.
-- Collapsed and armed are the same single `Control.medium` band, so opening the confirmation does not resize the row and shove its neighbour, and the action keeps one title across both.
-- Failed: a crimson caption and a compact failure chip on a line **below** the control band, never on it, so the armed row still fits the 536pt content slot at every width the console allows.
-- The field takes focus from its own appearance, editing clears the failure, Return submits through the one guarded confirmation function, and Escape cancels unless a write is in flight (§25.6).
-- The row owns the confirmation text, the in-flight flag, and the failure flag. The pane owns `isConfirming`, because arming has to scroll the danger anchor into view.
-- `identifier` is the call site's stem: `.arm`, `.confirm`, `.cancel`, and `.confirmation` hang off it, and the accessibility labels are built from `subject`. Those strings are a contract because harness steps drive the flow by them.
-
-### 12.9 `DependentGroup`
-
-`DependentGroup(isEnabled:label:)` wraps the sections that depend on a switch. It is surface-free: no card, no plate, no blanket opacity dim on top of disabled control states. It applies `.disabled` and one contained accessibility region announcing active or inactive; the tone change is the primitives' job (§12.7). Its children are ordinary `SettingsSectionBlock`s, so the group never becomes a second nesting level in the grid, and it changes immediately under Reduce Motion.
-
----
-## 13. Sessions
-
-### 13.1 Layout
-
-Sessions is an uncapped master-detail workspace. A full-width `ContentCard(eyebrow: "TOTALS")` sits above an `HStack`: the SESSIONS list is 320–440pt wide and the SESSION detail has a 360pt minimum before filling the remainder. The list alone owns a bottom scroll-edge treatment: system soft edge on macOS 26, painted `Ink.surface` fade on the legacy path.
-
-### 13.2 Totals and list
-
-TOTALS distributes four metrics evenly across its full card width. Full-height vertical `HairlineDivider`s sit between columns; no custom divider computes a stroke from spacing tokens.
-
-The list search field uses `GlassTextFieldStyle(font: VoiceourTypography.bodyMono)`. Each session row is `Row.list` **64pt** total pitch with timestamp and compact outcome marks above a one-line preview. Selection uses `.isSelected`; Differentiate Without Color adds the leading selection bar.
-
-### 13.3 Detail and wells
-
-The SESSION `ContentCard` owns the title, guarded delete flow, transcript, refinement metadata, and Fix/Teach flows. Nested bounded regions are 8pt-radius wells derived from the 20pt card at 12pt padding:
-
-- transcript: opaque `Ink.well`, between `Row.list * 2` (128pt) and `Space.section * 8` (320pt), then scrolls.
-- pending suggestions: well containing labeled KEEP / ACCEPT / REJECT actions.
-- Fix/Teach editor: well containing fields, a labeled segment group, and ghost/accent actions.
-
-The transcript copy surface is a focusable container rather than a `Button`; text selection, context menu, scrolling, and copy remain independently operable. ACCEPT and TEACH are `.accent`; destructive actions remain `.danger`.
-
-### 13.4 Empty states
-
-Whole-pane and no-selection empty states share the `emptyGlyph` role, title role, and bounded caption treatment. Decorative glyphs are accessibility-hidden.
-
----
-## 13a. Home Dashboard
-
-Home is a dashboard over `coordinator.insights`, the digest the journal republishes whenever the ledger or the retained corpus changes; the pane holds no cache of its own, because a view-side cache keyed on session ids cannot see an outcome amended in place. It reads rather than acts. Its one control is the typing baseline in TIME SAVED. It uses a centered twelve-column `Content.grid` measure clamped to the region. Every cell is an opaque `ContentCard`; the dashboard has no interior glass.
-
-One numeral ladder orders the pane. `heroMetric` 64 carries exactly one figure, the saved time; `metric` 32 carries the speed ratio and the four ALL TIME quarters; `tileValue` 20 carries the RECORDS values. Everything else is `body`, `label`, `caption`, `micro`, or `eyebrow`. A shelf states at most one plain-language sentence; a second 64pt numeral, or a shelf that turns into prose, is a hierarchy defect.
-
-Four shelves share one `Space.md` gutter grid:
-
-1. **TIME SAVED** spans all twelve columns. Its eyebrow sets the coverage window to `TIME SAVED · SINCE JUN 7, 2025` once the data spans more than one day, so no standalone "since" caption trails the numerals; that date is the ledger's first dictation, not the oldest retained transcript's, so it stays put instead of walking forward as sessions are evicted. The interior is two equal flex halves split on the card midline by a vertical `HairlineDivider`; neither half is a fixed readout width. The left half composes the duration in `heroMetric` with `micro` unit labels, the LISTENING `StatusChip` while recording, one sentence in `body` at `Text.mid` stating what those words actually cost end to end against what typing them at the baseline rate would have cost and, until every counted dictation carries capture timing, one `caption` line naming how many sit outside the figure. The right half states the comparison with the ratio in `metric` with the `×` closed up on the numeral face (a unit-tier `×` beside a 32pt numeral reads as an exponent), a `label` line naming what it beats, then the YOU and TYPING `MeterBar` gauges on one shared scale. TYPING's value is a `bodyMono` field, not a readout: it is the only figure on the pane the app cannot measure, so it is the only one the reader can type over, committing on submit or focus loss, and one `caption` under the gauges says whether the baseline is still the population average or theirs. Below the baseline there is no ratio to lead with because "0.8× faster than typing" is not a sentence. A caption takes the ratio block's place, and before anything has been timed both the hero numeral and the ratio give way to captions.
-2. **ALL TIME** is one full-width card in the Sessions TOTALS grammar (§13.2): equal flex quarters, full-height `HairlineDivider`s between them, and independently addressable accessibility children. Each `metric` value carries one of these units: words, keystrokes spared, dictations, or days in a row. That unit IS the quarter's label; a second `micro` label over a self-describing value would state every dimension twice. Those quarters are flex divisions of one card, not spans on the twelve-column grid.
-3. **WHEN YOU DICTATE / LAST 14 DAYS / TOP APPS** span 4 / 4 / 4 columns. They form one shelf with two interior cuts at columns 4 and 8. The hour chart is a **linear 24-column strip** from midnight → 23:00 with four cardinal boundary labels in the user's own clock convention. It is not a polar dial: angle and radius are the least accurately read visual channels, a 24-hour ring puts noon at the bottom of the circle, and single-dictation hours vanished into the dial's hub. Its resting readout carries the headline fact with its tally ("busiest around 1 PM · 5 dictations"). Both time charts share one encoding based on length from a shared baseline and one track per bucket. The shelf therefore uses one chart language. The apps card keeps four columns so its rank `MeterBar` has a track long enough to draw a small share at true length instead of clamping to the minimum fill; each row states a raw count, and share drives bar length only. The ranking is capped at five rows plus an OTHER remainder row whenever the attributed total exceeds the visible sum, so the bars and printed counts always account for the whole.
-4. **RECORDS** is one full-width card in the same strip grammar with up to three cells for longest dictation, fastest spoken, and different words. Each uses a `micro` label over its `tileValue` (a bare `181 wpm` names no record) and is omitted when its record is absent. When the longest dictation has a stored preview, a single `caption` line at `Text.low` quotes the user's own words below the cells, held to one line with the full text in its tooltip and reachable to VoiceOver. With no cells and no preview the shelf does not render.
-
-Home presents each metric in human units. Time saved is typing time at the reader's baseline minus the elapsed wall clock the dictations actually cost. That clock includes speech, start latency, and the post-release wait for transcription and insertion. The result is clamped once at the aggregate and never derived by adding capture time to saved time. The baseline is `Settings.typingSpeedWPM`, default 52 wpm (Dhakal, Feit, Kristensson & Oulasvirta, *Observations on Typing from 136 Million Keystrokes*, CHI 2018: 51.56 wpm mean, SD 20.2, 168,000 participants); the 40 wpm it replaced had no source behind it. The editable field prevents that unsourced figure from being presented as fact. A session recorded without capture timing contributes nothing to the time economy rather than an invented speaking rate. The coverage line discloses the exclusion until the last such session ages out. Every lifetime figure is the ledger's, so ALL TIME keeps counting after the transcript store evicts a session; the two figures that need the text itself are `DIFFERENT WORDS · KEPT` and the quoted record line. They cover only the retained transcripts, which is why that cell is named for its window. An app's share is stated against the total actually attributed to apps, not against the session count, and those counts are never called pastes. They include copied-only and failed outcomes. Transcription latency is engine trivia and belongs to Diagnostics (§18); no median, p95, or fastest-transcription figure appears on Home. Home says dictations, not sessions.
-
-Every ordinary chart rail, baseline, bar, and empty mark uses `Meter.rest`. The resting accent budget is the YOU gauge fill alone. Chart accents mark the hovered, keyboard-selected, or pinned hour and day. They are not resting decoration, and ranking is not a current datum, so no app row takes the accent at rest either. While recording, every Home accent demotes to `Signal.wash`. The hour strip and day chart expose deterministic accessibility children plus one keyboard controller. Reduce Motion draws final reveal states immediately and keeps hover/pin changes instantaneous.
-
-Missing dashboard data becomes a quiet caption inside the cell; only records with no valid placeholder are omitted. A first-run Home state uses `emptyGlyph`, title, caption, and the capture hotkey without inventing zero statistics.
-
----
-## 14. Voice Pane
-
-Voice has two `Content.form` sections:
-
-- **BACKEND**: three-option ASR `SegmentGroup` (`FAKE`, `PARAKEET MLX`, `APPLE SPEECH`), running/saved status, and a 120pt monospaced locale field.
-- **CAPTURE**: `Fn or Globe` trigger, auto-stop toggle with a 120pt silence field, and transcript-cleanup toggle.
-
-The silence field is disabled when auto-stop is off, so visual and semantic state agree. Free-text drafts commit on submit or focus loss; every successful setting write persists through `settingBinding`.
-
-Every explanatory line in the pane lives in the row's `footer:` slot (§12.3), so hints, the BCP-47 warning, and the backend readout all start at the value-column origin. The backend footer is the one that carries two static marks rather than prose. The deferral chip sits beside the `bodyMono` line naming the model actually loaded, and both stay on a single baseline. The pane's information architecture is unchanged.
-
----
-## 15. Glossary Pane
-
-Glossary uses `Content.table` 940. Its inner ledger width is 916 after `ContentCard` padding.
-
-### 15.1 Table grid
-
-```text
-CANONICAL 176 | DETECTED AS 320 | POLICY 64 when varied | SCOPE flexible ≥140 | ACTION 32
-```
-
-SCOPE is the single flexible column: its frame is always present, while the header appears only when at least one term has non-global scope and each chip paints only for its own non-global term. With POLICY present SCOPE resolves to 276pt; when every row has the same policy, POLICY is suppressed and SCOPE resolves to 352pt. The fixed 32pt action column lands at the same trailing x in the header, every term row, and the composer.
-
-Every ledger band uses `Row.table` 40 total pitch and closes with an overlay rule. Header, value, and composer occupants share one inset per column. Protected and policy marks render only when they distinguish rows; SCOPE chips render only for non-global terms. Provenance (LEARNED / IMPORTED / BUNDLED) is not rendered.
-
-`DETECTED AS` values edit inline: borderless at rest, hover fill on pointer, and `Line.focus` at selected width while focused. Per-row removal is a 32pt-hit-frame `RowIconButton` with instance-scoped label and identifier.
-
-### 15.2 Composer
-
-The final band is an inline composer on the same grid. Canonical and detected-as fields occupy their data columns; `ADD TERM` is a 32pt `.accent` action in the fixed trailing action column. It is the affirmative action of the row, not a floating primary action.
-
----
-## 16. Refinement Pane
-
-Refinement is optional and off by default, and the pane says so structurally: the opt-in section is always live, and everything it governs sits inside one `DependentGroup` (§12.9). Measure is `Content.form` 760.
-
-| section | rows |
-|---|---|
-| The eyebrow follows the provider as `ON-DEVICE REFINER` / `NETWORK REFINER` | **Opt in**: toggle, readiness chip, and two stacked footer captions covering the destination advisory and the next-launch note |
-| PROVIDER | **Provider** (one-row `SegmentGroup`), then what that provider needs: for Oh My Pi the **Connections** card and the **Model** picker; for Apple On-Device the valueless **On-device** row and nothing else |
-| REQUEST | **Timeout**: `Field.short` 120, milliseconds |
-| CONNECTION | **Status**: the CHECK action, the reachability chip, and two footer captions covering the probe result and the permanent explanation |
-
-The dependent group wraps PROVIDER through CONNECTION. The opt-in section stays outside it, because the control that turns the feature on cannot be disabled by the feature being off.
-
-There is no CREDENTIALS section, no **Base URL** row and no **Endpoint** row, and that is a structural fact rather than a trimmed one: both providers are reached without a credential from this app. OMP holds its own and the system model needs none, so there is nothing to type, save, clear, or resolve into a URL to display.
-
-Readiness reads OFF / NEEDS MODEL / READY; reachability reads NOT CHECKED / CHECKING… / AVAILABLE / REACHABLE · N MODELS / UNREACHABLE. Each is a `StatusChip(.compact)` in a row's status slot, and every explanatory sentence is a footer caption at the value origin. The pane hand-rolls no chip-then-caption stack at all; where two notes are true at once, they stack as two captions in one footer with the probe result above the permanent explanation. When the group is disabled, chips and captions recede on their own (§12.7).
-
-The provider picker has two options in one row: OH MY PI / APPLE ON-DEVICE. **On-device** is a valueless `PropertyRow` so the explanation carries the label tone of the controls above it; Apple's model has no endpoint, no credential and no model id, so it gets no Model row at all.
-
-### 16.1 The Model picker
-
-For Oh My Pi, **Model** is a picker over OMP's own catalog, never a text field: OMP already knows which models this Mac can reach, and any id the user could type is either in that list or a typo whose only symptom is a failed CHECK. The row is a filter `TextField` (`refinement.model.filter`), the catalog chip, and REFRESH (`refinement.model.refresh`) on the control line, above one `.well` plate holding the options, with the withheld-count caption below it.
-
-- The catalog chip reads NOT LOADED / LOADING… / N MODELS / NO MODELS / CATALOG UNAVAILABLE / CATALOG STALE. A failed load that still has a previous catalog is stale, not empty, so the list stays usable.
-- **Provider default** is always the first option and always present, so a user who picked a model has a way back to the app's own choice.
-- Options are grouped CONNECTED PROVIDERS before OTHER PROVIDERS, separated by `HairlineDivider`s, because a model whose provider has a live OMP account is the one that will answer.
-- The plate shows at most eight option rows and states what it withheld in its caption. The caption prevents users from mistaking the capped list for the complete list. Past the cap, the filter is the interaction.
-- Each option is one full-width selectable row carrying `.isSelected`, identifier `refinement.model.option.<selector>` (`.default` for the default row), and an accessibility label naming the model and its selector. The plate itself is a container labelled "Oh My Pi models".
-
-Changing the provider resets nothing, because no field holds a secret and no field holds a typed id: a model chosen for OMP survives a round trip through the Apple provider, which resolves to its one on-device model whatever the stored selection says. The reachability fingerprint contains the provider plus the resolved model. It is captured before the probe and its result is shown only while it still matches the live configuration, so an answer about a configuration the user has since changed is discarded rather than displayed.
-
----
-## 17. System Pane
-
-System is the capability ledger: every OS grant this app asks for is reported exactly once, with its remediation on the same row. It uses `Content.form` 760 and five sections.
-
-| section | rows |
-|---|---|
-| READINESS | **Backend**: DEV READY / READY / CHECKING… / CHECK NEEDED / MODEL NEEDED, with RE-CHECK where a fresh probe is the answer; **Microphone**: NOT REQUIRED / GRANTED / WILL PROMPT / DENIED, with OPEN SYSTEM SETTINGS… when denied |
-| CAPTURE | **Fn/Globe capture**: ACTIVE TAP / PASSIVE FALLBACK; **Insertion**: PASTE READY / COPY-ONLY RISK; each offers the matching Accessibility deep link while it is degraded |
-| AUDIO | **Mute during capture**: toggle with MUTED NOW / UNAVAILABLE / MUTE ON / MUTE OFF |
-| PRIVACY | **Data handling**: a valueless row carrying the local-data note as a permanent caption |
-| DANGER | **Clear history**; **Clear vocabulary** |
-
-The readiness and capture rows are valueless `PropertyRow`s: the status word is the chip, the existing explanation is the caption, and the remediation is an `.action` accessory on the same rail. A capability therefore says what it is, why, and what to do about it within one 32pt band and one caption, instead of a card that strands its remediation on the floor below the readout.
-
-Deep-link actions keep these instance-specific accessibility labels: "Open Microphone privacy settings", "Open Accessibility privacy settings for key capture", and "Open Accessibility privacy settings for paste". This is necessary because three buttons all titled OPEN SYSTEM SETTINGS… are indistinguishable to VoiceOver.
-
-The pane refreshes backend health and permissions on appear and again when the app reactivates, so a grant made in System Settings lands without a manual re-check; that refresh animates unless Reduce Motion is on, because up to three readouts and their remediation buttons change at once.
-
-Both DANGER rows are `ConfirmActionRow`s (§12.8) on `system.history` and `system.vocabulary`. A row is available only when it has something to erase: saved sessions, or vocabulary that did not come from the bundle. Arming scrolls the danger anchor to center, so the field a user is about to type into is never below the fold.
-
----
-## 18. Diagnostics Pane
-
-Diagnostics is a read-only ledger of runtime facts on `Content.form` 760, in four sections. It states each fact exactly once. Capabilities are not repeated here because System owns them with their remediation (§17). No row restates a component of another row. It is a debug pane, hidden from the rail unless the app launches with `--debug` or Diagnostics is already selected.
-
-| section | rows |
-|---|---|
-| APPLICATION | **Version**: the short version with its build in one value; **Saved sessions**: the count |
-| BACKEND | **Backend**: the saved backend, or `SAVED → ACTIVE` with a DRIFT chip when they disagree; **Status**; **Model**: the model id, mono, with copy; **Health probe**: ALL CLEAR / NOT PROBED / ERROR, the detail as caption, and the report copy action only when a report exists |
-| STORAGE | **Settings**, **Recent sessions**, and **Dictation stats**: mono paths, each with copy |
-| SELF-TEST | **Self-test**: the command, mono, with copy and its one-line explanation |
-
-The Status row is the pane's one composed value: the chip is one of the backend statuses READY, MODEL MISSING, BACKEND UNAVAILABLE, or UNKNOWN. The value is the evidence behind it, a cache part (`cache OK` / `cache missing` / `cache unknown`) joined to a model part (`model loaded` / `model not loaded` / `model unknown`). All nine combinations render. A missing health reading is `unknown`, never a silent absence.
-
-The pane probes backend health on appear and otherwise changes nothing.
-
----
-## 19. Controls
-
-### 19.1 Shared state ladder
-
-Every interactive primitive resolves the same seven states. Precedence is:
-
-```text
-inFlight > disabled > selected > focused > pressed > hover > rest
-```
-
-| state | fill | rim | foreground | motion |
-|---|---|---|---|---|
-| rest | `Plate.rest` | `Line.control`, hairline | role default | none |
-| hover | `Plate.hover` | `Line.controlHover`, hairline | `Text.high` | `quick` |
-| pressed | `Plate.pressed` | `Line.controlHover`, hairline | `Text.high` | `quick`, scale 0.985 |
-| focused | current interaction fill | `Line.focus`, selected width + 2pt halo | `Text.high` | `quick` |
-| selected | `Plate.hover` | cyan at 0.72, selected width | `Text.high` | `quick` |
-| disabled | clear | `Line.rule`, hairline | `Text.low` | none |
-| in-flight | enabled rest fill | `Line.controlHover`, hairline | enabled foreground | none |
-
-Focus is not hover: focus owns the cyan selected-width boundary and outer halo. Selection uses the cyan boundary without the halo. Under Differentiate Without Color, hovered boundaries also rise to selected width.
-
-### 19.2 `StatusChip`
-
-```swift
-StatusChip(label:mode: .neutral | .ok | .warn | .crit | .live,
-           size: .regular | .compact)
-```
-
-Regular height is 24pt; compact is the declared 20pt mark exception. Radius is 6pt. Neutral uses `Plate.rest` and `Text.mid`; Increase Contrast raises those to `Plate.hover` and `Text.high`. Signal modes use their full-opacity foreground and fill at 0.08, rising to 0.18 under Increase Contrast. `StatusChip` draws no rim or boundary.
-
-`StatusChip` reads contrast through `A11y`; it never relied on a parent to do so. Differentiate Without Color adds `checkmark`, `exclamationmark.triangle.fill`, `xmark.octagon.fill`, or `circle.fill` for ok, warn, crit, or live. The chip is a non-interactive fill-and-foreground mark.
-
-`StatusChip` also reads `@Environment(\.isEnabled)`. Inside a disabled row or `DependentGroup` (§12.9) the foreground drops to the `A11y` low tone and the fill recedes to the same neutral plate every neutral chip uses: `Plate.rest`, or `Plate.hover` under Increase Contrast. The label and the Differentiate Without Color symbol remain. This preserves the mode while showing that the block it grades is not in effect. Removing the mark would hide the mode, while leaving it at full signal would make a switched-off section the brightest part of the pane. Enabled rendering is unchanged, the chip still owns no rim, and call sites never dim a chip by hand.
-
-### 19.3 `GlassButtonStyle`
-
-`GlassButtonStyle.Kind` is `.ghost | .accent | .danger`. All three are painted 32pt rounded rectangles on both paths. Their radius is fixed at `Radius.nested(Radius.card, inset: Space.md)` = 8pt.
-
-```text
-ghost:
-  rest      Plate.rest / Line.control
-  hover     Plate.hover / Line.controlHover
-  pressed   Plate.pressed / Line.controlHover
-
-accent:
-  rest      cyan 0.06 / cyan 0.42
-  hover     Plate.hover / cyan 0.70
-  pressed   cyanDeep 0.16 / cyan 0.90
-
-danger:
-  rest      crimson 0.04 / crimson 0.60 / crimson foreground
-  hover     crimson 0.08 / crimson 0.72 / Text.high
-  pressed   crimson 0.08 / crimson 0.72 / Text.high
-```
-
-Disabled buttons use clear fill, `Line.rule`, and `Text.low`. Focus uses `Line.focus`, selected width, and the halo. An in-flight button keeps its enabled foreground, prepends the static `circle.dotted` mark, publishes `"In progress"`, disables semantic activation, and guards the action against duplicate entry.
-
-### 19.4 `PrimaryActionButtonStyle`
-
-The pane's single floating primary action is a 40pt capsule. The shipping call site is Menu `Start Dictation`; in-content affirmative actions use `.accent` instead.
-
-The action uses the painted cyan capsule on every OS path: rest fill 0.08 and rim 0.42, hover fill 0.14 and rim 0.62, pressed `Signal.cyanDeep` fill 0.22 and cyan rim 0.62. It does not adopt the system prominent glass style. The previously recorded reason was that a second glass material inside the glass popover erased the capsule and changed its intrinsic control height. That reason is retracted because it came from the offscreen harness, which does not rasterise `.glassEffect` at all (§5.2). Measured in the live `MenuBarExtra` popover on macOS 26.5.2, `.glassProminent` renders correctly as a solid accent capsule at mean luminance 152.2 against 65.5 for the bare host material. Its label is legible, nothing is erased, and it is more visually present than the painted capsule. The identical content through the offscreen `cacheDisplay` path measures 7.3 against a 7.7 backdrop and vanishes, leaving a bare label: the postmortem verbatim, the same rasterisation gap as the rail.
-
-Two reasons for staying painted survive that measurement. macOS 14 needs the painted capsule regardless, so adopting the system style would add a second path rather than replace one. And the system prominent style paints the **system accent colour**, discarding the cyan `Signal` required by §4.4. Here cyan is state, not decoration, and the primary action is the app's one live affordance. The style otherwise uses the same disabled, focus, pressed-scale, Reduce Motion, Increase Contrast, and Differentiate Without Color behavior as the shared ladder.
-
-The geometry is a cost on top of those two, and it runs opposite to the old claim: the system style does not inflate the control, it shrinks it by 19pt. Measured two independent ways, a `GeometryReader` and an in-process accessibility walk: the painted capsule is `256x40`; `.glassProminent` is naturally **21pt**; `.glassProminent` plus `.frame(height: VoiceourMetrics.Control.large)` keeps the 40pt layout slot but centres a 21pt control, AX `[12,80 256x21]`; `.controlSize(.extraLarge)` with `.buttonBorderShape(.capsule)` reaches **33pt**; only growing the label with `.frame(maxWidth: .infinity, minHeight: 32)` restores a true `256x40`. Taking the natural height would move every AX frame below the primary action up by 19pt. Any future adoption must account for that geometry change.
-
-### 19.5 `GlassTextFieldStyle`
-
-Fields are 32pt high with 12pt horizontal inset and an 8pt derived radius. Rest is an opaque `Ink.well` recess with `Line.control`; hover is `Plate.hover` with `Line.controlHover`; focus is `Plate.rest` with `Line.focus`, selected width, and the halo; disabled retains the opaque `Ink.well` recess with `Line.rule` and `Text.low`.
-
-The style applies `.textFieldStyle(.plain)` before drawing its plate, suppresses the native focus ring, and accepts a font parameter so machine strings can use `bodyMono`. Every governing off-state disables the field semantically as well as visually.
-
-### 19.6 `GlassToggleStyle`
-
-The toggle remains an `AXCheckBox` / `AXToggle` through its accessibility representation while a real button body supplies keyboard activation. The visual track is 42×24 with a 20pt knob, 18pt travel, and a 44×28 hit frame.
-
-Off uses `Plate.rest` with `Line.control`. On uses cyan at 0.22 with a cyan rim at 0.55; hover raises the on rim to 0.75 and the off rim to `Line.controlHover`. Press scales the knob to 0.94. Disabled is clear with `Line.rule`, a `Mark.faint` knob, and `Text.low` label. Differentiate Without Color adds a checkmark inside the on track.
-
-### 19.7 `SegmentOption`
-
-See §12.5. Segments follow the shared rest/hover/pressed/focused/selected/disabled ladder. Selected segments use `Plate.hover` with the cyan selected rim on every supported OS path. Disabled groups suppress the cyan selection accent.
-
-### 19.8 `KeyCap`
-
-`KeyCap` is a static 24pt-minimum mark at `Radius.keycap` 4. It uses `micro` mono text, `Plate.hover`, `Line.control`, and contrast-aware hairline width. Hotkey labels in the app are `Fn` and `Globe`.
-
-### 19.9 `RowIconButton`
-
-The icon has a 24pt visual plate and 13pt glyph inside a real 32×32 hit frame. Rest and disabled have no plate; hover uses `Plate.hover` with `Line.control`; press uses `Plate.pressed` with `Line.controlHover`; focus uses `Line.focus` plus the halo. The call site supplies an accessibility label and instance-scoped identifier.
-
-`RowIconButton` reads Increase Contrast and Differentiate Without Color through `A11y`: line widths resolve from contrast, and a hovered boundary rises to selected width when color cannot be the only cue.
-
-### 19.10 `RecordingOverlayButton`
-
-The overlay control is the documented exception in §21.3 paragraph 4: a 22pt visual disc in a 28pt hit frame, with permanent rest fill and stroke because it floats over arbitrary desktop content. Hover, press, focus, disabled, Increase Contrast, and Reduce Motion layer on top of that permanent rest chrome; it is not a row-icon ghost.
-
----
-## 20. Color Independence and Cross-Cutting State
-
-Color is never the only channel required to understand state.
-
-| state or signal | ordinary cue | Differentiate Without Color cue |
-|---|---|---|
-| selected rail item | painted `Plate.hover` / cyan rim | 3×16pt leading bar and semibold label |
-| selected segment | painted `Plate.hover` / cyan rim | leading checkmark |
-| selected session row | cyan rim | leading bar |
-| keyboard focus | cyan rim | 2pt outer halo, present in every mode |
-| status chip mode | signal tint | per-mode leading glyph |
-| disabled chip or caption | tone recedes to `Plate.rest` / low text | mode glyph retained |
-| rail idle/live | faint/cyan mark | hollow idle ring / filled live dot |
-| menu-bar state | alien emoji; cyan active or crimson error dot | unchanged visual; state-specific VoiceOver label |
-| chart accent | cyan mark | cap rule and value label |
-| toggle on | cyan track | checkmark in track |
-
-Signal text still names the state wherever text exists (`GRANTED`, `DENIED`, `LIVE`, `ERROR`); the shape channel is supplementary, not a replacement for a useful label.
-
-`StatusChip` and `RowIconButton` both read `colorSchemeContrast` through the shared `A11y` resolver. Chips escalate fill and foreground; row icon buttons escalate their control boundary and selected/focus widths. `HairlineDivider`, `KeyCap`, `GlassSurface`, `PlateSurface`, `ContentCard`, button styles, toggle, text field, charts, menu chrome, and the recording overlay use the same contrast resolver rather than assuming a parent surface handled it.
-
-The recording-overlay comet remains the intentional product exception to the one-palette rule (§21.4); its state is also exposed by text and accessibility labels, so its sampled hue is decorative rather than the sole signal.
-
----
-## 21. Recording Overlay
-
-This section reflects the complete implementation in `Sources/Voiceour/RecordingOverlay{View,Controller,Panel,Layout,Buttons,Waveform,Comet,Model,Placement}.swift`.
-
-### 21.1 Architecture
-
-The overlay is a borderless, non-activating `NSPanel` at `.screenSaver` level with a clear, shadowless panel background. Its custom `NSHostingView` uses the same geometry function as SwiftUI to give each 22pt control disc a real 28pt hit frame; the rest of the island drags the panel and the area outside the island passes through. `RecordingOverlayController` owns the panel and `RecordingOverlayModel` derives presentation from `SessionState` and live input level.
-
-The panel window is 260×80; its visible island is a 180×34 capsule.
-
-### 21.2 What ships per state
-
-Seven of `SessionState`'s thirteen cases are active: checking permissions, recording, finalizing audio, transcribing, cleaning, refining, and ready to insert. Idle and the five terminal outcome/error/cancel cases order the panel out; those outcomes surface in the menu and rail instead.
-
-Recording gets the live waveform, and only once capture is live. `RecordingOverlayModel.isWarmingUp` is `isRecording && !captureLive`: until the microphone delivers real audio the centre slot holds a static `WARMING` label in the same `stateLabel` treatment the processing states use, its accessibility value reads "Microphone starting" rather than "Recording", and the waveform replaces it the moment audio arrives. `centerPhaseToken` carries a distinct warm-up value so the centre and trailing slots crossfade together on that transition. The comet is not borrowed for it: the comet means exactly one thing, that the session is being processed, and it never appears while the microphone is open. The other six active states share the comet plus an in-capsule uppercase state label and matching VoiceOver description. Reduce Motion freezes comet travel at its resting phase but retains the lower-frequency breathing signal; it does not remove the in-progress affordance.
-
-### 21.3 Rules
-
-1. Do not redesign this surface's glass/waveform/comet vocabulary independently of a specific, scoped need because it is intentionally allowed richer motion than the console (§1 rule 7).
-2. Overlay pill keeps its `Capsule` shape and its two-layer shadow, `VoiceourMetrics.Shadow.overlayOuter`/`.overlayInner` (`black.opacity(0.26)`/`0.18`), on both render paths; Reduce Transparency keeps the outer layer alone on both (§6.4, §21.4).
-3. **Never render audio-mute glyphs, labels, badges, or controls inside the recorder pill.** When recording and `isSystemAudioMuted == true`, the overlay still shows only its recording presentation. Mute state belongs in `MenuBarExtra`, System, Diagnostics, and session metadata rather than in the recorder pill. This exclusion is deliberate and was verified as correctly honored in the current implementation, not a gap.
-4. Control glyphs (`RecordingOverlayButton`, 22x22) are intentionally heavier-weight than `RowIconButton`. They use permanent fill+stroke at rest rather than hover-only because the discs sit on the island's glass and the pill floats over arbitrary desktop content with no window chrome to lean on for legibility. They remain painted on macOS 26 for that reason alone: a 22pt disc over an unpredictable backdrop needs permanent chrome, and paint is the only way to guarantee it at every state. The former second reason was that another glass material here would misrender as glass on glass. Section 5.2 retracts it. Do not change this to `RowIconButton`'s ghost style. Keep the documented distinction.
-5. **The waveform indicates that the microphone is receiving audio. It is not decoration for the recording state.** Draw it only after a buffer containing a non-zero sample has arrived, never on the first buffer to arrive: a cold Bluetooth link delivers digital silence for over a second before the first one (`docs/architecture.md`, *Microphone capture*). Moving bars would imply that the microphone is ready. Bars parked flat would imply a quiet room. Neither is accurate before the microphone exists, so keep `WARMING` visible for a beat longer.
-
-
-### 21.4 Recording Overlay Glass Recipe
-
-On macOS 26 the island uses system `.glassEffect(.regular, in: .capsule)`. On macOS 14/15 and under `forceLegacyGlass`, it reproduces the shared four-layer legacy recipe for a capsule: `FrostedGlassBackground`, `glassTint`, `specularRim`, and `Ink.rimDark`. The legacy branch reads Increase Contrast for its strokes and Reduce Transparency replaces material/tint/specular layers with opaque `Ink.void` and `Line.edge`.
-
-Both branches carry §6.4's two-layer island shadow, `Shadow.overlayOuter` plus `Shadow.overlayInner`, applied to the island surface before the control discs are overlaid, so the discs cast nothing. Both drop to the outer layer alone under Reduce Transparency. The shadow is a property of the island rather than of either material recipe: it is what separates a 34pt capsule from arbitrary desktop content, the system glass does not supply one, and the 260×80 panel exists to give `Shadow.overlayOuter` room to draw without clipping.
-
-Neither the modern material nor its shadow is visible in `overlay.island.recording.os26.png`. That render is 0.0% opaque because `cacheDisplay` does not rasterise `.glassEffect` (§5.2). The modern island can only be judged onscreen.
-
-The legacy duplication is warranted because `GlassSurface` is rounded-rectangle-specific; all values still come from shared tokens.
-
-### 21.5 The Comet: an intentional, documented exception to §4.4
-
-`FrostedCometIndicator` drives a randomly-selected emoji (one of ~40) whose trail color is sampled from the glyph's own pixels each session. This is outside the "one signal color" rule, and the code comments make clear this is deliberate ("Deliberately playful… best-effort, by design"), not an oversight. **Decision for a future pass, not resolved by this document:** keep it as a documented Easter-egg exception (this section is that documentation), or fold it into the restrained-cyan rule and remove the variation. Until a decision is made, do not change this into a cyan-only indicator without a product decision.
-
----
-## 22. MenuBarExtra
-
-`MenuView` is a fixed **280pt** popover organized by whitespace into status, optional report, and actions.
-
-`MenuBarLabel` always renders the alien emoji. Active states add a cyan dot, a critical state adds a crimson dot, and idle adds no dot; the state-specific VoiceOver label names idle, recording, working, or error. There is no state-specific symbol branch.
-
-### 22.1 Material paths
-
-On macOS 26 the standard `MenuBarExtra` host owns its system material; the content adds no custom glass background. Every child control is paint over that material, including the primary action: `PrimaryActionButtonStyle` uses the same full-width cyan capsule on every OS path rather than a prominent glass control. The recorded reason was that a second glass material inside the glass popover erased the capsule and changed its intrinsic control height. That reason is retracted. It came from the offscreen harness, which does not rasterise `.glassEffect` at all (§5.2). In the live popover on macOS 26.5.2 `.glassProminent` renders a correct solid accent capsule, mean luminance 152.2 against 65.5 for the bare host material, more present than the painted capsule; the same content through `cacheDisplay` measures 7.3 against a 7.7 backdrop and disappears. The capsule stays painted for two reasons that survive that measurement: macOS 14 needs the painted path anyway, so glass would add a second one rather than replace it; and the system prominent style paints the system accent colour, discarding the cyan `Signal` required by §4.4. The system style is also 19pt shorter than the pinned 40pt, so its `256x40` AX geometry has to be rebuilt around the label rather than inherited. Any adoption must account for that cost (§19.4). On the legacy/harness path `PopoverChromeConfigurator` touches only `backgroundColor`, `isOpaque`, and `appearance`, then one `Radius.window` shape paints opaque `Ink.void` with a contrast-aware `Line.edge`. It never reuses the console window configurator.
-
-### 22.2 Content
-
-- Status row: state-derived `StatusChip`, optional compact `SYSTEM AUDIO MUTED`, and the capture `KeyCap`.
-- Report: optional transcript-copy well and terminal outcome detail.
-- Actions: one full-width `PrimaryActionButtonStyle`, then one bordered command group containing the remaining 32pt sentence-case rows.
-- Saved-session count in `micro`.
-
-The primary action opens the console when an error gate needs remediation; otherwise it starts or stops dictation. The transcript copy control belongs to the transcript well and disappears with it. The popover remains `.menuBarExtraStyle(.window)` and auto-dismisses when focus leaves, as a menu-bar window should.
-
----
-## 23. Audio-Mute UX
-
-This was verified against `Sources/VoiceCore/Models.swift`. The only setting is `muteSystemAudioDuringCapture: Bool = true`. There is no scope setting: `mute_scope` existed until the muter stopped asking what transport the output device used, and a stale key in an installed settings file decodes to nothing.
-
-Mute is a system side effect. The UI must describe its state clearly without overstating what happened.
-
-- Mechanism lives in `VoiceMac` (`SystemAudioMuter`), using public CoreAudio HAL (`kAudioDevicePropertyMute`, `AudioObjectSetPropertyData`, property listener blocks). It uses no private CoreAudio APIs. `VoiceCore` stays pure Foundation.
-- `DictationCoordinator` owns orchestration: apply before recording starts (if enabled), restore on every terminal path (stop success, cancel, ASR failure, mic-permission failure, app termination, unexpected error).
-- Observable UI state: `public private(set) var isSystemAudioMuted: Bool` on the `@Observable` `DictationCoordinator`. The rail-footer status cluster (§10.1), System pane, Diagnostics, `MenuView`, and session history all read this directly. It is deliberately **not** mirrored into the recording overlay's model (§21.5 rule 3).
-- Crash safety: ownership is persisted to a flag file (`~/Library/Application Support/Voiceour/mute-owned.flag`, never `UserDefaults`) before muting, verified and cleared on next launch before UI mounts.
-- User override: if the user changes mute/volume externally while Voiceour owns it, drop ownership immediately, clear `isSystemAudioMuted`, and do not reassert. This preserves the user's override.
-- Device selection: whatever is the default output device. Transport type is not consulted. The retired `.builtInOutputOnly` default made the feature a silent no-op on Bluetooth headphones, which are the output people actually dictate through. Also, the second setting that fixed it was never found. Capture is the opposite case and *does* consult transport type (`docs/architecture.md`, *Microphone capture*); the asymmetry is deliberate, because a Bluetooth output is exactly what needs muting while a Bluetooth input is what cannot be recorded from at the start of an utterance.
-- The muter is not why a Bluetooth capture starts late, and that was measured rather than assumed: first real audio on a cold AirPods Max arrives at 1448 ms with output mute off and 1444 ms with it on. Do not trade the fade, the mute, or their ordering away for start latency on that theory.
-- Control selection is per device, measured: MacBook Pro Speakers publish a settable main mute and a settable main volume; AirPods Max publish a settable main mute and **no** main volume, only channels 1–2; a DisplayPort monitor publishes neither and cannot be silenced at all. The muter probes, it does not assume.
-- Edges fade. Volume ramps to zero over 120ms in 8 steps before the mute lands, and ramps back after it lifts, so a capture boundary reads as a fade rather than a cut.
-- If the device offers no writable control: don't persist ownership, don't show recorder-pill mute UI, show only the System pane's UNAVAILABLE readout ("The current output device offers no mute or volume control, so audio kept playing."), driven by `DictationCoordinator.isSystemAudioMuteUnavailable`.
-
-VoiceOver strings in use: "System audio muted" (live), "Recorded with system audio muted" (historical session).
-
----
-
-## 24. Motion
-
-```swift
-VoiceourMotion.quick      = .easeInOut(duration: 0.14)
-VoiceourMotion.standard   = .easeInOut(duration: 0.18)
-VoiceourMotion.deliberate = .easeInOut(duration: 0.22)
-VoiceourMotion.meter      = .easeOut(duration: 0.12)
-```
-
-`quick` is hover/press/focus feedback and rail/segment/shared-control selection. `standard` is toggle and deliberate state, content, or provider transition. `deliberate` is reveal/confirmation/overlay transition. `meter` is the normal audio-level and waveform tier.
-
-Springs, bounce, and elastic motion are forbidden. The rail live-dot pulse and recording-overlay comet are the deliberate perpetual animations; Reduce Motion makes the dot static and freezes comet travel while retaining its lower-frequency breathing signal. The recording waveform also remains animated: it switches from `meter` to a damped `deliberate` animation with reduced travel. Other state-change animations resolve instantly.
-
----
-## 25. Accessibility
-
-### 25.1 One resolver and deterministic seams
-
-`A11y` resolves four read-only SwiftUI environments:
-
-```swift
-accessibilityReduceTransparency
-accessibilityReduceMotion
-accessibilityDifferentiateWithoutColor
-colorSchemeContrast
-```
-
-The offscreen harness cannot set those get-only environment keys. App-owned optional overrides in `RenderOverrides` therefore resolve as `override ?? environment`; every override is nil in production. The same seam drives the four `a11y.*` scenes without private API.
-
-### 25.2 Reduce Transparency
-
-- Modern root, recording-overlay island and menu-popover host materials use the system's own
-  Liquid Glass adaptation. The rail selection, segmented selection, overlay control discs and
-  menu primary action are painted on every path (§5.3), so they adapt through the tokens below
-  rather than through the system material.
-- Legacy console ground: frost, tint, and specular rim become one opaque fill, and that fill is
-  `Ink.frost` sRGB(0.190, 0.200, 0.220), **not** `Ink.void`. The substitute has to be *lighter*
-  than `Ink.surface`, because the vibrancy it replaces rasterises lighter than the cards floating
-  on it. Painting `Ink.void` there instead left ground-to-card at 1.06:1 and rail-to-ground at
-  1.00:1. The adaptation made the console harder to read than not adapting at all. `Ink.frost`
-  restores a 1.50:1 step. The dark definition rim remains.
-- Legacy recording overlay: the material/specular stack becomes one opaque `Ink.void` capsule with `Line.edge`. `Ink.void` is right here and wrong for the console ground above, because the island hosts no content surface. There is no ground-to-card step to preserve, only a silhouette against the desktop, and the rim carries that.
-- Legacy menu popover is already opaque `Ink.void` with `Line.edge`.
-- Content surfaces, plates, wells, and marks do not change because they are already opaque paint.
-
-### 25.3 Increase Contrast
-
-`A11y` applies these escalations:
-
-```text
-Text.low       → Text.mid
-Text.mid       → Text.high
-Mark.faint     → Text.low
-Line.rule      white 0.13 → 0.24
-Line.edge      white 0.18 → 0.30
-Line.control   white 0.35 → 0.55
-Ink.surface    → Ink.void
-Meter.rest     white 0.35 → 0.55
-hairline       0.5pt → 1.0pt
-selected       1.5pt → 2.0pt
-chip signal fill 0.08 → 0.18; neutral fill `Plate.rest` → `Plate.hover`
-```
-
-The resolver is read by every shared boundary owner, including `HairlineDivider`, `KeyCap`, `RowIconButton`, button styles, toggle, text field, content cards, charts, menu chrome, and overlay controls. Fill-only `StatusChip` reads the same resolver without claiming boundary ownership.
-
-### 25.4 Reduce Motion
-
-Reduce Motion removes decorative transition animation, never state or affordance. Hover, press, focus, selection, toggle, confirm, and copy-acknowledgement states swap immediately. Home chart reveals draw their final state immediately and chart hover/pin updates remain operable. The rail live dot becomes static. The recording waveform is the deliberate exception: it keeps a damped `deliberate` animation with reduced travel. The processing comet freezes its travel while retaining lower-frequency breathing rather than disappearing. The in-flight mark is already static.
-
-### 25.5 Differentiate Without Color
-
-The complete non-color grammar is in §20. It is implemented by the components that own the signal: rail/session selection bars, segment/toggle checkmarks, status and severity symbols, hollow/filled live marks, the menu-bar state label exposed to VoiceOver, chart cap/value marks, and the focus halo. Call sites do not reproduce these cues. Disabled state subtracts color, not shape: a chip inside a disabled row or `DependentGroup` recedes to `Plate.rest` and the low tone but keeps its mode symbol, so a warning that is currently unreachable still reads as a warning.
-
-### 25.6 Keyboard and VoiceOver
-
-- Custom toggles preserve `AXCheckBox`, `AXToggle`, value, label, and disabled state while supporting Space/Return.
-- Selection uses `.isSelected`, not a string value.
-- Repeated controls have instance-scoped labels and identifiers.
-- Section labels expose the heading trait; decorative marks are hidden.
-- The rail capture hotkey is a sibling accessibility group with value `"Fn or Globe"`.
-- Home charts expose deterministic per-datum accessibility children and one focusable keyboard controller each.
-- The transcript copy surface is a focusable container, not a `Button`, preserving text selection, scrolling, context menu, and copy behavior.
-- Typed confirmation fields take focus from their own appearance, submit through the guarded confirmation function, and support guarded Escape cancellation.
-
----
-## 26. Implementation Files
-
-The UI is split by pane; there is no monolithic settings file.
-
-```text
-DesignTokens.swift      palette, text roles, metrics, state resolver, motion
-GlassWindowChrome.swift  accessibility resolver and NSWindow chrome bridge
-GlassSurfaces.swift      glass ground, scroll-edge treatments, plate surfaces
-GlassMarks.swift         hairline divider, status chip, key cap, row icon button
-GlassButtonStyle.swift   .ghost/.accent/.danger painted buttons
-PrimaryActionButtonStyle.swift painted primary capsule
-PlateButtonStyle.swift   painted plate button
-GlassToggleStyle.swift   painted toggle
-GlassTextFieldStyle.swift painted field
-SettingsBindings.swift   persisted settings bindings
-SettingsPaneScroll.swift centred settings pane shell
-ContentCard.swift        shared content surface
-SettingsSectionBlock.swift settings row groups
-SettingsRow.swift        settings rows and divider geometry
-CaptionText.swift        secondary settings descriptions
-SegmentControl.swift     segmented settings controls
-PropertyRow.swift        property rows and accessory rail
-ConfirmActionRow.swift   confirm-before-acting row
-DependentGroup.swift     dependent control group
-ConsoleView.swift        window host and activation policy
-ConsoleSection.swift     navigation section model
-ConsoleScaffold.swift    shell, pane composition, modern/legacy root application
-ConsoleLeftRail.swift    navigation rail and status footer
-ConsoleSectionHeader.swift pane header and metadata
-HomePane.swift           derived-state snapshot and populated/empty routing
-BentoRow.swift           twelve-column dashboard layout
-HomeChartEnvironment.swift chart geometry and live-capture accent
-HomeDashboard.swift      dashboard shelves
-HomeFormat.swift         dashboard metric formatting
-HomeMetricRow.swift      all-time and records metric strips
-HomeVelocityGauges.swift speaking/typing comparison
-MeterBar.swift           horizontal meter
-MetricValue.swift        typed metric readout
-HomeHourChart.swift      linear 24-hour dictation chart
-HomeDayChart.swift       fourteen-day chart
-HomeDestinations.swift   TOP APPS rank rows
-VoicePane.swift          backend and capture settings
-GlossaryPane.swift       pane state, mutations, import and export
-GlossaryHeaderRow.swift  ledger column headers
-GlossaryAddRow.swift     inline term composer
-GlossaryLedgerGrid.swift ledger layout
-GlossaryTermRow.swift    protected-term rows
-GlossaryModelDisplayAdapters.swift scope labels
-RefinementPane.swift     opt-in/dependent-group orchestration
-RefinementOptInSection.swift local/cloud boundary and opt-in
-RefinementProviderSection.swift provider selection, OMP connections, and model row
-OmpModelPickerView.swift  OMP model picker row and its option rows
-RefinementRequestSection.swift request settings
-RefinementConnectionSection.swift provider connection state
-SystemPane.swift         capability ledger: readiness, capture, audio, privacy, guarded erase flows
-DiagnosticsPane.swift    runtime-fact ledger
-SessionsPane.swift       master/detail state, filtering, grouping
-SessionFormatting.swift  session metadata labels and date formatters
-SessionListViews.swift   search, day groups, rows, empty list
-RecentSessionMetricStrip.swift totals strip
-RecentSessionDetailPane.swift selected-session detail and actions
-SessionTranscriptCard.swift transcript, metadata, actions
-SelectableTranscriptText.swift selectable transcript bridge
-SessionFixTeach.swift    Fix/Teach and pending suggestions
-EmptyState.swift         shared EmptyState primitive and DictationHotkeyHint view
-MenuView.swift           menu-bar popover state and block composition
-PopoverChromeConfigurator.swift legacy popover host configuration
-RecordingOverlayController.swift overlay lifecycle and panel ownership
-RecordingOverlayPanel.swift  borderless non-activating NSPanel host
-RecordingOverlayView.swift   island material, shadow, and state routing
-RecordingOverlayLayout.swift island, disc, and window geometry
-RecordingOverlayButtons.swift control discs
-RecordingOverlayWaveform.swift live-level waveform
-RecordingOverlayComet.swift  processing comet
-RecordingOverlayModel.swift  presentation derived from SessionState
-RecordingOverlaySessionState.swift overlay visibility and processing predicates
-RecordingOverlayPlacement.swift pure frame placement
-RecordingOverlayFocusTracker.swift screen/space change tracking
-UIHarness/               deterministic fixtures, scene catalog, render/runtime seams
-```
-
-View files compose the vocabulary of `DesignTokens`, the glass and mark primitives, the settings primitives above, and the property row family instead of inventing parallel colors, geometry, or control states.
-
----
-## 27. Persistence and Save UX
-
-Settings settle on change: every settings control writes through `settingBinding`, which sets the value on `coordinator.settings` and calls `coordinator.saveSettings()` synchronously in the same closure. No manual "Save Settings" button anywhere, no modal on success. A failed write is currently silent: `saveSettings()` is `try? settingsStore.save(settings)` and no pane reports the failure, the property ledger included (§29.4).
-
----
-
-## 28. Review Checklist
-
-Reject a change if it:
-
-- adds `TabView`, SwiftUI `Form`, a third-party UI dependency, or private API;
-- uses an API above the macOS 14 floor without an explicit availability path;
-- adds raw colors, fonts, radii, spacing, control heights, or row pitches in a view file;
-- applies glass to a content surface or creates independently composited glass on glass;
-- gives a nested full-bleed shape a fixed radius instead of `Radius.nested`;
-- applies a shadow, tint gradient, specular rim, or offscreen compositing group to content;
-- adds a second accent color or uses cyan decoratively;
-- uses color as the sole required state signal;
-- collapses focus into hover or suppresses focus without the app-owned rim and halo;
-- ships a control without pressed, disabled, keyboard, or accessibility behavior appropriate to it;
-- sizes a hit target with `.contentShape` instead of a real frame;
-- lets a purpose-sized field/picker escape its bounded row slot;
-- draws a row divider as a layout sibling or leaves a trailing rule after the final row;
-- hand-rolls a segmented picker instead of `SegmentGroup` + `SegmentOption`;
-- hand-rolls a chip-and-caption stack inside a row instead of the `SettingsRow` status/footer slots or a `PropertyRow` accessory rail, or puts a control in a footer;
-- promotes a ledger fact to a display face, or restates one fact in a second row;
-- repeats default badges instead of showing exceptional state;
-- uses a labeled full button for one singular action repeated down a dense table;
-- converts transcript copy into a `Button` that competes with selectable text;
-- adds an unguarded destructive or in-flight activation path;
-- changes overlay-button rest chrome into the row-icon ghost treatment (§21.3 paragraph 4);
-- adds a modern render path without a deterministic force-legacy harness branch;
-- lowers `Window.minWidth` below the `Column.rail + 2 * Space.xl + Content.table` requirement;
-- adds decorative perpetual motion beyond the rail live dot and overlay comet;
-- changes audio-mute ownership or default semantics without an explicit product decision.
-
----
-## 29. Known Drift and Next Redesign Targets
-
-Only unresolved product or maintainability decisions belong here. Accessibility, contrast, content-layer glass, radius, control-state, provider-wrap, popover-material, and retired-token findings fixed by the current implementation are not backlog items.
-
-### 29.1 Recording Overlay
-
-| Severity | Finding |
-|---|---|
-| Low | The comet's random per-session sampled color is the intentional exception in §21.4. Keeping the Easter egg or folding it into restrained cyan requires a product decision, not a mechanical cleanup. |
-| Low | The legacy capsule reproduces the root glass layers because `GlassSurface` is rounded-rectangle-specific. The duplication is maintainability debt, not a visual defect. |
-
-### 29.2 Sessions detail actions
-
-| Severity | Finding |
-|---|---|
-| Low | `PendingSuggestionRow` uses `.danger` for REJECT even though “stop suggesting” is softer than irreversible data loss. Changing that grammar requires a product decision. |
-
-### 29.3 Two ledger grammars
-
-| Severity | Finding |
-|---|---|
-| Low | The Glossary's table seam is `Column.glossaryCanonical` 176 + `Space.md` 12 = 188, while every other ledger row starts its value column at 176 + `Space.xl` 24 = 200. Each is right for its own density and the property-ledger pass deliberately left the table alone, but two value origins in one app is a grammar decision nobody has made yet. |
-
-### 29.4 Silent settings-save failure
-
-| Severity | Finding |
-|---|---|
-| Medium | `DictationCoordinator.saveSettings()` swallows its error, so a failed write leaves the UI showing the new value and the disk holding the old one with no chip, caption, or log. A BACKEND-style row with a warn chip in the Diagnostics ledger is an obvious home for it. Publishing a save-failure state on the coordinator is a behavior change, not a layout one, so the property-ledger pass deliberately left it out. |
-
-Delete a row in the same change that resolves it.
-
----
-## 30. Final Visual Test
-
-Before shipping a redesign pass, test these states:
-
-1. Light wallpaper, transparency on.
-2. Pure white wallpaper, transparency on.
-3. Reduce Transparency on.
-4. Reduce Motion on.
-5. Increase Contrast on.
-6. Non-Retina external display.
-7. Keyboard-only navigation.
-8. VoiceOver on a session row and a mute status.
-9. Recording with mute off / on (built-in speakers) / on (unsupported output).
-10. Crash-recovery flag path.
-11. Fake backend smoke path (`scripts/run_dev.sh --self-test`).
-12. MLX and Apple backend loading/error/ready states.
-13. Legacy sessions without outcome/mute metadata.
-14. Window resized to the 1164pt minimum with Glossary open.
-15. The complete offscreen harness on both legacy and eligible modern paths, including the four `a11y.*` scenes.
-
-The final design uses thin tracked type on black glass, one cyan signal, quiet secondary elements, and the same rule for every row.
+1. Prefer an existing token or native control over a new abstraction.
+2. Keep the native window native; do not apply the popover palette to it.
+3. Add/update a static scene for a new visible state and a semantic flow for a new interaction journey.
+4. Read AX/journal diffs before blessing intended changes.
+5. Verify bespoke material live when material itself changed.

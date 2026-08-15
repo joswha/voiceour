@@ -60,15 +60,35 @@ def _single_uwer(reference: str, hypothesis: str) -> float:
     return uwer([reference], [hypothesis])
 
 
+def _validated_ids(rows: list[dict[str, Any]], source: str) -> list[str]:
+    ids: list[str] = []
+    for row in rows:
+        row_id = row.get("id")
+        if not isinstance(row_id, str) or not row_id:
+            raise ValueError(f"{source} row has invalid id: {row_id!r}")
+        ids.append(row_id)
+
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for row_id in ids:
+        if row_id in seen:
+            duplicates.add(row_id)
+        seen.add(row_id)
+    if duplicates:
+        names = ", ".join(sorted(duplicates))
+        raise ValueError(f"duplicate {source} ids: {names}")
+    return ids
+
+
 def _joined_rows(manifest_rows: list[dict[str, Any]], result_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    manifest_by_id = {row["id"]: row for row in manifest_rows}
-    joined: list[dict[str, Any]] = []
-    for result in result_rows:
-        if result.get("type") != "row":
-            continue
-        manifest = manifest_by_id.get(result.get("id"), {})
-        joined.append({"input": manifest, "result": result})
-    return joined
+    manifest_ids = _validated_ids(manifest_rows, "manifest")
+    result_ids = _validated_ids(result_rows, "result")
+    unknown_ids = sorted(set(result_ids) - set(manifest_ids))
+    if unknown_ids:
+        raise ValueError(f"unknown result ids not present in manifest: {', '.join(unknown_ids)}")
+
+    manifest_by_id = dict(zip(manifest_ids, manifest_rows, strict=True))
+    return [{"input": manifest_by_id[result["id"]], "result": result} for result in result_rows]
 
 
 def _timing_values(rows: list[dict[str, Any]], stage: str) -> list[int | None]:
@@ -306,6 +326,7 @@ def build_report(
     manifest_rows = read_jsonl(manifest_jsonl)
     joined = _joined_rows(manifest_rows, result_rows)
     successful = [row for row in joined if not row["result"].get("error")]
+    errors = [row for row in joined if row["result"].get("error")]
 
     content_refs: list[str] = []
     raw_hyps: list[str] = []
@@ -387,9 +408,11 @@ def build_report(
             "manifest_rows": len(manifest_rows),
             "result_rows": len(result_rows),
             "successful_rows": len(successful),
-            "error_rows": len(result_rows) - len(successful),
+            "error_rows": len(errors),
             "formatted_reference_rows": len(formatted_refs),
         },
+        "successful_row_ids": sorted(row["result"]["id"] for row in successful),
+        "error_row_ids": sorted(row["result"]["id"] for row in errors),
         "metrics": metrics,
         "worst_10": worst[:10],
         "anchors": {"librispeech_parakeet_tdt_0_6b_v3_nemo": {"test_clean_wer": 1.93, "test_other_wer": 3.59}}

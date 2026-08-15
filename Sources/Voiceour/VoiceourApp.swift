@@ -54,7 +54,7 @@ struct VoiceourApp: App {
         .menuBarExtraStyle(.window)
 
         Window("Voiceour", id: "main") {
-            ConsoleView(coordinator: coordinator, initialSection: LaunchOptions.consoleSection)
+            ConsoleWindowView(coordinator: coordinator, initialTab: LaunchOptions.consoleSection)
         }
         .defaultSize(
             width: VoiceourMetrics.Window.defaultWidth,

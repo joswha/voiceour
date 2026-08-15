@@ -1,4 +1,4 @@
-> Archived 2026-08-14. Historical defect record; superseded by the current [performance roadmap](../performance-roadmap.md) and source tree.
+> Archived 2026-08-15. Historical defect record: the refinement, secondary-recognizer, and live-preview subsystems measured below were deleted on 2026-08-15; current performance guidance lives in [performance-roadmap.md](../performance-roadmap.md).
 
 # Performance roadmap history
 
@@ -26,13 +26,23 @@ Deterministic cleanup independently performed 459 word edits—about half the wo
 4. **No end-to-end post-stop span was persisted.** Stage fields covered capture, ASR, insertion, and start latency, but nothing measured stop release through insertion outcome. Arithmetic sums of independent medians could not replace that span.
 5. **Apple capture timing was not actually missing.** The Apple path already computed finalized audio duration and the coordinator persisted it as capture time. Historical Apple sessions without the field predated its introduction on 2026-07-20.
 
-## Current invariants created by those fixes
+## State at the close of that historical phase
 
-The code now enforces the conclusions above:
+Before the later subsystem deletions, the fixes above had temporarily established these invariants:
 
-- [`OmpRpcRefiner`](../../Sources/VoiceMac/OmpRpcRefiner.swift) filters terms through the shared cloud-eligibility policy before prompt construction.
-- [`TranscriptProcessingPipeline`](../../Sources/Voiceour/TranscriptProcessingPipeline.swift) compiles one capture-scoped `VocabularySnapshot` and uses it throughout the stop path.
-- Every selection pass in [`VocabularyCompiler`](../../Sources/VoiceCore/Vocabulary.swift) checks the effective hard limit, including priority selection and deferred backfill.
-- [`SessionStageTimings`](../../Sources/VoiceCore/RecentSessionStore.swift) persists `stopReleaseToInsertionOutcomeMs`, `asrBackendId`, `asrLoadMs`, and `asrInferenceMs`.
-- Apple finalized-audio duration remains the source of persisted capture time.
-- Refinement timeouts are length-scaled with an absolute ceiling rather than one fixed budget.
+- `OmpRpcRefiner` filtered terms through the shared cloud-eligibility policy before prompt construction.
+- `TranscriptProcessingPipeline` compiled one capture-scoped `VocabularySnapshot` for the stop path.
+- Every `VocabularyCompiler` selection pass checked the effective hard limit, including priority selection and deferred backfill.
+- `SessionStageTimings` persisted the then-current end-to-end and backend timing fields.
+- The retired system recognizer's finalized-audio duration supplied its capture time.
+- Model-rewrite timeouts scaled with utterance length and had an absolute ceiling.
+
+The 2026-08-15 overhaul then removed the model-rewrite path, its vocabulary authorization machinery, and the secondary recognizer. These bullets explain the measurements below; they are not current implementation requirements.
+
+## Removed partial-preview measurement
+
+The live partial-transcript preview was deleted on 2026-08-15. This measurement is retained only as the decision record.
+
+Appending 2.5 seconds of digital silence changed 25 of 32 transcripts, with 0.493% normalized U-WER and 0.105% CER; sub-threshold noise changed 21 of 32, with 0.583% U-WER and 0.194% CER. Reusing a preview as the final transcript therefore spent more than the project's +0.35 percentage-point gate.
+
+Each preview also re-decoded the whole growing buffer. Decode cost measured about 10.1 ms per second of audio: 32 ms at 1.5 s, 100 ms at 10 s, 267 ms at 30 s, and 932 ms at 92 s. At the former one-second cadence, cumulative work was 0.59 s for a 10 s utterance, 6.27 s for 37 s, 9.60 s for 46 s, and 39.95 s for 92 s. That quadratic cost bought display text that was neither inserted nor safe to adopt, so the entire feature was removed rather than rescheduled.

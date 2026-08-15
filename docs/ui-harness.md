@@ -1,505 +1,178 @@
 # Offscreen UI harness
 
-The UI harness renders Voiceour's SwiftUI views into a borderless window parked far offscreen, dumps the in-process accessibility tree, lints both, and diffs the result against committed goldens. It exists so a coding agent can see and check the UI without a window ever appearing on your display and without the frontmost application changing.
+The harness renders Voiceour's real SwiftUI views in process, dumps the accessibility hierarchy, lints both semantic and raster output, and compares them with committed goldens. It gives agents a reviewable UI signal without showing a window, changing the frontmost app, or requiring Screen Recording or Accessibility permission.
 
-It replaces `scripts/console_shot.sh` for everything except the glass materials themselves. Neither the legacy behind-window tint nor modern `.glassEffect` survives an offscreen capture (see [Limitations](#limitations)). `console_shot.sh` launches the real app, opens a visible 1164x820 console on your main display and screenshots it; the harness never does either.
-
-What it gives you per scene:
-
-- a PNG of the rendered view,
-- a text dump of the accessibility tree (roles, labels, values, identifiers, window-local frames),
-- machine-checkable lint findings,
-- a diff against the golden when either artifact moves,
-- and one contact sheet tiling every selected scene, so a single image read replaces dozens.
-
-The harness needs no Screen Recording permission, no Accessibility permission, no Xcode, and no simulator.
-
-It is compiled only when `UI_HARNESS` is defined. What defines it is `scripts/ui_harness.sh` (and therefore every `make ui-*` target) plus the `make test` / CI `swift test` steps, because several test suites reference gated symbols. Ordinary builds do not: `make build`, `scripts/run_dev.sh`, `scripts/console_shot.sh`, and the plain `swift build -c release` inside `scripts/bundle.sh` that produces the shipping app all leave the flag off, so no harness object links into the release binary. A bare `swift test` still passes; it simply compiles the harness suites away, so prefer `make test`. If you see `cannot find 'UISceneCatalog' in scope`, you dropped the flag.
-
-`RenderOverrides` and its two payload types (`TextRoleSample`, `TextRoleRecorder`) are deliberately **not** gated: many production files read the overrides, and `DesignTokenInstrumentation` sits on the canonical `.roleStyle(_:)` path. Every field is nil (or false) in a normal build and every production read is `override ?? <the real value>`, so shipping behaviour is unchanged. The name `RenderOverrides` reflects that the type ships. A harness-named type read by production code invites someone to gate it alongside `UIHarness/`, which does not compile.
-
-`nm .build/release/Voiceour | grep -ci uiharness` is therefore `0`, and `swift build -c release` links no harness object. This checks that the harness *implementation* is absent. It does not mean the binary shrank to nothing. `RenderOverrides` still contributes about fourteen symbols of static storage under its own name, and renaming the type moved roughly 320 bytes; the gating itself removed 795 KB.
+The harness is compiled only with `-DUI_HARNESS`. Normal and release builds do not link its catalogs, runner, fixtures, or reports. `RenderOverrides` remains production-compiled because the real views read those optional values; every value is nil or false in a normal launch.
 
 ## Commands
 
-```sh
-make ui-snap                                   # render portable scenes; excludes tag os26
-make ui-snap-os26                              # render the native macOS 26 branch scenes on macOS 26
-make ui-update                                 # rewrite portable scene goldens after an intended change
-make ui-update-os26                            # rewrite native scene goldens; needs a macOS 26 host
-make ui-list                                   # print the scene catalog as one JSON object
-make ui-flow                                   # required semantic flow gate; skip host-sensitive frame comparison
-make ui-flow-os26                              # native interactive gate; drives the macOS 26 branch
-make ui-flow-frames                            # run flows and compare their captured-frame goldens
-make ui-flow-update                            # rewrite intended flow goldens and the coverage baseline
-make ui-flow-list                              # print the flow catalog as one JSON object
-make ui-coverage                               # validate coverage declarations and the baseline without hosting a window
-make ui-film                                   # record the README's recording-island GIF; media, not a golden
-make ui-all                                    # ui-snap, ui-flow-frames, plus the os26 legs on macOS 26
-
-scripts/ui_harness.sh --only console           # ids containing, or tags exactly matching, "console"
-scripts/ui_harness.sh --only console,overlay   # comma-separated, OR-ed
-scripts/ui_harness.sh --except os26             # exclude ids/tags after applying --only
-scripts/ui_harness.sh --mode flow-check         # run selected flows
-scripts/ui_harness.sh --mode film               # record the selected media reels frame by frame
-scripts/ui_harness.sh --scale 2                 # 2x raster
-scripts/ui_harness.sh --stdout --no-sheet       # NDJSON manifest on stdout, skip the scene contact sheet
-scripts/ui_harness.sh --help
-```
-
-`scripts/ui_harness.sh` builds the package, then execs `.build/debug/Voiceour --ui-harness --repo-root <repo>` with your arguments appended. You can call the binary directly if you already built it.
-
-### CLI surface
-
-| flag | meaning |
+| command | purpose |
 | --- | --- |
-| `--ui-harness` | required; selects the harness instead of the app. Its absence changes nothing about a normal launch. |
-| `--list`, `--update` | shorthand for the matching scene `--mode`. |
-| `--flow-list`, `--flow-check`, `--flow-update`, `--coverage` | shorthand for the matching flow or coverage `--mode`. |
-| `--film` | shorthand for `--mode film`. |
-| `--mode list\|check\|update\|flow-list\|flow-check\|flow-update\|coverage\|film` | select the operation; default `check`. An unrecognised value exits 2 with usage. |
-| `--only a,b` | substring match on scene, flow or reel id, or exact match on a tag. Empty means the entire selected catalog. |
-| `--except a,b` | substring match on scene, flow or reel id, or exact match on a tag. Applied after `--only`. An unfiltered non-list run defaults to excluding `os26`; explicit filters and list modes do not add that default. |
-| `--out DIR` | artifact directory. Default `<repo>/.build/ui-harness`. |
-| `--golden DIR` | golden directory. Default `<repo>/fixtures/ui`. |
-| `--scale 1\|2` | raster scale. Default 1. Any other value is ignored and 1 is used. Scale 2 uses its own `@2x` artifacts and goldens. |
-| `--no-frames` | skip golden reconciliation for flow `.capture` frames. PNG and AX-dump artifacts are still written and linted. |
-| `--no-sheet` | skip the scene `contact-sheet.png`. |
-| `--stdout` | also write the selected manifest to stdout. Prose then moves to stderr so stdout stays valid JSON or NDJSON. |
-| `--repo-root DIR` | resolves the default `--out` and `--golden`. Also readable from `VOICEOUR_REPO_ROOT`; defaults to the working directory. |
-| `--help`, `-h` | print usage and exit 0. |
+| `make ui-snap` | Render portable scenes, excluding `os26`, and compare accessibility dumps plus PNG digests. |
+| `make ui-snap-os26` | Render scenes tagged `os26` on a macOS 26 host. |
+| `make ui-update` | Rewrite intended portable scene goldens. |
+| `make ui-update-os26` | Rewrite intended `os26` scene goldens. |
+| `make ui-list` | Print the scene catalog as JSON. |
+| `make ui-flow` | Run portable semantic journeys and compare their journals. |
+| `make ui-flow-os26` | Run native-branch journeys on macOS 26. |
+| `make ui-flow-update` | Rewrite intended portable flow journals. |
+| `make ui-flow-list` | Print the flow catalog as JSON. |
+| `make ui-all` | Run portable scenes and flows, then the two `os26` legs when the host supports them. |
+| `scripts/ui_harness.sh --only console` | Check a filtered scene or flow area while iterating. |
 
-Exit codes: `0` success; `1` a scene or flow changed, is missing a golden, failed, produced an `error`-severity finding, the coverage ledger has a regression, stale baseline entry, broken declaration or undeclared claim, or a film reel failed to record; `2` a malformed `--ui-harness` invocation.
+The wrapper builds the app with `-DUI_HARNESS` and forwards arguments to `Voiceour --ui-harness`.
 
-`--no-activate` is a separate, app-level flag (see [Activation](#activation)); the harness does not need it.
-
-### `os26` scenes and flows, and the host OS
-
-Scenes tagged `os26` render the **native `#available(macOS 26, *)` branch**. They do not render the
-system material that branch asks for. `cacheDisplay` does not rasterise SwiftUI `.glassEffect` at
-all, so the glass is absent from the capture and its area comes out fully transparent. An `os26`
-PNG shows the branch's own painted content, geometry and control boundaries, alongside its accessibility tree.
-See [Limitations](#limitations).
-
-The tag still has to exist because the alternative render is worse. `#available` resolves against
-the running OS, not the package's deployment floor. On macOS 14 or 15 every one of these scenes
-would silently take the painted fallback branch, a different render that is also not the one the
-scene exists to show and that looks entirely plausible. In `check` mode that is a confusing
-failure. In `--update` it would overwrite the native goldens with fallback renders, and the
-corruption would only surface on the next Tahoe machine.
-
-The harness therefore refuses to render them below macOS 26, and does so *before* writing anything:
-
-- If the selection also matched portable scenes, the `os26` ones are **skipped** and the rest run
-  normally. This matters because `--only console` substring-matches `console.home.os26` as well as
-  the portable console scenes, and that focused run is the everyday workflow. Aborting it would
-  break the hosts that can only use the portable path.
-- If the selection resolves to `os26` scenes **only** (`--only os26`, or a native scene id), the run
-  fails with a message pointing at `--except os26`.
-
-On a macOS 26 host neither branch fires and every scene renders. The committed portable goldens are
-pinned to the painted path by `RenderOverrides.forceLegacyGlass` regardless of host, so `make ui-snap`
-reproduces byte-for-byte on any machine.
-
-Flows tagged `os26` are gated the same way, for the same reason. They release `forceLegacyGlass` so
-the script drives the native branch, so below macOS 26 every one of them would re-run the painted
-path a portable flow already covers while claiming native-branch coverage. `make ui-flow-os26` runs
-them and `make ui-flow` excludes them; on an older host a mixed selection skips them with a count,
-and a selection that resolves to `os26` flows only fails with the same `--except os26` pointer.
-
-## Artifacts
-
-```
-.build/ui-harness/
-  <scene-id>.png                         current scene render
-  <scene-id>.ax.txt                      current scene accessibility dump
-  <scene-id>.ax.diff                     scene dump diff, golden -> current
-  manifest.jsonl                         scene manifest
-  contact-sheet.png                      every selected scene tiled and captioned
-  flows/
-    <flow-id>.flow.txt                   current semantic journal
-    <flow-id>.flow.diff                  journal diff, golden -> current
-    <flow-id>.<frame>.png                named frame raster
-    <flow-id>.<frame>.ax.txt             named frame accessibility dump
-    <flow-id>.<frame>.ax.diff            frame dump diff, golden -> current
-    manifest.jsonl                       flow and coverage manifest
-  film/
-    <reel-id>/frame-0000.png             one reel frame, zero-padded and gapless
-    <reel-id>/reel.json                  reel id, title, frame count, delay, pixel size, scale
-fixtures/ui/
-  coverage-baseline.txt                 required coverage keys currently unclaimed by passing flows
-  <scene-id>.png.sha256                  scene raster digest golden
-  <scene-id>.ax.txt                      scene dump golden
-  flows/
-    <flow-id>.flow.txt                   semantic journal golden
-    <flow-id>.<frame>.ax.txt             named frame dump golden
-    <flow-id>.<frame>.png.sha256         named frame raster digest golden
-```
-
-`.build/` is gitignored, `fixtures/ui/` is not: the current state is disposable, and the goldens are reviewed in the diff of a pull request. The per-scene PNG and dump are written on **every** run in **every** mode, so you can look at the current state whether or not it matched. A stale `.ax.diff` is deleted as soon as the dump matches its golden again, including when `--update` has just blessed it. The presence of the file is therefore the signal.
-
-**Pixel goldens store digests.** Committing every full-size render would add megabytes and rewrite binary images on every `--update`; the committed SHA-256 digests detect the same pixel changes while keeping reviews textual and the golden set small. The cost is that git holds no *previous* image to diff against, so when `pixel_status` is `changed` and `ax_status` is `ok` you are looking at a pure visual move with no committed before-shot. To get one, render the old tree: `git stash && make ui-snap && cp .build/ui-harness/<id>.png /tmp/before.png && git stash pop && make ui-snap`.
-
-`--scale 2` shifts the whole per-scene family to `<scene-id>@2x.*`, on both sides. Without that a 2x run would diff 2x pixels against 1x goldens and report every scene as `changed`; the scale also pins SwiftUI's `displayScale`, which moves pixel snapping and therefore the accessibility frames, so the dump is scaled too. `manifest.jsonl` and `contact-sheet.png` keep their fixed names in every mode, and the manifest carries `scale` on every row. The committed 1x goldens are the gate; 2x goldens are optional and only exist if someone runs `--scale 2 --update`.
-
-## Scenes
-
-A scene is one deterministic thing the harness can render, dump and lint: an id, a title, a logical size, a forced colour scheme, tags, an optional interaction script, and a closure that builds the view. The type is `UIScene` in `Sources/Voiceour/UIHarness/UIHarnessContracts.swift`.
-
-The catalog is the single place scenes are declared: `UISceneCatalog` in `Sources/Voiceour/UIHarness/UISceneCatalog.swift`, where `all()` concatenates the portable area groups and `systemGlassScenes`. Adding another scene for an existing surface is one catalog edit: append to the matching group array, using a factory rather than a raw `UIScene`. A new UI surface also needs a `UICoverageRegistry` entry, and every new interactive behaviour needs a `UIFlow` that claims its required coverage key.
-
-| factory | size | what it gives you |
-| --- | --- | --- |
-| `console(_ id, _ title, section:, fixture:, size:, tags:, steps:)` | 1164x820 dark | the real `ConsoleView` at one section, tag `console` prepended. `size` defaults to the first-launch window; the keyed Refinement scenes pass a taller measure because that pane's CONNECTION card falls past the 820 pt fold |
-| `pane(_ id, _ title, colorScheme:, tags:, steps:) { view }` | 1164x820 | one pane hosted directly, tag `pane` prepended, `Space.xl` padding on an opaque literal backdrop |
-| `menu(_ id, _ title, fixture:)` | 280x420 dark | the menu popover, tag `menu` |
-| `systemConsole`, `systemMenu`, `systemOverlay` | matching legacy measure | tag `os26`; builds the deterministic fixture first, then releases `forceLegacyGlass` only for the hosted scene and restores it at teardown |
-| `sheet(_ id, _ title, size:) { view }` | your size | component gallery, tag `atom`, same padding and backdrop as `pane` |
-
-Console and pane scenes render at 1164x820 because that is the app's first-launch window: `UISceneCatalog.consoleSize` is `VoiceourMetrics.Window.defaultWidth` x `Window.defaultHeight`, so a scene shows exactly the geometry a fresh install shows. The rail is 176, the region is 988, and the padded content region is 940. This also clears `ConsoleScaffold`'s 1164x560 minimum. Change the tokens and every console scene moves with them. The exception is `UISceneCatalog.tallConsoleSize`, used by the five keyed Refinement scenes whose subject is the model picker or the Status row: the window is resizable, and at 820 pt those fall below the fold.
-
-```swift
-console("console.glossary.empty", "Glossary with every term removed",
-        section: .glossary, fixture: .emptyGlossary, tags: ["empty"])
-```
-
-Raw `UIScene(...)` is used only by the three portable overlay scenes, which need odd sizes and no backdrop. The id is the artifact basename, so keep it filesystem-safe and dot-separated: lowercase, `area.thing.state`. Native Liquid Glass counterparts use an `*.os26` id and the matching system factory. The harness discovers the scene, renders it, and reports `missing-golden` until the owner blesses new fixtures; no other change is required.
-
-The scene tag vocabulary is `console`, `empty`, `steps`, `pane`, `light`, `menu`, `overlay`, `atom`, `a11y`, and `os26`; flow tags are listed separately by `make ui-flow-list`. The current scene catalog has 51 entries: 39 portable scenes and 12 macOS 26 scenes. `UISceneCatalog.registry` builds that total from 24 console, one pane, three menu, four overlay, two atom, five accessibility, and 12 system-glass descriptors. Run `make ui-list` to regenerate the live scene enumeration; its catalog output is authoritative.
-
-### Determinism
-
-Two mechanisms in `UIFixtures.swift` carry it:
-
-- App state comes from `UIFixtures.coordinator(_:)`: kinds `.firstRun`, `.populated`, `.emptyGlossary`, `.recording`, `.micDenied`, `.backendReady`, `.backendUnavailable`, `.backendDownloading`, `.appleBackendReady`, `.backendSwitchPending`, `.refinerConfigured`, `.refinerAppleOnDevice`, `.refinerOmp`, `.refinerOmpLoginFailed`, `.refinerUnreachable`, `.completedDictation`. The refiner kinds are all one of the two shipping providers: `.refinerConfigured` is Oh My Pi with a model picked out of a loaded catalog, `.refinerOmp` is Oh My Pi on the provider default, and `.refinerUnreachable` is an OMP install that answers neither the reachability probe nor the model catalog, because both run the same binary. `.backendDownloading` is the one fixture mid-acquisition, so the System pane's DOWNLOADING row has a scene, and `.appleBackendReady` runs the other real backend so no readout can hardcode Parakeet and still pass.
-- `UIFixtures.pinProcessSeams()`, called on every `coordinator(_:)`, pins `RenderOverrides`: the render clock (`2025-06-15T14:26:40Z`), Gregorian calendar, UTC time zone, `en_US_POSIX` locale, the permission snapshot the System and Diagnostics panes display, the two storage paths Diagnostics prints, the Apple Intelligence readiness sentence the Refinement pane appends, the recording overlay's otherwise-random comet head, and the legacy glass path. The Refinement pane's probe verdict, its OMP model catalog (`ompModels`) and that catalog's load state (`ompModelCatalogState`) are per fixture rather than process-wide, so `make` installs them and `pinProcessSeams()` clears them. Foundation formatters and SwiftUI environment values resolve these overrides before the machine's real values. Optional production overrides stay `nil` and production reads use `override ?? <the real value>`; `forceLegacyGlass` defaults false. `textRoleRecorder` is installed and restored only around a hosted harness scene and otherwise remains nil, so shipping behaviour is unchanged.
-
-Beyond that, never let a scene derive anything from `Date()`, `UUID()`, `.random`, TCC, a subprocess, or `NSColor.controlAccentColor`. The latter resolves to the *user's* system accent and no environment key overrides it; SwiftUI's `Color.accentColor` is safe. The app holds no credential store to read from, so there is none to forbid. Avoid states dominated by `.repeatForever` or `TimelineView(.animation)`. In this app that is `FrostedCometIndicator`, whose orbit phase is wall-clock driven, so no scene renders a processing overlay. Settling itself is a fixed pump budget, identical every run, never adaptive.
-
-### Steps
-
-`UIStep` is deliberately tiny, and `--list` renders each step as a short string:
-
-| step | list form | behaviour |
-| --- | --- | --- |
-| `.press(target)` | `press:<target>` | accessibility press on the first node matching `target`. The default click path. |
-| `.click(target)` | `click:<target>` | synthetic mouse click at the centre of the matching node's frame. The escape hatch. |
-| `.type(text, into: target)` | `type:<target>:<text>` | focus the matching node and type into the field editor. |
-| `.settle(ms)` | `settle:<ms>` | pump the run loop for a fixed number of milliseconds. |
-
-`target` is resolved by `AXDump.find` in a fixed precedence: exact identifier, exact label, label substring, exact placeholder, placeholder substring, with the first match in document order. Placeholders matter because SwiftUI text fields publish no label and no title at all, so `AXPlaceholderValue` is the *only* text on the element and the only way to address one.
-
-A step that cannot find its target does not abort the scene; it records a warning in the manifest's `warnings[]` and the run continues. Three scenes are scripted today, all tagged `steps`: `console.sessions.search` types `accessibility` into `Search transcripts or timestamps`, filtering the list from ten rows to two; `console.system.confirm` presses `CLEAR HISTORY` to reach the danger-zone confirm state; and `console.refinement.model-catalog` types `claude` into `refinement.model.filter`, narrowing the pinned seven-model catalog to its three Anthropic rows. Each settles 120 ms afterwards.
-
-## Flows
-
-A scene answers whether one state still renders, reads and lints correctly. A `UIFlow` answers whether a real journey still works. It hosts a real app view with an inert `UIFlowFixture`, drives the real `DictationCoordinator` through an ordered script, and checks named semantic expectations at each checkpoint. Its stable id is the artifact basename; its title, tags and `covers` keys make the journey discoverable and connect it to the coverage ledger.
-
-The current catalog has 25 flows, comprising 23 portable and two tagged `os26`, in `UIFlowCatalog.everything()` execution order:
-
-- Home: `home.empty-to-populated`, `home.set-typing-speed`
-- Sessions: `sessions.search.no-results`, `sessions.search.clear`
-- Voice: `voice.toggle-cleanup`, `voice.auto-stop-dependency`, `voice.select-backend`
-- Glossary: `glossary.add-term`, `glossary.remove-term`
-- Refinement: `refinement.enable-and-check`, `refinement.select-model`
-- System: `system.recheck-backend`, `system.clear-history.confirm`
-- Menu and dictation: `menu.copy-transcript`, `dictation.paste.delivered`, `dictation.copy-only.terminal`, `dictation.refinement-skipped.code-editor`, `dictation.cancelled`, `dictation.asr-error`
-- Overlay: `overlay.recording.controls`, `overlay.capture.warmup`, `overlay.partial-preview`
-- Atoms: `atoms.confirm-row`
-- Native macOS 26: `console.rail.navigation.os26`, `menu.primary-action.os26`
-
-The script vocabulary is closed:
-
-| step | meaning |
-| --- | --- |
-| `act` | perform one action: accessibility press, synthetic click, text entry, direct coordinator dictation action, or console navigation |
-| `release` | release one named asynchronous gate |
-| `wait` | pump toward a state, present element or absent element, or settle for a fixed number of run-loop turns |
-| `check` | evaluate every expectation at a named checkpoint; one failure does not short-circuit the remaining checks |
-| `capture` | write and lint a named raster and accessibility frame, with optional golden reconciliation |
-
-The expectation vocabulary is also closed: `exists`, `absent`, `count`, `enabled`, `selected`, `value`, `label`, `role`, visible `text`, coordinator `state`, ordered `transitions`, a closed `model` probe, `warnings`, and `lintClean`. Count rules are `exactly`, `atLeast`, `atMost` and `between`; text rules are equality, containment, prefix, suffix, empty and non-empty. Transition checks can require an exact sequence, a contiguous run, or an ordered subsequence.
-
-State expectations match the coordinator case, not associated payloads: `idle`, `checkingPermissions`, `recording`, `finalizingAudio`, `transcribing`, `cleaning`, `refining`, `readyToInsert`, `pasteAttempted`, `copiedOnly`, `insertFailed`, `error`, or `cancelled`. The 18 model probes are `transcript`, `outcome`, `errorMessage`, `targetLabel`, `recentSessionCount`, `lifetimeDictationCount`, `typingSpeedWPM`, `glossaryTermCount`, `refinementEnabled`, `cleanupEnabled`, `activeBackend`, `processingInFlight`, `deliveredText`, `deliveryBundleID`, `deliveryDisposition`, `deliveryCount`, `pasteboardText`, and `pasteboardWrites`. The closed sets keep journal rendering exhaustive and stable.
-
-Flow selectors return the complete match set. Identifier, label, value, placeholder and role queries are exact; `labelContains` and `valueContains` are explicit exceptions for genuinely dynamic text, not fallback matching, and `all` requires every child query to match the same node. Any action or expectation that requires one node fails on zero matches or on ambiguity. A substring that silently retargets after a UI change is the bug a flow exists to catch, so flows never use the scene stepper's first-match fuzzy precedence.
-
-No flow wait has a wall-clock deadline. The runner pumps one run-loop turn at a time, up to a fixed budget of 3,000 turns, and reports `not observed within 3000 turns` rather than elapsed milliseconds. Loaded and idle machines therefore make the same decision. Each asynchronous boundary is a named `UIGate`: `permission`, `captureLive`, `recorderStop`, `transcription`, `refinement`, `insertion`, or `persistence`. The script releases each gate explicitly. Without those gates, the pipeline could cross an intermediate state inside one settle and make the checkpoint a race. `captureLive` is the one gate whose port is synchronous: `AudioRecording.captureIsLive()` is polled by the metering loop, so `UIFlowFixture.captureWarmup()` parks a task on the gate and flips the flag its fake recorder answers from. Without it, the Bluetooth warm-up window is a state no checkpoint can stand in. That window measured 1422 ms to the first non-zero buffer on AirPods Max against 99 ms on the built-in microphone.
-
-### Production value seams
-
-The flow layer added two production seams. Both are value seams: the harness supplies deterministic closures at an existing boundary while shipping code follows the same control flow. Production code must not gain a harness-only branch.
-
-- `DictationRuntime` supplies `now`, `makeUUID` and `sleep`. `DictationCoordinator` accepts an optional runtime and stores `runtimeOverride ?? .live`; `.live` still calls `Date()`, `UUID()` and `Task.sleep`.
-- `GeneralPasteboard.writeOverride` and `clearOverride` are nil in every shipping build. `UIFlowContext` installs closures that record writes and return a synthetic change count. This is necessary because the menu transcript copy, Sessions transcript copy and `PropertyRow` value copy write directly to the general pasteboard rather than through the insertion adapter; pressing one in a flow must not replace or clear the user's real clipboard.
-
-`UIScriptClock` pins `now` by default with `step: 0` and generates UUIDs in a stable sequence. Exactly one fixture, `backendRecovery()`, uses a six-second step. `DictationCoordinator.refreshBackendHealth` suppresses probes within a five-second TTL measured against `runtime.now()`, so a frozen clock would make the System pane's automatic probe swallow the later RE-CHECK. A `#if UI_HARNESS` early return inside that shipping method was tried and rejected; stepping one fixture's value source preserves production control flow.
-
-`UIScriptClock.sleep` deliberately forwards to `Task.sleep`. Replacing it with `Task.yield()` made `RecordingSessionDriver`'s 40 ms metering loop a hot loop that never suspended, starved layout and moved a committed golden by 59 pt. A fake that never suspends is a spin lock, not a clock.
-
-### Flow journal and artifacts
-
-Every executed flow writes `.build/ui-harness/flows/<flow-id>.flow.txt`, even when the journal matches. The committed counterpart is `fixtures/ui/flows/<flow-id>.flow.txt`; a unified `.flow.diff` exists only while they differ. A failing flow is never blessable. Each `.capture` writes `<flow-id>.<frame>.png` and `<flow-id>.<frame>.ax.txt`; frame dump diffs and raster digests follow the same lifecycle as scene artifacts.
-
-Capture steps are optional. `dictation.paste.delivered` deliberately captures no frames: a frame at `.recording` measured 59 pt wide on one run and 58 pt on the next because the menu's LIVE chip breathes on a wall-clock-driven `.repeatForever` animation. Its 20 semantic expectations carry the journey instead. A flow must not capture a frame in a state dominated by a perpetual animation, just as the scene catalog refuses to snapshot the processing overlay's wall-clock-driven comet.
-
-The journal is line-oriented, LF-only, and ends in one newline:
+### CLI
 
 ```text
-flow: <id>
-title: <title>
-fixture: <fixture name>
-transitions: idle -> checkingPermissions -> recording
-PASS 1 <checkpoint> | <expectation> | <observed>
-FAIL 2 <checkpoint> | <expectation> | <observed>
-      selector: <exact selector>
-      candidate: <nearby addressable node>
-frame: <name> nodes=<count>
-warnings: <warning>
+Voiceour --ui-harness [--list | --update | --flow-list | --flow-check | --flow-update] [options]
 ```
 
-Expectation lines remain in script order. A failed selector adds its selector and sorted, capped candidate lines; frame lines record only the structural node count. Warning lines come last. The journal deliberately excludes dates, durations, PIDs, hostnames, absolute paths, UUIDs and frame reconciliation status, so the semantic golden is byte-identical across machines. `--no-frames` uses that host-independent journal as the required gate while still writing and linting frame artifacts; it skips only frame golden comparison because rasters and AX frame geometry can vary with host font rasterisation and display scale.
-
-At `--scale 2`, flow frame artifacts and goldens use the same `<flow-id>.<frame>@2x.*` family as scenes; journals and the flow manifest keep their fixed names.
-
-`flow-check` and `flow-update` write `.build/ui-harness/flows/manifest.jsonl` as sorted-key NDJSON. Nullable keys are present as `null`, never omitted, and no row carries a date, duration, PID, hostname, absolute path or UUID. Row order is one run row, then each flow with its expectations and captured frames in script order, then coverage rows sorted by key:
-
-| `type` | contents |
+| option | meaning |
 | --- | --- |
-| `ui_flow_run` | mode and filters; `flows` plus mutually exclusive `ok`, `failed`, `changed`, `missing_golden`, and `written` buckets; expectation/finding tallies; `coverage_declared` plus the six coverage-status buckets; `undeclared_coverage_keys` as a sorted string array |
-| `ui_flow` | id, title, tags, coverage claims, status, checkpoint/expectation/transition/frame counts, warnings and error |
-| `ui_expectation` | flow id, checkpoint, ordinal, pass/fail status, expected and observed text, selector and candidates |
-| `ui_flow_frame` | flow/frame ids, pixel and AX status, raster digests, AX node count and lint findings |
-| `ui_coverage` | key, kind, surface, title, status, disposition, claimants, limitation and declaration problem |
+| `--mode MODE` | `list`, `check`, `update`, `flow-list`, `flow-check`, or `flow-update`; default `check`. |
+| `--list`, `--update` | Short forms for scene list and scene update. |
+| `--flow-list`, `--flow-check`, `--flow-update` | Short forms for flow modes. |
+| `--only a,b` | Include ids containing, or entries tagged, `a` or `b`. |
+| `--except a,b` | Exclude matching ids/tags after inclusion filtering. |
+| `--out DIR` | Artifact directory; default `.build/ui-harness`. |
+| `--golden DIR` | Golden directory; default `fixtures/ui`. |
+| `--repo-root DIR` | Root used to resolve the two defaults; `VOICEOUR_REPO_ROOT` is the environment equivalent. |
+| `--scale 1|2` | Raster scale; default 1. |
+| `--no-sheet` | Skip the scene contact sheet. |
+| `--stdout` | Also emit the NDJSON manifest to stdout; prose moves to stderr. |
 
-`--flow-list` prints one sorted-key `ui_flow_catalog` JSON object containing each flow's id, title, tags, coverage keys, checkpoint count and expectation count. It does not host a window.
+An unfiltered check/update excludes `os26` automatically. Explicit filters opt out of that default, but unsupported native scenes are skipped when other runnable matches remain.
 
-## Film reels
+Exit status is 0 for a clean check or a successful update, 1 for a changed/missing/failed artifact or error-severity lint result, and 2 for invalid harness arguments. A broken scene or flow is recorded and the remaining entries still run.
 
-A reel is one media clip: an id, a title, a logical size, a forced colour scheme, a per-frame
-delay, and a stage. The stage is the real hosted view plus a script that mutates the real
-observable model the view watches. The types are `UIFilmReel`, `UIFilmStage` and `UIFilmRecorder`
-in `Sources/Voiceour/UIHarness/UIFilmCatalog.swift`, and the catalog is `UIFilmCatalog`.
+## Artifacts and goldens
 
-**Reels are media and sit outside every gate.** Nothing diffs a frame, digests it, lints it, or
-declares coverage for it, and no `make` gate runs `film`. The reel's subject is the animation a
-golden may never contain. Processing states draw `FrostedCometIndicator`, a
-`TimelineView(.animation)` whose orbit phase comes from the wall clock, so no *scene* renders a
-processing overlay. A reel includes that motion without requiring reproducible bytes because no
-committed artifact depends on those bytes.
+```text
+.build/ui-harness/
+  <scene>.png
+  <scene>.ax.txt
+  <scene>.ax.diff                 # present only while AX differs
+  manifest.jsonl
+  contact-sheet.png
+  flows/
+    <flow>.flow.txt
+    <flow>.flow.diff              # present only while journal differs
+    manifest.jsonl
 
-Frames land in `.build/ui-harness/film/<reel-id>/` as `frame-0000.png`, `frame-0001.png`, …
-beside a `reel.json` carrying `id`, `title`, `frame_count`, `frame_milliseconds`, pixel `width`
-and `height`, and `scale`. The directory is recreated from empty on every run: a reel that got
-shorter would otherwise leave the previous run's trailing frames behind, and ffmpeg's
-`frame-%04d.png` pattern would splice those orphans onto the end of the GIF.
-
-```sh
-make ui-film                                    # frames, then the committed GIF
-scripts/make_readme_gif.sh --width 480          # the same frames at another width
-scripts/ui_harness.sh --mode film --scale 2     # frames only, no ffmpeg
+fixtures/ui/
+  <scene>.png.sha256
+  <scene>.ax.txt
+  flows/<flow>.flow.txt
 ```
 
-`scripts/make_readme_gif.sh` runs the harness at `--scale 2`, reads `frame_milliseconds` out of
-`reel.json` to derive the frame rate, and assembles `docs/media/<reel-id>.gif` with a two-pass
-ffmpeg palette (`palettegen stats_mode=diff` then `paletteuse dither=bayer`). It needs `ffmpeg`
-and `ffprobe` on `PATH`; it requires no jq. The committed GIF is reviewed as media. A diff on it
-means someone re-recorded it, not that a gate moved.
+The full PNG is an inspection artifact; the committed raster golden is its SHA-256 digest. This keeps binary churn out of history while detecting the same pixel change. At 2x the basename gains `@2x`, including the AX dump because display scale changes pixel snapping and geometry.
 
-The current reel is `dictation-island`, 400x120 pt dark, 60 ms per frame, 99 frames, and about
-5.9 s long. It hosts the real `RecordingOverlayView` on a flat `Ink.void` backdrop. The backdrop
-is flat because a GIF holds 256 colours and a gradient bands. The reel drives the real
-`RecordingOverlayModel` through the real `SessionState` sequence one dictation walks:
+Update mode writes only payloads that changed and reports them as `written`; identical files remain untouched. A scene with an error-severity lint finding cannot be blessed. Read `.ax.diff` or `.flow.diff` before any update.
 
-| phase | state | frames |
-| --- | --- | --- |
-| warm-up | `.recording`, capture not yet live | 5 |
-| live speech | `.recording`, one meter sample per frame | 44 |
-| finalizing | `.finalizingAudio` | 7 |
-| transcribing | `.transcribing` | 12 |
-| cleaning | `.cleaning` | 7 |
-| refining | `.refining` | 14 |
-| ready | `.readyToInsert` | 10 |
+`manifest.jsonl` uses sorted-key NDJSON with one run row followed by catalog-order result rows. Scene statuses are `ok`, `changed`, `missing-golden`, `written`, and `failed`. Nullable fields are explicit `null`. The flow manifest records the same run/result shape around checkpoints and expectations.
 
-The 44 meter levels form **one synthetic utterance envelope**. They are not recorded audio. A
-committed `[Float]` literal indexed by frame uses no `Date()` and no `.random`. It is shaped like a spoken
-sentence with attack, syllable dips, a breath, an emphasised run, and a decay. No microphone is
-opened and no audio file exists.
+## Scene inventory
 
-`cacheDisplay` drops `.blur(radius:)` and `.shadow(...)`, and an offscreen window has no desktop
-for the island's glass to sample. The pill therefore reads flatter in the GIF than it does on a
-real display: the recorded capsule is the painted fallback surface without its shadow bleed or
-backdrop refraction. Every control, glyph, label and waveform bar is the real thing at the real
-measure. The material around them is not.
+`UISceneCatalog` is organized around current product surfaces:
 
-## Coverage ledger
+- the four native console tabs: General, Glossary, History, and System, including empty, search, permission, acquisition, and confirmation states;
+- the menu popover at rest, after an error, and with a transcript;
+- the recording panel and island while recording or waiting for real microphone signal;
+- accessibility adaptations for Reduce Transparency, Increase Contrast, and Differentiate Without Color;
+- representative `os26` menu and overlay branches.
 
-`UICoverageRegistry` declares every UI surface, state and journey independently of the scenes and flows that may verify it. The registry is authoritative; at this revision it declares 181 requirements (10 surface, 137 state and 34 journey): 110 required, 61 snapshot-only and 10 not-verifiable. The snapshot-only count includes all 10 surface declarations, whose helper assigns that disposition. The three dispositions mean:
+Use `make ui-list` as the authoritative inventory. A scene is a deterministic id, title, size, color scheme, tags, optional accessibility adaptation, optional interaction steps, and a closure building the real view.
 
-- `required`: a passing flow must claim the key;
-- `snapshotOnly(sceneID:)`: static evidence is sufficient, and the named scene must exist in `UISceneCatalog`;
-- `notVerifiable(limitation)`: the offscreen path measurably cannot verify the requirement, and the reason must come from the closed `UIKnownLimitation` vocabulary.
+Scene rules:
 
-The coverage baseline makes that ledger an enforceable ratchet without pretending every gap is already closed. The file is authoritative; at this revision `fixtures/ui/coverage-baseline.txt` contains 68 real key entries after comments and blank lines are excluded. The gate enforces both directions:
+1. Construct coordinators through `UIFixtures`, never `DictationCoordinator.live()`.
+2. Derive no artifact value from the current date, random ids, random choices, the system accent, local privacy grants, home-directory paths, or the developer's locale/time zone.
+3. Pin those values through existing `RenderOverrides` seams. A production read must stay `override ?? realValue`; never add a harness-only branch to shipping control flow.
+4. Avoid perpetual animation in scenes. Fixed run-loop pumping makes an active animation intentionally time-dependent.
+5. Add or update the closest existing scene for a new observable static state; do not create a second fixture convention.
 
-- **Regression:** a required key is uncovered now but absent from the baseline. A surface was added without coverage or a passing claimant was lost, so the run fails.
-- **Stale entry:** a baseline key is covered now. The run fails until the entry is removed, so a closed gap cannot remain as permission to uncover the key later.
+`RenderOverrides` currently pins time, calendar/locale/time zone, permission answers, storage paths, the overlay comet, accessibility adaptations, transcript selection, the portable glass branch, and text-role recording. Every field is inert in production.
 
-Only passing flows contribute claims. A red flow covers nothing; otherwise the broken journey would bless the exact gap it exposed. Broken snapshot declarations and flow claims for undeclared keys also fail.
+## Semantic flows
 
-A filtered `--only` run cannot judge the rest of the catalog. Keys it did not evaluate are deferred, regressions are enforced only over evaluated keys, and baseline entries are never pruned. For the same reason, `--flow-update --only …` refuses to rewrite `coverage-baseline.txt`; run an unfiltered `make ui-flow-update` when a baseline change is intended.
+A `UIFlow` hosts a real menu, overlay, or native console view with an inert fixture, then drives real controls and `DictationCoordinator` transitions through a deterministic script. Checkpoints assert named semantics and write a host-independent `.flow.txt` journal. The journal is the durable contract; flows do not own raster or AX goldens.
 
-Review every `coverage-baseline.txt` diff as coverage, not fixture churn. A removed line is a gap closed by a passing flow. An added line means coverage was dropped or a new required gap was introduced and needs explicit justification; the committed ratchet is expected to shrink, not grow.
+The core journeys are:
 
-`make ui-coverage` evaluates declarations, claims and the baseline without hosting a view. `make ui-flow` is the host-independent semantic gate, `make ui-flow-frames` adds host-sensitive frame reconciliation, and `make ui-all` runs the portable scene gate, then the full flow-frame gate, then — on a macOS 26 host only — `ui-snap-os26` and `ui-flow-os26`. The os26 legs are conditional rather than excluded because a host that can render system glass has no excuse for skipping them, and one that cannot must not fail on them.
+- successful normal-text delivery;
+- terminal copy-only delivery;
+- cancellation;
+- an ASR failure;
+- menu transcript copying;
+- recording controls and microphone warmup;
+- settings, glossary, history search/delete, and System recovery actions across the four tabs.
+
+Asynchronous boundaries are explicit named gates released by the script. Waits are bounded run-loop pump counts, never wall-clock deadlines. Artifact strings may not contain live dates, durations, UUIDs, process ids, or machine paths. Production seams are value seams supplied at existing boundaries; shipping behavior must follow the same path.
+
+Read the journal diff first. It names checkpoint, expectation, observed value, selector, and pass/fail without asking a reviewer to infer behavior from pixels. A red flow cannot be blessed.
+
+## Measured offscreen invariants
+
+Every item below is load-bearing and measured:
+
+- `UIHarnessRuntime.prepareProcess()` sets activation policy to `.prohibited` before hosting. It activated in **0/24** runs, versus **20/30** under `.accessory`; refusing key status alone was insufficient.
+- The return value of `setActivationPolicy(.prohibited)` is false even when the policy is applied. It is intentionally ignored.
+- `NSApplication.shared` must exist and `finishLaunching()` must run before a CoreGraphics window API, or the process aborts at `CGS_REQUIRE_INIT`.
+- The borderless `OffscreenWindow` is parked at **(-30,000, -30,000)**. Its `constrainFrameRect(_:to:)` must return the requested rect without calling `super`: a probe at (-12,000, -12,000) was moved to (320, 480), visible for 2.4 seconds.
+- The window cannot become key or main. It swallows all ordering except `.out`, including `orderFrontRegardless()`. `cacheDisplay` produced byte-identical output without ordering a window.
+- `ConsoleWindowView.managesActivationPolicy` checks both the development suppression flag and the current `.prohibited` policy. The runtime reasserts `.prohibited` before and after hosting so console appearance/disappearance cannot promote the harness to `.regular` or demote it to `.accessory`.
+- Enhanced accessibility is required: `NSHostingView` exposed **1 node before** `setAccessibilityEnhancedUserInterface:` and **23 after** in the probe.
+- Settle is a fixed **150 iterations × 1 ms** before and after scene interaction; teardown is 30 iterations. A 1280×860 hierarchy completed layout in that budget. Pumping 200 ms while a perpetual animation ran produced **6/6 unique hashes**, so adaptive “until stable” settling is forbidden.
+- Every pump runs one `RunLoop.run` slice and drains up to 64 posted events. Sleep or run-loop pumping alone did not deliver queued AppKit events.
+- Capture uses `NSHostingView.cacheDisplay(in:to:)` into an owned interleaved RGBA8 `NSBitmapImageRep` with `.deviceRGB`. `bitmapImageRepForCachingDisplay` embedded a 3,149-byte display ICC profile plus cICP data; the hand-built bitmap carries no monitor profile.
+- `ImageRenderer` is not a substitute: it rendered AppKit-backed controls and representables as opaque `#FFCC00` placeholders.
+- Alpha is deliberate. It disables subpixel font smoothing, the largest measured source of raster drift.
+
+## Why the harness cannot show glass
+
+There are two distinct measured failures:
+
+1. Legacy behind-window `NSVisualEffectView` has no desktop behind the offscreen window to sample, so it rasterizes as a flat opaque fill. This also prevents wallpaper-dependent goldens.
+2. SwiftUI `.glassEffect` is not rasterized by `cacheDisplay` at all; its area is absent/transparent rather than flattened. A measured native island capture was 0.0% opaque and 59.3% fully transparent.
+
+An `os26` scene therefore verifies app-owned paint, geometry, controls, and accessibility on the native branch, not system material. Use `scripts/console_shot.sh` for a real onscreen, WindowServer-composited material check; it requires Screen Recording permission and disrupts focus.
+
+`cacheDisplay` also drops Core Animation blur and shadow filters. Do not “fix” these limitations by weakening determinism or ordering the harness window.
 
 ## Lint rules
 
-Every rule is evaluated per scene against the accessibility tree, the capture, or both. An `error` fails the run in **both** `check` and `update` mode, and in `update` mode it also blocks the write, so a blank or placeholder render can never be blessed into a golden. A `warning` is recorded and never fails.
+Error findings fail both check and update modes; warnings are reported but do not fail.
 
-| rule | severity | regression it catches |
+| rule | severity | contract |
 | --- | --- | --- |
-| `blank-render` | error | the scene rasterised as an almost-flat fill (>=99.5% one colour): the view built but nothing painted. Blessing it would freeze the bug into a golden that then asserts nothing. |
-| `unsupported-view` | error | more than 0.1% of pixels are SwiftUI's `#FFCC00` placeholder: an AppKit-backed view (`NSViewRepresentable`, `ProgressView`, `FrostedGlassBackground`) silently failed to rasterise. |
-| `empty-tree` | error | fewer than 2 accessibility nodes: `setAccessibilityEnhancedUserInterface:` did not take, so nothing is addressable and every interaction step silently no-ops. |
-| `text-contrast` | error | a readable `AXStaticText`'s harness-recorded foreground and its resolved paint stack fall below WCAG AA: 4.5:1 for normal text, or 3:1 at 18 pt regular / 14 pt bold. Each surface installs the same opaque or translucent colour it fills beneath its content; the recorder composites those `surfaceGround` layers in paint order, then joins an explicitly recorded text sample to an AX node only when their frames overlap by >=50% of the smaller frame. Unmeasurable or unmatched samples are unknown data and stay silent. |
-| `out-of-bounds` | error | a node frame leaves the scene rect by more than 0.5 pt: content pushed outside the window is cropped away and unreachable while the screenshot merely looks tight. Nodes with an `AXScrollArea` ancestor are exempt because scrolled content below the fold is the mechanism, not a defect. |
-| `clipped-child` | warning | a node frame escapes its parent's frame by more than 0.5 pt: truncation or overflow, e.g. a label wider than its container or a row taller than its list. Children of a scroll viewport are exempt for the same reason: the viewport publishes its clip rect while its children publish document positions. |
-| `tiny-hit-target` | warning | an interactive node is under 484 sq pt (the 22x22 `RowIconButton` footprint in `GlassMarks.swift`, our own smallest deliberate affordance) or thinner than 8 pt on either edge: an icon shrank, or `.frame` landed on the label instead of the button. Tested by area, not per-edge, because a full-width 528x18 `GlassToggleStyle` row is twenty times easier to hit than the reference. |
-| `unlabeled-control` | error | an interactive node with a real frame has no label, value, placeholder, identifier or help: unannounced to VoiceOver, and unaddressable by `AXDump.find`, so no step can exercise it. |
-| `overlapping-controls` | warning | two unrelated interactive nodes intersect over more than 25% of the smaller frame: a `ZStack` ordering mistake, or an overlay missing `.allowsHitTesting(false)`. One swallows the other's clicks. Capped at 20 findings per scene. |
-| `duplicate-identifier` | warning | two or more nodes share both an identifier **and** a label, so `find()` cannot tell them apart and `press("x")` can silently retarget. The label must collide too: SwiftUI auto-stamps `Image(systemName:)` names as identifiers, so eight `xmark` remove buttons on one pane are normal and each stays addressable by its own label. |
-| `control-height` | warning | an interactive node's height is outside the `Control` scale (24 / 28 / 32 / 40) and row scale (32 / 40 / 44 / 64). It uses the same interactive subject set and synthesised-scroller exclusion as the other control rules. It deliberately does not check noninteractive chips or marks: their dimensions are not hit-target heights. |
-| `off-grid` | warning | a bounded internal `AXScrollArea` width, an accessibility-visible column dimension such as a Sessions column, is at least 4 pt and more than 0.01 pt off the 4 pt grid. One finding is emitted per viewport, capped at 20 per scene. |
+| `blank-render` | error | Reject an almost-flat raster that painted no meaningful UI. |
+| `unsupported-view` | error | Reject meaningful `#FFCC00` placeholder area from an AppKit-backed render failure. |
+| `empty-tree` | error | Require at least two accessibility nodes. |
+| `text-contrast` | error | Check recorded readable text against its resolved paint stack at WCAG AA thresholds. |
+| `out-of-bounds` | error | Reject reachable nodes outside the scene, excluding scroll-document content. |
+| `unlabeled-control` | error | Require an addressable label/value/placeholder/id/help for interactive nodes. |
+| `clipped-child` | warning | Report child geometry escaping its parent outside normal scrolling. |
+| `tiny-hit-target` | warning | Report controls below the project's measured minimum hit area. |
+| `overlapping-controls` | warning | Report substantial overlap between unrelated controls. |
+| `duplicate-identifier` | warning | Report an identifier-and-label collision that makes interaction ambiguous. |
+| `control-height` | warning | Report interactive heights outside the control and row scales. |
+| `off-grid` | warning | Report bounded internal scroll-column dimensions off the 4 pt grid. |
 
-`text-contrast` is deliberately a readable-text rule, not a palette audit. `.roleStyle(_:)` records text as it applies its role; shared components that must preserve an already-spelled-out font, tracking or foreground add the probe with `.recordTextRole(_:foreground:)`. Both paths record the effective foreground, role, point size, weight class and window-local frame. Opaque content, well and console fills mask inherited `surfaceGround` layers; translucent plate, chip, keycap and button fills append to them, so both colours are resolved to opaque sRGB only after the real paint stack is known. A sample is checked only when its measurable frame overlaps a readable `AXStaticText` by at least 50% of the smaller frame. The rule does not check a token use with no measurable frame, no such AX match or no explicit sample. Canvas text takes the concrete-`Text` styling path and is not sampled because Canvas publishes one accessibility controller rather than readable child text. Decorative text-role marks such as the empty glyph are accessibility-hidden and therefore fail the AX join by design. The recorder is installed immediately before a scene is hosted, its latest mounted-view samples are handed to `UILint.evaluate`, and the prior process-wide value is restored afterwards; production leaves the seam nil and installs no geometry probe.
+AppKit's synthesized scroller parts are excluded from interactive-control rules: the measured stock scroll views produced 45 false findings from invisible, disabled, unlabelable parts. Findings remain sorted by severity, rule, path, frame origin, and message for deterministic output.
 
-`off-grid` has a closed exemption list because AX geometry cannot reveal which arithmetic produced a frame. It deliberately does **not** test: (E1) roles outside `AXScrollArea`, including intrinsic text/image extents and paint-only cards or tiles that publish no AX bounds; (E2) AppKit's synthesised scroller parts; (E3) values below 4 pt; (E4) interactive widths, which hug font-derived labels; (E5) interactive heights, which `control-height` owns; (E6) missing, zero or non-finite frames; (E7) any origin, because origins accumulate intrinsic type metrics as well as token spacing; or (E8) scroll heights and outer viewport widths that fill the window remainder. E7 is load-bearing: the console viewport at y=150 and rail controls at y=97 / 133 / 169 / 205 / 241 / 277 are downstream of text metrics, not six designer-authored off-grid constants. E8 recognises the outer viewport as a frame wider than half the scene that terminates at the shell's 24 pt trailing inset. Fixed interactive heights remain enforced by `control-height`; fixed internal scroll widths remain enforced by `off-grid`. Card and tile sizes that SwiftUI does not expose as accessibility nodes remain golden-diff coverage rather than pretending the lint observed data it does not have.
-
-All four rules whose subjects include interactive nodes skip AppKit's synthesised `NSScroller` parts (subroles `AXIncrementArrow`, `AXDecrementArrow`, `AXIncrementPage`, `AXDecrementPage`). They are 0x0-to-6pt, permanently disabled, invisible at rest, and unlabelable from SwiftUI; counting them as app controls produced 45 findings against stock `ScrollView`s and none against real UI.
-
-A node that overflows the scene *and* whose parent is the hosting root emits both `out-of-bounds` and `clipped-child`; the two messages name different containers, so both are correct.
-
-Findings arrive pre-sorted by severity, rule, path, frame origin and message, and the harness preserves that order. The order is part of the determinism guarantee and must not be changed downstream.
-
-## Reading the manifest
-
-`manifest.jsonl` is newline-delimited JSON with sorted keys and an explicit `type` discriminator, matching the conventions of `voiceour-bench` and `voiceour-capture-bench`. The first line is the run, every following line is one scene, in catalog order.
-The sample below is illustrative; exact scene counts depend on the catalog and `--only` / `--except` selection.
-
-```jsonc
-// line 1
-{"type":"ui_run","mode":"check","only":[],"scale":1,"scenes":18,
- "ok":16,"changed":1,"missing_golden":1,"written":0,"failed":0,
- "error_findings":0,"warning_findings":3,
- "started_at":"2026-07-26T14:20:34Z","duration_ms":2417,
- "output_dir":"/…/.build/ui-harness","golden_dir":"/…/fixtures/ui",
- "contact_sheet":"/…/.build/ui-harness/contact-sheet.png"}
-
-// lines 2..n
-{"type":"ui_scene","id":"console.home","title":"Home pane, idle",
- "tags":["console"],"width":1164,"height":820,"scale":1,
- "status":"changed","pixel_status":"changed","ax_status":"ok",
- "png_sha256":"…","golden_png_sha256":"…","ax_node_count":137,
- "duration_ms":214,
- "findings":[{"frame":{"height":18,"width":140,"x":24,"y":72},
-              "message":"…","path":"AXGroup/AXScrollArea/AXButton",
-              "rule":"tiny-hit-target","severity":"warning"}],
- "warnings":[],"error":null}
-```
-
-Field notes:
-
-- `status` is the scene verdict. It is `failed` when `error` is non-null, otherwise the first non-`ok` of `pixel_status` and `ax_status`, otherwise `ok`.
-- The five statuses are `ok`, `changed`, `missing-golden`, `written` and `failed`. In JSON `missing-golden` is hyphenated, matching the human summary.
-- `written` appears only in `--update`, and only for goldens that actually moved. An `--update` run over an unchanged scene reports `ok` and leaves the file's mtime alone, so `--update` names exactly which goldens changed and leaves the rest clean in git.
-- `golden_png_sha256` is the digest of the golden **as it was read**, so on a `changed` scene it is the old digest and `png_sha256` is the new one. Both are `null` when there is no golden or no capture.
-- `error` is a per-scene failure message. A scene that throws is recorded and the run continues; one broken scene never aborts the others.
-- Frame components are rounded to one decimal and negative zero is normalised, so they agree byte-for-byte with the numbers the lint messages print.
-- Nullable keys are always present as `null`, never omitted.
-
-The human summary on stdout is one line per non-`ok` scene plus a tally, all prefixed `ui-harness:` so it greps cleanly:
-
-```
-ui-harness: changed console.home pixel=changed ax=ok
-ui-harness: missing-golden console.glossary.empty pixel=missing-golden ax=missing-golden
-ui-harness: 18 scenes, 16 ok, 1 changed, 1 missing-golden
-ui-harness: artifacts /…/.build/ui-harness
-```
-
-Error-severity findings and harness errors go to stderr with the same prefix. With `--stdout` the manifest takes stdout and every prose line moves to stderr.
-
-`--list` prints exactly one JSON object:
-
-```json
-{"type":"ui_catalog","scenes":[{"color_scheme":"dark","height":820,"id":"console.home","steps":["settle:120"],"tags":["console"],"title":"Home pane, idle","width":1164}]}
-```
-
-## For agents
-
-Inspect a static UI change in four commands:
+## Review workflow
 
 ```sh
-scripts/ui_harness.sh --only <area>          # 1. render + check the scenes you touched
-open .build/ui-harness/contact-sheet.png     # 2. inspect every selected scene, captioned by id
-cat .build/ui-harness/<scene-id>.ax.diff     # 3. read the semantic change before the pixels
-scripts/ui_harness.sh --update --only <area> # 4. bless the intended scene change
-```
+scripts/ui_harness.sh --only <area>
+open .build/ui-harness/contact-sheet.png
+cat .build/ui-harness/<scene>.ax.diff
+scripts/ui_harness.sh --update --only <area>
 
-Inspect an interactive change through its flow:
-
-```sh
-make ui-flow-list
-scripts/ui_harness.sh --mode flow-check --only <journey> --no-frames
-cat .build/ui-harness/flows/<flow-id>.flow.diff
+scripts/ui_harness.sh --mode flow-check --only <journey>
+cat .build/ui-harness/flows/<flow>.flow.diff
 scripts/ui_harness.sh --mode flow-update --only <journey> --except os26
 make ui-flow
-make ui-coverage
 ```
 
-Read the journal diff before any frame pixels. It states the named checkpoint, expectation and observed value, so a changed state transition or delivered string is reviewable without interpreting a screenshot. Use the named PNG and AX diff when the semantic journal is unchanged but a captured frame moved. A new static surface needs a scene and a coverage-registry requirement; new interactive behaviour needs a flow that claims the corresponding required key.
-
-Never run scene or flow update mode without reading the relevant diff first. Update refuses to bless a red flow or an error-severity finding, but it can still bless a real regression outside the modeled rules. Use `--only` for the cheap iteration loop, then run the full portable `make ui-flow` and `make ui-coverage`: a filtered run cannot prove ledger completeness.
-
-## Activation
-
-Two guards keep the harness and the screenshot script out of your way.
-
-The harness exits from the **first statement** of `VoiceourApp.init()`, before the audio muter, the dictation coordinator, the recording overlay and the menu bar item exist. `UIHarnessRuntime.prepareProcess()` then pins the activation policy to `.prohibited`, which is the only policy measured to reliably not self-activate.
-
-`ConsoleView.onAppear` normally promotes the app to `.regular` and calls `NSApp.activate`, because a user who opens the console expects a normal, Cmd-Tab-reachable window. A scene hosting the real `ConsoleView` would otherwise activate the app, so both `onAppear` and `onDisappear` are skipped when the policy is already `.prohibited` (the harness) or when the process was launched with `--no-activate`. A normal user launch matches neither condition and behaves exactly as before.
-
-`--no-activate` is a development flag alongside `--show-console` and `--console-section=`; `scripts/console_shot.sh` passes it to minimise its disruption. The console window still has to be onscreen to be screenshotted, and the show-console notification handler in `MenuBarLabel` still calls `NSApp.activate`, so that script still takes focus briefly. `--no-activate` removes the promotion to `.regular`, including the Dock icon and Cmd-Tab entry appearing and disappearing, plus the second activate in `ConsoleView.onAppear`. The harness is the path with no disruption.
-
-The activation claim was measured with `lsappinfo front` immediately before and immediately after a full render/lint/diff/update cycle. It returned the identical ASN both times:
-
-```
-$ lsappinfo front            # before
-ASN:0x0-0x28a88a6:
-$ ... render, lint, diff, write goldens, compose the contact sheet ...
-$ lsappinfo front            # after
-ASN:0x0-0x28a88a6:
-```
-
-Re-measure it the same way if you ever change the hosting path: an ASN that moves means something ordered a window front or activated the app.
-
-## Limitations
-
-These are measured properties of offscreen rendering on this machine, not bugs to be worked around. Do not design a scene that depends on any of them.
-
-A flow inherits every scene limitation and additionally cannot verify the contents of the real pasteboard, real CGEvent delivery, real TCC prompts, `NSOpenPanel`, list-row selection, key equivalents, or pointer hover. Its fixtures record the insertion effect the app requested without touching the user's clipboard or posting a real event. Claims about those real system effects require the live app, not a flow golden.
-
-- **An `ax_status` of `ok` is not evidence that a scene is visible.** The dump is built from the view hierarchy, so a node reports correctly whether or not anything rasterised at its frame. Accessibility cannot gate a pixel defect. Worked example: on macOS 26 a glass nav selection sitting on the glass window ground lost a contiguous rail band from the render, while every button, label, value, and frame in the AX dump matched the correct legacy render byte for byte. The band was lost because `cacheDisplay` skipped the nested glass layer group; the material did not erase anything. The same view renders 7 of 7 rail rows in a real onscreen window. Every modern glass consumer still needs an `os26` scene, and reviewers still inspect its PNG beside the corresponding legacy PNG for the native branch's own labels, glyphs, control boundaries, and control sizes. An `os26` PNG cannot show the material; use `scripts/console_shot.sh` when the material itself is the subject.
-- **The menu harness does not reproduce `MenuBarExtra` host chrome.** `menu.*` scenes host `MenuView` in a generic borderless window. The `*.os26` variants gate the content and ensure it adds no nested custom glass, but only the real system popover supplies its outer material and dismissal behavior.
-- **`cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all.** The modern material is absent from the capture rather than flattened; its area comes out fully transparent. Measured over the committed goldens, `overlay.island.recording.os26.png` is 0.0% opaque and 59.3% fully transparent and `console.voice.os26.png` is 37.6% fully transparent, against 100% opaque for the painted `console.home.populated.png`; every non-transparent pixel in an `os26` console golden is the app's own paint (`a=255`) or its own `GroundScrim.ink = Ink.void.opacity(0.88)` scrim (`a=224`). An `os26` scene therefore verifies the native branch's own painted content, geometry, control boundaries and accessibility tree, but never the material. `UIKnownLimitation.systemGlassMaterial` is the coverage vocabulary for the part it cannot reach. Deleting the `GlassEffectContainer` from a nested glass stack was measured to leave the PNG byte-identical, so a glass change can be invisible to this gate in both directions. `scripts/console_shot.sh` is the only way to see composited glass.
-- **The transparent overlay panel additionally has no offscreen backdrop.** Over and above the missing material, `cacheDisplay` never asks WindowServer to composite a desktop behind the clear panel, so there is nothing for the island to refract even where it does paint. The `overlay.*.os26` scenes still gate the waveform and both painted control discs, including their glyphs, boundaries, sizes, and positions. They never gate the island's live backdrop refraction.
-- **Legacy behind-window glass renders as a flat tint.** This applies only to the `NSVisualEffectView` path, not modern `.glassEffect`. `FrostedGlassBackground` in `Sources/Voiceour/GlassSurfaces.swift` sets `blendingMode = .behindWindow`: the WindowServer composites it from the actual desktop behind a real onscreen window. There is no desktop behind an offscreen window, so it rasterises as a single opaque fill, measured as exactly one distinct colour over the sampled area. Placing an opaque window behind it does not help. This also improves determinism because changing your wallpaper cannot perturb a golden. To see the composited effect you still need `scripts/console_shot.sh`.
-- **`cacheDisplay` drops `.blur(radius:)` and `.shadow(...)`.** Those are Core Animation filters and are not composited by the capture path. A scene whose entire point is a blur or a drop shadow cannot be verified here.
-- **`NSColor.controlAccentColor` is machine-dependent.** It resolves to the user's System Settings accent colour and no environment key overrides it. A golden containing the system accent will not port between machines. Use SwiftUI's `Color.accentColor`, which is machine-independent.
-- **List row selection cannot be driven by a synthetic click.** `NSTableView` row selection requires the application to be active, and the harness is deliberately never active. Drive list selection through the model instead, or expose it as a separate scene with the selection already applied.
-- **A plain SwiftUI `Button` leaves no `NSView` behind.** Only a zero-logic focus-ring view sits at its rect. `TextField`, `Toggle` and `List` do get real `NSView`s. Interaction steps therefore go through the accessibility layer by default, not the view hierarchy.
-- **Command-key equivalents never fire.** `performKeyEquivalent:` is only consulted for the key window, and an offscreen window in an inactive app never becomes key.
-- **`ConsoleView` hardcodes `.environment(\.colorScheme, .dark)`.** A light-mode scene routed through `ConsoleView` is a no-op, so every `console.*` scene is dark. Light variants have to host the pane directly, which is what the single `pane.home.light` scene does.
-- **Diagnostics prints placeholder build metadata.** `Bundle.main.infoDictionary` is nil for the SwiftPM binary, so the goldens show APP VERSION `development` and BUILD `local`. Running the harness out of the built `.app` would print real values and change those goldens.
-- **Every scene shares one process.** Scenes are rendered sequentially in a single app process, so a scene that mutates process-wide state (activation policy, `UserDefaults`, a singleton) can contaminate the scenes after it. Keep state inside the view.
-- **`ImageRenderer` is not used and must not be.** It stubs every `NSViewRepresentable` and AppKit-backed control, including plain `ProgressView`, with an opaque `#FFCC00` rectangle. The harness renders through `NSHostingView` plus `cacheDisplay` for this reason. The `unsupported-view` lint rule catches any placeholder that still slips through.
+Never update before reading the relevant diff. After a filtered iteration, run the full applicable scene or flow command; filtering proves only the selected entries.
