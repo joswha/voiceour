@@ -26,6 +26,11 @@ struct VoiceourApp: App {
                 Darwin.exit(UIHarnessMain.run(request) ? 0 : 1)
             }
         #endif
+        // SwiftUI constructs the live coordinator before did-finish-launching;
+        // guard here too so a duplicate cannot spawn its hotkey or sidecar first.
+        if VoiceourAppDelegate.terminateIfDuplicateApplication() {
+            Darwin.exit(0)
+        }
         SystemAudioMuter.recoverDurableOwnershipIfNeeded()
         if CommandLine.arguments.contains("--self-test") {
             let ok = VoiceourSelfTest.run()

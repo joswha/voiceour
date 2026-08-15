@@ -180,7 +180,7 @@ struct HotkeyEventRouter {
         case cancel
     }
 
-    private static let globeAssignedActionKeyCode: Int64 = 179
+    private static let globeAssignedActionKeyCode = UInt16(179)
 
     private var fnDetector = FnKeyToggleDetector()
     private var escapeDetector = EscapeCancelDetector()
@@ -195,9 +195,9 @@ struct HotkeyEventRouter {
         // keyDown/keyUp — not the flagsChanged modifier — so consume it here to suppress
         // the popup. It is never emitted for Fn+key combos, so combos are unaffected. The
         // toggle itself fires on the Fn (keyCode 63) release, so do not re-fire here.
-        // Tap-only: a passive monitor cannot suppress the popup, so that path leaves the
-        // key to the Fn detector exactly as it always has.
-        if event.getIntegerValueField(.keyboardEventKeycode) == Self.globeAssignedActionKeyCode {
+        // A passive monitor cannot suppress the popup, but it must ignore this event so
+        // the Fn detector does not disarm a hold that is still in progress.
+        if event.getIntegerValueField(.keyboardEventKeycode) == Int64(Self.globeAssignedActionKeyCode) {
             return .consume
         }
         guard let nsEvent = NSEvent(cgEvent: event),
@@ -220,6 +220,12 @@ struct HotkeyEventRouter {
         modifierFlags: NSEvent.ModifierFlags,
         isAutorepeat: Bool
     ) -> Outcome {
+        // Passive monitors cannot suppress Globe's assigned action. Forwarding it would
+        // disarm an in-progress Fn hold, so leave both detectors unchanged.
+        if keyCode == Self.globeAssignedActionKeyCode {
+            return .pass
+        }
+
         switch escapeDetector.handle(
             eventKind,
             keyCode: keyCode,
@@ -346,6 +352,8 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             Self.log.error("event tap mach port invalidated; rebuilding")
             teardownTap()
         }
+        // A rebuilt tap must not inherit a press whose key-down belonged to the old tap.
+        router = HotkeyEventRouter()
         if installEventTap() {
             // The tap now owns the key; drop the passive path so a toggle cannot fire twice.
             Self.log.log("hotkey path upgraded: passive monitors -> session event tap")
@@ -428,7 +436,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
 
     // Runs on the main run loop (the tap source is attached to it). Returns true when the
     // event should be consumed.
-    private func handleTap(_ event: CGEvent) -> Bool {
+    func handleTap(_ event: CGEvent) -> Bool {
         switch router.routeTapped(event) {
         case .pass:
             return false
@@ -483,7 +491,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
         removePassiveMonitors()
     }
 
-    private func teardownTap() {
+    func teardownTap() {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             runLoopSource = nil
@@ -493,6 +501,8 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             CFMachPortInvalidate(tap)
             eventTap = nil
         }
+        // Once the tap is gone, no held-key belief can be paired with future events.
+        router = HotkeyEventRouter()
     }
 
     private func removePassiveMonitors() {

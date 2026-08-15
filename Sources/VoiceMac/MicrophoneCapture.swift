@@ -53,6 +53,13 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
     private let session = AVCaptureSession()
     private let output = AVCaptureAudioDataOutput()
     private let queue = DispatchQueue(label: "com.voiceour.microphone-capture")
+    /// `startRunning`/`stopRunning` both block — measured 134-216 ms for a start,
+    /// dominated by audio-HAL spin-up — so they run here instead of on whichever
+    /// actor asked. Serial, so a stop can never overtake the start it ends.
+    private let sessionQueue = DispatchQueue(label: "com.voiceour.capture-session")
+    /// Held so device-disconnect notifications can be scoped to the device this
+    /// session actually opened.
+    private let device: AVCaptureDevice
 
     private let lock = NSLock()
     private var startedAt: Date?
@@ -60,6 +67,16 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
     private var meterLevel: Float = 0
     private var isCapturing = false
     private var handler: (@Sendable (AVAudioPCMBuffer) -> Void)?
+    /// First reason this capture stopped being able to record, or nil.
+    ///
+    /// `AVCaptureSession` does not fail loudly: a runtime error or an unplugged
+    /// device leaves the session object alive and simply stops delivering buffers,
+    /// so a dictation would end with a short-or-empty WAV and be transcribed as if
+    /// the user had said nothing. Latched rather than sampled because the failure
+    /// and the stop can be milliseconds apart, and first-writer-wins because the
+    /// first cause is the one that explains the recording.
+    private var failure: String?
+    private var observers: [NSObjectProtocol] = []
 
     /// - Parameter preferredDeviceUID: a CoreAudio device UID to pin to, or `nil`
     ///   to record from the system default input.
@@ -75,6 +92,7 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         guard let device = pinned ?? AVCaptureDevice.default(for: .audio) else {
             throw CaptureError.noInputDevice
         }
+        self.device = device
         source = Source(
             uid: device.uniqueID,
             name: device.localizedName,
@@ -89,6 +107,7 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         guard session.canAddOutput(output) else { throw CaptureError.cannotAddOutput }
         session.addOutput(output)
         output.setSampleBufferDelegate(self, queue: queue)
+        observeFailures()
     }
 
     /// Begins delivering buffers. `onBuffer` runs on a private serial queue, so it
@@ -99,10 +118,15 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
             startedAt = Date()
             isCapturing = true
         }
-        session.startRunning()
+        let session = session
+        sessionQueue.async { session.startRunning() }
     }
 
     /// Idempotent: cancel, error and normal-stop paths all reach it.
+    ///
+    /// Synchronous by contract. The recorder drains the resampler's tail straight
+    /// after this returns and relies on no further buffer arriving, which is
+    /// exactly what `stopRunning()` guarantees once the delegate queue quiesces.
     func stop() {
         let wasCapturing = lock.withLock { () -> Bool in
             let was = isCapturing
@@ -111,7 +135,45 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
             return was
         }
         guard wasCapturing else { return }
-        session.stopRunning()
+        let session = session
+        sessionQueue.sync { session.stopRunning() }
+    }
+
+    /// The first reason this capture could no longer record, or nil if none.
+    func failureReason() -> String? {
+        lock.withLock { failure }
+    }
+
+    private func observeFailures() {
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(
+                forName: AVCaptureSession.runtimeErrorNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] notification in
+                let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
+                self?.latchFailure(error?.localizedDescription ?? "the audio capture session failed")
+            },
+            center.addObserver(
+                forName: AVCaptureDevice.wasDisconnectedNotification,
+                object: device,
+                queue: nil
+            ) { [weak self] _ in
+                self?.latchFailure("the microphone was disconnected during recording")
+            },
+        ]
+    }
+
+    private func latchFailure(_ reason: String) {
+        lock.withLock {
+            if failure == nil { failure = reason }
+        }
+    }
+
+    deinit {
+        let center = NotificationCenter.default
+        for observer in observers { center.removeObserver(observer) }
     }
 
     func hasReceivedAudio() -> Bool {

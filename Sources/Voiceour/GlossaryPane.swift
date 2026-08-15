@@ -75,11 +75,9 @@ struct GlossaryPane: View {
                                             $0.termId == term.termId
                                         })
                                     else { return }
-                                    coordinator.settings.glossary[index] = TermMutation.settingAliases(
-                                        aliases,
-                                        on: coordinator.settings.glossary[index]
-                                    )
-                                    coordinator.saveSettings()
+                                    var proposed = coordinator.settings.glossary
+                                    proposed[index] = TermMutation.settingAliases(aliases, on: proposed[index])
+                                    coordinator.commitGlossary(proposed)
                                 },
                                 remove: { remove(term) }
                             )
@@ -143,10 +141,13 @@ struct GlossaryPane: View {
             source: .manualImport,
             scope: .global
         )
+        // Refused rather than added when one of its spoken forms already names
+        // another term: the ledger keeps the text so the user can edit it.
+        var accepted = false
         withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
-            coordinator.settings.glossary.append(term)
+            accepted = coordinator.commitGlossary(coordinator.settings.glossary + [term])
         }
-        coordinator.saveSettings()
+        guard accepted else { return }
         newTerm = ""
         newAliases = ""
     }

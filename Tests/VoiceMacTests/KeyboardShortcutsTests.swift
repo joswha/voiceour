@@ -264,6 +264,16 @@ struct HotkeyEventRouterTests {
         #expect(try router.routeTapped(modifierChange(Self.fn, flags: [])) == .toggle)
     }
 
+    @Test func tapTeardownClearsPendingFnPressBeforeRebuild() throws {
+        let binder = KeyboardShortcutsBinder()
+
+        #expect(try binder.handleTap(modifierChange(Self.fn, flags: .maskSecondaryFn)) == false)
+        binder.teardownTap()
+
+        // A release that the rebuilt tap did not observe being pressed must not toggle.
+        #expect(try binder.handleTap(modifierChange(Self.fn, flags: [])) == false)
+    }
+
     /// The Escape claim must not steal the arming state the Fn toggle depends on.
     @Test func standaloneFnTapStillTogglesWhileArmed() throws {
         var router = HotkeyEventRouter()
@@ -278,6 +288,44 @@ struct HotkeyEventRouterTests {
 
         #expect(try router.routeTapped(key(Self.globeAssignedAction, down: true)) == .consume)
         #expect(try router.routeTapped(key(Self.globeAssignedAction, down: false)) == .consume)
+    }
+
+    @Test func passiveGlobeAssignedActionWhileFnHeldDoesNotDisarm() {
+        var router = HotkeyEventRouter()
+
+        #expect(
+            router.route(
+                .flagsChanged,
+                keyCode: Self.fn,
+                modifierFlags: [.function],
+                isAutorepeat: false
+            ) == .pass
+        )
+        #expect(
+            router.route(
+                .keyDown,
+                keyCode: Self.globeAssignedAction,
+                modifierFlags: [.function],
+                isAutorepeat: false
+            ) == .pass
+        )
+        #expect(
+            router.route(
+                .keyUp,
+                keyCode: Self.globeAssignedAction,
+                modifierFlags: [.function],
+                isAutorepeat: false
+            ) == .pass
+        )
+
+        #expect(
+            router.route(
+                .flagsChanged,
+                keyCode: Self.fn,
+                modifierFlags: [],
+                isAutorepeat: false
+            ) == .toggle
+        )
     }
 
     @Test func ordinaryTypingIsNeverClaimed() throws {

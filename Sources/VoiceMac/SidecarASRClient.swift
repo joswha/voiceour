@@ -28,17 +28,31 @@ struct SidecarLaunchConfiguration: Sendable {
     /// No interpreter, no project directory, no arguments: the helper is a sibling of the
     /// running executable in both a SwiftPM products directory and `Contents/MacOS`, which is
     /// what lets a copied `.app` transcribe at all.
-    static func sidecar(executableURL: URL, backend: String = "fake") -> SidecarLaunchConfiguration {
-        // Full inheritance is deliberate. The sidecar spawns nothing and reaches exactly one
-        // host, huggingface.co, for the pinned artifact; a stripped environment would break the
-        // proxy and certificate configuration needed for precisely that download.
-        var env = ProcessInfo.processInfo.environment
-        env["VOICEOUR_ASR_BACKEND"] = backend
-        env["VOICEOUR_PRELOAD"] = "1"
+    static func sidecar(
+        executableURL: URL,
+        backend: String = "fake",
+        parentEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SidecarLaunchConfiguration {
+        // The helper receives only process basics and Voiceour controls, not unrelated API keys
+        // or shell secrets. Proxy and TLS names stay allowlisted because the one permitted
+        // network path — downloading the pinned model artifact — must honor the user's route
+        // and trust configuration.
+        let permittedNames: Set<String> = [
+            "PATH", "HOME", "TMPDIR",
+            "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE",
+            "https_proxy", "http_proxy", "no_proxy", "ssl_cert_file",
+        ]
+        var environment: [String: String] = [:]
+        for (name, value) in parentEnvironment
+        where permittedNames.contains(name) || name.hasPrefix("VOICEOUR_") {
+            environment[name] = value
+        }
+        environment["VOICEOUR_ASR_BACKEND"] = backend
+        environment["VOICEOUR_PRELOAD"] = "1"
         return SidecarLaunchConfiguration(
             executableURL: executableURL,
             arguments: [],
-            environment: env
+            environment: environment
         )
     }
 }
@@ -196,6 +210,49 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
     private static func messageType(from line: String) throws -> String {
         let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
         return object?["type"] as? String ?? ""
+    }
+
+    private enum DecodedResponseFrame {
+        case result(ASRResult)
+        case health(ASRHealthResponse)
+        case error(ASRErrorMessage)
+        case cancelled(ASRCancelledMessage)
+    }
+
+    private static func decodeResponseFrame(_ line: String) throws -> DecodedResponseFrame? {
+        let data = Data(line.utf8)
+        switch try messageType(from: line) {
+        case "result":
+            let result = try ASRWire.decode(ASRResult.self, from: data)
+            try requireCompatibleProtocol(result.protocolVersion, requestId: result.requestId)
+            return .result(result)
+        case "health":
+            let health = try ASRWire.decode(ASRHealthResponse.self, from: data)
+            try requireCompatibleProtocol(health.protocolVersion, requestId: health.requestId)
+            return .health(health)
+        case "error":
+            let error = try ASRWire.decode(ASRErrorMessage.self, from: data)
+            try requireCompatibleProtocol(error.protocolVersion, requestId: error.requestId)
+            return .error(error)
+        case "cancelled":
+            let cancelled = try ASRWire.decode(ASRCancelledMessage.self, from: data)
+            try requireCompatibleProtocol(cancelled.protocolVersion, requestId: cancelled.requestId)
+            return .cancelled(cancelled)
+        default:
+            return nil
+        }
+    }
+
+    private static func requireCompatibleProtocol(_ version: Int, requestId: String?) throws {
+        guard version == asrProtocolVersion else {
+            throw SidecarASRClientError.protocolError(
+                ASRErrorMessage(
+                    code: .incompatibleProtocol,
+                    requestId: requestId,
+                    detail: "protocol_version mismatch"
+                )
+            )
+        }
     }
 
     private enum RequestRaceResult<T: Sendable> {
@@ -551,16 +608,31 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
 
         private func handleLine(_ line: String, sidecarId: UUID) {
             guard running?.id == sidecarId else { return }
-            guard let type = try? SidecarASRClient.messageType(from: line) else { return }
-            let data = Data(line.utf8)
 
-            switch type {
-            case "result":
-                guard let result = try? ASRWire.decode(ASRResult.self, from: data) else { return }
+            let frame: DecodedResponseFrame
+            do {
+                guard let decoded = try SidecarASRClient.decodeResponseFrame(line) else { return }
+                frame = decoded
+            } catch let clientError as SidecarASRClientError {
+                guard case .protocolError(let message) = clientError else { return }
+                // An incompatible peer cannot safely serve later requests either. Fail every
+                // pending call with the protocol error instead of acting on a v2 terminal.
+                failAllAndStop(
+                    requestId: message.requestId,
+                    requestError: clientError,
+                    otherError: clientError,
+                    terminate: true
+                )
+                return
+            } catch {
+                return
+            }
+
+            switch frame {
+            case .result(let result):
                 guard let pending = pending.removeValue(forKey: result.requestId) else { return }
                 pending.resumeTranscribe(result)
-            case "health":
-                guard let response = try? ASRWire.decode(ASRHealthResponse.self, from: data) else { return }
+            case .health(let response):
                 guard let pending = pending.removeValue(forKey: response.requestId), let running else { return }
                 pending.resumeHealth(
                     ASRBackendHealth(
@@ -575,8 +647,7 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
                         downloadFraction: response.downloadFraction,
                         warming: response.warming
                     ))
-            case "error":
-                guard let error = try? ASRWire.decode(ASRErrorMessage.self, from: data) else { return }
+            case .error(let error):
                 if let requestId = error.requestId {
                     guard let pending = pending.removeValue(forKey: requestId) else { return }
                     pending.resume(throwing: SidecarASRClientError.protocolError(error))
@@ -588,12 +659,9 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
                         terminate: false
                     )
                 }
-            case "cancelled":
-                guard let cancelled = try? ASRWire.decode(ASRCancelledMessage.self, from: data) else { return }
+            case .cancelled(let cancelled):
                 guard let pending = pending.removeValue(forKey: cancelled.requestId) else { return }
                 pending.resume(throwing: CancellationError())
-            default:
-                return
             }
         }
 

@@ -1,6 +1,10 @@
 import Foundation
 import VoiceCore
 
+protocol ShutdownAwareSidecarPreloading: AnyObject {
+    func warmUp(isShuttingDown: @escaping () -> Bool) throws
+}
+
 /// The NDJSON protocol loop.
 ///
 /// One line of JSON per message on stdout and nothing else, ever: stderr carries diagnostics.
@@ -13,11 +17,22 @@ public final class SidecarServer {
     /// model load plus the longest decode this runtime is asked for; past it the process is
     /// assumed wedged and exits without teardown.
     static let eofGraceSeconds: TimeInterval = 120
+    /// Preload gets a short bounded join of its own before request draining. If it cannot stop,
+    /// `_exit` is safer than running ggml's static destructors against live Metal buffers.
+    static let preloadGraceSeconds: TimeInterval = 5
 
     private let backend: SidecarBackend?
     private let output: SidecarOutput
     private let log: (String) -> Void
     private let preloadEnabled: Bool
+    private let lifecycleLock = NSLock()
+    private var shutdownRequested = false
+
+    var isShuttingDown: Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return shutdownRequested
+    }
 
     /// Decodes are serialized: the parakeet context is not thread safe, and the retired
     /// Python sidecar serialized them the same way through a single-worker executor.
@@ -42,11 +57,19 @@ public final class SidecarServer {
     /// Emits `hello`, then serves until stdin reaches EOF. Returns the process exit code.
     public func run(input: FileHandle) -> Int32 {
         emitHello()
-        startPreloadIfRequested()
+        let preloadCompletion = startPreloadIfRequested()
 
         let reader = LineReader(handle: input)
         while let line = reader.next() {
             handle(line: line)
+        }
+
+        beginShutdown()
+        if let preloadCompletion,
+            preloadCompletion.wait(timeout: .now() + Self.preloadGraceSeconds) == .timedOut
+        {
+            log("shutdown: preload still running after grace; exiting without teardown")
+            _exit(0)
         }
 
         // A request the server accepted is owed its terminal, so EOF waits for the in-flight
@@ -83,18 +106,32 @@ public final class SidecarServer {
         output.emit(hello)
     }
 
-    private func startPreloadIfRequested() {
-        guard preloadEnabled, let backend else { return }
-        Thread.detachNewThread { [log] in
+    private func beginShutdown() {
+        lifecycleLock.lock()
+        shutdownRequested = true
+        lifecycleLock.unlock()
+    }
+
+    private func startPreloadIfRequested() -> DispatchSemaphore? {
+        guard preloadEnabled, let backend else { return nil }
+        let completed = DispatchSemaphore(value: 0)
+        Thread.detachNewThread { [self, log] in
+            defer { completed.signal() }
             let started = DispatchTime.now().uptimeNanoseconds
             do {
-                try backend.warmUp()
+                guard !isShuttingDown else { return }
+                if let controlled = backend as? ShutdownAwareSidecarPreloading {
+                    try controlled.warmUp(isShuttingDown: { self.isShuttingDown })
+                } else {
+                    try backend.warmUp()
+                }
                 let elapsed = (DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
                 log("VOICEOUR_PRELOAD warm in \(elapsed)ms")
             } catch {
                 log("VOICEOUR_PRELOAD failed: \(error)")
             }
         }
+        return completed
     }
 
     // MARK: - Dispatch

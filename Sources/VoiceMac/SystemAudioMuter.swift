@@ -66,9 +66,7 @@ public actor SystemAudioMuter: SystemAudioMuting {
     /// the device silent with no ownership left to undo it.
     private var generation: UInt64 = 0
 
-    public init() {
-        Self.recoverDurableOwnershipIfNeeded()
-    }
+    public init() {}
 
     public func mute() async -> Bool {
         if ownership != nil {
@@ -255,8 +253,8 @@ public actor SystemAudioMuter: SystemAudioMuting {
         }
     }
 
-    private static func removeDurableOwnershipFlag() {
-        guard let flagURL = durableOwnershipFlagURL else {
+    private static func removeDurableOwnershipFlag(at flagURL: URL? = durableOwnershipFlagURL) {
+        guard let flagURL else {
             return
         }
         try? FileManager.default.removeItem(at: flagURL)
@@ -266,14 +264,22 @@ public actor SystemAudioMuter: SystemAudioMuting {
     /// than a fade: nothing is playing yet at launch, and a fade here would
     /// only widen the window in which a second crash strands the device again.
     public static func recoverDurableOwnershipIfNeeded() {
-        guard let flagURL = durableOwnershipFlagURL,
-            let data = try? Data(contentsOf: flagURL)
-        else {
-            return
-        }
-        defer { removeDurableOwnershipFlag() }
-        guard let ownership = try? JSONDecoder().decode(MuteOwnership.self, from: data),
-            let deviceID = recoveryDeviceID(for: ownership)
+        recoverDurableOwnershipIfNeeded(
+            flagURL: durableOwnershipFlagURL,
+            resolveDevice: { deviceID, deviceUID in
+                recoveryDeviceID(deviceID: deviceID, deviceUID: deviceUID)
+            }
+        )
+    }
+
+    static func recoverDurableOwnershipIfNeeded(
+        flagURL: URL?,
+        resolveDevice: (_ deviceID: UInt32, _ deviceUID: String?) -> AudioObjectID?
+    ) {
+        guard let flagURL,
+            let data = try? Data(contentsOf: flagURL),
+            let ownership = try? JSONDecoder().decode(MuteOwnership.self, from: data),
+            let deviceID = resolveDevice(ownership.deviceID, ownership.deviceUID)
         else {
             return
         }
@@ -282,19 +288,22 @@ public actor SystemAudioMuter: SystemAudioMuting {
         for ramp in volumeRamps(forRestoring: ownership.controls, deviceID: deviceID, tolerant: true) {
             CoreAudioOutputDevice.setVolume(deviceID: deviceID, element: ramp.element, value: ramp.end)
         }
+        // An unplugged output may return on a later launch, so resolving the
+        // recorded device is what earns consumption of the recovery record.
+        removeDurableOwnershipFlag(at: flagURL)
     }
 
     /// Resolves the recorded device, refusing to write to a recycled ID: after
     /// a reboot that number can name hardware Voiceour never touched.
-    private static func recoveryDeviceID(for ownership: MuteOwnership) -> AudioObjectID? {
-        let recordedID = AudioObjectID(ownership.deviceID)
-        guard let uid = ownership.deviceUID else {
+    private static func recoveryDeviceID(deviceID: UInt32, deviceUID: String?) -> AudioObjectID? {
+        let recordedID = AudioObjectID(deviceID)
+        guard let deviceUID else {
             return recordedID
         }
-        if CoreAudioOutputDevice.uid(deviceID: recordedID) == uid {
+        if CoreAudioOutputDevice.uid(deviceID: recordedID) == deviceUID {
             return recordedID
         }
-        return CoreAudioOutputDevice.device(forUID: uid)
+        return CoreAudioOutputDevice.device(forUID: deviceUID)
     }
 
     private static var durableOwnershipFlagURL: URL? {

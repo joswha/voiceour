@@ -15,6 +15,14 @@ final class FakeRecorder: AudioRecording, @unchecked Sendable {
     private let directory: URL
     private var _producedURL: URL?
     private var starts = 0
+    private var discards = 0
+
+    /// How many times the coordinator asked this recorder to throw its session
+    /// away. Exactly one owner per session is the invariant: a cancel and the
+    /// pipeline both discarding raced over the same WAV.
+    var discardCount: Int {
+        lock.withLock { discards }
+    }
 
     var producedURL: URL? {
         lock.withLock { _producedURL }
@@ -52,6 +60,7 @@ final class FakeRecorder: AudioRecording, @unchecked Sendable {
     }
 
     func discardRecording() async {
+        lock.withLock { discards += 1 }
         if let url = producedURL { try? FileManager.default.removeItem(at: url) }
     }
 
@@ -104,8 +113,11 @@ final class FakeASR: ASRClienting, @unchecked Sendable {
 }
 
 struct FakeTracker: TargetTracking {
+    var bundleId: String? = "com.apple.TextEdit"
+    var safety: TargetSafetyClass = .normalText
+
     func snapshot() -> TargetSnapshot {
-        TargetSnapshot(bundleId: "com.apple.TextEdit", pid: 1, safety: .normalText)
+        TargetSnapshot(bundleId: bundleId, pid: 1, safety: safety)
     }
     func stillMatches(_ snap: TargetSnapshot) -> Bool { true }
 }

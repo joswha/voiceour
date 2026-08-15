@@ -58,12 +58,11 @@ public enum InsertionSafetyPolicy: Sendable {
         }
     }
 
-    /// Whether a copied command should have its trailing newline stripped.
+    /// Whether a copied command should have exactly one trailing newline stripped.
     ///
-    /// Only terminals: a copied command that ends in a newline executes the
-    /// moment it is pasted, which turns a dictation into an action the user did
-    /// not take.
+    /// A trailing newline executes a pasted command. Unknown-risky targets get
+    /// the terminal treatment because the app could not rule out a shell.
     public static func stripsTrailingNewline(for safety: TargetSafetyClass) -> Bool {
-        safety == .terminal
+        safety == .terminal || safety == .unknownRisky
     }
 }

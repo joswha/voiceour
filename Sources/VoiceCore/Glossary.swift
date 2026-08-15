@@ -4,6 +4,13 @@ private func aliasKey(_ value: String) -> String {
     value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 }
 
+private struct AliasReplacement {
+    let regex: NSRegularExpression
+    let range: NSRange
+    let replacementTemplate: String
+    let discoveryOrder: Int
+}
+
 public enum Glossary {
     public static func derivedAliases(for canonical: String) -> [String] {
         let tokens = canonicalTokens(in: canonical)
@@ -49,13 +56,62 @@ public enum Glossary {
     }
 
     public static func canonicalize(_ text: String, terms: [ProtectedTerm]) -> String {
-        var result = text
+        let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        var replacements: [AliasReplacement] = []
+        var discoveryOrder = 0
+
+        // Every match comes from the original text so replacement output can
+        // never trigger another glossary rule in the same pass.
         for term in terms {
+            let template = NSRegularExpression.escapedTemplate(for: term.renderedCanonical)
             for alias in matchingAliases(for: term) {
-                result = replaceAlias(alias, in: result, with: term.renderedCanonical)
+                guard let regex = aliasRegex(alias) else { continue }
+                for match in regex.matches(in: text, range: fullRange) {
+                    replacements.append(
+                        AliasReplacement(
+                            regex: regex,
+                            range: match.range,
+                            replacementTemplate: template,
+                            discoveryOrder: discoveryOrder
+                        )
+                    )
+                    discoveryOrder += 1
+                }
             }
         }
-        return result
+
+        // Prefer the longest original span, then the leftmost. The discovery
+        // order is only a stable fallback for identical spans; unambiguous
+        // vocabularies cannot assign an identical surface to different terms.
+        replacements.sort { lhs, rhs in
+            if lhs.range.length != rhs.range.length {
+                return lhs.range.length > rhs.range.length
+            }
+            if lhs.range.location != rhs.range.location {
+                return lhs.range.location < rhs.range.location
+            }
+            return lhs.discoveryOrder < rhs.discoveryOrder
+        }
+
+        var accepted: [AliasReplacement] = []
+        for replacement in replacements {
+            let overlaps = accepted.contains {
+                NSIntersectionRange($0.range, replacement.range).length > 0
+            }
+            if !overlaps {
+                accepted.append(replacement)
+            }
+        }
+
+        let result = NSMutableString(string: text)
+        for replacement in accepted.sorted(by: { $0.range.location > $1.range.location }) {
+            replacement.regex.replaceMatches(
+                in: result,
+                range: replacement.range,
+                withTemplate: replacement.replacementTemplate
+            )
+        }
+        return result as String
     }
 
     static func lockedCanonicals(presentIn text: String, terms: [ProtectedTerm]) -> Set<String> {
@@ -120,11 +176,10 @@ public enum Glossary {
     /// matches its own surface, so case normalisation is untouched and a term
     /// caught here degrades to inert rather than to broken.
     ///
-    /// Deliberately not a common-word list. `RefinementPolicy` already records
-    /// that a stopword list cannot separate these cases — the surfaces that did
-    /// the damage here include `depth` and `Cloud`, which no stopword list
-    /// contains, so a list would give false confidence while missing the cases
-    /// that were actually measured.
+    /// Deliberately not a common-word list. Such a list cannot separate these
+    /// cases — the surfaces that did the damage here include `depth` and
+    /// `Cloud`, which no stopword list contains, so a list would give false
+    /// confidence while missing the cases that were actually measured.
     public static func aliasCanGeneralize(_ alias: String, canonical: String) -> Bool {
         let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedAlias.count > 1 else { return false }
@@ -136,10 +191,7 @@ public enum Glossary {
     static func matchingAliases(for term: ProtectedTerm) -> [String] {
         var aliases: [String] = []
         var seen = Set<String>()
-        let generalizable =
-            (userAliases(for: term) + derivedAliases(for: term.canonical))
-            .filter { aliasCanGeneralize($0, canonical: term.canonical) }
-        for alias in [term.canonical] + generalizable {
+        for alias in [term.canonical] + generalizableAliases(for: term) {
             let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let key = aliasKey(alias)
@@ -154,6 +206,11 @@ public enum Glossary {
             }
             return lhs.offset < rhs.offset
         }.map(\.element)
+    }
+
+    static func generalizableAliases(for term: ProtectedTerm) -> [String] {
+        (userAliases(for: term) + derivedAliases(for: term.canonical))
+            .filter { aliasCanGeneralize($0, canonical: term.canonical) }
     }
 
     private static func canonicalTokens(in canonical: String) -> [String] {
@@ -179,18 +236,49 @@ public enum Glossary {
     }
 
     private static func replaceAlias(_ alias: String, in text: String, with canonical: String) -> String {
+        guard let regex = aliasRegex(alias) else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let template = NSRegularExpression.escapedTemplate(for: canonical)
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: template)
+    }
+
+    private static func aliasRegex(_ alias: String) -> NSRegularExpression? {
         let parts = alias.split(whereSeparator: { $0.isWhitespace }).map {
             NSRegularExpression.escapedPattern(for: String($0))
         }
-        guard !parts.isEmpty else { return text }
+        guard !parts.isEmpty else { return nil }
         let pattern = "(?i)(?<![A-Za-z0-9_])" + parts.joined(separator: "\\s+") + "(?![A-Za-z0-9_])"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: canonical)
+        return try? NSRegularExpression(pattern: pattern)
     }
 
     private static func containsTerm(_ canonical: String, in text: String) -> Bool {
         replaceAlias(canonical, in: text, with: "__VOICEOUR_TERM__").contains("__VOICEOUR_TERM__")
+    }
+}
+
+extension VocabularySanitizer {
+    /// Whether every applicable alias has exactly one meaning in the candidate
+    /// vocabulary. Mutation and import callers use this beside `sanitize` or
+    /// `isSafe`; accepting a collision would make the chosen canonical depend
+    /// on term order.
+    public static func aliasesAreUnambiguous(in terms: [ProtectedTerm]) -> Bool {
+        let surfaces = terms.map { term in
+            (
+                canonical: aliasKey(term.canonical),
+                aliases: Set(Glossary.generalizableAliases(for: term).map(aliasKey))
+            )
+        }
+
+        for (termIndex, surface) in surfaces.enumerated() {
+            for alias in surface.aliases where !alias.isEmpty {
+                for (otherIndex, other) in surfaces.enumerated() where otherIndex != termIndex {
+                    if alias == other.canonical || other.aliases.contains(alias) {
+                        return false
+                    }
+                }
+            }
+        }
+        return true
     }
 }
 

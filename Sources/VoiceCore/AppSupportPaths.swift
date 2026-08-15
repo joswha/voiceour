@@ -45,3 +45,35 @@ func removeVoiceourPrivateState(at url: URL) throws {
         }
     }
 }
+
+/// Moves an unreadable durable file aside and returns where it went.
+///
+/// The alternative to quarantine is one of two worse things: refusing to launch
+/// on a file the user cannot see or edit, or silently overwriting it with
+/// defaults and destroying whatever could have been recovered from it — a
+/// glossary someone spent months teaching, in the settings case. The suffix is
+/// the failure's timestamp so repeated launches cannot collide, and the caller
+/// reports the path so the file is discoverable rather than merely preserved.
+public func quarantineUnreadableVoiceourState(at url: URL) -> URL? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    let stamp = ISO8601DateFormatter.voiceourFileStamp.string(from: Date())
+    let destination = url.deletingLastPathComponent()
+        .appendingPathComponent("\(url.lastPathComponent).corrupt-\(stamp)")
+    do {
+        try FileManager.default.moveItem(at: url, to: destination)
+        return destination
+    } catch {
+        return nil
+    }
+}
+
+extension ISO8601DateFormatter {
+    /// Colons are legal in HFS+/APFS names but read as path separators to
+    /// Carbon-era APIs and to anyone pasting the name into a shell, so the
+    /// quarantine stamp omits them.
+    static let voiceourFileStamp: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime, .withTimeZone]
+        return formatter
+    }()
+}

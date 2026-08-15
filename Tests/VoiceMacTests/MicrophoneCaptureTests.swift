@@ -298,3 +298,49 @@ struct MicrophoneCaptureIntegrationTests {
         capture.stop()
     }
 }
+
+/// What `MicrophoneRecorder.stop()` refuses to hand to ASR.
+///
+/// The rule used to be "the file exists", which a header-only WAV satisfies. The
+/// decoder does not answer silence with silence: 8 s of quiet dither through the
+/// shipped backend produced `"Esta mañana está en su mayor mayor mayor."`, and a
+/// dictation app pastes that into the user's document.
+@Suite struct RecordingValidationTests {
+    @Test func aLatchedCaptureFailureIsReportedInsteadOfTranscribed() throws {
+        let failure = MicrophoneRecorder.recordingFailure(
+            latched: "the microphone was disconnected during recording",
+            frames: 48_000
+        )
+        guard case .captureFailed(let reason) = try #require(failure) else {
+            Issue.record("expected a captureFailed error, got \(String(describing: failure))")
+            return
+        }
+        #expect(reason == "the microphone was disconnected during recording")
+    }
+
+    /// Zero accepted frames covers a device that never delivered a buffer and a
+    /// file that rejected every write. Both used to reach the model.
+    @Test func aRecordingThatWroteNoFramesIsReportedInsteadOfTranscribed() throws {
+        let failure = MicrophoneRecorder.recordingFailure(latched: nil, frames: 0)
+        guard case .captureFailed(let reason) = try #require(failure) else {
+            Issue.record("expected a captureFailed error, got \(String(describing: failure))")
+            return
+        }
+        #expect(reason == "no audio was recorded")
+    }
+
+    /// The latch wins over the frame count: it names the cause, and a failed
+    /// capture can still have written frames before it failed.
+    @Test func aLatchedFailureOutranksAHealthyFrameCount() throws {
+        let failure = try #require(MicrophoneRecorder.recordingFailure(latched: "session runtime error", frames: 1))
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "session runtime error")
+    }
+
+    @Test func aCleanRecordingWithAudioIsAccepted() {
+        #expect(MicrophoneRecorder.recordingFailure(latched: nil, frames: 1) == nil)
+    }
+}

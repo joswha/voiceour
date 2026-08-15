@@ -7,11 +7,69 @@ import Testing
 
 /// Transport tests for `SidecarASRClient`.
 ///
-/// Every peer here is `ASRSidecarStub`, a Swift test-support executable selected by argv.
-/// It replaced inline `python3` scripts: this repository ships no Python, so a test suite that
-/// needed an interpreter to prove the client's framing was testing the wrong machine.
+/// Process peers use the Swift `ASRSidecarStub` except for the raw future-version frame below,
+/// whose tiny `/bin/sh` peer exists specifically to violate the v1 encoder's contract. No test
+/// depends on Python or another optional interpreter.
 @Suite("SidecarClientTests", .serialized, .timeLimit(.minutes(1)))
 struct SidecarClientTests {
+    @Test func sidecarLaunchEnvironmentAllowsRequiredVariablesButDropsSecrets() {
+        let configuration = SidecarLaunchConfiguration.sidecar(
+            executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
+            backend: "parakeet",
+            parentEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "HOME": "/Users/test",
+                "VOICEOUR_MODEL_CACHE": "/tmp/model-cache",
+                "HTTPS_PROXY": "https://proxy.example",
+                "https_proxy": "https://lowercase-proxy.example",
+                "OPENAI_API_KEY": "must-not-leak",
+                "GITHUB_TOKEN": "must-not-leak",
+            ]
+        )
+
+        #expect(configuration.environment["PATH"] == "/usr/bin:/bin")
+        #expect(configuration.environment["HOME"] == "/Users/test")
+        #expect(configuration.environment["VOICEOUR_MODEL_CACHE"] == "/tmp/model-cache")
+        #expect(configuration.environment["HTTPS_PROXY"] == "https://proxy.example")
+        #expect(configuration.environment["https_proxy"] == "https://lowercase-proxy.example")
+        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "parakeet")
+        #expect(configuration.environment["VOICEOUR_PRELOAD"] == "1")
+        #expect(configuration.environment["OPENAI_API_KEY"] == nil)
+        #expect(configuration.environment["GITHUB_TOKEN"] == nil)
+    }
+
+    @Test func resultWithProtocolVersionTwoIsRejectedRatherThanDelivered() async throws {
+        let script = #"""
+            printf '%s\n' '{"backend_id":"fake","backend_status":"ready","capabilities":{"final_utterance":true},"protocol_version":1,"sidecar_version":"0.1.0","type":"hello"}'
+            IFS= read -r request
+            request_id=${request#*\"request_id\":\"}
+            request_id=${request_id%%\"*}
+            printf '{"backend_id":"fake","model_id":"fake","model_revision":"dev","protocol_version":2,"request_id":"%s","timings_ms":{"inference":0,"load":0,"total":0},"transcript":{"language":"en","segments":null,"text":"must not be delivered"},"type":"result"}\n' "$request_id"
+            """#
+        let client = SidecarASRClient(
+            launch: SidecarLaunchConfiguration(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", script]
+            )
+        )
+
+        let error = await thrownError {
+            try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
+        }
+
+        guard let clientError = error as? SidecarASRClientError else {
+            Issue.record("Expected protocolError, got \(String(describing: error))")
+            return
+        }
+        guard case .protocolError(let message) = clientError else {
+            Issue.record("Expected protocolError, got \(clientError)")
+            return
+        }
+        #expect(message.code == .incompatibleProtocol)
+        #expect(message.requestId != nil)
+        #expect(message.detail == "protocol_version mismatch")
+    }
+
     @Test func twoTranscribesReuseOneProcess() async throws {
         let client = SidecarASRClient(launch: stubLaunch("echo-turns"))
         // 15 s, not 2 s: this is the only budget CI proved too tight. The subject here is that

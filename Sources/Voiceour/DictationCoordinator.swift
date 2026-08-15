@@ -160,7 +160,21 @@ public final class DictationCoordinator {
         self.audioMuter = audioMuter
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
-        self.recentSessions = (try? recentSessionStore.load()) ?? []
+        // A history file that cannot be read is moved aside, not overwritten: the
+        // next snapshot would otherwise replace it with an empty list and destroy
+        // whatever was still recoverable. `errorMessage` is set below, after the
+        // hotkey wiring, because the property is only meaningful once the
+        // coordinator exists.
+        var loadFailure: String?
+        do {
+            self.recentSessions = try recentSessionStore.load()
+        } catch {
+            self.recentSessions = []
+            let moved = quarantineUnreadableVoiceourState(at: recentSessionStore.url)
+            loadFailure =
+                moved.map { "Dictation history could not be read — kept as \($0.lastPathComponent)." }
+                ?? "Dictation history could not be read and could not be set aside."
+        }
         // One-time migration: the lifetime stats ledger this build no longer
         // keeps. Left on disk it would be a durable record of every dictation
         // the user cannot see, edit, or clear from any surface that still
@@ -182,6 +196,7 @@ public final class DictationCoordinator {
                 self.cancel()
             }
         }
+        self.errorMessage = loadFailure
         refreshTarget()
     }
 
@@ -261,7 +276,20 @@ public final class DictationCoordinator {
         }
 
         let store = SettingsStore()
-        var settings = (try? store.load()) ?? VoiceCore.Settings()
+        // A settings file that cannot be decoded is moved aside rather than
+        // silently replaced: it holds the user's glossary, and the first
+        // `saveSettings()` after this would overwrite it with defaults.
+        var settingsFailure: String?
+        var settings: VoiceCore.Settings
+        do {
+            settings = try store.load()
+        } catch {
+            settings = VoiceCore.Settings()
+            let moved = quarantineUnreadableVoiceourState(at: store.url)
+            settingsFailure =
+                moved.map { "Settings could not be read — reset to defaults, old file kept as \($0.lastPathComponent)." }
+                ?? "Settings could not be read — reset to defaults."
+        }
         let launchOptions = VoiceCore.LaunchOptions(arguments: CommandLine.arguments.dropFirst())
         let env = ProcessInfo.processInfo.environment
 
@@ -300,6 +328,9 @@ public final class DictationCoordinator {
             settingsStore: store,
             audioMuter: audioMuter
         )
+        if let settingsFailure {
+            coordinator.errorMessage = settingsFailure
+        }
         return coordinator
     }
 
@@ -403,13 +434,16 @@ public final class DictationCoordinator {
     }
 
     public func cancel() {
-        // .finalizingAudio means processStop may not have reached recorder.stop()
-        // yet; cancelling without a discard would leave the microphone capture
-        // running forever. discardRecording is idempotent for every recorder.
-        let shouldDiscardRecording = state == .recording || state == .finalizingAudio
+        // Exactly one owner of the discard per session. While recording, this path
+        // owns the recorder: no processing task exists yet. From .finalizingAudio
+        // onward the pipeline owns it — `cancelActiveWork` cancels the processing
+        // task, and the pipeline's cancellation/catch path discards. Both
+        // discarding raced each other: the pipeline's `recorder.stop()` could
+        // return the WAV that this path had already deleted.
+        let ownsRecorder = state == .recording
         cancelActiveWork()
 
-        if shouldDiscardRecording {
+        if ownsRecorder {
             isCancellingRecording = true
             let recorder = recorder
             Task { @MainActor in
@@ -442,8 +476,32 @@ public final class DictationCoordinator {
         _ = await persistenceDrain?.value
     }
 
+    /// Persists settings on the journal's FIFO rather than on the main actor.
+    ///
+    /// Every caller is a UI edit — a toggle, a slider, a taught term — and a
+    /// synchronous write put an atomic file replacement plus two `chmod`s on the
+    /// keystroke path. Queued behind the same tail as history so the two durable
+    /// files cannot be written out of order relative to each other, and a failure
+    /// is reported instead of discarded: `try?` meant a full disk or a revoked
+    /// permission looked exactly like a successful save.
     public func saveSettings() {
-        try? settingsStore.save(settings)
+        let store = settingsStore
+        let snapshot = settings
+        let previous = recentSessionPersistenceTail
+        let next = Task.detached(priority: .utility) { () -> Bool in
+            _ = await previous?.value
+            do {
+                try store.save(snapshot)
+                return true
+            } catch {
+                return false
+            }
+        }
+        recentSessionPersistenceTail = next
+        Task { @MainActor [weak self] in
+            guard await next.value == false, let self else { return }
+            self.errorMessage = "Settings could not be saved."
+        }
     }
 
     /// Explicitly teaches a canonical term (Teach UI). Sanitizes the surfaces,
@@ -463,15 +521,16 @@ public final class DictationCoordinator {
             return VocabularySanitizer.sanitize(misheard)
         }()
         let key = cleanCanonical.lowercased()
-        if let index = settings.glossary.firstIndex(where: {
+        var proposed = settings.glossary
+        if let index = proposed.firstIndex(where: {
             $0.canonical.lowercased() == key && $0.scope == scope
         }) {
-            var term = settings.glossary[index]
+            var term = proposed[index]
             term.tombstonedAt = nil
             if let cleanMisheard {
                 term = TermMutation.confirmingAlias(cleanMisheard, on: term)
             }
-            settings.glossary[index] = term
+            proposed[index] = term
         } else {
             var term = ProtectedTerm(
                 canonical: cleanCanonical,
@@ -483,9 +542,9 @@ public final class DictationCoordinator {
             if let cleanMisheard {
                 term = TermMutation.confirmingAlias(cleanMisheard, on: term)
             }
-            settings.glossary.append(term)
+            proposed.append(term)
         }
-        saveSettings()
+        commitGlossary(proposed)
     }
 
     /// Accepts a pending suggestion: confirms the misheard surface as an alias
@@ -494,13 +553,29 @@ public final class DictationCoordinator {
     public func acceptSuggestion(id: String) {
         guard let suggestion = pendingSuggestions.first(where: { $0.id == id }) else { return }
         if let index = settings.glossary.firstIndex(where: { $0.termId == suggestion.termId }) {
-            settings.glossary[index] = TermMutation.confirmingAlias(
-                suggestion.misheard,
-                on: settings.glossary[index]
-            )
-            saveSettings()
+            var proposed = settings.glossary
+            proposed[index] = TermMutation.confirmingAlias(suggestion.misheard, on: proposed[index])
+            guard commitGlossary(proposed) else { return }
         }
         pendingSuggestions.removeAll { $0.id == id }
+    }
+
+    /// Commits a proposed glossary, or refuses it and says why.
+    ///
+    /// An alias that also names another term's canonical or alias makes
+    /// canonicalization depend on term order: the same dictation would resolve
+    /// differently after a reorder. The vocabulary is small and user-authored, so
+    /// the whole proposal is validated rather than the one edited row — a teach can
+    /// collide with a term the user forgot they had.
+    @discardableResult
+    func commitGlossary(_ proposed: [ProtectedTerm]) -> Bool {
+        guard VocabularySanitizer.aliasesAreUnambiguous(in: proposed) else {
+            errorMessage = "That spoken form already belongs to another term."
+            return false
+        }
+        settings.glossary = proposed
+        saveSettings()
+        return true
     }
 
     /// Rejects a pending suggestion: records a rejected label for the surface on
@@ -586,12 +661,20 @@ public final class DictationCoordinator {
         let resolvedName = activeProjectName ?? Self.projectName(for: url)
         do {
             let lexicon = try ProjectLexiconImporter.importLexicon(from: url, projectId: projectId)
-            mergeGlossaryTerms(
+            let merged = glossaryMerging(
                 lexicon.terms.map { term in
                     var namespaced = term
                     namespaced.termId = "project:\(projectId)/\(term.canonical)"
                     return namespaced
                 })
+            // Validated post-merge, because the importer sees only the file: an
+            // imported canonical can collide with an alias the user taught earlier,
+            // and accepting that pair would make canonicalization order-dependent.
+            guard VocabularySanitizer.aliasesAreUnambiguous(in: merged) else {
+                errorMessage = "That word list collides with a spoken form already in the glossary."
+                return
+            }
+            settings.glossary = merged
             activeProjectId = projectId
             activeProjectName = resolvedName
             errorMessage = nil
@@ -622,21 +705,25 @@ public final class DictationCoordinator {
         refreshTarget()
     }
 
-    /// Merges terms into the glossary, replacing any existing term with the same
-    /// `termId` and appending the rest, so re-imports stay idempotent.
-    private func mergeGlossaryTerms(_ terms: [ProtectedTerm]) {
+    /// The glossary with `terms` merged in, replacing any existing term with the
+    /// same `termId` and appending the rest, so re-imports stay idempotent.
+    ///
+    /// Returns the proposal rather than assigning it: the caller validates first.
+    private func glossaryMerging(_ terms: [ProtectedTerm]) -> [ProtectedTerm] {
+        var merged = settings.glossary
         var indexByTermId: [String: Int] = [:]
-        for (index, term) in settings.glossary.enumerated() {
+        for (index, term) in merged.enumerated() {
             indexByTermId[term.termId] = index
         }
         for term in terms {
             if let index = indexByTermId[term.termId] {
-                settings.glossary[index] = term
+                merged[index] = term
             } else {
-                indexByTermId[term.termId] = settings.glossary.count
-                settings.glossary.append(term)
+                indexByTermId[term.termId] = merged.count
+                merged.append(term)
             }
         }
+        return merged
     }
 
     /// Returns `preferred` when free, otherwise a `#N`-suffixed variant, so a new

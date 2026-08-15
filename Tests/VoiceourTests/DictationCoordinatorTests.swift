@@ -1103,6 +1103,124 @@ struct DictationCoordinatorTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
     }
 
+    /// A stop path that throws still owns the recorder. Without this the WAV and the
+    /// microphone session outlive the session that created them, and the next
+    /// dictation starts over a capture nothing is reading.
+    @Test func aFailedStopPathDiscardsTheRecording() async throws {
+        let recorder = FakeRecorder()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .throwError(ASRErrorMessage(code: .inferenceFailed, requestId: nil, detail: "boom")))
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.state == .error(.inferenceFailed))
+        #expect(recorder.discardCount == 1)
+        #expect(!fileExists(recorder.producedURL))
+    }
+
+    /// Cancelling mid-finalize must not discard from two places at once: the
+    /// pipeline's `recorder.stop()` could otherwise return a WAV the cancel path had
+    /// already deleted. The pipeline owns the discard from `.finalizingAudio` on.
+    @Test func cancellingDuringFinalizeDiscardsExactlyOnce() async throws {
+        let recorder = FakeRecorder()
+        let gate = TestGate()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .gatedText(gate, "never delivered"))
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state != .recording }
+
+        coordinator.cancel()
+        gate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+        await drain()
+
+        #expect(coordinator.state == .idle)
+        #expect(recorder.discardCount == 1)
+    }
+
+    /// A password spoken into a password field is delivered as a concealed copy and
+    /// then forgotten. Journaling it would leave it in plain text in
+    /// recent-sessions.json, searchable, until 500 later dictations evicted it.
+    @Test func aSecureTargetIsDeliveredButNeverJournaled() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("correct horse battery staple")),
+            tracker: FakeTracker(bundleId: "com.example.PasswordField", safety: .secure),
+            inserter: FakeInserter(outcome: .copiedOnly(reason: "secure_target")),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+
+        // Delivered.
+        #expect(coordinator.lastTranscript == "correct horse battery staple")
+        #expect(coordinator.lastOutcome == .copiedOnly(reason: "secure_target"))
+        // Not remembered.
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+    }
+
+    /// A normal target still records, so the test above is proving the safety class
+    /// and not merely that journaling is broken.
+    @Test func aNormalTargetIsStillJournaled() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("this one is remembered")),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.recentSessions.count == 1)
+    }
+
+    /// History that cannot be decoded is moved aside, never overwritten: the first
+    /// snapshot after launch would otherwise replace it with an empty list.
+    @Test func unreadableHistoryIsQuarantinedAndReported() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try FileManager.default.createDirectory(at: fixture.directory, withIntermediateDirectories: true)
+        try Data("{ this is not history".utf8).write(to: fixture.store.url)
+
+        let coordinator = makeCoordinator(recentSessionStore: fixture.store)
+
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(coordinator.errorMessage?.contains("could not be read") == true)
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
+        let quarantined = try FileManager.default
+            .contentsOfDirectory(atPath: fixture.directory.path)
+            .filter { $0.contains("recent-sessions.json.corrupt-") }
+        #expect(quarantined.count == 1)
+    }
+
+    /// A save that cannot land is reported. `try?` made a full disk, a revoked
+    /// permission and a successful write indistinguishable.
+    @Test func aSettingsSaveFailureIsReported() async throws {
+        // A path whose parent is a regular file: the directory create inside the
+        // store's write helper cannot succeed, whatever the filesystem state.
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-unwritable-\(UUID().uuidString)")
+        try Data("not a directory".utf8).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let coordinator = makeCoordinator(
+            settingsStore: SettingsStore(url: blocker.appendingPathComponent("settings.json"))
+        )
+
+        coordinator.saveSettings()
+        await waitUntil { coordinator.errorMessage != nil }
+
+        #expect(coordinator.errorMessage == "Settings could not be saved.")
+    }
+
     // MARK: Helpers
 
     private func makeCoordinator(

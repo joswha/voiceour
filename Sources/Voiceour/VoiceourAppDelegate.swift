@@ -24,12 +24,48 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminatingAfterCleanup = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The menu item, hotkey tap and sidecar all have process-wide effects;
+        // a duplicate must leave before any launch setup can claim them.
+        guard !Self.terminateIfDuplicateApplication() else { return }
         Self.shared = self
 
         guard LaunchOptions.showConsoleOnLaunch else { return }
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .voiceourShowConsole, object: nil)
         }
+    }
+
+    nonisolated static func shouldTerminateAsDuplicate(
+        bundleIdentifier: String?,
+        runningProcessIdentifiers: [Int32],
+        currentProcessIdentifier: Int32
+    ) -> Bool {
+        guard bundleIdentifier != nil else {
+            return false
+        }
+        return runningProcessIdentifiers.contains { $0 != currentProcessIdentifier }
+    }
+
+    @discardableResult
+    static func terminateIfDuplicateApplication() -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            return false
+        }
+        let currentProcessIdentifier = NSRunningApplication.current.processIdentifier
+        let runningProcessIdentifiers =
+            NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            .map(\.processIdentifier)
+        guard shouldTerminateAsDuplicate(
+            bundleIdentifier: bundleIdentifier,
+            runningProcessIdentifiers: runningProcessIdentifiers,
+            currentProcessIdentifier: currentProcessIdentifier
+        ) else {
+            return false
+        }
+
+        fputs("Voiceour: another instance is already running; terminating this duplicate.\n", stderr)
+        NSApp.terminate(nil)
+        return true
     }
 
     /// Applies a saved backend switch without asking the user to quit and

@@ -27,6 +27,7 @@ public enum SafetyClassifier {
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "net.kovidgoyal.kitty",
+        "com.mitchellh.ghostty",
         "com.github.wez.wezterm",
         "io.alacritty",
         "dev.warp.Warp-Stable",
@@ -38,6 +39,7 @@ public enum SafetyClassifier {
         "com.todesktop.230313mzl4w4u92",
         "com.apple.dt.Xcode",
         "com.sublimetext.4",
+        "dev.zed.Zed",
     ]
 
     static let secureBundleIds: Set<String> = [

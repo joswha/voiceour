@@ -3,10 +3,22 @@ import Darwin
 import Foundation
 import VoiceCore
 
-enum RecorderError: Error {
+enum RecorderError: Error, LocalizedError {
     case alreadyRecording
     case notRecording
     case outputUnavailable
+    /// The capture stopped being able to record: a session runtime error, a
+    /// disconnected device, or a recording that ended with zero frames written.
+    case captureFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .alreadyRecording: "A recording is already in progress."
+        case .notRecording: "No recording is in progress."
+        case .outputUnavailable: "The recording file could not be read back."
+        case .captureFailed(let reason): "Recording failed: \(reason)."
+        }
+    }
 }
 
 /// The one 16 kHz mono interleaved Int16 WAV the capture path writes. The format is
@@ -86,9 +98,21 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
 
             let wav = try CaptureWAVTarget(sampleRate: Self.sampleRate)
 
-            let capture = try MicrophoneCapture(
-                preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
-            let converter = CaptureConverter(targetFormat: wav.format)
+            let capture: MicrophoneCapture
+            let converter: CaptureConverter
+            do {
+                capture = try MicrophoneCapture(
+                    preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
+                converter = CaptureConverter(targetFormat: wav.format)
+            } catch {
+                // The WAV exists the moment `CaptureWAVTarget` is constructed, so a
+                // capture this recorder never owned would otherwise leave a 0-sample
+                // file in the temp directory for the scavenger to find on some later
+                // launch. Nothing points at it yet, so this is the only chance to
+                // remove it.
+                try? FileManager.default.removeItem(at: wav.url)
+                throw error
+            }
 
             self.file = wav.file
             self.converter = converter
@@ -103,7 +127,7 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
 
             // The sidecar path had no way to say which microphone it opened, which is
             // exactly why a Bluetooth warm-up gap went unnoticed for so long. One line
-            // on stderr, matching the Apple path's init breakdown.
+            // on stderr, matching the session init breakdown.
             let line =
                 "Voiceour: capture device=\(capture.source.name)"
                 + "\(capture.source.isRedirected ? " (redirected from system default)" : "")\n"
@@ -123,14 +147,25 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         claimed.stop()
 
         let finished: (url: URL, frames: AVAudioFramePosition, latency: Int?) = try lock.withLock {
-            guard let outputURL else { throw RecorderError.notRecording }
+            // Identity check, not just presence: a cancel that ran between the
+            // claim above and here has already started a *new* session, and
+            // clearing its capture/file/URL here would strand a live recording
+            // with nothing owning it.
+            guard capture === claimed, let outputURL else { throw RecorderError.notRecording }
             let latency = claimed.startLatencyMs()
             // Whatever the resampler still holds belongs to this utterance. Safe to
             // drain now: no more buffers can arrive once the capture has stopped.
             if let converter, let file {
                 for chunk in converter.drain() {
-                    try? file.write(from: chunk)
-                    writtenFrames += AVAudioFramePosition(chunk.frameLength)
+                    // Counted only when the WAV accepted it. `try?` plus an
+                    // unconditional increment made `writtenFrames` a count of frames
+                    // *offered*, which is what the emptiness check below reads.
+                    do {
+                        try file.write(from: chunk)
+                        writtenFrames += AVAudioFramePosition(chunk.frameLength)
+                    } catch {
+                        // A failed tail write costs the tail, not the utterance.
+                    }
                 }
             }
             let frames = writtenFrames
@@ -143,6 +178,13 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             return (outputURL, frames, latency)
         }
 
+        // A capture that failed mid-recording, or one that wrote nothing at all, is
+        // reported rather than transcribed. Both used to reach ASR as a valid-looking
+        // WAV: the model then invents words from silence and the app pastes them.
+        if let error = Self.recordingFailure(latched: claimed.failureReason(), frames: finished.frames) {
+            try? FileManager.default.removeItem(at: finished.url)
+            throw error
+        }
         guard FileManager.default.fileExists(atPath: finished.url.path) else {
             throw RecorderError.outputUnavailable
         }
@@ -172,11 +214,28 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         return RecordedAudio(url: finished.url, meta: meta, telemetry: telemetry)
     }
 
+    /// Whether a finished recording may be transcribed, as a value so the rule is
+    /// provable without a microphone.
+    ///
+    /// `frames` counts frames the WAV *accepted*. Zero means one of: a capture that
+    /// never delivered a buffer (a denied or seized device), a session that failed
+    /// before its first buffer, or a file that rejected every write. All three
+    /// produced a header-only WAV that passed the old existence check, and a
+    /// header-only WAV transcribes as invented words rather than as nothing.
+    static func recordingFailure(latched: String?, frames: AVAudioFramePosition) -> RecorderError? {
+        if let latched { return .captureFailed(latched) }
+        if frames <= 0 { return .captureFailed("no audio was recorded") }
+        return nil
+    }
+
     public func discardRecording() async {
         let claimed: MicrophoneCapture? = lock.withLock { capture }
         claimed?.stop()
 
         let claimedURL = lock.withLock { () -> URL? in
+            // Same identity rule as `stop()`: only the session this call claimed may
+            // be torn down, so a discard racing a newer start cannot orphan it.
+            guard capture === claimed else { return nil }
             capture = nil
             converter = nil
             file = nil

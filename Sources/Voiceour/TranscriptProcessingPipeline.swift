@@ -79,11 +79,20 @@ extension DictationCoordinator {
         resetToIdleWhenInactive(generation: generation)
     }
 
+    /// Ends a failed or cancelled stop path.
+    ///
+    /// `discardRecording()` is called here, on the one path that owns the recorder
+    /// for this session. A throw before `recorder.stop()` returned — a cancellation
+    /// that landed mid-finalize, a capture that failed — otherwise leaves the
+    /// microphone session running and its WAV on disk with nothing left to claim
+    /// them. It is idempotent and identity-checked, so calling it after a
+    /// successful stop is a no-op.
     func finishFailedProcessing(
         generation: AsyncGenerationGate.Token,
         state failedState: SessionState,
         errorMessage failureMessage: String?
     ) async {
+        await recorder.discardRecording()
         await restoreSystemAudioIfNeeded()
         guard generations.isCurrent(generation) else { return }
         if failedState == .cancelled {
@@ -189,19 +198,36 @@ extension DictationCoordinator {
                 asrInferenceMs: result.timingsMs.inference,
                 asrTotalMs: result.timingsMs.total
             )
-            let journalSpan = StopPath.signposter.beginInterval(StopPath.Stage.journal)
-            let sessionID = await recordRecentSession(
-                text: finalText,
-                rawTranscript: rawTranscript,
-                mutedDuringCapture: mutedDuringCapture,
-                stages: stages
-            )
-            StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
-            try ensureCurrentProcessing(generation)
-
+            // The delivery target decides whether this dictation is recorded at all,
+            // so it is snapshotted before the journal rather than just before the
+            // paste. `PasteboardInserter` re-checks target identity itself before it
+            // writes the pasteboard and again before posting Cmd-V, so an app switch
+            // inside this window still degrades to copy-only rather than pasting
+            // somewhere unintended.
             state = .readyToInsert
             let insertionTarget = tracker.snapshot()
             updateTargetLabel(for: insertionTarget)
+
+            // A secure field is the one target whose text must not outlive the
+            // dictation. The transcript is still delivered — concealed, copy-only —
+            // but nothing about it is written to history: a password the user spoke
+            // into a password field would otherwise sit in plain text in
+            // recent-sessions.json, searchable, until 500 dictations evicted it.
+            let sessionID: RecentSession.ID?
+            if insertionTarget.safety == .secure {
+                sessionID = nil
+            } else {
+                let journalSpan = StopPath.signposter.beginInterval(StopPath.Stage.journal)
+                sessionID = await recordRecentSession(
+                    text: finalText,
+                    rawTranscript: rawTranscript,
+                    mutedDuringCapture: mutedDuringCapture,
+                    stages: stages
+                )
+                StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
+                try ensureCurrentProcessing(generation)
+            }
+
             let insertStarted = runtime.now()
             let insertSpan = StopPath.signposter.beginInterval(StopPath.Stage.insert)
             let outcome = await inserter.insert(finalText, into: insertionTarget)

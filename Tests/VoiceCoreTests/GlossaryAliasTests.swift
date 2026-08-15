@@ -59,6 +59,60 @@ struct GlossaryAliasTests {
         #expect(Glossary.canonicalize(unrelated, terms: [term]) == unrelated)
     }
 
+    @Test func canonicalizationDoesNotRescanReplacementOutput() {
+        let terms = [
+            ProtectedTerm(canonical: "Bravo", spokenAliases: ["alpha"]),
+            ProtectedTerm(canonical: "Charlie", spokenAliases: ["bravo"])
+        ]
+
+        #expect(Glossary.canonicalize("alpha", terms: terms) == "Bravo")
+    }
+
+    @Test func canonicalizationPreservesDollarInCanonicalVerbatim() {
+        let term = ProtectedTerm(canonical: "C$1", spokenAliases: ["see dollar one"])
+
+        #expect(Glossary.canonicalize("use see dollar one here", terms: [term]) == "use C$1 here")
+    }
+
+    @Test func overlappingAliasesPreferLongestMatchThenLeftmost() {
+        let longerLater = [
+            ProtectedTerm(canonical: "SHORT", spokenAliases: ["alpha beta"]),
+            ProtectedTerm(canonical: "LONG", spokenAliases: ["beta gamma delta"])
+        ]
+        #expect(
+            Glossary.canonicalize("alpha beta gamma delta", terms: longerLater)
+                == "alpha LONG"
+        )
+
+        let equalLengthRightFirst = [
+            ProtectedTerm(canonical: "RIGHT", spokenAliases: ["beta gamma"]),
+            ProtectedTerm(canonical: "LEFT", spokenAliases: ["alpha beta"])
+        ]
+        #expect(
+            Glossary.canonicalize("alpha beta gamma", terms: equalLengthRightFirst)
+                == "LEFT gamma"
+        )
+    }
+
+    @Test func vocabularySanitizerRejectsCaseInsensitiveAliasCollisionsAcrossTerms() {
+        let canonicalCollision = [
+            ProtectedTerm(canonical: "Bravo", spokenAliases: ["alpha"]),
+            ProtectedTerm(canonical: "Charlie", spokenAliases: [" bravo "])
+        ]
+        let aliasCollision = [
+            ProtectedTerm(canonical: "Delta", spokenAliases: ["Shared Alias"]),
+            ProtectedTerm(canonical: "Echo", spokenAliases: [" shared alias "])
+        ]
+        let unambiguous = [
+            ProtectedTerm(canonical: "Foxtrot", spokenAliases: ["fox trot"]),
+            ProtectedTerm(canonical: "Golf", spokenAliases: ["golf term"])
+        ]
+
+        #expect(!VocabularySanitizer.aliasesAreUnambiguous(in: canonicalCollision))
+        #expect(!VocabularySanitizer.aliasesAreUnambiguous(in: aliasCollision))
+        #expect(VocabularySanitizer.aliasesAreUnambiguous(in: unambiguous))
+    }
+
     @Test func userAliasesIncludesConfirmedLabeledAlias() {
         let term = ProtectedTerm(
             canonical: "kubectl",

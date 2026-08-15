@@ -187,8 +187,8 @@ extension DictationCoordinator {
     /// The restore also waits on `pendingMuteResult`, because a quit can land in
     /// the window where the device is already muted but `isSystemAudioMuted` has
     /// not been published yet. Durable ownership from a crashed run is not this
-    /// function's job: `SystemAudioMuter.init` and `VoiceourApp.init` both call
-    /// `recoverDurableOwnershipIfNeeded()`, and `restore()` no-ops on nil ownership.
+    /// function's job: `VoiceourApp.init` attempts that recovery exactly once per
+    /// launch, and `restore()` no-ops on nil ownership.
     func restoreSystemAudioIfNeeded() async {
         await beginSystemAudioRestore().value
     }

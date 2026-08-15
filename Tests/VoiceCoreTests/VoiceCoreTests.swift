@@ -130,6 +130,24 @@ struct VoiceCoreTests {
         #expect(SafetyClassifier.classify(bundleId: nil, focus: ordinary) == .unknownRisky)
     }
 
+    @Test func ghosttyBundleClassifiesAsTerminal() {
+        let focus = TargetFocusInspection.inspected(role: nil, subrole: nil)
+
+        #expect(
+            SafetyClassifier.classify(bundleId: "com.mitchellh.ghostty", focus: focus)
+                == .terminal
+        )
+    }
+
+    @Test func zedBundleClassifiesAsCodeEditor() {
+        let focus = TargetFocusInspection.inspected(role: nil, subrole: nil)
+
+        #expect(
+            SafetyClassifier.classify(bundleId: "dev.zed.Zed", focus: focus)
+                == .codeEditor
+        )
+    }
+
     /// An unreadable focus is absent information, not evidence of an ordinary
     /// field, so it must not resolve to the one class that permits pasting. A
     /// known bundle whose own class is already restrictive keeps that class.

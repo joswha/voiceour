@@ -1,17 +1,24 @@
 import Foundation
 import VoiceCore
 
+protocol ParakeetRuntimeContext: AnyObject {
+    func transcribe(samples: [Float], isCancelled: @escaping () -> Bool) throws -> [ParakeetSegmentRaw]
+}
+
+extension ParakeetContext: ParakeetRuntimeContext {}
+
 /// The real backend: parakeet.cpp over the pinned GGUF checkpoint.
 ///
-/// State that both the reader thread (`health`) and the decode queue (`transcribe`, `warmUp`)
-/// touch lives behind `stateLock`. The context itself is only ever used from the decode queue —
-/// `parakeet_full` is documented as not thread safe for the same context.
-public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
+/// State shared by the reader thread (`health`), decode queue (`transcribe`) and preload thread
+/// (`warmUp`) lives behind `stateLock`. Context construction is serialized by `loadLock`, and
+/// every `parakeet_full` is serialized by `decodeLock`.
+public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarPreloading, @unchecked Sendable {
     public let backendId = "parakeet-cpp"
 
     private let cache: ParakeetModelCache
     private let log: (String) -> Void
 
+    private let contextFactory: (String) throws -> any ParakeetRuntimeContext
     private let stateLock = NSLock()
     /// Held for the whole duration of a model load so exactly one context is ever constructed.
     ///
@@ -23,7 +30,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     private let loadLock = NSLock()
     /// Held for the duration of one `parakeet_full`. See `decode(_:samples:isCancelled:)`.
     private let decodeLock = NSLock()
-    private var context: ParakeetContext?
+    private var context: (any ParakeetRuntimeContext)?
     private var loadMs = 0
     private var loadFailed = false
     /// 0...1 while `warmUp` is acquiring the artifact; nil at every other moment.
@@ -44,10 +51,29 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     /// How often the idle check runs. Coarse on purpose: the deadline it guards is in minutes.
     private static let idleTickSeconds = 60.0
 
-    public init(cache: ParakeetModelCache, log: @escaping (String) -> Void, idleUnloadMs: Int = 1_800_000) {
+    public convenience init(
+        cache: ParakeetModelCache,
+        log: @escaping (String) -> Void,
+        idleUnloadMs: Int = 1_800_000
+    ) {
+        self.init(
+            cache: cache,
+            log: log,
+            idleUnloadMs: idleUnloadMs,
+            contextFactory: { try ParakeetContext(modelPath: $0) }
+        )
+    }
+
+    init(
+        cache: ParakeetModelCache,
+        log: @escaping (String) -> Void,
+        idleUnloadMs: Int,
+        contextFactory: @escaping (String) throws -> any ParakeetRuntimeContext
+    ) {
         self.cache = cache
         self.log = log
         self.idleUnloadMs = idleUnloadMs
+        self.contextFactory = contextFactory
     }
 
     public func startupStatus() -> BackendStatus {
@@ -82,6 +108,11 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     /// machine additionally compiles the embedded shader library (about 7.5 s, then cached by
     /// the OS). Paying both here keeps them off the user's first dictation.
     public func warmUp() throws {
+        try warmUp(isShuttingDown: { false })
+    }
+
+    func warmUp(isShuttingDown: @escaping () -> Bool) throws {
+        guard !isShuttingDown() else { return }
         withState { $0.warmingInProgress = true }
         defer {
             withState {
@@ -94,7 +125,13 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
             self.log(String(format: "VOICEOUR_PRELOAD download %.0f%%", fraction * 100))
         }
         withState { $0.downloadFraction = nil }
+
+        // EOF may arrive during acquisition. Avoid constructing a Metal-backed context that
+        // shutdown would immediately have to tear down from another thread.
+        guard !isShuttingDown() else { return }
         let context = try loadContext()
+        // A warm decode owns Metal buffers too, so shutdown must never begin one after EOF.
+        guard !isShuttingDown() else { return }
         _ = try decode(context, samples: [Float](repeating: 0, count: 8000), isCancelled: { false })
     }
 
@@ -121,7 +158,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
         if isCancelled() { return .cancelled }
 
         let samples: [Float]
-        let context: ParakeetContext
+        let context: any ParakeetRuntimeContext
         switch prepare(request) {
         case .failure(let code, let detail): return .failure(code: code, detail: detail, fatal: false)
         case .ready(let decoded, let loaded):
@@ -176,7 +213,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     }
 
     private enum Preparation {
-        case ready([Float], ParakeetContext)
+        case ready([Float], any ParakeetRuntimeContext)
         case failure(code: ASRErrorCode, detail: String?)
     }
 
@@ -226,8 +263,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     /// Maps a model-load failure, first asking whether the cached bytes are still the pinned
     /// artifact.
     ///
-    /// `cacheOK()` only checks the size, because hashing 1.26 GB on every start would dominate
-    /// the cold path. A load failure is the one moment where paying that 1-2 s is worth it: a
+    /// `cacheOK()` checks the pinned manifest fields and byte count, because hashing 1.26 GB
+    /// on every start would dominate the cold path. A load failure is the one moment where
     /// truncated-then-padded or bit-rotted cache is otherwise indistinguishable from a broken
     /// runtime, and the user sees a permanent failure instead of a re-download.
     private func loadFailure(_ detail: String) -> Preparation {
@@ -248,7 +285,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     /// Callers are the decode queue and the preload thread. The load lock is held across
     /// construction rather than only around the state update: a "build then discard the loser"
     /// race destroys a live Metal device, which is not recoverable in-process.
-    private func loadContext() throws -> ParakeetContext {
+    private func loadContext() throws -> any ParakeetRuntimeContext {
         if let existing = currentContext() { return existing }
 
         loadLock.lock()
@@ -257,11 +294,12 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
 
         let started = DispatchTime.now().uptimeNanoseconds
         do {
-            let created = try ParakeetContext(modelPath: cache.modelURL.path)
+            let created = try contextFactory(cache.modelURL.path)
             let elapsed = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
             stateLock.lock()
             context = created
             loadMs = elapsed
+            loadFailed = false
             lastDecodeEndedAt = DispatchTime.now()
             stateLock.unlock()
             startIdleTimerIfNeeded()
@@ -331,7 +369,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
         log("idle unload after \(idleMs)ms; the next dictation reloads (~314 ms plus a warm decode)")
     }
 
-    private func currentContext() -> ParakeetContext? {
+    private func currentContext() -> (any ParakeetRuntimeContext)? {
         stateLock.lock()
         defer { stateLock.unlock() }
         return context
@@ -342,9 +380,11 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
     /// The server already serializes real transcribes on one queue, but the preload thread's
     /// throwaway decode does not run there, and `parakeet_full` is documented as not thread safe
     /// for the same context.
-    private func decode(_ context: ParakeetContext, samples: [Float], isCancelled: @escaping () -> Bool) throws
-        -> [ParakeetSegmentRaw]
-    {
+    private func decode(
+        _ context: any ParakeetRuntimeContext,
+        samples: [Float],
+        isCancelled: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
         decodeLock.lock()
         defer {
             withState { $0.lastDecodeEndedAt = DispatchTime.now() }

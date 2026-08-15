@@ -46,6 +46,21 @@ struct ParakeetModelCacheTests {
         #expect(!cache.cacheOK())
     }
 
+    @Test func cacheOKRejectsWrongSHAAndAcceptsTheExactPin() throws {
+        let bytes = Data("weights".utf8)
+        let pinned = artifact(for: bytes)
+        let cache = ParakeetModelCache(directory: temporaryDirectory(), artifact: pinned)
+        try bytes.write(to: cache.modelURL)
+
+        var wrongDigest = pinned
+        wrongDigest.sha256 = String(repeating: "0", count: 64)
+        try JSONEncoder().encode(wrongDigest).write(to: cache.manifestURL)
+        #expect(!cache.cacheOK())
+
+        try JSONEncoder().encode(pinned).write(to: cache.manifestURL)
+        #expect(cache.cacheOK())
+    }
+
     @Test func downloadVerifiesWritesTheManifestAndSatisfiesCacheOK() throws {
         let bytes = Data("pretend these are weights".utf8)
         let source = temporaryDirectory().appendingPathComponent("source.bin")

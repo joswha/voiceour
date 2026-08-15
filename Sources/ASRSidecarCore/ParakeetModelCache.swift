@@ -23,8 +23,8 @@ public enum ParakeetModelCacheError: Error, Equatable, CustomStringConvertible {
 
 /// Identity of the one weight file the sidecar loads, and what gets written next to it.
 ///
-/// `sizeBytes` is what later launches re-check; the digest is verified once, at download,
-/// because hashing 1.26 GB on every start would dominate the sidecar's cold path.
+/// Later launches re-check every manifest field and the artifact's byte count. The artifact
+/// bytes themselves are hashed at download and after a load failure, not on every cold start.
 public struct ParakeetModelManifest: Codable, Equatable, Sendable {
     public var modelId: String
     public var revision: String
@@ -124,13 +124,19 @@ public struct ParakeetModelCache: @unchecked Sendable {
         return try? JSONDecoder().decode(ParakeetModelManifest.self, from: data)
     }
 
-    /// True when the pinned artifact is present and complete enough to load.
+    /// True only when the manifest exactly names this build's pin and the pinned file has the
+    /// pinned byte count. Comparing every manifest field prevents a partial or hand-edited
+    /// manifest from lending another artifact the pin's identity without hashing 1.26 GB on
+    /// every launch.
     public func cacheOK() -> Bool {
         guard let manifest = manifest() else { return false }
         guard manifest.modelId == artifact.modelId else { return false }
         guard manifest.revision == artifact.revision else { return false }
+        guard manifest.file == artifact.file else { return false }
+        guard manifest.sha256 == artifact.sha256 else { return false }
+        guard manifest.sizeBytes == artifact.sizeBytes else { return false }
         guard let size = fileSize(at: modelURL) else { return false }
-        return size == manifest.sizeBytes
+        return size == artifact.sizeBytes
     }
 
     /// Downloads the pinned artifact if it is not already cached.
@@ -191,9 +197,9 @@ public struct ParakeetModelCache: @unchecked Sendable {
 
     /// Verifies the cached model's bytes against the pinned digest.
     ///
-    /// Not part of the normal path — `cacheOK()` checks size only, because hashing 1.26 GB on
-    /// every start would dominate the cold path. This is what a *load failure* pays (~1-2 s) to
-    /// tell a corrupt cache apart from a broken runtime.
+    /// Not part of the normal path — `cacheOK()` checks the manifest pin and byte count, because
+    /// hashing 1.26 GB on every start would dominate the cold path. This is what a *load failure*
+    /// pays (~1-2 s) to tell a corrupt cache apart from a broken runtime.
     public func verifyModelDigestOnDisk() -> Bool {
         guard let size = fileSize(at: modelURL) else { return false }
         guard var hasher = try? Self.hashPrefix(of: modelURL, byteCount: size) else { return false }

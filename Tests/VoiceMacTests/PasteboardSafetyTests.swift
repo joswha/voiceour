@@ -82,6 +82,23 @@ struct PasteboardSafetyTests {
         }
     }
 
+    @Test func unknownRiskyCopyStripsExactlyOneTrailingNewline() async {
+        replacePasteboard(with: "before unknown-risky copy")
+        let postPaste = PasteboardPostSpy(result: true)
+        let inserter = PasteboardInserter(
+            permissions: FakePermissions(synth: .granted),
+            tracker: SequencedTargetTracker(responses: [true, true]),
+            postPaste: { postPaste.post() },
+            scheduleTransientClear: { _ in }
+        )
+
+        let outcome = await inserter.insert("echo safe\n\n", into: target(safety: .unknownRisky))
+
+        #expect(outcome == .copiedOnly(reason: "target_unknownRisky"))
+        #expect(postPaste.callCount == 0)
+        #expect(pasteboardString() == "echo safe\n")
+    }
+
     /// `.normalText` is the only class the policy will paste into, and nothing can
     /// widen that. The previous version of this policy took a
     /// `copyOnlyUnknownRisky` flag; no production caller ever passed `false`, but

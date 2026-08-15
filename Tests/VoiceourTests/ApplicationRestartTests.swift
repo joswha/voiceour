@@ -79,4 +79,34 @@ struct ApplicationRestartTests {
 
         #expect(VoiceourAppDelegate.shared === delegate)
     }
+
+    @Test func duplicateDecisionKeepsSameProcessOnly() {
+        #expect(
+            !VoiceourAppDelegate.shouldTerminateAsDuplicate(
+                bundleIdentifier: "com.voiceour.app",
+                runningProcessIdentifiers: [101],
+                currentProcessIdentifier: 101
+            )
+        )
+    }
+
+    @Test func duplicateDecisionTerminatesForAnotherMatchingProcess() {
+        #expect(
+            VoiceourAppDelegate.shouldTerminateAsDuplicate(
+                bundleIdentifier: "com.voiceour.app",
+                runningProcessIdentifiers: [101, 202],
+                currentProcessIdentifier: 101
+            )
+        )
+    }
+
+    @Test func duplicateDecisionKeepsUnbundledDevelopmentRun() {
+        #expect(
+            !VoiceourAppDelegate.shouldTerminateAsDuplicate(
+                bundleIdentifier: nil,
+                runningProcessIdentifiers: [202],
+                currentProcessIdentifier: 101
+            )
+        )
+    }
 }
