@@ -139,7 +139,6 @@
         func setCancelArmed(_ isArmed: Bool) {}
     }
 
-
     // MARK: - Fixtures
 
     @MainActor
@@ -359,7 +358,6 @@
             coordinator.isSystemAudioMuteUnavailable = muteUnavailable
             return coordinator
         }
-
 
         private static func makeRecording() -> DictationCoordinator {
             let coordinator = make(sessions: history)

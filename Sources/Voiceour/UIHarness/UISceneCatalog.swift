@@ -91,7 +91,6 @@
             height: VoiceourMetrics.Window.defaultHeight
         )
 
-
         /// `MenuBarExtra` popover measure: matches `MenuView`'s fixed 280 pt
         /// `MenuLayout.popoverWidth`, tall enough for the fullest menu state without clipping.
         static let menuSize = CGSize(width: 280, height: 420)
@@ -174,7 +173,7 @@
                     tags: ["steps"],
                     steps: [
                         .type("accessibility", into: "sessions.search.field"),
-                        .settle(120)
+                        .settle(120),
                     ]
                 ),
                 console(
@@ -194,7 +193,7 @@
                     "System readiness while the model is still downloading",
                     tab: .system,
                     fixture: .backendDownloading
-                )
+                ),
             ]
         }
 
@@ -237,7 +236,6 @@
             ]
         }
 
-
         // MARK: Accessibility adaptations
 
         /// Each scene is a native console tab with exactly one accessibility
@@ -265,7 +263,7 @@
                     tab: .system,
                     fixture: .backendUnavailable,
                     adaptation: .differentiateWithoutColor
-                )
+                ),
             ]
         }
 
@@ -330,7 +328,6 @@
             ]
         }
 
-
         // MARK: - Factories
 
         /// A full native console window, at the app's first-launch measure.
@@ -373,7 +370,6 @@
             }
         }
 
-
         /// A full-console accessibility variant. The scene contract installs the
         /// selected adaptation before SwiftUI evaluates the hierarchy and restores
         /// the prior process-wide seams during teardown.
@@ -395,7 +391,6 @@
                 AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
             }
         }
-
 
         private static func menu(
             _ identifier: String,
@@ -467,7 +462,6 @@
                 )
             }
         }
-
 
         /// Literal fills, not `NSColor` system colours: a dynamic system colour
         /// resolves against this Mac's accent and appearance settings and would not
@@ -557,6 +551,5 @@
                 }
         }
     }
-
 
 #endif

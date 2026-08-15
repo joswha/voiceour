@@ -360,4 +360,3 @@ struct GlossaryVocabularyTests {
         #expect(rejectedLabel.rejectedAt == rejectedAgainAt)
     }
 }
-

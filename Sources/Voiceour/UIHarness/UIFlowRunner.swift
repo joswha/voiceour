@@ -185,16 +185,16 @@
                 return Host(
                     size: UISceneCatalog.consoleSize,
                     colorScheme: .dark,
-                    navigateConsole: { bridge.tab = $0 }
-                ) {
-                    AnyView(
-                        ConsoleFlowHost(
-                            coordinator: context.coordinator,
-                            navigation: bridge
+                    navigateConsole: { bridge.tab = $0 },
+                    build: {
+                        AnyView(
+                            ConsoleFlowHost(
+                                coordinator: context.coordinator,
+                                navigation: bridge
+                            )
                         )
-                    )
-                }
-
+                    }
+                )
 
             case .menu:
                 return Host(

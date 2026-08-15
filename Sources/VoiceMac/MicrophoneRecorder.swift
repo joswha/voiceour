@@ -275,4 +275,3 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         }
     }
 }
-

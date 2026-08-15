@@ -222,7 +222,6 @@ struct VoiceCoreTests {
         }
     }
 
-
     @Test func settingsJSONMissingMuteFieldsEnablesMute() throws {
         let partialJSON = """
             {

@@ -134,7 +134,7 @@ extension UserFacingDictationFailure {
             cause: "Something inside Voiceour went wrong during that dictation.",
             isRetryable: true,
             destination: .none
-        )
+        ),
     ]
 
     /// Maps a wire failure to what the user reads.

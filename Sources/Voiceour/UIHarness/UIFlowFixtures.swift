@@ -268,7 +268,6 @@
             effects?.recordTranscriptionRequest()
         }
 
-
         func record(delivery: UIEffectRecorder.Delivery) {
             effects?.record(delivery: delivery)
         }

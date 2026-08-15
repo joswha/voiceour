@@ -107,7 +107,7 @@ struct ConsoleGlossaryTab: View {
         ConsoleRow(
             caption: importFailure
                 ?? "Import a newline- or JSON-array word list. Terms are added project-scoped, stay on this Mac, "
-                    + "and duplicates are merged.",
+                + "and duplicates are merged.",
             captionColor: importFailure.map { _ in Color.red }
         ) {
             LabeledContent {

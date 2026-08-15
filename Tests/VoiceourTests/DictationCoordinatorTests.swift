@@ -1661,5 +1661,3 @@ private final class SessionSnapshotWriterSpy: @unchecked Sendable {
         try store.save(sessions)
     }
 }
-
-

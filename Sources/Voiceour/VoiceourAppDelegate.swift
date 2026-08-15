@@ -55,11 +55,13 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
         let runningProcessIdentifiers =
             NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
             .map(\.processIdentifier)
-        guard shouldTerminateAsDuplicate(
-            bundleIdentifier: bundleIdentifier,
-            runningProcessIdentifiers: runningProcessIdentifiers,
-            currentProcessIdentifier: currentProcessIdentifier
-        ) else {
+        guard
+            shouldTerminateAsDuplicate(
+                bundleIdentifier: bundleIdentifier,
+                runningProcessIdentifiers: runningProcessIdentifiers,
+                currentProcessIdentifier: currentProcessIdentifier
+            )
+        else {
             return false
         }
 

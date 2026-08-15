@@ -325,7 +325,9 @@ public final class DictationCoordinator {
             settings = VoiceCore.Settings()
             let moved = quarantineUnreadableVoiceourState(at: store.url)
             settingsFailure =
-                moved.map { "Settings could not be read — reset to defaults, old file kept as \($0.lastPathComponent)." }
+                moved.map {
+                    "Settings could not be read — reset to defaults, old file kept as \($0.lastPathComponent)."
+                }
                 ?? "Settings could not be read — reset to defaults."
         }
         let launchOptions = VoiceCore.LaunchOptions(arguments: CommandLine.arguments.dropFirst())

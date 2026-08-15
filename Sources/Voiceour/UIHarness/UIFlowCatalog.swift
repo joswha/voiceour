@@ -62,11 +62,11 @@
             static let cancelDictation = UIQuery.label("Cancel dictation")
             static let warmingStatus = UIQuery.all([
                 .label("Dictation status"),
-                .value("Microphone starting")
+                .value("Microphone starting"),
             ])
             static let listeningStatus = UIQuery.all([
                 .label("Dictation status"),
-                .value("Recording")
+                .value("Recording"),
             ])
 
             static let generalContent = UIQuery.id("capture.hotkey")
@@ -133,7 +133,7 @@
                                 .value(Selector.sessionSearch, .isEmpty),
                                 .absent(.value("Nothing matches “\(noMatchQuery)”")),
                                 .exists(Selector.restoredTranscript),
-                                .model(.recentSessionCount, .equals("9"))
+                                .model(.recentSessionCount, .equals("9")),
                             ]
                         ),
                     ]),
@@ -250,7 +250,7 @@
                             [
                                 .value(Selector.backendStatus, .equals("CHECK NEEDED")),
                                 .label(Selector.backendRecheck, .equals("Re-check backend health")),
-                                .role(Selector.backendRecheck, "AXButton")
+                                .role(Selector.backendRecheck, "AXButton"),
                             ]
                         ),
                         .act(.press(Selector.backendRecheck)),
@@ -268,9 +268,9 @@
                                 .text(
                                     .equals("PARAKEET is configured for local transcription."),
                                     .exactly(1)
-                                )
+                                ),
                             ]
-                        )
+                        ),
                     ])
             ]
         }
@@ -595,7 +595,6 @@
                 ])
         }
 
-
         // MARK: Modern render path (macOS 26)
 
         /// The menu journey drives its macOS 26 branch. The console journey keeps
@@ -688,7 +687,7 @@
                         [
                             .count(Selector.generalContent, .exactly(1)),
                             .value(Selector.tab(.general), .equals("1")),
-                            .absent(Selector.glossaryContent)
+                            .absent(Selector.glossaryContent),
                         ]
                     ),
                     .act(.navigate(.glossary)),
@@ -699,7 +698,7 @@
                             .count(Selector.glossaryContent, .exactly(1)),
                             .absent(Selector.generalContent),
                             .value(Selector.tab(.glossary), .equals("1")),
-                            .value(Selector.tab(.general), .equals("0"))
+                            .value(Selector.tab(.general), .equals("0")),
                         ]
                     ),
                     .act(.navigate(.history)),
@@ -710,7 +709,7 @@
                             .count(Selector.historyContent, .exactly(1)),
                             .absent(Selector.glossaryContent),
                             .value(Selector.tab(.history), .equals("1")),
-                            .value(Selector.tab(.glossary), .equals("0"))
+                            .value(Selector.tab(.glossary), .equals("0")),
                         ]
                     ),
                     .act(.navigate(.system)),
@@ -721,13 +720,12 @@
                             .count(Selector.systemContent, .exactly(1)),
                             .absent(Selector.historyContent),
                             .value(Selector.tab(.system), .equals("1")),
-                            .value(Selector.tab(.history), .equals("0"))
+                            .value(Selector.tab(.history), .equals("0")),
                         ]
-                    )
+                    ),
                 ]
             )
         }
     }
-
 
 #endif

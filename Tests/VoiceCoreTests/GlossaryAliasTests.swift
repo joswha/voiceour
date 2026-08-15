@@ -62,7 +62,7 @@ struct GlossaryAliasTests {
     @Test func canonicalizationDoesNotRescanReplacementOutput() {
         let terms = [
             ProtectedTerm(canonical: "Bravo", spokenAliases: ["alpha"]),
-            ProtectedTerm(canonical: "Charlie", spokenAliases: ["bravo"])
+            ProtectedTerm(canonical: "Charlie", spokenAliases: ["bravo"]),
         ]
 
         #expect(Glossary.canonicalize("alpha", terms: terms) == "Bravo")
@@ -77,7 +77,7 @@ struct GlossaryAliasTests {
     @Test func overlappingAliasesPreferLongestMatchThenLeftmost() {
         let longerLater = [
             ProtectedTerm(canonical: "SHORT", spokenAliases: ["alpha beta"]),
-            ProtectedTerm(canonical: "LONG", spokenAliases: ["beta gamma delta"])
+            ProtectedTerm(canonical: "LONG", spokenAliases: ["beta gamma delta"]),
         ]
         #expect(
             Glossary.canonicalize("alpha beta gamma delta", terms: longerLater)
@@ -86,7 +86,7 @@ struct GlossaryAliasTests {
 
         let equalLengthRightFirst = [
             ProtectedTerm(canonical: "RIGHT", spokenAliases: ["beta gamma"]),
-            ProtectedTerm(canonical: "LEFT", spokenAliases: ["alpha beta"])
+            ProtectedTerm(canonical: "LEFT", spokenAliases: ["alpha beta"]),
         ]
         #expect(
             Glossary.canonicalize("alpha beta gamma", terms: equalLengthRightFirst)
@@ -97,15 +97,15 @@ struct GlossaryAliasTests {
     @Test func vocabularySanitizerRejectsCaseInsensitiveAliasCollisionsAcrossTerms() {
         let canonicalCollision = [
             ProtectedTerm(canonical: "Bravo", spokenAliases: ["alpha"]),
-            ProtectedTerm(canonical: "Charlie", spokenAliases: [" bravo "])
+            ProtectedTerm(canonical: "Charlie", spokenAliases: [" bravo "]),
         ]
         let aliasCollision = [
             ProtectedTerm(canonical: "Delta", spokenAliases: ["Shared Alias"]),
-            ProtectedTerm(canonical: "Echo", spokenAliases: [" shared alias "])
+            ProtectedTerm(canonical: "Echo", spokenAliases: [" shared alias "]),
         ]
         let unambiguous = [
             ProtectedTerm(canonical: "Foxtrot", spokenAliases: ["fox trot"]),
-            ProtectedTerm(canonical: "Golf", spokenAliases: ["golf term"])
+            ProtectedTerm(canonical: "Golf", spokenAliases: ["golf term"]),
         ]
 
         #expect(!VocabularySanitizer.aliasesAreUnambiguous(in: canonicalCollision))
