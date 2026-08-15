@@ -267,10 +267,6 @@
                 return quotedProbe(coordinator.targetLabel)
             case .recentSessionCount:
                 return scalarProbe(coordinator.recentSessions.count)
-            case .lifetimeDictationCount:
-                return scalarProbe(coordinator.insights.dictationCount)
-            case .typingSpeedWPM:
-                return scalarProbe(coordinator.settings.typingSpeedWPM)
             case .glossaryTermCount:
                 return scalarProbe(coordinator.settings.glossary.filter { $0.tombstonedAt == nil }.count)
             case .cleanupEnabled:

@@ -27,16 +27,15 @@ struct SectionHeader: View {
     /// The trailing slot, typed by what it has to say rather than by one shape
     /// that says everything. Chip grammar — tinted fill, hairline rim, control
     /// height, parked where macOS puts toolbar buttons — is a state mark, and
-    /// spending it on `9 KEPT SESSIONS` dressed a static label as a control.
+    /// spending it on a session count would dress a static label as a control.
     private enum Metadata {
         /// An inert fact: a count, a backend id. Plain tracked mono on the header
         /// substrate, on the eyebrow's baseline and in the eyebrow's tier.
         case fact(String)
         /// A live state readout. The chip's tint and rim ARE the mark.
         case state(String, StatusChip.Mode)
-        /// Nothing worth saying. A `0 KEPT SESSIONS` plate 400pt above
-        /// `No dictations yet` contradicts the empty state it heads;
-        /// `SessionsPane` suppresses its zero TOTALS card for the same reason.
+        /// Nothing worth saying. A zero session count above the first-run empty
+        /// state would only repeat what the pane already explains.
         case silent
     }
 

@@ -598,8 +598,8 @@
         "\"" + axEscaped(text) + "\""
     }
 
-    /// Quotes only when the token would otherwise be ambiguous, so the common
-    /// `id=console.tab.home` stays easy to read and to grep.
+    /// Quotes only when the token would otherwise be ambiguous, so common identifiers
+    /// such as `id=console.tab.sessions` stay easy to read and to grep.
     private func axKeyed(_ key: String, _ text: String) -> String {
         let escaped = axEscaped(text)
         let needsQuotes = escaped.isEmpty || escaped.contains(" ") || escaped.contains("\"")

@@ -154,7 +154,7 @@
             case populated
             /// Populated history, but every glossary term removed.
             case emptyGlossary
-            /// Populated history with a live capture in progress.
+            /// A live recording session on the dev backend: `state == .recording`.
             case recording
             /// Real backend with the microphone denied: `state == .error`.
             case micDenied
@@ -254,7 +254,6 @@
             RenderOverrides.timeZone = pinnedTimeZone
             RenderOverrides.settingsPath = Ledger.settingsPath
             RenderOverrides.recentSessionsPath = Ledger.recentSessionsPath
-            RenderOverrides.dictationStatsPath = Ledger.dictationStatsPath
             // Accessibility settings are machine state too. Base scenes explicitly
             // pin the standard presentation; dedicated a11y scenes opt one in.
             RenderOverrides.reduceTransparency = false
@@ -277,14 +276,12 @@
         /// `PropertyRow`'s rows are pure-value views, so that scene's reproducibility
         /// is entirely a property of the data handed to them: a real bundle version, a
         /// real `~/Library` path or a live health report would churn its golden on
-        /// every machine and on every rebuild. The two storage paths are the same
+        /// every machine and on every rebuild. The storage paths come from the same
         /// constants `pinProcessSeams()` installs above, so the sheet renders the
         /// panes' own values instead of a second spelling of them.
         enum Ledger {
             static let settingsPath = "/Users/harness/Library/Application Support/Voiceour/settings.json"
             static let recentSessionsPath = "/Users/harness/Library/Application Support/Voiceour/recent-sessions.json"
-            static let dictationStatsPath =
-                "/Users/harness/Library/Application Support/Voiceour/dictation-stats.json"
 
             /// Never `Bundle.main.infoDictionary`: the harness runs from a bare
             /// executable whose short version and build number are not the app's.
@@ -404,7 +401,6 @@
                 settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
                 recentSessionStore: seededStore(sessions, in: scratch),
                 recentSessionSnapshotSave: { _, _ in },
-                statsSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )
@@ -493,10 +489,9 @@
 
         // MARK: Fixed history
 
-        /// Nine sessions ending at `pinnedNow`, chosen to light up every branch the
-        /// Home and Sessions panes have: several days in a row (streak), a couple
-        /// of same-day sessions (today tallies), five distinct paste destinations,
-        /// a copy-only outcome and a failed outcome.
+        /// Nine sessions ending at `pinnedNow`, chosen to exercise the Sessions
+        /// list and search across multiple days, same-day entries, varied paste
+        /// destinations, a copy-only outcome and a failed outcome.
         static let history: [RecentSession] = [
             session(
                 index: 1,

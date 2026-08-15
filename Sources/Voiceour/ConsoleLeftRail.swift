@@ -88,21 +88,19 @@ struct RailItem: View {
     /// ground is already this app's one glass surface, so a second `.glassEffect`
     /// on the selected pill is glass on glass.
     ///
-    /// That stack was removed after it erased the rail in the harness, and the
-    /// erasure reproduces exactly: a contiguous band from the rail's top edge down
-    /// to the selected item's bottom edge, growing monotonically with selection
-    /// index — `console.home.os26` lost Home, `console.voice.os26` lost
-    /// Home/Sessions/Voice, `console.diagnostics.os26` lost all seven. The cause is
-    /// the capture, not the renderer: `cacheDisplay(in:to:)` does not rasterise
-    /// `.glassEffect` at all, so the band came back fully transparent rather than
-    /// flattened. Every collateral result follows from that. Dropping
-    /// `.glassEffectID` and `.glassEffectTransition` reproduced the erasure byte
-    /// for byte, and so did removing `GlassEffectContainer`, because none of the
-    /// three was ever implicated. A standalone probe of the same stack in a real
-    /// onscreen window rendered 7 of 7 rows, the nested pill visibly lensing the
-    /// desktop a second time. There is no shipping renderer defect here. The
-    /// accessibility tree stayed byte-identical throughout, which a rasterisation
-    /// gap by definition will: an AX golden cannot gate a visual regression.
+    /// That stack was removed after it erased the rail in the harness as a
+    /// contiguous band from the rail's top edge down to the selected item's
+    /// bottom edge, growing monotonically with selection index. The cause is the
+    /// capture, not the renderer: `cacheDisplay(in:to:)` does not rasterise
+    /// `.glassEffect`, so the band came back fully transparent rather than
+    /// flattened. Dropping `.glassEffectID` and `.glassEffectTransition`
+    /// reproduced the erasure byte for byte, and so did removing
+    /// `GlassEffectContainer`, because none was implicated. A standalone probe
+    /// of the same stack in a real onscreen window rendered every row, with the
+    /// nested pill visibly lensing the desktop a second time. There is no
+    /// shipping renderer defect here. The accessibility tree stayed
+    /// byte-identical throughout, which a rasterisation gap by definition will:
+    /// an AX golden cannot gate a visual regression.
     ///
     /// Selection therefore stays a fill-and-rim overlay on the ground as a
     /// deliberate, revisitable choice — the same one `SegmentOption` reached

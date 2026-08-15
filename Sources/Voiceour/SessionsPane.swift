@@ -16,7 +16,6 @@ struct SessionsPane: View {
     // per-row selection read.
     @State private var filteredSessions: [RecentSession] = []
     @State private var dayGroups: [RecentSessionDayGroup] = []
-    @State private var stats = RecentSessionTotals()
 
     private func makeFilteredSessions() -> [RecentSession] {
         RecentSessionQuery.matches(
@@ -56,12 +55,6 @@ struct SessionsPane: View {
         let selectedID = selected?.id
 
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
-            // The ledger reads a card of four guaranteed zeros above an empty
-            // state, so the strip only exists once there is something to total.
-            if hasSessions {
-                RecentSessionMetricStrip(stats: stats)
-            }
-
             HStack(alignment: .top, spacing: VoiceourMetrics.Space.xl) {
                 listCard(selectedID: selectedID)
                     .frame(
@@ -183,19 +176,6 @@ struct SessionsPane: View {
         let filtered = makeFilteredSessions()
         filteredSessions = filtered
         dayGroups = makeDayGroups(from: filtered)
-        // The today / this-month tallies are relative to "now".
-        // `RenderOverrides.renderNow` is the wall clock in production and a
-        // pinned instant under the offscreen UI harness, so a golden of this
-        // metric strip does not change at midnight.
-        //
-        // Counted from the lifetime ledger's daily rows, not from the list
-        // above it: the transcript store is capped, so a month busier than the
-        // cap would report fewer words than were actually dictated in it.
-        stats = RecentSessionQuery.totals(
-            of: coordinator.statsLedger,
-            calendar: RenderOverrides.calendar ?? Calendar.current,
-            now: RenderOverrides.renderNow
-        )
         validateSelection()
     }
 

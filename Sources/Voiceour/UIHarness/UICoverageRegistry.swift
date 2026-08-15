@@ -13,7 +13,6 @@
     enum UICoverageRegistry {
         static let requirements: [UICoverageRequirement] = [
             // Every surface is represented independently of its deeper state inventory.
-            surface(.home, "Home pane renders", "console.home.populated"),
             surface(.sessions, "Sessions pane renders", "console.sessions.populated"),
             surface(.voice, "Voice pane renders", "console.voice.default"),
             surface(.glossary, "Glossary pane renders", "console.glossary.populated"),
@@ -22,41 +21,6 @@
             surface(.menu, "Menu popover content renders", "menu.idle"),
             surface(.overlay, "Recording overlay renders", "overlay.panel.recording"),
             surface(.atoms, "Shared property atoms render", "atom.properties"),
-
-            // Home
-            state(.home, "empty-history", "First-run empty dashboard", scene: "console.home.empty"),
-            state(.home, "populated-dashboard", "Populated dashboard", scene: "console.home.populated"),
-            state(.home, "listening", "Live recording dashboard", scene: "console.home.recording"),
-            state(.home, "working-checking-permissions", "WORKING while checking permissions"),
-            state(.home, "working-finalizing-audio", "WORKING while finalizing audio"),
-            state(.home, "working-transcribing", "WORKING while transcribing"),
-            state(.home, "working-cleaning", "WORKING while cleaning"),
-            state(.home, "working-ready-to-insert", "WORKING while ready to insert"),
-            state(.home, "zero-words", "Dashboard with zero dictated words"),
-            state(.home, "untimed-coverage-caption", "Coverage caption while untimed dictations remain"),
-            state(.home, "no-dictation-wpm", "Dashboard before any dictation has been timed"),
-            state(.home, "fewer-than-three-dictations", "Chart caption before three dictations"),
-            state(.home, "empty-top-apps", "TOP APPS with no destinations"),
-            state(.home, "records-absent", "RECORDS section omitted without qualifying history"),
-            state(.home, "records-present", "RECORDS section with qualifying history", scene: "console.home.populated"),
-            state(.home, "chart-focus", "Keyboard focus on an activity chart"),
-            state(.home, "chart-hover", "Pointer hover on a chart bucket", limitation: .pointerHover),
-            state(.home, "chart-pin", "Pinned chart bucket"),
-            state(.home, "chart-escape-clear", "Escape clears the pinned chart bucket"),
-            state(
-                .home,
-                "typing-baseline-default",
-                "Typing baseline sitting at the population default",
-                scene: "console.home.populated"
-            ),
-            state(.home, "typing-baseline-custom", "Typing baseline replaced by the reader's own"),
-            journey(
-                .home,
-                "empty-to-populated",
-                "First dictation turns the empty dashboard into a populated dashboard"
-            ),
-            journey(.home, "inspect-and-pin-chart", "Focus, inspect, pin and clear chart data"),
-            journey(.home, "set-typing-speed", "Editing the typing baseline re-derives the saving"),
 
             // Sessions
             state(.sessions, "empty", "No transcript history", scene: "console.sessions.empty"),
@@ -237,7 +201,7 @@
 
             // Modern render path (macOS 26)
             //
-            // The twelve `os26` scenes used to claim nothing, so the ledger could go green
+            // The `os26` scenes used to claim nothing, so the ledger could go green
             // while no requirement referenced the native branch at all. These entries split
             // that branch into the two halves the harness can and cannot see. The content
             // entries are claimed by `os26` scenes and flows: on the native code branch the
@@ -248,13 +212,13 @@
             // rather than flattened, and `scripts/console_shot.sh` remains the only way to see
             // it composited. A silent ledger would read as coverage.
             state(
-                .home,
+                .sessions,
                 "modern-branch-content",
                 "Native-branch console content and geometry",
-                scene: "console.home.os26"
+                scene: "console.sessions.os26"
             ),
             state(
-                .home,
+                .sessions,
                 "modern-ground-material",
                 "System Liquid Glass window ground",
                 limitation: .systemGlassMaterial
@@ -272,7 +236,7 @@
                 "System Liquid Glass island material",
                 limitation: .systemGlassMaterial
             ),
-            journey(.home, "modern-rail-navigation", "Navigate the rail on the native render path"),
+            journey(.sessions, "modern-rail-navigation", "Navigate the rail on the native render path"),
             journey(.menu, "modern-primary-action", "Drive the menu primary action on the native render path"),
         ]
 

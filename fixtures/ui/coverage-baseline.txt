@@ -7,7 +7,6 @@
 # Regenerate with `make ui-flow-update`. A removed line is a gap you closed; an added
 # line is coverage you dropped.
 journey:glossary:edit-alias
-journey:home:inspect-and-pin-chart
 journey:menu:open-console
 journey:sessions:search-select-copy-delete
 journey:sessions:teach-correction
@@ -24,19 +23,6 @@ state:glossary:import-failure
 state:glossary:import-success
 state:glossary:mixed-policy-protected-source
 state:glossary:project-chip
-state:home:chart-escape-clear
-state:home:chart-focus
-state:home:chart-pin
-state:home:empty-top-apps
-state:home:fewer-than-three-dictations
-state:home:no-dictation-wpm
-state:home:records-absent
-state:home:untimed-coverage-caption
-state:home:working-checking-permissions
-state:home:working-cleaning
-state:home:working-finalizing-audio
-state:home:working-transcribing
-state:home:zero-words
 state:menu:copy-feedback
 state:menu:failed-report
 state:menu:muted-header

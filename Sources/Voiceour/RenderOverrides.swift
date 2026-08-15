@@ -22,9 +22,8 @@ import VoiceMac
 /// behaviour is unchanged. Read and written on the main thread only, like the
 /// views that consume them.
 enum RenderOverrides {
-    /// Pins "now" for date-derived UI: the Home 14-day trend and dictation
-    /// streak, and the Sessions today / this-month tallies. Without it those
-    /// readouts change every midnight.
+    /// Pins "now" for deterministic fixtures that render date-relative state.
+    /// Without it, labels derived from the current day can change at midnight.
     static var now: Date?
 
     /// Pins the Foundation context used to bucket and format fixture dates and
@@ -44,7 +43,6 @@ enum RenderOverrides {
     /// fixture never contains the developer's home directory.
     static var settingsPath: String?
     static var recentSessionsPath: String?
-    static var dictationStatsPath: String?
 
     /// Pins the recording overlay's per-mount random comet head.
     static var cometHead: CometEmoji?
@@ -123,5 +121,21 @@ final class TextRoleRecorder {
 
     var samples: [TextRoleSample] {
         Array(samplesByID.values)
+    }
+}
+
+/// A `DateFormatter` with the three seams the harness pins already applied, in
+/// order: calendar, locale, time zone. Those three are the whole of what keeps
+/// a golden machine-independent, so every date formatter in the app has to
+/// resolve all three the same way — one that misses a seam bakes this Mac's own
+/// settings into a committed fixture. Always a fresh instance: `DateFormatter`
+/// is mutable and each call site sets its own format on top.
+enum RenderFormatters {
+    static func dateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = RenderOverrides.calendar ?? Calendar.current
+        formatter.locale = RenderOverrides.locale ?? Locale.current
+        formatter.timeZone = RenderOverrides.timeZone ?? TimeZone.current
+        return formatter
     }
 }

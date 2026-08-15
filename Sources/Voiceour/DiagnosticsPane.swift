@@ -145,19 +145,6 @@ struct DiagnosticsPane: View {
                     )
                 ]
             )
-
-            PropertyRow(
-                "Dictation stats",
-                value: dictationStatsPath,
-                valueStyle: .mono,
-                accessories: [
-                    .copy(
-                        payload: dictationStatsPath,
-                        label: "Copy DICTATION STATS PATH",
-                        identifier: "copy.dictation-stats-path"
-                    )
-                ]
-            )
         }
     }
 
@@ -169,12 +156,6 @@ struct DiagnosticsPane: View {
 
     private var recentSessionsPath: String {
         RenderOverrides.recentSessionsPath ?? RecentSessionStore.defaultURL.path
-    }
-
-    /// The lifetime tally behind Home. A second durable file, so it is listed
-    /// beside the transcripts it counts rather than left for a user to find.
-    private var dictationStatsPath: String {
-        RenderOverrides.dictationStatsPath ?? DictationStatsStore.defaultURL.path
     }
 
     // MARK: SELF-TEST

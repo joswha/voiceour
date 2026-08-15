@@ -122,12 +122,6 @@ public struct Settings: Codable, Equatable, Sendable {
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
     public var speechLocale: String
-    /// Words per minute this reader types, used by Home as the counterfactual
-    /// every time-saved figure is measured against. Defaults to a measured
-    /// population average (`DictationInsights.defaultTypingWPM`) because the
-    /// app cannot observe the user's keyboard, and is editable on Home itself
-    /// so the assumption is corrigible where it is stated.
-    public var typingSpeedWPM: Int
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -137,7 +131,6 @@ public struct Settings: Codable, Equatable, Sendable {
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
         case speechLocale = "speech_locale"
-        case typingSpeedWPM = "typing_speed_wpm"
     }
 
     public init(
@@ -147,8 +140,7 @@ public struct Settings: Codable, Equatable, Sendable {
         muteSystemAudioDuringCapture: Bool = true,
         autoStopEnabled: Bool = false,
         autoStopSilenceMs: Int = 2500,
-        speechLocale: String = SpeechLocale.fallback,
-        typingSpeedWPM: Int = DictationInsights.defaultTypingWPM
+        speechLocale: String = SpeechLocale.fallback
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -157,7 +149,6 @@ public struct Settings: Codable, Equatable, Sendable {
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
         self.speechLocale = speechLocale
-        self.typingSpeedWPM = DictationInsights.clamp(typingSpeedWPM)
     }
 
     public init(from decoder: Decoder) throws {
@@ -174,9 +165,6 @@ public struct Settings: Codable, Equatable, Sendable {
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs
         let storedLocale = try container.decodeIfPresent(String.self, forKey: .speechLocale) ?? defaults.speechLocale
         speechLocale = SpeechLocale.canonical(storedLocale) ?? defaults.speechLocale
-        typingSpeedWPM = DictationInsights.clamp(
-            try container.decodeIfPresent(Int.self, forKey: .typingSpeedWPM) ?? defaults.typingSpeedWPM
-        )
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

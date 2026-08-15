@@ -3,10 +3,10 @@ import Testing
 
 @testable import VoiceCore
 
-/// The Sessions pane's search, day grouping and ledger totals used to be private
-/// members of a SwiftUI `View`, so none of it could be tested — and time-zone and
-/// month boundaries are exactly where a date bug hides. These are the cases that
-/// were unreachable before the logic moved here.
+/// The Sessions pane's search and day grouping used to be private members of a
+/// SwiftUI `View`, so neither could be tested — and time-zone boundaries are
+/// exactly where a date bug hides. These are the cases that were unreachable
+/// before the logic moved here.
 @Suite("Recent session query")
 struct RecentSessionQueryTests {
     private func calendar(_ identifier: String) -> Calendar {
@@ -147,81 +147,5 @@ struct RecentSessionQueryTests {
         #expect(groups.map(\.day) == groups.map(\.day).sorted(by: >))
     }
 
-    // MARK: Totals
-
-    /// Totals are counted from the ledger, not the retained transcripts, so the
-    /// fixtures are folded through `ingest` exactly as the journal folds them.
-    private func ledger(_ sessions: [RecentSession], calendar: Calendar) -> DictationStatsLedger {
-        var ledger = DictationStatsLedger()
-        ledger.ingest(sessions, calendar: calendar)
-        return ledger
-    }
-
-    @Test func totalsCountOnlyTodayAndOnlyTheCurrentMonth() {
-        let utc = calendar("UTC")
-        let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
-        let totals = RecentSessionQuery.totals(
-            of: ledger(
-                [
-                    session("three words today", at: "2026-03-15T08:00:00Z"),
-                    session("two today", at: "2026-03-15T22:00:00Z"),
-                    session("earlier this month", at: "2026-03-02T08:00:00Z"),
-                    session("last month entirely", at: "2026-02-27T08:00:00Z"),
-                ],
-                calendar: utc),
-            calendar: utc,
-            now: now
-        )
-
-        #expect(totals.sessionsToday == 2)
-        #expect(totals.wordsToday == 5)
-        #expect(totals.sessionsThisMonth == 3)
-        #expect(totals.wordsThisMonth == 8)
-    }
-
-    /// A month boundary is not just the month number: the same March a year
-    /// earlier must not count toward this March.
-    @Test func totalsRequireTheSameMonthAndTheSameYear() {
-        let utc = calendar("UTC")
-        let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
-        let totals = RecentSessionQuery.totals(
-            of: ledger(
-                [
-                    session("this march", at: "2026-03-04T08:00:00Z"),
-                    session("last march", at: "2025-03-04T08:00:00Z"),
-                ],
-                calendar: utc),
-            calendar: utc,
-            now: now
-        )
-
-        #expect(totals.sessionsThisMonth == 1)
-        #expect(totals.wordsThisMonth == 2)
-        #expect(totals.sessionsToday == 0)
-    }
-
-    /// Eviction cannot undercount a period: the transcripts are gone from the
-    /// corpus and the day rows they were folded into are not.
-    @Test func totalsSurviveTranscriptEviction() {
-        let utc = calendar("UTC")
-        let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
-        let store = RecentSessionStore(limit: 1)
-        let sessions = [
-            session("three words today", at: "2026-03-15T08:00:00Z"),
-            session("two today", at: "2026-03-15T09:00:00Z"),
-        ]
-        let totals = RecentSessionQuery.totals(of: ledger(sessions, calendar: utc), calendar: utc, now: now)
-
-        #expect(store.normalized(sessions).count == 1)
-        #expect(totals.sessionsToday == 2)
-        #expect(totals.wordsToday == 5)
-    }
-
-    @Test func emptyHistoryTotalsAreAllZero() {
-        let now = ISO8601DateFormatter().date(from: "2026-03-15T12:00:00Z")!
-        let totals = RecentSessionQuery.totals(of: DictationStatsLedger(), calendar: calendar("UTC"), now: now)
-
-        #expect(totals == RecentSessionTotals())
-    }
 }
 

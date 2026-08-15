@@ -34,7 +34,6 @@
 
     /// Top-level UI area. One case per console pane plus the three surfaces outside the console.
     enum UISurface: String, CaseIterable, Comparable {
-        case home
         case sessions
         case voice
         case glossary
@@ -49,7 +48,6 @@
         /// The console section that renders this surface, when it is a console pane.
         var consoleSection: ConsoleSection? {
             switch self {
-            case .home: return .home
             case .sessions: return .sessions
             case .voice: return .voice
             case .glossary: return .glossary

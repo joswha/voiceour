@@ -2,37 +2,23 @@ flow: console.rail.navigation.os26
 title: Rail navigation keeps every row on the native render path
 fixture: static
 transitions: idle
-PASS 1 diagnostics | role role=AXButton & label="Home" == AXButton | AXButton
-PASS 2 diagnostics | role role=AXButton & label="Sessions" == AXButton | AXButton
-PASS 3 diagnostics | role role=AXButton & label="Voice" == AXButton | AXButton
-PASS 4 diagnostics | role role=AXButton & label="Glossary" == AXButton | AXButton
-PASS 5 diagnostics | role role=AXButton & label="Refinement" == AXButton | AXButton
-PASS 6 diagnostics | role role=AXButton & label="System" == AXButton | AXButton
-PASS 7 diagnostics | role role=AXButton & label="Diagnostics" == AXButton | AXButton
-PASS 8 diagnostics | selected(true) role=AXButton & label="Diagnostics" | true
-PASS 9 diagnostics | selected(false) role=AXButton & label="Home" | false
-PASS 10 voice | role role=AXButton & label="Home" == AXButton | AXButton
-PASS 11 voice | role role=AXButton & label="Sessions" == AXButton | AXButton
-PASS 12 voice | role role=AXButton & label="Voice" == AXButton | AXButton
-PASS 13 voice | role role=AXButton & label="Glossary" == AXButton | AXButton
-PASS 14 voice | role role=AXButton & label="Refinement" == AXButton | AXButton
-PASS 15 voice | role role=AXButton & label="System" == AXButton | AXButton
-PASS 16 voice | absent role=AXButton & label="Diagnostics" | 0 matches
-PASS 17 voice | selected(true) role=AXButton & label="Voice" | true
-PASS 18 voice | selected(false) role=AXButton & label="Home" | false
-PASS 19 glossary | role role=AXButton & label="Home" == AXButton | AXButton
-PASS 20 glossary | role role=AXButton & label="Sessions" == AXButton | AXButton
-PASS 21 glossary | role role=AXButton & label="Voice" == AXButton | AXButton
-PASS 22 glossary | role role=AXButton & label="Glossary" == AXButton | AXButton
-PASS 23 glossary | role role=AXButton & label="Refinement" == AXButton | AXButton
-PASS 24 glossary | role role=AXButton & label="System" == AXButton | AXButton
-PASS 25 glossary | selected(true) role=AXButton & label="Glossary" | true
-PASS 26 glossary | selected(false) role=AXButton & label="Voice" | false
-PASS 27 home | role role=AXButton & label="Home" == AXButton | AXButton
-PASS 28 home | role role=AXButton & label="Sessions" == AXButton | AXButton
-PASS 29 home | role role=AXButton & label="Voice" == AXButton | AXButton
-PASS 30 home | role role=AXButton & label="Glossary" == AXButton | AXButton
-PASS 31 home | role role=AXButton & label="Refinement" == AXButton | AXButton
-PASS 32 home | role role=AXButton & label="System" == AXButton | AXButton
-PASS 33 home | selected(true) role=AXButton & label="Home" | true
-PASS 34 home | selected(false) role=AXButton & label="Glossary" | false
+PASS 1 diagnostics | role role=AXButton & label="Sessions" == AXButton | AXButton
+PASS 2 diagnostics | role role=AXButton & label="Voice" == AXButton | AXButton
+PASS 3 diagnostics | role role=AXButton & label="Glossary" == AXButton | AXButton
+PASS 4 diagnostics | role role=AXButton & label="System" == AXButton | AXButton
+PASS 5 diagnostics | role role=AXButton & label="Diagnostics" == AXButton | AXButton
+PASS 6 diagnostics | selected(true) role=AXButton & label="Diagnostics" | true
+PASS 7 diagnostics | selected(false) role=AXButton & label="Sessions" | false
+PASS 8 voice | role role=AXButton & label="Sessions" == AXButton | AXButton
+PASS 9 voice | role role=AXButton & label="Voice" == AXButton | AXButton
+PASS 10 voice | role role=AXButton & label="Glossary" == AXButton | AXButton
+PASS 11 voice | role role=AXButton & label="System" == AXButton | AXButton
+PASS 12 voice | absent role=AXButton & label="Diagnostics" | 0 matches
+PASS 13 voice | selected(true) role=AXButton & label="Voice" | true
+PASS 14 voice | selected(false) role=AXButton & label="Sessions" | false
+PASS 15 glossary | role role=AXButton & label="Sessions" == AXButton | AXButton
+PASS 16 glossary | role role=AXButton & label="Voice" == AXButton | AXButton
+PASS 17 glossary | role role=AXButton & label="Glossary" == AXButton | AXButton
+PASS 18 glossary | role role=AXButton & label="System" == AXButton | AXButton
+PASS 19 glossary | selected(true) role=AXButton & label="Glossary" | true
+PASS 20 glossary | selected(false) role=AXButton & label="Voice" | false

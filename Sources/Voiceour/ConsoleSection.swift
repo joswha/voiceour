@@ -1,7 +1,6 @@
 import SwiftUI
 
 enum ConsoleSection: String, CaseIterable, Identifiable {
-    case home
     case sessions
     case voice
     case glossary
@@ -25,9 +24,9 @@ enum ConsoleSection: String, CaseIterable, Identifiable {
     /// short of it, which read as a stray label floating over empty glass rather than
     /// as a header field.
     ///
-    /// `nil` means the region IS the measure: Home clamps its grid to the region and
-    /// centres it, and Sessions' master/detail layout is full width by design, so
-    /// capping either would strand the header inside its own content.
+    /// `nil` means the region IS the measure. Sessions' master/detail layout is
+    /// full width by design, so capping it would strand the header inside its
+    /// own content.
     var headerMeasure: CGFloat? { descriptor.headerMeasure }
 
     /// Bottom margin the shell owes the pane. Panes that own a scroll container get

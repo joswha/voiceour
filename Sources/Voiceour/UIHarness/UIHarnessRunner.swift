@@ -347,10 +347,11 @@
             // the corruption would only surface on the next Tahoe machine.
             //
             // Skip them rather than abort: `--only console` substring-matches
-            // `console.home.os26` as well as the sixteen portable console scenes, and that
-            // focused run is the documented everyday workflow. Refusing the whole selection
-            // over one unrenderable match would break it on exactly the hosts that can only
-            // ever use the portable path. Fail only when nothing renderable is left.
+            // native scenes such as `console.sessions.os26` as well as the portable
+            // console scenes, and that focused run is the documented everyday workflow.
+            // Refusing the whole selection over one unrenderable match would break it on
+            // exactly the hosts that can only ever use the portable path. Fail only when
+            // nothing renderable is left.
             if #unavailable(macOS 26) {
                 let native = scenes.filter { $0.tags.contains("os26") }
                 if !native.isEmpty {

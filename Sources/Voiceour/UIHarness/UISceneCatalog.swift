@@ -62,10 +62,10 @@
     // The curated list of things the offscreen UI harness renders, dumps and lints.
     //
     // Adding coverage is a one-place edit: append a `UIScene` to the matching group
-    // array below (`consoleScenes`, `paneScenes`, `menuScenes`, `overlayScenes`,
-    // `atomScenes`, `accessibilityScenes`, `systemGlassScenes`), which is all `all()`
-    // concatenates. Prefer the area factories over a raw `UIScene(...)` so sizes,
-    // tags and appearance stay consistent. Every scene must be reproducible byte for
+    // array below (`consoleScenes`, `menuScenes`, `overlayScenes`, `atomScenes`,
+    // `accessibilityScenes`, `systemGlassScenes`), which is all `all()` concatenates.
+    // Prefer the area factories over a raw `UIScene(...)` so sizes, tags and appearance
+    // stay consistent. Every scene must be reproducible byte for
     // byte, which in practice means:
     //
     //   * take app state from `UIFixtures.coordinator(_:)` — never
@@ -100,7 +100,6 @@
         /// console section by section, then the pieces that live outside it.
         private static var registry: [UISceneDescriptor] {
             consoleScenes
-                + paneScenes
                 + menuScenes
                 + overlayScenes
                 + atomScenes
@@ -129,25 +128,6 @@
 
         private static var consoleScenes: [UISceneDescriptor] {
             [
-                console(
-                    "console.home.populated",
-                    "Home dashboard with a full session history",
-                    section: .home,
-                    fixture: .populated
-                ),
-                console(
-                    "console.home.empty",
-                    "Home dashboard on first run",
-                    section: .home,
-                    fixture: .firstRun,
-                    tags: ["empty"]
-                ),
-                console(
-                    "console.home.recording",
-                    "Home dashboard while a capture is live",
-                    section: .home,
-                    fixture: .recording
-                ),
                 console(
                     "console.sessions.populated",
                     "Sessions list, day groups and transcript detail",
@@ -257,12 +237,6 @@
         private static var systemGlassScenes: [UISceneDescriptor] {
             [
                 systemConsole(
-                    "console.home.os26",
-                    "Home dashboard on the native branch",
-                    section: .home,
-                    fixture: .populated
-                ),
-                systemConsole(
                     "console.sessions.os26",
                     "Sessions on the native branch",
                     section: .sessions,
@@ -321,23 +295,6 @@
             ]
         }
 
-        // MARK: Panes hosted without the console shell
-
-        private static var paneScenes: [UISceneDescriptor] {
-            // ConsoleView hardcodes `.environment(\.colorScheme, .dark)`, so a
-            // light console scene would be a no-op. Hosting the pane directly is
-            // the only way to catch a light-appearance regression.
-            [
-                pane(
-                    "pane.home.light",
-                    "Home dashboard forced to the light appearance",
-                    colorScheme: .light,
-                    tags: ["light"]
-                ) {
-                    HomePane(coordinator: UIFixtures.coordinator(.populated))
-                }
-            ]
-        }
 
         // MARK: Accessibility adaptations
 
@@ -346,13 +303,6 @@
         /// environment values are get-only.
         private static var accessibilityScenes: [UISceneDescriptor] {
             [
-                accessibilityConsole(
-                    "a11y.reduce-transparency",
-                    "Home dashboard with Reduce Transparency enabled",
-                    section: .home,
-                    fixture: .populated,
-                    adaptation: .reduceTransparency
-                ),
                 accessibilityConsole(
                     "a11y.increase-contrast",
                     "Voice pane with Increase Contrast enabled",
@@ -378,13 +328,6 @@
                     section: .voice,
                     fixture: .populated,
                     adaptation: .differentiateWithoutColor
-                ),
-                accessibilityConsole(
-                    "a11y.reduce-motion",
-                    "Recording dashboard with Reduce Motion enabled",
-                    section: .home,
-                    fixture: .recording,
-                    adaptation: .reduceMotion
                 ),
             ]
         }
@@ -584,32 +527,6 @@
             }
         }
 
-        /// A single pane hosted without the console shell, on the opaque window ink
-        /// the shell would otherwise supply.
-        private static func pane<Content: View>(
-            _ identifier: String,
-            _ title: String,
-            colorScheme: ColorScheme = .dark,
-            tags: [String] = [],
-            steps: [UIStep] = [],
-            @ViewBuilder content: @escaping @MainActor () -> Content
-        ) -> UISceneDescriptor {
-            UISceneDescriptor(
-                id: identifier,
-                title: title,
-                size: consoleSize,
-                colorScheme: colorScheme,
-                tags: ["pane"] + tags,
-                steps: steps
-            ) {
-                AnyView(
-                    content()
-                        .padding(VoiceourMetrics.Space.xl)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .background(backdrop(for: colorScheme))
-                )
-            }
-        }
 
         private static func menu(
             _ identifier: String,

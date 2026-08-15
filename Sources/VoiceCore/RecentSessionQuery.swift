@@ -13,33 +13,7 @@ public struct RecentSessionDayGroup: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Period totals for the Sessions ledger, counted from `DictationStatsLedger`
-/// rather than from the retained transcripts.
-///
-/// The transcript store keeps a fixed number of sessions, so a heavy month
-/// overflows it and a corpus-derived "this month" silently undercounts the
-/// moment it does. The ledger's daily rows outlive eviction, so these figures
-/// stay true however much was dictated.
-public struct RecentSessionTotals: Equatable, Sendable {
-    public var wordsToday: Int
-    public var sessionsToday: Int
-    public var wordsThisMonth: Int
-    public var sessionsThisMonth: Int
-
-    public init(
-        wordsToday: Int = 0,
-        sessionsToday: Int = 0,
-        wordsThisMonth: Int = 0,
-        sessionsThisMonth: Int = 0
-    ) {
-        self.wordsToday = wordsToday
-        self.sessionsToday = sessionsToday
-        self.wordsThisMonth = wordsThisMonth
-        self.sessionsThisMonth = sessionsThisMonth
-    }
-}
-
-/// Searching, day-grouping and totalling recent sessions.
+/// Searching and day-grouping recent sessions.
 ///
 /// Extracted from `SessionsPane` so the logic is reachable without a SwiftUI
 /// view: as private members of a `View` none of it could be tested, and the
@@ -83,34 +57,5 @@ public enum RecentSessionQuery {
         Dictionary(grouping: sessions) { calendar.startOfDay(for: $0.createdAt) }
             .map { RecentSessionDayGroup(day: $0.key, sessions: $0.value.sorted { $0.createdAt > $1.createdAt }) }
             .sorted { $0.day > $1.day }
-    }
-
-    /// Today's and this month's word and dictation counts.
-    ///
-    /// "This month" is the same calendar month *and* year as `now`, so last
-    /// January does not count toward this January.
-    public static func totals(
-        of ledger: DictationStatsLedger,
-        calendar: Calendar,
-        now: Date
-    ) -> RecentSessionTotals {
-        var totals = RecentSessionTotals()
-        let today = calendar.startOfDay(for: now)
-        let currentMonth = calendar.component(.month, from: now)
-        let currentYear = calendar.component(.year, from: now)
-
-        for day in ledger.days {
-            if day.startOfDay == today {
-                totals.wordsToday += day.words
-                totals.sessionsToday += day.dictations
-            }
-            if calendar.component(.month, from: day.startOfDay) == currentMonth,
-                calendar.component(.year, from: day.startOfDay) == currentYear
-            {
-                totals.wordsThisMonth += day.words
-                totals.sessionsThisMonth += day.dictations
-            }
-        }
-        return totals
     }
 }

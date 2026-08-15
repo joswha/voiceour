@@ -175,7 +175,7 @@ struct VoicePane: View {
                         .accessibilityLabel("Auto-stop silence, milliseconds")
 
                     // The unit is a mark on the value, so it follows the
-                    // dashboard's metric-unit voice rather than caption prose.
+                    // console's metric-unit voice rather than caption prose.
                     Text("ms")
                         .font(VoiceourTypography.micro)
                         .foregroundStyle(

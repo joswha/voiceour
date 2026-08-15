@@ -8,8 +8,7 @@ public struct AutoStopDetector: Sendable {
 
     private var firstSampleAt: Date?
     /// When the level last reached the silence threshold, i.e. the instant the trailing silence
-    /// began. Read by the stop path: a partial snapshotted at or after it saw every sample that
-    /// was not already known to be silence.
+    /// began. Carried on `StopTrigger.autoStop` so a session records why it ended.
     public private(set) var lastLoudAt: Date?
     private var hasObservedSpeech = false
     private var hasFired = false

@@ -30,7 +30,7 @@ enum LaunchOptions {
     static var consoleSection: ConsoleSection {
         CommandLine.arguments
             .first { $0.hasPrefix("--console-section=") }
-            .flatMap { ConsoleSection(rawValue: String($0.dropFirst("--console-section=".count))) } ?? .home
+            .flatMap { ConsoleSection(rawValue: String($0.dropFirst("--console-section=".count))) } ?? .sessions
     }
 }
 

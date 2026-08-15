@@ -5,7 +5,7 @@ struct ConsoleView: View {
     var coordinator: DictationCoordinator
     @State private var section: ConsoleSection
 
-    init(coordinator: DictationCoordinator, initialSection: ConsoleSection = .home) {
+    init(coordinator: DictationCoordinator, initialSection: ConsoleSection = .sessions) {
         self.coordinator = coordinator
         _section = State(initialValue: initialSection)
     }

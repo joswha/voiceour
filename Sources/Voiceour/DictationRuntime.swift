@@ -14,9 +14,9 @@ public struct DictationRuntime: Sendable {
     public let now: @Sendable () -> Date
     public let makeUUID: @Sendable () -> UUID
     public let sleep: @Sendable (UInt64) async throws -> Void
-    /// The calendar dictation statistics are bucketed by. A value, not a
-    /// behaviour: the harness pins it so a golden's day rows and streak do not
-    /// depend on the developer's region.
+    /// Calendar seam for operations that group records by local day. A value,
+    /// not a behaviour: the harness pins it so fixtures do not depend on the
+    /// developer's region.
     public let calendar: @Sendable () -> Calendar
 
     // Closure literals, not `Date.init`/`UUID.init`: an initializer reference is not

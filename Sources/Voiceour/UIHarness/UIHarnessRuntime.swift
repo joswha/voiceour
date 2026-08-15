@@ -89,7 +89,7 @@
     ///   modern one is absent and its area captures fully transparent.
     ///   `overlay.island.recording.os26.png` captures 0.0% opaque and 59.3% fully
     ///   transparent, and `console.voice.os26.png` 37.6% fully transparent, against 100%
-    ///   opaque for the painted `console.home.populated.png`. An `os26` scene therefore
+    ///   opaque for the painted `console.sessions.populated.png`. An `os26` scene therefore
     ///   verifies the native branch's own painted content, geometry, control boundaries and
     ///   accessibility tree; it never verifies the material. `scripts/console_shot.sh` is
     ///   the only way to see composited glass.

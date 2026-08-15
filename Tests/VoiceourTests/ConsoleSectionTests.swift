@@ -29,8 +29,8 @@ struct ConsoleSectionTests {
         #expect(!ConsolePaneRegistry.isDebug(.system))
     }
 
-    /// The destructive rows moved to System with the pane gating; a debug-only home
-    /// would put them behind a launch argument.
+    /// The destructive rows live in System, which must remain reachable without
+    /// a debug-only launch argument.
     @Test func theRailAlwaysReachesEverySectionThatOwnsADestructiveAction() {
         let reachable = [ConsolePaneRegistry.primaryRailDescriptor] + ConsolePaneRegistry.standardRailDescriptors
         #expect(reachable.contains { $0.id == .system })

@@ -106,8 +106,8 @@ enum VoiceourTypography {
     /// Widget-tile readout for word values (READY, GRANTED, MLX): smaller
     /// than `metric` numerals but still unmistakably the tile's payload.
     static let tileValue = Font.system(size: 20, weight: .medium, design: .monospaced)
-    /// Oversized hero readout (Home dashboard total). Larger than `metric`;
-    /// pair with `.monospacedDigit()` at the call site.
+    /// Oversized numerical readout. Larger than `metric`; pair with
+    /// `.monospacedDigit()` at the call site.
     static let heroMetric = Font.system(size: 64, weight: .thin, design: .monospaced)
     /// Empty-state glyph role. Decorative instances remain accessibility-hidden.
     static let emptyGlyph = Font.system(size: 48, weight: .thin, design: .default)

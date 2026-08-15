@@ -49,18 +49,6 @@ public final class DictationCoordinator {
     public private(set) var backendHealth: ASRBackendHealth?
     public private(set) var backendHealthError: String?
     public internal(set) var recentSessions: [RecentSession] = []
-    /// Lifetime dictation counters. Survives transcript eviction, which is the
-    /// only reason Home's all-time figures keep moving once the retained
-    /// corpus reaches its cap.
-    public internal(set) var statsLedger: DictationStatsLedger = DictationStatsLedger()
-    /// The digest every Home readout renders, recomputed by the journal
-    /// whenever the ledger or the retained corpus changes.
-    ///
-    /// Owned here rather than cached in the view: the view's only sound
-    /// invalidation key was the session id list, which cannot see the in-place
-    /// amendment that attaches a destination app and the post-speech timing to
-    /// the session just recorded. Home was permanently one dictation stale.
-    public internal(set) var insights: DictationInsights = .empty
     public internal(set) var isSystemAudioMuted: Bool = false
     /// True when the last capture asked for a mute the output device could not
     /// provide. Sticky until the next capture answers the question again.
@@ -87,8 +75,6 @@ public final class DictationCoordinator {
     private let hotkey: HotkeyBinding
     private let settingsStore: SettingsStore
     let recentSessionStore: RecentSessionStore
-    let statsStore: DictationStatsStore
-    let statsSnapshotSave: @Sendable (DictationStatsStore, DictationStatsLedger) throws -> Void
     let recentSessionSnapshotSave: @Sendable (RecentSessionStore, [RecentSession]) throws -> Void
     let audioMuter: SystemAudioMuting
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
@@ -154,11 +140,6 @@ public final class DictationCoordinator {
             store, sessions in
             try store.save(sessions)
         },
-        statsStore: DictationStatsStore? = nil,
-        statsSnapshotSave: @escaping @Sendable (DictationStatsStore, DictationStatsLedger) throws -> Void = {
-            store, ledger in
-            try store.save(ledger)
-        },
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
@@ -175,33 +156,20 @@ public final class DictationCoordinator {
         self.activeASRBackend = activeASRBackend ?? settings.asrBackend
         self.settingsStore = settingsStore
         self.recentSessionStore = recentSessionStore
-        // Defaulted from the transcript store's own location so a test or
-        // harness fixture that redirects transcripts can never leave the stats
-        // file pointed at the user's real Application Support directory.
-        self.statsStore = statsStore ?? DictationStatsStore(besideRecentSessionsAt: recentSessionStore.url)
         self.recentSessionSnapshotSave = recentSessionSnapshotSave
-        self.statsSnapshotSave = statsSnapshotSave
         self.audioMuter = audioMuter
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
         self.recentSessions = (try? recentSessionStore.load()) ?? []
-        self.statsLedger = (try? self.statsStore.load()) ?? DictationStatsLedger()
-        // Folds anything the ledger has not seen: a first run after this file
-        // existed seeds the whole retained corpus, a later launch folds only
-        // what a crash lost between the two writes, and a steady state folds
-        // nothing. `ingest` is idempotent by session id, so one call covers
-        // all three.
-        let seeded = statsLedger
-        self.statsLedger.ingest(self.recentSessions, calendar: self.runtime.calendar())
-        self.insights = DictationInsights(
-            ledger: self.statsLedger,
-            keptSessions: self.recentSessions,
-            calendar: self.runtime.calendar(),
-            now: self.runtime.now()
+        // One-time migration: the lifetime stats ledger this build no longer
+        // keeps. Left on disk it would be a durable record of every dictation
+        // the user cannot see, edit, or clear from any surface that still
+        // exists.
+        try? FileManager.default.removeItem(
+            at: recentSessionStore.url
+                .deletingLastPathComponent()
+                .appendingPathComponent("dictation-stats.json")
         )
-        if seeded != self.statsLedger {
-            enqueueStatsSnapshot(self.statsLedger)
-        }
         self.hotkey.onToggle { [weak self] in
             Task { @MainActor in self?.toggle() }
         }

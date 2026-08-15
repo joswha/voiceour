@@ -1,5 +1,4 @@
 import SwiftUI
-import VoiceCore
 
 /// The console's pane contract in one place.
 ///
@@ -29,20 +28,6 @@ struct ConsolePaneDescriptor: Identifiable {
 enum ConsolePaneRegistry {
     static let descriptors: [ConsolePaneDescriptor] = [
         ConsolePaneDescriptor(
-            id: .home,
-            label: "Home",
-            eyebrow: "LOCAL · OVERVIEW",
-            subtitle: "What speaking instead of typing buys you.",
-            symbol: "gauge",
-            headerMeasure: nil,
-            contentBottomInset: 0,
-            railPlacement: .primary,
-            headerMetadata: .recentSessionCount(singular: "KEPT SESSION", plural: "KEPT SESSIONS"),
-            content: { coordinator in
-                AnyView(HomePane(coordinator: coordinator).scrollEdge(.hard, for: .top))
-            }
-        ),
-        ConsolePaneDescriptor(
             id: .sessions,
             label: "Sessions",
             eyebrow: "LOCAL · HISTORY",
@@ -50,7 +35,7 @@ enum ConsolePaneRegistry {
             symbol: "rectangle.stack",
             headerMeasure: nil,
             contentBottomInset: VoiceourMetrics.Space.xl,
-            railPlacement: .standard,
+            railPlacement: .primary,
             headerMetadata: .recentSessionCount(singular: "SESSION", plural: "SESSIONS"),
             content: { AnyView(SessionsPane(coordinator: $0)) }
         ),

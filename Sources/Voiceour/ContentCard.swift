@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// An opaque content surface shared by the Home dashboard's bento grid and
-/// settings sections. It establishes a quiet plane over the window glass with
+/// An opaque content surface shared by the console's history and settings
+/// sections. It establishes a quiet plane over the window glass with
 /// one definition edge and no tint, specular rim, shadow, or offscreen group.
 /// `interactive: true` adds a reduce-motion-gated hover wash behind the content.
 /// Accessibility children stay independently addressable by default; read-only

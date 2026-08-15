@@ -10,12 +10,12 @@ struct RailNavigation: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            let home = ConsolePaneRegistry.primaryRailDescriptor
+            let primary = ConsolePaneRegistry.primaryRailDescriptor
             RailItem(
-                section: home.id,
-                isSelected: selection == home.id,
+                section: primary.id,
+                isSelected: selection == primary.id,
             ) {
-                select(home.id)
+                select(primary.id)
             }
 
             // No horizontal padding of its own: the enclosing stack already insets by

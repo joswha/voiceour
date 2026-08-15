@@ -195,7 +195,6 @@
                     url: scratch.appendingPathComponent("recent-sessions.json")
                 ),
                 recentSessionSnapshotSave: { _, _ in },
-                statsSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )
@@ -439,8 +438,8 @@
     ///
     /// `sleep` deliberately forwards to the real `Task.sleep`. Collapsing it to
     /// `Task.yield()` converts `RecordingSessionDriver`'s 40 ms metering loop into a hot loop
-    /// that hops to the main actor without ever suspending; that starved layout in every
-    /// scene rendered after `console.home.recording` and moved a committed golden by 59 pt.
+    /// that hops to the main actor without ever suspending; that starved layout in
+    /// later scenes and moved a committed golden by 59 pt.
     /// Sleeping is not a determinism problem -- no artifact records elapsed time.
     final class UIScriptClock: @unchecked Sendable {
         static let backendProbeStep: TimeInterval = 6

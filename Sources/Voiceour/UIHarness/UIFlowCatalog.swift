@@ -24,13 +24,6 @@
         private static let glossaryTerm = "FlowTerm"
         private static let glossaryAliases = "flow term, flow-term"
         private static let noMatchQuery = "definitely-not-a-transcript"
-        /// A plausible touch-typist rate, well inside `DictationInsights.typingWPMRange`
-        /// and far enough from the default that every derived figure has to move.
-        private static let fastTypistWPM = "90"
-        private static let defaultBaselineNote =
-            "52 wpm is the measured average of 168,000 typists — change it to yours."
-        private static let readerBaselineNote =
-            "Your typing speed, not the 52 wpm population average."
 
         /// Queries are grounded in committed AX dumps unless the comment explicitly
         /// names the source-only branch from which the runtime selector is derived.
@@ -77,10 +70,6 @@
             // while a saved backend differs from the one running.
             static let backendRestart = UIQuery.id("voice.backend.restart")
 
-            // HomeVelocityGauges.swift: the one editable figure on Home. No
-            // committed golden holds an edited baseline, so the runtime value
-            // is what this flow verifies.
-            static let typingSpeed = UIQuery.label("Typing speed, words per minute")
 
             // fixtures/ui/console.system.denied.ax.txt:19
             static let backendRecheck = UIQuery.id("system.backend.recheck")
@@ -130,7 +119,7 @@
 
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
-            homeFlows + sessionFlows + voiceFlows + glossaryFlows + systemFlows + menuFlows
+            sessionFlows + voiceFlows + glossaryFlows + systemFlows + menuFlows
                 + overlayFlows + atomFlows + modernFlows
         }
 
@@ -141,89 +130,6 @@
             everything().filter { request.matches(id: $0.id, tags: $0.tags) }
         }
 
-        // MARK: Home
-
-        private static var homeFlows: [UIFlow] {
-            [
-                UIFlow(
-                    id: "home.empty-to-populated",
-                    title: "A first dictation replaces the empty dashboard",
-                    tags: ["home", "console", "dictation"],
-                    covers: [
-                        .state(.home, "working-ready-to-insert"),
-                        .journey(.home, "empty-to-populated"),
-                    ],
-                    host: .console(.home),
-                    fixture: pasteFixture,
-                    steps: [
-                        // fixtures/ui/console.home.empty.ax.txt:14
-                        .check("empty", [.text(.equals("No dictations yet"), .exactly(1))]),
-                        .act(.dictate(.start)),
-                        .wait(.state(.checkingPermissions)),
-                        .check("checking-permissions", [.state(.checkingPermissions)]),
-                        .release(.permission),
-                        .wait(.state(.recording)),
-                        .check("recording", [.state(.recording)]),
-                        .act(.dictate(.stopAndProcess)),
-                        .wait(.state(.finalizingAudio)),
-                        .check("finalizing", [.state(.finalizingAudio)]),
-                        .release(.recorderStop),
-                        .wait(.state(.transcribing)),
-                        .check("transcribing", [.state(.transcribing)]),
-                        .release(.transcription),
-                        .wait(.state(.readyToInsert)),
-                        // HomePane.swift:81-89 is source-only here: the session has been recorded,
-                        // so the empty branch has become the dashboard before insertion.
-                        .check("ready-to-insert", [.state(.readyToInsert), .text(.equals("WORKING"), .atLeast(1))]),
-                        .release(.insertion),
-                        .wait(.state(.idle)),
-                        // HomeAllTimeShelf.swift:15-17 and HomePane.swift:52-59 define the populated endpoint.
-                        .wait(.element(.value("ALL TIME"))),
-                        .check(
-                            "populated",
-                            [
-                                .absent(.value("No dictations yet")),
-                                .text(.equals("ALL TIME"), .exactly(1)),
-                                .model(.recentSessionCount, .equals("1")),
-                                // The ALL TIME strip reads the lifetime ledger, not the
-                                // capped transcript list; at one dictation the two agree,
-                                // and that they are both asserted is the point.
-                                .model(.lifetimeDictationCount, .equals("1")),
-                            ]
-                        ),
-                    ]
-                ),
-                UIFlow(
-                    id: "home.set-typing-speed",
-                    title: "The typing baseline can be corrected on the pane that claims it",
-                    tags: ["home", "console", "settings"],
-                    covers: [
-                        .state(.home, "typing-baseline-custom"),
-                        .journey(.home, "set-typing-speed"),
-                    ],
-                    host: .console(.home),
-                    fixture: .static(.populated),
-                    steps: [
-                        .check(
-                            "population-default",
-                            [
-                                .model(.typingSpeedWPM, .equals("52")),
-                                .text(.equals(defaultBaselineNote), .exactly(1)),
-                            ]
-                        ),
-                        .act(.type(fastTypistWPM, into: Selector.typingSpeed)),
-                        .check(
-                            "reader-baseline",
-                            [
-                                .model(.typingSpeedWPM, .equals(fastTypistWPM)),
-                                .absent(.value(defaultBaselineNote)),
-                                .text(.equals(readerBaselineNote), .exactly(1)),
-                            ]
-                        ),
-                    ]
-                ),
-            ]
-        }
 
         // MARK: Sessions
 
@@ -919,53 +825,43 @@
                     id: "console.rail.navigation.os26",
                     title: "Rail navigation keeps every row on the native render path",
                     tags: ["console", "rail", "navigation", "os26"],
-                    covers: [.journey(.home, "modern-rail-navigation")],
+                    covers: [.journey(.sessions, "modern-rail-navigation")],
                     // Diagnostics is a debug pane: `ConsoleRailSections.swift:44-50` keeps it
                     // on the rail only while it is the open pane. Opening it is therefore the
-                    // only way to assert the full six-row inventory.
+                    // only way to assert the full five-row inventory.
                     host: .console(.diagnostics),
                     fixture: .static(.populated),
                     steps: [
                         .check(
                             "diagnostics",
-                            railRows([.home, .sessions, .voice, .glossary, .system, .diagnostics])
+                            railRows([.sessions, .voice, .glossary, .system, .diagnostics])
                                 + [
                                     .selected(Selector.railItem(.diagnostics), true),
-                                    .selected(Selector.railItem(.home), false),
+                                    .selected(Selector.railItem(.sessions), false),
                                 ]
                         ),
                         .act(.navigate(.voice)),
                         .wait(.element(Selector.paneHeading(.voice))),
                         .check(
                             "voice",
-                            railRows([.home, .sessions, .voice, .glossary, .system])
+                            railRows([.sessions, .voice, .glossary, .system])
                                 + [
                                     // The debug-only row leaves with the pane, by design. Asserted
                                     // rather than ignored: a row that lingered here would make the
                                     // rail lie about where the reader is.
                                     .absent(Selector.railItem(.diagnostics)),
                                     .selected(Selector.railItem(.voice), true),
-                                    .selected(Selector.railItem(.home), false),
+                                    .selected(Selector.railItem(.sessions), false),
                                 ]
                         ),
                         .act(.navigate(.glossary)),
                         .wait(.element(Selector.paneHeading(.glossary))),
                         .check(
                             "glossary",
-                            railRows([.home, .sessions, .voice, .glossary, .system])
+                            railRows([.sessions, .voice, .glossary, .system])
                                 + [
                                     .selected(Selector.railItem(.glossary), true),
                                     .selected(Selector.railItem(.voice), false),
-                                ]
-                        ),
-                        .act(.navigate(.home)),
-                        .wait(.element(Selector.paneHeading(.home))),
-                        .check(
-                            "home",
-                            railRows([.home, .sessions, .voice, .glossary, .system])
-                                + [
-                                    .selected(Selector.railItem(.home), true),
-                                    .selected(Selector.railItem(.glossary), false),
                                 ]
                         ),
                     ]

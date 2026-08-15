@@ -9,19 +9,19 @@
 
     struct UICoverageLedgerTests {
         @Test func passingClaimCoversARequiredKeyAndNoClaimFails() throws {
-            let key = UICoverageKey.journey(.home, "dictate")
-            let requirement = UICoverageRequirement(key, "Dictate from Home")
+            let key = UICoverageKey.journey(.sessions, "search")
+            let requirement = UICoverageRequirement(key, "Search session history")
 
             let covered = UICoverageLedger.evaluate(
                 requirements: [requirement],
-                passingClaims: [key: ["home.dictate"]],
+                passingClaims: [key: ["sessions.search"]],
                 selectedClaims: [key],
-                allClaims: [key: ["home.dictate"]],
+                allClaims: [key: ["sessions.search"]],
                 sceneIDs: []
             )
             let coveredEntry = try #require(covered.entries.first)
             #expect(coveredEntry.status == .covered)
-            #expect(coveredEntry.claimants == ["home.dictate"])
+            #expect(coveredEntry.claimants == ["sessions.search"])
             #expect(!covered.failing)
 
             let uncovered = UICoverageLedger.evaluate(
@@ -151,14 +151,14 @@
                 entry(.state(.menu, "alpha"), status: .uncovered),
                 entry(.state(.voice, "snapshot"), status: .snapshot),
                 entry(.state(.glossary, "not-verifiable"), status: .notVerifiable),
-                entry(.journey(.home, "zeta"), status: .uncovered),
+                entry(.journey(.sessions, "zeta"), status: .uncovered),
                 entry(.state(.sessions, "not-selected"), status: .notSelected),
                 entry(.state(.system, "broken"), status: .broken),
             ])
 
             #expect(
                 UICoverageBaseline.uncovered(in: report) == [
-                    "journey:home:zeta",
+                    "journey:sessions:zeta",
                     "state:menu:alpha",
                 ])
         }
@@ -168,7 +168,7 @@
                 let text = """
                           # generated baseline
 
-                          journey:home:dictate
+                          journey:sessions:search
                     \t
                         state:menu:open-menu \t
                          # another comment
@@ -181,7 +181,7 @@
 
                 #expect(
                     UICoverageBaseline.read(request) == [
-                        "journey:home:dictate",
+                        "journey:sessions:search",
                         "state:menu:open-menu",
                     ])
             }
@@ -189,7 +189,7 @@
 
         @Test func matchingBaselineHasNoRegressionsOrStaleEntries() throws {
             try withTemporaryRequest { request in
-                let first = UICoverageKey.journey(.home, "dictate")
+                let first = UICoverageKey.journey(.sessions, "search")
                 let second = UICoverageKey.state(.menu, "open-menu")
                 try writeBaseline([second.description, first.description], request: request)
                 let current = report([
@@ -259,7 +259,7 @@
 
         @Test func missingBaselineIsReportedWithoutFailing() throws {
             try withTemporaryRequest { request in
-                let key = UICoverageKey.journey(.home, "dictate")
+                let key = UICoverageKey.journey(.sessions, "search")
 
                 let verdict = UICoverageBaseline.evaluate(
                     report([entry(key, status: .uncovered)]),
@@ -303,7 +303,7 @@
             try withTemporaryRequest { request in
                 let current = report([
                     entry(.state(.menu, "zebra"), status: .uncovered),
-                    entry(.journey(.home, "alpha"), status: .uncovered),
+                    entry(.journey(.sessions, "alpha"), status: .uncovered),
                 ])
                 var warnings: [String] = []
 
@@ -320,7 +320,7 @@
                         "#",
                         "# Regenerate with `make ui-flow-update`. A removed line is a gap you closed; an added",
                         "# line is coverage you dropped.",
-                        "journey:home:alpha",
+                        "journey:sessions:alpha",
                         "state:menu:zebra",
                     ].joined(separator: "\n") + "\n"
                 #expect(try String(contentsOf: destination, encoding: .utf8) == expected)
@@ -346,7 +346,7 @@
                 let current = report([
                     entry(.state(.menu, "covered"), status: .covered),
                     entry(.state(.system, "beta"), status: .uncovered),
-                    entry(.journey(.home, "alpha"), status: .uncovered),
+                    entry(.journey(.sessions, "alpha"), status: .uncovered),
                 ])
                 var warnings: [String] = []
 
