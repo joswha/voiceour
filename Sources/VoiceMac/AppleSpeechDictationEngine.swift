@@ -271,7 +271,11 @@ import VoiceCore
                 if let best = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]),
                     best.sampleRate != Double(Self.sampleRate) || best.channelCount != 1
                 {
-                    throw makeASRError(.internalError, requestId: nil, detail: "unexpected analyzer format \(best)")
+                    throw ASRErrorMessage(
+                        code: .internalError,
+                        requestId: nil,
+                        detail: "unexpected analyzer format \(best)"
+                    )
                 }
                 try await analyzer.start(inputSequence: stream)
             }
@@ -438,7 +442,7 @@ import VoiceCore
                 return (finalize, stoppedAt ?? Date())
             }
             guard let pending else {
-                throw makeASRError(.internalError, requestId: nil, detail: "no finalization in flight")
+                throw ASRErrorMessage(code: .internalError, requestId: nil, detail: "no finalization in flight")
             }
             let finalize = pending.finalize
             let reference = pending.reference
@@ -448,11 +452,11 @@ import VoiceCore
                 group.addTask { try await finalize.value }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(max(timeoutMs, 1)) * 1_000_000)
-                    throw makeASRError(.timeout, requestId: nil, detail: "streamed finalization timed out")
+                    throw ASRErrorMessage(code: .timeout, requestId: nil, detail: "streamed finalization timed out")
                 }
                 defer { group.cancelAll() }
                 guard let result = try await group.next() else {
-                    throw makeASRError(.internalError, requestId: nil, detail: "no finalization result")
+                    throw ASRErrorMessage(code: .internalError, requestId: nil, detail: "no finalization result")
                 }
                 return result
             }

@@ -7,21 +7,6 @@ import VoiceCore
     import Speech
 #endif
 
-/// Mirrors the Python sidecar's `protocol_error` taxonomy so native backends
-/// produce identical category/retryable/user-message metadata on the wire shape.
-func makeASRError(_ code: ASRErrorCode, requestId: String?, detail: String?) -> ASRErrorMessage {
-    let setupCodes: Set<ASRErrorCode> = [.modelNotInstalled, .manifestMismatch, .backendUnavailable]
-    let retryableCodes: Set<ASRErrorCode> = [.timeout, .internalError, .inferenceFailed]
-    return ASRErrorMessage(
-        requestId: requestId,
-        code: code,
-        category: setupCodes.contains(code) ? "setup" : "runtime",
-        retryable: retryableCodes.contains(code),
-        userMessageKey: "asr.\(code.rawValue)",
-        detail: detail
-    )
-}
-
 /// ASR client that always fails: installed when the selected backend cannot run
 /// on this system (e.g. `apple` on macOS < 26). Keeps the coordinator's error
 /// path uniform instead of spawning a Python sidecar that can never match.
@@ -35,7 +20,7 @@ public struct UnsupportedASRClient: ASRClienting {
     }
 
     public func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
-        throw makeASRError(.backendUnavailable, requestId: nil, detail: detail)
+        throw ASRErrorMessage(code: .backendUnavailable, requestId: nil, detail: detail)
     }
 
     public func health(timeoutMs: Int) async throws -> ASRBackendHealth {
@@ -98,14 +83,14 @@ public struct UnsupportedASRClient: ASRClienting {
                 // Name the identifier: the bare "locale not supported" this used to
                 // raise was indistinguishable from a broken backend, and the value
                 // that caused it can be whitespace the settings field cannot show.
-                throw makeASRError(
-                    .backendUnavailable,
+                throw ASRErrorMessage(
+                    code: .backendUnavailable,
                     requestId: requestId,
                     detail: "speech locale \(locale.identifier.debugDescription) is not supported by SpeechTranscriber"
                 )
             }
             guard FileManager.default.fileExists(atPath: audio.url.path) else {
-                throw makeASRError(.audioNotFound, requestId: requestId, detail: audio.url.path)
+                throw ASRErrorMessage(code: .audioNotFound, requestId: requestId, detail: audio.url.path)
             }
 
             let start = ContinuousClock.now
@@ -115,11 +100,15 @@ public struct UnsupportedASRClient: ASRClienting {
                 }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(max(timeoutMs, 1)) * 1_000_000)
-                    throw makeASRError(.timeout, requestId: requestId, detail: "apple speech transcription timed out")
+                    throw ASRErrorMessage(
+                        code: .timeout,
+                        requestId: requestId,
+                        detail: "apple speech transcription timed out"
+                    )
                 }
                 defer { group.cancelAll() }
                 guard let result = try await group.next() else {
-                    throw makeASRError(.internalError, requestId: requestId, detail: "no transcription result")
+                    throw ASRErrorMessage(code: .internalError, requestId: requestId, detail: "no transcription result")
                 }
                 return result
             }
@@ -172,7 +161,7 @@ public struct UnsupportedASRClient: ASRClienting {
             } catch {
                 await analyzer.cancelAndFinishNow()
                 collectTask.cancel()
-                throw makeASRError(.inferenceFailed, requestId: nil, detail: String(describing: error))
+                throw ASRErrorMessage(code: .inferenceFailed, requestId: nil, detail: String(describing: error))
             }
 
             return try await collectTask.value

@@ -45,28 +45,6 @@ extension SidecarBackend {
     public func shutdown() {}
 }
 
-/// Shared error shaping. Mirrors the retired Python `protocol_error` exactly: the client's
-/// error handling, its retry policy and its localized strings all key off these three fields.
-public enum SidecarErrors {
-    private static let setupCodes: Set<ASRErrorCode> = [.modelNotInstalled, .manifestMismatch, .backendUnavailable]
-    private static let retryableCodes: Set<ASRErrorCode> = [.timeout, .internalError, .inferenceFailed]
-
-    public static func message(
-        _ code: ASRErrorCode,
-        requestId: String?,
-        detail: String?
-    ) -> ASRErrorMessage {
-        ASRErrorMessage(
-            requestId: requestId,
-            code: code,
-            category: setupCodes.contains(code) ? "setup" : "runtime",
-            retryable: retryableCodes.contains(code),
-            userMessageKey: "asr.\(code.rawValue)",
-            detail: detail
-        )
-    }
-}
-
 /// Request validation shared by every backend, in the order the Python `base.py` applied it.
 public enum SidecarRequestValidation {
     public enum Outcome {

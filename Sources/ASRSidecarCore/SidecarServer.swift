@@ -106,7 +106,7 @@ public final class SidecarServer {
 
     private func requireBackend(requestId: String?) -> SidecarBackend? {
         guard let backend else {
-            output.emit(SidecarErrors.message(.backendUnavailable, requestId: requestId, detail: "unknown backend"))
+            output.emit(ASRErrorMessage(code: .backendUnavailable, requestId: requestId, detail: "unknown backend"))
             return nil
         }
         return backend
@@ -115,8 +115,8 @@ public final class SidecarServer {
     private func start(_ request: ASRTranscribeRequest, on backend: SidecarBackend) {
         guard let token = inflight.register(request.requestId) else {
             output.emit(
-                SidecarErrors.message(
-                    .invalidRequest,
+                ASRErrorMessage(
+                    code: .invalidRequest,
                     requestId: request.requestId,
                     detail: "request_id already in flight"
                 )
@@ -163,7 +163,7 @@ public final class SidecarOutput: @unchecked Sendable {
                 )
             )
         case .failure(let code, let detail):
-            emit(SidecarErrors.message(code, requestId: requestId, detail: detail))
+            emit(ASRErrorMessage(code: code, requestId: requestId, detail: detail))
         case .cancelled:
             emit(ASRCancelledMessage(requestId: requestId))
         }
@@ -280,14 +280,14 @@ enum SidecarRequestParser {
         let data = Data(line.utf8)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return .malformed(
-                SidecarErrors.message(.invalidRequest, requestId: nil, detail: "line is not a JSON object")
+                ASRErrorMessage(code: .invalidRequest, requestId: nil, detail: "line is not a JSON object")
             )
         }
         let requestId = object["request_id"] as? String
         guard object["protocol_version"] as? Int == asrProtocolVersion else {
             return .malformed(
-                SidecarErrors.message(
-                    .incompatibleProtocol,
+                ASRErrorMessage(
+                    code: .incompatibleProtocol,
                     requestId: requestId,
                     detail: "protocol_version mismatch"
                 )
@@ -305,12 +305,12 @@ enum SidecarRequestParser {
             case let other:
                 let described = other.map { "'\($0)'" } ?? "nil"
                 return .malformed(
-                    SidecarErrors.message(.invalidRequest, requestId: requestId, detail: "unknown type \(described)")
+                    ASRErrorMessage(code: .invalidRequest, requestId: requestId, detail: "unknown type \(described)")
                 )
             }
         } catch {
             return .malformed(
-                SidecarErrors.message(.invalidRequest, requestId: requestId, detail: String(describing: error))
+                ASRErrorMessage(code: .invalidRequest, requestId: requestId, detail: String(describing: error))
             )
         }
     }

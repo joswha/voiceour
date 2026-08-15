@@ -325,6 +325,24 @@ public struct ASRErrorMessage: Codable, Error, Equatable, Sendable {
     }
 }
 
+extension ASRErrorMessage {
+    /// The one place the wire's error taxonomy is derived from a code. Mirrors the retired
+    /// Python `protocol_error`: the client's retry policy and its localized strings key off
+    /// these three derived fields, so sidecar and native backends must agree byte for byte.
+    public init(code: ASRErrorCode, requestId: String?, detail: String?) {
+        let setup: Set<ASRErrorCode> = [.modelNotInstalled, .manifestMismatch, .backendUnavailable]
+        let retryable: Set<ASRErrorCode> = [.timeout, .internalError, .inferenceFailed]
+        self.init(
+            requestId: requestId,
+            code: code,
+            category: setup.contains(code) ? "setup" : "runtime",
+            retryable: retryable.contains(code),
+            userMessageKey: "asr.\(code.rawValue)",
+            detail: detail
+        )
+    }
+}
+
 public struct ASRCancelledMessage: Codable, Equatable, Sendable {
     public var type: String
     public var protocolVersion: Int
