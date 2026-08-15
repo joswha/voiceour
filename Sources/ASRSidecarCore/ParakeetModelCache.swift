@@ -63,21 +63,41 @@ public struct ParakeetModelManifest: Codable, Equatable, Sendable {
 /// Unlike the Hugging Face snapshot layout it replaces, this is a flat directory with two
 /// entries and no shared global cache: the sidecar owns it, and deleting it is a complete
 /// uninstall of the model.
-public struct ParakeetModelCache: Sendable {
+public struct ParakeetModelCache: @unchecked Sendable {
     public let directory: URL
     /// What must be in the directory. Defaults to the shipped pin; tests substitute a
     /// small artifact so the real download, verify and rename path is exercised for real.
     public let artifact: ParakeetModelManifest
     public let source: URL
+    /// Configuration every download attempt is made with. Tests inject one whose
+    /// `protocolClasses` carries a stub so the resume, restart and retry paths run without a
+    /// network; nothing else about the transfer is substituted.
+    public let sessionConfiguration: URLSessionConfiguration
+    /// Pause between download attempts. A test seam: the shipped value is a courtesy to a
+    /// server that just dropped us, and a unit suite must not sleep through it.
+    public let retryDelay: TimeInterval
+
+    /// Attempts one `ensureModel` makes before giving up. Each resumes where the last stopped.
+    public static let downloadAttempts = 3
+
+    public static func defaultSessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        return configuration
+    }
 
     public init(
         directory: URL,
         artifact: ParakeetModelManifest = .pinned,
-        source: URL = ASRModelContract.downloadURL
+        source: URL = ASRModelContract.downloadURL,
+        sessionConfiguration: URLSessionConfiguration = ParakeetModelCache.defaultSessionConfiguration(),
+        retryDelay: TimeInterval = 2
     ) {
         self.directory = directory
         self.artifact = artifact
         self.source = source
+        self.sessionConfiguration = sessionConfiguration
+        self.retryDelay = retryDelay
     }
 
     /// `VOICEOUR_MODEL_CACHE` when set, else the app cache directory.
@@ -118,13 +138,16 @@ public struct ParakeetModelCache: Sendable {
     /// Verifies size and SHA-256 before the file is moved into place, so a partial or corrupt
     /// download can never be mistaken for a good cache by a later launch. `progress` reports
     /// 0...1 and is called at most once per 5% of the transfer.
+    ///
+    /// A partial `.download` file is deliberately left in place on failure, both between
+    /// attempts and across process restarts: 1.26 GB over a hotel connection is not something
+    /// to start over because one TCP connection died.
     public func ensureModel(progress: ((Double) -> Void)? = nil) throws {
         if cacheOK() { return }
         try requirePinnedManifestOrAbsent()
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporaryURL = directory.appendingPathComponent(artifact.file + ".download")
-        try? FileManager.default.removeItem(at: temporaryURL)
 
         let digest = try streamArtifact(to: temporaryURL, progress: progress)
         try verify(temporaryURL, digest: digest)
@@ -166,32 +189,102 @@ public struct ParakeetModelCache: Sendable {
         return (attributes[.size] as? NSNumber)?.int64Value
     }
 
+    /// Verifies the cached model's bytes against the pinned digest.
+    ///
+    /// Not part of the normal path — `cacheOK()` checks size only, because hashing 1.26 GB on
+    /// every start would dominate the cold path. This is what a *load failure* pays (~1-2 s) to
+    /// tell a corrupt cache apart from a broken runtime.
+    public func verifyModelDigestOnDisk() -> Bool {
+        guard let size = fileSize(at: modelURL) else { return false }
+        guard var hasher = try? Self.hashPrefix(of: modelURL, byteCount: size) else { return false }
+        return Self.hexDigest(&hasher) == artifact.sha256
+    }
+
     /// Streams the artifact to `destination` and returns its lowercase hex SHA-256.
     ///
     /// Hand-rolled rather than `URLSession.download` because the digest has to be computed as
     /// the bytes arrive: buffering 1.26 GB to hash afterwards is the one thing a model download
     /// on a laptop must not do. Blocking is deliberate — the only caller is a worker thread.
+    ///
+    /// Retries `downloadAttempts` times, resuming from whatever the previous attempt left on
+    /// disk. The temporary file survives a failed attempt on purpose; only `verify` deletes it,
+    /// because corrupt bytes must never seed a resume.
     private func streamArtifact(to destination: URL, progress: ((Double) -> Void)?) throws -> String {
-        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
-            throw ParakeetModelCacheError.downloadFailed("cannot create \(destination.path)")
+        var lastError: Error = ParakeetModelCacheError.downloadFailed("no attempt was made")
+        for attempt in 1...Self.downloadAttempts {
+            if attempt > 1, retryDelay > 0 { Thread.sleep(forTimeInterval: retryDelay) }
+            do {
+                return try attemptStream(to: destination, progress: progress)
+            } catch {
+                lastError = error
+            }
+        }
+        throw ParakeetModelCacheError.downloadFailed(
+            "\(Self.downloadAttempts) attempts failed, last: \(lastError)"
+        )
+    }
+
+    /// One transfer. Resumes from `destination`'s existing bytes when there are any.
+    private func attemptStream(to destination: URL, progress: ((Double) -> Void)?) throws -> String {
+        if !FileManager.default.fileExists(atPath: destination.path) {
+            guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+                throw ParakeetModelCacheError.downloadFailed("cannot create \(destination.path)")
+            }
         }
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }
 
-        let sink = ArtifactSink(handle: handle, expectedBytes: artifact.sizeBytes, progress: progress)
+        // Rehash what is already there rather than storing a partial hasher: SHA-256 state is
+        // not serializable, and re-reading a partial file is disk-local and bounded.
+        let existing = fileSize(at: destination) ?? 0
+        var hasher = SHA256()
+        if existing > 0 {
+            hasher = try Self.hashPrefix(of: destination, byteCount: existing)
+            try handle.seek(toOffset: UInt64(existing))
+        }
+
+        let sink = ArtifactSink(
+            handle: handle,
+            expectedBytes: artifact.sizeBytes,
+            hasher: hasher,
+            written: existing,
+            resumeRequested: existing > 0,
+            progress: progress
+        )
+        var request = URLRequest(url: source)
+        if existing > 0 {
+            request.setValue("bytes=\(existing)-", forHTTPHeaderField: "Range")
+        }
+
         let delegate = StreamingDownloadDelegate(sink: sink)
-        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        let session = URLSession(configuration: sessionConfiguration, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
-        session.dataTask(with: source).resume()
+        session.dataTask(with: request).resume()
         sink.waitUntilFinished()
 
-        if let error = sink.failure {
-            try? FileManager.default.removeItem(at: destination)
-            throw error
-        }
+        if let error = sink.failure { throw error }
         try handle.synchronize()
         return sink.digest()
+    }
+
+    /// Streams `byteCount` bytes of `url` through a fresh SHA-256, 1 MiB at a time.
+    static func hashPrefix(of url: URL, byteCount: Int64) throws -> SHA256 {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var remaining = byteCount
+        while remaining > 0 {
+            let wanted = Int(min(remaining, 1 << 20))
+            guard let chunk = try handle.read(upToCount: wanted), !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+            remaining -= Int64(chunk.count)
+        }
+        return hasher
+    }
+
+    static func hexDigest(_ hasher: inout SHA256) -> String {
+        hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -203,25 +296,60 @@ private final class ArtifactSink: @unchecked Sendable {
     private let handle: FileHandle
     private let expectedBytes: Int64
     private let progress: ((Double) -> Void)?
+    private let resumeRequested: Bool
     private let semaphore = DispatchSemaphore(value: 0)
-    private var hasher = SHA256()
-    private var written: Int64 = 0
+    private var hasher: SHA256
+    private var written: Int64
     private var lastReportedBucket = -1
 
     private(set) var failure: Error?
 
-    init(handle: FileHandle, expectedBytes: Int64, progress: ((Double) -> Void)?) {
+    init(
+        handle: FileHandle,
+        expectedBytes: Int64,
+        hasher: SHA256,
+        written: Int64,
+        resumeRequested: Bool,
+        progress: ((Double) -> Void)?
+    ) {
         self.handle = handle
         self.expectedBytes = expectedBytes
+        self.hasher = hasher
+        self.written = written
+        self.resumeRequested = resumeRequested
         self.progress = progress
     }
 
     func accept(response: URLResponse) -> Bool {
-        guard let http = response as? HTTPURLResponse else { return true }
-        guard http.statusCode == 200 else {
+        // A non-HTTP response (a `file://` source in tests) carries no status and cannot have
+        // honoured a Range header, so a resumed attempt has to start over.
+        guard let http = response as? HTTPURLResponse else { return resumeRequested ? restart() : true }
+        switch http.statusCode {
+        case 200:
+            // Either this attempt started from byte 0, or the server ignored our Range header
+            // (some CDNs do, and a redirect can drop it). Both mean the body starts at zero, so
+            // any resumed state is now wrong: truncate and restart inside this same attempt.
+            return resumeRequested ? restart() : true
+        case 206 where resumeRequested:
+            return true
+        default:
             failure = ParakeetModelCacheError.downloadFailed("HTTP \(http.statusCode)")
             return false
         }
+    }
+
+    /// Throws away everything this attempt resumed from and starts the file at byte zero.
+    private func restart() -> Bool {
+        do {
+            try handle.truncate(atOffset: 0)
+            try handle.seek(toOffset: 0)
+        } catch {
+            failure = error
+            return false
+        }
+        hasher = SHA256()
+        written = 0
+        lastReportedBucket = -1
         return true
     }
 

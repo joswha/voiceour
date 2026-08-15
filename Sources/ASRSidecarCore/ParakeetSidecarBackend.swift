@@ -178,10 +178,30 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
             if case .manifestMismatch = error {
                 return .failure(code: .manifestMismatch, detail: error.description)
             }
-            return .failure(code: .modelLoadFailed, detail: error.description)
+            return loadFailure(error.description)
         } catch {
-            return .failure(code: .modelLoadFailed, detail: String(describing: error))
+            return loadFailure(String(describing: error))
         }
+    }
+
+    /// Maps a model-load failure, first asking whether the cached bytes are still the pinned
+    /// artifact.
+    ///
+    /// `cacheOK()` only checks the size, because hashing 1.26 GB on every start would dominate
+    /// the cold path. A load failure is the one moment where paying that 1-2 s is worth it: a
+    /// truncated-then-padded or bit-rotted cache is otherwise indistinguishable from a broken
+    /// runtime, and the user sees a permanent failure instead of a re-download.
+    private func loadFailure(_ detail: String) -> Preparation {
+        guard !cache.verifyModelDigestOnDisk() else {
+            return .failure(code: .modelLoadFailed, detail: detail)
+        }
+        log("cached model failed digest re-verification after a load failure; removing it")
+        try? FileManager.default.removeItem(at: cache.modelURL)
+        try? FileManager.default.removeItem(at: cache.manifestURL)
+        return .failure(
+            code: .modelNotInstalled,
+            detail: "cached model failed digest re-verification and was removed; it will be re-downloaded"
+        )
     }
 
     /// Creates the context on first use, exactly once.
