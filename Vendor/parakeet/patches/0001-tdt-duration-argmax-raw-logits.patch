@@ -1,0 +1,88 @@
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 59ad5c7..735dba0 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -447,6 +447,12 @@ struct parakeet_state {
+ 
+     std::vector<float> logits;
+ 
++    // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): raw, pre-log-softmax duration
++    // slots for the current joint step. `logits` above holds log-softmax output, whose
++    // duration slots underflow to -inf whenever the winning vocab logit leads by more than
++    // ~87, and an argmax over -inf values silently returns duration 0.
++    std::vector<float> duration_logits_raw;
++
+     std::vector<parakeet_segment> result_all;
+ 
+     std::vector<parakeet_token>      decoded_tokens;
+@@ -2376,6 +2382,10 @@ static bool parakeet_joint(
+ 
+     struct ggml_tensor * logits;
+ 
++    // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): the graph's last node is
++    // log_probs; the pre-softmax row is a named output of the same graph.
++    struct ggml_tensor * logits_raw = nullptr;
++
+     {
+         auto & sched = pstate.sched_decode.sched;
+ 
+@@ -2386,7 +2396,8 @@ static bool parakeet_joint(
+             return false;
+         }
+ 
+-        logits = ggml_graph_node(gf, -1);
++        logits     = ggml_graph_node(gf, -1);
++        logits_raw = ggml_graph_get_tensor(gf, "logits");
+ 
+         if (!ggml_graph_compute_helper(sched, gf, n_threads)) {
+             return false;
+@@ -2403,6 +2414,24 @@ static bool parakeet_joint(
+         ggml_backend_tensor_get(logits, logits_out.data() + (n_logits*i), sizeof(float)*(n_logits*i), sizeof(float)*n_logits);
+     }
+ 
++    // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): keep the raw duration slots so
++    // the decoder can argmax them without the log-softmax underflow.
++    if (logits_raw) {
++        pstate.duration_logits_raw.resize(n_tokens * hparams.n_tdt_durations);
++        const size_t off = sizeof(float) * (size_t) (hparams.n_vocab + 1);
++        for (int i = 0; i < n_tokens; i++) {
++            if (batch.logits[i] == 0) {
++                continue;
++            }
++            ggml_backend_tensor_get(logits_raw,
++                    pstate.duration_logits_raw.data() + (hparams.n_tdt_durations * i),
++                    sizeof(float) * (size_t) (n_logits * i) + off,
++                    sizeof(float) * (size_t) hparams.n_tdt_durations);
++        }
++    } else {
++        pstate.duration_logits_raw.clear();
++    }
++
+     if (batch.n_tokens == 1) {
+         pstate.t_decode_us += ggml_time_us() - t_start_us;
+         pstate.n_decode++;
+@@ -2565,11 +2594,20 @@ static bool parakeet_decode(
+ 
+         // find the max index of the duration logits, and look up that index
+         // value in the tdt_durations array to get the actual duration value.
++        //
++        // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): argmax the raw duration
++        // slots. `pstate.logits` is log-softmax output over vocab+durations, so every
++        // duration slot reads -inf once the winning vocab logit leads by more than ~87;
++        // upstream's `-1e10f` sentinel with strict `>` then leaves the index at 0, and
++        // duration 0 on a non-blank token pins the decoder to the same encoder frame.
++        const float * duration_slots = pstate.duration_logits_raw.empty()
++            ? pstate.logits.data() + n_vocab_logits
++            : pstate.duration_logits_raw.data();
+         int best_duration_idx = 0;
+-        float best_duration_logit = -1e10f;
+-        for (int i = 0; i < n_tdt_durations; ++i) {
+-            if (pstate.logits[n_vocab_logits + i] > best_duration_logit) {
+-                best_duration_logit = pstate.logits[n_vocab_logits + i];
++        float best_duration_logit = duration_slots[0];
++        for (int i = 1; i < n_tdt_durations; ++i) {
++            if (duration_slots[i] > best_duration_logit) {
++                best_duration_logit = duration_slots[i];
+                 best_duration_idx = i;
+             }
+         }

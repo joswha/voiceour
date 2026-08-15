@@ -1,3 +1,7 @@
+#if !defined(__aarch64__)
+#error "Vendor/parakeet is vendored arm64-only (no x86 arch sources vendored); see NOTICE.md"
+#endif
+
 // Embeds the merged Metal shader source produced by regenerate.sh into the binary,
 // under the section and symbol names ggml-metal-device.m:122-129 loads at runtime.
 //

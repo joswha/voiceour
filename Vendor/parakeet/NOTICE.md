@@ -53,42 +53,32 @@ try to compile it — and is present only as the input to `ggml/embed/regenerate
   the `__DATA,__ggml_metallib` section are what `ggml-metal-device.m:125-131` reads. The `.incbin`
   path resolves through the `embed` header search path on the CGgml target.
 - `NOTICE.md` — this file.
+- `patches/*.patch` — ordered `git apply` patches for every explained drift in an upstream file.
 
 ## Patch ledger
 
-Every local change to an upstream file is listed here and marked in the source with a comment
-beginning `VOICEOUR PATCH`.
+Every local change to an upstream file is marked in source with a `VOICEOUR PATCH` comment and
+captured under `patches/`.
 
-### 1. Duration argmax on raw logits — upstream issue ggml-org/whisper.cpp#3932
-
-`src/parakeet.cpp`. Upstream's TDT decode loop argmaxes the duration slots of `pstate.logits`
-against a `-1e10f` sentinel with strict `>`. `pstate.logits` is the graph's last node, which is
-`log(softmax(logits))` (`parakeet_build_graph_joint`), so every duration slot reads `-inf` once
-the winning vocabulary logit leads the row by more than about 87. `-inf > -1e10f` is false, the
-index stays 0, and `tdt_durations[0]` is 0 — which, on a non-blank token, pins the decoder to the
-same encoder frame until `n_max_tokens` forces it forward.
-
-The fix is upstream's first suggested one: argmax the duration slots on the raw, pre-log-softmax
-values. Three edits:
-
-- `struct parakeet_state` gains `std::vector<float> duration_logits_raw`.
-- `parakeet_joint` fetches the already-named, already-`ggml_set_output` raw `logits` node
-  (`ggml_graph_get_tensor(gf, "logits")`) and copies its duration slots into that vector.
-- The decode loop argmaxes `duration_logits_raw`, seeded from slot 0 rather than a sentinel, and
-  falls back to the log-softmax slots if the raw tensor is unavailable.
-
-### 2. Logging — no patch needed
+- `patches/0001-tdt-duration-argmax-raw-logits.patch` changes `src/parakeet.cpp` so the TDT
+  decoder chooses duration slots from raw, pre-log-softmax logits instead of values that can
+  numerically underflow to `-inf`.
+  - Upstream status: ggml-org/whisper.cpp#3932 open as of 2026-08-15; re-check on every re-vendor.
+  - Test status: untested-by-construction. No committed input reaches the numeric underflow it
+    fixes, and the benchmark corpus decoded identically with and without it.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to
-stderr). The sidecar installs its own `parakeet_log_set` callback at startup anyway, because
-stdout carries the NDJSON protocol and must never receive anything else.
+stderr). The sidecar installs its own `parakeet_log_set` callback at startup because stdout carries
+the NDJSON protocol and must never receive anything else; no logging patch is required.
 
 ## Build notes
 
 - Compiled as two SwiftPM C targets, `CGgml` and `CParakeet`; see `Package.swift`.
 - `-fno-objc-arc` is required: `ggml-metal-device.m` and `ggml-metal-context.m` are manual
   retain/release, and SwiftPM compiles `.m` with ARC on by default while upstream CMake does not.
+- `ggml/embed/ggml-metal-embed.c` rejects non-arm64 compilation because this drop intentionally
+  omits the x86 architecture sources.
 - `-mcpu=native` is deliberately **not** used, unlike the upstream CMake default. Voiceour ships a
   copyable `.app`, and a binary built with the build host's exact CPU can fault on an older Apple
   Silicon machine. The arm64 baseline still resolves NEON, ARM_FMA, FP16_VA, DOTPROD, ACCELERATE
