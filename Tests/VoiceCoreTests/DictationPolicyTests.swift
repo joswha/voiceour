@@ -30,7 +30,6 @@ struct DictationPolicyTests {
         #expect(options.asrBackend == nil)
         #expect(LaunchOptions.validBackend(" fake ") == "fake")
         #expect(LaunchOptions.validBackend("PARAKEET") == "parakeet")
-        #expect(LaunchOptions.validBackend("Apple") == "apple")
         #expect(LaunchOptions.validBackend("sherpa") == nil)
     }
 

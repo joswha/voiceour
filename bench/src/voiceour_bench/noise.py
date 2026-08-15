@@ -17,7 +17,6 @@ from typing import Any
 SEED = 20260718
 SNRS_DB = (20, 10, 5, 0)
 BASE_MANIFEST = Path("benchmarks/data/librispeech/manifest.jsonl")
-BASE_RESULTS = Path("benchmarks/results/20260717T131734Z-librispeech-apple-stt.results.jsonl")
 OUTPUT_ROOT = Path("benchmarks/data/librispeech-noise")
 
 
@@ -63,19 +62,6 @@ def canonical_subset(manifest_rows: list[dict[str, Any]]) -> list[dict[str, Any]
     if counts != {"clean": 32, "other": 32} or len(selected) != 64:
         raise ValueError(f"expected 32 test-clean and 32 test-other rows, got {counts}")
     return selected
-
-
-def verify_baseline_subset(rows: list[dict[str, Any]], results_path: Path) -> None:
-    """Ensure the selected IDs exactly match the prior Apple baseline run."""
-
-    baseline_ids = {
-        row["id"] for row in _read_jsonl(results_path) if row.get("type") == "row" and isinstance(row.get("id"), str)
-    }
-    selected_ids = {row["id"] for row in rows}
-    if baseline_ids != selected_ids:
-        missing = sorted(baseline_ids - selected_ids)
-        extra = sorted(selected_ids - baseline_ids)
-        raise ValueError(f"canonical subset differs from baseline results: missing={missing}, extra={extra}")
 
 
 def _rng(seed: int, row_id: str, snr_db: int) -> random.Random:
@@ -149,7 +135,6 @@ def add_gaussian_noise(source: Path, destination: Path, row_id: str, snr_db: int
 def generate(
     root: Path | None = None,
     manifest_path: Path = BASE_MANIFEST,
-    baseline_results_path: Path = BASE_RESULTS,
     output_root: Path = OUTPUT_ROOT,
     snrs_db: tuple[int, ...] = SNRS_DB,
     seed: int = SEED,
@@ -158,13 +143,14 @@ def generate(
 
     root = (root or repo_root()).resolve()
     manifest_path = root / manifest_path if not manifest_path.is_absolute() else manifest_path
-    baseline_results_path = (
-        root / baseline_results_path if not baseline_results_path.is_absolute() else baseline_results_path
-    )
     output_root = root / output_root if not output_root.is_absolute() else output_root
 
+    # `canonical_subset` is the whole definition of the noise cohort: exactly
+    # utterances 000001-000032 of each LibriSpeech split, or it raises. The
+    # previous cross-check against one historical run's row ids pinned the cohort
+    # to a results file nobody keeps, so it could only ever fail for the wrong
+    # reason.
     rows = canonical_subset(_read_jsonl(manifest_path))
-    verify_baseline_subset(rows, baseline_results_path)
     manifests: list[Path] = []
     for snr_db in snrs_db:
         snr_dir = output_root / f"snr{snr_db:02d}"

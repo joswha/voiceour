@@ -103,8 +103,7 @@ ui-all: ui-snap ui-flow-frames
 .PHONY: bench-smoke bench-stt bench-e2e bench-techterms bench-gate
 
 N ?= 200
-# Parakeet stays the measured default; override to A/B another registered
-# backend, e.g. `make bench-stt BACKEND=apple N=64`.
+# Parakeet is the only real backend; override only to measure the fake path.
 BACKEND ?= parakeet
 
 bench-smoke:
@@ -122,24 +121,3 @@ bench-techterms:
 # Usage: make bench-gate BASELINE=benchmarks/results/<a>.json CANDIDATE=benchmarks/results/<b>.json
 bench-gate:
 	cd bench && uv --no-config run python -m voiceour_bench.compare ../$(BASELINE) ../$(CANDIDATE) --gate uwer_final:0.0035
-
-.PHONY: bench-capture-plan bench-capture-run bench-capture-report
-
-bench-capture-plan:
-	cd bench && uv --no-config run python -m voiceour_bench.capture_matrix plan \
-	  --prompts ../benchmarks/data/techterms/capture-prompts.jsonl \
-	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
-	  --output-dir ../benchmarks/data/techterms/real-speaker-audio \
-	  --speaker-id speaker-001 --speaker-kind real --takes 2 --dry-run
-
-bench-capture-run:
-	cd bench && uv --no-config run python -m voiceour_bench.capture_matrix run \
-	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
-	  --results ../benchmarks/results/techterms-capture.results.jsonl \
-	  --consent-confirmed
-
-bench-capture-report:
-	cd bench && uv --no-config run python -m voiceour_bench.capture_matrix report \
-	  --manifest ../benchmarks/data/techterms/capture-matrix.jsonl \
-	  --results ../benchmarks/results/techterms-capture.results.jsonl \
-	  --output ../benchmarks/results/techterms-capture.report.json

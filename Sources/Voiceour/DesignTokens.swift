@@ -406,7 +406,7 @@ enum VoiceourMetrics {
         static let chip: CGFloat = 6
         static let keycap: CGFloat = 4
 
-        /// Apple's `concentric(minimum:)` semantics for painted nested shapes.
+        /// System `concentric(minimum:)` semantics for painted nested shapes.
         static func nested(_ outer: CGFloat, inset: CGFloat) -> CGFloat {
             max(outer - inset, 0)
         }
@@ -451,9 +451,9 @@ enum VoiceourMetrics {
         }
     }
 
-    /// Explicit widths for short, purpose-sized fields (ms counters, locale codes)
-    /// so a four-digit number never claims the full content column. Fields that
-    /// hold free-form text (URLs, model ids, keys) stay flexible up to the column.
+    /// Explicit widths for short, purpose-sized fields such as millisecond counters,
+    /// so a four-digit number never claims the full content column. Fields that hold
+    /// free-form text (URLs, model ids, keys) stay flexible up to the column.
     enum Field {
         static let short: CGFloat = 120
         static let medium: CGFloat = 280

@@ -217,16 +217,12 @@ struct BenchRunner {
         }
     }
 
-    /// Uses the registry's batch factory, not its live one: the live Apple
-    /// backend is the fused recording engine, which is not what a file-driven
-    /// benchmark should measure.
+    /// The registry's client for `backend`, which for every registered backend is
+    /// the sidecar client: this benchmark transcribes files and never records.
     private static func makeASRClient(backend: String) -> any ASRClienting {
         ASRBackendRegistry.builtIn.client(
             for: backend,
-            context: ASRBackendContext(
-                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
-                speechLocale: "en_US"
-            )
+            context: ASRBackendContext(sidecarExecutableURL: ASRBackendContext.siblingSidecarURL())
         )
     }
 
@@ -274,10 +270,8 @@ struct BenchRunner {
     /// here: a stale branch would stamp Parakeet's identity onto every other
     /// backend's rows and make the whole record untrustworthy.
     ///
-    /// A descriptor with a model but no pinned revision is system-managed (Apple
-    /// Speech ships with the OS), so the OS version is the only revision that
-    /// means anything. A backend with no model at all — `fake` — reports its own
-    /// name rather than borrowing another backend's model.
+    /// A backend with no model at all — `fake` — reports its own name rather than
+    /// borrowing another backend's model.
     private static func modelIdentity(for backend: String?) -> (id: String, revision: String) {
         guard
             let backend,

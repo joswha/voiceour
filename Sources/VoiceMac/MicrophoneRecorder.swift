@@ -9,10 +9,9 @@ enum RecorderError: Error {
     case outputUnavailable
 }
 
-/// The one 16 kHz mono interleaved Int16 WAV every capture path writes. The
-/// sidecar recorder and the Apple Speech streaming session must produce a
-/// byte-identical file — a drift between the two surfaces only as audio the
-/// backend cannot read, so the construction lives in exactly one place.
+/// The one 16 kHz mono interleaved Int16 WAV the capture path writes. The format is
+/// also `parakeet`'s input contract, so the construction lives in exactly one place:
+/// a drift surfaces only as audio the backend cannot read.
 struct CaptureWAVTarget {
     let url: URL
     let format: AVAudioFormat

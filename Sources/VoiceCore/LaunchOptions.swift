@@ -27,18 +27,21 @@ public struct LaunchOptions: Equatable, Sendable {
     }
 
     /// Backend ids accepted when validation is not supplied by a registry.
-    public static let defaultBackendIDs: Set<String> = ["fake", "parakeet", "apple"]
+    public static let defaultBackendIDs: Set<String> = ["fake", "parakeet"]
 
     /// Backend ids that existed in shipped builds and no longer do.
     ///
-    /// All three ran the same Parakeet family through the retired Python sidecar, and every
-    /// source of a backend id — launch argument, environment, persisted settings — funnels
-    /// through `validBackend`. Normalizing here means an existing install keeps its real
-    /// backend instead of silently dropping to the fake one.
+    /// `mlx`, `ark-0.6b` and `ark-3b` ran the same Parakeet family through the retired Python
+    /// sidecar. `apple` was the opt-in system transcriber, deleted after it lost every content
+    /// axis to the local sidecar and nearly tripled ASR p95. Every source of a backend id —
+    /// launch argument, environment, persisted settings — funnels through `validBackend`, so
+    /// normalizing here means an existing install keeps working instead of silently dropping to
+    /// the fake one.
     public static let retiredBackendIDs: [String: String] = [
         "mlx": "parakeet",
         "ark-0.6b": "parakeet",
         "ark-3b": "parakeet",
+        "apple": "parakeet",
     ]
 
     /// Normalizes a backend id, rejecting anything unregistered.

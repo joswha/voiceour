@@ -86,34 +86,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-/// The one normalizer for the `speech_locale` setting.
-///
-/// This is the only free-text field the app hands straight to a system
-/// recogniser, so a value Foundation cannot resolve is not a cosmetic problem:
-/// `SpeechTranscriber.supportedLocale(equivalentTo:)` returns nil and the whole
-/// Apple backend refuses every request. A build before the settings pane moved
-/// to commit-on-submit persisted the field on each keystroke and could leave
-/// `" "` on disk, which bricked that backend permanently with no in-app way
-/// back. Decode heals such a value rather than carrying it to the recogniser.
-public enum SpeechLocale {
-    /// The identifier used when the stored one cannot be resolved.
-    public static let fallback = "en_US"
-
-    /// BCP-47 spells subtags with hyphens and `Locale` with underscores; accept
-    /// either and return the identifier Foundation will match, or nil when no
-    /// available identifier does.
-    public static func canonical(_ value: String) -> String? {
-        let candidate =
-            value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "-", with: "_")
-        guard known.contains(candidate.lowercased()) else { return nil }
-        return candidate
-    }
-
-    private static let known: Set<String> = Set(Locale.availableIdentifiers.map { $0.lowercased() })
-}
-
 public struct Settings: Codable, Equatable, Sendable {
     public var cleanupEnabled: Bool
     public var asrBackend: String
@@ -121,7 +93,6 @@ public struct Settings: Codable, Equatable, Sendable {
     public var muteSystemAudioDuringCapture: Bool
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
-    public var speechLocale: String
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -130,7 +101,6 @@ public struct Settings: Codable, Equatable, Sendable {
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
-        case speechLocale = "speech_locale"
     }
 
     public init(
@@ -139,8 +109,7 @@ public struct Settings: Codable, Equatable, Sendable {
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
         autoStopEnabled: Bool = false,
-        autoStopSilenceMs: Int = 2500,
-        speechLocale: String = SpeechLocale.fallback
+        autoStopSilenceMs: Int = 2500
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -148,7 +117,6 @@ public struct Settings: Codable, Equatable, Sendable {
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
-        self.speechLocale = speechLocale
     }
 
     public init(from decoder: Decoder) throws {
@@ -163,8 +131,6 @@ public struct Settings: Codable, Equatable, Sendable {
         autoStopEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoStopEnabled) ?? defaults.autoStopEnabled
         autoStopSilenceMs =
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs
-        let storedLocale = try container.decodeIfPresent(String.self, forKey: .speechLocale) ?? defaults.speechLocale
-        speechLocale = SpeechLocale.canonical(storedLocale) ?? defaults.speechLocale
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

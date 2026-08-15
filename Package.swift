@@ -64,7 +64,6 @@ let package = Package(
     products: [
         .executable(name: "Voiceour", targets: ["Voiceour"]),
         .executable(name: "voiceour-bench", targets: ["VoiceourBench"]),
-        .executable(name: "voiceour-capture-bench", targets: ["VoiceourCaptureBench"]),
         .executable(name: "voiceour-asr", targets: ["VoiceourASR"]),
         .library(name: "VoiceCore", targets: ["VoiceCore"]),
         .library(name: "VoiceMac", targets: ["VoiceMac"])
@@ -126,10 +125,6 @@ let package = Package(
         ),
         .executableTarget(
             name: "VoiceourBench",
-            dependencies: ["VoiceCore", "VoiceMac"]
-        ),
-        .executableTarget(
-            name: "VoiceourCaptureBench",
             dependencies: ["VoiceCore", "VoiceMac"]
         ),
         .testTarget(

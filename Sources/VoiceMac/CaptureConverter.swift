@@ -4,10 +4,7 @@ import Foundation
 /// Converts microphone buffers to the app's WAV format, following the source
 /// format when the hardware changes underneath.
 ///
-/// Both real backends need exactly this: the sidecar path writes the converted
-/// buffers to a file, and the Apple path writes them *and* feeds them to
-/// `SpeechAnalyzer`. The algorithm below is the one that was proven in
-/// `StreamingSession`; it lives here so there is one copy.
+/// The recorder writes the converted buffers to the one WAV the sidecar reads.
 ///
 /// A route change is handled by the data rather than by a notification. When a
 /// buffer arrives in a new format the previous converter is drained first, so its
@@ -20,11 +17,9 @@ final class CaptureConverter {
 
     /// True once a source format arrived that no converter could be built for.
     ///
-    /// Only the Apple path acts on it, and it must: a converter that cannot follow
-    /// the hardware leaves `SpeechAnalyzer` holding pre-change audio only, which
-    /// finalizes as a plausible but silently truncated utterance. Writing a short
-    /// WAV is a survivable outcome; serving a truncated transcript as if it were
-    /// complete is not.
+    /// A converter that cannot follow the hardware stops contributing audio, so the
+    /// recording ends short rather than wrong. The flag exists so a caller can tell
+    /// a short capture from a complete one.
     private(set) var didFailToFollowFormat = false
 
     private var converter: AVAudioConverter?

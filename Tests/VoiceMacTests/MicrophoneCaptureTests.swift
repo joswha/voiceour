@@ -193,9 +193,9 @@ import Testing
         #expect(!converter.didFailToFollowFormat)
     }
 
-    /// A format arriving that no converter can be built for is the one case the
-    /// Apple path must hear about: its analyzer would otherwise finalize
-    /// pre-change audio as though it were the whole utterance.
+    /// A format arriving that no converter can be built for must latch a
+    /// capture failure; otherwise the recorder could accept pre-change audio
+    /// as though it were the whole utterance.
     @Test func unconvertibleSourceFormatLatchesTheFailureFlag() {
         let converter = CaptureConverter(targetFormat: target, makeConverter: { _, _ in nil })
 
@@ -207,8 +207,8 @@ import Testing
 
     /// The failure must be reported at the seam, not swallowed: audio captured
     /// before an unfollowable change is still returned, and only then is the flag
-    /// raised. That ordering is what lets the Apple path keep a usable WAV while
-    /// refusing to serve the truncated streamed transcript.
+    /// raised. That ordering preserves the usable prefix while ensuring the
+    /// recorder rejects the truncated capture.
     @Test func audioBeforeAnUnfollowableChangeIsStillReturned() {
         var calls = 0
         let converter = CaptureConverter(
@@ -235,9 +235,9 @@ import Testing
 /// value-level testing can reach: that naming a device UID actually opens THAT
 /// device and that liveness flips only once real samples arrive.
 ///
-/// Gated on `VOICEOUR_CAPTURE_INTEGRATION` and `.serialized` for the same reason
-/// `AppleSpeechASRTests` is: it opens the one physical microphone, and concurrent
-/// sessions on a single input device deadlock.
+/// Gated on `VOICEOUR_CAPTURE_INTEGRATION` and `.serialized` because it opens
+/// the one physical microphone, and concurrent sessions on a single input
+/// device deadlock.
 @Suite("Microphone capture integration", .serialized)
 struct MicrophoneCaptureIntegrationTests {
     private final class BufferCounter: @unchecked Sendable {

@@ -6,10 +6,10 @@ import VoiceMac
 /// starts, ends, and is cleaned up.
 ///
 /// Two cards, each an honest promise about the rows under it. BACKEND owns the
-/// recogniser and the locale it loads; CAPTURE owns the whole hotkey round-trip
-/// — the trigger, the hands-free stop, and the cleanup pass that runs before
-/// insertion. Auto-stop used to sit under BACKEND, which made that eyebrow a
-/// lie for a third of its card and inflated it to three times its siblings.
+/// recogniser; CAPTURE owns the whole hotkey round-trip — the trigger, the
+/// hands-free stop, and the cleanup pass that runs before insertion. Auto-stop
+/// used to sit under BACKEND, which made that eyebrow a lie for half its card
+/// and inflated it beyond its siblings.
 ///
 /// Every row is one structure: a control band, then a footer of caption lines
 /// at the value-column origin — the row primitive owns that gap now, so no row
@@ -21,29 +21,19 @@ struct VoicePane: View {
     var coordinator: DictationCoordinator
 
     private enum FocusTarget: Hashable {
-        case locale
         case silence
     }
 
-    /// The two free-text fields commit on submit or focus loss, not on every
-    /// keystroke: persisting "d", "de", "de_" in turn saved three identifiers
-    /// no backend can load, and a half-typed number could not be cleared at all
-    /// because the setter dropped anything that was not an `Int`. `nil` means
-    /// "no edit in flight", and the field renders the stored value.
-    @State private var localeDraft: String?
+    /// The free-text duration commits on submit or focus loss, not on every
+    /// keystroke: a half-typed number could not be cleared because the setter
+    /// dropped anything that was not an `Int`. `nil` means "no edit in flight",
+    /// and the field renders the stored value.
     @State private var silenceDraft: String?
-    /// Set only when a commit was refused, so the field warns on submit rather
-    /// than flashing an error at every keystroke of a half-typed identifier.
-    @State private var localeRejected = false
     @FocusState private var focusedField: FocusTarget?
     private var a11y = A11y()
 
     /// One source for the backend vocabulary, so the picker, the running
     /// readout and the restart notice can never disagree about a name.
-    ///
-    /// Deliberately unfiltered by availability: Apple Speech stays selectable on
-    /// macOS 14/15 and the registry's `UnsupportedASRClient` reports the reason
-    /// uniformly, rather than the option silently vanishing.
     private static let backends: [(id: String, name: String)] =
         ASRBackendRegistry.builtIn.descriptors.map { ($0.id, $0.displayName) }
 
@@ -59,7 +49,6 @@ struct VoicePane: View {
         SettingsPaneScroll {
             SettingsSectionBlock(eyebrow: "BACKEND") {
                 backendRow
-                localeRow
             }
 
             SettingsSectionBlock(eyebrow: "CAPTURE") {
@@ -69,11 +58,9 @@ struct VoicePane: View {
             }
         }
         .onChange(of: focusedField) { previous, current in
-            if previous == .locale, current != .locale { commitLocale() }
             if previous == .silence, current != .silence { commitSilence() }
         }
         .onDisappear {
-            commitLocale()
             commitSilence()
         }
     }
@@ -97,10 +84,8 @@ struct VoicePane: View {
             statusActionAccessibilityLabel: "Restart Voiceour to apply backend",
             statusActionAccessibilityIdentifier: "voice.backend.restart"
         ) {
-            // Three segments, so they fit one row of the control band beside either the
-            // IN USE mark or the wider RESTART TO APPLY one. `rows: 2` is retained as the
-            // wrap allowance: the group keeps its 316pt width, and a fourth backend wraps
-            // rather than overflowing.
+            // Both registered backends fit one row of the control band beside either
+            // the IN USE mark or the wider RESTART TO APPLY one.
             SegmentGroup(rows: 2) {
                 ForEach(Self.backends, id: \.id) { backend in
                     SegmentOption(
@@ -126,22 +111,6 @@ struct VoicePane: View {
             a11y.reduceMotion ? nil : VoiceourMotion.quick,
             value: coordinator.settings.asrBackend
         )
-    }
-
-    private var localeRow: some View {
-        SettingsRow(label: "Speech locale") {
-            TextField("e.g. de_DE", text: localeBinding)
-                .textFieldStyle(GlassTextFieldStyle(font: VoiceourTypography.bodyMono))
-                .frame(width: VoiceourMetrics.Field.short)
-                .focused($focusedField, equals: .locale)
-                .onSubmit { commitLocale() }
-                .accessibilityLabel("Speech locale")
-        } footer: {
-            CaptionText(
-                localeWarning ?? "BCP-47 identifier (en_US, de_DE). Applies at next launch.",
-                color: localeWarning == nil ? nil : VoiceourPalette.Signal.amber
-            )
-        }
     }
 
     // MARK: Capture
@@ -236,43 +205,6 @@ struct VoicePane: View {
     private static func modelSummary(for backend: String) -> String {
         let registry = ASRBackendRegistry.builtIn
         return (registry.descriptor(for: backend) ?? registry.defaultDescriptor).modelLabel
-    }
-
-    // MARK: Locale editing
-
-    private var localeBinding: Binding<String> {
-        Binding(
-            get: { localeDraft ?? coordinator.settings.speechLocale },
-            set: { value in
-                localeDraft = value
-                localeRejected = false
-            }
-        )
-    }
-
-    /// Amber only for a value the user has finished with, never while the field
-    /// is being typed into. A *stored* identifier can no longer be unresolvable
-    /// — `Settings` decode heals one — so a refused commit is the only warning
-    /// left to give.
-    private var localeWarning: String? {
-        guard localeRejected else { return nil }
-        return "Not a known locale identifier. \(coordinator.settings.speechLocale) stays in effect."
-    }
-
-    /// An unrecognised draft is kept on screen rather than reverted: the user
-    /// needs to see what they typed to correct it, and the caption names the
-    /// identifier that stays in effect so the pane never implies otherwise.
-    private func commitLocale() {
-        guard let draft = localeDraft else { return }
-        guard let canonical = SpeechLocale.canonical(draft) else {
-            localeRejected = true
-            return
-        }
-        localeDraft = nil
-        localeRejected = false
-        guard canonical != coordinator.settings.speechLocale else { return }
-        coordinator.settings.speechLocale = canonical
-        coordinator.saveSettings()
     }
 
     // MARK: Silence editing

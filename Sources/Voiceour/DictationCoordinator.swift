@@ -277,10 +277,7 @@ public final class DictationCoordinator {
         let tracker = WorkspaceTargetTracker()
         let components = registry.liveComponents(
             for: backend,
-            context: ASRBackendContext(
-                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
-                speechLocale: settings.speechLocale
-            )
+            context: ASRBackendContext(sidecarExecutableURL: ASRBackendContext.siblingSidecarURL())
         )
         let recorder = components.recorder
         let asr = components.client

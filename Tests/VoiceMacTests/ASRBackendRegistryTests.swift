@@ -14,13 +14,12 @@ import Testing
 struct ASRBackendRegistryTests {
     private let registry = ASRBackendRegistry.builtIn
     private let context = ASRBackendContext(
-        sidecarExecutableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
-        speechLocale: "en_US"
+        sidecarExecutableURL: URL(fileURLWithPath: "/tmp/voiceour-asr")
     )
 
-    @Test func builtInCarriesExactlyTheThreeShippedBackendsInPickerOrder() {
-        #expect(registry.descriptors.map(\.id) == ["fake", "parakeet", "apple"])
-        #expect(registry.backendIDs == ["fake", "parakeet", "apple"])
+    @Test func builtInCarriesExactlyTheTwoShippedBackendsInPickerOrder() {
+        #expect(registry.descriptors.map(\.id) == ["fake", "parakeet"])
+        #expect(registry.backendIDs == ["fake", "parakeet"])
     }
 
     @Test func descriptorMetadataMatchesWhatTheUISurfaces() throws {
@@ -35,13 +34,6 @@ struct ASRBackendRegistryTests {
         #expect(parakeet.modelLabel == ASRModelContract.modelId)
         #expect(parakeet.modelId == ASRModelContract.modelId)
         #expect(parakeet.modelRevision == ASRModelContract.revision)
-
-        let apple = try #require(registry.descriptor(for: "apple"))
-        #expect(apple.displayName == "APPLE SPEECH")
-        #expect(apple.modelLabel == "apple/SpeechTranscriber (system-managed)")
-        #expect(apple.modelId == "apple/SpeechTranscriber")
-        // System-managed: the OS owns the assets, so nothing here pins a revision.
-        #expect(apple.modelRevision == nil)
     }
 
     /// The sidecar helper is resolved as a sibling of whatever executable is running, which is
@@ -71,22 +63,6 @@ struct ASRBackendRegistryTests {
         #expect(registry.client(for: "parakeet", context: context) is SidecarASRClient)
     }
 
-    /// Below macOS 26 the Apple backend still resolves — it stays selectable and
-    /// reports the reason through `UnsupportedASRClient` rather than vanishing
-    /// from the picker.
-    @Test func appleBackendReportsUnsupportedBelowMacOS26() {
-        let components = registry.liveComponents(for: "apple", context: context)
-        #expect(components.usesSystemAudioMuter)
-
-        if #available(macOS 26.0, *) {
-            #expect(!(components.client is UnsupportedASRClient))
-        } else {
-            #expect(components.client is UnsupportedASRClient)
-            #expect(components.recorder is MicrophoneRecorder)
-            #expect(registry.client(for: "apple", context: context) is UnsupportedASRClient)
-        }
-    }
-
     /// A stale `settings.asrBackend` written by a future build must not crash the
     /// app, which is why an unknown id resolves to the fake backend instead of
     /// trapping — the same `?? fake` the coordinator applied before.
@@ -102,7 +78,7 @@ struct ASRBackendRegistryTests {
     @Test func launchOptionValidationCanBeDrivenByTheRegistry() {
         let ids = registry.backendIDs
         #expect(VoiceCore.LaunchOptions.validBackend("PARAKEET", validBackendIDs: ids) == "parakeet")
-        #expect(VoiceCore.LaunchOptions.validBackend("  apple ", validBackendIDs: ids) == "apple")
+        #expect(VoiceCore.LaunchOptions.validBackend("  fake ", validBackendIDs: ids) == "fake")
         // Retired ids normalize before the membership test, so a persisted "mlx" still
         // resolves against the live registry rather than falling through to the default.
         #expect(VoiceCore.LaunchOptions.validBackend("MLX", validBackendIDs: ids) == "parakeet")

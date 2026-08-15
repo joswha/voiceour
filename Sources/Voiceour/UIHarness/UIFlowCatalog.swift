@@ -240,61 +240,6 @@
                         ),
                     ]
                 ),
-                UIFlow(
-                    id: "voice.select-backend",
-                    title: "Every ASR backend can be saved, and the readouts name the running one",
-                    tags: ["voice", "system", "console", "settings", "cross-pane"],
-                    covers: [.state(.voice, "backend-selections")],
-                    host: .console(.voice),
-                    fixture: .static(.appleBackendReady),
-                    steps: [
-                        .check(
-                            "apple-running",
-                            [
-                                .selected(Selector.backendOption("APPLE SPEECH"), true),
-                                .model(.activeBackend, .equals("apple")),
-                                // VoicePane.runningSummary prints the running descriptor's
-                                // model label while saved and running agree, so this line is
-                                // the registry's Apple id rather than the Parakeet contract.
-                                .text(.equals("apple/SpeechTranscriber (system-managed)"), .exactly(1)),
-                                .absent(Selector.backendRestart),
-                            ]
-                        ),
-                        // Every option in declaration order, so the pane is proved to save
-                        // each of the three rather than only the one already running.
-                        .act(.press(Selector.backendOption("FAKE"))),
-                        .check("fake-saved", [.selected(Selector.backendOption("FAKE"), true)]),
-                        .act(.press(Selector.backendOption("PARAKEET"))),
-                        .check(
-                            "parakeet-saved",
-                            [
-                                .selected(Selector.backendOption("PARAKEET"), true),
-                                .selected(Selector.backendOption("APPLE SPEECH"), false),
-                                // The header chip carries the saved id, uppercased.
-                                .text(.equals("PARAKEET"), .atLeast(1)),
-                                // Saving is not switching: the restart mark appears, the
-                                // running backend is untouched, and the footer gives up the
-                                // model line to say which one that is.
-                                .exists(Selector.backendRestart),
-                                .model(.activeBackend, .equals("apple")),
-                                .text(.equals("APPLE SPEECH IN USE"), .exactly(1)),
-                            ]
-                        ),
-                        .act(.navigate(.system)),
-                        .wait(.element(Selector.backendReady)),
-                        // The readiness sentence follows the backend that is running, never
-                        // the one just saved -- it used to name Parakeet whatever was selected.
-                        .check(
-                            "system-names-running-backend",
-                            [
-                                .value(
-                                    Selector.backendReady,
-                                    .equals("READY, APPLE SPEECH is configured for local transcription.")
-                                )
-                            ]
-                        ),
-                    ]
-                ),
             ]
         }
 

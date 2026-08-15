@@ -28,7 +28,7 @@ struct ApplicationRestartTests {
         let arguments = VoiceourAppDelegate.restartArguments(from: [
             "--repo-root", "/tmp/voiceour",
             "--asr-backend", "parakeet",
-            "--asr-backend=apple",
+            "--asr-backend=fake",
             "--no-activate",
         ])
 

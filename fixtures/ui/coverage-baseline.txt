@@ -11,7 +11,6 @@ journey:menu:open-console
 journey:sessions:search-select-copy-delete
 journey:sessions:teach-correction
 journey:system:clear-vocabulary
-journey:voice:change-capture-settings
 journey:voice:restart-backend
 state:diagnostics:backend-model-missing
 state:diagnostics:backend-not-probed
@@ -46,6 +45,5 @@ state:system:clear-vocabulary-unavailable
 state:system:microphone-not-determined
 state:system:mute-off
 state:system:muted-now
-state:voice:invalid-locale
 state:voice:restart-unavailable
 state:voice:silence-clamp

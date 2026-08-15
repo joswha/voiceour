@@ -14,7 +14,7 @@ from .report import build_report, markdown_table
 # Mirrors `ASRBackendRegistry.builtIn` in Sources/VoiceMac/ASRBackendRegistry.swift.
 # The Swift runner validates the id against the registry itself; this list only
 # exists so a typo fails here instead of after a release build.
-ASR_BACKENDS = ("fake", "parakeet", "apple")
+ASR_BACKENDS = ("fake", "parakeet")
 
 
 def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:

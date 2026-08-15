@@ -7,6 +7,9 @@
 **Voiceour is a local-first dictation app for macOS.** It runs in the menu bar. One tap of
 Fn starts recording. Transcription runs on your Mac, and the result goes to the app you were using.
 
+English only: the pinned Parakeet model is an English TDT model, and nothing in the app
+translates or switches language.
+
 Microphone access lets Voiceour record speech, and Accessibility trust lets it consume the Fn tap
 before macOS sees it. Posting Cmd-V needs event-post permission, which Accessibility trust also
 satisfies. Without that permission, delivery falls back to copy-only.

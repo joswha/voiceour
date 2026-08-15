@@ -199,11 +199,9 @@ struct DiagnosticsPane: View {
         return "\(saved) → \(coordinator.activeBackend.uppercased())"
     }
 
-    /// The model the running backend loads, with the revision it is pinned to
-    /// when it pins one. Apple's transcriber is versioned by the OS rather
-    /// than by a revision this app can name, and the fake backend loads
-    /// nothing at all, so both fall back to the descriptor's own words rather
-    /// than borrowing another backend's model id.
+    /// The model the running backend loads, with the revision it is pinned to.
+    /// Backends without pinned model metadata fall back to their descriptor's
+    /// own label rather than borrowing another backend's model id.
     private var modelIdentifier: String {
         guard let descriptor = ASRBackendRegistry.builtIn.descriptor(for: coordinator.activeBackend) else {
             return coordinator.activeBackend

@@ -164,9 +164,6 @@
             case backendUnavailable
             /// Real backend part-way through acquiring its 1.26 GB artifact.
             case backendDownloading
-            /// Apple's system transcriber running and healthy, so every readout that
-            /// used to hardcode Parakeet has another backend to name.
-            case appleBackendReady
             /// The saved backend differs from the one running, so the warning mark
             /// is the one-click restart action.
             case backendSwitchPending
@@ -225,13 +222,6 @@
                     settings: settings(backend: realBackend),
                     backend: realBackend,
                     health: downloadingBackendHealth
-                )
-            case .appleBackendReady:
-                return make(
-                    sessions: history,
-                    settings: settings(backend: appleBackend),
-                    backend: appleBackend,
-                    health: appleBackendHealth
                 )
             case .backendSwitchPending:
                 return make(
@@ -312,9 +302,6 @@
         /// the id the sidecar reports for itself.
         private static let realBackend = "parakeet"
 
-        /// The other real backend, so no readout can hardcode Parakeet and still pass.
-        private static let appleBackend = "apple"
-
         // `nonisolated` because it is a default argument of `make`, and default
         // argument expressions are evaluated outside the enum's main-actor context.
         nonisolated private static let devBackendHealth = ASRBackendHealth(
@@ -345,15 +332,6 @@
             warming: nil
         )
 
-        private static let appleBackendHealth = ASRBackendHealth(
-            backendId: "apple-speech",
-            backendStatus: .ready,
-            ready: true,
-            modelLoaded: true,
-            cacheOk: true
-        )
-
-
         static func settings(
             backend: String = "fake",
             glossary: [ProtectedTerm] = VoiceCore.Settings.defaultGlossary
@@ -366,7 +344,6 @@
                 autoStopEnabled: false
             )
         }
-
 
         static func make(
             sessions: [RecentSession],

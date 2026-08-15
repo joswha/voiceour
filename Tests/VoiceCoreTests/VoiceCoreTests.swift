@@ -204,29 +204,6 @@ struct VoiceCoreTests {
         }
     }
 
-    /// A build before the settings pane committed on submit persisted
-    /// `speech_locale` on every keystroke, so `" "` reached disk and
-    /// `SpeechTranscriber` then refused every request — the Apple backend was
-    /// permanently unusable with no in-app way back. Decode heals it.
-    @Test func settingsDecodeHealsAnUnresolvableSpeechLocale() throws {
-        func locale(in json: String) throws -> String {
-            try JSONDecoder().decode(Settings.self, from: Data(json.utf8)).speechLocale
-        }
-
-        #expect(try locale(in: #"{"speech_locale": " "}"#) == "en_US")
-        #expect(try locale(in: #"{"speech_locale": ""}"#) == "en_US")
-        #expect(try locale(in: #"{"speech_locale": "de_DE_bogus"}"#) == "en_US")
-        // A resolvable identifier survives, in either spelling.
-        #expect(try locale(in: #"{"speech_locale": "de_DE"}"#) == "de_DE")
-        #expect(try locale(in: #"{"speech_locale": "ja-JP"}"#) == "ja_JP")
-    }
-
-    @Test func speechLocaleCanonicalAcceptsBothSubtagSpellings() {
-        #expect(SpeechLocale.canonical("en-GB") == "en_GB")
-        #expect(SpeechLocale.canonical("  fr_FR  ") == "fr_FR")
-        #expect(SpeechLocale.canonical(" ") == nil)
-        #expect(SpeechLocale.canonical("not_a_locale") == nil)
-    }
 
     @Test func settingsJSONMissingMuteFieldsEnablesMute() throws {
         let partialJSON = """
@@ -249,7 +226,7 @@ struct VoiceCoreTests {
     @Test func settingsJSONWithRetiredMuteScopeKeyStillDecodes() throws {
         let json = """
             {
-              "asr_backend": "apple",
+              "asr_backend": "parakeet",
               "mute_system_audio_during_capture": true,
               "mute_scope": "builtInOutputOnly"
             }
@@ -257,7 +234,7 @@ struct VoiceCoreTests {
 
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
 
-        #expect(settings.asrBackend == "apple")
+        #expect(settings.asrBackend == "parakeet")
         #expect(settings.muteSystemAudioDuringCapture == true)
     }
 

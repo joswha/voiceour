@@ -290,8 +290,7 @@ struct DictationCoordinatorTests {
         let asr = ASRBackendRegistry.builtIn.client(
             for: "parakeet",
             context: ASRBackendContext(
-                sidecarExecutableURL: testProductsDirectory().appendingPathComponent("voiceour-asr"),
-                speechLocale: "en_US"
+                sidecarExecutableURL: testProductsDirectory().appendingPathComponent("voiceour-asr")
             )
         )
         let coordinator = makeCoordinator(

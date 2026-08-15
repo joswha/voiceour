@@ -127,8 +127,6 @@
                 "Saved backend awaiting restart",
                 scene: "console.voice.restart-required"
             ),
-            state(.voice, "invalid-locale", "Rejected speech locale"),
-            state(.voice, "backend-selections", "Every saved ASR backend selection"),
             state(.voice, "silence-clamp", "Auto-stop silence parse and clamp rejection"),
             state(
                 .voice,
@@ -142,7 +140,6 @@
             state(.voice, "restart-unavailable", "Restart unavailable during an active session"),
             journey(.voice, "toggle-cleanup", "Toggle transcript cleanup"),
             journey(.voice, "auto-stop-dependency", "Toggle auto-stop and observe dependent enablement"),
-            journey(.voice, "change-capture-settings", "Change backend, locale, auto-stop and cleanup settings"),
             journey(.voice, "restart-backend", "Restart to apply a saved backend"),
 
             // Menu
