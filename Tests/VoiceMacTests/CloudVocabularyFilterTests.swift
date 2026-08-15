@@ -92,8 +92,9 @@ struct CloudVocabularyFilterTests {
     }
 
     @Test func ompRequestOmitsIneligibleTermsWhileOnDevicePromptKeepsThem() async throws {
-        let fixture = try makeOmpPromptCaptureFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let directory = try makeOmpRpcStubDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let capture = directory.appendingPathComponent("requests.jsonl")
 
         let glossary: [ProtectedTerm] = [
             ProtectedTerm(
@@ -125,8 +126,8 @@ struct CloudVocabularyFilterTests {
         let refiner = OmpRpcRefiner(
             configuration: OmpRpcRefinerConfiguration(
                 enabled: true,
-                executableURL: fixture.script,
-                argumentPrefix: [],
+                executableURL: ompRpcStubURL(),
+                argumentPrefix: ["capture-requests", capture.path, "The meeting notes."],
                 model: "test",
                 timeoutMs: 4_000
             ),
@@ -142,7 +143,7 @@ struct CloudVocabularyFilterTests {
         )
 
         #expect(outcome == .refined("The meeting notes."))
-        let cloudPrompt = try capturedOmpPrompt(at: fixture.capture)
+        let cloudPrompt = try capturedOmpPrompt(at: capture)
         #expect(cloudPrompt.contains("AlphaCloudTerm"))
         #expect(cloudPrompt.contains("alpha cloud alias"))
         for excluded in [
@@ -170,39 +171,11 @@ struct CloudVocabularyFilterTests {
         }
     }
 
-    private func makeOmpPromptCaptureFixture() throws -> (
-        directory: URL,
-        script: URL,
-        capture: URL
-    ) {
+    private func makeOmpRpcStubDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoiceMacCloudBoundary-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let script = directory.appendingPathComponent("fake-omp.sh")
-        let capture = directory.appendingPathComponent("requests.jsonl")
-        let body = """
-            #!/bin/sh
-            printf '%s\\n' '{"type":"ready"}'
-            while IFS= read -r line; do
-              printf '%s\\n' "$line" >> '\(capture.path)'
-              case "$line" in
-                *'"type":"prompt"'*)
-                  printf '%s\\n' '{"type":"agent_end"}'
-                  ;;
-                *'"type":"get_last_assistant_text"'*)
-                  id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                  printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"The meeting notes."}}\\n' "$id"
-                  ;;
-                *'"type":"new_session"'*)
-                  id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                  printf '{"id":"%s","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}\\n' "$id"
-                  ;;
-              esac
-            done
-            """
-        try (body + "\n").write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        return (directory, script, capture)
+        return directory
     }
 
     private func capturedOmpPrompt(at capture: URL) throws -> String {
@@ -224,3 +197,14 @@ struct CloudVocabularyFilterTests {
 private enum CloudGateTestError: Error {
     case missingOmpPrompt
 }
+
+private func ompRpcStubURL() -> URL {
+    testProductsDirectory().appendingPathComponent("OmpRpcStub")
+}
+
+private func testProductsDirectory() -> URL {
+    Bundle(for: OmpRpcStubTestBundleAnchor.self).bundleURL.deletingLastPathComponent()
+}
+
+/// Only exists to give `Bundle(for:)` a class in this test target.
+private final class OmpRpcStubTestBundleAnchor {}

@@ -15,21 +15,16 @@ extension OmpSuites {
         /// spawned first and refused afterwards would still put the transcript
         /// in front of a subprocess.
         @Test func preflightSkipMatrixReturnsReasonsWithoutSpawningOmp() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" >> "$0.pids"
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do :; done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let pidFile = fixture.url.appendingPathExtension("pids")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("preflight.pids")
 
             func refiner(enabled: Bool, model: String) -> OmpRpcRefiner {
                 OmpRpcRefiner(
                     configuration: OmpRpcRefinerConfiguration(
                         enabled: enabled,
-                        executableURL: fixture.url,
-                        argumentPrefix: [],
+                        executableURL: ompRpcStubURL(),
+                        argumentPrefix: ["preflight-record", pidFile.path],
                         model: model,
                         timeoutMs: 4000
                     ),
@@ -58,39 +53,13 @@ extension OmpSuites {
 
         /// RPC stub speaking the omp `--mode rpc` JSONL protocol: ready banner, prompt
         /// acknowledgement, terminal agent event, assistant-text response, then reset.
-        private func makeRpcStubScript(reply: String, extraStartup: String = "") throws -> (directory: URL, url: URL) {
-            try makeExecutableScript(
-                """
-                \(extraStartup)
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"\(reply)"}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}\\n' "$id"
-                      ;;
-                  esac
-                done
-                """)
-        }
 
         @Test func ompRpcRefinerReturnsRefinedTextFromRpcSession() async throws {
-            let fixture = try makeRpcStubScript(reply: "Hello world.")
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
-                    argumentPrefix: [],
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["normal", "Hello world."],
                     model: "test",
                     timeoutMs: 4000
                 ),
@@ -104,13 +73,11 @@ extension OmpSuites {
         }
 
         @Test func ompRpcRefinerAnswersRepeatedRefinesFromOneRunningChild() async throws {
-            let fixture = try makeRpcStubScript(reply: "Hello world.")
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
-                    argumentPrefix: [],
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["normal", "Hello world."],
                     model: "test",
                     timeoutMs: 4000
                 ),
@@ -127,13 +94,11 @@ extension OmpSuites {
         }
 
         @Test func ompRpcRefinerFallsBackWhenGuardRejectsReply() async throws {
-            let fixture = try makeRpcStubScript(reply: "the budget is a lot")
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
-                    argumentPrefix: [],
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["normal", "the budget is a lot"],
                     model: "test",
                     timeoutMs: 4000
                 ),
@@ -152,13 +117,11 @@ extension OmpSuites {
         /// A reply that carries no usable text must not be delivered as an empty
         /// transcript. Whitespace is the case that gets through a naive nil check.
         @Test func ompRpcRefinerFallsBackWhenReplyIsOnlyWhitespace() async throws {
-            let fixture = try makeRpcStubScript(reply: "   ")
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
-                    argumentPrefix: [],
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["normal", "   "],
                     model: "test",
                     timeoutMs: 4000
                 ),
@@ -190,18 +153,11 @@ extension OmpSuites {
         }
 
         @Test func ompRpcRefinerFallsBackWhenProcessDiesMidTurn() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' '{"type":"ready"}'
-                IFS= read -r line
-                exit 3
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
-                    argumentPrefix: [],
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["die-mid-turn"],
                     model: "test",
                     timeoutMs: 4000
                 ),
@@ -215,43 +171,15 @@ extension OmpSuites {
         }
 
         @Test func ompRpcRefinerFallsBackOnTimeoutWhileTurnHangs() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                pid_file="$0.pids"
-                first_run_marker="$0.first-run"
-                printf '%s\\n' "$$" >> "$pid_file"
-                if [ ! -e "$first_run_marker" ]; then
-                  : > "$first_run_marker"
-                  printf '%s\\n' '{"type":"ready"}'
-                  IFS= read -r line
-                  trap '' TERM
-                  while :; do :; done
-                fi
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      printf '%s\\n' '{"type":"agent_end"}'
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Hello after timeout."}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}\\n' "$id"
-                      ;;
-                  esac
-                done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let pidFile = fixture.url.appendingPathExtension("pids")
-            let firstRunMarker = fixture.url.appendingPathExtension("first-run")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("hang.pids")
+            let firstRunMarker = directory.appendingPathComponent("hang.first-run")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
-                    argumentPrefix: [],
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["hang-first-run", pidFile.path, firstRunMarker.path],
                     model: "test",
                     timeoutMs: 300
                 ),
@@ -305,48 +233,15 @@ extension OmpSuites {
             #expect(respawnedPID != firstPID)
         }
 
-        private func makeNonterminalRpcStub(eventType: String) throws -> (directory: URL, url: URL) {
-            try makeExecutableScript(
-                """
-                terminal_marker="$0.terminal"
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      printf '%s\\n' '{"type":"\(eventType)","isTerminal":false}'
-                      (
-                        /bin/sleep 0.15
-                        : > "$terminal_marker"
-                        printf '%s\\n' '{"type":"\(eventType)","isTerminal":true}'
-                      ) &
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      if [ -e "$terminal_marker" ]; then
-                        reply='Terminal response.'
-                      else
-                        reply='Premature response.'
-                      fi
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"%s"}}\\n' "$id" "$reply"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
-                      ;;
-                  esac
-                done
-                """)
-        }
-
         @Test func ompRpcIgnoresNonterminalAgentEnd() async throws {
-            let fixture = try makeNonterminalRpcStub(eventType: "agent_end")
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let terminalMarker = directory.appendingPathComponent("agent-end.terminal")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["nonterminal-events", terminalMarker.path, "agent_end"],
                     model: "test",
                     timeoutMs: 2_000
                 ),
@@ -365,12 +260,14 @@ extension OmpSuites {
         }
 
         @Test func ompRpcIgnoresNonterminalPromptResult() async throws {
-            let fixture = try makeNonterminalRpcStub(eventType: "prompt_result")
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let terminalMarker = directory.appendingPathComponent("prompt-result.terminal")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["nonterminal-events", terminalMarker.path, "prompt_result"],
                     model: "test",
                     timeoutMs: 2_000
                 ),
@@ -389,17 +286,14 @@ extension OmpSuites {
         }
 
         @Test func ompRpcColdStartupCannotOutliveConfiguredDeadline() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" > "$0.pid"
-                exec /bin/sleep 5
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let pidFile = fixture.url.appendingPathExtension("pid")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("cold.pid")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["cold-sleep", pidFile.path],
                     model: "test",
                     timeoutMs: 400
                 ),
@@ -438,19 +332,15 @@ extension OmpSuites {
         }
 
         @Test func ompRpcNewColdCallerSupersedesPriorStartupBeforeItsDeadline() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" >> "$0.pids"
-                : > "$0.started"
-                exec /bin/sleep 5
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let startedFile = fixture.url.appendingPathExtension("started")
-            let pidFile = fixture.url.appendingPathExtension("pids")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let startedFile = directory.appendingPathComponent("cold.started")
+            let pidFile = directory.appendingPathComponent("cold.pids")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["cold-sleep-marked", pidFile.path, startedFile.path],
                     model: "test",
                     timeoutMs: 300
                 ),
@@ -514,38 +404,11 @@ extension OmpSuites {
         }
 
         @Test func ompRpcColdStartupAndTurnShareOneDeadline() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                /bin/sleep 0.3
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      (
-                        /bin/sleep 0.25
-                        printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
-                      ) &
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Combined deadline."}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      if [ -n "$id" ]; then
-                        printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
-                      fi
-                      ;;
-                  esac
-                done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["combined-deadline"],
                     model: "test",
                     timeoutMs: 400
                 ),
@@ -563,37 +426,15 @@ extension OmpSuites {
         }
 
         @Test func ompRpcColdStartupProtectsTheActiveTurnSlot() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" > "$0.pid"
-                : > "$0.started"
-                /bin/sleep 0.2
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Second request."}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
-                      ;;
-                  esac
-                done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let startedFile = fixture.url.appendingPathExtension("started")
-            let pidFile = fixture.url.appendingPathExtension("pid")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("active.pid")
+            let startedFile = directory.appendingPathComponent("active.started")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["active-slot", pidFile.path, startedFile.path],
                     model: "test",
                     timeoutMs: 2_000
                 ),
@@ -649,46 +490,21 @@ extension OmpSuites {
         }
 
         @Test func ompRpcSupersessionDiscardsChildBeforeLateTerminalEvent() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" >> "$0.pids"
-                if [ -e "$0.first-run" ]; then
-                  first_run=false
-                else
-                  : > "$0.first-run"
-                  first_run=true
-                fi
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      if [ "$first_run" = true ]; then
-                        : > "$0.first-prompt"
-                        ( /bin/sleep 0.12; printf '%s\\n' '{"type":"agent_end","isTerminal":true}' ) &
-                      else
-                        ( /bin/sleep 0.3; printf '%s\\n' '{"type":"agent_end","isTerminal":true}' ) &
-                      fi
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Second request."}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
-                      ;;
-                  esac
-                done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let promptMarker = fixture.url.appendingPathExtension("first-prompt")
-            let pidFile = fixture.url.appendingPathExtension("pids")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("supersede.pids")
+            let firstRunMarker = directory.appendingPathComponent("supersede.first-run")
+            let promptMarker = directory.appendingPathComponent("supersede.first-prompt")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: [
+                        "supersede-late-terminal",
+                        pidFile.path,
+                        firstRunMarker.path,
+                        promptMarker.path,
+                    ],
                     model: "test",
                     timeoutMs: 2_000
                 ),
@@ -736,45 +552,15 @@ extension OmpSuites {
         }
 
         @Test func ompRpcRejectsModelChangeAndRespawns() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" >> "$0.pids"
-                if [ -e "$0.first-run" ]; then
-                  changed=false
-                else
-                  : > "$0.first-run"
-                  changed=true
-                fi
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      if [ "$changed" = true ]; then
-                        printf '%s\\n' '{"type":"model_changed","model":"other/provider"}'
-                        printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
-                      else
-                        printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
-                      fi
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Configured model."}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
-                      ;;
-                  esac
-                done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let pidFile = fixture.url.appendingPathExtension("pids")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("model-change.pids")
+            let firstRunMarker = directory.appendingPathComponent("model-change.first-run")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["model-change-first-run", pidFile.path, firstRunMarker.path],
                     model: "test",
                     timeoutMs: 2_000
                 ),
@@ -800,44 +586,15 @@ extension OmpSuites {
         }
 
         @Test func ompRpcResetFailureReturnsTextAndForcesFreshProcess() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' "$$" >> "$0.pids"
-                if [ -e "$0.first-run" ]; then
-                  fail_reset=false
-                else
-                  : > "$0.first-run"
-                  fail_reset=true
-                fi
-                printf '%s\\n' '{"type":"ready"}'
-                while IFS= read -r line; do
-                  case "$line" in
-                    *'"type":"prompt"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"agentInvoked":true}}\\n' "$id"
-                      printf '%s\\n' '{"type":"agent_end","isTerminal":true}'
-                      ;;
-                    *'"type":"get_last_assistant_text"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      printf '{"id":"%s","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Hello world."}}\\n' "$id"
-                      ;;
-                    *'"type":"new_session"'*)
-                      id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
-                      if [ "$fail_reset" = true ]; then
-                        printf '{"id":"%s","type":"response","command":"new_session","success":false,"error":"reset failed"}\\n' "$id"
-                      else
-                        printf '{"id":"%s","type":"response","command":"new_session","success":true}\\n' "$id"
-                      fi
-                      ;;
-                  esac
-                done
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
-            let pidFile = fixture.url.appendingPathExtension("pids")
+            let directory = try makeOmpRpcStubDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let pidFile = directory.appendingPathComponent("reset-failure.pids")
+            let firstRunMarker = directory.appendingPathComponent("reset-failure.first-run")
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["reset-failure-first-run", pidFile.path, firstRunMarker.path],
                     model: "test",
                     timeoutMs: 2_000
                 ),
@@ -868,17 +625,11 @@ extension OmpSuites {
         }
 
         @Test func ompRpcStartupFailureReportsBoundedMetadataWithoutRawStderr() async throws {
-            let fixture = try makeExecutableScript(
-                """
-                printf '%s\\n' 'auth-broker-secret-value' >&2
-                /bin/sleep 0.05
-                exit 23
-                """)
-            defer { try? FileManager.default.removeItem(at: fixture.directory) }
             let refiner = OmpRpcRefiner(
                 configuration: OmpRpcRefinerConfiguration(
                     enabled: true,
-                    executableURL: fixture.url,
+                    executableURL: ompRpcStubURL(),
+                    argumentPrefix: ["stderr-exit"],
                     model: "test",
                     timeoutMs: 1_000
                 ),
@@ -938,6 +689,13 @@ extension OmpSuites {
             #expect(warmMs < 10_000)
         }
 
+        private func makeOmpRpcStubDirectory() throws -> URL {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("VoiceMacOmpRpcStub-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return directory
+        }
+
         private func fellBackReason(_ outcome: RefineOutcome) -> String? {
             guard case .fellBack(_, let reason) = outcome else { return nil }
             return reason
@@ -959,3 +717,14 @@ extension OmpSuites {
         }
     }
 }
+
+private func ompRpcStubURL() -> URL {
+    testProductsDirectory().appendingPathComponent("OmpRpcStub")
+}
+
+private func testProductsDirectory() -> URL {
+    Bundle(for: OmpRpcStubTestBundleAnchor.self).bundleURL.deletingLastPathComponent()
+}
+
+/// Only exists to give `Bundle(for:)` a class in this test target.
+private final class OmpRpcStubTestBundleAnchor {}
