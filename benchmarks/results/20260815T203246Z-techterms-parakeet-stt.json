@@ -1,0 +1,735 @@
+{
+  "anchors": {},
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 16,
+    "manifest_rows": 16,
+    "result_rows": 16,
+    "successful_rows": 16
+  },
+  "error_row_ids": [],
+  "generated_at": "2026-08-15T20:32:46.557344+00:00",
+  "inputs": {
+    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/techterms/manifest.jsonl",
+    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260815T203244Z-techterms-parakeet-stt.results.jsonl"
+  },
+  "meta": {
+    "backend": "parakeet",
+    "mode": "pipeline",
+    "model_id": "ggml-org/parakeet-GGUF",
+    "model_revision": "35156454d1a39de06863303dd209fd2bed6ee079",
+    "started_at": "2026-08-15T20:32:45Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": {
+      "non_sentence_initial": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 7
+      },
+      "overall": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 23
+      },
+      "sentence_initial": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 16
+      }
+    },
+    "cer_final": 0.015957446808510637,
+    "confidence_by_mode": {
+      "greedy_token_prob": {
+        "count": 16,
+        "mean_confidence": 0.960128006325542,
+        "reliability": {
+          "bins": [
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.0,
+              "mean_confidence": null,
+              "upper": 0.1
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.1,
+              "mean_confidence": null,
+              "upper": 0.2
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.2,
+              "mean_confidence": null,
+              "upper": 0.3
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.3,
+              "mean_confidence": null,
+              "upper": 0.4
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.4,
+              "mean_confidence": null,
+              "upper": 0.5
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.5,
+              "mean_confidence": null,
+              "upper": 0.6
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.6,
+              "mean_confidence": null,
+              "upper": 0.7
+            },
+            {
+              "accuracy": null,
+              "calibration_gap": null,
+              "count": 0,
+              "lower": 0.7,
+              "mean_confidence": null,
+              "upper": 0.8
+            },
+            {
+              "accuracy": 0.0,
+              "calibration_gap": 0.8511501235720905,
+              "count": 3,
+              "lower": 0.8,
+              "mean_confidence": 0.8511501235720905,
+              "upper": 0.9
+            },
+            {
+              "accuracy": 0.8461538461538461,
+              "calibration_gap": 0.13912290234556923,
+              "count": 13,
+              "lower": 0.9,
+              "mean_confidence": 0.9852767484994154,
+              "upper": 1.0
+            }
+          ],
+          "brier": 0.2511865201661705,
+          "count": 16,
+          "ece": 0.27262800632554196
+        },
+        "risk_coverage": [
+          {
+            "coverage": 0.0,
+            "covered": 0,
+            "risk": null,
+            "threshold": null
+          },
+          {
+            "coverage": 0.0625,
+            "covered": 1,
+            "risk": 0.0,
+            "threshold": 0.9978005945682525
+          },
+          {
+            "coverage": 0.125,
+            "covered": 2,
+            "risk": 0.0,
+            "threshold": 0.9972138467587923
+          },
+          {
+            "coverage": 0.1875,
+            "covered": 3,
+            "risk": 0.0,
+            "threshold": 0.9965792894363403
+          },
+          {
+            "coverage": 0.25,
+            "covered": 4,
+            "risk": 0.0,
+            "threshold": 0.9945731200277805
+          },
+          {
+            "coverage": 0.3125,
+            "covered": 5,
+            "risk": 0.0,
+            "threshold": 0.9935663888851801
+          },
+          {
+            "coverage": 0.375,
+            "covered": 6,
+            "risk": 0.0,
+            "threshold": 0.9921201020479202
+          },
+          {
+            "coverage": 0.4375,
+            "covered": 7,
+            "risk": 0.0,
+            "threshold": 0.9894743790993323
+          },
+          {
+            "coverage": 0.5,
+            "covered": 8,
+            "risk": 0.0,
+            "threshold": 0.9888504147529602
+          },
+          {
+            "coverage": 0.5625,
+            "covered": 9,
+            "risk": 0.0,
+            "threshold": 0.988687358119271
+          },
+          {
+            "coverage": 0.625,
+            "covered": 10,
+            "risk": 0.1,
+            "threshold": 0.9885175228118896
+          },
+          {
+            "coverage": 0.6875,
+            "covered": 11,
+            "risk": 0.09090909090909091,
+            "threshold": 0.9791069361898634
+          },
+          {
+            "coverage": 0.75,
+            "covered": 12,
+            "risk": 0.08333333333333333,
+            "threshold": 0.9716601617196027
+          },
+          {
+            "coverage": 0.8125,
+            "covered": 13,
+            "risk": 0.15384615384615385,
+            "threshold": 0.9304476160752145
+          },
+          {
+            "coverage": 0.875,
+            "covered": 14,
+            "risk": 0.21428571428571427,
+            "threshold": 0.8663814726628756
+          },
+          {
+            "coverage": 0.9375,
+            "covered": 15,
+            "risk": 0.26666666666666666,
+            "threshold": 0.8609570364157358
+          },
+          {
+            "coverage": 1.0,
+            "covered": 16,
+            "risk": 0.3125,
+            "threshold": 0.8261118616376605
+          }
+        ]
+      }
+    },
+    "fwer_final": 0.0743801652892562,
+    "latency_ms": {
+      "asr": {
+        "p50": 37.0,
+        "p95": 220.25
+      },
+      "asr_inference": {
+        "p50": 36.0,
+        "p95": 67.0
+      },
+      "asr_load": {
+        "p50": 323.0,
+        "p95": 323.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 37.0,
+        "p95": 221.25
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": {
+      "macro_f1": 0.25,
+      "marks": {
+        "!": {
+          "f1": 0.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        ",": {
+          "f1": 0.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        ".": {
+          "f1": 1.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 16
+        },
+        "?": {
+          "f1": 0.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        }
+      },
+      "micro": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 16
+      }
+    },
+    "rtfx": 25.372849770642198,
+    "tech_terms": {
+      "breakdowns": {
+        "class": {
+          "acronym": {
+            "canonical_term": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": 1.0,
+              "predicted_positive": 1,
+              "recall": 1.0,
+              "tp": 1
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 0,
+              "per_10k_opportunities": null,
+              "rate": null
+            },
+            "no_op_preservation": {
+              "opportunities": 0,
+              "preserved": 0,
+              "rate": null
+            }
+          },
+          "camel_case": {
+            "canonical_term": {
+              "f1": 0.0,
+              "fn": 1,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": null,
+              "predicted_positive": 0,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 0,
+              "per_10k_opportunities": null,
+              "rate": null
+            },
+            "no_op_preservation": {
+              "opportunities": 0,
+              "preserved": 0,
+              "rate": null
+            }
+          },
+          "coinage": {
+            "canonical_term": {
+              "f1": 0.0,
+              "fn": 1,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": null,
+              "predicted_positive": 0,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 0,
+              "per_10k_opportunities": null,
+              "rate": null
+            },
+            "no_op_preservation": {
+              "opportunities": 0,
+              "preserved": 0,
+              "rate": null
+            }
+          },
+          "digits": {
+            "canonical_term": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": 1.0,
+              "predicted_positive": 1,
+              "recall": 1.0,
+              "tp": 1
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 0,
+              "per_10k_opportunities": null,
+              "rate": null
+            },
+            "no_op_preservation": {
+              "opportunities": 0,
+              "preserved": 0,
+              "rate": null
+            }
+          },
+          "jargon": {
+            "canonical_term": {
+              "f1": 0.8571428571428571,
+              "fn": 1,
+              "fp": 0,
+              "opportunities": 7,
+              "precision": 1.0,
+              "predicted_positive": 3,
+              "recall": 0.75,
+              "tp": 3
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 3,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 3,
+              "preserved": 3,
+              "rate": 1.0
+            }
+          },
+          "multiword_name": {
+            "canonical_term": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "opportunities": 2,
+              "precision": 1.0,
+              "predicted_positive": 1,
+              "recall": 1.0,
+              "tp": 1
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 1,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 1,
+              "preserved": 1,
+              "rate": 1.0
+            }
+          },
+          "symbols": {
+            "canonical_term": {
+              "f1": 0.6666666666666666,
+              "fn": 1,
+              "fp": 0,
+              "opportunities": 3,
+              "precision": 1.0,
+              "predicted_positive": 1,
+              "recall": 0.5,
+              "tp": 1
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 1,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 1,
+              "preserved": 1,
+              "rate": 1.0
+            }
+          }
+        },
+        "risk": {
+          "homophone": {
+            "canonical_term": {
+              "f1": null,
+              "fn": 0,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": null,
+              "predicted_positive": 0,
+              "recall": null,
+              "tp": 0
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 1,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 1,
+              "preserved": 1,
+              "rate": 1.0
+            }
+          },
+          "minimal_pair": {
+            "canonical_term": {
+              "f1": null,
+              "fn": 0,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": null,
+              "predicted_positive": 0,
+              "recall": null,
+              "tp": 0
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 1,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 1,
+              "preserved": 1,
+              "rate": 1.0
+            }
+          },
+          "ordinary_language": {
+            "canonical_term": {
+              "f1": null,
+              "fn": 0,
+              "fp": 0,
+              "opportunities": 3,
+              "precision": null,
+              "predicted_positive": 0,
+              "recall": null,
+              "tp": 0
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 3,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 3,
+              "preserved": 3,
+              "rate": 1.0
+            }
+          }
+        },
+        "source": {
+          "global": {
+            "canonical_term": {
+              "f1": 0.8235294117647058,
+              "fn": 3,
+              "fp": 0,
+              "opportunities": 15,
+              "precision": 1.0,
+              "predicted_positive": 7,
+              "recall": 0.7,
+              "tp": 7
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 5,
+              "per_10k_opportunities": 0.0,
+              "rate": 0.0
+            },
+            "no_op_preservation": {
+              "opportunities": 5,
+              "preserved": 5,
+              "rate": 1.0
+            }
+          },
+          "voiceour": {
+            "canonical_term": {
+              "f1": 0.0,
+              "fn": 1,
+              "fp": 0,
+              "opportunities": 1,
+              "precision": null,
+              "predicted_positive": 0,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "hard_negatives": {
+              "false_replacements": 0,
+              "opportunities": 0,
+              "per_10k_opportunities": null,
+              "rate": null
+            },
+            "no_op_preservation": {
+              "opportunities": 0,
+              "preserved": 0,
+              "rate": null
+            }
+          }
+        }
+      },
+      "canonical_term": {
+        "f1": 0.7777777777777778,
+        "fn": 4,
+        "fp": 0,
+        "opportunities": 16,
+        "precision": 1.0,
+        "predicted_positive": 7,
+        "recall": 0.6363636363636364,
+        "tp": 7
+      },
+      "hard_negatives": {
+        "false_replacements": 0,
+        "opportunities": 5,
+        "per_10k_opportunities": 0.0,
+        "rate": 0.0
+      },
+      "no_op_preservation": {
+        "opportunities": 5,
+        "preserved": 5,
+        "rate": 1.0
+      }
+    },
+    "uwer_final": 0.0673076923076923,
+    "uwer_raw": 0.0673076923076923
+  },
+  "mode": "stt",
+  "successful_row_ids": [
+    "techterms_01_kubectl",
+    "techterms_02_asr",
+    "techterms_03_audio_buffer_size",
+    "techterms_04_cplusplus",
+    "techterms_05_ipv6",
+    "techterms_06_core_audio",
+    "techterms_07_voiceour",
+    "techterms_08_c_language",
+    "techterms_09_rust_language",
+    "techterms_10_go_language",
+    "techterms_11_metal_framework",
+    "techterms_12_cube_cuddle_negative",
+    "techterms_13_sea_negative",
+    "techterms_14_rust_negative",
+    "techterms_15_go_negative",
+    "techterms_16_metal_negative"
+  ],
+  "tier": "techterms",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "Set audio buffer size before starting capture.",
+      "id": "techterms_03_audio_buffer_size",
+      "raw_transcript": "Set audio buffer size before starting capture.",
+      "reference": "Set audioBufferSize before starting capture.",
+      "uwer_final": 0.6
+    },
+    {
+      "error": null,
+      "final_text": "Compile the module a C.",
+      "id": "techterms_08_c_language",
+      "raw_transcript": "Compile the module a C.",
+      "reference": "Compile the module as C.",
+      "uwer_final": 0.2
+    },
+    {
+      "error": null,
+      "final_text": "Voiceer should preserve the selected microphone.",
+      "id": "techterms_07_voiceour",
+      "raw_transcript": "Voiceer should preserve the selected microphone.",
+      "reference": "Voiceour should preserve the selected microphone.",
+      "uwer_final": 0.16666666666666666
+    },
+    {
+      "error": null,
+      "final_text": "The network service is written wing Go.",
+      "id": "techterms_10_go_language",
+      "raw_transcript": "The network service is written wing Go.",
+      "reference": "The network service is written in Go.",
+      "uwer_final": 0.14285714285714285
+    },
+    {
+      "error": null,
+      "final_text": "Run cubectal get pods in the staging namespace.",
+      "id": "techterms_01_kubectl",
+      "raw_transcript": "Run cubectal get pods in the staging namespace.",
+      "reference": "Run kubectl get pods in the staging namespace.",
+      "uwer_final": 0.125
+    },
+    {
+      "error": null,
+      "final_text": "The ASR model finished loading.",
+      "id": "techterms_02_asr",
+      "raw_transcript": "The ASR model finished loading.",
+      "reference": "The ASR model finished loading.",
+      "uwer_final": 0.0
+    },
+    {
+      "error": null,
+      "final_text": "Use C for the parser.",
+      "id": "techterms_04_cplusplus",
+      "raw_transcript": "Use C for the parser.",
+      "reference": "Use C++ for the parser.",
+      "uwer_final": 0.0
+    },
+    {
+      "error": null,
+      "final_text": "The service listens on IPv6.",
+      "id": "techterms_05_ipv6",
+      "raw_transcript": "The service listens on IPv6.",
+      "reference": "The service listens on IPv6.",
+      "uwer_final": 0.0
+    },
+    {
+      "error": null,
+      "final_text": "Core Audio reported an input route change.",
+      "id": "techterms_06_core_audio",
+      "raw_transcript": "Core Audio reported an input route change.",
+      "reference": "Core Audio reported an input route change.",
+      "uwer_final": 0.0
+    },
+    {
+      "error": null,
+      "final_text": "The command line tool is written in Rust.",
+      "id": "techterms_09_rust_language",
+      "raw_transcript": "The command line tool is written in Rust.",
+      "reference": "The command line tool is written in Rust.",
+      "uwer_final": 0.0
+    }
+  ]
+}

@@ -179,15 +179,16 @@ public final class DictationCoordinator {
                 moved.map { "Dictation history could not be read — kept as \($0.lastPathComponent)." }
                 ?? "Dictation history could not be read and could not be set aside."
         }
-        // One-time migration: the lifetime stats ledger this build no longer
-        // keeps. Left on disk it would be a durable record of every dictation
-        // the user cannot see, edit, or clear from any surface that still
-        // exists.
-        try? FileManager.default.removeItem(
-            at: recentSessionStore.url
-                .deletingLastPathComponent()
-                .appendingPathComponent("dictation-stats.json")
-        )
+        // One-time migration: durable state of two deleted subsystems. Left on
+        // disk, `dictation-stats.json` is a per-day, per-app record of every
+        // dictation the user cannot see, edit or clear from any surface that still
+        // exists, and `omp-rpc/` is a credential-adjacent home directory for a
+        // refiner subprocess this build never spawns. Removal is best-effort and
+        // silent: neither is load-bearing, and a failure must not cost a launch.
+        let supportDirectory = recentSessionStore.url.deletingLastPathComponent()
+        for retired in ["dictation-stats.json", "omp-rpc"] {
+            try? FileManager.default.removeItem(at: supportDirectory.appendingPathComponent(retired))
+        }
         self.hotkey.onToggle { [weak self] in
             Task { @MainActor in self?.toggle() }
         }
