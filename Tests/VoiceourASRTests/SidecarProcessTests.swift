@@ -244,7 +244,10 @@ struct SidecarProcessTests {
             timeout: 900
         )
 
-        #expect(session.types == ["hello", "result", "health"])
+        // Health is answered by the reader thread while the decode runs, so it legitimately
+        // arrives first. The promise is one terminal per request, not an ordering across them.
+        #expect(Set(session.types) == ["hello", "result", "health"])
+        #expect(session.types.filter { $0 == "result" }.count == 1)
         let result = try #require(session.object(type: "result"))
         let transcript = try #require(result["transcript"] as? [String: Any])
         #expect((transcript["text"] as? String)?.lowercased().contains("hello") == true)

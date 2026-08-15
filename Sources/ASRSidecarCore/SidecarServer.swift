@@ -9,6 +9,11 @@ import VoiceCore
 public final class SidecarServer {
     public static let sidecarVersion = "1.0.0"
 
+    /// Ceiling on how long EOF waits for accepted requests to answer. Two minutes covers a cold
+    /// model load plus the longest decode this runtime is asked for; past it the process is
+    /// assumed wedged and exits without teardown.
+    static let eofGraceSeconds: TimeInterval = 120
+
     private let backend: SidecarBackend?
     private let output: SidecarOutput
     private let log: (String) -> Void
@@ -44,10 +49,17 @@ public final class SidecarServer {
             handle(line: line)
         }
 
-        inflight.waitForCompletion(timeout: 0.2)
+        // A request the server accepted is owed its terminal, so EOF waits for the in-flight
+        // set rather than cutting it off. 0.2 s used to be the whole grace, which was invisible
+        // while every test used the fake backend: with the real one, EOF lands during the 3.5 s
+        // model load and every accepted transcribe was truncated to nothing.
+        //
+        // Bounded all the same. In production EOF only happens because the parent is tearing
+        // the child down, and the parent terminates it anyway, so a generous ceiling costs
+        // nothing and a wedged decode still cannot hold the process open forever.
+        inflight.waitForCompletion(timeout: Self.eofGraceSeconds)
         // Drain the decode queue before tearing the backend down, so a request that is still
-        // holding the context cannot race the release. Bounded: a decode that outlives its
-        // grace period would otherwise hold stdin's EOF hostage forever.
+        // holding the context cannot race the release.
         let drained = DispatchSemaphore(value: 0)
         decodeQueue.async { drained.signal() }
         if drained.wait(timeout: .now() + 0.3) == .timedOut {
