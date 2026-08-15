@@ -62,7 +62,7 @@ struct FakeASRBackendTests {
     @Test func aNonPositiveTimeoutIsReportedAsATimeout() {
         let terminal = FakeASRBackend(delayMs: 0).transcribe(request(timeoutMs: 0), isCancelled: { false })
 
-        guard case .failure(let code, let detail) = terminal else {
+        guard case .failure(let code, let detail, _) = terminal else {
             Issue.record("expected a failure, got \(terminal)")
             return
         }

@@ -29,6 +29,10 @@ struct SidecarLaunchConfiguration: Sendable {
     /// running executable in both a SwiftPM products directory and `Contents/MacOS`, which is
     /// what lets a copied `.app` transcribe at all.
     static func sidecar(executableURL: URL, backend: String = "fake") -> SidecarLaunchConfiguration {
+        // Full inheritance is deliberate. The sidecar spawns nothing and reaches exactly one
+        // host, huggingface.co, for the pinned artifact; a stripped environment would break the
+        // proxy and certificate configuration needed for precisely that download. Contrast the
+        // refiner path, which shadows credentials because it hands a transcript to a model.
         var env = ProcessInfo.processInfo.environment
         env["VOICEOUR_ASR_BACKEND"] = backend
         env["VOICEOUR_PRELOAD"] = "1"

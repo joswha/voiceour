@@ -46,8 +46,17 @@ public final class SidecarServer {
 
         inflight.waitForCompletion(timeout: 0.2)
         // Drain the decode queue before tearing the backend down, so a request that is still
-        // holding the context cannot race the release.
-        decodeQueue.sync {}
+        // holding the context cannot race the release. Bounded: a decode that outlives its
+        // grace period would otherwise hold stdin's EOF hostage forever.
+        let drained = DispatchSemaphore(value: 0)
+        decodeQueue.async { drained.signal() }
+        if drained.wait(timeout: .now() + 0.3) == .timedOut {
+            log("shutdown: decode still running after grace; exiting without teardown")
+            // Deliberately skips C++ static destructors: a live context at `exit()` would
+            // SIGABRT inside ggml's Metal-device destructor, which asserts that no residency
+            // set still holds one of its buffers.
+            _exit(0)
+        }
         backend?.shutdown()
         return 0
     }
@@ -123,10 +132,15 @@ public final class SidecarServer {
             )
             return
         }
-        decodeQueue.async { [output, inflight] in
+        decodeQueue.async { [output, inflight, log, backend] in
             let terminal = backend.transcribe(request, isCancelled: { token.isCancelled })
             output.emit(terminal: terminal, requestId: request.requestId)
             inflight.finish(request.requestId)
+            if case .failure(_, _, fatal: true) = terminal {
+                log("fatal backend failure; exiting so the client respawns a clean process")
+                backend.shutdown()
+                exit(70)  // EX_SOFTWARE
+            }
         }
     }
 }
@@ -162,7 +176,7 @@ public final class SidecarOutput: @unchecked Sendable {
                     timingsMs: timings
                 )
             )
-        case .failure(let code, let detail):
+        case .failure(let code, let detail, _):
             emit(ASRErrorMessage(code: code, requestId: requestId, detail: detail))
         case .cancelled:
             emit(ASRCancelledMessage(requestId: requestId))

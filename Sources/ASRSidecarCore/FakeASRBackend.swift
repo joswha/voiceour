@@ -45,7 +45,7 @@ public final class FakeASRBackend: SidecarBackend {
         }
         if isCancelled() { return .cancelled }
         if request.timeoutMs <= 0 {
-            return .failure(code: .timeout, detail: "fake timeout")
+            return .failure(code: .timeout, detail: "fake timeout", fatal: false)
         }
 
         let text = "fake transcript duration_ms=\(request.audio.durationMs)"

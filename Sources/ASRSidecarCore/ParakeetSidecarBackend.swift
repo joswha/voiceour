@@ -84,7 +84,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
         let samples: [Float]
         let context: ParakeetContext
         switch prepare(request) {
-        case .failure(let code, let detail): return .failure(code: code, detail: detail)
+        case .failure(let code, let detail): return .failure(code: code, detail: detail, fatal: false)
         case .ready(let decoded, let loaded):
             samples = decoded
             context = loaded
@@ -92,12 +92,32 @@ public final class ParakeetSidecarBackend: SidecarBackend, @unchecked Sendable {
 
         if isCancelled() { return .cancelled }
 
+        // A crash-recovery-truncated WAV can legitimately decode to zero samples. `parakeet_full`
+        // on an empty buffer must never reach the fatal path below: nothing is wrong with the
+        // device, there is simply nothing to transcribe.
+        if samples.isEmpty {
+            stateLock.lock()
+            let loadMs = self.loadMs
+            stateLock.unlock()
+            return .result(
+                transcript: TokenMapping.transcript(from: []),
+                backendId: backendId,
+                modelId: ASRModelContract.modelId,
+                modelRevision: ASRModelContract.revision,
+                timings: ASRTimings(load: loadMs, inference: 0, total: loadMs)
+            )
+        }
+
         let started = DispatchTime.now().uptimeNanoseconds
         let segments: [ParakeetSegmentRaw]
         do {
             segments = try decode(context, samples: samples, isCancelled: isCancelled)
         } catch {
-            return .failure(code: .inferenceFailed, detail: String(describing: error))
+            // A client `cancel` trips parakeet.cpp's abort callback, and `parakeet_full` reports
+            // that as a plain -6 rather than a distinct status. Answer the cancel that was asked
+            // for instead of inventing an inference failure.
+            if isCancelled() { return .cancelled }
+            return .failure(code: .inferenceFailed, detail: String(describing: error), fatal: true)
         }
         let inferenceMs = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
 

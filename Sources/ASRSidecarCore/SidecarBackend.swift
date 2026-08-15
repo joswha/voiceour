@@ -14,7 +14,10 @@ public enum SidecarTerminal: Sendable {
         modelRevision: String,
         timings: ASRTimings
     )
-    case failure(code: ASRErrorCode, detail: String?)
+    /// `fatal` means the process cannot serve another request: ggml's Metal device is poisoned
+    /// and logs "recreate the backend to recover", which is not something this process can do.
+    /// The server exits on it so the client's tested respawn path produces a clean context.
+    case failure(code: ASRErrorCode, detail: String?, fatal: Bool)
     case cancelled
 }
 
