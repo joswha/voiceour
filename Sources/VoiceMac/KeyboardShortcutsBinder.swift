@@ -1,7 +1,9 @@
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
+import OSLog
 import VoiceCore
 
 struct FnKeyToggleDetector {
@@ -246,6 +248,13 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     private var router = HotkeyEventRouter()
     private var handler: (@Sendable () -> Void)?
     private var cancelHandler: (@Sendable () -> Void)?
+    private var didPromptForAccessibility = false
+
+    /// Diagnostic channel for the tap-vs-passive decision. The two paths are
+    /// visually identical until a standalone Globe tap opens the system emoji
+    /// picker, so the active path must be observable without a reproduction:
+    ///     log stream --predicate 'subsystem == "com.voiceour.app" AND category == "hotkey"'
+    private static let log = Logger(subsystem: "com.voiceour.app", category: "hotkey")
 
     public init() {}
 
@@ -276,13 +285,31 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
         guard eventTap == nil, monitorTokens.isEmpty else { return }
         // Primary path: an active session event tap that can *consume* the standalone
         // Fn/Globe tap so macOS does not also open the emoji/dictation popup.
-        if !installEventTap() {
+        if installEventTap() {
+            Self.log.log("hotkey path: session event tap (suppressing)")
+        } else {
             // Fallback (no Accessibility): passive monitors still toggle, but cannot
             // suppress the popup because a passive NSEvent monitor cannot consume events.
+            Self.log.error("tapCreate failed at install; falling back to passive monitors (emoji popup NOT suppressed)")
             installPassiveMonitors()
+            promptForAccessibilityOnce()
         }
         // Either way, keep watching: the tap must win back the key the moment it can.
         startWatchdog()
+    }
+
+    /// The active event tap needs the Accessibility grant, and nothing else in the
+    /// app requests it at launch: microphone is requested at session start and
+    /// PostEvent at first insertion, so a fresh install (or a TCC entry gone stale)
+    /// silently landed on the passive path where the emoji picker reappears. One
+    /// prompt per process, at install time only — the watchdog's silent retries must
+    /// never spawn dialogs on a timer. Granting flips the toggle in System Settings
+    /// and the watchdog promotes to the tap within a tick, no relaunch.
+    private func promptForAccessibilityOnce() {
+        guard !didPromptForAccessibility else { return }
+        didPromptForAccessibility = true
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
     }
 
     /// The tap is not install-once. Accessibility can be granted after launch, and an
@@ -311,16 +338,20 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
                 // The callback re-enables on tapDisabled events; this covers a disable
                 // observed between callback invocations.
                 if !CGEvent.tapIsEnabled(tap: tap) {
+                    Self.log.error("event tap found disabled; re-enabling")
                     CGEvent.tapEnable(tap: tap, enable: true)
                 }
                 return
             }
+            Self.log.error("event tap mach port invalidated; rebuilding")
             teardownTap()
         }
         if installEventTap() {
             // The tap now owns the key; drop the passive path so a toggle cannot fire twice.
+            Self.log.log("hotkey path upgraded: passive monitors -> session event tap")
             removePassiveMonitors()
         } else if monitorTokens.isEmpty {
+            Self.log.error("tapCreate still failing; staying on passive monitors")
             installPassiveMonitors()
         }
     }
@@ -402,6 +433,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
         case .pass:
             return false
         case .consume:
+            Self.log.log("consumed event type=\(event.type.rawValue) keycode=\(event.getIntegerValueField(.keyboardEventKeycode))")
             return true
         case .toggle:
             let handler = self.handler
