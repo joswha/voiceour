@@ -242,6 +242,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var monitorTokens: [Any] = []
+    private var watchdog: DispatchSourceTimer?
     private var router = HotkeyEventRouter()
     private var handler: (@Sendable () -> Void)?
     private var cancelHandler: (@Sendable () -> Void)?
@@ -275,10 +276,53 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
         guard eventTap == nil, monitorTokens.isEmpty else { return }
         // Primary path: an active session event tap that can *consume* the standalone
         // Fn/Globe tap so macOS does not also open the emoji/dictation popup.
-        if installEventTap() { return }
-        // Fallback (no Accessibility): passive monitors still toggle, but cannot suppress
-        // the popup because a passive NSEvent monitor cannot consume events.
-        installPassiveMonitors()
+        if !installEventTap() {
+            // Fallback (no Accessibility): passive monitors still toggle, but cannot
+            // suppress the popup because a passive NSEvent monitor cannot consume events.
+            installPassiveMonitors()
+        }
+        // Either way, keep watching: the tap must win back the key the moment it can.
+        startWatchdog()
+    }
+
+    /// The tap is not install-once. Accessibility can be granted after launch, and an
+    /// ad-hoc re-sign invalidates the TCC grant so `tapCreate` fails on the next run —
+    /// both previously stranded the binder on the passive path forever, where the Fn
+    /// toggle still fired but the Globe assigned-action key could not be consumed and
+    /// the macOS emoji picker opened alongside dictation. macOS can also invalidate a
+    /// live tap's mach port when the grant is revoked mid-run. This timer heals all
+    /// three: promote passive monitors to a tap as soon as one can be created, and
+    /// rebuild a tap whose port has died. A tick against a healthy tap is one
+    /// `CFMachPortIsValid` plus one `tapIsEnabled` check.
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 2.0, repeating: 2.0, leeway: .milliseconds(500))
+        timer.setEventHandler { [weak self] in
+            self?.watchdogTick()
+        }
+        timer.resume()
+        watchdog = timer
+    }
+
+    private func watchdogTick() {
+        if let tap = eventTap {
+            if CFMachPortIsValid(tap) {
+                // The callback re-enables on tapDisabled events; this covers a disable
+                // observed between callback invocations.
+                if !CGEvent.tapIsEnabled(tap: tap) {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
+                return
+            }
+            teardownTap()
+        }
+        if installEventTap() {
+            // The tap now owns the key; drop the passive path so a toggle cannot fire twice.
+            removePassiveMonitors()
+        } else if monitorTokens.isEmpty {
+            installPassiveMonitors()
+        }
     }
 
     private func installEventTap() -> Bool {
@@ -400,6 +444,13 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     // MARK: - Teardown
 
     private func teardown() {
+        watchdog?.cancel()
+        watchdog = nil
+        teardownTap()
+        removePassiveMonitors()
+    }
+
+    private func teardownTap() {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             runLoopSource = nil
@@ -409,6 +460,9 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             CFMachPortInvalidate(tap)
             eventTap = nil
         }
+    }
+
+    private func removePassiveMonitors() {
         for token in monitorTokens {
             NSEvent.removeMonitor(token)
         }
