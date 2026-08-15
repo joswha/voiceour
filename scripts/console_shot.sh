@@ -7,9 +7,9 @@
 # render cannot show: real behind-window NSVisualEffectView glass, which the WindowServer
 # composites from the actual desktop behind a real onscreen window. See docs/ui-harness.md.
 #
-# Usage: scripts/console_shot.sh [section] [output.png]
-#   section: sessions (default) | home | voice | glossary | refinement | system | diagnostics
-#   output:  defaults to .build/console-<section>.png
+# Usage: scripts/console_shot.sh [tab] [output.png]
+#   tab:    general (default) | glossary | history | system
+#   output: defaults to .build/console-<tab>.png
 #
 # Launches the fake backend (no mic / model / network), opens the console via the
 # dev-only --show-console flag, captures just that window with screencapture, then
@@ -21,7 +21,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-SECTION="${1:-sessions}"
+SECTION="${1:-general}"
 OUT="${2:-$ROOT/.build/console-$SECTION.png}"
 
 swift build --package-path "$ROOT" >/dev/null
