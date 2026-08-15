@@ -1,0 +1,197 @@
+{
+  "anchors": {},
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 8,
+    "manifest_rows": 8,
+    "result_rows": 8,
+    "successful_rows": 8
+  },
+  "generated_at": "2026-07-06T16:59:15.602582+00:00",
+  "inputs": {
+    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/fleurs/manifest.jsonl",
+    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260706T165912Z-fleurs-e2e.results.jsonl"
+  },
+  "meta": {
+    "backend": "mlx",
+    "mode": "pipeline",
+    "model_id": "mlx-community/parakeet-tdt-0.6b-v3",
+    "model_revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
+    "refine_mode": "deterministic",
+    "started_at": "2026-07-06T16:59:12Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": {
+      "non_sentence_initial": {
+        "f1": 0.6153846153846153,
+        "fn": 2,
+        "fp": 3,
+        "precision": 0.5714285714285714,
+        "recall": 0.6666666666666666,
+        "tp": 4
+      },
+      "overall": {
+        "f1": 0.8275862068965518,
+        "fn": 2,
+        "fp": 3,
+        "precision": 0.8,
+        "recall": 0.8571428571428571,
+        "tp": 12
+      },
+      "sentence_initial": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 8
+      }
+    },
+    "cer_final": 0.013201320132013201,
+    "fwer_final": 0.09883720930232558,
+    "latency_ms": {
+      "asr": {
+        "p50": 164.5,
+        "p95": 1450.949999999999
+      },
+      "asr_inference": {
+        "p50": 163.5,
+        "p95": 689.4499999999996
+      },
+      "asr_load": {
+        "p50": 804.0,
+        "p95": 804.0
+      },
+      "cleanup": {
+        "p50": 1.0,
+        "p95": 2.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 166.0,
+        "p95": 1454.599999999999
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": {
+      "macro_f1": 0.375,
+      "marks": {
+        "!": {
+          "f1": 0.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        ",": {
+          "f1": 0.5,
+          "fn": 3,
+          "fp": 3,
+          "precision": 0.5,
+          "recall": 0.5,
+          "tp": 3
+        },
+        ".": {
+          "f1": 1.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 8
+        },
+        "?": {
+          "f1": 0.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        }
+      },
+      "micro": {
+        "f1": 0.7857142857142857,
+        "fn": 3,
+        "fp": 3,
+        "precision": 0.7857142857142857,
+        "recall": 0.7857142857142857,
+        "tp": 11
+      }
+    },
+    "rtfx": 21.96299780495453,
+    "uwer_final": 0.04487179487179487,
+    "uwer_raw": 0.04487179487179487
+  },
+  "mode": "e2e",
+  "tier": "fleurs",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "The Northern Mariana's Emergency Management office said that there were no damages reported in the nation.",
+      "id": "fleurs-en_us-test-000007",
+      "raw_transcript": "The Northern Mariana's Emergency Management office said that there were no damages reported in the nation.",
+      "reference": "the northern marianas emergency management office said that there were no damages reported in the nation",
+      "uwer_final": 0.125
+    },
+    {
+      "error": null,
+      "final_text": "However, due to the slow communication channels, styles in the west could lag behind by 25-30 years.",
+      "id": "fleurs-en_us-test-000001",
+      "raw_transcript": "However, due to the slow communication channels, styles in the west could lag behind by 25-30 years.",
+      "reference": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+      "uwer_final": 0.10526315789473684
+    },
+    {
+      "error": null,
+      "final_text": "The cabbage juice changes color depending on how acidic, basic alkaline the chemical is.",
+      "id": "fleurs-en_us-test-000004",
+      "raw_transcript": "The cabbage juice changes color depending on how acidic, basic alkaline the chemical is.",
+      "reference": "the cabbage juice changes color depending on how acidic or basic alkaline the chemical is",
+      "uwer_final": 0.06666666666666667
+    },
+    {
+      "error": null,
+      "final_text": "The hospital has followed protocols for infection control, including separating the patient from others to prevent possible infection of others.",
+      "id": "fleurs-en_us-test-000006",
+      "raw_transcript": "The hospital has followed protocols for infection control, including separating the patient from others to prevent possible infection of others.",
+      "reference": "the hospital has followed protocol for infection control including separating the patient from others to prevent possible infection of others",
+      "uwer_final": 0.05
+    },
+    {
+      "error": null,
+      "final_text": "All nouns alongside the word say for you always begin with a capital letter even in the middle of a sentence.",
+      "id": "fleurs-en_us-test-000002",
+      "raw_transcript": "All nouns alongside the word say for you always begin with a capital letter even in the middle of a sentence.",
+      "reference": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+      "uwer_final": 0.047619047619047616
+    },
+    {
+      "error": null,
+      "final_text": "To the north and within easy reach is the romantic and fascinating town of Sintra, and which was made famous to foreigners, after a glowing account of its splendors recorded by Lord Byron.",
+      "id": "fleurs-en_us-test-000003",
+      "raw_transcript": "To the north and within easy reach is the romantic and fascinating town of Sintra, and which was made famous to foreigners, after a glowing account of its splendors recorded by Lord Byron.",
+      "reference": "to the north and within easy reach is the romantic and fascinating town of sintra and which was made famous to foreigners after a glowing account of its splendours recorded by lord byron",
+      "uwer_final": 0.0
+    },
+    {
+      "error": null,
+      "final_text": "Many people don't think about them as dinosaurs because they have feathers and can fly.",
+      "id": "fleurs-en_us-test-000005",
+      "raw_transcript": "Many people don't think about them as dinosaurs because they have feathers and can fly.",
+      "reference": "many people don't think about them as dinosaurs because they have feathers and can fly",
+      "uwer_final": 0.0
+    },
+    {
+      "error": null,
+      "final_text": "Twentieth century research has shown that there are two pools of genetic variation hidden and expressed.",
+      "id": "fleurs-en_us-test-000008",
+      "raw_transcript": "Twentieth century research has shown that there are two pools of genetic variation hidden and expressed.",
+      "reference": "twentieth century research has shown that there are two pools of genetic variation hidden and expressed",
+      "uwer_final": 0.0
+    }
+  ]
+}

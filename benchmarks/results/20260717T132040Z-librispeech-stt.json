@@ -1,0 +1,149 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 128,
+    "result_rows": 64,
+    "successful_rows": 64
+  },
+  "generated_at": "2026-07-17T13:20:40.233069+00:00",
+  "inputs": {
+    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/librispeech/manifest.jsonl",
+    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260717T131734Z-librispeech-apple-stt.results.jsonl"
+  },
+  "meta": {
+    "backend": "apple-speech",
+    "mode": "pipeline",
+    "model_id": "apple/SpeechTranscriber",
+    "model_revision": "Version 26.5.2 (Build 25F84)",
+    "refine_mode": "off",
+    "started_at": "2026-07-17T13:17:34Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.011064950022623504,
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 613.5,
+        "p95": 884.65
+      },
+      "asr_inference": {
+        "p50": 613.5,
+        "p95": 884.65
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 613.5,
+        "p95": 884.65
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 43.04026951672862,
+    "uwer_final": 0.030696840690118753,
+    "uwer_raw": 0.030696840690118753
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "Well, as I say, it's an awful queer world they clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife peter cause he probably has a lot of provocation that nobody knows, and the fire bugs can't think of the right name something like incendiaries and the breakers of the peace and what not And yet the law has nothing to say to a man like hand, lord.",
+      "id": "librispeech-test.clean-000015",
+      "raw_transcript": "Well, as I say, it's an awful queer world they clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife peter cause he probably has a lot of provocation that nobody knows, and the fire bugs can't think of the right name something like incendiaries and the breakers of the peace and what not And yet the law has nothing to say to a man like hand, lord.",
+      "reference": "well as i say it's an awful queer world they clap all the burglars into jail and the murderers and the wife beaters i've allers thought a gentle reproof would be enough punishment for a wife beater cause he probably has a lot o provocation that nobody knows and the firebugs can't think o the right name something like cendenaries an the breakers o the peace an what not an yet the law has nothin to say to a man like hen lord",
+      "uwer_final": 0.16279069767441862
+    },
+    {
+      "error": null,
+      "final_text": "So be it, then replied the count and extending his hand towards the calender, suspended near the chimney piece, he said to day is 21 February and drawing out his watch, added it is exactly 10 o'clock now promise me to remember this and expect me the 21st of may at the same hour in the forenoon.",
+      "id": "librispeech-test.other-000017",
+      "raw_transcript": "So be it, then replied the count and extending his hand towards the calender, suspended near the chimney piece, he said to day is 21 February and drawing out his watch, added it is exactly 10 o'clock now promise me to remember this and expect me the 21st of may at the same hour in the forenoon.",
+      "reference": "so be it then replied the count and extending his hand towards a calendar suspended near the chimney piece he said to day is the twenty first of february and drawing out his watch added it is exactly half past ten o'clock now promise me to remember this and expect me the twenty first of may at the same hour in the forenoon",
+      "uwer_final": 0.11475409836065574
+    },
+    {
+      "error": null,
+      "final_text": "But reckoning time whose million accidents creep in twixt vows and change decrees of kings, tan, sacred beauty, blunt, the sharpest intense, divert strong minds to the course of altering things. Alas, why fearing of time's tyranny might I not then say now I love you best when I was certain or in certainty, crowning the present doubting of the rest.",
+      "id": "librispeech-test.clean-000009",
+      "raw_transcript": "But reckoning time whose million accidents creep in twixt vows and change decrees of kings, tan, sacred beauty, blunt, the sharpest intense, divert strong minds to the course of altering things. Alas, why fearing of time's tyranny might I not then say now I love you best when I was certain or in certainty, crowning the present doubting of the rest.",
+      "reference": "but reckoning time whose million'd accidents creep in twixt vows and change decrees of kings tan sacred beauty blunt the sharp'st intents divert strong minds to the course of altering things alas why fearing of time's tyranny might i not then say now i love you best when i was certain o'er incertainty crowning the present doubting of the rest",
+      "uwer_final": 0.109375
+    },
+    {
+      "error": null,
+      "final_text": "A Wilfred pigeon coat had covered himself with honors in the cars of Marlvro's campaigns, and the name Wilfred had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person to a wide circle of cousins and kinsfolk.",
+      "id": "librispeech-test.other-000020",
+      "raw_transcript": "A Wilfred pigeon coat had covered himself with honors in the cars of Marlvro's campaigns, and the name Wilfred had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person to a wide circle of cousins and kinsfolk.",
+      "reference": "a wilfrid pigeoncote had covered himself with honours in the course of marlborough's campaigns and the name wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and twenty who was known more by reputation than by person to a wide circle of cousins and kinsfolk",
+      "uwer_final": 0.09375
+    },
+    {
+      "error": null,
+      "final_text": "No o chief Wazir that here where you have encountered me. Allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions, for that, his almighty will restore it to you, Zau Makan and his sister Nusad al Zaman, whereby we will settle the matter as we easily can.",
+      "id": "librispeech-test.other-000015",
+      "raw_transcript": "No o chief Wazir that here where you have encountered me. Allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions, for that, his almighty will restore it to you, Zau Makan and his sister Nusad al Zaman, whereby we will settle the matter as we easily can.",
+      "reference": "know o chief wazir that here where you have encountered me allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions for that his almighty will restoreth to you zau al makan and his sister nuzhat al zaman whereby we will settle the matter as we easily can",
+      "uwer_final": 0.09090909090909091
+    },
+    {
+      "error": null,
+      "final_text": "Mister fish is a squire of James and has so many mistresses that anybody may pretend to share in him, and we believed that, though I have the honor to be his near neighbor to speak freely. I cannot brag much that he makes any court to me, and I know no young woman in the country that he does not visit often.",
+      "id": "librispeech-test.other-000023",
+      "raw_transcript": "Mister fish is a squire of James and has so many mistresses that anybody may pretend to share in him, and we believed that, though I have the honor to be his near neighbor to speak freely. I cannot brag much that he makes any court to me, and I know no young woman in the country that he does not visit often.",
+      "reference": "mister fish is the squire of dames and has so many mistresses that anybody may pretend a share in him and be believed but though i have the honour to be his near neighbour to speak freely i cannot brag much that he makes any court to me and i know no young woman in the country that he does not visit often",
+      "uwer_final": 0.07936507936507936
+    },
+    {
+      "error": null,
+      "final_text": "The lily of the valley, breathing in the humble grass, answered the lovely maiden, said I am a watery weed, and I am very small and love to dwell in lowly vales, so weak, the gilded butterfly scarce perches on my head. Yet I am visited from heaven, and he that smiles on all walks in the valley, and each morn over me, spreads his hand, saying, rejoice, thou humble grass, thou new born lily flower.",
+      "id": "librispeech-test.clean-000004",
+      "raw_transcript": "The lily of the valley, breathing in the humble grass, answered the lovely maiden, said I am a watery weed, and I am very small and love to dwell in lowly vales, so weak, the gilded butterfly scarce perches on my head. Yet I am visited from heaven, and he that smiles on all walks in the valley, and each morn over me, spreads his hand, saying, rejoice, thou humble grass, thou new born lily flower.",
+      "reference": "the lilly of the valley breathing in the humble grass answerd the lovely maid and said i am a watry weed and i am very small and love to dwell in lowly vales so weak the gilded butterfly scarce perches on my head yet i am visited from heaven and he that smiles on all walks in the valley and each morn over me spreads his hand saying rejoice thou humble grass thou new born lily flower",
+      "uwer_final": 0.06493506493506493
+    },
+    {
+      "error": null,
+      "final_text": "In speaking of confectionery, it should be remarked that all the various preparations above named come, strictly speaking under that head for the various fruits, flowers, herbs, recent juices, which, when boiled with sugar, were formerly employed in pharmacy, as well as for sweetmeats, were called confections from the Latin word, confierse to make up, but the term confectionery embraces a very large class, indeed, of sweet food, many kinds of which should not be attempted in the ordinary cuisine.",
+      "id": "librispeech-test.other-000009",
+      "raw_transcript": "In speaking of confectionery, it should be remarked that all the various preparations above named come, strictly speaking under that head for the various fruits, flowers, herbs, recent juices, which, when boiled with sugar, were formerly employed in pharmacy, as well as for sweetmeats, were called confections from the Latin word, confierse to make up, but the term confectionery embraces a very large class, indeed, of sweet food, many kinds of which should not be attempted in the ordinary cuisine.",
+      "reference": "in speaking of confectionary it should be remarked that all the various preparations above named come strictly speaking under that head for the various fruits flowers herbs roots and juices which when boiled with sugar were formerly employed in pharmacy as well as for sweetmeats were called confections from the latin word conficere to make up but the term confectionary embraces a very large class indeed of sweet food many kinds of which should not be attempted in the ordinary cuisine",
+      "uwer_final": 0.06172839506172839
+    },
+    {
+      "error": null,
+      "final_text": "The chamberlain called castrato and charged him to do accordingly, so he replied, I hear, and I obey, and he took his pages with him and went out in search of the stalker till he found him in the rear of the caravan, girding his ass and preparing for flight.",
+      "id": "librispeech-test.other-000027",
+      "raw_transcript": "The chamberlain called castrato and charged him to do accordingly, so he replied, I hear, and I obey, and he took his pages with him and went out in search of the stalker till he found him in the rear of the caravan, girding his ass and preparing for flight.",
+      "reference": "the chamberlain called the castrato and charged him to do accordingly so he replied i hear and i obey and he took his pages with him and went out in search of the stoker till he found him in the rear of the caravan girthing his ass and preparing for flight",
+      "uwer_final": 0.058823529411764705
+    },
+    {
+      "error": null,
+      "final_text": "Oh TIS, the first TIS flattery in my seeing, and my great mind most kingly drinks it up mine. Eye well knows what with his gust is green and to his palate doth prepare the cup if it be poisoned TIS, the lesser sin that mine eye loves it. and doth first begin.",
+      "id": "librispeech-test.clean-000029",
+      "raw_transcript": "Oh TIS, the first TIS flattery in my seeing, and my great mind most kingly drinks it up mine. Eye well knows what with his gust is green and to his palate doth prepare the cup if it be poisoned TIS, the lesser sin that mine eye loves it. and doth first begin.",
+      "reference": "o tis the first tis flattery in my seeing and my great mind most kingly drinks it up mine eye well knows what with his gust is greeing and to his palate doth prepare the cup if it be poison'd tis the lesser sin that mine eye loves it and doth first begin",
+      "uwer_final": 0.05555555555555555
+    }
+  ]
+}

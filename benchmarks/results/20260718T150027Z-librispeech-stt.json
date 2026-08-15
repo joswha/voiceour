@@ -1,0 +1,149 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 64,
+    "result_rows": 64,
+    "successful_rows": 64
+  },
+  "generated_at": "2026-07-18T15:00:27.424841+00:00",
+  "inputs": {
+    "manifest_jsonl": "../benchmarks/data/librispeech-noise/snr05/manifest.jsonl",
+    "results_jsonl": "../benchmarks/results/20260718T145852Z-librispeech-apple-stt-noise-snr05.results.jsonl"
+  },
+  "meta": {
+    "backend": "apple",
+    "mode": "pipeline",
+    "model_id": "apple/SpeechTranscriber",
+    "model_revision": "Version 26.5.2 (Build 25F84)",
+    "refine_mode": "off",
+    "started_at": "2026-07-18T14:58:56Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.06671876928139525,
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 548.0,
+        "p95": 850.4
+      },
+      "asr_inference": {
+        "p50": 548.0,
+        "p95": 850.4
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 548.0,
+        "p95": 851.4
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 48.116667359321745,
+    "uwer_final": 0.1277167824333408,
+    "uwer_raw": 0.1277167824333408
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "And speaking of confectioning, she remarks that all the various separations above me comes quickly speaking, under that heart. The very sweet, flowers, of which the users, which, when boiled with sugar, was formerly unfolding pharmacy, as well as the students, are called complexion. From the Latin world country itself, Jamaica. But the term confectionery, in both of the very large classes, you need a sweet food, many times of which should not be attempted in the ordinary cuisine.",
+      "id": "librispeech-test.other-000009",
+      "raw_transcript": "And speaking of confectioning, she remarks that all the various separations above me comes quickly speaking, under that heart. The very sweet, flowers, of which the users, which, when boiled with sugar, was formerly unfolding pharmacy, as well as the students, are called complexion. From the Latin world country itself, Jamaica. But the term confectionery, in both of the very large classes, you need a sweet food, many times of which should not be attempted in the ordinary cuisine.",
+      "reference": "in speaking of confectionary it should be remarked that all the various preparations above named come strictly speaking under that head for the various fruits flowers herbs roots and juices which when boiled with sugar were formerly employed in pharmacy as well as for sweetmeats were called confections from the latin word conficere to make up but the term confectionary embraces a very large class indeed of sweet food many kinds of which should not be attempted in the ordinary cuisine",
+      "uwer_final": 0.49382716049382713
+    },
+    {
+      "error": null,
+      "final_text": "If the fish, they'll just fly up there. It has so many mistresses that anybody will pretend to share with them, and leave. So I have the honor to be busier, neighbor, to speak to you. I cannot brag much that he would make some report to you. And I know no young woman in the country that he doesn't have.",
+      "id": "librispeech-test.other-000023",
+      "raw_transcript": "If the fish, they'll just fly up there. It has so many mistresses that anybody will pretend to share with them, and leave. So I have the honor to be busier, neighbor, to speak to you. I cannot brag much that he would make some report to you. And I know no young woman in the country that he doesn't have.",
+      "reference": "mister fish is the squire of dames and has so many mistresses that anybody may pretend a share in him and be believed but though i have the honour to be his near neighbour to speak freely i cannot brag much that he makes any court to me and i know no young woman in the country that he does not visit often",
+      "uwer_final": 0.4444444444444444
+    },
+    {
+      "error": null,
+      "final_text": "He dwelt with considerable fault and energy, and with magical hospitality, he had received in the town, and the magnificence he began to dream it in the bustle of the thousand young men. He returned to it, with circumstantial attitude, all the sickness of disgusting, the hashing, the fashion, the dream, and how, at his awakening, there remained no proof or praise of all these events, save the small yaw, seen in the distant arising, driving in the food sail, who would fall to death.",
+      "id": "librispeech-test.other-000003",
+      "raw_transcript": "He dwelt with considerable fault and energy, and with magical hospitality, he had received in the town, and the magnificence he began to dream it in the bustle of the thousand young men. He returned to it, with circumstantial attitude, all the sickness of disgusting, the hashing, the fashion, the dream, and how, at his awakening, there remained no proof or praise of all these events, save the small yaw, seen in the distant arising, driving in the food sail, who would fall to death.",
+      "reference": "he dwelt with considerable force and energy on the almost magical hospitality he had received from the count and the magnificence of his entertainment in the grotto of the thousand and one nights he recounted with circumstantial exactitude all the particulars of the supper the hashish the statues the dream and how at his awakening there remained no proof or trace of all these events save the small yacht seen in the distant horizon driving under full sail toward porto vecchio",
+      "uwer_final": 0.4430379746835443
+    },
+    {
+      "error": null,
+      "final_text": "And yet the reader would like to complete the news. He desires to read the dispenses, regarded with the reasoning, but entreated not to forget that he pronounced his countenance, and swallowed his vowels, that he was built through the regions in intercalation, which were equally unexpected, and that his discourse was evaded by something sultry and vast. Something more Miss African in its rich, fasting pain. Something that suggested a clean path of a cutting field.",
+      "id": "librispeech-test.other-000006",
+      "raw_transcript": "And yet the reader would like to complete the news. He desires to read the dispenses, regarded with the reasoning, but entreated not to forget that he pronounced his countenance, and swallowed his vowels, that he was built through the regions in intercalation, which were equally unexpected, and that his discourse was evaded by something sultry and vast. Something more Miss African in its rich, fasting pain. Something that suggested a clean path of a cutting field.",
+      "reference": "and yet the reader who likes a complete image who desires to read with the senses as well as with the reason is entreated not to forget that he prolonged his consonants and swallowed his vowels that he was guilty of elisions and interpolations which were equally unexpected and that his discourse was pervaded by something sultry and vast something almost african in its rich basking tone something that suggested the teeming expanse of the cotton field",
+      "uwer_final": 0.4025974025974026
+    },
+    {
+      "error": null,
+      "final_text": "Yesterday was assembly, so you helped this year to you. Today, you fear for your own. Tomorrow, it will be anxiety about money, the day after, tomorrow, the diet tribe of a slanderous, the day after that, the misfortune of some friend, then the prevailing weather, then something that has been broken or lost, then a pleasure, which your conscience and your vertical call is. Again, the course of public affairs.",
+      "id": "librispeech-test.clean-000001",
+      "raw_transcript": "Yesterday was assembly, so you helped this year to you. Today, you fear for your own. Tomorrow, it will be anxiety about money, the day after, tomorrow, the diet tribe of a slanderous, the day after that, the misfortune of some friend, then the prevailing weather, then something that has been broken or lost, then a pleasure, which your conscience and your vertical call is. Again, the course of public affairs.",
+      "reference": "yesterday you were trembling for a health that is dear to you to day you fear for your own to morrow it will be anxiety about money the day after to morrow the diatribe of a slanderer the day after that the misfortune of some friend then the prevailing weather then something that has been broken or lost then a pleasure with which your conscience and your vertebral column reproach you again the course of public affairs",
+      "uwer_final": 0.2987012987012987
+    },
+    {
+      "error": null,
+      "final_text": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the white feeders. I allers thought a gentleman, too, will do enough punishment for a wife, too, because he probably has a lot of provocation that nobody knows. And the fire bug can't think of the right name, something like incendiaries. And the breakers of the peace and whatnot. And yet, the law has nothing to say to a man like Ken Moore.",
+      "id": "librispeech-test.clean-000015",
+      "raw_transcript": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the white feeders. I allers thought a gentleman, too, will do enough punishment for a wife, too, because he probably has a lot of provocation that nobody knows. And the fire bug can't think of the right name, something like incendiaries. And the breakers of the peace and whatnot. And yet, the law has nothing to say to a man like Ken Moore.",
+      "reference": "well as i say it's an awful queer world they clap all the burglars into jail and the murderers and the wife beaters i've allers thought a gentle reproof would be enough punishment for a wife beater cause he probably has a lot o provocation that nobody knows and the firebugs can't think o the right name something like cendenaries an the breakers o the peace an what not an yet the law has nothin to say to a man like hen lord",
+      "uwer_final": 0.26744186046511625
+    },
+    {
+      "error": null,
+      "final_text": "Alfred, teaching coat, had covered himself with honor in the course of Marlborough's company, and the name Wilfred had been above the small weakness in the family ever seen. The new heir to the family of deity, and escape, was a young man of about five and twenty, who was known more by reputation than by person, to a wide circle of peasants and kinsfolk..",
+      "id": "librispeech-test.other-000020",
+      "raw_transcript": "Alfred, teaching coat, had covered himself with honor in the course of Marlborough's company, and the name Wilfred had been above the small weakness in the family ever seen. The new heir to the family of deity, and escape, was a young man of about five and twenty, who was known more by reputation than by person, to a wide circle of peasants and kinsfolk..",
+      "reference": "a wilfrid pigeoncote had covered himself with honours in the course of marlborough's campaigns and the name wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and twenty who was known more by reputation than by person to a wide circle of cousins and kinsfolk",
+      "uwer_final": 0.234375
+    },
+    {
+      "error": null,
+      "final_text": "Well, in honest, if I were a prince, that lady should be my mistress. But I can give no rule to anyone else, and, perhaps, those that are in no danger of losing your heart to her may be infinitely taken with one. I should not done with her. So, so, so which extremely, wise Providence has ordained it, that by their different humor, everybody might find something to please themselves with them, without anything they need.",
+      "id": "librispeech-test.other-000007",
+      "raw_transcript": "Well, in honest, if I were a prince, that lady should be my mistress. But I can give no rule to anyone else, and, perhaps, those that are in no danger of losing your heart to her may be infinitely taken with one. I should not done with her. So, so, so which extremely, wise Providence has ordained it, that by their different humor, everybody might find something to please themselves with them, without anything they need.",
+      "reference": "well in earnest if i were a prince that lady should be my mistress but i can give no rule to any one else and perhaps those that are in no danger of losing their hearts to her may be infinitely taken with one i should not value at all for so says the justinian wise providence has ordained it that by their different humours everybody might find something to please themselves withal without envying their neighbours",
+      "uwer_final": 0.23376623376623376
+    },
+    {
+      "error": null,
+      "final_text": "The matter is not great, but I confess I naturally heats the noise and talk of the world, and should be best keys never to be known on any occasion whatsoever. Yet, since it can never be really avoided. One must satisfy oneself by doing nothing, that one needs to do nothing.",
+      "id": "librispeech-test.other-000031",
+      "raw_transcript": "The matter is not great, but I confess I naturally heats the noise and talk of the world, and should be best keys never to be known on any occasion whatsoever. Yet, since it can never be really avoided. One must satisfy oneself by doing nothing, that one needs to do nothing.",
+      "reference": "the matter is not great for i confess i do naturally hate the noise and talk of the world and should be best pleased never to be known in't upon any occasion whatsoever yet since it can never be wholly avoided one must satisfy oneself by doing nothing that one need care who knows",
+      "uwer_final": 0.21818181818181817
+    },
+    {
+      "error": null,
+      "final_text": "And amongst them were some who would have chosen the Kadak, Zau al Makan, for what they, his name, the light of place, and he had a sister, Muzhat al Zaman, ties, the delight of the time. But they set out five years ago, for us to just, and none watered what is become of them.",
+      "id": "librispeech-test.other-000021",
+      "raw_transcript": "And amongst them were some who would have chosen the Kadak, Zau al Makan, for what they, his name, the light of place, and he had a sister, Muzhat al Zaman, ties, the delight of the time. But they set out five years ago, for us to just, and none watered what is become of them.",
+      "reference": "and amongst them were some who would have chosen the cadet zau al makan for quoth they his name be light of the place and he hath a sister nuzhat al zaman highs the delight of the time but they set out five years ago for al hijaz and none wotteth what is become of them",
+      "uwer_final": 0.19642857142857142
+    }
+  ]
+}

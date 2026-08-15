@@ -4,20 +4,20 @@
 *.dmg
 *.zip
 fixtures/audio/
-asr/.venv/
-asr/.pytest_cache/
-asr/.ruff_cache/
 .DS_Store
 __pycache__/
 *.py[cod]
 .cache/
 models/
 model-cache/
-asr/model-cache/
 omp-session-*.html
 
 # Local launch environment sourced by scripts/run_real.sh; the app itself holds no credential
 .env
 .env.*
 benchmarks/data/
-benchmarks/results/
+# The bulky per-utterance `.results.jsonl` stay out; the cited report JSONs are
+# committed evidence. A fully-excluded directory can never be re-included, so
+# this excludes contents rather than the directory itself.
+benchmarks/results/*
+!benchmarks/results/*.json

@@ -87,8 +87,15 @@ ui-coverage:
 ui-film:
 	scripts/make_readme_gif.sh
 
-# The complete local UI gate includes both scene and flow-frame goldens.
+# The complete local UI gate includes both scene and flow-frame goldens. The
+# os26 legs need a macOS 26 host to render native glass, so they are conditional
+# rather than excluded: on this hardware they are part of the gate.
 ui-all: ui-snap ui-flow-frames
+	@if [ "$$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then \
+		$(MAKE) ui-snap-os26 ui-flow-os26; \
+	else \
+		echo "ui-all: skipping os26 gates (host < macOS 26)"; \
+	fi
 
 .PHONY: bench-smoke bench-stt bench-refine bench-e2e bench-techterms
 

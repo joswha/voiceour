@@ -1,0 +1,197 @@
+{
+  "anchors": {},
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 8,
+    "manifest_rows": 8,
+    "result_rows": 8,
+    "successful_rows": 8
+  },
+  "generated_at": "2026-08-10T18:25:00.494157+00:00",
+  "inputs": {
+    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/smoke/manifest.jsonl",
+    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260810T182459Z-smoke-e2e.results.jsonl"
+  },
+  "meta": {
+    "backend": "fake",
+    "mode": "pipeline",
+    "model_id": "mlx-community/parakeet-tdt-0.6b-v3",
+    "model_revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
+    "refine_mode": "deterministic",
+    "started_at": "2026-08-10T18:25:00Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": {
+      "non_sentence_initial": {
+        "f1": 0.0,
+        "fn": 8,
+        "fp": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "tp": 0
+      },
+      "overall": {
+        "f1": 0.0,
+        "fn": 15,
+        "fp": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "tp": 0
+      },
+      "sentence_initial": {
+        "f1": 0.0,
+        "fn": 7,
+        "fp": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "tp": 0
+      }
+    },
+    "cer_final": 0.8135593220338984,
+    "fwer_final": 1.0,
+    "latency_ms": {
+      "asr": {
+        "p50": 0.0,
+        "p95": 153.39999999999986
+      },
+      "asr_inference": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 0.0,
+        "p95": 154.69999999999987
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": {
+      "macro_f1": 0.0,
+      "marks": {
+        "!": {
+          "f1": 0.0,
+          "fn": 0,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        ",": {
+          "f1": 0.0,
+          "fn": 2,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        ".": {
+          "f1": 0.0,
+          "fn": 7,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        },
+        "?": {
+          "f1": 0.0,
+          "fn": 1,
+          "fp": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "tp": 0
+        }
+      },
+      "micro": {
+        "f1": 0.0,
+        "fn": 10,
+        "fp": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "tp": 0
+      }
+    },
+    "rtfx": 78.76800847457628,
+    "uwer_final": 1.0,
+    "uwer_raw": 1.0
+  },
+  "mode": "e2e",
+  "tier": "smoke",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=3011",
+      "id": "smoke_01_numbers_invoice",
+      "raw_transcript": "fake transcript duration_ms=3011",
+      "reference": "The invoice total is 1,250 dollars.",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=1923",
+      "id": "smoke_02_proper_noun_voiceoour",
+      "raw_transcript": "fake transcript duration_ms=1923",
+      "reference": "VoiceOour should paste this into Notes.",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=1933",
+      "id": "smoke_03_question_morgan",
+      "raw_transcript": "fake transcript duration_ms=1933",
+      "reference": "Can you send this to Morgan at 3 PM?",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=2009",
+      "id": "smoke_04_filler_ship",
+      "raw_transcript": "fake transcript duration_ms=2009",
+      "reference": "Um I think we should ship the feature today.",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=3101",
+      "id": "smoke_05_technical_terms",
+      "raw_transcript": "fake transcript duration_ms=3101",
+      "reference": "Use NVIDIA Parakeet with FastConformer TDT.",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=1981",
+      "id": "smoke_06_command_as_text",
+      "raw_transcript": "fake transcript duration_ms=1981",
+      "reference": "Type the words git status into the note.",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=2848",
+      "id": "smoke_07_correction",
+      "raw_transcript": "fake transcript duration_ms=2848",
+      "reference": "Set the timeout to 30 seconds, not 300.",
+      "uwer_final": 1.0
+    },
+    {
+      "error": null,
+      "final_text": "fake transcript duration_ms=1783",
+      "id": "smoke_08_short_message",
+      "raw_transcript": "fake transcript duration_ms=1783",
+      "reference": "Please call me when the build finishes.",
+      "uwer_final": 1.0
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 64,
+    "result_rows": 64,
+    "successful_rows": 64
+  },
+  "generated_at": "2026-07-18T15:00:30.502782+00:00",
+  "inputs": {
+    "manifest_jsonl": "../benchmarks/data/librispeech-noise/snr00/manifest.jsonl",
+    "results_jsonl": "../benchmarks/results/20260718T145934Z-librispeech-apple-stt-noise-snr00.results.jsonl"
+  },
+  "meta": {
+    "backend": "apple",
+    "mode": "pipeline",
+    "model_id": "apple/SpeechTranscriber",
+    "model_revision": "Version 26.5.2 (Build 25F84)",
+    "refine_mode": "off",
+    "started_at": "2026-07-18T14:59:36Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.16770186335403728,
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 495.0,
+        "p95": 854.4
+      },
+      "asr_inference": {
+        "p50": 495.0,
+        "p95": 854.4
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 495.0,
+        "p95": 855.25
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 50.25828027781797,
+    "uwer_final": 0.28859511539323324,
+    "uwer_raw": 0.28859511539323324
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "And yet, the leader, he likes to compete for me. The desire to leave the dissenters as well as the region, but then we can not forget that we surround his countenance and swallow his vows. That he was very delivering from his interpolation, before he could inexpect it, and that his sister was provided by something sultry and vast. Something more neglected than it looked fast in pain. Something that suggested a clean mouth of a peasant gear.",
+      "id": "librispeech-test.other-000006",
+      "raw_transcript": "And yet, the leader, he likes to compete for me. The desire to leave the dissenters as well as the region, but then we can not forget that we surround his countenance and swallow his vows. That he was very delivering from his interpolation, before he could inexpect it, and that his sister was provided by something sultry and vast. Something more neglected than it looked fast in pain. Something that suggested a clean mouth of a peasant gear.",
+      "reference": "and yet the reader who likes a complete image who desires to read with the senses as well as with the reason is entreated not to forget that he prolonged his consonants and swallowed his vowels that he was guilty of elisions and interpolations which were equally unexpected and that his discourse was pervaded by something sultry and vast something almost african in its rich basking tone something that suggested the teeming expanse of the cotton field",
+      "uwer_final": 0.6363636363636364
+    },
+    {
+      "error": null,
+      "final_text": "But the fish, they'll just fly up there. It has so many mystery things, that everybody will put on the show, and everything. So, I have the honor to be with your neighbor, to speak to you. I cannot drag much, like, immediately, for me. And I know, know, young women in the country that...",
+      "id": "librispeech-test.other-000023",
+      "raw_transcript": "But the fish, they'll just fly up there. It has so many mystery things, that everybody will put on the show, and everything. So, I have the honor to be with your neighbor, to speak to you. I cannot drag much, like, immediately, for me. And I know, know, young women in the country that...",
+      "reference": "mister fish is the squire of dames and has so many mistresses that anybody may pretend a share in him and be believed but though i have the honour to be his near neighbour to speak freely i cannot brag much that he makes any court to me and i know no young woman in the country that he does not visit often",
+      "uwer_final": 0.6349206349206349
+    },
+    {
+      "error": null,
+      "final_text": "It forgot, and so, you know, the experience isn't afterwards. This religious. But if you're used to me, for the public good, you get rid of the margin of the problem. But to get you with a marshal, it will be necessary to have a majority of you. But to get a majority of it, it will be next to it, to figure throughout the right to it. For particular, the recognition of the wrong result of it, then you decide on the interpretation to do it and react.",
+      "id": "librispeech-test.other-000008",
+      "raw_transcript": "It forgot, and so, you know, the experience isn't afterwards. This religious. But if you're used to me, for the public good, you get rid of the margin of the problem. But to get you with a marshal, it will be necessary to have a majority of you. But to get a majority of it, it will be next to it, to figure throughout the right to it. For particular, the recognition of the wrong result of it, then you decide on the interpretation to do it and react.",
+      "reference": "he forgot as sergey ivanovitch explained to him afterwards this syllogism that it was necessary for the public good to get rid of the marshal of the province that to get rid of the marshal it was necessary to have a majority of votes that to get a majority of votes it was necessary to secure flerov's right to vote that to secure the recognition of flerov's right to vote they must decide on the interpretation to be put on the act",
+      "uwer_final": 0.6309523809523809
+    },
+    {
+      "error": null,
+      "final_text": "In speaking of confectioners, speaking of marks, that all the various preparations above me, comes perfectly treating, under that house. The very sweet, flowers, over, the losers, which swim boil with silver, which formal influence the pharmacy as well as the students are called complexing. From the Latin words, country of fact, to know that. But the term conceptionary, and there's a very large process, indeed, a treaty. Many times of it should not be attempted and ordinary for me.",
+      "id": "librispeech-test.other-000009",
+      "raw_transcript": "In speaking of confectioners, speaking of marks, that all the various preparations above me, comes perfectly treating, under that house. The very sweet, flowers, over, the losers, which swim boil with silver, which formal influence the pharmacy as well as the students are called complexing. From the Latin words, country of fact, to know that. But the term conceptionary, and there's a very large process, indeed, a treaty. Many times of it should not be attempted and ordinary for me.",
+      "reference": "in speaking of confectionary it should be remarked that all the various preparations above named come strictly speaking under that head for the various fruits flowers herbs roots and juices which when boiled with sugar were formerly employed in pharmacy as well as for sweetmeats were called confections from the latin word conficere to make up but the term confectionary embraces a very large class indeed of sweet food many kinds of which should not be attempted in the ordinary cuisine",
+      "uwer_final": 0.5925925925925926
+    },
+    {
+      "error": null,
+      "final_text": "He dwelt with considerable thought and energy, and with magical hospitality, with the truth, and the time, and the magnificence of he then screaming, and the gust of a thousand and nine. He returned to it, with certain central substitute, all the sickness of deception, passion, affection, the dream, and how, at his awaiting, there remained no proof or face of all these events. So, if the small yore, Seeing the distant rising, driving in the freeway, he's called the destin.",
+      "id": "librispeech-test.other-000003",
+      "raw_transcript": "He dwelt with considerable thought and energy, and with magical hospitality, with the truth, and the time, and the magnificence of he then screaming, and the gust of a thousand and nine. He returned to it, with certain central substitute, all the sickness of deception, passion, affection, the dream, and how, at his awaiting, there remained no proof or face of all these events. So, if the small yore, Seeing the distant rising, driving in the freeway, he's called the destin.",
+      "reference": "he dwelt with considerable force and energy on the almost magical hospitality he had received from the count and the magnificence of his entertainment in the grotto of the thousand and one nights he recounted with circumstantial exactitude all the particulars of the supper the hashish the statues the dream and how at his awakening there remained no proof or trace of all these events save the small yacht seen in the distant horizon driving under full sail toward porto vecchio",
+      "uwer_final": 0.5822784810126582
+    },
+    {
+      "error": null,
+      "final_text": "So be it, then, you polite the child, and extend them in the can through the calendar, extended the opportunity. He said, Today, you put 23 to February, and rowing out his watch, I will. It is exactly how such can it help. Now, promise me to remember it, and expect me that 24th of me, at the same moment, in the full moon.",
+      "id": "librispeech-test.other-000017",
+      "raw_transcript": "So be it, then, you polite the child, and extend them in the can through the calendar, extended the opportunity. He said, Today, you put 23 to February, and rowing out his watch, I will. It is exactly how such can it help. Now, promise me to remember it, and expect me that 24th of me, at the same moment, in the full moon.",
+      "reference": "so be it then replied the count and extending his hand towards a calendar suspended near the chimney piece he said to day is the twenty first of february and drawing out his watch added it is exactly half past ten o'clock now promise me to remember this and expect me the twenty first of may at the same hour in the forenoon",
+      "uwer_final": 0.5737704918032787
+    },
+    {
+      "error": null,
+      "final_text": "It was so confirmed in the time, the friends took up to the sense of their own love, and the evasion, part of the time. For this faithful, all its robbing love, was a new revelation to them, who was used to doing the times both of few or three lovers with you, and calculating respect to fear, with almost as much coolness of the young man, the fortune, of the girls they wish, but could not afford me.",
+      "id": "librispeech-test.other-000010",
+      "raw_transcript": "It was so confirmed in the time, the friends took up to the sense of their own love, and the evasion, part of the time. For this faithful, all its robbing love, was a new revelation to them, who was used to doing the times both of few or three lovers with you, and calculating respect to fear, with almost as much coolness of the young man, the fortune, of the girls they wish, but could not afford me.",
+      "reference": "it was so tender earnest and defiant that fanny forgot the defence of her own lover in admiration of polly's loyalty to hers for this faithful all absorbing love was a new revelation to fanny who was used to hearing her friends boast of two or three lovers a year and calculate their respective values with almost as much coolness as the young men discussed the fortunes of the girls they wished for but could not afford to marry",
+      "uwer_final": 0.525
+    },
+    {
+      "error": null,
+      "final_text": "If then he wanted to show him what he could do, too, was making his life his home. She's seldom succeeded by adventures and sex. On spite of many failures and discouragements behind the team. The little house between the most attractive face, and the city of me. So he was smaller house friend than ever, and being determined to prove the change of fortune was indicted.",
+      "id": "librispeech-test.other-000018",
+      "raw_transcript": "If then he wanted to show him what he could do, too, was making his life his home. She's seldom succeeded by adventures and sex. On spite of many failures and discouragements behind the team. The little house between the most attractive face, and the city of me. So he was smaller house friend than ever, and being determined to prove the change of fortune was indicted.",
+      "reference": "if fanny wanted to show him what she could do toward making a pleasant home she certainly succeeded better than she suspected for in spite of many failures and discouragements behind the scenes the little house became a most attractive place to mister sydney at least for he was more the house friend than ever and seemed determined to prove that change of fortune made no difference to him",
+      "uwer_final": 0.5072463768115942
+    },
+    {
+      "error": null,
+      "final_text": "I am willing to enter into the competition of the agent, if you are able to surpass it, for since those early days, in which I made the medals of post premise, I've learned so much that I can now produce far better pieces of the time. I think I cannot do out to do the coin by stuff to do by conduct, which is still held behind me. Unlike him, I could make him large, pieces of good, and take the place, as I did so often for that noble monarch, and fancy to France, thanks to the great convenience to be about me. Without other reasons, I, yes, efficient for last affection, or other words, to be told.",
+      "id": "librispeech-test.other-000001",
+      "raw_transcript": "I am willing to enter into the competition of the agent, if you are able to surpass it, for since those early days, in which I made the medals of post premise, I've learned so much that I can now produce far better pieces of the time. I think I cannot do out to do the coin by stuff to do by conduct, which is still held behind me. Unlike him, I could make him large, pieces of good, and take the place, as I did so often for that noble monarch, and fancy to France, thanks to the great convenience to be about me. Without other reasons, I, yes, efficient for last affection, or other words, to be told.",
+      "reference": "i am willing to enter into competition with the ancients and feel able to surpass them for since those early days in which i made the medals of pope clement i have learned so much that i can now produce far better pieces of the kind i think i can also outdo the coins i struck for duke alessandro which are still held in high esteem in like manner i could make for you large pieces of gold and silver plate as i did so often for that noble monarch king francis of france thanks to the great conveniences he allowed me without ever losing time for the execution of colossal statues or other works of the sculptors craft",
+      "uwer_final": 0.47058823529411764
+    },
+    {
+      "error": null,
+      "final_text": "Yesterday, it's Sunday, Wednesday, Thursday. Today, you're here for your own. Tomorrow, it's an anxiety, about money, the day after, tomorrow, the day after, the day after that, the misfortune of some spring, then the prevailing weather, then something that has been broken or lost, then explorated, which your conscious and your vertical. Again, a course of public, okay.",
+      "id": "librispeech-test.clean-000001",
+      "raw_transcript": "Yesterday, it's Sunday, Wednesday, Thursday. Today, you're here for your own. Tomorrow, it's an anxiety, about money, the day after, tomorrow, the day after, the day after that, the misfortune of some spring, then the prevailing weather, then something that has been broken or lost, then explorated, which your conscious and your vertical. Again, a course of public, okay.",
+      "reference": "yesterday you were trembling for a health that is dear to you to day you fear for your own to morrow it will be anxiety about money the day after to morrow the diatribe of a slanderer the day after that the misfortune of some friend then the prevailing weather then something that has been broken or lost then a pleasure with which your conscience and your vertebral column reproach you again the course of public affairs",
+      "uwer_final": 0.45454545454545453
+    }
+  ]
+}

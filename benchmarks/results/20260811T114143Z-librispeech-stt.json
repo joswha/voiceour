@@ -1,0 +1,149 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 128,
+    "result_rows": 128,
+    "successful_rows": 128
+  },
+  "generated_at": "2026-08-11T11:41:43.440965+00:00",
+  "inputs": {
+    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/librispeech/manifest.jsonl",
+    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260811T114038Z-librispeech-stt.results.jsonl"
+  },
+  "meta": {
+    "backend": "apple",
+    "mode": "pipeline",
+    "model_id": "apple/SpeechTranscriber",
+    "model_revision": "Version 26.5.2 (Build 25F84)",
+    "refine_mode": "off",
+    "started_at": "2026-08-11T11:40:38Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.011372585352295362,
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 467.5,
+        "p95": 801.8499999999999
+      },
+      "asr_inference": {
+        "p50": 467.5,
+        "p95": 790.3999999999999
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 468.0,
+        "p95": 801.8499999999999
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 48.25159686476372,
+    "uwer_final": 0.03133224714876551,
+    "uwer_raw": 0.03133224714876551
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "Way back in the days when grandpapa buzzard had his little falling out with old king eagle and done flies so high he scorched the feathers off in his head. He had a cousin did grandpop buzzard, and this cousin was just naturally lazy and no count.",
+      "id": "librispeech-test.other-000051",
+      "raw_transcript": "Way back in the days when grandpapa buzzard had his little falling out with old king eagle and done flies so high he scorched the feathers off in his head. He had a cousin did grandpop buzzard, and this cousin was just naturally lazy and no count.",
+      "reference": "way back in the days when grandpap buzzard had his lil falling out with ol king eagle and done fly so high he sco'tch the feathers offen his haid he had a cousin did grandpap buzzard and this cousin was jes naturally lazy and no count",
+      "uwer_final": 0.23404255319148937
+    },
+    {
+      "error": null,
+      "final_text": "Well, as I say, it's an awful queer world they clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife peter cause he probably has a lot of provocation that nobody knows, and the fire bugs can't think of the right name something like incendiaries and the breakers of the peace and what not And yet the law has nothing to say to a man like hand, lord.",
+      "id": "librispeech-test.clean-000015",
+      "raw_transcript": "Well, as I say, it's an awful queer world they clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife peter cause he probably has a lot of provocation that nobody knows, and the fire bugs can't think of the right name something like incendiaries and the breakers of the peace and what not And yet the law has nothing to say to a man like hand, lord.",
+      "reference": "well as i say it's an awful queer world they clap all the burglars into jail and the murderers and the wife beaters i've allers thought a gentle reproof would be enough punishment for a wife beater cause he probably has a lot o provocation that nobody knows and the firebugs can't think o the right name something like cendenaries an the breakers o the peace an what not an yet the law has nothin to say to a man like hen lord",
+      "uwer_final": 0.16279069767441862
+    },
+    {
+      "error": null,
+      "final_text": "The stories regarding Joseph, their traditional father, Ephrom and Manantse, incline that these strong central tribes, possibly together with the southern tribes of Benjamin and Judah, were the chief actors in its opening scene in Israel's history.",
+      "id": "librispeech-test.other-000049",
+      "raw_transcript": "The stories regarding Joseph, their traditional father, Ephrom and Manantse, incline that these strong central tribes, possibly together with the southern tribes of Benjamin and Judah, were the chief actors in its opening scene in Israel's history.",
+      "reference": "the stories regarding joseph the traditional father of ephraim and manasseh imply that these strong central tribes possibly together with the southern tribes of benjamin and judah were the chief actors in this opening scene in israel's history",
+      "uwer_final": 0.15384615384615385
+    },
+    {
+      "error": null,
+      "final_text": "Zauamakan bowed his head a while, and then said, I accept the position, for indeed there was no refusing, and he was certified that the chamberlain had counseled him well and wisely, and set him on the right way.",
+      "id": "librispeech-test.other-000052",
+      "raw_transcript": "Zauamakan bowed his head a while, and then said, I accept the position, for indeed there was no refusing, and he was certified that the chamberlain had counseled him well and wisely, and set him on the right way.",
+      "reference": "zau al makan bowed his head awhile and then said i accept this position for indeed there was no refusing and he was certified that the chamberlain had counselled him well and wisely and set him on the right way",
+      "uwer_final": 0.15
+    },
+    {
+      "error": null,
+      "final_text": "So be it, then replied the count and extending his hand towards the calender, suspended near the chimney piece, he said to day is 21 February and drawing out his watch, added it is exactly 10 o'clock now promise me to remember this and expect me the 21st of may at the same hour in the forenoon.",
+      "id": "librispeech-test.other-000017",
+      "raw_transcript": "So be it, then replied the count and extending his hand towards the calender, suspended near the chimney piece, he said to day is 21 February and drawing out his watch, added it is exactly 10 o'clock now promise me to remember this and expect me the 21st of may at the same hour in the forenoon.",
+      "reference": "so be it then replied the count and extending his hand towards a calendar suspended near the chimney piece he said to day is the twenty first of february and drawing out his watch added it is exactly half past ten o'clock now promise me to remember this and expect me the twenty first of may at the same hour in the forenoon",
+      "uwer_final": 0.11475409836065574
+    },
+    {
+      "error": null,
+      "final_text": "Thus accomplished, excited admiration of every silly cocket, and the envy of every fluttering pocom, but by all young gentlemen and ladies of understanding, he was heartily despised as a mere civilized monkey.",
+      "id": "librispeech-test.other-000048",
+      "raw_transcript": "Thus accomplished, excited admiration of every silly cocket, and the envy of every fluttering pocom, but by all young gentlemen and ladies of understanding, he was heartily despised as a mere civilized monkey.",
+      "reference": "thus accomplished he excited the admiration of every silly coquette and the envy of every fluttering coxcomb but by all young gentlemen and ladies of understanding he was heartily despised as a mere civilized monkey",
+      "uwer_final": 0.11428571428571428
+    },
+    {
+      "error": null,
+      "final_text": "But reckoning time whose million accidents creep in twixt vows and change decrees of kings, tan, sacred beauty, blunt, the sharpest intense, divert strong minds to the course of altering things. Alas, why fearing of time's tyranny might I not then say now I love you best when I was certain or in certainty, crowning the present doubting of the rest.",
+      "id": "librispeech-test.clean-000009",
+      "raw_transcript": "But reckoning time whose million accidents creep in twixt vows and change decrees of kings, tan, sacred beauty, blunt, the sharpest intense, divert strong minds to the course of altering things. Alas, why fearing of time's tyranny might I not then say now I love you best when I was certain or in certainty, crowning the present doubting of the rest.",
+      "reference": "but reckoning time whose million'd accidents creep in twixt vows and change decrees of kings tan sacred beauty blunt the sharp'st intents divert strong minds to the course of altering things alas why fearing of time's tyranny might i not then say now i love you best when i was certain o'er incertainty crowning the present doubting of the rest",
+      "uwer_final": 0.109375
+    },
+    {
+      "error": null,
+      "final_text": "The grand dame whom he supplied with faggots, the merchant whom he rescued from robbers, the king's counselor to whom he gave aid, all became his friends up and down the land, beggar, lord, homeless, wanderer, or high, born dame. He gladly gave unselfish service all unsought, and such as he helped straightway became his friends.",
+      "id": "librispeech-test.other-000035",
+      "raw_transcript": "The grand dame whom he supplied with faggots, the merchant whom he rescued from robbers, the king's counselor to whom he gave aid, all became his friends up and down the land, beggar, lord, homeless, wanderer, or high, born dame. He gladly gave unselfish service all unsought, and such as he helped straightway became his friends.",
+      "reference": "the grandame whom he supplied with fagots the merchant whom he rescued from robbers the king's councillor to whom he gave aid all became his friends up and down the land to beggar or lord homeless wanderer or high born dame he gladly gave unselfish service all unsought and such as he helped straightway became his friends",
+      "uwer_final": 0.10344827586206896
+    },
+    {
+      "error": null,
+      "final_text": "A Wilfred pigeon coat had covered himself with honors in the cars of Marlvro's campaigns, and the name Wilfred had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person to a wide circle of cousins and kinsfolk.",
+      "id": "librispeech-test.other-000020",
+      "raw_transcript": "A Wilfred pigeon coat had covered himself with honors in the cars of Marlvro's campaigns, and the name Wilfred had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person to a wide circle of cousins and kinsfolk.",
+      "reference": "a wilfrid pigeoncote had covered himself with honours in the course of marlborough's campaigns and the name wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and twenty who was known more by reputation than by person to a wide circle of cousins and kinsfolk",
+      "uwer_final": 0.09375
+    },
+    {
+      "error": null,
+      "final_text": "No o chief Wazir that here where you have encountered me. Allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions, for that, his almighty will restore it to you, Zau Makan and his sister Nusad al Zaman, whereby we will settle the matter as we easily can.",
+      "id": "librispeech-test.other-000015",
+      "raw_transcript": "No o chief Wazir that here where you have encountered me. Allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions, for that, his almighty will restore it to you, Zau Makan and his sister Nusad al Zaman, whereby we will settle the matter as we easily can.",
+      "reference": "know o chief wazir that here where you have encountered me allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions for that his almighty will restoreth to you zau al makan and his sister nuzhat al zaman whereby we will settle the matter as we easily can",
+      "uwer_final": 0.09090909090909091
+    }
+  ]
+}

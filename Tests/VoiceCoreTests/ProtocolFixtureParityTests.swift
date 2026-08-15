@@ -12,7 +12,7 @@ struct ProtocolFixtureParityTests {
             "health_response.json": { _ = try ASRWire.decode(ASRHealthResponse.self, from: $0) },
             "transcribe.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
             "result.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
-            "result_with_evidence.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
+            "result_with_words.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "cancel.json": { _ = try ASRWire.decode(ASRCancelRequest.self, from: $0) },
             "cancelled.json": { _ = try ASRWire.decode(ASRCancelledMessage.self, from: $0) },
             "error.json": { _ = try ASRWire.decode(ASRErrorMessage.self, from: $0) },
@@ -35,9 +35,9 @@ struct ProtocolFixtureParityTests {
         }
     }
 
-    @Test func resultWithEvidenceDecodesPopulatedOptionalEvidence() throws {
+    @Test func resultWithWordsDecodesPopulatedWordEvidence() throws {
         let fixtureURL = repoRoot()
-            .appendingPathComponent("fixtures/protocol/result_with_evidence.json")
+            .appendingPathComponent("fixtures/protocol/result_with_words.json")
         let result = try ASRWire.decode(ASRResult.self, from: Data(contentsOf: fixtureURL))
 
         #expect(result.protocolVersion == 1)

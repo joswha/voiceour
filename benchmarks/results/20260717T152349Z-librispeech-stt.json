@@ -1,0 +1,149 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 128,
+    "result_rows": 64,
+    "successful_rows": 64
+  },
+  "generated_at": "2026-07-17T15:23:49.770833+00:00",
+  "inputs": {
+    "manifest_jsonl": "../benchmarks/data/librispeech/manifest.jsonl",
+    "results_jsonl": "/tmp/vor-fastab/results.jsonl"
+  },
+  "meta": {
+    "backend": "apple-speech-fast-results",
+    "mode": "pipeline",
+    "model_id": "apple/SpeechTranscriber",
+    "model_revision": "Version 26.5.2 (Build 25F84)",
+    "refine_mode": "off",
+    "started_at": "2026-07-17T15:22:50Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.010653613590555715,
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 614.5,
+        "p95": 961.5999999999999
+      },
+      "asr_inference": {
+        "p50": 614.5,
+        "p95": 961.5999999999999
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 614.5,
+        "p95": 961.5999999999999
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 42.30220867637745,
+    "uwer_final": 0.028232130853685863,
+    "uwer_raw": 0.028232130853685863
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife peter cause he probably has a lot of provocation that nobody knows. And the fire bugs can't think of the right name, something like incendiaries, and the breakers of the peace, and what not, and yet the law has nothing to say to a man like hand lord.",
+      "id": "librispeech-test.clean-000015",
+      "raw_transcript": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife peter cause he probably has a lot of provocation that nobody knows. And the fire bugs can't think of the right name, something like incendiaries, and the breakers of the peace, and what not, and yet the law has nothing to say to a man like hand lord.",
+      "reference": "well as i say it's an awful queer world they clap all the burglars into jail and the murderers and the wife beaters i've allers thought a gentle reproof would be enough punishment for a wife beater cause he probably has a lot o provocation that nobody knows and the firebugs can't think o the right name something like cendenaries an the breakers o the peace an what not an yet the law has nothin to say to a man like hen lord",
+      "uwer_final": 0.16279069767441862
+    },
+    {
+      "error": null,
+      "final_text": "But reckoning time whose million accidents creep in twixt vows and change decrees of kings, tan, sacred beauty, blunt, the sharpest intense, diverts strong minds to the course of altering things. Alas, why fearing of time's tyranny might I not then say now I love you best when I was certain or in certainty? Crowning the present, doubting of the rest.",
+      "id": "librispeech-test.clean-000009",
+      "raw_transcript": "But reckoning time whose million accidents creep in twixt vows and change decrees of kings, tan, sacred beauty, blunt, the sharpest intense, diverts strong minds to the course of altering things. Alas, why fearing of time's tyranny might I not then say now I love you best when I was certain or in certainty? Crowning the present, doubting of the rest.",
+      "reference": "but reckoning time whose million'd accidents creep in twixt vows and change decrees of kings tan sacred beauty blunt the sharp'st intents divert strong minds to the course of altering things alas why fearing of time's tyranny might i not then say now i love you best when i was certain o'er incertainty crowning the present doubting of the rest",
+      "uwer_final": 0.125
+    },
+    {
+      "error": null,
+      "final_text": "So be it, then, replied the count, and extending his hand towards the calendar, suspended near the chimney piece. He said to day is 21 February, and drawing out his watch, added it is exactly 10 o'clock now promise me to remember this and expect me the 21st of May, at the same hour in the forenoon.",
+      "id": "librispeech-test.other-000017",
+      "raw_transcript": "So be it, then, replied the count, and extending his hand towards the calendar, suspended near the chimney piece. He said to day is 21 February, and drawing out his watch, added it is exactly 10 o'clock now promise me to remember this and expect me the 21st of May, at the same hour in the forenoon.",
+      "reference": "so be it then replied the count and extending his hand towards a calendar suspended near the chimney piece he said to day is the twenty first of february and drawing out his watch added it is exactly half past ten o'clock now promise me to remember this and expect me the twenty first of may at the same hour in the forenoon",
+      "uwer_final": 0.09836065573770492
+    },
+    {
+      "error": null,
+      "final_text": "Ah, Wilfrid pigeon goat had covered himself with honors in the cars of marlrose campaigns, and the name Wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person to a wide circle of cousins and kinsfolk.",
+      "id": "librispeech-test.other-000020",
+      "raw_transcript": "Ah, Wilfrid pigeon goat had covered himself with honors in the cars of marlrose campaigns, and the name Wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person to a wide circle of cousins and kinsfolk.",
+      "reference": "a wilfrid pigeoncote had covered himself with honours in the course of marlborough's campaigns and the name wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and twenty who was known more by reputation than by person to a wide circle of cousins and kinsfolk",
+      "uwer_final": 0.09375
+    },
+    {
+      "error": null,
+      "final_text": "No o chief Wazir that here where you have encountered me, Allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions, for that his almighty will restore it to you, Zau Makan, and his sister, Nusad al Zaman, whereby we will settle the matter as we easily can.",
+      "id": "librispeech-test.other-000015",
+      "raw_transcript": "No o chief Wazir that here where you have encountered me, Allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions, for that his almighty will restore it to you, Zau Makan, and his sister, Nusad al Zaman, whereby we will settle the matter as we easily can.",
+      "reference": "know o chief wazir that here where you have encountered me allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions for that his almighty will restoreth to you zau al makan and his sister nuzhat al zaman whereby we will settle the matter as we easily can",
+      "uwer_final": 0.09090909090909091
+    },
+    {
+      "error": null,
+      "final_text": "This he said in a saucer, wetted with a little water, and after waiting a short time, smelt and tasted it, and then he took out of the chest, a booklet, wherein he read a while, and said, weeping know o ye passengers that in this book is a marvelous matter, denoting that whoso come thither shall surely die, without hope of escape, for that this ocean is called the sea of the clime of the king. Wherein is a sepulchre of our lord Solomon, son of David, on both be peace.",
+      "id": "librispeech-test.other-000002",
+      "raw_transcript": "This he said in a saucer, wetted with a little water, and after waiting a short time, smelt and tasted it, and then he took out of the chest, a booklet, wherein he read a while, and said, weeping know o ye passengers that in this book is a marvelous matter, denoting that whoso come thither shall surely die, without hope of escape, for that this ocean is called the sea of the clime of the king. Wherein is a sepulchre of our lord Solomon, son of David, on both be peace.",
+      "reference": "this he set in a saucer wetted with a little water and after waiting a short time smelt and tasted it and then he took out of the chest a booklet wherein he read awhile and said weeping know o ye passengers that in this book is a marvellous matter denoting that whoso cometh hither shall surely die without hope of escape for that this ocean is called the sea of the clime of the king wherein is the sepulchre of our lord solomon son of david on both be peace",
+      "uwer_final": 0.06593406593406594
+    },
+    {
+      "error": null,
+      "final_text": "Oh TIS, the first TIS flattery in my seeing, and my great mind most kingly drinks it up mine eye well knows what with his gust is green, and to his palate doth prepare the cup if it be poisoned. TIS, the lesser sin that mine eye loves it, and doth first begin.",
+      "id": "librispeech-test.clean-000029",
+      "raw_transcript": "Oh TIS, the first TIS flattery in my seeing, and my great mind most kingly drinks it up mine eye well knows what with his gust is green, and to his palate doth prepare the cup if it be poisoned. TIS, the lesser sin that mine eye loves it, and doth first begin.",
+      "reference": "o tis the first tis flattery in my seeing and my great mind most kingly drinks it up mine eye well knows what with his gust is greeing and to his palate doth prepare the cup if it be poison'd tis the lesser sin that mine eye loves it and doth first begin",
+      "uwer_final": 0.05555555555555555
+    },
+    {
+      "error": null,
+      "final_text": "As she awaited her guest, she surveyed the table with both satisfaction and disquietude for her social functions were few to night. There were she checked them off on her fingers, sir James Crichton, the rich English manufacturer, and lady Crichton, mister, and missus Vanderpool, mister, harry Cresswell, and his sister, John Taylor, and his sister, and mister Charles smith, whom the evening papers mentioned as likely to be United States Senator from New Jersey, a selection of guests that had been determined unknown to the hostess by the meeting of cotton interests earlier in the day.",
+      "id": "librispeech-test.clean-000002",
+      "raw_transcript": "As she awaited her guest, she surveyed the table with both satisfaction and disquietude for her social functions were few to night. There were she checked them off on her fingers, sir James Crichton, the rich English manufacturer, and lady Crichton, mister, and missus Vanderpool, mister, harry Cresswell, and his sister, John Taylor, and his sister, and mister Charles smith, whom the evening papers mentioned as likely to be United States Senator from New Jersey, a selection of guests that had been determined unknown to the hostess by the meeting of cotton interests earlier in the day.",
+      "reference": "as she awaited her guests she surveyed the table with both satisfaction and disquietude for her social functions were few tonight there were she checked them off on her fingers sir james creighton the rich english manufacturer and lady creighton mister and missus vanderpool mister harry cresswell and his sister john taylor and his sister and mister charles smith whom the evening papers mentioned as likely to be united states senator from new jersey a selection of guests that had been determined unknown to the hostess by the meeting of cotton interests earlier in the day",
+      "uwer_final": 0.052083333333333336
+    },
+    {
+      "error": null,
+      "final_text": "As the chase drives away, Mary stands, bewildered and perplexed on the doorstep. Her mind in a tumult of excitement in which hatred of the doctor, distrust, and suspicion of her mother, disappointment, vexation, and ill humor, surge, and swell among those delicate organizations on which the structure and development of the soul so closely depend doing, perhaps an irreparable injury.",
+      "id": "librispeech-test.clean-000003",
+      "raw_transcript": "As the chase drives away, Mary stands, bewildered and perplexed on the doorstep. Her mind in a tumult of excitement in which hatred of the doctor, distrust, and suspicion of her mother, disappointment, vexation, and ill humor, surge, and swell among those delicate organizations on which the structure and development of the soul so closely depend doing, perhaps an irreparable injury.",
+      "reference": "as the chaise drives away mary stands bewildered and perplexed on the door step her mind in a tumult of excitement in which hatred of the doctor distrust and suspicion of her mother disappointment vexation and ill humor surge and swell among those delicate organizations on which the structure and development of the soul so closely depend doing perhaps an irreparable injury",
+      "uwer_final": 0.04838709677419355
+    },
+    {
+      "error": null,
+      "final_text": "He forgot as, sir jevanovitch explained to him afterwards, this syllogism that it was necessary for the public good to get rid of the marshal of the province that to get rid of the marshal, it was necessary to have a majority of votes. That to get a majority of votes, it was necessary to secure Fleurov's right to vote, that to secure the recognition of Fleurov's right to vote, they must decide on the interpretation to be put on the act.",
+      "id": "librispeech-test.other-000008",
+      "raw_transcript": "He forgot as, sir jevanovitch explained to him afterwards, this syllogism that it was necessary for the public good to get rid of the marshal of the province that to get rid of the marshal, it was necessary to have a majority of votes. That to get a majority of votes, it was necessary to secure Fleurov's right to vote, that to secure the recognition of Fleurov's right to vote, they must decide on the interpretation to be put on the act.",
+      "reference": "he forgot as sergey ivanovitch explained to him afterwards this syllogism that it was necessary for the public good to get rid of the marshal of the province that to get rid of the marshal it was necessary to have a majority of votes that to get a majority of votes it was necessary to secure flerov's right to vote that to secure the recognition of flerov's right to vote they must decide on the interpretation to be put on the act",
+      "uwer_final": 0.047619047619047616
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "anchors": {
+    "librispeech_parakeet_tdt_0_6b_v3_nemo": {
+      "test_clean_wer": 1.93,
+      "test_other_wer": 3.59
+    }
+  },
+  "counts": {
+    "error_rows": 0,
+    "formatted_reference_rows": 0,
+    "manifest_rows": 64,
+    "result_rows": 64,
+    "successful_rows": 64
+  },
+  "generated_at": "2026-07-18T15:00:18.543389+00:00",
+  "inputs": {
+    "manifest_jsonl": "../benchmarks/data/librispeech-noise/snr20/manifest.jsonl",
+    "results_jsonl": "../benchmarks/results/20260718T145703Z-librispeech-apple-stt-noise-snr20.results.jsonl"
+  },
+  "meta": {
+    "backend": "apple",
+    "mode": "pipeline",
+    "model_id": "apple/SpeechTranscriber",
+    "model_revision": "Version 26.5.2 (Build 25F84)",
+    "refine_mode": "off",
+    "started_at": "2026-07-18T14:57:16Z",
+    "type": "bench_meta"
+  },
+  "metrics": {
+    "case_f1": null,
+    "cer_final": 0.011476286454691292,
+    "fwer_final": null,
+    "latency_ms": {
+      "asr": {
+        "p50": 563.0,
+        "p95": 897.9999999999999
+      },
+      "asr_inference": {
+        "p50": 563.0,
+        "p95": 897.1499999999999
+      },
+      "asr_load": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "cleanup": {
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "refine": {
+        "p50": null,
+        "p95": null
+      },
+      "total": {
+        "p50": 563.0,
+        "p95": 897.9999999999999
+      }
+    },
+    "over_edit_rate": 0.0,
+    "punct_f1": null,
+    "rtfx": 44.62051013591634,
+    "uwer_final": 0.030472776159533945,
+    "uwer_raw": 0.030472776159533945
+  },
+  "mode": "stt",
+  "tier": "librispeech",
+  "worst_10": [
+    {
+      "error": null,
+      "final_text": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife beater, cause he probably has a lot of provocation that nobody knows, and the fire bugs can't think of the right name something like incendiaries, and the breakers of the peace, and what not, and yet the law has nothing to say to a man like hand lord.",
+      "id": "librispeech-test.clean-000015",
+      "raw_transcript": "Well, as I say, it's an awful queer world. They clap all the burglars in jail and the murderers and the wife beaters. I Allers thought a gentle reproof would be enough punishment for a wife beater, cause he probably has a lot of provocation that nobody knows, and the fire bugs can't think of the right name something like incendiaries, and the breakers of the peace, and what not, and yet the law has nothing to say to a man like hand lord.",
+      "reference": "well as i say it's an awful queer world they clap all the burglars into jail and the murderers and the wife beaters i've allers thought a gentle reproof would be enough punishment for a wife beater cause he probably has a lot o provocation that nobody knows and the firebugs can't think o the right name something like cendenaries an the breakers o the peace an what not an yet the law has nothin to say to a man like hen lord",
+      "uwer_final": 0.1511627906976744
+    },
+    {
+      "error": null,
+      "final_text": "A Wilfred pigeon coat had covered himself with honors in the cars of Marlborough's campaigns, and the name Wilfred had been above dismal weakness in the family ever since. The new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person, to a wide circle of cousins and kinsfolk..",
+      "id": "librispeech-test.other-000020",
+      "raw_transcript": "A Wilfred pigeon coat had covered himself with honors in the cars of Marlborough's campaigns, and the name Wilfred had been above dismal weakness in the family ever since. The new heir to the family dignity and estates was a young man of about five and 20, who was known more by reputation than by person, to a wide circle of cousins and kinsfolk..",
+      "reference": "a wilfrid pigeoncote had covered himself with honours in the course of marlborough's campaigns and the name wilfrid had been a baptismal weakness in the family ever since the new heir to the family dignity and estates was a young man of about five and twenty who was known more by reputation than by person to a wide circle of cousins and kinsfolk",
+      "uwer_final": 0.125
+    },
+    {
+      "error": null,
+      "final_text": "But reckoning time, whose million accidents creep in twixt vows, and change decrees of kings, tan sacred beauty, blunt the sharpest intense, divert strong minds to the course of altering things. Alas! Why, fearing of time's tyranny? Might I not, then, say, now I love you best, when I was certain or in certainty? Crowning the present, doubting of the rest?",
+      "id": "librispeech-test.clean-000009",
+      "raw_transcript": "But reckoning time, whose million accidents creep in twixt vows, and change decrees of kings, tan sacred beauty, blunt the sharpest intense, divert strong minds to the course of altering things. Alas! Why, fearing of time's tyranny? Might I not, then, say, now I love you best, when I was certain or in certainty? Crowning the present, doubting of the rest?",
+      "reference": "but reckoning time whose million'd accidents creep in twixt vows and change decrees of kings tan sacred beauty blunt the sharp'st intents divert strong minds to the course of altering things alas why fearing of time's tyranny might i not then say now i love you best when i was certain o'er incertainty crowning the present doubting of the rest",
+      "uwer_final": 0.109375
+    },
+    {
+      "error": null,
+      "final_text": "In speaking of confectionery, it should be remarked that all the various preparations above named, Tom, strictly speaking, under that head, for the various fruits, flowers, herbs, juices, which, when born with sugar, were formerly employed in pharmacy, as well as for sweetens, were called confections, from the Latin word, comparse, to make up. But the term confectionery embraces a very large class, indeed, of sweet food, many kinds of which should not be attempted in the ordinary cuisine.",
+      "id": "librispeech-test.other-000009",
+      "raw_transcript": "In speaking of confectionery, it should be remarked that all the various preparations above named, Tom, strictly speaking, under that head, for the various fruits, flowers, herbs, juices, which, when born with sugar, were formerly employed in pharmacy, as well as for sweetens, were called confections, from the Latin word, comparse, to make up. But the term confectionery embraces a very large class, indeed, of sweet food, many kinds of which should not be attempted in the ordinary cuisine.",
+      "reference": "in speaking of confectionary it should be remarked that all the various preparations above named come strictly speaking under that head for the various fruits flowers herbs roots and juices which when boiled with sugar were formerly employed in pharmacy as well as for sweetmeats were called confections from the latin word conficere to make up but the term confectionary embraces a very large class indeed of sweet food many kinds of which should not be attempted in the ordinary cuisine",
+      "uwer_final": 0.09876543209876543
+    },
+    {
+      "error": null,
+      "final_text": "Mister fish is a squire of James, and has so many mistresses that anybody may pretend to share in him, and we believe, though I have the honor to be his near neighbor, to speak freely. I cannot brag much that he makes any court to me, and I know no young woman in the country that he does not visit often.",
+      "id": "librispeech-test.other-000023",
+      "raw_transcript": "Mister fish is a squire of James, and has so many mistresses that anybody may pretend to share in him, and we believe, though I have the honor to be his near neighbor, to speak freely. I cannot brag much that he makes any court to me, and I know no young woman in the country that he does not visit often.",
+      "reference": "mister fish is the squire of dames and has so many mistresses that anybody may pretend a share in him and be believed but though i have the honour to be his near neighbour to speak freely i cannot brag much that he makes any court to me and i know no young woman in the country that he does not visit often",
+      "uwer_final": 0.09523809523809523
+    },
+    {
+      "error": null,
+      "final_text": "Know, O chief Wazir, that here, where you have encountered me, Allah hath given you rest, from fatigue, and bringeth you your desire, after the easiest of passions, for that His almighty will, restore it to you, Zau Makan, and his sister, Nuzad al Zaman, whereby we will settle the matter, as we easily can.",
+      "id": "librispeech-test.other-000015",
+      "raw_transcript": "Know, O chief Wazir, that here, where you have encountered me, Allah hath given you rest, from fatigue, and bringeth you your desire, after the easiest of passions, for that His almighty will, restore it to you, Zau Makan, and his sister, Nuzad al Zaman, whereby we will settle the matter, as we easily can.",
+      "reference": "know o chief wazir that here where you have encountered me allah hath given you rest from fatigue and bringeth you your desire after the easiest of fashions for that his almighty will restoreth to you zau al makan and his sister nuzhat al zaman whereby we will settle the matter as we easily can",
+      "uwer_final": 0.09090909090909091
+    },
+    {
+      "error": null,
+      "final_text": "Oh, 'tis the first, 'tis flattery in my scene, and my great mind most kingly drinks it up. Mine eye well knows what with his gust is green, And to his palate doth prepare the cup, If it be poisoned. 'Tis the lesser sin, that mine eye loves it. And doth first begin.",
+      "id": "librispeech-test.clean-000029",
+      "raw_transcript": "Oh, 'tis the first, 'tis flattery in my scene, and my great mind most kingly drinks it up. Mine eye well knows what with his gust is green, And to his palate doth prepare the cup, If it be poisoned. 'Tis the lesser sin, that mine eye loves it. And doth first begin.",
+      "reference": "o tis the first tis flattery in my seeing and my great mind most kingly drinks it up mine eye well knows what with his gust is greeing and to his palate doth prepare the cup if it be poison'd tis the lesser sin that mine eye loves it and doth first begin",
+      "uwer_final": 0.07407407407407407
+    },
+    {
+      "error": null,
+      "final_text": "The lily of the valley, breathing in the humble grass, answered the lovely maiden, said, I am a watery weed, and I am very small, and love to dwell in lowly vales. So weak, the gilded butterfly scarce perches on my head. Yet I am visited from heaven, And he that smiles on all, Walks in the valley, and each morn over me, Spreads his hand, saying, Rejoice, thou humble grass, thou new born lily flower.",
+      "id": "librispeech-test.clean-000004",
+      "raw_transcript": "The lily of the valley, breathing in the humble grass, answered the lovely maiden, said, I am a watery weed, and I am very small, and love to dwell in lowly vales. So weak, the gilded butterfly scarce perches on my head. Yet I am visited from heaven, And he that smiles on all, Walks in the valley, and each morn over me, Spreads his hand, saying, Rejoice, thou humble grass, thou new born lily flower.",
+      "reference": "the lilly of the valley breathing in the humble grass answerd the lovely maid and said i am a watry weed and i am very small and love to dwell in lowly vales so weak the gilded butterfly scarce perches on my head yet i am visited from heaven and he that smiles on all walks in the valley and each morn over me spreads his hand saying rejoice thou humble grass thou new born lily flower",
+      "uwer_final": 0.06493506493506493
+    },
+    {
+      "error": null,
+      "final_text": "This he set in a saucer, wetted with a little water, and after waiting a short time, smelt and tasted it, and then he took out of the chest, a booklet, wherein he read a while, and said, weeping know o ye passengers that in this book is a marvelous matter, denoting that whoso come thither shall surely die without hope of escape, for that this ocean is called the sea of the clime of the king. Wherein is a sepulcher of our lord Solomon, son of David, on both be peace.",
+      "id": "librispeech-test.other-000002",
+      "raw_transcript": "This he set in a saucer, wetted with a little water, and after waiting a short time, smelt and tasted it, and then he took out of the chest, a booklet, wherein he read a while, and said, weeping know o ye passengers that in this book is a marvelous matter, denoting that whoso come thither shall surely die without hope of escape, for that this ocean is called the sea of the clime of the king. Wherein is a sepulcher of our lord Solomon, son of David, on both be peace.",
+      "reference": "this he set in a saucer wetted with a little water and after waiting a short time smelt and tasted it and then he took out of the chest a booklet wherein he read awhile and said weeping know o ye passengers that in this book is a marvellous matter denoting that whoso cometh hither shall surely die without hope of escape for that this ocean is called the sea of the clime of the king wherein is the sepulchre of our lord solomon son of david on both be peace",
+      "uwer_final": 0.054945054945054944
+    },
+    {
+      "error": null,
+      "final_text": "As she awaited her guest, she surveyed the table with both satisfaction and disquietude, for her social functions were few. To night there were, she checked them off on her fingers, Sir James Crichton, the rich English manufacturer and Lady Crichton, Mr. and Mrs. Vanderpool, Mr. Harry Cresswell and his sister, John Taylor, and his sister, and Mr. Charles Smith, whom the evening papers mentioned as likely to be United States Senator from New Jersey, a selection of guests that had been determined unknown to the hostess. by the meeting of cotton interests earlier in the day.",
+      "id": "librispeech-test.clean-000002",
+      "raw_transcript": "As she awaited her guest, she surveyed the table with both satisfaction and disquietude, for her social functions were few. To night there were, she checked them off on her fingers, Sir James Crichton, the rich English manufacturer and Lady Crichton, Mr. and Mrs. Vanderpool, Mr. Harry Cresswell and his sister, John Taylor, and his sister, and Mr. Charles Smith, whom the evening papers mentioned as likely to be United States Senator from New Jersey, a selection of guests that had been determined unknown to the hostess. by the meeting of cotton interests earlier in the day.",
+      "reference": "as she awaited her guests she surveyed the table with both satisfaction and disquietude for her social functions were few tonight there were she checked them off on her fingers sir james creighton the rich english manufacturer and lady creighton mister and missus vanderpool mister harry cresswell and his sister john taylor and his sister and mister charles smith whom the evening papers mentioned as likely to be united states senator from new jersey a selection of guests that had been determined unknown to the hostess by the meeting of cotton interests earlier in the day",
+      "uwer_final": 0.052083333333333336
+    }
+  ]
+}

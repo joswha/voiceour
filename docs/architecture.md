@@ -254,7 +254,7 @@ calibrated, and no app policy treats it as calibrated.
 
 Vocabulary is trust-separated. A persistent `ProtectedTerm` carries a stable `termId`, a `source` (`TermSource`: `explicitCorrection`, `manualImport`, `appProfile`, or `bundled`), a `scope` (`VocabularyScope`: `global`, `bundleID`, or `projectID`), a `cloudEligible` flag, `labeledAliases`, and a `tombstonedAt` for soft deletion. Low-trust, in-session hints are held as in-memory-only `EphemeralContextCandidate`s that never persist. Legacy `settings.json` glossary state still loads through an additive, fully defaulted decode, so older installs upgrade in place.
 
-For each utterance, `VocabularyCompiler` compiles a bounded active snapshot of at most 100 terms. It is scoped to the captured target's bundle id plus the active project, so only terminology relevant to where the text will land is in play. That snapshot is the single active set consumed by cleanup, refinement, and the risk authorizer.
+For each utterance, `VocabularyCompiler` compiles a bounded active snapshot of at most 100 terms. It is scoped to the captured target's bundle id plus the active project, so only terminology relevant to where the text will land is in play. That snapshot is the single active set consumed by cleanup, refinement, and suggestion retrieval.
 
 Two boundaries protect this vocabulary. The cloud boundary: only `cloudEligible`, non-tombstoned, non-`projectID`-scoped terms are placed in the network-bound `OmpRpcRefiner` prompt; the on-device `FoundationModelsRefiner` keeps the full active set, so project-private terminology never leaves the device. The refinement boundary: a word-boundary term-lock protects accepted terminology through refinement, matching whole tokens rather than substrings (fixing a prior substring false-pass that let a locked term be altered inside a larger word).
 
@@ -266,8 +266,11 @@ A third boundary protects the user's ordinary prose from their own vocabulary. A
 
 Decoder bias and beam n-best were deleted: the shipped runtime is greedy-only with no bias hook,
 and the measured n-best independence gate was vacuous under greedy decoding because its single
-hypothesis was the transcript from which the candidate came. `RiskAuthorizer` therefore lost its
-`.replace` verdict and now returns only `.keep` or `.suggest`;
+hypothesis was the transcript from which the candidate came. The `RiskAuthorizer` and its
+`TermRiskClassifier` were then deleted outright rather than left switched off: with no automatic
+replacement left to authorize, the authorizer's whole output space was "surface a suggestion" or
+"do nothing", which `CandidateRetriever` already decides. Retrieval's own 0.6 similarity floor is
+now the only suggestion filter, and a term correction is exclusively a user-accepted suggestion.
 `Settings.decoderBiasEnabled` and `Settings.automaticTermCorrectionEnabled` are gone. Restoring
 decode-time biasing would require a different runtime; `docs/performance-roadmap.md` carries the
 analysis.

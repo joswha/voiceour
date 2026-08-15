@@ -433,7 +433,8 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
         case .pass:
             return false
         case .consume:
-            Self.log.log("consumed event type=\(event.type.rawValue) keycode=\(event.getIntegerValueField(.keyboardEventKeycode))")
+            let keycode = event.getIntegerValueField(.keyboardEventKeycode)
+            Self.log.log("consumed event type=\(event.type.rawValue) keycode=\(keycode)")
             return true
         case .toggle:
             let handler = self.handler
