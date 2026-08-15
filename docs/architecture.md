@@ -95,7 +95,7 @@ Which microphone a dictation used is not persisted. `MicrophoneCapture.Source` c
 
 ## ASR protocol v1
 
-The sidecar speaks newline-delimited JSON on stdio. stdout is protocol-only; logs go to stderr. Every message carries `protocol_version: 1`. The sidecar emits `hello` at startup, accepts `health`, `transcribe`, and `cancel`, and returns exactly one terminal `result`, `error`, or `cancelled` per `transcribe` request.
+The sidecar speaks newline-delimited JSON on stdio. stdout is protocol-only; logs go to stderr. Every message carries `protocol_version: 1`. The sidecar emits `hello` at startup, accepts `health`, `transcribe`, `transcribe_partial`, and `cancel`, and returns exactly one terminal `result`, `error`, or `cancelled` per decode request. `health` also carries `download_fraction` (0…1 while the artifact is being fetched, absent otherwise) and `warming` (true while the model is loading, absent once it is loaded), which is what the System pane's DOWNLOADING and WARMING rows read.
 
 The ASR sidecar is the Swift executable `voiceour-asr`. It links the vendored parakeet.cpp implementation under `Vendor/parakeet/`, pinned to `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage). `SidecarASRClient` spawns one persistent child, validates `hello`, keeps stdin/stdout open, and multiplexes requests by `request_id`. The server keeps its stdin reader live while transcribes execute on one serial decode queue, so cancellation can reach the in-flight request. `VOICEOUR_PRELOAD=1` acquires and loads the model in the background after `hello`, then runs one throwaway decode to warm the Metal pipelines. Timeouts send `cancel`, wait briefly for a terminal message, then terminate the process; the next request respawns it. Sidecar stderr is drained continuously and forwarded to the app's stderr.
 
@@ -119,6 +119,12 @@ transport would buy back under a millisecond.
 `SidecarASRClient` sends the descriptor's `expectedModel`: the full `ASRModelContract` pin for `parakeet`, and none for `fake`. The sidecar rejects a truthy `model_id` or `revision` mismatch with `manifest_mismatch`; empty strings remain wildcards.
 
 Transcribe results may carry per-`ASRWord` and per-segment `words` with text, time range, and confidence, plus transcript `confidence` and its `confidenceMode` (`greedy_token_prob` or `none`). Optional evidence remains permissively decoded, so this schema change did not require a protocol-version bump.
+
+## Live partial transcripts
+
+`transcribe_partial` decodes the utterance so far for preview only. It reuses `ASRTranscribeRequest` with `format: "pcm_s16le"` and points at the headerless `.pcm` tee `MicrophoneRecorder` writes beside each WAV; the tee is deleted with the capture, so no audio outlives the utterance. Nothing about the preview is chunked or streamed: this model is batch-trained, and a measured chunked decode cost +66 ms and changed 5.56% of words, so a partial is a whole re-decode of the growing buffer. Cadence bounds the cost — first preview at 1.5 s of audio, then at least 1 s of new audio per preview, one in flight at a time, and no decode at all below 24 000 or above 1 920 000 samples. `PartialPreviewEngine` rides the existing 40 ms metering poll rather than owning a timer, which is what keeps it deterministic under the flow harness. A backend without a partial path throws once and the engine disables itself for the session.
+
+A preview is never inserted. It can become the final transcript in exactly one case: auto-stop fired, and the last preview's snapshot was taken at or after `AutoStopDetector.lastLoudAt`. That instant is the start of the trailing silence, and the criterion that authorized stopping is that every sample from it onwards stayed below the 0.08 normalized-RMS silence threshold for the full dwell. So every sample the preview did not see was already known to be silence, and re-decoding the same audio would spend 400+ ms to produce the same words. Adopted sessions record `partial-adopted` as their ASR path and their real, near-zero ASR duration. `partialAdoptionEnabled` in `PartialTranscription.swift` turns the adoption off on its own, leaving the preview working, if live use ever shows the two decodes disagreeing.
 
 Golden protocol fixtures live in `fixtures/protocol/` and are decoded by Swift fixture-parity tests.
 

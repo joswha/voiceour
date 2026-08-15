@@ -11,6 +11,7 @@ struct ProtocolFixtureParityTests {
             "health_request.json": { _ = try ASRWire.decode(ASRHealthRequest.self, from: $0) },
             "health_response.json": { _ = try ASRWire.decode(ASRHealthResponse.self, from: $0) },
             "transcribe.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
+            "transcribe_partial.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
             "result.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "result_with_words.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "cancel.json": { _ = try ASRWire.decode(ASRCancelRequest.self, from: $0) },

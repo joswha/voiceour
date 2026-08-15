@@ -32,16 +32,53 @@ extension AudioRecording {
     }
 }
 
+/// The raw audio captured so far, for a preview decode of a live utterance.
+///
+/// A file rather than a buffer: the sidecar reads it by path exactly as it reads the finished
+/// WAV, so a partial costs one open and no copy of the samples through the protocol.
+public struct PartialAudioSnapshot: Sendable {
+    public var pcmURL: URL
+    public var sampleCount: Int
+
+    public init(pcmURL: URL, sampleCount: Int) {
+        self.pcmURL = pcmURL
+        self.sampleCount = sampleCount
+    }
+}
+
+/// A recorder that can hand out the utterance so far without ending it.
+///
+/// Only `MicrophoneRecorder` adopts this. The fake and Apple-Speech paths deliberately do not:
+/// there are no partial previews in fake development, and the system transcriber streams its
+/// own.
+public protocol PartialAudioProviding: Sendable {
+    /// The audio captured so far, as raw 16 kHz mono s16le. Nil until capture is live.
+    func partialAudio() -> PartialAudioSnapshot?
+}
+
 public protocol ASRClienting: Sendable {
     func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult
     func health(timeoutMs: Int) async throws -> ASRBackendHealth
     func warmUp() async
     func lastTranscriptionPath() -> String?
+    /// Decodes the utterance so far for preview only. Never inserted, never adopted unless the
+    /// tail after the snapshot proved to be silence.
+    func transcribePartial(pcmURL: URL, sampleCount: Int, timeoutMs: Int) async throws -> ASRResult
 }
 
 extension ASRClienting {
     public func warmUp() async {}
     public func lastTranscriptionPath() -> String? { nil }
+
+    /// Backends without a partial path fail once, and the preview engine disables itself for
+    /// the session. That is the whole opt-in mechanism: no capability flag to keep in sync.
+    public func transcribePartial(pcmURL: URL, sampleCount: Int, timeoutMs: Int) async throws -> ASRResult {
+        throw ASRErrorMessage(
+            code: .backendUnavailable,
+            requestId: nil,
+            detail: "partial transcription unsupported"
+        )
+    }
 }
 
 public protocol TargetTracking: Sendable {

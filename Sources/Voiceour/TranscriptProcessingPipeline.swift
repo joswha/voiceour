@@ -95,7 +95,11 @@ extension DictationCoordinator {
         clearCapturedTargetAndRefreshLabel()
     }
 
-    func processStop(generation: AsyncGenerationGate.Token, stopReleaseStarted: Date) async {
+    func processStop(
+        generation: AsyncGenerationGate.Token,
+        stopReleaseStarted: Date,
+        trigger: DictationCoordinator.StopTrigger = .manual
+    ) async {
         // Foundation Models prewarming is most effective shortly before use.
         // Run it independently so recorder finalization and ASR provide the
         // lead time without adding an await to the post-ASR critical path.
@@ -158,7 +162,26 @@ extension DictationCoordinator {
 
             state = .transcribing
             let asrStarted = runtime.now()
-            let result = try await asr.transcribe(audio, timeoutMs: 30_000)
+            // Adoption: auto-stop fired because every sample after `silenceStartedAt` stayed
+            // below the silence threshold for the full dwell. A preview snapshotted at or after
+            // that instant therefore saw every sample that was not already known to be silence,
+            // so re-decoding the same audio would produce the same words at 400+ ms of cost.
+            let adopted: ASRResult? =
+                {
+                    guard case .autoStop(let silenceStartedAt) = trigger,
+                        partialAdoptionIsSound(
+                            snapshotTakenAt: partialPreview.lastSnapshotTakenAt,
+                            silenceStartedAt: silenceStartedAt
+                        )
+                    else { return nil }
+                    return partialPreview.lastResult
+                }()
+            let result: ASRResult
+            if let adopted {
+                result = adopted
+            } else {
+                result = try await asr.transcribe(audio, timeoutMs: 30_000)
+            }
             let asrMs = Int(runtime.now().timeIntervalSince(asrStarted) * 1000)
             try ensureCurrentProcessing(generation)
             removeTemporaryAudio(&audioURL)
@@ -272,7 +295,10 @@ extension DictationCoordinator {
                 asrMs: asrMs,
                 insertMs: nil,
                 startLatencyMs: recorder.lastStartLatencyMs(),
-                asrPath: asr.lastTranscriptionPath(),
+                // Names the source honestly: an adopted preview never called the final
+                // transcribe, so `lastTranscriptionPath()` would attribute this session's text
+                // to whatever ran before it.
+                asrPath: adopted == nil ? asr.lastTranscriptionPath() : "partial-adopted",
                 asrBackendId: result.backendId,
                 asrLoadMs: result.timingsMs.load,
                 asrInferenceMs: result.timingsMs.inference,

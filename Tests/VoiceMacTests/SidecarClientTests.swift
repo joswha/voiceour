@@ -162,6 +162,38 @@ struct SidecarClientTests {
         #expect(raw["expected_model"] == nil)
     }
 
+    /// The preview request is the same struct on the wire, with three fields deliberately
+    /// different: the type the sidecar routes on, the headerless format it reads, and a byte
+    /// count derived from the snapshot rather than from a file on disk.
+    @Test func partialRequestEncodingCarriesTheSnapshotFormatAndByteCount() async throws {
+        let temp = try makeTemporaryDirectory()
+        let requestFile = temp.appendingPathComponent("request.json")
+
+        let client = SidecarASRClient(launch: stubLaunch("echo-result", requestFile.path))
+        let result = try await client.transcribePartial(
+            pcmURL: URL(fileURLWithPath: "/tmp/sidecar-client-test.pcm"),
+            sampleCount: 32_000,
+            timeoutMs: 5_000
+        )
+        #expect(result.transcript.text == "encoding-ok")
+
+        let requestData = try Data(contentsOf: requestFile)
+        guard let raw = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+            let audio = raw["audio"] as? [String: Any]
+        else {
+            Issue.record("Expected a transcribe_partial request object with audio")
+            return
+        }
+        #expect(raw["type"] as? String == "transcribe_partial")
+        #expect(raw["timeout_ms"] as? Int == 5_000)
+        #expect(audio["format"] as? String == "pcm_s16le")
+        #expect(audio["path"] as? String == "/tmp/sidecar-client-test.pcm")
+        #expect(audio["byte_count"] as? Int == 64_000)
+        #expect(audio["duration_ms"] as? Int == 2_000)
+        #expect(audio["sample_rate_hz"] as? Int == 16_000)
+        #expect(audio["channels"] as? Int == 1)
+    }
+
     @Test func sidecarErrorMessageMapsToProtocolError() async throws {
         let client = SidecarASRClient(launch: stubLaunch("error-reply"))
         let error = await thrownError {

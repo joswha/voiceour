@@ -1,8 +1,10 @@
 import Foundation
 
 public enum RecordingScavenger {
-    /// Deletes stale WAVs left by crashes/sleep. Safe for live recordings:
-    /// only files older than maxAge are removed.
+    /// Deletes stale capture files left by crashes/sleep: the WAV and the raw `.pcm` preview
+    /// tee beside it. Every regular file in the directory is a candidate, deliberately — the
+    /// directory is ours, and a filter by extension would strand the next artefact we add.
+    /// Safe for live recordings: only files older than maxAge are removed.
     public static func sweep(
         directory: URL,
         olderThan maxAge: TimeInterval = 3600,

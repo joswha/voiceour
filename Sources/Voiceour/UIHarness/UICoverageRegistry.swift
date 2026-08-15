@@ -22,6 +22,8 @@
             surface(.diagnostics, "Diagnostics pane renders", "console.diagnostics.healthy"),
             surface(.menu, "Menu popover content renders", "menu.idle"),
             surface(.overlay, "Recording overlay renders", "overlay.panel.recording"),
+            state(.overlay, "partial-preview", "Live partial transcript line", scene: "overlay.panel.partial"),
+            journey(.overlay, "partial-preview", "Partial preview appears while recording and clears after"),
             surface(.atoms, "Shared property atoms render", "atom.properties"),
 
             // Home

@@ -62,7 +62,7 @@ public enum WAVFile {
 
         guard sawFormat else { throw WAVFileError.truncated("missing fmt chunk") }
         guard let pcm else { throw WAVFileError.truncated("missing data chunk") }
-        return decodeInt16(data, in: pcm)
+        return PCMSamples.decodeInt16(data, in: pcm)
     }
 
     private static func validateFormat(_ data: Data, at offset: Int) throws {
@@ -82,22 +82,6 @@ public enum WAVFile {
         }
         guard bitsPerSample == requiredBitsPerSample else {
             throw WAVFileError.unsupported("\(bitsPerSample)-bit, expected \(requiredBitsPerSample)-bit")
-        }
-    }
-
-    private static func decodeInt16(_ data: Data, in range: Range<Int>) -> [Float] {
-        let count = range.count / 2
-        guard count > 0 else { return [] }
-        let scale = Float(1.0 / 32768.0)
-        return data.withUnsafeBytes { raw -> [Float] in
-            [Float](unsafeUninitializedCapacity: count) { buffer, initialized in
-                for index in 0..<count {
-                    // Unaligned: the data chunk starts wherever the preceding chunks leave it.
-                    let bits = raw.loadUnaligned(fromByteOffset: range.lowerBound + index * 2, as: UInt16.self)
-                    buffer[index] = Float(Int16(bitPattern: UInt16(littleEndian: bits))) * scale
-                }
-                initialized = count
-            }
         }
     }
 

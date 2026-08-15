@@ -111,7 +111,10 @@ public final class SidecarServer {
             inflight.cancel(request.requestId)
         case .transcribe(let request):
             guard let backend = requireBackend(requestId: request.requestId) else { return }
-            start(request, on: backend)
+            start(request, on: backend) { backend.transcribe($0, isCancelled: $1) }
+        case .transcribePartial(let request):
+            guard let backend = requireBackend(requestId: request.requestId) else { return }
+            start(request, on: backend) { backend.transcribePartial($0, isCancelled: $1) }
         }
     }
 
@@ -123,7 +126,15 @@ public final class SidecarServer {
         return backend
     }
 
-    private func start(_ request: ASRTranscribeRequest, on backend: SidecarBackend) {
+    /// Registers, runs and answers one decode request. `decode` selects which backend entry
+    /// point runs; everything else — duplicate-id rejection, the single terminal, cancellation
+    /// and the fatal-exit check — is shared, because a partial must obey the same protocol
+    /// promises as a final.
+    private func start(
+        _ request: ASRTranscribeRequest,
+        on backend: SidecarBackend,
+        decode: @escaping (ASRTranscribeRequest, @escaping () -> Bool) -> SidecarTerminal
+    ) {
         guard let token = inflight.register(request.requestId) else {
             output.emit(
                 ASRErrorMessage(
@@ -135,7 +146,7 @@ public final class SidecarServer {
             return
         }
         decodeQueue.async { [output, inflight, log, backend] in
-            let terminal = backend.transcribe(request, isCancelled: { token.isCancelled })
+            let terminal = decode(request, { token.isCancelled })
             output.emit(terminal: terminal, requestId: request.requestId)
             inflight.finish(request.requestId)
             if case .failure(_, _, fatal: true) = terminal {
@@ -288,6 +299,9 @@ enum SidecarRequestParser {
     enum Parsed {
         case health(ASRHealthRequest)
         case transcribe(ASRTranscribeRequest)
+        /// A preview decode of a live utterance. Same struct, same one-terminal promise; only
+        /// the type string and the audio format differ.
+        case transcribePartial(ASRTranscribeRequest)
         case cancel(ASRCancelRequest)
         case malformed(ASRErrorMessage)
     }
@@ -316,6 +330,8 @@ enum SidecarRequestParser {
                 return .health(try ASRWire.decode(ASRHealthRequest.self, from: data))
             case "transcribe":
                 return .transcribe(try ASRWire.decode(ASRTranscribeRequest.self, from: data))
+            case "transcribe_partial":
+                return .transcribePartial(try ASRWire.decode(ASRTranscribeRequest.self, from: data))
             case "cancel":
                 return .cancel(try ASRWire.decode(ASRCancelRequest.self, from: data))
             case let other:

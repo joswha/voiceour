@@ -534,6 +534,11 @@
                     model?.updateCaptureLive(live)
                 }
             )
+            cancellables.append(
+                coordinator.partialTranscriptPublisher.sink { [weak model] text in
+                    model?.updatePartial(text)
+                }
+            )
         }
     }
 

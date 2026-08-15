@@ -8,6 +8,7 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     private var stateCancellable: AnyCancellable?
     private var inputLevelCancellable: AnyCancellable?
     private var captureLiveCancellable: AnyCancellable?
+    private var partialCancellable: AnyCancellable?
     private let model = RecordingOverlayModel()
     private var panel: RecordingOverlayPanel?
     private var isApplyingPosition = false
@@ -56,9 +57,18 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                         self?.model.updateCaptureLive(live)
                     }
                 }
+
+            partialCancellable = coordinator.partialTranscriptPublisher
+                .receive(on: RunLoop.main)
+                .sink { [weak self] text in
+                    Task { @MainActor in
+                        self?.model.updatePartial(text)
+                    }
+                }
         } else {
             inputLevelCancellable = nil
             captureLiveCancellable = nil
+            partialCancellable = nil
         }
     }
 

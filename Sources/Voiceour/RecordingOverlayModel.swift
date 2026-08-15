@@ -11,6 +11,9 @@ final class RecordingOverlayModel: ObservableObject {
     @Published private(set) var samples: [Float]
     @Published private(set) var state: SessionState = .idle
     @Published private(set) var captureLive = false
+    /// The live preview line, rendered under the island in the panel variant only. Nil until a
+    /// preview decode lands, and cleared with the rest of the session state.
+    @Published private(set) var partialText: String?
 
     /// Rolled ONCE per session, on the idle -> active edge. Two `@ViewBuilder`
     /// branches used to own a `@State` head each, so SwiftUI destroyed one and
@@ -100,6 +103,10 @@ final class RecordingOverlayModel: ObservableObject {
         captureLive = live
     }
 
+    func updatePartial(_ text: String?) {
+        partialText = text
+    }
+
     func record(_ rawLevel: Float) {
         guard isListening else { return }
         let level = Swift.min(Swift.max(rawLevel, 0), 1)
@@ -113,5 +120,6 @@ final class RecordingOverlayModel: ObservableObject {
         state = .idle
         samples = Array(repeating: 0, count: Self.sampleCount)
         captureLive = false
+        partialText = nil
     }
 }

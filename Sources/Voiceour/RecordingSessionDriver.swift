@@ -113,8 +113,20 @@ extension DictationCoordinator {
                     if !self.inputMeter.live, self.recorder.captureIsLive() {
                         self.inputMeter.setLive(true)
                     }
+                    // No timer of its own: the preview rides the poll that is already running,
+                    // which is what makes it deterministic under the flow harness.
+                    self.partialPreview.tick(
+                        recorder: self.recorder,
+                        asr: self.asr,
+                        now: runtime.now()
+                    ) { [weak self] text in
+                        self?.partialTranscript = text
+                    }
                     if autoStopDetector?.observe(level: level, at: runtime.now()) == true {
-                        self.stopAndProcess()
+                        // The detector's own last-loud instant is the moment silence began, and
+                        // it is the criterion that authorized this stop. Adoption reuses it.
+                        let silenceStartedAt = autoStopDetector?.lastLoudAt ?? runtime.now()
+                        self.stopAndProcess(trigger: .autoStop(silenceStartedAt: silenceStartedAt))
                         return false
                     }
                     return true
