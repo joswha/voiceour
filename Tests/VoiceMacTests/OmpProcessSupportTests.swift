@@ -6,7 +6,7 @@ import Testing
 
 /// Covers one-shot OMP process invocation and descendant termination.
 extension OmpSuites {
-    @Suite("Process Support", .serialized)
+    @Suite("Process Support", .serialized, .timeLimit(.minutes(1)))
     struct ProcessSupport {
         @Test func ompModelsProbeTimeoutKillsTermIgnoringParentWithPipeHoldingChild() async throws {
             let fixture = try makeExecutableScript(

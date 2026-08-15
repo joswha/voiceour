@@ -179,6 +179,13 @@ struct TranscriptCard: View {
             if let stages = session.stages {
                 metadataRow("TIMINGS", stages.detailLine)
             }
+            if let word = session.leastConfidentWord {
+                metadataRow(
+                    "LEAST SURE",
+                    "“\(word.text)” · min token p \(String(format: "%.2f", word.score))",
+                    mono: true
+                )
+            }
             if let rawTranscript {
                 metadataRow("RAW", rawTranscript, mono: true)
             }

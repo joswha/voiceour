@@ -304,13 +304,23 @@ extension DictationCoordinator {
                 asrInferenceMs: result.timingsMs.inference,
                 asrTotalMs: result.timingsMs.total
             )
+            // The one acoustic number a session keeps. Read from the RAW words, before cleanup
+            // and refinement rewrote them: the point is which word the decoder was unsure of,
+            // not what later stages made of it.
+            let leastConfidentWord =
+                result.transcript.segments?
+                .flatMap { $0.words ?? [] }
+                .compactMap { word in word.confidence.map { (word.text, $0) } }
+                .min { $0.1 < $1.1 }
+                .map { LeastConfidentWord(text: $0.0, score: $0.1) }
             let journalSpan = StopPath.signposter.beginInterval(StopPath.Stage.journal)
             let sessionID = await recordRecentSession(
                 text: finalText,
                 rawTranscript: rawTranscript,
                 refinement: trace,
                 mutedDuringCapture: mutedDuringCapture,
-                stages: stages
+                stages: stages,
+                leastConfidentWord: leastConfidentWord
             )
             StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
             try ensureCurrentProcessing(generation)

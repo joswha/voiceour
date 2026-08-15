@@ -1,0 +1,46 @@
+name: Real ASR
+
+# The only job that touches the real model. It downloads a 1.26 GB artifact and
+# decodes real audio, so it runs weekly rather than per push, and it is not a
+# required gate: a Hugging Face outage must not block a merge.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  real-asr:
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Keyed by the pinned revision, so the cache is invalidated by exactly the
+      # thing that changes the bytes. A miss costs one download; a stale hit is
+      # impossible.
+      - name: Cache the pinned Parakeet artifact
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml
+          key: parakeet-gguf-35156454d1a39de06863303dd209fd2bed6ee079
+
+      - name: Build
+        run: swift build
+
+      # `fixtures/audio/` is generated, not committed: `say` + `afconvert` build
+      # it from text, so the repository carries no recording of anyone's voice.
+      - name: Generate the spoken fixture
+        run: make fixture
+
+      # The one command that proves a machine can go from no model to a real
+      # local transcript. If the hosted runner has no Metal device, ggml falls
+      # back to BLAS/CPU and this still passes, slower.
+      - name: Prove the pinned model
+        run: .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
+
+      - name: Integration tests against the real model
+        run: |
+          VOICEOUR_PARAKEET_INTEGRATION=1 swift test -Xswiftc -DUI_HARNESS \
+            --filter "SidecarProcessTests|parakeetSessionPersistsEndToEndTelemetry"

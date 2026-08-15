@@ -7,7 +7,7 @@ import Testing
 
 /// Covers OMP RPC refiner startup, turn lifecycle, recovery, and integration.
 extension OmpSuites {
-    @Suite("RPC Refiner", .serialized)
+    @Suite("RPC Refiner", .serialized, .timeLimit(.minutes(1)))
     struct RpcRefiner {
         /// Every preflight gate, proven at the backend boundary rather than at
         /// `RefinerPolicy`: the refuse decision has to land before OMP is

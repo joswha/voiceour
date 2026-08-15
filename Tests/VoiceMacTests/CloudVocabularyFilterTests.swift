@@ -4,7 +4,7 @@ import Testing
 @testable import VoiceCore
 @testable import VoiceMac
 
-@Suite("CloudVocabularyFilterTests", .serialized)
+@Suite("CloudVocabularyFilterTests", .serialized, .timeLimit(.minutes(1)))
 struct CloudVocabularyFilterTests {
     /// The cloud prompt must provably exclude every ineligible term:
     /// project-scoped terms, `cloudEligible == false` terms, and tombstoned

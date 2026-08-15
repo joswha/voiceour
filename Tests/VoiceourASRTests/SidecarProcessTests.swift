@@ -8,7 +8,11 @@ import VoiceCore
 /// the loop keeps running after a malformed frame, answers health mid-life, honours cancel, and
 /// never writes anything but protocol JSON to stdout. They run the actual shipped executable,
 /// so a regression in argument handling or startup shows up here rather than at first dictation.
-@Suite("SidecarProcessTests", .serialized)
+// Ten minutes rather than one: the opt-in VOICEOUR_PARAKEET_INTEGRATION cases decode two
+// minutes of audio twice and poll a 60 s idle timer. The limit is a hang diagnostic, not a
+// performance budget — a hung synchronous call still blocks the binary, but the expired test
+// is named with a timeLimitExceeded issue instead of the run dying anonymously.
+@Suite("SidecarProcessTests", .serialized, .timeLimit(.minutes(10)))
 struct SidecarProcessTests {
     @Test func healthReportsAReadyFakeBackend() throws {
         let session = try Sidecar.run(lines: [request("health", id: "h1")])

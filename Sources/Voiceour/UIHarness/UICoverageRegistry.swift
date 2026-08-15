@@ -24,6 +24,12 @@
             surface(.overlay, "Recording overlay renders", "overlay.panel.recording"),
             state(.overlay, "partial-preview", "Live partial transcript line", scene: "overlay.panel.partial"),
             journey(.overlay, "partial-preview", "Partial preview appears while recording and clears after"),
+            state(
+                .sessions,
+                "least-confident-word",
+                "Least-confident raw word readout",
+                scene: "console.sessions.populated"
+            ),
             surface(.atoms, "Shared property atoms render", "atom.properties"),
 
             // Home

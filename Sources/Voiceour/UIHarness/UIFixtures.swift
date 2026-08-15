@@ -714,7 +714,10 @@
                 text: "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay.",
                 bundleId: "com.apple.dt.Xcode",
                 captureMs: 6_800,
-                asrMs: 410
+                asrMs: 410,
+                // Exactly one fixture session carries this, so a golden shows both the row and
+                // its absence rather than making it look unconditional.
+                leastConfidentWord: LeastConfidentWord(text: "offscreen", score: 0.42)
             ),
             session(
                 index: 2,
@@ -797,7 +800,8 @@
             reason: String? = nil,
             captureMs: Int,
             asrMs: Int,
-            refinement: RefinementTrace? = nil
+            refinement: RefinementTrace? = nil,
+            leastConfidentWord: LeastConfidentWord? = nil
         ) -> RecentSession {
             RecentSession(
                 id: fixedIdentifier(index),
@@ -818,7 +822,8 @@
                     insertMs: 24,
                     startLatencyMs: 18,
                     asrPath: "parakeet"
-                )
+                ),
+                leastConfidentWord: leastConfidentWord
             )
         }
 

@@ -567,6 +567,70 @@ struct DictationCoordinatorTests {
         #expect(capture.models == ["anthropic/claude-haiku-4-5", "openai/gpt-5.1-codex"])
     }
 
+    // MARK: Least-confident word
+
+    /// The recorded session keeps the weakest RAW word, across segments, and nothing else from
+    /// the acoustics. A transcript the reader distrusts is worth pairing with the word the
+    /// decoder itself was least sure of.
+    @Test func theRecordedSessionCarriesTheWeakestRawWord() async {
+        let transcript = ASRTranscript(
+            text: "wire the offscreen renderer",
+            language: "en",
+            segments: [
+                ASRSegment(
+                    startMs: 0,
+                    endMs: 400,
+                    text: "wire the",
+                    words: [
+                        ASRWord(text: "wire", startMs: 0, endMs: 200, confidence: 0.91),
+                        ASRWord(text: "the", startMs: 200, endMs: 400, confidence: 0.88),
+                    ]
+                ),
+                ASRSegment(
+                    startMs: 400,
+                    endMs: 900,
+                    text: "offscreen renderer",
+                    words: [
+                        ASRWord(text: "offscreen", startMs: 400, endMs: 650, confidence: 0.42),
+                        ASRWord(text: "renderer", startMs: 650, endMs: 900, confidence: 0.77),
+                    ]
+                ),
+            ],
+            confidence: 0.74,
+            confidenceMode: .greedyTokenProb
+        )
+        let result = ASRResult(
+            requestId: "req",
+            backendId: "fake",
+            modelId: "fake",
+            modelRevision: "dev",
+            transcript: transcript,
+            timingsMs: ASRTimings(load: 7, inference: 31, total: 38)
+        )
+        let coordinator = makeCoordinator(asr: FakeASR(behavior: .custom(result)))
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        let word = coordinator.recentSessions.first?.leastConfidentWord
+        #expect(word?.text == "offscreen")
+        #expect(word?.score == 0.42)
+    }
+
+    /// A backend that reports no per-word confidence records nothing rather than a zero.
+    @Test func aSessionWithoutWordConfidenceRecordsNoWeakestWord() async {
+        let coordinator = makeCoordinator(asr: FakeASR(behavior: .text("hello world")))
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(coordinator.recentSessions.first?.leastConfidentWord == nil)
+    }
+
     // MARK: Temp-audio cleanup
 
     @Test func tempAudioRemovedOnSuccessPath() async {

@@ -38,6 +38,9 @@ jobs:
       - name: Swift format check
         run: make format-check
 
+      - name: Docs consistency
+        run: make check-docs
+
       - name: Python lint
         run: make lint-python
 

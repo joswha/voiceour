@@ -10,7 +10,7 @@ import Testing
 /// Every peer here is `ASRSidecarStub`, a Swift test-support executable selected by argv.
 /// It replaced inline `python3` scripts: this repository ships no Python, so a test suite that
 /// needed an interpreter to prove the client's framing was testing the wrong machine.
-@Suite("SidecarClientTests", .serialized)
+@Suite("SidecarClientTests", .serialized, .timeLimit(.minutes(1)))
 struct SidecarClientTests {
     @Test func twoTranscribesReuseOneProcess() async throws {
         let client = SidecarASRClient(launch: stubLaunch("echo-turns"))

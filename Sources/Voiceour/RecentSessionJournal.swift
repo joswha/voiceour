@@ -47,7 +47,8 @@ extension DictationCoordinator {
         rawTranscript: String? = nil,
         refinement: RefinementTrace? = nil,
         mutedDuringCapture: Bool,
-        stages: SessionStageTimings? = nil
+        stages: SessionStageTimings? = nil,
+        leastConfidentWord: LeastConfidentWord? = nil
     ) async -> RecentSession.ID? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
@@ -59,7 +60,8 @@ extension DictationCoordinator {
             outcome: nil,
             rawTranscript: rawTranscript,
             refinement: refinement,
-            stages: stages
+            stages: stages,
+            leastConfidentWord: leastConfidentWord
         )
         recentSessions = recentSessionStore.normalized([session] + recentSessions)
         foldStatistics()

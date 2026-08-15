@@ -502,6 +502,33 @@ struct VoiceCoreTests {
         #expect(decoded.stages == stages)
     }
 
+    @Test func recentSessionLeastConfidentWordRoundTrips() throws {
+        let word = LeastConfidentWord(text: "offscreen", score: 0.42)
+        let session = RecentSession(text: "observed transcript", leastConfidentWord: word)
+
+        let encoded = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(RecentSession.self, from: encoded)
+
+        #expect(decoded.leastConfidentWord == word)
+    }
+
+    /// Every session written before this field existed must still load. The corpus holds 500
+    /// of them and a throwing decode would drop the lot.
+    @Test func aSessionWrittenWithoutTheLeastConfidentWordDecodesNil() throws {
+        let legacyJSON = """
+            {
+              "id": "00000000-0000-0000-0000-000000000103",
+              "createdAt": 42,
+              "text": "a transcript from before the field existed"
+            }
+            """
+
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(legacyJSON.utf8))
+
+        #expect(session.leastConfidentWord == nil)
+        #expect(session.text == "a transcript from before the field existed")
+    }
+
     @Test func sessionStageTimingsMissingFieldsDecodeAsNil() throws {
         let partialJSON = """
             {
