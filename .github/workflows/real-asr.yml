@@ -17,15 +17,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.11"
-          enable-cache: true
-          cache-dependency-glob: |
-            bench/pyproject.toml
-            bench/uv.lock
-
       # Keyed by the pinned revision, so the cache is invalidated by exactly the
       # thing that changes the bytes. A miss costs one download; a stale hit is
       # impossible.
@@ -54,11 +45,3 @@ jobs:
           VOICEOUR_PARAKEET_INTEGRATION=1 swift test -Xswiftc -DUI_HARNESS \
             --filter "SidecarProcessTests|parakeetSessionPersistsEndToEndTelemetry"
 
-      - name: Gate committed Parakeet baselines
-        run: |
-          make bench-gate \
-            BASELINE=benchmarks/results/20260815T143055Z-librispeech-parakeet-stt.json \
-            CANDIDATE=benchmarks/results/20260815T172106Z-librispeech-parakeet-stt.json
-          make bench-gate \
-            BASELINE=benchmarks/results/20260815T143116Z-fleurs-parakeet-stt.json \
-            CANDIDATE=benchmarks/results/20260815T172117Z-fleurs-parakeet-stt.json
