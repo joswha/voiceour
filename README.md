@@ -105,7 +105,7 @@ Voiceour never reads, saves, or restores the previous clipboard. Secure copy use
 
 ## Glossary and Fix/Teach
 
-The glossary protects exact technical terms through cleanup. Add a canonical spelling with one or more ways the recognizer may hear it, import a project word list, or select a mistake in History and teach the intended term.
+The glossary protects exact technical terms through cleanup. Add a canonical spelling with one or more ways the recognizer may hear it, import a project word list, or select a mistake in History and teach the intended term. History detail also names the word the recognizer was least sure of, with a Teach… shortcut, so a wrong word can be corrected with the evidence attached.
 
 Alias collisions are rejected. Canonicalization is one pass over the original transcript with longest-then-leftmost overlap resolution, so one replacement cannot cascade into another term.
 

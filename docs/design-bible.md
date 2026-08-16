@@ -31,7 +31,7 @@ Window("Voiceour", id: "main") {
 | **History** | search, day-grouped transcript list, selected transcript detail, copy/delete, and Fix/Teach. |
 | **System** | backend/model readiness, microphone and Accessibility capabilities, remediation links, diagnostics copy, clear history, and clear learned vocabulary. |
 
-`ConsoleTab` is the shared identity for selection and the development deep link `--console-section=<general|glossary|history|system>`. General is the fallback.
+`ConsoleTab` is the shared identity for selection and the development deep link `--console-section=<general|glossary|history|system>`. An explicit flag wins for that launch; otherwise the last-used tab, stored under `console.last-tab`; otherwise General.
 
 The menu item opens the same `Window("Voiceour", id: "main")`; no second settings scene exists.
 

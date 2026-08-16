@@ -121,7 +121,7 @@ No audio history exists. Successful, cancelled, failed, and scavenged recordings
 3. **History** — search, day-grouped transcripts, detail, copy/delete, and Fix/Teach.
 4. **System** — backend/model readiness, permissions and remediation, diagnostics copy, and destructive clear actions.
 
-The scene id and menu open mechanism are unchanged. The development deep link remains `--console-section=<general|glossary|history|system>` and falls back to General. Destructive actions use native confirmation dialogs. The console follows the user's appearance and native control behavior; only the menu popover and recording overlay retain bespoke glass treatment.
+The scene id and menu open mechanism are unchanged. The console reopens on its last-used tab, stored in `UserDefaults` under `console.last-tab`. The development deep link remains `--console-section=<general|glossary|history|system>`: an explicit tab wins for that launch and is never written back, and an unrecognized value means "no override" so the stored tab still decides. Destructive actions use native confirmation dialogs. The console follows the user's appearance and native control behavior; only the menu popover and recording overlay retain bespoke glass treatment.
 
 ## Why Voiceour holds no credentials
 

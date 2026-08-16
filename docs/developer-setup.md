@@ -61,7 +61,7 @@ scripts/console_shot.sh history .build/console-history.png
 scripts/console_shot.sh system .build/console-system.png
 ```
 
-The script builds the fake app, launches `--show-console --no-activate --console-section=<tab>`, captures the window, and quits it. Current tab names are `general`, `glossary`, `history`, and `system`; an unrecognized value falls back to General. This path still places a real window onscreen and needs Screen Recording permission for the controlling terminal.
+The script builds the fake app, launches `--show-console --no-activate --console-section=<tab>`, captures the window, and quits it. Current tab names are `general`, `glossary`, `history`, and `system`; an unrecognized value means "no override", so the launch opens on the stored last-used tab (or General). This path still places a real window onscreen and needs Screen Recording permission for the controlling terminal.
 
 `--no-activate` suppresses `ConsoleWindowView`'s normal promotion from `.accessory` to `.regular`, but the show-console notification still activates the app to open the window. The flag reduces the focus disruption; it cannot eliminate it.
 
