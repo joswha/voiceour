@@ -442,25 +442,3 @@ def prepare_tier(tier: str, n: int | None = None, root: Path | None = None) -> P
         return prepare_techterms(root=root)
     raise ValueError(f"unknown tier: {tier}")
 
-
-def fleurs_manifest_to_refine_cases(manifest_path: Path, root: Path | None = None) -> Path:
-    """Convert a FLEURS pipeline manifest into text-only refine cases."""
-
-    root = root or repo_root()
-    output = benchmarks_data_dir(root) / "fleurs" / "refine_cases.jsonl"
-    rows: list[dict[str, Any]] = []
-    with manifest_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            rows.append(
-                {
-                    "id": item["id"],
-                    "raw_text": item["reference"],
-                    "reference": item["reference"],
-                    "formatted_reference": item.get("formatted_reference"),
-                }
-            )
-    _write_jsonl(output, rows)
-    return output

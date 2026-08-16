@@ -3,9 +3,10 @@
 #
 # PREFER scripts/ui_harness.sh. That renders every console section offscreen with no
 # window on your display, no focus change and no Screen Recording permission, and it
-# diffs against committed goldens. This script exists for the one thing an offscreen
-# render cannot show: real behind-window NSVisualEffectView glass, which the WindowServer
-# composites from the actual desktop behind a real onscreen window. See docs/ui-harness.md.
+# diffs against committed goldens. This script exists to capture the real onscreen
+# window — native chrome, system appearance, the composited glass material — the
+# things `cacheDisplay` cannot show, for docs and appearance review. The offscreen
+# harness remains the gate. See docs/ui-harness.md.
 #
 # Usage: scripts/console_shot.sh [tab] [output.png]
 #   tab:    general (default) | glossary | history | system

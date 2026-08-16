@@ -68,8 +68,6 @@ enum RenderOverrides {
     /// shipping views do not install geometry probes or allocate samples.
     static var textRoleRecorder: TextRoleRecorder?
 
-    /// The clock every seamed call site reads.
-    static var renderNow: Date { now ?? Date() }
 }
 
 // The seam's payload types. Ungated for the same reason as the seams themselves:

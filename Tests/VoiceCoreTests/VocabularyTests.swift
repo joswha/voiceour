@@ -7,14 +7,14 @@ import Testing
 struct ProtectedTermCodableTests {
     @Test func decodesLegacyJSONWithoutNewKeys() throws {
         let legacy = """
-            {"canonical":"OMPi","spoken_aliases":["oh m pi","om pi"],"case_policy":"exact","protected":true}
+            {"canonical":"NSPasteboard","spoken_aliases":["n s pasteboard","ns paste board"],"case_policy":"exact","protected":true}
             """
         let term = try JSONDecoder().decode(ProtectedTerm.self, from: Data(legacy.utf8))
 
-        #expect(term.canonical == "OMPi")
-        #expect(term.termId == "OMPi")
-        #expect(term.id == "OMPi")
-        #expect(term.spokenAliases == ["oh m pi", "om pi"])
+        #expect(term.canonical == "NSPasteboard")
+        #expect(term.termId == "NSPasteboard")
+        #expect(term.id == "NSPasteboard")
+        #expect(term.spokenAliases == ["n s pasteboard", "ns paste board"])
         #expect(term.source == .bundled)
         #expect(term.scope == .global)
         #expect(term.cloudEligible)

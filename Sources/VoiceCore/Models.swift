@@ -139,7 +139,6 @@ public struct Settings: Codable, Equatable, Sendable {
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [
-        ProtectedTerm(canonical: "OMPi", spokenAliases: ["oh m pi", "om pi"]),
         ProtectedTerm(canonical: "NVIDIA Parakeet", spokenAliases: ["nvidia parakeet", "envidia parakeet"]),
         ProtectedTerm(canonical: "FastConformer-TDT", spokenAliases: ["fast conformer t d t", "fastconformer tdt"]),
         ProtectedTerm(canonical: "NSPasteboard", spokenAliases: ["n s pasteboard", "ns paste board"]),
