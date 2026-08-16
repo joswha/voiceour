@@ -233,7 +233,7 @@
             [
                 UIFlow(
                     id: "system.recheck-backend",
-                    title: "Re-checking the backend updates its readiness row",
+                    title: "A failed backend probe reads as an acquisition failure until re-proven",
                     tags: ["system", "console", "settings"],
                     host: .console(.system),
                     fixture: .backendRecovery(),
@@ -244,20 +244,24 @@
                             [.value(Selector.backendStatus, .equals("CHECKING…"))]
                         ),
                         .release(.backendHealthUnavailable),
-                        .wait(.element(Selector.backendStatusWithValue("CHECK NEEDED"))),
+                        // A transport failure with no cached model is an acquisition
+                        // failure, not a shrug: the row must say so rather than
+                        // "CHECK NEEDED".
+                        .wait(.element(Selector.backendStatusWithValue("DOWNLOAD FAILED"))),
                         .check(
                             "unavailable",
                             [
-                                .value(Selector.backendStatus, .equals("CHECK NEEDED")),
+                                .value(Selector.backendStatus, .equals("DOWNLOAD FAILED")),
                                 .label(Selector.backendRecheck, .equals("Re-check backend health")),
                                 .role(Selector.backendRecheck, "AXButton"),
                             ]
                         ),
                         .act(.press(Selector.backendRecheck)),
-                        .wait(.element(Selector.backendStatusWithValue("CHECKING…"))),
+                        // The failure is environmental: starting a re-probe does not
+                        // erase it. Only fresh good evidence may clear the row.
                         .check(
-                            "checking",
-                            [.value(Selector.backendStatus, .equals("CHECKING…"))]
+                            "rechecking",
+                            [.value(Selector.backendStatus, .equals("DOWNLOAD FAILED"))]
                         ),
                         .release(.backendHealth),
                         .wait(.element(Selector.backendStatusWithValue("READY"))),
