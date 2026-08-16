@@ -41,6 +41,29 @@
                 #expect(scene.size.height > 0, "empty measure: \(scene.id)")
             }
         }
+
+        /// Every console tab must keep at least one scene golden: a new tab
+        /// without a scene ships unrendered UI past the harness. The history tab's
+        /// "sessions" prefix is historical golden naming, kept deliberately.
+        @Test func everyConsoleTabHasASceneGolden() {
+            let prefixes: [ConsoleTab: String] = [
+                .general: "console.general.",
+                .glossary: "console.glossary.",
+                .history: "console.sessions.",
+                .system: "console.system.",
+            ]
+            let ids = UISceneCatalog.all().map(\.id)
+            for tab in ConsoleTab.allCases {
+                guard let prefix = prefixes[tab] else {
+                    Issue.record("no golden prefix declared for console tab \(tab.rawValue)")
+                    continue
+                }
+                #expect(
+                    ids.contains { $0.hasPrefix(prefix) },
+                    "console tab \(tab.rawValue) has no scene golden with prefix \(prefix)"
+                )
+            }
+        }
     }
 
 #endif
