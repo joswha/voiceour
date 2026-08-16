@@ -74,6 +74,55 @@ struct SidecarLifecycleTests {
         #expect(!state.shutdownWhilePreloading)
         #expect(state.shutdownCalled)
     }
+
+    /// The fatal-decode exit path shares `joinPreloadForShutdown` with EOF: the
+    /// shutdown flag is raised before the join so the preload thread bails out of
+    /// model work, and the join reports success once that thread finishes within
+    /// grace. Exit codes themselves stay covered by the gated process tests.
+    @Test func joinPreloadForShutdownWaitsForTheScriptedPreload() throws {
+        let backend = ScriptedPreloadBackend()
+        let input = Pipe()
+        let output = Pipe()
+        let server = SidecarServer(
+            backend: backend,
+            output: SidecarOutput(handle: output.fileHandleForWriting),
+            log: { _ in },
+            preloadEnabled: true
+        )
+        let run = LockedRunResult()
+        let runCompleted = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            run.store(server.run(input: input.fileHandleForReading))
+            runCompleted.signal()
+        }
+        #expect(backend.acquisitionStarted.wait(timeout: .now() + 1) == .success)
+
+        let join = LockedRunResult()
+        let joinCompleted = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            join.store(server.joinPreloadForShutdown() ? 1 : 0)
+            joinCompleted.signal()
+        }
+
+        // The flag goes up before the wait, so the preload observes it…
+        #expect(waitUntil(timeout: 1) { server.isShuttingDown })
+        // …and the join stays blocked until the preload thread actually finishes.
+        #expect(joinCompleted.wait(timeout: .now()) == .timedOut)
+
+        backend.allowAcquisitionToFinish.signal()
+
+        #expect(joinCompleted.wait(timeout: .now() + 1) == .success)
+        #expect(join.value == 1)
+        let state = backend.snapshot
+        #expect(!state.modelLoadStarted)
+        #expect(!state.decodeStarted)
+
+        // EOF joins again after the latch; run() must return promptly, not
+        // block on a semaphore whose one signal was already consumed.
+        try input.fileHandleForWriting.close()
+        #expect(runCompleted.wait(timeout: .now() + 2) == .success)
+        #expect(run.value == 0)
+    }
 }
 
 private enum ScriptedLoadError: Error {

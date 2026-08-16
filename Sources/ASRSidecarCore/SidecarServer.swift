@@ -27,6 +27,10 @@ public final class SidecarServer {
     private let preloadEnabled: Bool
     private let lifecycleLock = NSLock()
     private var shutdownRequested = false
+    /// Completion of the preload thread, joined before any teardown path.
+    /// Guarded by `lifecycleLock`: assigned on the run thread, joined from the
+    /// run thread (EOF) or the decode queue (fatal terminal).
+    private var preloadCompletion: DispatchSemaphore?
 
     var isShuttingDown: Bool {
         lifecycleLock.lock()
@@ -57,17 +61,16 @@ public final class SidecarServer {
     /// Emits `hello`, then serves until stdin reaches EOF. Returns the process exit code.
     public func run(input: FileHandle) -> Int32 {
         emitHello()
-        let preloadCompletion = startPreloadIfRequested()
+        lifecycleLock.lock()
+        preloadCompletion = startPreloadIfRequested()
+        lifecycleLock.unlock()
 
         let reader = LineReader(handle: input)
         while let line = reader.next() {
             handle(line: line)
         }
 
-        beginShutdown()
-        if let preloadCompletion,
-            preloadCompletion.wait(timeout: .now() + Self.preloadGraceSeconds) == .timedOut
-        {
+        if !joinPreloadForShutdown() {
             log("shutdown: preload still running after grace; exiting without teardown")
             _exit(0)
         }
@@ -110,6 +113,24 @@ public final class SidecarServer {
         lifecycleLock.lock()
         shutdownRequested = true
         lifecycleLock.unlock()
+    }
+
+    /// True when the preload thread is finished (or never ran); false on timeout,
+    /// in which case the caller must _exit without C++ teardown. Internal so the
+    /// lifecycle test can drive it directly against a scripted preload.
+    func joinPreloadForShutdown() -> Bool {
+        beginShutdown()
+        lifecycleLock.lock()
+        let pending = preloadCompletion
+        lifecycleLock.unlock()
+        guard let pending else { return true }
+        guard pending.wait(timeout: .now() + Self.preloadGraceSeconds) != .timedOut else { return false }
+        // The wait consumed the thread's one exit signal; a later teardown path
+        // must see "already joined" rather than block on it again.
+        lifecycleLock.lock()
+        preloadCompletion = nil
+        lifecycleLock.unlock()
+        return true
     }
 
     private func startPreloadIfRequested() -> DispatchSemaphore? {
@@ -190,14 +211,18 @@ public final class SidecarServer {
             )
             return
         }
-        decodeQueue.async { [output, inflight, log, backend] in
+        decodeQueue.async { [self, output, inflight, log, backend] in
             let terminal = decode(request, { token.isCancelled })
             output.emit(terminal: terminal, requestId: request.requestId)
             inflight.finish(request.requestId)
             if case .failure(_, _, fatal: true) = terminal {
                 log("fatal backend failure; exiting so the client respawns a clean process")
-                backend.shutdown()
-                exit(70)  // EX_SOFTWARE
+                if self.joinPreloadForShutdown() {
+                    backend.shutdown()
+                    exit(70)  // EX_SOFTWARE; destructors are safe once the context is released
+                }
+                log("fatal exit: preload still running after grace; exiting without teardown")
+                _exit(70)
             }
         }
     }
