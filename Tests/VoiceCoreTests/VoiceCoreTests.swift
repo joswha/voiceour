@@ -255,6 +255,40 @@ struct VoiceCoreTests {
         #expect(settings.muteSystemAudioDuringCapture == true)
     }
 
+    /// A settings file written by a pre-overhaul build carries every retired key plus a
+    /// persisted `fake` backend. Decode must ignore the relics, keep the user's glossary
+    /// verbatim, and preserve `asr_backend` as written — only `DictationCoordinator.live()`
+    /// refuses persisted `fake` for release users.
+    @Test func settingsJSONFromPreOverhaulBuildDecodesWithGlossaryIntact() throws {
+        let legacyJSON = """
+            {
+              "refiner_enabled": true,
+              "refiner_provider": "omp",
+              "refiner_model": "gpt-4o-mini",
+              "refiner_timeout_ms": 8000,
+              "speech_locale": "en_US",
+              "typing_speed_wpm": 320,
+              "asr_backend": "fake",
+              "glossary": [
+                {
+                  "canonical": "Ghostty",
+                  "spoken_aliases": ["ghost tea"]
+                }
+              ]
+            }
+            """
+
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(legacyJSON.utf8))
+
+        #expect(settings.asrBackend == "fake")
+        #expect(settings.glossary.count == 1)
+        #expect(settings.glossary.first?.canonical == "Ghostty")
+        #expect(settings.glossary.first?.spokenAliases == ["ghost tea"])
+        #expect(settings.cleanupEnabled == Settings().cleanupEnabled)
+        #expect(settings.muteSystemAudioDuringCapture == true)
+        #expect(settings.autoStopEnabled == Settings().autoStopEnabled)
+    }
+
     @Test func settingsStoreRoundTripPersistsCustomMuteValues() throws {
         let fixture = temporaryCoreTestFile(named: "settings.json")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }

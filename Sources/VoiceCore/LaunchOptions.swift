@@ -64,6 +64,20 @@ public struct LaunchOptions: Equatable, Sendable {
         return validBackendIDs.contains(resolved) ? resolved : nil
     }
 
+    /// The backend a PERSISTED settings file may select. `fake` is a development
+    /// id: it is honored from launch arguments and environment, but a release
+    /// user's settings file saying `fake` (written by a pre-parakeet-default
+    /// build) must not silently keep them on synthetic transcripts.
+    public static func persistedBackend(
+        _ value: String?,
+        validBackendIDs: Set<String>,
+        allowsDevBackend: Bool
+    ) -> String? {
+        guard let normalized = validBackend(value, validBackendIDs: validBackendIDs) else { return nil }
+        if normalized == "fake" && !allowsDevBackend { return nil }
+        return normalized
+    }
+
     private static func value(after index: Array<String>.Index, in values: [String]) -> String? {
         let nextIndex = index + 1
         guard nextIndex < values.endIndex else { return nil }

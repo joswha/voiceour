@@ -44,6 +44,21 @@ struct DictationPolicyTests {
         #expect(LaunchOptions(arguments: ["--asr-backend=mlx"]).asrBackend == "parakeet")
     }
 
+    /// A persisted settings file saying `fake` is a pre-parakeet-default relic for a release
+    /// user, but the debug picker still writes it and the restarted process must honor it
+    /// under `--debug`. Launch arguments and the environment keep using `validBackend` and
+    /// are unaffected by this rule.
+    @Test func persistedFakeIsHonoredOnlyForDevBuilds() {
+        let ids = LaunchOptions.defaultBackendIDs
+
+        #expect(LaunchOptions.persistedBackend("fake", validBackendIDs: ids, allowsDevBackend: false) == nil)
+        #expect(LaunchOptions.persistedBackend("fake", validBackendIDs: ids, allowsDevBackend: true) == "fake")
+        #expect(LaunchOptions.persistedBackend("apple", validBackendIDs: ids, allowsDevBackend: false) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("apple", validBackendIDs: ids, allowsDevBackend: true) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("parakeet", validBackendIDs: ids, allowsDevBackend: false) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("sherpa", validBackendIDs: ids, allowsDevBackend: true) == nil)
+    }
+
     @Test func launchOptionsIgnoresMissingValues() {
         let options = LaunchOptions(arguments: [
             "--repo-root",

@@ -337,7 +337,11 @@ public final class DictationCoordinator {
         let backend =
             launchOptions.asrBackend
             ?? VoiceCore.LaunchOptions.validBackend(env["VOICEOUR_ASR_BACKEND"], validBackendIDs: registry.backendIDs)
-            ?? VoiceCore.LaunchOptions.validBackend(settings.asrBackend, validBackendIDs: registry.backendIDs)
+            ?? VoiceCore.LaunchOptions.persistedBackend(
+                settings.asrBackend,
+                validBackendIDs: registry.backendIDs,
+                allowsDevBackend: LaunchOptions.showsDebugPanes
+            )
             ?? registry.defaultDescriptor.id
         settings.asrBackend = backend
 
