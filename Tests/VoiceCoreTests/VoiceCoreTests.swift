@@ -360,6 +360,38 @@ struct VoiceCoreTests {
         #expect(decoded.stages == stages)
     }
 
+    @Test func aSessionCarryingTheLeastConfidentWordRoundTrips() throws {
+        let json = """
+            {
+              "id": "00000000-0000-0000-0000-000000000103",
+              "createdAt": 42,
+              "text": "please run kubectl on the pod",
+              "leastConfidentWord": { "text": "wrold", "score": 0.41 }
+            }
+            """
+
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(json.utf8))
+
+        #expect(session.leastConfidentWord == LeastConfidentWord(text: "wrold", score: 0.41))
+        let reencoded = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(RecentSession.self, from: reencoded)
+        #expect(decoded.leastConfidentWord == session.leastConfidentWord)
+    }
+
+    @Test func aSessionWrittenWithoutTheLeastConfidentWordDecodesNil() throws {
+        let json = """
+            {
+              "id": "00000000-0000-0000-0000-000000000104",
+              "createdAt": 42,
+              "text": "no confidence recorded"
+            }
+            """
+
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(json.utf8))
+
+        #expect(session.leastConfidentWord == nil)
+    }
+
     @Test func sessionStageTimingsMissingFieldsDecodeAsNil() throws {
         let partialJSON = """
             {

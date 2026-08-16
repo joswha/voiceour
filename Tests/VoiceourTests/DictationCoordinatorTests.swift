@@ -1188,6 +1188,45 @@ struct DictationCoordinatorTests {
         #expect(coordinator.recentSessions.count == 1)
     }
 
+    /// The decoder's least sure word rides into history with its score, from the
+    /// RAW transcript's words — the evidence a reader needs to teach a misheard
+    /// term. Fake-backend results without segments journal nothing extra.
+    @Test func theLeastConfidentRawWordIsJournaledWithItsScore() async throws {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let result = ASRResult(
+            requestId: "req",
+            backendId: "parakeet",
+            modelId: "parakeet",
+            modelRevision: "pinned",
+            transcript: ASRTranscript(
+                text: "hello wrold",
+                language: "en",
+                segments: [
+                    ASRSegment(
+                        startMs: 0,
+                        endMs: 900,
+                        text: "hello wrold",
+                        words: [
+                            ASRWord(text: "hello", startMs: 0, endMs: 400, confidence: 0.99),
+                            ASRWord(text: "wrold", startMs: 400, endMs: 900, confidence: 0.41),
+                        ]
+                    )
+                ]
+            ),
+            timingsMs: ASRTimings(load: 7, inference: 31, total: 38)
+        )
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .custom(result)),
+            recentSessionStore: fixture.store
+        )
+
+        await driveUtterance(coordinator)
+
+        let session = try #require(coordinator.recentSessions.first)
+        #expect(session.leastConfidentWord == LeastConfidentWord(text: "wrold", score: 0.41))
+    }
+
     /// History that cannot be decoded is moved aside, never overwritten: the first
     /// snapshot after launch would otherwise replace it with an empty list.
     @Test func unreadableHistoryIsQuarantinedAndReported() async throws {

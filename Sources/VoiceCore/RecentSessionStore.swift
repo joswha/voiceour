@@ -65,6 +65,19 @@ public struct SessionStageTimings: Codable, Equatable, Sendable {
     }
 }
 
+/// The raw word the decoder was least sure of, and its per-token probability.
+/// Not calibrated and never treated as one: it exists so a reader who spots a
+/// wrong word can teach it, with the evidence attached.
+public struct LeastConfidentWord: Codable, Equatable, Sendable {
+    public var text: String
+    public var score: Double
+
+    public init(text: String, score: Double) {
+        self.text = text
+        self.score = score
+    }
+}
+
 public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
     public var createdAt: Date
@@ -73,6 +86,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var outcome: RecentSessionOutcomeMetadata?
     public var rawTranscript: String?
     public var stages: SessionStageTimings?
+    public var leastConfidentWord: LeastConfidentWord?
     public var wordCount: Int {
         var count = 0
         var isInWord = false
@@ -97,6 +111,9 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         case outcome
         case rawTranscript
         case stages
+        // The pre-overhaul wire name, so histories written before the overhaul
+        // regain the field on decode.
+        case leastConfidentWord
     }
 
     public init(
@@ -106,7 +123,8 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         mutedDuringCapture: Bool = false,
         outcome: RecentSessionOutcomeMetadata? = nil,
         rawTranscript: String? = nil,
-        stages: SessionStageTimings? = nil
+        stages: SessionStageTimings? = nil,
+        leastConfidentWord: LeastConfidentWord? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -115,6 +133,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         self.outcome = outcome
         self.rawTranscript = rawTranscript
         self.stages = stages
+        self.leastConfidentWord = leastConfidentWord
     }
 
     public init(from decoder: Decoder) throws {
@@ -126,6 +145,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         outcome = try container.decodeIfPresent(RecentSessionOutcomeMetadata.self, forKey: .outcome)
         rawTranscript = try container.decodeIfPresent(String.self, forKey: .rawTranscript)
         stages = try container.decodeIfPresent(SessionStageTimings.self, forKey: .stages)
+        leastConfidentWord = try container.decodeIfPresent(LeastConfidentWord.self, forKey: .leastConfidentWord)
     }
 }
 

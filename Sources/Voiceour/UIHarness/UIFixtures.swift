@@ -443,7 +443,10 @@
                 text: "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay.",
                 bundleId: "com.apple.dt.Xcode",
                 captureMs: 6_800,
-                asrMs: 410
+                asrMs: 410,
+                // Exactly one seeded session carries the field so
+                // console.sessions.selection renders the LEAST SURE row.
+                leastConfidentWord: LeastConfidentWord(text: "cacheDisplay", score: 0.43)
             ),
             session(
                 index: 2,
@@ -523,7 +526,8 @@
             disposition: RecentSessionInsertionDisposition = .pasteAttempted,
             reason: String? = nil,
             captureMs: Int,
-            asrMs: Int
+            asrMs: Int,
+            leastConfidentWord: LeastConfidentWord? = nil
         ) -> RecentSession {
             RecentSession(
                 id: fixedIdentifier(index),
@@ -543,7 +547,8 @@
                     insertMs: 24,
                     startLatencyMs: 18,
                     asrPath: "parakeet"
-                )
+                ),
+                leastConfidentWord: leastConfidentWord
             )
         }
 

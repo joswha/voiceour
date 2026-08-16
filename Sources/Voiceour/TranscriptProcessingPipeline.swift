@@ -199,6 +199,14 @@ extension DictationCoordinator {
                 asrInferenceMs: result.timingsMs.inference,
                 asrTotalMs: result.timingsMs.total
             )
+            // The decoder's least sure word, from the RAW transcript's words —
+            // cleanup may have rewritten them, and the evidence must name what
+            // the model actually emitted. Unconditional: the score itself
+            // conveys strength, so no display threshold is applied here.
+            let leastConfidentWord = (result.transcript.segments?.flatMap { $0.words ?? [] } ?? [])
+                .compactMap { word in word.confidence.map { (text: word.text, score: $0) } }
+                .min { $0.score < $1.score }
+                .map { LeastConfidentWord(text: $0.text, score: $0.score) }
             // The delivery target decides whether this dictation is recorded at all,
             // so it is snapshotted before the journal rather than just before the
             // paste. `PasteboardInserter` re-checks target identity itself before it
@@ -223,7 +231,8 @@ extension DictationCoordinator {
                     text: finalText,
                     rawTranscript: rawTranscript,
                     mutedDuringCapture: mutedDuringCapture,
-                    stages: stages
+                    stages: stages,
+                    leastConfidentWord: leastConfidentWord
                 )
                 StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
                 try ensureCurrentProcessing(generation)

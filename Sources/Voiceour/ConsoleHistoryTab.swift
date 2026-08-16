@@ -333,6 +333,10 @@ struct ConsoleHistoryTab: View {
             metadataRow("Raw", raw, mono: true)
         }
 
+        if let leastSure = session.leastConfidentWord {
+            leastSureRow(leastSure)
+        }
+
         actions(for: session)
 
         if isTeaching {
@@ -435,6 +439,31 @@ struct ConsoleHistoryTab: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(surface)
+            }
+        }
+    }
+
+    /// The decoder's least sure word for this dictation, with its per-token
+    /// probability. Not calibrated — the row exists so a reader who spots a
+    /// wrong word can teach it with the evidence attached, not as a quality
+    /// score.
+    private func leastSureRow(_ leastSure: LeastConfidentWord) -> some View {
+        LabeledContent {
+            Button("Teach…") {
+                pendingFixTeachPrefill = ConsoleTeachPrefill(word: leastSure.text)
+                isTeaching = true
+            }
+            .accessibilityIdentifier("sessions.leastSure.teach")
+            .accessibilityLabel("Teach correction for least sure word \(leastSure.text)")
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
+                Text("Least sure")
+                    .foregroundStyle(.secondary)
+                Text("\(leastSure.text) · \(Int(leastSure.score * 100))%")
+                    .font(.body.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(leastSure.text)
             }
         }
     }

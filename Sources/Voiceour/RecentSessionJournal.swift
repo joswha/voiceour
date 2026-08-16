@@ -35,7 +35,8 @@ extension DictationCoordinator {
         text: String,
         rawTranscript: String? = nil,
         mutedDuringCapture: Bool,
-        stages: SessionStageTimings? = nil
+        stages: SessionStageTimings? = nil,
+        leastConfidentWord: LeastConfidentWord? = nil
     ) async -> RecentSession.ID? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
@@ -46,7 +47,8 @@ extension DictationCoordinator {
             mutedDuringCapture: mutedDuringCapture,
             outcome: nil,
             rawTranscript: rawTranscript,
-            stages: stages
+            stages: stages,
+            leastConfidentWord: leastConfidentWord
         )
         recentSessions = recentSessionStore.normalized([session] + recentSessions)
         _ = await enqueueJournalSnapshot().value
