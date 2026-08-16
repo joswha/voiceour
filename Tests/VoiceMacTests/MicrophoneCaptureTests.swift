@@ -297,6 +297,50 @@ struct MicrophoneCaptureIntegrationTests {
         // Idempotent, as every cancel and error path relies on.
         capture.stop()
     }
+
+    /// The Phase-5 latch tests proved the pure decision; this proves the wiring.
+    /// Runtime-error notifications must be scoped to the session this capture
+    /// opened, and the first latched reason must win over later ones.
+    @Test func runtimeErrorNotificationsAreScopedAndLatchFirstWriterWins() throws {
+        guard ProcessInfo.processInfo.environment["VOICEOUR_CAPTURE_INTEGRATION"] != nil else { return }
+
+        let capture = try MicrophoneCapture(preferredDeviceUID: nil)
+        let center = NotificationCenter.default
+
+        // A runtime error on someone else's session is not this capture's failure.
+        center.post(
+            name: AVCaptureSession.runtimeErrorNotification,
+            object: AVCaptureSession(),
+            userInfo: [AVCaptureSessionErrorKey: NSError(domain: "test", code: 1)]
+        )
+        #expect(capture.failureReason() == nil)
+
+        center.post(
+            name: AVCaptureSession.runtimeErrorNotification,
+            object: capture.session,
+            userInfo: [
+                AVCaptureSessionErrorKey: NSError(
+                    domain: "test", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "first failure"]
+                )
+            ]
+        )
+        let first = capture.failureReason()
+        #expect(first != nil)
+
+        // First-writer-wins: a second error must not overwrite the original cause.
+        center.post(
+            name: AVCaptureSession.runtimeErrorNotification,
+            object: capture.session,
+            userInfo: [
+                AVCaptureSessionErrorKey: NSError(
+                    domain: "test", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "second failure"]
+                )
+            ]
+        )
+        #expect(capture.failureReason() == first)
+    }
 }
 
 /// What `MicrophoneRecorder.stop()` refuses to hand to ASR.

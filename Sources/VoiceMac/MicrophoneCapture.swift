@@ -50,7 +50,8 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
 
     let source: Source
 
-    private let session = AVCaptureSession()
+    // Internal so the gated integration test can address notifications to the real session.
+    let session = AVCaptureSession()
     private let output = AVCaptureAudioDataOutput()
     private let queue = DispatchQueue(label: "com.voiceour.microphone-capture")
     /// `startRunning`/`stopRunning` both block — measured 134-216 ms for a start,
