@@ -240,6 +240,36 @@ public final class DictationCoordinator {
         }
     }
 
+    enum AcquisitionChange: Equatable {
+        case none
+        case failed(detail: String?)
+        case cleared
+    }
+
+    /// Pure so the rules are testable without a sidecar. The wire carries no error
+    /// string for a failed download: `ParakeetSidecarBackend.warmUp` resets
+    /// `downloadFraction` and `warming` in a `defer`, so failure is the transition
+    /// "was acquiring, now neither, cache still absent".
+    static func acquisitionTransition(
+        previous: ASRBackendHealth?,
+        current: ASRBackendHealth?,
+        transportError: String?
+    ) -> AcquisitionChange {
+        if let current {
+            if current.cacheOk || current.downloadFraction != nil || current.warming == true {
+                return .cleared
+            }
+            let wasAcquiring = previous?.downloadFraction != nil || previous?.warming == true
+            if wasAcquiring && !current.cacheOk { return .failed(detail: nil) }
+            return .none
+        }
+        // Transport failure: only a fault when the model is not already on disk.
+        if transportError != nil && previous?.cacheOk != true {
+            return .failed(detail: transportError)
+        }
+        return .none
+    }
+
     public func refreshBackendHealth(timeoutMs: Int = 3_000, force: Bool = false) {
         // Collapse duplicate probes: onAppear fires this on every System /
         // Diagnostics tab entry. Skip while a probe is in flight, or if the
@@ -261,20 +291,35 @@ public final class DictationCoordinator {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
+                    let previous = self?.backendHealth
                     self?.backendHealth = health
                     self?.backendHealthError = nil
                     self?.backendHealthLastRefresh = self?.runtime.now()
                     self?.backendHealthProbeInFlight = false
+                    switch Self.acquisitionTransition(previous: previous, current: health, transportError: nil) {
+                    case .failed(let detail):
+                        self?.acquisitionFailure = .acquisitionFailed(detail: detail)
+                    case .cleared:
+                        self?.acquisitionFailure = nil
+                    case .none:
+                        break
+                    }
                     self?.scheduleAcquisitionRepollIfNeeded(health)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
+                    let previous = self?.backendHealth
                     self?.backendHealth = nil
                     self?.backendHealthError = String(describing: error)
                     self?.backendHealthLastRefresh = self?.runtime.now()
                     self?.backendHealthProbeInFlight = false
+                    if case .failed(let detail) = Self.acquisitionTransition(
+                        previous: previous, current: nil, transportError: String(describing: error)
+                    ) {
+                        self?.acquisitionFailure = .acquisitionFailed(detail: detail)
+                    }
                     self?.backendAcquisitionPollTask?.cancel()
                     self?.backendAcquisitionPollTask = nil
                 }

@@ -1226,6 +1226,79 @@ struct DictationCoordinatorTests {
         #expect(coordinator.errorMessage == "Settings could not be saved.")
     }
 
+    // MARK: Acquisition failure inference
+
+    /// The wire carries no error string for a failed download; failure is the
+    /// transition "was downloading/warming, now neither, cache still absent".
+    @Test func acquisitionTransitionInfersFailureFromAStoppedDownload() {
+        let downloading = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.4
+        )
+        let stopped = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: downloading, current: stopped, transportError: nil
+            ) == .failed(detail: nil)
+        )
+    }
+
+    @Test func acquisitionTransitionClearsOnceTheCacheIsGood() {
+        let downloading = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.9
+        )
+        let cached = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .ready,
+            ready: true, modelLoaded: true, cacheOk: true
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: downloading, current: cached, transportError: nil
+            ) == .cleared
+        )
+    }
+
+    @Test func acquisitionTransitionTreatsTransportErrorWithoutACacheAsFailure() {
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: nil, current: nil, transportError: "sidecar exited"
+            ) == .failed(detail: "sidecar exited")
+        )
+    }
+
+    /// An offline relaunch with a cached model is not an acquisition failure.
+    @Test func acquisitionTransitionIgnoresTransportErrorWhenTheModelIsCached() {
+        let cached = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .ready,
+            ready: true, modelLoaded: true, cacheOk: true
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: cached, current: nil, transportError: "offline"
+            ) == .none
+        )
+    }
+
+    @Test func acquisitionTransitionStaysQuietAcrossIdleProbes() {
+        let idle = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: idle, current: idle, transportError: nil
+            ) == .none
+        )
+    }
+
     // MARK: Helpers
 
     private func makeCoordinator(
