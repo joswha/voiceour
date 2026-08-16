@@ -309,6 +309,7 @@ struct MicrophoneCaptureIntegrationTests {
     @Test func aLatchedCaptureFailureIsReportedInsteadOfTranscribed() throws {
         let failure = MicrophoneRecorder.recordingFailure(
             latched: "the microphone was disconnected during recording",
+            converterLostRoute: false,
             frames: 48_000
         )
         guard case .captureFailed(let reason) = try #require(failure) else {
@@ -321,7 +322,7 @@ struct MicrophoneCaptureIntegrationTests {
     /// Zero accepted frames covers a device that never delivered a buffer and a
     /// file that rejected every write. Both used to reach the model.
     @Test func aRecordingThatWroteNoFramesIsReportedInsteadOfTranscribed() throws {
-        let failure = MicrophoneRecorder.recordingFailure(latched: nil, frames: 0)
+        let failure = MicrophoneRecorder.recordingFailure(latched: nil, converterLostRoute: false, frames: 0)
         guard case .captureFailed(let reason) = try #require(failure) else {
             Issue.record("expected a captureFailed error, got \(String(describing: failure))")
             return
@@ -332,7 +333,38 @@ struct MicrophoneCaptureIntegrationTests {
     /// The latch wins over the frame count: it names the cause, and a failed
     /// capture can still have written frames before it failed.
     @Test func aLatchedFailureOutranksAHealthyFrameCount() throws {
-        let failure = try #require(MicrophoneRecorder.recordingFailure(latched: "session runtime error", frames: 1))
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: "session runtime error", converterLostRoute: false, frames: 1
+            )
+        )
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "session runtime error")
+    }
+
+    /// A converter that could not follow a mid-recording format change stopped
+    /// contributing audio — a silently short recording, refused even though the
+    /// frames written before the change look healthy.
+    @Test func aLostRouteIsReportedInsteadOfTranscribed() throws {
+        let failure = MicrophoneRecorder.recordingFailure(latched: nil, converterLostRoute: true, frames: 48_000)
+        guard case .captureFailed(let reason) = try #require(failure) else {
+            Issue.record("expected a captureFailed error, got \(String(describing: failure))")
+            return
+        }
+        #expect(reason == MicrophoneRecorder.routeFollowFailureReason)
+    }
+
+    /// Precedence is latch > route > frames: the latch names the specific cause,
+    /// and the route loss explains an otherwise healthy-looking frame count.
+    @Test func aLatchedFailureOutranksALostRoute() throws {
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: "session runtime error", converterLostRoute: true, frames: 0
+            )
+        )
         guard case .captureFailed(let reason) = failure else {
             Issue.record("expected a captureFailed error")
             return
@@ -341,6 +373,6 @@ struct MicrophoneCaptureIntegrationTests {
     }
 
     @Test func aCleanRecordingWithAudioIsAccepted() {
-        #expect(MicrophoneRecorder.recordingFailure(latched: nil, frames: 1) == nil)
+        #expect(MicrophoneRecorder.recordingFailure(latched: nil, converterLostRoute: false, frames: 1) == nil)
     }
 }

@@ -18,8 +18,9 @@ final class CaptureConverter {
     /// True once a source format arrived that no converter could be built for.
     ///
     /// A converter that cannot follow the hardware stops contributing audio, so the
-    /// recording ends short rather than wrong. The flag exists so a caller can tell
-    /// a short capture from a complete one.
+    /// recording ends short rather than wrong. The recorder's stop-path validation
+    /// (`MicrophoneRecorder.recordingFailure`) reads this flag and refuses the
+    /// silently short capture instead of transcribing it.
     private(set) var didFailToFollowFormat = false
 
     private var converter: AVAudioConverter?

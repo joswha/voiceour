@@ -146,7 +146,8 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         }
         claimed.stop()
 
-        let finished: (url: URL, frames: AVAudioFramePosition, latency: Int?) = try lock.withLock {
+        let finished: (url: URL, frames: AVAudioFramePosition, latency: Int?, converterLostRoute: Bool) =
+            try lock.withLock {
             // Identity check, not just presence: a cancel that ran between the
             // claim above and here has already started a *new* session, and
             // clearing its capture/file/URL here would strand a live recording
@@ -155,6 +156,7 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             let latency = claimed.startLatencyMs()
             // Whatever the resampler still holds belongs to this utterance. Safe to
             // drain now: no more buffers can arrive once the capture has stopped.
+            let converterLostRoute = converter?.didFailToFollowFormat == true
             if let converter, let file {
                 for chunk in converter.drain() {
                     // Counted only when the WAV accepted it. `try?` plus an
@@ -175,13 +177,17 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             file = nil
             self.outputURL = nil
             lastStartLatency = latency
-            return (outputURL, frames, latency)
+            return (outputURL, frames, latency, converterLostRoute)
         }
 
         // A capture that failed mid-recording, or one that wrote nothing at all, is
         // reported rather than transcribed. Both used to reach ASR as a valid-looking
         // WAV: the model then invents words from silence and the app pastes them.
-        if let error = Self.recordingFailure(latched: claimed.failureReason(), frames: finished.frames) {
+        if let error = Self.recordingFailure(
+            latched: claimed.failureReason(),
+            converterLostRoute: finished.converterLostRoute,
+            frames: finished.frames
+        ) {
             try? FileManager.default.removeItem(at: finished.url)
             throw error
         }
@@ -222,8 +228,19 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     /// before its first buffer, or a file that rejected every write. All three
     /// produced a header-only WAV that passed the old existence check, and a
     /// header-only WAV transcribes as invented words rather than as nothing.
-    static func recordingFailure(latched: String?, frames: AVAudioFramePosition) -> RecorderError? {
+    /// `converterLostRoute` catches the fourth shape: a device format change the
+    /// converter could not follow stops contributing audio mid-utterance, which is
+    /// a silently short recording rather than an empty one.
+    static let routeFollowFailureReason =
+        "the microphone's format changed mid-recording and could not be followed"
+
+    static func recordingFailure(
+        latched: String?,
+        converterLostRoute: Bool,
+        frames: AVAudioFramePosition
+    ) -> RecorderError? {
         if let latched { return .captureFailed(latched) }
+        if converterLostRoute { return .captureFailed(routeFollowFailureReason) }
         if frames <= 0 { return .captureFailed("no audio was recorded") }
         return nil
     }
