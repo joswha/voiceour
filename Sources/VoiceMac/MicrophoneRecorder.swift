@@ -148,37 +148,37 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
 
         let finished: (url: URL, frames: AVAudioFramePosition, latency: Int?, converterLostRoute: Bool) =
             try lock.withLock {
-            // Identity check, not just presence: a cancel that ran between the
-            // claim above and here has already started a *new* session, and
-            // clearing its capture/file/URL here would strand a live recording
-            // with nothing owning it.
-            guard capture === claimed, let outputURL else { throw RecorderError.notRecording }
-            let latency = claimed.startLatencyMs()
-            // Whatever the resampler still holds belongs to this utterance. Safe to
-            // drain now: no more buffers can arrive once the capture has stopped.
-            let converterLostRoute = converter?.didFailToFollowFormat == true
-            if let converter, let file {
-                for chunk in converter.drain() {
-                    // Counted only when the WAV accepted it. `try?` plus an
-                    // unconditional increment made `writtenFrames` a count of frames
-                    // *offered*, which is what the emptiness check below reads.
-                    do {
-                        try file.write(from: chunk)
-                        writtenFrames += AVAudioFramePosition(chunk.frameLength)
-                    } catch {
-                        // A failed tail write costs the tail, not the utterance.
+                // Identity check, not just presence: a cancel that ran between the
+                // claim above and here has already started a *new* session, and
+                // clearing its capture/file/URL here would strand a live recording
+                // with nothing owning it.
+                guard capture === claimed, let outputURL else { throw RecorderError.notRecording }
+                let latency = claimed.startLatencyMs()
+                // Whatever the resampler still holds belongs to this utterance. Safe to
+                // drain now: no more buffers can arrive once the capture has stopped.
+                let converterLostRoute = converter?.didFailToFollowFormat == true
+                if let converter, let file {
+                    for chunk in converter.drain() {
+                        // Counted only when the WAV accepted it. `try?` plus an
+                        // unconditional increment made `writtenFrames` a count of frames
+                        // *offered*, which is what the emptiness check below reads.
+                        do {
+                            try file.write(from: chunk)
+                            writtenFrames += AVAudioFramePosition(chunk.frameLength)
+                        } catch {
+                            // A failed tail write costs the tail, not the utterance.
+                        }
                     }
                 }
+                let frames = writtenFrames
+                capture = nil
+                self.converter = nil
+                // Releasing the file is what flushes the WAV header's final sizes.
+                file = nil
+                self.outputURL = nil
+                lastStartLatency = latency
+                return (outputURL, frames, latency, converterLostRoute)
             }
-            let frames = writtenFrames
-            capture = nil
-            self.converter = nil
-            // Releasing the file is what flushes the WAV header's final sizes.
-            file = nil
-            self.outputURL = nil
-            lastStartLatency = latency
-            return (outputURL, frames, latency, converterLostRoute)
-        }
 
         // A capture that failed mid-recording, or one that wrote nothing at all, is
         // reported rather than transcribed. Both used to reach ASR as a valid-looking
