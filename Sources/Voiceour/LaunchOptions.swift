@@ -28,14 +28,20 @@ enum LaunchOptions {
         CommandLine.arguments.contains("--debug")
     }
 
-    /// The tab the console window opens on. `--console-section=` keeps its
-    /// spelling: it is a development deep link that predates the tabs, and
-    /// nothing outside this app types it. An unrecognised value falls back to the
-    /// window's own landing tab rather than failing the launch.
-    static var consoleSection: ConsoleTab {
-        CommandLine.arguments
+    /// The tab the console window is forced to open on. `--console-section=`
+    /// keeps its spelling: it is a development deep link that predates the tabs,
+    /// and nothing outside this app types it. Nil when the flag is absent OR
+    /// names an unknown tab — junk used to fall back to `.general`; now junk
+    /// means "no override" and the stored last-used tab wins.
+    static var consoleSectionOverride: ConsoleTab? {
+        consoleSectionOverride(in: CommandLine.arguments)
+    }
+
+    /// Split from the `var` so the parse is testable without forging argv.
+    static func consoleSectionOverride(in arguments: [String]) -> ConsoleTab? {
+        arguments
             .first { $0.hasPrefix("--console-section=") }
-            .flatMap { ConsoleTab(rawValue: String($0.dropFirst("--console-section=".count))) } ?? .general
+            .flatMap { ConsoleTab(rawValue: String($0.dropFirst("--console-section=".count))) }
     }
 }
 

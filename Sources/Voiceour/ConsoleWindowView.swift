@@ -49,11 +49,19 @@ struct ConsoleWindowView: View {
     var coordinator: DictationCoordinator
     @State private var tab: ConsoleTab
     private let externalTab: Binding<ConsoleTab>?
+    /// True only for the ordinary app window (no explicit tab): harness scenes,
+    /// flows and `--console-section=` launches pass an explicit tab and must
+    /// never write the user's (or the developer's) stored selection.
+    private let persistsSelection: Bool
 
-    init(coordinator: DictationCoordinator, initialTab: ConsoleTab = .general) {
+    /// `initialTab` nil means "no override": the window opens on the last-used
+    /// tab, falling back to `.general` on first launch, and persists every
+    /// selection change.
+    init(coordinator: DictationCoordinator, initialTab: ConsoleTab?) {
         self.coordinator = coordinator
-        _tab = State(initialValue: initialTab)
+        _tab = State(initialValue: initialTab ?? Self.storedTab() ?? .general)
         externalTab = nil
+        persistsSelection = (initialTab == nil)
     }
 
     /// The offscreen flow runner cannot make its prohibited, never-key window
@@ -64,6 +72,19 @@ struct ConsoleWindowView: View {
         self.coordinator = coordinator
         _tab = State(initialValue: selection.wrappedValue)
         externalTab = selection
+        persistsSelection = false
+    }
+
+    // MARK: Tab persistence
+
+    static let lastTabKey = "console.last-tab"
+
+    static func storedTab(in defaults: UserDefaults = .standard) -> ConsoleTab? {
+        defaults.string(forKey: lastTabKey).flatMap(ConsoleTab.init(rawValue:))
+    }
+
+    static func storeTab(_ tab: ConsoleTab, in defaults: UserDefaults = .standard) {
+        defaults.set(tab.rawValue, forKey: lastTabKey)
     }
 
     var body: some View {
@@ -83,6 +104,10 @@ struct ConsoleWindowView: View {
             ConsoleSystemTab(coordinator: coordinator)
                 .tabItem { tabLabel(.system) }
                 .tag(ConsoleTab.system)
+        }
+        .onChange(of: tab) {
+            guard persistsSelection else { return }
+            Self.storeTab(tab)
         }
         .onAppear {
             // `.accessory` (no Dock icon, absent from Cmd+Tab — see
