@@ -50,6 +50,11 @@ public final class DictationCoordinator {
     /// The same failure with its title, retry-ability and destination, for the menu
     /// row that has to offer an action rather than just a sentence.
     public internal(set) var lastFailure: UserFacingDictationFailure?
+    /// Surface-local refusals for the Glossary tab — a collision, a bad word
+    /// list. Never read by the menu: a glossary refusal is not a dictation
+    /// failure, and the two used to compete for one crimson headline. `start()`
+    /// does not clear it; the next glossary action does.
+    public internal(set) var glossaryNotice: String?
     public private(set) var backendHealth: ASRBackendHealth?
     public private(set) var backendHealthError: String?
     public internal(set) var recentSessions: [RecentSession] = []
@@ -662,7 +667,7 @@ public final class DictationCoordinator {
     @discardableResult
     func commitGlossary(_ proposed: [ProtectedTerm]) -> Bool {
         guard VocabularySanitizer.aliasesAreUnambiguous(in: proposed) else {
-            errorMessage = "That spoken form already belongs to another term."
+            glossaryNotice = "That spoken form already belongs to another term."
             return false
         }
         settings.glossary = proposed
@@ -747,7 +752,7 @@ public final class DictationCoordinator {
 
     /// Imports a user-selected project word list, resolving (or creating) the
     /// active project, and merges the sanitized terms into the glossary,
-    /// deduplicating by term id. Surfaces failures on `errorMessage`.
+    /// deduplicating by term id. Surfaces failures on `glossaryNotice`.
     public func importProjectLexicon(from url: URL) {
         let projectId = activeProjectId ?? "project-\(UUID().uuidString)"
         let resolvedName = activeProjectName ?? Self.projectName(for: url)
@@ -763,18 +768,18 @@ public final class DictationCoordinator {
             // imported canonical can collide with an alias the user taught earlier,
             // and accepting that pair would make canonicalization order-dependent.
             guard VocabularySanitizer.aliasesAreUnambiguous(in: merged) else {
-                errorMessage = "That word list collides with a spoken form already in the glossary."
+                glossaryNotice = "That word list collides with a spoken form already in the glossary."
                 return
             }
             settings.glossary = merged
             activeProjectId = projectId
             activeProjectName = resolvedName
-            errorMessage = nil
+            glossaryNotice = nil
             saveSettings()
         } catch let error as LocalizedError {
-            errorMessage = error.errorDescription ?? String(describing: error)
+            glossaryNotice = error.errorDescription ?? String(describing: error)
         } catch {
-            errorMessage = error.localizedDescription
+            glossaryNotice = error.localizedDescription
         }
     }
 

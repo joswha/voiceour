@@ -13,9 +13,9 @@ struct ConsoleGlossaryTab: View {
     @State private var newAliases = ""
     @State private var duplicate: String?
     /// The refusal `commitGlossary` published for the edit that was just
-    /// attempted. Read from `errorMessage` only when the commit returned false,
-    /// so a stale failure from another subsystem can never be reported here as a
-    /// glossary problem.
+    /// attempted. Read from `glossaryNotice` only when the commit returned
+    /// false, so a stale notice from an earlier action can never be reported
+    /// here as this edit's problem.
     @State private var refusal: String?
     @State private var importOutcome: ImportOutcome?
     private var a11y = A11y()
@@ -140,11 +140,11 @@ struct ConsoleGlossaryTab: View {
         importOutcome = nil
         guard panel.runModal() == .OK, let url = panel.url else { return }
         // `importProjectLexicon` merges synchronously and reports failures on
-        // `errorMessage`, which is only rendered in the menu-bar popover. The
-        // surface that owns the action reports its own outcome.
+        // `glossaryNotice`, the glossary-local channel. The surface that owns
+        // the action reports its own outcome.
         let before = coordinator.settings.glossary.count
         coordinator.importProjectLexicon(from: url)
-        if let message = coordinator.errorMessage {
+        if let message = coordinator.glossaryNotice {
             importOutcome = .failed(message)
         } else {
             importOutcome = .added(coordinator.settings.glossary.count - before)
@@ -249,12 +249,12 @@ struct ConsoleGlossaryTab: View {
     /// Every alias edit and every addition goes through `commitGlossary`, which
     /// refuses a proposal whose spoken forms are ambiguous — an alias that also
     /// names another term's canonical or alias makes canonicalization depend on
-    /// term order. The refusal is published on `errorMessage`, which only the
-    /// menu popover renders, so this tab lifts it onto the row that caused it.
+    /// term order. The refusal is published on `glossaryNotice`, the
+    /// glossary-local channel, and this tab lifts it onto the row that caused it.
     @discardableResult
     private func commit(_ proposed: [ProtectedTerm]) -> Bool {
         guard coordinator.commitGlossary(proposed) else {
-            refusal = coordinator.errorMessage
+            refusal = coordinator.glossaryNotice
             return false
         }
         refusal = nil

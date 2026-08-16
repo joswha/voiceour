@@ -1224,6 +1224,21 @@ struct DictationCoordinatorTests {
         await waitUntil { coordinator.errorMessage != nil }
 
         #expect(coordinator.errorMessage == "Settings could not be saved.")
+        // Persistence problems belong to the menu channel, never the glossary's.
+        #expect(coordinator.glossaryNotice == nil)
+    }
+
+    /// A glossary refusal is a surface-local notice, not a dictation failure:
+    /// it must reach the Glossary tab without lighting the menu's crimson
+    /// ERROR headline.
+    @Test func aGlossaryCollisionSetsTheNoticeAndLeavesTheMenuChannelAlone() {
+        let coordinator = makeCoordinator(settingsStore: temporarySettingsStore())
+
+        // "cube cuddle" already belongs to the bundled kubectl term.
+        coordinator.teachCorrection(canonical: "Ghostty", misheard: "cube cuddle", scope: .global)
+
+        #expect(coordinator.glossaryNotice == "That spoken form already belongs to another term.")
+        #expect(coordinator.errorMessage == nil)
     }
 
     // MARK: Acquisition failure inference
