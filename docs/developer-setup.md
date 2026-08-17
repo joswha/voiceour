@@ -97,6 +97,15 @@ swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.w
 
 This validates the pinned cache/model against the fixture and prints transcript plus load/inference timing. It requires the model cache. The sibling-helper rule is the same in `.build/debug`, `.build/release`, and `Voiceour.app/Contents/MacOS`.
 
+To prove the full acquisition path — download, digest verification, manifest write, load — point the cache at a scratch directory with `VOICEOUR_MODEL_CACHE` (one 1.26 GB download):
+
+```sh
+SCRATCH=$(mktemp -d) && VOICEOUR_MODEL_CACHE="$SCRATCH" \
+  .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav; rm -rf "$SCRATCH"
+```
+
+`VOICEOUR_MODEL_CACHE` is the only cache override. Overriding `HOME` does not move the cache — `FileManager` resolves `.cachesDirectory` through the user's sandbox container path, not `$HOME` — so a `HOME`-scratch "fresh acquisition" silently reuses the real cache and passes without downloading anything. Measured here: 3.8 s wall against a warm cache versus 155 s for the real download.
+
 ## Bundling and verification
 
 ```sh
