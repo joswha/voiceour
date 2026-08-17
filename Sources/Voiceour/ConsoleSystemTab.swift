@@ -234,9 +234,11 @@ struct ConsoleSystemTab: View {
                     + "download."
             )
         } else if let failure = coordinator.acquisitionFailure {
-            // A model acquisition that failed is the honest state even while a
-            // stale fraction lingers: without this branch the row fell through to
-            // MODEL NEEDED and every dictation failed with a raw code.
+            // The published acquisition failure — DOWNLOAD FAILED for a stopped
+            // download, ENGINE OFFLINE for a probe that never answered — is the
+            // honest state even while a stale fraction lingers: without this
+            // branch the row fell through to MODEL NEEDED or CHECK NEEDED and
+            // every dictation failed with a raw code.
             return Readout(
                 label: failure.title.uppercased(),
                 severity: failure.isRetryable ? .warn : .crit,
