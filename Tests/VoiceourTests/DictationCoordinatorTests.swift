@@ -1297,7 +1297,7 @@ struct DictationCoordinatorTests {
         #expect(
             DictationCoordinator.acquisitionTransition(
                 previous: downloading, current: stopped, transportError: nil
-            ) == .failed(detail: nil)
+            ) == .downloadFailed(detail: nil)
         )
     }
 
@@ -1318,11 +1318,13 @@ struct DictationCoordinatorTests {
         )
     }
 
-    @Test func acquisitionTransitionTreatsTransportErrorWithoutACacheAsFailure() {
+    /// A probe that never answered is a different fault from a failed download:
+    /// nothing was downloading, the engine is simply not there.
+    @Test func acquisitionTransitionTreatsTransportErrorWithoutACacheAsUnreachable() {
         #expect(
             DictationCoordinator.acquisitionTransition(
                 previous: nil, current: nil, transportError: "sidecar exited"
-            ) == .failed(detail: "sidecar exited")
+            ) == .unreachable(detail: "sidecar exited")
         )
     }
 

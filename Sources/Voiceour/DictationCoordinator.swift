@@ -247,14 +247,19 @@ public final class DictationCoordinator {
 
     enum AcquisitionChange: Equatable {
         case none
-        case failed(detail: String?)
+        /// Acquisition was running and stopped without producing a cache.
+        case downloadFailed(detail: String?)
+        /// The sidecar did not answer at all and no cached model exists.
+        case unreachable(detail: String?)
         case cleared
     }
 
     /// Pure so the rules are testable without a sidecar. The wire carries no error
     /// string for a failed download: `ParakeetSidecarBackend.warmUp` resets
-    /// `downloadFraction` and `warming` in a `defer`, so failure is the transition
-    /// "was acquiring, now neither, cache still absent".
+    /// `downloadFraction` and `warming` in a `defer`, so a failed download is the
+    /// transition "was acquiring, now neither, cache still absent". A probe that
+    /// never answered is a different fault — nothing was downloading, the engine
+    /// is simply not there — and must not read as a failed download.
     static func acquisitionTransition(
         previous: ASRBackendHealth?,
         current: ASRBackendHealth?,
@@ -265,14 +270,31 @@ public final class DictationCoordinator {
                 return .cleared
             }
             let wasAcquiring = previous?.downloadFraction != nil || previous?.warming == true
-            if wasAcquiring && !current.cacheOk { return .failed(detail: nil) }
+            if wasAcquiring && !current.cacheOk { return .downloadFailed(detail: nil) }
             return .none
         }
         // Transport failure: only a fault when the model is not already on disk.
-        if transportError != nil && previous?.cacheOk != true {
-            return .failed(detail: transportError)
+        if let transportError, previous?.cacheOk != true {
+            return .unreachable(detail: transportError)
         }
         return .none
+    }
+
+    /// One mapping from transition to published failure, shared by both probe
+    /// completions. `.unreachable` reuses the wire's `backend_unavailable` row so
+    /// the System tab, menu and diagnostics all say ENGINE OFFLINE with one
+    /// vocabulary rather than blaming a download that never ran.
+    private func applyAcquisitionTransition(_ change: AcquisitionChange) {
+        switch change {
+        case .downloadFailed(let detail):
+            acquisitionFailure = .acquisitionFailed(detail: detail)
+        case .unreachable(let detail):
+            acquisitionFailure = UserFacingDictationFailure(code: .backendUnavailable, detail: detail)
+        case .cleared:
+            acquisitionFailure = nil
+        case .none:
+            break
+        }
     }
 
     public func refreshBackendHealth(timeoutMs: Int = 3_000, force: Bool = false) {
@@ -301,14 +323,9 @@ public final class DictationCoordinator {
                     self?.backendHealthError = nil
                     self?.backendHealthLastRefresh = self?.runtime.now()
                     self?.backendHealthProbeInFlight = false
-                    switch Self.acquisitionTransition(previous: previous, current: health, transportError: nil) {
-                    case .failed(let detail):
-                        self?.acquisitionFailure = .acquisitionFailed(detail: detail)
-                    case .cleared:
-                        self?.acquisitionFailure = nil
-                    case .none:
-                        break
-                    }
+                    self?.applyAcquisitionTransition(
+                        Self.acquisitionTransition(previous: previous, current: health, transportError: nil)
+                    )
                     self?.scheduleAcquisitionRepollIfNeeded(health)
                 }
             } catch {
@@ -320,11 +337,11 @@ public final class DictationCoordinator {
                     self?.backendHealthError = String(describing: error)
                     self?.backendHealthLastRefresh = self?.runtime.now()
                     self?.backendHealthProbeInFlight = false
-                    if case .failed(let detail) = Self.acquisitionTransition(
-                        previous: previous, current: nil, transportError: String(describing: error)
-                    ) {
-                        self?.acquisitionFailure = .acquisitionFailed(detail: detail)
-                    }
+                    self?.applyAcquisitionTransition(
+                        Self.acquisitionTransition(
+                            previous: previous, current: nil, transportError: String(describing: error)
+                        )
+                    )
                     self?.backendAcquisitionPollTask?.cancel()
                     self?.backendAcquisitionPollTask = nil
                 }

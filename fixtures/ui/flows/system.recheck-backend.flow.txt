@@ -1,11 +1,11 @@
 flow: system.recheck-backend
-title: A failed backend probe reads as an acquisition failure until re-proven
+title: An unanswered backend probe reads as ENGINE OFFLINE until re-proven
 fixture: backend-recovery
 transitions: idle
 PASS 1 initial-probe | value id=system.backend.status == "CHECKING…" | "CHECKING…"
-PASS 2 unavailable | value id=system.backend.status == "DOWNLOAD FAILED" | "DOWNLOAD FAILED"
+PASS 2 unavailable | value id=system.backend.status == "ENGINE OFFLINE" | "ENGINE OFFLINE"
 PASS 3 unavailable | label id=system.backend.recheck == "Re-check backend health" | "Re-check backend health"
 PASS 4 unavailable | role id=system.backend.recheck == AXButton | AXButton
-PASS 5 rechecking | value id=system.backend.status == "DOWNLOAD FAILED" | "DOWNLOAD FAILED"
+PASS 5 rechecking | value id=system.backend.status == "ENGINE OFFLINE" | "ENGINE OFFLINE"
 PASS 6 ready | value id=system.backend.status == "READY" | "READY"
 PASS 7 ready | text == "PARAKEET is configured for local transcription." exactly 1 | 1 match

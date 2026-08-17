@@ -233,7 +233,7 @@
             [
                 UIFlow(
                     id: "system.recheck-backend",
-                    title: "A failed backend probe reads as an acquisition failure until re-proven",
+                    title: "An unanswered backend probe reads as ENGINE OFFLINE until re-proven",
                     tags: ["system", "console", "settings"],
                     host: .console(.system),
                     fixture: .backendRecovery(),
@@ -244,14 +244,14 @@
                             [.value(Selector.backendStatus, .equals("CHECKING…"))]
                         ),
                         .release(.backendHealthUnavailable),
-                        // A transport failure with no cached model is an acquisition
-                        // failure, not a shrug: the row must say so rather than
-                        // "CHECK NEEDED".
-                        .wait(.element(Selector.backendStatusWithValue("DOWNLOAD FAILED"))),
+                        // A probe that never answered, with no cached model, is the
+                        // engine being absent — not a failed download (nothing was
+                        // downloading) and not a shrug ("CHECK NEEDED").
+                        .wait(.element(Selector.backendStatusWithValue("ENGINE OFFLINE"))),
                         .check(
                             "unavailable",
                             [
-                                .value(Selector.backendStatus, .equals("DOWNLOAD FAILED")),
+                                .value(Selector.backendStatus, .equals("ENGINE OFFLINE")),
                                 .label(Selector.backendRecheck, .equals("Re-check backend health")),
                                 .role(Selector.backendRecheck, "AXButton"),
                             ]
@@ -261,7 +261,7 @@
                         // erase it. Only fresh good evidence may clear the row.
                         .check(
                             "rechecking",
-                            [.value(Selector.backendStatus, .equals("DOWNLOAD FAILED"))]
+                            [.value(Selector.backendStatus, .equals("ENGINE OFFLINE"))]
                         ),
                         .release(.backendHealth),
                         .wait(.element(Selector.backendStatusWithValue("READY"))),
