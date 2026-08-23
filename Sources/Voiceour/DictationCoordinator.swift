@@ -500,10 +500,13 @@ public final class DictationCoordinator {
     }
 
     /// What ended the recording. Auto-stop carries the instant the trailing silence began,
-    /// which is the only thing that makes adopting a preview honest.
+    /// which is the only thing that makes adopting a preview honest. `silentCapture` is the
+    /// warm-up deadline firing: the microphone never delivered a non-zero sample, so the
+    /// session is ended for the user rather than left recording digital silence forever.
     public enum StopTrigger: Equatable, Sendable {
         case manual
         case autoStop(silenceStartedAt: Date)
+        case silentCapture
     }
 
     public func stopAndProcess(trigger: StopTrigger = .manual) {

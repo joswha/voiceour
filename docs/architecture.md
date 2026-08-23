@@ -47,11 +47,15 @@ Stopping always finalizes one WAV and performs one final decode. `CleanupEngine.
 
 `MicrophoneCapture` is an `AVCaptureSession` pinned to a selected input-device UID. It has no output graph, avoiding the measured AUHAL failure where `AVAudioEngine` could not combine a pinned built-in input with Bluetooth output (`kAudioUnitErr_FormatNotSupported`, -10868).
 
+`CoreAudioInputDevice.preferredCaptureUID()` selects that UID. A Bluetooth default input is redirected to the built-in microphone, which skips the HFP/SCO warmup and keeps playback in A2DP. The redirect is withdrawn when the lid is closed: in clamshell the built-in array is enumerated, alive, unmuted and unsuspended, and every sample it delivers is exactly zero (552 of 552 and 366 of 366 all-zero buffers in six-second captures). `LidState` reads `AppleClamshellState` from `IOPMrootDomain` because no audio-stack property reports that state. Non-Bluetooth defaults are never redirected.
+
 Capture callbacks run on a private serial queue. Blocking `startRunning()` and `stopRunning()` run on a second dedicated serial queue; measured startup was 134–216 ms, and serialization prevents a stop overtaking its start.
 
 Liveness means the first buffer containing a non-zero sample, not merely the first callback. In measurements, the built-in microphone produced its first and first-non-zero buffer at 99 ms with 0 all-zero buffers out of 375. Cold AirPods Max produced a first buffer at 143 ms but the first non-zero buffer at 1,422 ms, with 64 all-zero buffers out of 197. The overlay therefore says the microphone is warming until actual signal arrives.
 
-The capture object latches the first `AVCaptureSession.runtimeErrorNotification` or active-device disconnect. `MicrophoneRecorder.stop()` rejects a latched failure or a recording with zero successfully written frames, deletes the WAV, and reports a capture failure. Frame counts advance only after a successful WAV write.
+A capture that never becomes live is bounded rather than endless. The coordinator's input-metering loop ends the session after `captureWarmUpDeadline` (6 s) without a non-zero sample, through the ordinary stop path. Nothing else would: `AutoStopDetector` cannot arm until it has heard speech, so a silent device left the session recording zeros indefinitely.
+
+The capture object latches the first `AVCaptureSession.runtimeErrorNotification` or active-device disconnect. `MicrophoneRecorder.stop()` rejects a latched failure, a recording whose capture never heard a non-zero sample, or a recording with zero successfully written frames; it deletes the WAV and reports a capture failure naming the device, and names a closed lid when the silent device was the built-in microphone. Frame counts advance only after a successful WAV write.
 
 Recorder teardown is identity-checked: a stop or discard may clear only the capture it claimed. A failed start removes the newly created WAV. Once finalization begins, the processing pipeline owns cleanup; cancellation cannot race a second discard against it. Audio telemetry analysis runs off the main actor. The launch scavenger removes abandoned temporary recordings.
 

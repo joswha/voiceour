@@ -57,9 +57,10 @@ enum CoreAudioInputDevice {
     /// whatever the system default input is.
     ///
     /// It answers exactly one question: is the default input a Bluetooth
-    /// headset? Because a Bluetooth headset mic is not merely slower to open,
-    /// it is *absent* for over a second. Measured on AirPods Max, capturing
-    /// through the identical `AVCaptureSession` code path:
+    /// headset that a working built-in microphone should replace? Because a
+    /// Bluetooth headset mic is not merely slower to open, it is *absent* for
+    /// over a second. Measured on AirPods Max, capturing through the identical
+    /// `AVCaptureSession` code path:
     ///
     /// | pinned device          | first buffer | first non-zero buffer | all-zero buffers |
     /// |------------------------|--------------|-----------------------|------------------|
@@ -73,17 +74,35 @@ enum CoreAudioInputDevice {
     /// negotiation entirely — the link stays in A2DP, so playback also keeps
     /// its music-quality codec for the length of the dictation.
     ///
-    /// Deliberately narrow. Only a Bluetooth default is redirected, and only
-    /// when a built-in input exists: a USB interface, an aggregate device or a
-    /// virtual microphone is the user's considered choice and is left alone.
+    /// A shut lid withdraws that option, and the redirect is worse than useless
+    /// then: in clamshell the built-in array delivers digital silence forever
+    /// rather than slowly (552 of 552 and 366 of 366 all-zero buffers, measured
+    /// twice; see ``LidState``), so the redirect trades a 551 ms headset warm-up
+    /// for a microphone that never arrives. Liveness is keyed on the first
+    /// non-zero sample, so the session stays in WARMING until the coordinator's
+    /// warm-up deadline ends it.
+    ///
+    /// Deliberately narrow. Only a Bluetooth default is redirected, and only to
+    /// a built-in microphone that can actually record: a USB interface, an
+    /// aggregate device or a virtual microphone is the user's considered choice
+    /// and is left alone.
     static func preferredCaptureUID() -> String? {
-        preferredCaptureUID(systemDefault: systemDefault(), available: all())
+        preferredCaptureUID(
+            systemDefault: systemDefault(),
+            available: all(),
+            lidIsClosed: LidState.isClosed()
+        )
     }
 
     /// The policy itself, over values rather than over the HAL, so it is testable
-    /// on a machine with no Bluetooth headset attached.
-    static func preferredCaptureUID(systemDefault: Device?, available: [Device]) -> String? {
+    /// on a machine with no Bluetooth headset attached and with its lid open.
+    static func preferredCaptureUID(
+        systemDefault: Device?,
+        available: [Device],
+        lidIsClosed: Bool
+    ) -> String? {
         guard let systemDefault, systemDefault.isBluetooth else { return nil }
+        guard !lidIsClosed else { return nil }
         return available.first { $0.isBuiltIn }?.uid
     }
 

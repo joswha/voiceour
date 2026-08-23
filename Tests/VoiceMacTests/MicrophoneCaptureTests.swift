@@ -33,7 +33,8 @@ import Testing
     @Test func bluetoothDefaultRedirectsToTheBuiltInMicrophone() {
         let uid = CoreAudioInputDevice.preferredCaptureUID(
             systemDefault: airPods,
-            available: [airPods, builtIn]
+            available: [airPods, builtIn],
+            lidIsClosed: false
         )
 
         #expect(uid == "BuiltInMicrophoneDevice")
@@ -44,10 +45,25 @@ import Testing
 
         let uid = CoreAudioInputDevice.preferredCaptureUID(
             systemDefault: headset,
-            available: [headset, builtIn]
+            available: [headset, builtIn],
+            lidIsClosed: false
         )
 
         #expect(uid == "BuiltInMicrophoneDevice")
+    }
+
+    /// A shut lid does not slow the built-in array down, it silences it: 552 of
+    /// 552 buffers were exactly zero in clamshell. Redirecting there swaps a
+    /// headset that warms up in half a second for a microphone that never
+    /// arrives, so the headset keeps the dictation.
+    @Test func aClosedLidKeepsTheDictationOnTheBluetoothHeadset() {
+        #expect(
+            CoreAudioInputDevice.preferredCaptureUID(
+                systemDefault: airPods,
+                available: [airPods, builtIn],
+                lidIsClosed: true
+            ) == nil
+        )
     }
 
     /// `nil` means "record from the system default", which is what every
@@ -56,7 +72,8 @@ import Testing
         #expect(
             CoreAudioInputDevice.preferredCaptureUID(
                 systemDefault: builtIn,
-                available: [builtIn]
+                available: [builtIn],
+                lidIsClosed: false
             ) == nil
         )
     }
@@ -75,7 +92,8 @@ import Testing
             #expect(
                 CoreAudioInputDevice.preferredCaptureUID(
                     systemDefault: chosen,
-                    available: [chosen, builtIn]
+                    available: [chosen, builtIn],
+                    lidIsClosed: false
                 ) == nil,
                 "transport \(transport) must not be redirected"
             )
@@ -88,13 +106,20 @@ import Testing
         #expect(
             CoreAudioInputDevice.preferredCaptureUID(
                 systemDefault: airPods,
-                available: [airPods]
+                available: [airPods],
+                lidIsClosed: false
             ) == nil
         )
     }
 
     @Test func noDefaultInputMeansNoRedirect() {
-        #expect(CoreAudioInputDevice.preferredCaptureUID(systemDefault: nil, available: [builtIn]) == nil)
+        #expect(
+            CoreAudioInputDevice.preferredCaptureUID(
+                systemDefault: nil,
+                available: [builtIn],
+                lidIsClosed: false
+            ) == nil
+        )
     }
 }
 
@@ -253,8 +278,42 @@ struct MicrophoneCaptureIntegrationTests {
         }
     }
 
+    /// The end-to-end claim the policy makes: whatever `preferredCaptureUID()`
+    /// chooses on THIS host, opening it produces real samples. A choice that
+    /// streams digital zeros forever satisfies every value-level test and still
+    /// hangs the session in WARMING, which is exactly what redirecting to a
+    /// clamshell built-in microphone did.
+    @Test func theChosenCaptureDeviceDeliversRealAudio() async throws {
+        guard ProcessInfo.processInfo.environment["VOICEOUR_CAPTURE_INTEGRATION"] != nil else { return }
+
+        let capture = try MicrophoneCapture(
+            preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
+        capture.start { _ in }
+        defer { capture.stop() }
+
+        // Generous on purpose: a Continuity iPhone microphone was measured at
+        // 3782 ms to its first buffer and cold AirPods Max at 1422 ms to its
+        // first non-zero sample. A room's noise floor is never exactly zero, so
+        // this needs no one to speak.
+        for _ in 0..<250 where !capture.hasReceivedAudio() {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        #expect(
+            capture.hasReceivedAudio(),
+            """
+            \(capture.source.name) delivered no audio in 5 s \
+            (redirected: \(capture.source.isRedirected), lid closed: \(LidState.isClosed()))
+            """
+        )
+    }
+
     @Test func pinningOpensTheNamedDeviceAndReportsLivenessFromRealAudio() async throws {
         guard ProcessInfo.processInfo.environment["VOICEOUR_CAPTURE_INTEGRATION"] != nil else { return }
+        // A shut lid silences the built-in array outright, so on this host the
+        // premise of the test — a built-in microphone that can be heard — is
+        // absent, not broken.
+        guard !LidState.isClosed() else { return }
         guard let builtIn = CoreAudioInputDevice.all().first(where: \.isBuiltIn) else {
             Issue.record("no built-in input device on this host")
             return
@@ -354,7 +413,8 @@ struct MicrophoneCaptureIntegrationTests {
         let failure = MicrophoneRecorder.recordingFailure(
             latched: "the microphone was disconnected during recording",
             converterLostRoute: false,
-            frames: 48_000
+            frames: 48_000,
+            silentCapture: nil
         )
         guard case .captureFailed(let reason) = try #require(failure) else {
             Issue.record("expected a captureFailed error, got \(String(describing: failure))")
@@ -366,7 +426,8 @@ struct MicrophoneCaptureIntegrationTests {
     /// Zero accepted frames covers a device that never delivered a buffer and a
     /// file that rejected every write. Both used to reach the model.
     @Test func aRecordingThatWroteNoFramesIsReportedInsteadOfTranscribed() throws {
-        let failure = MicrophoneRecorder.recordingFailure(latched: nil, converterLostRoute: false, frames: 0)
+        let failure = MicrophoneRecorder.recordingFailure(
+            latched: nil, converterLostRoute: false, frames: 0, silentCapture: nil)
         guard case .captureFailed(let reason) = try #require(failure) else {
             Issue.record("expected a captureFailed error, got \(String(describing: failure))")
             return
@@ -374,12 +435,85 @@ struct MicrophoneCaptureIntegrationTests {
         #expect(reason == "no audio was recorded")
     }
 
+    /// The shape a dead microphone actually produces: a full-length WAV, every
+    /// frame accepted, every sample zero. The frame count alone calls that
+    /// healthy, which is how a clamshell built-in microphone reached the decoder.
+    @Test func aCaptureThatHeardOnlySilenceIsReportedInsteadOfTranscribed() throws {
+        let failure = MicrophoneRecorder.recordingFailure(
+            latched: nil,
+            converterLostRoute: false,
+            frames: 96_000,
+            silentCapture: "MacBook Pro Microphone hears nothing while the lid is closed"
+        )
+        guard case .captureFailed(let reason) = try #require(failure) else {
+            Issue.record("expected a captureFailed error, got \(String(describing: failure))")
+            return
+        }
+        #expect(reason == "MacBook Pro Microphone hears nothing while the lid is closed")
+    }
+
+    /// Silence outranks the frame count, which would otherwise reduce the one
+    /// diagnostic the user can act on to "no audio was recorded".
+    @Test func aSilentCaptureOutranksTheFrameCount() throws {
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: nil, converterLostRoute: false, frames: 0,
+                silentCapture: "AirPods Max delivered no audio"
+            )
+        )
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "AirPods Max delivered no audio")
+    }
+
+    /// A latched runtime error or disconnect still names the cause first: it
+    /// explains why the samples stopped, where the silence only reports them.
+    @Test func aLatchedFailureOutranksSilence() throws {
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: "the microphone was disconnected during recording",
+                converterLostRoute: false,
+                frames: 48_000,
+                silentCapture: "AirPods Max delivered no audio"
+            )
+        )
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "the microphone was disconnected during recording")
+    }
+
+    /// The lid clause is the difference between a user who knows to open the lid
+    /// and one who reads that an unnamed microphone failed. It applies only to a
+    /// built-in array: nothing about a closed lid silences a USB or Bluetooth mic.
+    @Test func onlyAClosedLidOnABuiltInMicrophoneIsNamedAsTheCause() {
+        #expect(
+            MicrophoneRecorder.silentCaptureReason(
+                device: "MacBook Pro Microphone", isBuiltIn: true, lidIsClosed: true
+            ) == "MacBook Pro Microphone hears nothing while the lid is closed"
+        )
+        #expect(
+            MicrophoneRecorder.silentCaptureReason(
+                device: "MacBook Pro Microphone", isBuiltIn: true, lidIsClosed: false
+            ) == "MacBook Pro Microphone delivered no audio"
+        )
+        #expect(
+            MicrophoneRecorder.silentCaptureReason(
+                device: "Vlad’s AirPods Max", isBuiltIn: false, lidIsClosed: true
+            ) == "Vlad’s AirPods Max delivered no audio"
+        )
+    }
+
     /// The latch wins over the frame count: it names the cause, and a failed
     /// capture can still have written frames before it failed.
     @Test func aLatchedFailureOutranksAHealthyFrameCount() throws {
         let failure = try #require(
             MicrophoneRecorder.recordingFailure(
-                latched: "session runtime error", converterLostRoute: false, frames: 1
+                latched: "session runtime error", converterLostRoute: false, frames: 1,
+                silentCapture: nil
             )
         )
         guard case .captureFailed(let reason) = failure else {
@@ -393,7 +527,8 @@ struct MicrophoneCaptureIntegrationTests {
     /// contributing audio — a silently short recording, refused even though the
     /// frames written before the change look healthy.
     @Test func aLostRouteIsReportedInsteadOfTranscribed() throws {
-        let failure = MicrophoneRecorder.recordingFailure(latched: nil, converterLostRoute: true, frames: 48_000)
+        let failure = MicrophoneRecorder.recordingFailure(
+            latched: nil, converterLostRoute: true, frames: 48_000, silentCapture: nil)
         guard case .captureFailed(let reason) = try #require(failure) else {
             Issue.record("expected a captureFailed error, got \(String(describing: failure))")
             return
@@ -401,12 +536,14 @@ struct MicrophoneCaptureIntegrationTests {
         #expect(reason == MicrophoneRecorder.routeFollowFailureReason)
     }
 
-    /// Precedence is latch > route > frames: the latch names the specific cause,
-    /// and the route loss explains an otherwise healthy-looking frame count.
+    /// Precedence is latch > route > silence > frames: the latch names the
+    /// specific cause, and the route loss explains an otherwise healthy-looking
+    /// frame count.
     @Test func aLatchedFailureOutranksALostRoute() throws {
         let failure = try #require(
             MicrophoneRecorder.recordingFailure(
-                latched: "session runtime error", converterLostRoute: true, frames: 0
+                latched: "session runtime error", converterLostRoute: true, frames: 0,
+                silentCapture: nil
             )
         )
         guard case .captureFailed(let reason) = failure else {
@@ -417,6 +554,10 @@ struct MicrophoneCaptureIntegrationTests {
     }
 
     @Test func aCleanRecordingWithAudioIsAccepted() {
-        #expect(MicrophoneRecorder.recordingFailure(latched: nil, converterLostRoute: false, frames: 1) == nil)
+        #expect(
+            MicrophoneRecorder.recordingFailure(
+                latched: nil, converterLostRoute: false, frames: 1, silentCapture: nil
+            ) == nil
+        )
     }
 }

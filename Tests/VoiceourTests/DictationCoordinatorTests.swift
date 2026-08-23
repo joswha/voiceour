@@ -740,6 +740,39 @@ struct DictationCoordinatorTests {
         #expect(!coordinator.inputMeter.live)
     }
 
+    /// A microphone can stream buffers on time and fill every one of them with
+    /// zeros — measured on a built-in array in clamshell, 552 all-zero buffers in
+    /// six seconds. Liveness never flips, `AutoStopDetector` cannot arm until it
+    /// has heard speech, and nothing else ends a recording, so the session sat in
+    /// WARMING until the user gave up. The deadline turns that hang into the one
+    /// thing the user can act on: which microphone heard nothing, and why.
+    @Test func aCaptureThatNeverGoesLiveEndsTheSessionInsteadOfHanging() async {
+        let clock = VirtualClock()
+        let recorder = SilentRecorder(
+            reason: "MacBook Pro Microphone hears nothing while the lid is closed")
+        let coordinator = makeCoordinator(recorder: recorder, runtimeOverride: clock.runtime)
+
+        coordinator.start()
+        // The whole six seconds are virtual, so the session is over before the
+        // first poll here: `.recording` is never observable from this side.
+        await waitUntil { coordinator.state == .error(.internalError) }
+
+        #expect(!coordinator.inputMeter.live)
+        #expect(recorder.stopCount == 1)
+        #expect(coordinator.lastFailure?.title == "NO AUDIO")
+        #expect(
+            coordinator.errorMessage
+                == "Nothing was recorded — MacBook Pro Microphone hears nothing while the lid is closed."
+        )
+        // The deadline is a bound, not a stopwatch. Too early and it would cut off
+        // the slowest real warm-up measured — 3782 ms, a Continuity microphone;
+        // one poll interval late is the loop noticing, anything beyond that means
+        // something other than the deadline ended the session.
+        let elapsed = clock.elapsed()
+        #expect(elapsed >= DictationCoordinator.captureWarmUpDeadline)
+        #expect(elapsed < DictationCoordinator.captureWarmUpDeadline + 0.1)
+    }
+
     /// A device with no writable mute or volume — a DisplayPort monitor, in the
     /// measurement that motivated this — leaves the capture unmuted. The pane
     /// has to be able to say so instead of promising a mute that never lands.
@@ -1375,7 +1408,8 @@ struct DictationCoordinatorTests {
         },
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
-        }
+        },
+        runtimeOverride: DictationRuntime? = nil
     ) -> DictationCoordinator {
         DictationCoordinator(
             recorder: recorder,
@@ -1395,7 +1429,8 @@ struct DictationCoordinatorTests {
                 ),
             recentSessionSnapshotSave: recentSessionSnapshotSave,
             audioMuter: audioMuter,
-            temporaryAudioRemover: temporaryAudioRemover
+            temporaryAudioRemover: temporaryAudioRemover,
+            runtimeOverride: runtimeOverride
         )
     }
 
@@ -1524,6 +1559,60 @@ private final class MeteringRecorder: AudioRecording, @unchecked Sendable {
 
     func currentInputLevel() -> Float? { level }
     func captureIsLive() -> Bool { true }
+}
+
+/// A microphone that streams for as long as you like and never delivers a
+/// non-zero sample: `captureIsLive()` stays false, and `stop()` refuses the
+/// recording the way ``MicrophoneRecorder`` does for a capture that heard
+/// nothing.
+private final class SilentRecorder: AudioRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private let reason: String
+    private var stops = 0
+
+    var stopCount: Int { lock.withLock { stops } }
+
+    init(reason: String) {
+        self.reason = reason
+    }
+
+    func start() throws {}
+
+    func stop() async throws -> RecordedAudio {
+        lock.withLock { stops += 1 }
+        throw RecorderError.captureFailed(reason)
+    }
+
+    func discardRecording() async {}
+
+    func currentInputLevel() -> Float? { 0 }
+    func captureIsLive() -> Bool { false }
+}
+
+/// Time that only the metering loop advances: every `sleep` moves the clock by
+/// exactly the interval asked for and returns immediately, so a six-second
+/// deadline is proven in milliseconds and never depends on the host's speed.
+private final class VirtualClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+    private var current = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func elapsed() -> TimeInterval {
+        lock.withLock { current.timeIntervalSince(start) }
+    }
+
+    var runtime: DictationRuntime {
+        DictationRuntime(
+            now: { [self] in lock.withLock { current } },
+            makeUUID: { UUID() },
+            sleep: { [self] nanoseconds in
+                lock.withLock { current.addTimeInterval(TimeInterval(nanoseconds) / 1_000_000_000) }
+                // A closure with no suspension point never yields, and the
+                // metering loop would then starve the main actor it polls on.
+                await Task.yield()
+            }
+        )
+    }
 }
 
 private final class CountingAudioMuter: SystemAudioMuting, @unchecked Sendable {

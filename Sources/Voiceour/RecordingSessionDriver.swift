@@ -14,6 +14,20 @@ extension DictationCoordinator {
     /// Input level and capture liveness are polled every 40 ms.
     static let inputMeterPollNanoseconds: UInt64 = 40_000_000
 
+    /// How long a capture may deliver nothing but digital silence before the
+    /// session is ended and reported.
+    ///
+    /// Liveness is the first non-zero sample, so a microphone that is warming up
+    /// and one that will never arrive look identical until this expires. The
+    /// bound is set by the slowest warm-up measured on real hardware — a
+    /// Continuity iPhone microphone took 3782 ms to deliver its first buffer,
+    /// against 99 ms for a built-in and 551–1422 ms for cold AirPods Max — and
+    /// the failure it catches is permanent, not slow: a built-in microphone in
+    /// clamshell streamed 552 all-zero buffers in six seconds and would have
+    /// streamed them until the user gave up. Without the deadline nothing ends
+    /// the session: `AutoStopDetector` cannot arm until it has heard speech.
+    static let captureWarmUpDeadline: TimeInterval = 6
+
     func beginRecording(generation: AsyncGenerationGate.Token) {
         let snapshot = tracker.snapshot()
         target = snapshot
@@ -102,6 +116,7 @@ extension DictationCoordinator {
         let autoStopEnabled = settings.autoStopEnabled
         let autoStopSilenceMs = settings.autoStopSilenceMs
         let runtime = runtime
+        let startedAt = runtime.now()
         inputMeteringTask = Task { [weak self] in
             var autoStopDetector =
                 autoStopEnabled
@@ -115,8 +130,17 @@ extension DictationCoordinator {
                     guard let self, self.state == .recording else { return false }
                     let level = self.recorder.currentInputLevel() ?? 0
                     self.inputMeter.update(level: level)
-                    if !self.inputMeter.live, self.recorder.captureIsLive() {
-                        self.inputMeter.setLive(true)
+                    if !self.inputMeter.live {
+                        if self.recorder.captureIsLive() {
+                            self.inputMeter.setLive(true)
+                        } else if runtime.now().timeIntervalSince(startedAt) >= Self.captureWarmUpDeadline {
+                            // Through the normal stop, not a bespoke abort: the recorder
+                            // already rejects a capture that heard nothing, and that path
+                            // restores system audio, discards the WAV and reports the
+                            // device by name.
+                            self.stopAndProcess(trigger: .silentCapture)
+                            return false
+                        }
                     }
                     if autoStopDetector?.observe(level: level, at: runtime.now()) == true {
                         // The detector's own last-loud instant is the moment silence began, and

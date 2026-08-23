@@ -95,7 +95,7 @@ scripts/run_real.sh
 
 1. On a fresh cache, confirm the menu reports the 1.26 GB model download percentage and the System tab reports acquisition state. Wait for readiness.
 2. Focus TextEdit and tap Fn/Globe. Grant microphone permission if prompted.
-3. Confirm the island says the microphone is warming until a non-zero audio buffer arrives, then shows the waveform. A cold Bluetooth route may take longer; when a built-in microphone is available, Voiceour deliberately pins capture there.
+3. Confirm the island says the microphone is warming until a non-zero audio buffer arrives, then shows the waveform. A cold Bluetooth route may take longer; when a built-in microphone is available *and the lid is open*, Voiceour deliberately pins capture there. With the lid closed the headset keeps the dictation, because a clamshell built-in array delivers digital silence. A microphone that produces no signal at all ends the session after 6 s with a failure naming the device.
 4. Speak one English utterance and stop once. The app finalizes one WAV and performs one final local decode through the sibling `voiceour-asr` process.
 5. During finalization or transcription, move to another eligible target. Confirm the island follows and delivery uses the target current at insertion time.
 6. Confirm deterministic cleanup and glossary canonicalization preserve protected terms.

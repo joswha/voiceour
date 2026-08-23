@@ -180,13 +180,15 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
                 return (outputURL, frames, latency, converterLostRoute)
             }
 
-        // A capture that failed mid-recording, or one that wrote nothing at all, is
-        // reported rather than transcribed. Both used to reach ASR as a valid-looking
-        // WAV: the model then invents words from silence and the app pastes them.
+        // A capture that failed mid-recording, one that wrote nothing at all, or
+        // one that heard nothing but digital silence is reported rather than
+        // transcribed. All three used to reach ASR as a valid-looking WAV: the
+        // model then invents words from silence and the app pastes them.
         if let error = Self.recordingFailure(
             latched: claimed.failureReason(),
             converterLostRoute: finished.converterLostRoute,
-            frames: finished.frames
+            frames: finished.frames,
+            silentCapture: claimed.hasReceivedAudio() ? nil : Self.silentCaptureReason(claimed.source)
         ) {
             try? FileManager.default.removeItem(at: finished.url)
             throw error
@@ -230,17 +232,48 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     /// header-only WAV transcribes as invented words rather than as nothing.
     /// `converterLostRoute` catches the fourth shape: a device format change the
     /// converter could not follow stops contributing audio mid-utterance, which is
-    /// a silently short recording rather than an empty one.
+    /// a silently short recording rather than an empty one. `silentCapture` catches
+    /// the fifth: a device that streams buffers on time and fills every one of them
+    /// with `0`. That WAV is full length and full of frames, so only the capture's
+    /// own liveness can tell it apart from a recording of a quiet room — a real
+    /// microphone's noise floor is never exactly zero.
     static let routeFollowFailureReason =
         "the microphone's format changed mid-recording and could not be followed"
+
+    /// How a capture that heard nothing describes itself.
+    ///
+    /// A shut lid is named because it is the one cause of a permanently silent
+    /// built-in microphone that the user can act on, and the one the system
+    /// reports nowhere: in clamshell the device stays enumerated, alive, unmuted
+    /// and unsuspended while every sample is `0` (see ``LidState``).
+    static func silentCaptureReason(device: String, isBuiltIn: Bool, lidIsClosed: Bool) -> String {
+        isBuiltIn && lidIsClosed
+            ? "\(device) hears nothing while the lid is closed"
+            : "\(device) delivered no audio"
+    }
+
+    /// The HAL lookup is deliberately on the failure path only: it costs a device
+    /// enumeration, and by here the dictation is already lost.
+    private static func silentCaptureReason(_ source: MicrophoneCapture.Source) -> String {
+        silentCaptureReason(
+            device: source.name,
+            isBuiltIn: CoreAudioInputDevice.all().first { $0.uid == source.uid }?.isBuiltIn ?? false,
+            lidIsClosed: LidState.isClosed()
+        )
+    }
 
     static func recordingFailure(
         latched: String?,
         converterLostRoute: Bool,
-        frames: AVAudioFramePosition
+        frames: AVAudioFramePosition,
+        silentCapture: String?
     ) -> RecorderError? {
         if let latched { return .captureFailed(latched) }
         if converterLostRoute { return .captureFailed(routeFollowFailureReason) }
+        // Ahead of the frame count: a device that delivered nothing but zeros
+        // explains the empty recording, where "no audio was recorded" only
+        // restates it.
+        if let silentCapture { return .captureFailed(silentCapture) }
         if frames <= 0 { return .captureFailed("no audio was recorded") }
         return nil
     }

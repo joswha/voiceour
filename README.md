@@ -154,6 +154,8 @@ Voiceour copies when Accessibility/event-post permission is absent, the destinat
 
 The capture session has started but the microphone has not produced a non-zero buffer yet. Cold Bluetooth routes can deliver digital silence for more than a second. Voiceour waits for real signal before claiming that recording is live.
 
+It cannot say WARMING forever. If no real signal arrives within 6 seconds, the session ends and reports which microphone heard nothing — including the case where a closed lid has silenced the built-in one.
+
 </details>
 
 <details>

@@ -41,10 +41,15 @@ The input path distinguishes “buffer arrived” from “microphone produced si
 
 | selected input | first buffer | first non-zero buffer | all-zero buffers |
 | --- | ---: | ---: | ---: |
-| built-in MacBook microphone | 99 ms | 99 ms | 0 / 375 |
+| built-in MacBook microphone, lid open | 99 ms | 99 ms | 0 / 375 |
+| built-in MacBook microphone, lid closed | 121 ms | never | 552 / 552 |
 | AirPods Max, cold | 143 ms | 1,422 ms | 64 / 197 |
+| AirPods Max, warm | 172 ms | 551 ms | 19 / 292 |
+| Continuity iPhone microphone | 3,782 ms | 3,782 ms | 0 / 21 |
 
 The 1.3-second Bluetooth gap is HFP/SCO warmup filled with digital zeros. It is why the overlay remains in its warming state until the first non-zero buffer instead of declaring the microphone live on callback arrival.
+
+The clamshell row is a different failure and is permanent, not slow: a closed lid silences the built-in array while every HAL and AVFoundation property still reports a healthy device. It sets both the device policy (no Bluetooth-to-built-in redirect with the lid closed) and the need for a warm-up deadline. The Continuity row sets that deadline's floor: 6 s is the smallest bound that cannot cut off a real microphone measured here.
 
 A private historical corpus of 353 dictations measured these capture distributions:
 
