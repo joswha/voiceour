@@ -1279,6 +1279,171 @@ struct DictationCoordinatorTests {
         #expect(quarantined.count == 1)
     }
 
+    /// The lifetime ledger is journaled at exactly the site the transcript is,
+    /// so the two durable records cannot disagree about what happened.
+    @Test func acompletedDictationIsCountedInTheLifetimeLedger() async throws {
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("one two three four five")),
+            dictationStatsStore: stats.store
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.dictationStats.totalSessions == 1)
+        #expect(coordinator.dictationStats.totalWords == 5)
+        #expect(coordinator.dictationStats.totalActiveDays == 1)
+        #expect(coordinator.dictationStats.days.count == 1)
+
+        await coordinator.prepareForTermination()
+        let persisted = try stats.store.load()
+        #expect(persisted == coordinator.dictationStats)
+    }
+
+    /// A secure target reaches neither durable record. The ledger holds only
+    /// counts, but a count is still evidence that something was dictated into a
+    /// password field.
+    @Test func aSecureTargetIsNeverCounted() async throws {
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("correct horse battery staple")),
+            tracker: FakeTracker(bundleId: "com.example.PasswordField", safety: .secure),
+            inserter: FakeInserter(outcome: .copiedOnly(reason: "secure_target")),
+            dictationStatsStore: stats.store
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.lastTranscript == "correct horse battery staple")
+        #expect(coordinator.dictationStats == DictationStatsLedger())
+        #expect(!FileManager.default.fileExists(atPath: stats.store.url.path))
+    }
+
+    /// First launch with a ledger seeds it from the transcripts already on disk,
+    /// so a reader who has been dictating for months does not open Home to a zero.
+    @Test func theFirstLaunchWithoutALedgerBackfillsItFromHistory() async throws {
+        let history = temporarySessionStore()
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        try history.store.save([
+            RecentSession(
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                text: "one two three",
+                stages: SessionStageTimings(captureMs: 4_000)
+            ),
+            RecentSession(
+                createdAt: Date(timeIntervalSince1970: 1_700_086_400),
+                text: "four five",
+                stages: SessionStageTimings(captureMs: 2_000)
+            ),
+            // No measured capture: contributes words with no time rather than an
+            // invented speaking rate.
+            RecentSession(
+                createdAt: Date(timeIntervalSince1970: 1_700_172_800),
+                text: "six"
+            ),
+        ])
+
+        let coordinator = makeCoordinator(
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store
+        )
+
+        #expect(coordinator.dictationStats.totalSessions == 3)
+        #expect(coordinator.dictationStats.totalWords == 6)
+        #expect(coordinator.dictationStats.totalSeconds == 6)
+        #expect(coordinator.dictationStats.totalActiveDays == 3)
+        #expect(coordinator.dictationStats.longestStreakDays == 3)
+
+        await coordinator.prepareForTermination()
+        #expect(try stats.store.load() == coordinator.dictationStats)
+    }
+
+    /// A ledger already on disk is authority: relaunching must not fold the
+    /// journal in a second time and double every total.
+    @Test func anExistingLedgerIsNotBackfilledAgain() async throws {
+        let history = temporarySessionStore()
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        try history.store.save([
+            RecentSession(text: "one two three", stages: SessionStageTimings(captureMs: 4_000))
+        ])
+        var seeded = DictationStatsLedger()
+        seeded.record(words: 900, seconds: 400, day: "2024-01-02")
+        try stats.store.save(seeded)
+
+        let coordinator = makeCoordinator(
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store
+        )
+
+        #expect(coordinator.dictationStats == seeded)
+    }
+
+    /// An unreadable ledger is moved aside like the history file, not silently
+    /// replaced with zeroes.
+    @Test func anUnreadableLedgerIsQuarantinedAndReported() async throws {
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        try FileManager.default.createDirectory(at: stats.directory, withIntermediateDirectories: true)
+        try Data("{ this is not a ledger".utf8).write(to: stats.store.url)
+
+        let coordinator = makeCoordinator(dictationStatsStore: stats.store)
+
+        #expect(coordinator.dictationStats == DictationStatsLedger())
+        #expect(coordinator.errorMessage?.contains("could not be read") == true)
+        #expect(!FileManager.default.fileExists(atPath: stats.store.url.path))
+        let quarantined = try FileManager.default
+            .contentsOfDirectory(atPath: stats.directory.path)
+            .filter { $0.contains("dictation-activity.json.corrupt-") }
+        #expect(quarantined.count == 1)
+    }
+
+    /// Clearing the stats removes the file rather than leaving a document full
+    /// of zeroes behind for the next launch to read.
+    @Test func clearingTheLedgerRemovesItsFile() async throws {
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("one two three")),
+            dictationStatsStore: stats.store
+        )
+
+        await driveUtterance(coordinator)
+        #expect(FileManager.default.fileExists(atPath: stats.store.url.path))
+
+        #expect(await coordinator.clearDictationStats())
+        #expect(coordinator.dictationStats == DictationStatsLedger())
+        #expect(!FileManager.default.fileExists(atPath: stats.store.url.path))
+    }
+
+    /// The retired per-app `dictation-stats.json` is still swept at launch, and
+    /// the ledger this build keeps is a different file the sweep cannot reach.
+    @Test func theRetiredStatsFileIsSweptWithoutTouchingTheLedger() async throws {
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        try FileManager.default.createDirectory(at: history.directory, withIntermediateDirectories: true)
+        let retired = history.directory.appendingPathComponent("dictation-stats.json")
+        try Data("{\"legacy\": true}".utf8).write(to: retired)
+        let ledgerURL = history.directory.appendingPathComponent("dictation-activity.json")
+        var seeded = DictationStatsLedger()
+        seeded.record(words: 11, seconds: 6, day: "2025-02-03")
+        try DictationStatsStore(url: ledgerURL).save(seeded)
+
+        let coordinator = makeCoordinator(
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(url: ledgerURL)
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: retired.path))
+        #expect(FileManager.default.fileExists(atPath: ledgerURL.path))
+        #expect(coordinator.dictationStats == seeded)
+    }
+
     /// A save that cannot land is reported. `try?` made a full disk, a revoked
     /// permission and a successful write indistinguishable.
     @Test func aSettingsSaveFailureIsReported() async throws {
@@ -1402,6 +1567,7 @@ struct DictationCoordinatorTests {
         settingsStore: SettingsStore? = nil,
         hotkey: HotkeyBinding = FakeHotkey(),
         recentSessionStore: RecentSessionStore? = nil,
+        dictationStatsStore: DictationStatsStore? = nil,
         recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
             store, sessions in
             try store.save(sessions)
@@ -1427,6 +1593,15 @@ struct DictationCoordinatorTests {
                         .appendingPathComponent("voiceour-coordinator-tests-\(UUID().uuidString)")
                         .appendingPathComponent("recent-sessions.json")
                 ),
+            // Never the real `~/Library/Application Support` ledger: a test that
+            // seeds history takes the coordinator's one-time backfill path, and
+            // that path writes.
+            dictationStatsStore: dictationStatsStore
+                ?? DictationStatsStore(
+                    url: FileManager.default.temporaryDirectory
+                        .appendingPathComponent("voiceour-coordinator-tests-\(UUID().uuidString)")
+                        .appendingPathComponent("dictation-activity.json")
+                ),
             recentSessionSnapshotSave: recentSessionSnapshotSave,
             audioMuter: audioMuter,
             temporaryAudioRemover: temporaryAudioRemover,
@@ -1444,6 +1619,12 @@ struct DictationCoordinatorTests {
             directory,
             RecentSessionStore(url: directory.appendingPathComponent("recent-sessions.json"), limit: limit)
         )
+    }
+
+    private func temporaryStatsStore() -> (directory: URL, store: DictationStatsStore) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-stats-tests-\(UUID().uuidString)", isDirectory: true)
+        return (directory, DictationStatsStore(url: directory.appendingPathComponent("dictation-activity.json")))
     }
 
     private func makeVocabularyCoordinator(

@@ -47,6 +47,7 @@
         /// "sessions" prefix is historical golden naming, kept deliberately.
         @Test func everyConsoleTabHasASceneGolden() {
             let prefixes: [ConsoleTab: String] = [
+                .home: "console.home.",
                 .general: "console.general.",
                 .glossary: "console.glossary.",
                 .history: "console.sessions.",

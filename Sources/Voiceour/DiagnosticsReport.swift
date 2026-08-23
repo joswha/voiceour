@@ -63,6 +63,7 @@ enum DiagnosticsReport {
         lines.append("STORAGE")
         lines.append("  settings: \(settingsPath)")
         lines.append("  recent sessions: \(recentSessionsPath)")
+        lines.append("  dictation stats: \(dictationStatsPath)")
 
         return lines.joined(separator: "\n") + "\n"
     }
@@ -145,6 +146,10 @@ enum DiagnosticsReport {
 
     private static var recentSessionsPath: String {
         RenderOverrides.recentSessionsPath ?? RecentSessionStore.defaultURL.path
+    }
+
+    private static var dictationStatsPath: String {
+        RenderOverrides.dictationStatsPath ?? DictationStatsStore.defaultURL.path
     }
 
     /// The human sentence inside a backend health payload.

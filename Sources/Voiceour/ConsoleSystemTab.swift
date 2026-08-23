@@ -417,7 +417,7 @@ struct ConsoleSystemTab: View {
         ConsoleRow(
             caption: historyClearFailed
                 ? "Transcript history could not be erased from disk — it will come back on relaunch."
-                : "Clear local transcript history. Settings and glossary terms are kept.",
+                : Self.historyClearSentence,
             captionColor: historyClearFailed ? .red : nil
         ) {
             LabeledContent {
@@ -425,7 +425,7 @@ struct ConsoleSystemTab: View {
                     historyClearFailed = false
                     isConfirmingHistoryClear = true
                 }
-                .disabled(coordinator.recentSessions.isEmpty || isClearingHistory)
+                .disabled(hasNothingToClear || isClearingHistory)
                 .accessibilityIdentifier("system.history.arm")
             } label: {
                 Text("Clear history")
@@ -442,19 +442,34 @@ struct ConsoleSystemTab: View {
                 .accessibilityLabel("Cancel clearing transcript history")
                 .accessibilityIdentifier("system.history.cancel")
         } message: {
-            Text("Clear local transcript history. Settings and glossary terms are kept.")
+            Text(Self.historyClearSentence)
         }
+    }
+
+    /// Named once because the row caption and the confirmation both state it,
+    /// and a destructive action whose two sentences disagree about its scope is
+    /// worse than one that says nothing.
+    private static let historyClearSentence =
+        "Clear local transcript history and the lifetime dictation stats on Home. "
+        + "Settings and glossary terms are kept."
+
+    /// The stats ledger outlives individual transcripts — a reader who deleted
+    /// every row one at a time in History still has counts here — so an empty
+    /// journal alone must not disarm the only control that erases them.
+    private var hasNothingToClear: Bool {
+        coordinator.recentSessions.isEmpty && coordinator.dictationStats == DictationStatsLedger()
     }
 
     private func clearHistory() {
         isClearingHistory = true
         historyClearFailed = false
         Task {
-            let isDurable = await coordinator.clearRecentSessions()
+            let historyCleared = await coordinator.clearRecentSessions()
+            let statsCleared = await coordinator.clearDictationStats()
             isClearingHistory = false
             // A destructive action that half-succeeds must say so: the row reports
             // that the data survived on disk instead of reporting nothing.
-            historyClearFailed = !isDurable
+            historyClearFailed = !(historyCleared && statsCleared)
         }
     }
 

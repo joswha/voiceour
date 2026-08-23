@@ -95,8 +95,8 @@ The production pin is `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303
 
 ## UI rules
 
-- The console is a native four-tab `TabView` of grouped Forms. Start with native controls and confirmation dialogs; do not add custom window/navigation chrome.
-- The bespoke visual system is limited to the menu popover and recording overlay.
+- The console is a native five-tab `TabView`: four grouped Forms plus Home, which is a page of figures rather than a list of settings. Start with native controls and confirmation dialogs; do not add custom window/navigation chrome.
+- The bespoke visual system is limited to the menu popover, the recording overlay, and Home's stats islands.
 - Every new visible static state needs an appropriate `UISceneCatalog` scene; every new interaction journey needs a semantic `UIFlow`.
 - `RenderOverrides` may provide values only at existing production boundaries. Every normal read remains `override ?? realValue`, with false/nil production defaults.
 - The offscreen harness never verifies system material. Use a live or onscreen screenshot check when glass itself changed.

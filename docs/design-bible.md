@@ -1,6 +1,6 @@
 # Voiceour design bible
 
-> **Scope:** current product UI. The native console window deliberately follows macOS. The bespoke visual language applies only to the menu popover and recording overlay.
+> **Scope:** current product UI. The native console window deliberately follows macOS. The bespoke visual language applies to the menu popover, the recording overlay, and the console's Home page.
 
 ## 1. Product shape
 
@@ -10,7 +10,9 @@ Voiceour has three user-visible surfaces:
 2. a compact recording island that follows the active target and stays present through processing;
 3. a native macOS window for settings, vocabulary, history, readiness, privacy, and destructive actions.
 
-The first two surfaces are momentary and identity-bearing, so they keep Voiceour's dark glass treatment. The window is long-lived, form-heavy, and keyboard/VoiceOver intensive, so it uses standard macOS navigation and controls rather than imitating them. Its ground is system glass, which is not the same claim: the material is the platform's, the controls above it are stock, and none of the bespoke tint/rim vocabulary reaches it.
+The first two surfaces are momentary and identity-bearing, so they keep Voiceour's dark glass treatment. The window is long-lived, form-heavy, and keyboard/VoiceOver intensive, so it uses standard macOS navigation and controls rather than imitating them. Its ground is system glass, which is not the same claim: the material is the platform's, the controls above it are stock, and none of the bespoke tint/rim vocabulary reaches the four settings tabs.
+
+Home is the deliberate exception, and it is bounded. It holds no controls to skin — it is a page of figures — so the bespoke vocabulary there cannot cost a control its native behaviour. Its islands are app-drawn because the window ground is already a system material and element glass cannot sample other glass. Everything a reader operates still lives on a native tab.
 
 ## 2. Information architecture
 
@@ -22,16 +24,17 @@ Window("Voiceour", id: "main") {
 }
 ```
 
-`ConsoleWindowView` is a `TabView` containing four grouped forms in this order:
+`ConsoleWindowView` is a `TabView` containing one page and four grouped forms in this order:
 
 | tab | contents |
 | --- | --- |
+| **Home** | lifetime dictation time and words, time saved against a fixed 40 wpm typing baseline, average speaking speed, active days, current and longest streak, and a day-resolution activity grid. |
 | **General** | Fn/Globe gesture, stop-after-silence and dwell, deterministic cleanup, mute-during-capture, and a debug-only ASR picker. |
 | **Glossary** | project lexicon import, canonical terms and aliases, add/edit/remove, and learned suggestions. |
 | **History** | search, day-grouped transcript list, selected transcript detail, copy/delete, and Fix/Teach. |
-| **System** | backend/model readiness, microphone and Accessibility capabilities, remediation links, diagnostics copy, clear history, and clear learned vocabulary. |
+| **System** | backend/model readiness, microphone and Accessibility capabilities, remediation links, diagnostics copy, clear history and stats, and clear learned vocabulary. |
 
-`ConsoleTab` is the shared identity for selection and the development deep link `--console-section=<general|glossary|history|system>`. An explicit flag wins for that launch; otherwise the last-used tab, stored under `console.last-tab`; otherwise General.
+`ConsoleTab` is the shared identity for selection and the development deep link `--console-section=<home|general|glossary|history|system>`. An explicit flag wins for that launch; otherwise the last-used tab, stored under `console.last-tab`; otherwise Home.
 
 The menu item opens the same `Window("Voiceour", id: "main")`; no second settings scene exists.
 
@@ -75,10 +78,13 @@ The surviving bespoke surfaces use one quiet graphite ground and a small semanti
 | mint | successful outcome |
 | amber | degraded or waiting |
 | crimson | failure or destructive action |
+| `Alien.bloom` + heat ladder | Home only: dictation volume and the page's one accent |
 
 One signal color should dominate a view. Cyan means live work, not generic decoration. Amber means the app can proceed only after waiting or with a degraded capability. Crimson names an actual failure or destructive choice. Muted system audio is not an error and stays in the cyan/amber family.
 
-Text roles for these surfaces remain the tokenized 10–17 pt ladder in `DesignTokens.swift`, with monospaced eyebrow/micro labels used sparingly. Do not apply tracked uppercase microcopy to the native window merely to make it resemble the popover.
+`Alien` is Home's dominant signal and appears nowhere else. On that page cyan stays focus-only and neither amber nor crimson appears, so the green never competes with a severity. It is a fill, glyph-tint and glow family only — never a text colour — so every word on Home still resolves through the `Text` ladder and stays inside the harness's contrast rule. Its four heat steps are quartiles of the window's busiest day, and Differentiate Without Color replaces the hue ladder with a size ladder at one hue.
+
+Text roles for these surfaces remain the tokenized 10–17 pt ladder in `DesignTokens.swift` plus the 20/32/64 pt metric ladder for figures, with monospaced eyebrow/micro labels used sparingly. Do not apply tracked uppercase microcopy to the native window merely to make it resemble the popover.
 
 Spacing uses the 4 pt vocabulary (`xs` 4, `sm` 8, `md` 12, `lg` 16, `xl` 24, `xxl` 32). Control heights are 24, 28, 32, and 40 pt. The recording island's 22 pt visual disc inside a 28 pt hit frame is a deliberate exception, not a new grid unit.
 

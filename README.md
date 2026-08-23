@@ -67,9 +67,9 @@ Voiceour needs microphone permission to record. Accessibility trust lets it cons
 | --- | --- |
 | **Menu bar** | Current state, model acquisition, last transcript/outcome, recovery action, start/stop, Open Voiceour, and Quit. |
 | **Recording island** | Microphone warmup, live level, cancel/finish, and processing state. It follows app, display, and Space changes; a manual drag is stored relative to the display. |
-| **Voiceour window** | Four native macOS tabs: **General**, **Glossary**, **History**, and **System**, on a system-glass ground. |
+| **Voiceour window** | Five native macOS tabs: **Home**, **General**, **Glossary**, **History**, and **System**, on a system-glass ground. |
 
-The window uses a native `TabView` and grouped Forms on a glass ground: the material is the system's (Liquid Glass on macOS 26, behind-window vibrancy below it), the controls are stock macOS, and Reduce Transparency swaps the material for a plain window background. General owns capture/cleanup/audio settings; Glossary owns terms and imports; History owns search, transcript detail, copy/delete, and Fix/Teach; System owns readiness, permissions, diagnostics, and destructive clears.
+The window uses a native `TabView` on a glass ground: the material is the system's (Liquid Glass on macOS 26, behind-window vibrancy below it), the controls are stock macOS, and Reduce Transparency swaps the material for a plain window background. Home reports what this Mac has dictated — total time, words, time saved against a 40 wpm typing baseline, average speaking speed, active days, streaks, and an activity grid — on its own dark glass islands. The other four are grouped Forms: General owns capture/cleanup/audio settings; Glossary owns terms and imports; History owns search, transcript detail, copy/delete, and Fix/Teach; System owns readiness, permissions, diagnostics, and destructive clears.
 
 <div align="center">
 <img src="docs/media/menu.png" width="280"
@@ -99,7 +99,8 @@ Voiceour never reads, saves, or restores the previous clipboard. Secure copy use
 - **Network:** exactly one path — acquiring the pinned model from Hugging Face. There is no network text processing.
 - **Processes:** exactly one child — the signed sibling `voiceour-asr` helper. It receives an environment allowlist rather than the full parent environment.
 - **History:** `recent-sessions.json` stores the newest 500 non-secure transcripts, newest first. Clear History removes it.
-- **Corrupt files:** unreadable settings or history are moved alongside themselves with a `.corrupt-<timestamp>` suffix before defaults are used.
+- **Stats:** `dictation-activity.json` stores the counts Home reports — per local day and in total — and nothing that identifies an utterance: no transcript text, no destination app, no session ids. A dictation into a secure field is not counted at all. Clear History removes this too.
+- **Corrupt files:** unreadable settings, history, or stats are moved alongside themselves with a `.corrupt-<timestamp>` suffix before defaults are used.
 - **Audio:** temporary WAVs are removed after success, cancellation, or failure; audio history does not exist.
 - **Secrets:** Voiceour has no credential UI or secret store.
 

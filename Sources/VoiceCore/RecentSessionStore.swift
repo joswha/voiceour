@@ -87,21 +87,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var rawTranscript: String?
     public var stages: SessionStageTimings?
     public var leastConfidentWord: LeastConfidentWord?
-    public var wordCount: Int {
-        var count = 0
-        var isInWord = false
-
-        for character in text {
-            if character.isWhitespace {
-                isInWord = false
-            } else if !isInWord {
-                count += 1
-                isInWord = true
-            }
-        }
-
-        return count
-    }
+    public var wordCount: Int { WordCount.count(in: text) }
 
     enum CodingKeys: String, CodingKey {
         case id

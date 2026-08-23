@@ -234,6 +234,7 @@
             RenderOverrides.timeZone = pinnedTimeZone
             RenderOverrides.settingsPath = Ledger.settingsPath
             RenderOverrides.recentSessionsPath = Ledger.recentSessionsPath
+            RenderOverrides.dictationStatsPath = Ledger.dictationStatsPath
             // Accessibility settings are machine state too. Base scenes explicitly
             // pin the standard presentation; dedicated a11y scenes opt one in.
             RenderOverrides.reduceTransparency = false
@@ -255,6 +256,8 @@
             static let settingsPath = "/Users/harness/Library/Application Support/Voiceour/settings.json"
             static let recentSessionsPath =
                 "/Users/harness/Library/Application Support/Voiceour/recent-sessions.json"
+            static let dictationStatsPath =
+                "/Users/harness/Library/Application Support/Voiceour/dictation-activity.json"
         }
 
         // MARK: Composition
@@ -323,6 +326,12 @@
             // flow that has to defeat the backend-probe TTL asks for a step.
             clockStep: TimeInterval = 0,
             resolveBackendHealth: Bool = true,
+            /// Nil means "match the journal": a fixture with dictations gets the
+            /// fixed lifetime ledger below, one without gets an empty file-less
+            /// ledger. Either way the file's presence is decided here, so no
+            /// fixture ever takes the coordinator's one-time backfill path by
+            /// accident and folds the nine seeded transcripts into its totals.
+            stats: DictationStatsLedger? = nil,
             recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
                 _, _ in
             }
@@ -343,6 +352,10 @@
                 activeASRBackend: backend,
                 settingsStore: SettingsStore(url: scratch.appendingPathComponent("settings.json")),
                 recentSessionStore: seededStore(sessions, in: scratch),
+                dictationStatsStore: seededStatsStore(
+                    stats ?? (sessions.isEmpty ? DictationStatsLedger() : statsLedger),
+                    in: scratch
+                ),
                 recentSessionSnapshotSave: recentSessionSnapshotSave,
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
@@ -419,6 +432,64 @@
             }
             return store
         }
+
+        /// The stats ledger is loaded through its store the same way, so a
+        /// populated fixture writes the fixed lifetime tally below and lets the
+        /// coordinator read it back. An empty ledger writes no file at all,
+        /// which is also what makes the empty Home scene exercise the
+        /// no-file-and-no-journal path rather than the backfill.
+        private static func seededStatsStore(
+            _ ledger: DictationStatsLedger,
+            in scratch: URL
+        ) -> DictationStatsStore {
+            let store = DictationStatsStore(url: scratch.appendingPathComponent("dictation-activity.json"))
+            try? store.save(ledger)
+            return store
+        }
+
+        /// The fixed lifetime tally every populated fixture renders.
+        ///
+        /// Stated literally rather than folded through `record(_:_:_:)`: a
+        /// fixture is data, and deriving it would make a committed golden move
+        /// whenever the fold's ordering rules were touched. The figures are
+        /// mutually consistent — the day buckets sum to the totals, and 23
+        /// distinct days carry one six-day run — and `DictationStatsTests`
+        /// proves separately that `record` computes those same aggregates.
+        ///
+        /// Chosen to exercise every readout at once: today and yesterday are
+        /// empty, so the current streak is 0 while the longest is 6; the
+        /// window's busiest day is a clear outlier, so all four heat levels
+        /// appear; and 2025-06-15 is a Sunday, so the last heatmap column holds
+        /// six days the calendar has not reached yet.
+        static let statsLedger: DictationStatsLedger = {
+            // (days before `pinnedNow`, sessions, words, seconds)
+            let rows: [(Int, Int, Int, Double)] = [
+                (2, 12, 1_800, 840), (3, 9, 1_458, 684), (4, 5, 870, 410),
+                (6, 14, 4_351, 1_232), (7, 7, 1_386, 658), (9, 3, 630, 210),
+                (12, 11, 2_442, 836), (13, 16, 2_400, 2_130), (14, 6, 972, 528),
+                (15, 10, 1_740, 940), (16, 4, 744, 280), (17, 13, 2_574, 988),
+                (20, 8, 1_680, 656), (21, 5, 1_110, 440), (22, 9, 1_350, 846),
+                (23, 12, 1_944, 840), (26, 7, 1_218, 532), (27, 6, 1_116, 492),
+                (31, 10, 1_980, 880), (38, 8, 1_680, 752), (39, 5, 1_110, 350),
+                (45, 4, 600, 304), (52, 6, 972, 492),
+            ]
+            var days: [String: DictationDayStat] = [:]
+            for (offset, sessions, words, seconds) in rows {
+                let key = DictationStatsLedger.dayKey(
+                    for: pinnedNow.addingTimeInterval(-Double(offset) * 86_400),
+                    calendar: pinnedCalendar
+                )
+                days[key] = DictationDayStat(sessions: sessions, words: words, seconds: seconds)
+            }
+            return DictationStatsLedger(
+                totalSessions: 190,
+                totalWords: 36_127,
+                totalSeconds: 16_320,
+                totalActiveDays: 23,
+                longestStreakDays: 6,
+                days: days
+            )
+        }()
 
         // MARK: Settling
 

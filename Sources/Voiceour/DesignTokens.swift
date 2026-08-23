@@ -72,6 +72,37 @@ enum VoiceourPalette {
         static let focusHalo = cyan.opacity(0.25)
     }
 
+    /// Home's one accent. A single dominant signal on that surface: cyan stays
+    /// focus-only there and neither amber nor crimson appears, so the green
+    /// never competes with a severity.
+    ///
+    /// Fills, glyph tints and glows only — never a text colour. Home's text goes
+    /// through the existing `Text` roles, which is what keeps the contrast lint
+    /// meaningful.
+    enum Alien {
+        static let bloom = Color(.sRGB, red: 0.45, green: 1.00, blue: 0.55, opacity: 1.00)
+        /// Activity ladder, darkest to brightest. Four steps because the grid
+        /// scales every day against the window's busiest one in quartiles.
+        static let heat1 = Color(.sRGB, red: 0.07, green: 0.22, blue: 0.12, opacity: 1.00)
+        static let heat2 = Color(.sRGB, red: 0.10, green: 0.38, blue: 0.18, opacity: 1.00)
+        static let heat3 = Color(.sRGB, red: 0.18, green: 0.62, blue: 0.30, opacity: 1.00)
+        static let heat4 = bloom
+        static let bloomGlow = bloom.opacity(0.35)
+        /// A day with no dictation. Deliberately `Plate.rest`: an empty square
+        /// is a plate, not a dark shade of the accent.
+        static let emptyCell = Plate.rest
+
+        static func heat(_ level: Int) -> Color {
+            switch level {
+            case 1: heat1
+            case 2: heat2
+            case 3: heat3
+            case 4...: heat4
+            default: emptyCell
+            }
+        }
+    }
+
     static let specularRim = LinearGradient(
         stops: [
             .init(color: Color.white.opacity(0.55), location: 0.00),
@@ -517,7 +548,10 @@ enum VoiceourMetrics {
     }
 
     enum Shadow {
-        /// The recording overlay island ONLY. Nothing on the content layer casts a shadow.
+        /// The two app-drawn islands ONLY: the recording overlay, and Home's
+        /// stats panes. Native console content casts no shadow — those surfaces
+        /// are AppKit's plates, and painting a shadow under one would be the app
+        /// drawing chrome the system already draws.
         static let overlayOuter: (color: Color, radius: CGFloat, y: CGFloat) =
             (Color.black.opacity(0.26), 18, 6)
         static let overlayInner: (color: Color, radius: CGFloat, y: CGFloat) =

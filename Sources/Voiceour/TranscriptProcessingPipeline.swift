@@ -236,6 +236,18 @@ extension DictationCoordinator {
                 )
                 StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
                 try ensureCurrentProcessing(generation)
+                // Counted exactly where the transcript is journaled, so the two
+                // durable records agree about what happened: a secure target
+                // reaches neither, and every delivery disposition reaches both —
+                // the words were spoken and transcribed whether or not the paste
+                // landed.
+                if sessionID != nil {
+                    await recordDictationStats(
+                        words: WordCount.count(in: finalText),
+                        seconds: Double(audio.meta.durationMs) / 1000
+                    )
+                    try ensureCurrentProcessing(generation)
+                }
             }
 
             let insertStarted = runtime.now()

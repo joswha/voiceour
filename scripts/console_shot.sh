@@ -9,7 +9,7 @@
 # The offscreen harness remains the gate. See docs/ui-harness.md.
 #
 # Usage: scripts/console_shot.sh [tab] [output.png]
-#   tab:    general (default) | glossary | history | system
+#   tab:    home | general (default) | glossary | history | system
 #   output: defaults to .build/console-<tab>.png
 #
 # Two capture modes, because the two jobs want opposite things:

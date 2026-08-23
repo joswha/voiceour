@@ -127,6 +127,19 @@
         private static var consoleScenes: [UISceneDescriptor] {
             [
                 console(
+                    "console.home.populated",
+                    "Home lifetime stats, streaks and the activity grid",
+                    tab: .home,
+                    fixture: .populated
+                ),
+                console(
+                    "console.home.empty",
+                    "Home with nothing dictated yet",
+                    tab: .home,
+                    fixture: .firstRun,
+                    tags: ["empty"]
+                ),
+                console(
                     "console.general.default",
                     "General settings: capture, cleanup and audio",
                     tab: .general,
@@ -263,6 +276,20 @@
                     tab: .system,
                     fixture: .backendUnavailable,
                     adaptation: .differentiateWithoutColor
+                ),
+                accessibilityConsole(
+                    "a11y.home.differentiate",
+                    "Home activity grid with Differentiate Without Color enabled",
+                    tab: .home,
+                    fixture: .populated,
+                    adaptation: .differentiateWithoutColor
+                ),
+                accessibilityConsole(
+                    "a11y.home.reduce-transparency",
+                    "Home islands with Reduce Transparency enabled",
+                    tab: .home,
+                    fixture: .populated,
+                    adaptation: .reduceTransparency
                 ),
             ]
         }

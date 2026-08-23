@@ -43,6 +43,7 @@ enum RenderOverrides {
     /// fixture never contains the developer's home directory.
     static var settingsPath: String?
     static var recentSessionsPath: String?
+    static var dictationStatsPath: String?
 
     /// Pins the recording overlay's per-mount random comet head.
     static var cometHead: CometEmoji?

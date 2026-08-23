@@ -73,6 +73,16 @@
             static let glossaryContent = canonicalTerm
             static let historyContent = sessionSearch
             static let systemContent = UIQuery.id("system.diagnostics.copy")
+            static let homeContent = UIQuery.id("home.hero")
+
+            static let homePrivacyToggle = UIQuery.id("home.privacy.toggle")
+            static let homePrivacyDetail = UIQuery.id("home.privacy.detail")
+            static let homeTimeTile = UIQuery.id("home.tile.time")
+            static let homeWordsTile = UIQuery.id("home.tile.words")
+            static let homeSpeedTile = UIQuery.id("home.tile.wpm")
+            static let homeCurrentStreak = UIQuery.id("home.streak.current")
+            static let homeLongestStreak = UIQuery.id("home.streak.longest")
+            static let homeActivityGrid = UIQuery.id("home.activity.grid")
 
             static func tab(_ tab: ConsoleTab) -> UIQuery {
                 .id("console.tab.\(tab.rawValue)")
@@ -283,12 +293,71 @@
 
         private static var consoleFlows: [UIFlow] {
             [
+                homeStatsFlow,
                 tabNavigationFlow(
                     id: "console.tab.navigation",
                     title: "The native console switches through every tab",
                     tags: ["console", "tab", "navigation"]
-                )
+                ),
             ]
+        }
+
+        /// Home states the fixture ledger's figures, discloses its privacy
+        /// sentence, and still states them after a round trip through another
+        /// tab — the derived values are recomputed on every appearance, so a
+        /// stale or re-zeroed readout would show up here rather than in a
+        /// reader's console.
+        private static var homeStatsFlow: UIFlow {
+            UIFlow(
+                id: "home.stats",
+                title: "Home reports the lifetime ledger and its privacy disclosure",
+                tags: ["console", "home", "stats"],
+                host: .console(.home),
+                fixture: .static(.populated),
+                steps: [
+                    .wait(.element(Selector.homeContent)),
+                    .check(
+                        "figures",
+                        [
+                            .count(Selector.homeContent, .exactly(1)),
+                            .value(Selector.homeTimeTile, .equals("4 hr 32 min")),
+                            .value(Selector.homeWordsTile, .equals("36.1K words")),
+                            .value(Selector.homeSpeedTile, .equals("133 wpm")),
+                            .value(Selector.homeCurrentStreak, .equals("0 days")),
+                            .value(Selector.homeLongestStreak, .equals("6 days")),
+                            .label(
+                                Selector.homeActivityGrid,
+                                .equals(
+                                    "Dictation activity, last 30 weeks: "
+                                        + "23 active days, busiest day 4351 words"
+                                )
+                            ),
+                            .absent(Selector.homePrivacyDetail),
+                        ]
+                    ),
+                    .act(.press(Selector.homePrivacyToggle)),
+                    .wait(.element(Selector.homePrivacyDetail)),
+                    .check(
+                        "disclosed",
+                        [
+                            .count(Selector.homePrivacyDetail, .exactly(1)),
+                            .value(Selector.homePrivacyToggle, .equals("Expanded")),
+                        ]
+                    ),
+                    .act(.navigate(.history)),
+                    .wait(.element(Selector.historyContent)),
+                    .act(.navigate(.home)),
+                    .wait(.element(Selector.homeContent)),
+                    .check(
+                        "returned",
+                        [
+                            .value(Selector.homeTimeTile, .equals("4 hr 32 min")),
+                            .value(Selector.homeWordsTile, .equals("36.1K words")),
+                            .value(Selector.homeLongestStreak, .equals("6 days")),
+                        ]
+                    ),
+                ]
+            )
         }
 
         // MARK: Menu and dictation
@@ -683,14 +752,25 @@
                 id: id,
                 title: title,
                 tags: tags,
-                host: .console(.general),
+                host: .console(.home),
                 fixture: .static(.populated),
                 steps: [
+                    .check(
+                        "home",
+                        [
+                            .count(Selector.homeContent, .exactly(1)),
+                            .value(Selector.tab(.home), .equals("1")),
+                            .absent(Selector.generalContent),
+                        ]
+                    ),
+                    .act(.navigate(.general)),
+                    .wait(.element(Selector.generalContent)),
                     .check(
                         "general",
                         [
                             .count(Selector.generalContent, .exactly(1)),
                             .value(Selector.tab(.general), .equals("1")),
+                            .value(Selector.tab(.home), .equals("0")),
                             .absent(Selector.glossaryContent),
                         ]
                     ),

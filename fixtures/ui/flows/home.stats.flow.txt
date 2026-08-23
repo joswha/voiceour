@@ -1,0 +1,17 @@
+flow: home.stats
+title: Home reports the lifetime ledger and its privacy disclosure
+fixture: static
+transitions: idle
+PASS 1 figures | count id=home.hero exactly 1 | 1 match
+PASS 2 figures | value id=home.tile.time == "4 hr 32 min" | "4 hr 32 min"
+PASS 3 figures | value id=home.tile.words == "36.1K words" | "36.1K words"
+PASS 4 figures | value id=home.tile.wpm == "133 wpm" | "133 wpm"
+PASS 5 figures | value id=home.streak.current == "0 days" | "0 days"
+PASS 6 figures | value id=home.streak.longest == "6 days" | "6 days"
+PASS 7 figures | label id=home.activity.grid == "Dictation activity, last 30 weeks: 23 active days, busiest day 4351 words" | "Dictation activity, last 30 weeks: 23 active days, busiest day 4351 words"
+PASS 8 figures | absent id=home.privacy.detail | 0 matches
+PASS 9 disclosed | count id=home.privacy.detail exactly 1 | 1 match
+PASS 10 disclosed | value id=home.privacy.toggle == "Expanded" | "Expanded"
+PASS 11 returned | value id=home.tile.time == "4 hr 32 min" | "4 hr 32 min"
+PASS 12 returned | value id=home.tile.words == "36.1K words" | "36.1K words"
+PASS 13 returned | value id=home.streak.longest == "6 days" | "6 days"

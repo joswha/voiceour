@@ -108,24 +108,35 @@ Aliases must be unambiguous across canonicals and aliases. Teach, manual add, su
 
 The app writes only its own transcript and never reads, saves, or restores the previous clipboard. A secure delivery target uses a concealed pasteboard item, remains copy-only, and is never written to history.
 
-## History and settings persistence
+## History, stats, and settings persistence
 
 History has one durable file: `recent-sessions.json`. `RecentSessionStore` sorts newest-first and retains the newest 500 transcripts. `RecentSessionJournal` normalizes mutations on the main actor and serializes immutable snapshots through one detached FIFO tail. Settings saves join the same tail, preserving write order and keeping file I/O off the main actor. Clear and delete actions await their exact durable snapshot.
 
-Unreadable `settings.json` or `recent-sessions.json` files are moved alongside themselves as `<name>.corrupt-<ISO8601>` before defaults are used. The coordinator reports the reset and the quarantine filename. Save failures are user-visible rather than discarded.
+Lifetime statistics have a second durable file, `dictation-activity.json`, because a tally cannot live inside a capped corpus: at the 500-transcript cap every new dictation evicts an old one, so totals read off history plateau and then fall. `DictationStatsLedger` holds aggregates only — total sessions, words and seconds, distinct active days, the longest streak, and one bucket per local day — with no transcript text, no per-app breakdown and no session ids. `DictationStatsJournal` folds one dictation at exactly the site `RecentSessionJournal` writes the transcript, so the two records cannot disagree about what happened: a secure delivery target reaches neither, and all three delivery dispositions reach both. Its snapshots join the same FIFO tail, so a snapshot queued behind a clear cannot resurrect counts the reader just erased.
+
+Day buckets are keyed `yyyy-MM-dd` in the recording calendar's local day, formatted without a `DateFormatter` so a locale's numbering system cannot key the same day two ways across launches. `record` measures the whole consecutive run a day sits in rather than only the run ending at it — a fold that arrives out of chronological order would otherwise understate the longest streak with no later dictation able to correct it. Buckets older than 400 days are pruned; totals, the active-day count and the longest streak survive pruning, because they are why the file exists. An empty ledger removes the file instead of writing zeroes.
+
+The first launch with no ledger seeds it once from the transcripts still on disk, so an existing user does not open Home to a zero. Backfill is partial by construction (the journal is capped) and rows without a measured `stages.captureMs` contribute their words with zero seconds rather than an assumed speaking rate. `DictationStatsStore` deliberately does not reuse the name `dictation-stats.json`: that belongs to a deleted per-day, per-app subsystem whose file the coordinator still sweeps off disk at launch, and reusing it would both load an incompatible document and cost that sweep its purpose.
+
+Unreadable `settings.json`, `recent-sessions.json`, or `dictation-activity.json` files are moved alongside themselves as `<name>.corrupt-<ISO8601>` before defaults are used. The coordinator reports the reset and the quarantine filename. Save failures are user-visible rather than discarded.
 
 No audio history exists. Successful, cancelled, failed, and scavenged recordings are removed once their owner is done.
 
 ## Native console window
 
-`Window("Voiceour", id: "main")` hosts `ConsoleWindowView`, a native `TabView` with four `Form(.grouped)` destinations:
+`Window("Voiceour", id: "main")` hosts `ConsoleWindowView`, a native `TabView` with five destinations — four `Form(.grouped)` and one page:
 
-1. **General** — tap gesture, auto-stop and silence, deterministic cleanup, system-audio muting, and the debug-only backend picker.
-2. **Glossary** — project import, canonical terms and aliases, learned suggestions, add/edit/remove actions.
-3. **History** — search, day-grouped transcripts, detail, copy/delete, and Fix/Teach.
-4. **System** — backend/model readiness, permissions and remediation, diagnostics copy, and destructive clear actions.
+1. **Home** — lifetime dictation time, words, time saved against a fixed 40 wpm typing baseline, average speaking speed, the streak row, and a day-resolution activity grid.
+2. **General** — tap gesture, auto-stop and silence, deterministic cleanup, system-audio muting, and the debug-only backend picker.
+3. **Glossary** — project import, canonical terms and aliases, learned suggestions, add/edit/remove actions.
+4. **History** — search, day-grouped transcripts, detail, copy/delete, and Fix/Teach.
+5. **System** — backend/model readiness, permissions and remediation, diagnostics copy, and destructive clear actions.
 
-The scene id and menu open mechanism are unchanged. The console reopens on its last-used tab, stored in `UserDefaults` under `console.last-tab`. The development deep link remains `--console-section=<general|glossary|history|system>`: an explicit tab wins for that launch and is never written back, and an unrecognized value means "no override" so the stored tab still decides. Destructive actions use native confirmation dialogs. The console follows the user's appearance and native control behavior; only the menu popover and recording overlay retain the app's bespoke tint/rim treatment.
+Home is the one non-`Form` tab. Every other tab is a list of settings and readouts, which is what `Form` is for; a page of figures in a grouped form would draw a section plate around each number. It is also the only tab that navigates nowhere, so it takes no selection binding.
+
+The scene id and menu open mechanism are unchanged. Home leads the tab bar and is the fresh-launch default; the console still reopens on its last-used tab, stored in `UserDefaults` under `console.last-tab`. The development deep link remains `--console-section=<home|general|glossary|history|system>`: an explicit tab wins for that launch and is never written back, and an unrecognized value means "no override" so the stored tab still decides. Destructive actions use native confirmation dialogs. The console follows the user's appearance and native control behavior; only the menu popover, the recording overlay, and Home's stats islands retain the app's bespoke tint/rim treatment.
+
+Home's islands are app-drawn rather than `.glassEffect` surfaces for the same reason the window ground is not one: element glass cannot sample other glass. They paint `Ink.pane` over a `Ink.void` base, `glassTint`, a specular rim, and an `Alien` neon rim — a blurred stroke, not a drop shadow, because a coloured shadow behind translucent fills showed through the pane and tinted the whole island. Each island publishes its own `surfaceGround` so the harness's contrast lint resolves text against what is actually painted, and stays fixed-dark in both system appearances because it carries its own text ladder.
 
 The window's ground is system glass. `ConsoleGlassGround` is the single decision: `NSGlassEffectView(style: .regular)` on macOS 26, behind-window `NSVisualEffectView(material: .underWindowBackground)` below it, and an opaque `windowBackgroundColor` under Reduce Transparency or `RenderOverrides.forceLegacyGlass`. The material's view clears `NSWindow.isOpaque` and `backgroundColor` — the documented preconditions for `.behindWindow` sampling — and touches nothing else about the window. `.scrollContentBackground(.hidden)` is applied once to the `TabView` and propagates to every `Form`, the History list and its nested scrollers; without it the grouped Forms paint the opaque scroll background and the ground is never seen. Section plates, insets and control styling are untouched, so text sits on native plates rather than on the sampled desktop, and the accessibility tree is unchanged (the ground is `accessibilityHidden`).
 

@@ -219,6 +219,9 @@
                 recentSessionStore: RecentSessionStore(
                     url: scratch.appendingPathComponent("recent-sessions.json")
                 ),
+                dictationStatsStore: DictationStatsStore(
+                    url: scratch.appendingPathComponent("dictation-activity.json")
+                ),
                 recentSessionSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime

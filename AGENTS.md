@@ -15,7 +15,8 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 - **Capture target** — app/window context snapshotted before recording; it selects app-scoped vocabulary.
 - **Delivery target** — app/window/control context snapshotted immediately before persistence and insertion, then identity-checked again by the inserter.
 - **Cleanup** — deterministic filler removal and glossary canonicalization. It is the only text-processing stage after ASR.
-- **Console** — the native `Window("Voiceour", id: "main")` containing General, Glossary, History, and System tabs.
+- **Console** — the native `Window("Voiceour", id: "main")` containing Home, General, Glossary, History, and System tabs.
+- **Lifetime ledger** — `dictation-activity.json`: aggregate counts per local day, read by Home. Never the retired `dictation-stats.json`, which is still swept off disk at launch.
 - **Secure delivery** — concealed pasteboard copy, never Cmd-V and never a History row.
 
 ## Repository structure
@@ -24,7 +25,7 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 | --- | --- |
 | `Sources/VoiceCore/` | Foundation-only settings, state, cleanup, glossary, ASR wire types, history models, failure presentation, and safety policy. |
 | `Sources/VoiceMac/` | AVFoundation/AppKit/CoreGraphics adapters: recording, fake audio, sidecar process client, targets, pasteboard insertion, permissions, hotkeys, and muting. |
-| `Sources/Voiceour/` | SwiftUI menu, overlay, four-tab console, persistence journal, and coordinator/pipeline orchestration. |
+| `Sources/Voiceour/` | SwiftUI menu, overlay, five-tab console, Home stats islands, persistence journal, and coordinator/pipeline orchestration. |
 | `Sources/Voiceour/UIHarness/` | Compile-gated scene renderer, AX dump, PNG digest, lint, semantic flow runner, and NDJSON reports. |
 | `Sources/ASRSidecarCore/` | Model cache, WAV loading, Parakeet context/token mapping, fake/real sidecar backends, and server. |
 | `Sources/VoiceourASR/` | `voiceour-asr` executable entry point. |
@@ -47,9 +48,9 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 - Preserve dependency injection around recording, ASR, target tracking, insertion, permissions, hotkeys, muting, settings, and recent sessions. Fake development and tests depend on substitutable services.
 - Production defaults to `parakeet`; `fake` is deterministic development infrastructure and a debug-only choice.
 - The sidecar is the only child process. The pinned model acquisition is the only network path.
-- The console is native macOS: one `TabView`, four grouped Forms, standard controls, and native confirmation dialogs. Do not create custom window/navigation chrome.
+- The console is native macOS: one `TabView`, four grouped Forms and one Home page, standard controls, and native confirmation dialogs. Do not create custom window/navigation chrome. Home is the one non-`Form` tab: it is a page of figures, not a list of settings.
 - The console window's ground is a *system* material behind unmodified native controls: `NSGlassEffectView(style: .regular)` on macOS 26, behind-window `NSVisualEffectView(material: .underWindowBackground)` below it. It paints no app-palette colour, it clears only `NSWindow.isOpaque` and `backgroundColor`, and Reduce Transparency replaces it with `windowBackgroundColor`. Content keeps its native section plates: text never sits directly on a sampled desktop.
-- Bespoke glass styling — the app's own tint, rim and shadow vocabulary — is limited to the menu popover and recording overlay.
+- Bespoke glass styling — the app's own tint, rim and shadow vocabulary — is limited to the menu popover, the recording overlay, and Home's stats islands. Home islands are app-drawn on purpose: element glass cannot sample the window's own glass ground, so they paint `Ink.pane` + `glassTint` + a specular rim + an `Alien` neon rim rather than stacking a second material. They stay fixed-dark in both system appearances and declare their own `surfaceGround` so contrast lint resolves text against what is actually painted.
 
 ## Runtime flow
 
@@ -134,8 +135,9 @@ This app touches the user's microphone, active workspace, clipboard, and keyboar
 - Secure output carries the concealed marker, remains copy-only, and creates no `recent-sessions.json` row.
 - Ordinary paste attempts carry the transient marker. Other copy-only output remains plain string.
 - Never persist audio. Remove temporary files after success, cancellation, error, and stale-file scavenging.
-- History is one local file, newest 500. Settings/history load failures quarantine the unreadable file as `<name>.corrupt-<ISO8601>` and report the reset.
-- Settings saves and history snapshots share the ordered persistence tail. Do not suppress write failures.
+- History is one local file, newest 500. Settings, history, and lifetime-ledger load failures quarantine the unreadable file as `<name>.corrupt-<ISO8601>` and report the reset.
+- Settings saves, history snapshots, and ledger snapshots share the one ordered persistence tail. Do not suppress write failures.
+- The lifetime ledger is folded at exactly the site the transcript is journaled, so the two durable records cannot disagree: a secure target reaches neither, every delivery disposition reaches both. It keeps aggregate counts per local day, prunes day buckets past 400 days while preserving totals, active-day count and the longest streak, and removes its file when emptied. First launch without a ledger seeds it once from the transcripts still on disk; rows with no measured `captureMs` contribute words with zero seconds rather than an invented speaking rate. The System tab's Clear History erases both.
 - Durable mute ownership survives launch when the recorded device UID cannot currently resolve; clear it only after a real restore attempt can be made.
 
 ## Glossary rules
@@ -216,7 +218,7 @@ Benchmark commands must retain `uv --no-config`. Do not run real model or microp
 
 `Voiceour --ui-harness` is compiled only with `-DUI_HARNESS`. It renders real SwiftUI into a borderless offscreen window, captures via `NSHostingView.cacheDisplay`, dumps in-process AX, lints, compares scene digests/dumps, and runs semantic journeys that write `.flow.txt` journals.
 
-Current scene inventory covers General, Glossary, History, System, menu, overlay, accessibility adaptations, and representative macOS 26 menu/overlay branches. Flows cover the four tabs and core delivered/copy-only/cancel/error journeys. Use `make ui-list` and `make ui-flow-list` as authoritative inventories.
+Current scene inventory covers Home, General, Glossary, History, System, menu, overlay, accessibility adaptations, and representative macOS 26 menu/overlay branches. Flows cover the five tabs and core delivered/copy-only/cancel/error journeys. Use `make ui-list` and `make ui-flow-list` as authoritative inventories.
 
 Load-bearing measured invariants:
 

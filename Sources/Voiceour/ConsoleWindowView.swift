@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The console's four destinations.
+/// The console's five destinations.
 ///
 /// Identity type for the window's tab selection and for the development-only
 /// `--console-section=<name>` deep link, so both spell a destination the same
 /// way. Ordered as the tab bar renders them.
 enum ConsoleTab: String, CaseIterable, Hashable {
+    case home
     case general
     case glossary
     case history
@@ -14,6 +15,7 @@ enum ConsoleTab: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
+        case .home: "Home"
         case .general: "General"
         case .glossary: "Glossary"
         case .history: "History"
@@ -23,6 +25,7 @@ enum ConsoleTab: String, CaseIterable, Hashable {
 
     var symbol: String {
         switch self {
+        case .home: "sparkles"
         case .general: "slider.horizontal.3"
         case .glossary: "text.book.closed"
         case .history: "clock.arrow.circlepath"
@@ -31,14 +34,14 @@ enum ConsoleTab: String, CaseIterable, Hashable {
     }
 }
 
-/// The console window: a native `TabView` over four grouped `Form`s.
+/// The console window: a native `TabView` over Home and four grouped `Form`s.
 ///
 /// This replaces a bespoke shell — a left rail, a pane registry, glass window
 /// chrome and a private row/segment/confirm component library — that spent
 /// ~2200 lines drawing surfaces AppKit already draws, and drawing them in a way
 /// VoiceOver and Full Keyboard Access had to be taught about row by row. The
 /// content is unchanged; every setting, readout, remediation and destructive
-/// action the rail's five panes carried is on one of these four tabs.
+/// action the rail's five panes carried is on one of the four settings tabs.
 ///
 /// The glass came back, from the other end: the *ground* is a system material
 /// (``ConsoleGlassGround``) and the controls above it are stock. What is gone for
@@ -60,11 +63,11 @@ struct ConsoleWindowView: View {
     private let persistsSelection: Bool
 
     /// `initialTab` nil means "no override": the window opens on the last-used
-    /// tab, falling back to `.general` on first launch, and persists every
+    /// tab, falling back to `.home` on first launch, and persists every
     /// selection change.
     init(coordinator: DictationCoordinator, initialTab: ConsoleTab?) {
         self.coordinator = coordinator
-        _tab = State(initialValue: initialTab ?? Self.storedTab() ?? .general)
+        _tab = State(initialValue: initialTab ?? Self.storedTab() ?? .home)
         externalTab = nil
         persistsSelection = (initialTab == nil)
     }
@@ -94,6 +97,10 @@ struct ConsoleWindowView: View {
 
     var body: some View {
         TabView(selection: externalTab ?? $tab) {
+            ConsoleHomeTab(coordinator: coordinator)
+                .tabItem { tabLabel(.home) }
+                .tag(ConsoleTab.home)
+
             ConsoleGeneralTab(coordinator: coordinator)
                 .tabItem { tabLabel(.general) }
                 .tag(ConsoleTab.general)

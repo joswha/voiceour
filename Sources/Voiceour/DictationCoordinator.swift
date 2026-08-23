@@ -58,6 +58,9 @@ public final class DictationCoordinator {
     public private(set) var backendHealth: ASRBackendHealth?
     public private(set) var backendHealthError: String?
     public internal(set) var recentSessions: [RecentSession] = []
+    /// Lifetime dictation counts, published for the Home tab. Aggregates only:
+    /// the transcripts themselves live in `recentSessions`, which is capped.
+    public internal(set) var dictationStats = DictationStatsLedger()
     public internal(set) var isSystemAudioMuted: Bool = false
     /// True when the last capture asked for a mute the output device could not
     /// provide. Sticky until the next capture answers the question again.
@@ -85,6 +88,7 @@ public final class DictationCoordinator {
     private let settingsStore: SettingsStore
     let recentSessionStore: RecentSessionStore
     let recentSessionSnapshotSave: @Sendable (RecentSessionStore, [RecentSession]) throws -> Void
+    let dictationStatsStore: DictationStatsStore
     let audioMuter: SystemAudioMuting
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
@@ -145,6 +149,7 @@ public final class DictationCoordinator {
         activeASRBackend: String? = nil,
         settingsStore: SettingsStore = SettingsStore(),
         recentSessionStore: RecentSessionStore = RecentSessionStore(),
+        dictationStatsStore: DictationStatsStore = DictationStatsStore(),
         recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
             store, sessions in
             try store.save(sessions)
@@ -166,14 +171,15 @@ public final class DictationCoordinator {
         self.settingsStore = settingsStore
         self.recentSessionStore = recentSessionStore
         self.recentSessionSnapshotSave = recentSessionSnapshotSave
+        self.dictationStatsStore = dictationStatsStore
         self.audioMuter = audioMuter
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
-        // A history file that cannot be read is moved aside, not overwritten: the
-        // next snapshot would otherwise replace it with an empty list and destroy
-        // whatever was still recoverable. `errorMessage` is set below, after the
-        // hotkey wiring, because the property is only meaningful once the
-        // coordinator exists.
+        // Two durable files, both moved aside rather than overwritten when they
+        // cannot be read: the next snapshot would otherwise replace them with
+        // empty state and destroy whatever was still recoverable. `errorMessage`
+        // is set below, after the hotkey wiring, because the property is only
+        // meaningful once the coordinator exists.
         var loadFailure: String?
         do {
             self.recentSessions = try recentSessionStore.load()
@@ -184,11 +190,27 @@ public final class DictationCoordinator {
                 moved.map { "Dictation history could not be read — kept as \($0.lastPathComponent)." }
                 ?? "Dictation history could not be read and could not be set aside."
         }
+        let statsFileExisted = FileManager.default.fileExists(atPath: dictationStatsStore.url.path)
+        do {
+            self.dictationStats = try dictationStatsStore.load()
+        } catch {
+            self.dictationStats = DictationStatsLedger()
+            let moved = quarantineUnreadableVoiceourState(at: dictationStatsStore.url)
+            // Never overwrite a history quarantine already reported above: two
+            // corrupt files is one launch, one line, and the transcripts are the
+            // loss worth naming.
+            loadFailure =
+                loadFailure
+                ?? moved.map { "Dictation stats could not be read — kept as \($0.lastPathComponent)." }
+                ?? "Dictation stats could not be read and could not be set aside."
+        }
         // One-time migration: durable state of two deleted subsystems. Left on
-        // disk, `dictation-stats.json` is a per-day, per-app record of every
-        // dictation the user cannot see, edit or clear from any surface that still
-        // exists, and `omp-rpc/` is a credential-adjacent home directory for a
-        // refiner subprocess this build never spawns. Removal is best-effort and
+        // disk, the retired `dictation-stats.json` is a per-day, per-app record
+        // of every dictation — with transcript quotes in it — that no surface can
+        // show or clear, and `omp-rpc/` is a credential-adjacent home directory
+        // for a refiner subprocess this build never spawns. The lifetime ledger
+        // this build keeps is a different, smaller file (see
+        // `DictationStatsStore`), so this sweep stays. Removal is best-effort and
         // silent: neither is load-bearing, and a failure must not cost a launch.
         let supportDirectory = recentSessionStore.url.deletingLastPathComponent()
         for retired in ["dictation-stats.json", "omp-rpc"] {
@@ -207,6 +229,13 @@ public final class DictationCoordinator {
             }
         }
         self.errorMessage = loadFailure
+        // First launch with a ledger: seed it from the transcripts still on
+        // disk, so a reader who has been dictating for months does not open Home
+        // to a zero. The journal is capped at 500 rows, so this recovers a
+        // partial history and every dictation after it is counted exactly once.
+        if !statsFileExisted {
+            backfillDictationStats()
+        }
         refreshTarget()
     }
 

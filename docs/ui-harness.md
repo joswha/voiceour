@@ -76,7 +76,7 @@ Update mode writes only payloads that changed and reports them as `written`; ide
 
 `UISceneCatalog` is organized around current product surfaces:
 
-- the four native console tabs: General, Glossary, History, and System, including empty, search, permission, acquisition, and confirmation states;
+- the five native console tabs: Home, General, Glossary, History, and System, including empty, search, permission, acquisition, and confirmation states;
 - the menu popover at rest, after an error, and with a transcript;
 - the recording panel and island while recording or waiting for real microphone signal;
 - accessibility adaptations for Reduce Transparency, Increase Contrast, and Differentiate Without Color;
@@ -106,7 +106,7 @@ The core journeys are:
 - an ASR failure;
 - menu transcript copying;
 - recording controls and microphone warmup;
-- settings, glossary, history search/delete, and System recovery actions across the four tabs.
+- settings, glossary, history search/delete, System recovery actions, and Home's lifetime figures and privacy disclosure across the five tabs.
 
 Asynchronous boundaries are explicit named gates released by the script. Waits are bounded run-loop pump counts, never wall-clock deadlines. Artifact strings may not contain live dates, durations, UUIDs, process ids, or machine paths. Production seams are value seams supplied at existing boundaries; shipping behavior must follow the same path.
 

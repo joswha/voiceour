@@ -23,6 +23,17 @@ struct ConsoleTabPersistenceTests {
         #expect(ConsoleWindowView.storedTab(in: defaults) == .history)
         ConsoleWindowView.storeTab(.system, in: defaults)
         #expect(ConsoleWindowView.storedTab(in: defaults) == .system)
+        ConsoleWindowView.storeTab(.home, in: defaults)
+        #expect(ConsoleWindowView.storedTab(in: defaults) == .home)
+    }
+
+    /// Home is the tab bar's first destination and the fresh-launch default, so
+    /// a reader who has never opened the console lands on the page that explains
+    /// what the app has done for them rather than on its settings.
+    @Test func homeLeadsTheTabBarAndIsTheFreshDefault() {
+        #expect(ConsoleTab.allCases.first == .home)
+        #expect(ConsoleTab(rawValue: "home") == .home)
+        #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=home"]) == .home)
     }
 
     @Test func junkStoredValueReadsAsNoAnswer() throws {
