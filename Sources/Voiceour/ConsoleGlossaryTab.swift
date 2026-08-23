@@ -30,6 +30,21 @@ struct ConsoleGlossaryTab: View {
         let showsProtected = terms.contains { !$0.protected }
 
         Form {
+            Section {
+                ConsoleGlossaryComposer(
+                    term: $newTerm,
+                    aliases: $newAliases,
+                    failure: addFailure,
+                    add: addTerm
+                )
+            } header: {
+                Text("Add a term")
+            } footer: {
+                ConsoleCaption(
+                    "Also heard as is optional. Case and spacing variants of the term are matched automatically."
+                )
+            }
+
             Section("Project lexicon") {
                 projectLexiconRow
             }
@@ -43,7 +58,7 @@ struct ConsoleGlossaryTab: View {
                     } description: {
                         Text(
                             "A canonical term is the spelling Voiceour holds a word to when dictation keeps hearing "
-                                + "it wrong. Add the first one below, or import a project word list."
+                                + "it wrong. Add the first one above, or import a project word list."
                         )
                     }
                 } else {
@@ -61,15 +76,11 @@ struct ConsoleGlossaryTab: View {
             } header: {
                 Text("Terms")
             } footer: {
-                ConsoleCaption(
-                    "Case and spacing variants (\u{201C}ns pasteboard\u{201D}, \u{201C}n s pasteboard\u{201D}) are "
-                        + "matched automatically from the canonical. Add DETECTED AS entries only when "
-                        + "speech-to-text heard a genuinely different phrase (\u{201C}cube cuddle\u{201D} for kubectl)."
-                )
-            }
-
-            Section("Add a term") {
-                addRow
+                if !terms.isEmpty {
+                    ConsoleCaption(
+                        "When editing a term, add an alternate only if dictation heard a different phrase."
+                    )
+                }
             }
 
             if !coordinator.pendingSuggestions.isEmpty {
@@ -168,41 +179,6 @@ struct ConsoleGlossaryTab: View {
 
     // MARK: Add a term
 
-    private var addRow: some View {
-        ConsoleRow(caption: addFailure, captionColor: addFailure.map { _ in Color.orange }) {
-            LabeledContent {
-                TextField("Canonical term", text: $newTerm)
-                    .autocorrectionDisabled(true)
-                    .frame(width: VoiceourMetrics.Column.glossaryCanonical)
-                    .onSubmit(addTerm)
-                    .accessibilityIdentifier("glossary.add-term.canonical")
-            } label: {
-                Text("Canonical")
-            }
-
-            LabeledContent {
-                TextField("Detected as (comma-separated)", text: $newAliases)
-                    .autocorrectionDisabled(true)
-                    .frame(width: VoiceourMetrics.Column.glossaryAliases)
-                    .onSubmit(addTerm)
-                    .accessibilityIdentifier("glossary.add-term.aliases")
-            } label: {
-                Text("Detected as")
-            }
-
-            HStack {
-                Spacer(minLength: 0)
-                Button {
-                    addTerm()
-                } label: {
-                    Label("Add Term", systemImage: "plus")
-                }
-                .disabled(newTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("glossary.add-term.submit")
-            }
-        }
-    }
-
     /// The duplicate refusal and the ambiguous-alias refusal are the same kind of
     /// answer to the same gesture, so they share one line rather than stacking
     /// two warnings under one composer.
@@ -277,6 +253,83 @@ struct ConsoleGlossaryTab: View {
             coordinator.settings.glossary.removeAll { $0.termId == term.termId }
         }
         coordinator.saveSettings()
+    }
+}
+
+// MARK: - Add-term composer
+
+/// Visible, labeled fields so adding a term is one type-and-return. Form
+/// `LabeledContent` was collapsing the wells into 16 pt caret slivers.
+private struct ConsoleGlossaryComposer: View {
+    @Binding var term: String
+    @Binding var aliases: String
+    var failure: String?
+    var add: () -> Void
+
+    @FocusState private var focused: Field?
+
+    private enum Field: Hashable {
+        case term
+        case aliases
+    }
+
+    var body: some View {
+        ConsoleRow(caption: failure, captionColor: failure.map { _ in Color.orange }) {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                composerField(
+                    title: "Term",
+                    prompt: "kubectl",
+                    text: $term,
+                    field: .term,
+                    identifier: "glossary.add-term.canonical"
+                )
+                composerField(
+                    title: "Also heard as",
+                    prompt: "cube cuddle",
+                    text: $aliases,
+                    field: .aliases,
+                    identifier: "glossary.add-term.aliases"
+                )
+                HStack {
+                    Spacer(minLength: 0)
+                    Button("Add", action: submit)
+                        .disabled(term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Add term")
+                        .accessibilityIdentifier("glossary.add-term.submit")
+                }
+            }
+        }
+    }
+
+    private func composerField(
+        title: String,
+        prompt: String,
+        text: Binding<String>,
+        field: Field,
+        identifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField(title, text: text, prompt: Text(prompt))
+                .font(.body.monospaced())
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
+                .autocorrectionDisabled(true)
+                .labelsHidden()
+                .focused($focused, equals: field)
+                .onSubmit(submit)
+                .accessibilityIdentifier(identifier)
+        }
+    }
+
+    private func submit() {
+        add()
+        if term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            focused = .term
+        }
     }
 }
 
