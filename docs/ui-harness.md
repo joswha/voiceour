@@ -136,7 +136,7 @@ There are two distinct measured failures:
 1. Legacy behind-window `NSVisualEffectView` has no desktop behind the offscreen window to sample, so it rasterizes as a flat opaque fill. This also prevents wallpaper-dependent goldens.
 2. SwiftUI `.glassEffect` is not rasterized by `cacheDisplay` at all; its area is absent/transparent rather than flattened. A measured native island capture was 0.0% opaque and 59.3% fully transparent.
 
-An `os26` scene therefore verifies app-owned paint, geometry, controls, and accessibility on the native branch, not system material. Use `scripts/console_shot.sh` for a real onscreen, WindowServer-composited material check; it requires Screen Recording permission and disrupts focus.
+An `os26` scene therefore verifies app-owned paint, geometry, controls, and accessibility on the native branch, not system material. The console's ground follows the same rule from the other side: portable console scenes pin `forceLegacyGlass`, so they render `ConsoleGlassGround`'s opaque `windowBackgroundColor` branch and never construct the AppKit material; the `console.tab.navigation.os26` flow releases the pin and does construct `NSGlassEffectView` offscreen, where it asserts semantics rather than pixels. For a real WindowServer-composited material check run `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh <tab>`, which captures the window's screen rectangle; the script's default window-id capture returns the window's own backing store, in which a behind-window material is a flat fill with no trace of what it samples.
 
 `cacheDisplay` also drops Core Animation blur and shadow filters. Do not “fix” these limitations by weakening determinism or ordering the harness window.
 

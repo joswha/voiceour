@@ -10,7 +10,7 @@ Voiceour has three user-visible surfaces:
 2. a compact recording island that follows the active target and stays present through processing;
 3. a native macOS window for settings, vocabulary, history, readiness, privacy, and destructive actions.
 
-The first two surfaces are momentary and identity-bearing, so they keep Voiceour's dark glass treatment. The window is long-lived, form-heavy, and keyboard/VoiceOver intensive, so it uses standard macOS navigation and controls rather than imitating them.
+The first two surfaces are momentary and identity-bearing, so they keep Voiceour's dark glass treatment. The window is long-lived, form-heavy, and keyboard/VoiceOver intensive, so it uses standard macOS navigation and controls rather than imitating them. Its ground is system glass, which is not the same claim: the material is the platform's, the controls above it are stock, and none of the bespoke tint/rim vocabulary reaches it.
 
 ## 2. Information architecture
 
@@ -41,6 +41,8 @@ The window uses native `TabView`, `Form(.grouped)`, `Section`, `Toggle`, `Picker
 
 Do not add custom window chrome, navigation chrome, control skins, cards around every section, or a forced dark appearance. The window must inherit the user's appearance, accent color, keyboard focus behavior, control metrics, VoiceOver semantics, Reduce Motion, Reduce Transparency, and Full Keyboard Access behavior from macOS.
 
+The window ground is the one surface the app supplies, and it supplies a *system* material: `NSGlassEffectView(style: .regular)` on macOS 26, behind-window `NSVisualEffectView(material: .underWindowBackground)` below it, `windowBackgroundColor` under Reduce Transparency. It may clear `NSWindow.isOpaque` and `backgroundColor` and nothing else — no style mask, level, titlebar, movability or appearance override — and it may not tint, rim or shadow. Native section plates stay: readable text over a sampled desktop is the plates' job, not the material's.
+
 App-owned styling in the window is narrow:
 
 - monospaced text where a value is genuinely code-like;
@@ -57,7 +59,7 @@ Destructive actions use native confirmation dialogs with a visible title and exp
 
 At idle the menu-bar app uses `.accessory`. While the console is visible it promotes to `.regular` so the user can return through Cmd-Tab, then returns to `.accessory` when the window closes.
 
-`ConsoleWindowView.managesActivationPolicy` must remain false when launch passes `--no-activate` or the process is `.prohibited`. This is required by the screenshot tool and offscreen harness.
+`ConsoleWindowView.managesActivationPolicy` must remain false when launch passes `--no-activate` or the process is `.prohibited`. This is required by the screenshot tool's default mode and the offscreen harness; the tool's composited mode deliberately activates instead.
 
 ## 4. Bespoke visual vocabulary
 
@@ -147,7 +149,7 @@ A static state must remain understandable with all motion disabled.
 
 The offscreen harness is authoritative for app-owned paint, geometry, accessibility, lint, and semantic journeys. Portable scenes force the painted path through `RenderOverrides.forceLegacyGlass`; native `os26` scenes release it.
 
-It cannot prove system material. Behind-window `NSVisualEffectView` becomes a flat fill without a desktop sample, while SwiftUI `.glassEffect` is absent from `cacheDisplay`. Use `scripts/console_shot.sh` or a live app for composited-material review, and use [`ui-harness.md`](ui-harness.md) for the measured activation and raster constraints.
+It cannot prove system material. Behind-window `NSVisualEffectView` becomes a flat fill without a desktop sample, while SwiftUI `.glassEffect` is absent from `cacheDisplay`. Use `scripts/console_shot.sh` — which captures the window's screen rectangle, not its backing store — or a live app for composited-material review, and use [`ui-harness.md`](ui-harness.md) for the measured activation and raster constraints.
 
 Review rules:
 

@@ -61,9 +61,9 @@ scripts/console_shot.sh history .build/console-history.png
 scripts/console_shot.sh system .build/console-system.png
 ```
 
-The script builds the fake app, launches `--show-console --no-activate --console-section=<tab>`, captures the window, and quits it. Current tab names are `general`, `glossary`, `history`, and `system`; an unrecognized value means "no override", so the launch opens on the stored last-used tab (or General). This path still places a real window onscreen and needs Screen Recording permission for the controlling terminal.
+The script builds the fake app, launches `--show-console --console-section=<tab>`, captures the window, and quits it. Current tab names are `general`, `glossary`, `history`, and `system`; an unrecognized value means "no override", so the launch opens on the stored last-used tab (or General). This path places a real window onscreen and needs Screen Recording permission for the controlling terminal.
 
-`--no-activate` suppresses `ConsoleWindowView`'s normal promotion from `.accessory` to `.regular`, but the show-console notification still activates the app to open the window. The flag reduces the focus disruption; it cannot eliminate it.
+It captures by window id by default, which excludes everything behind the window — right for a committed illustration, but the console's ground is a behind-window material, so it rasterises as a flat fill there. `CONSOLE_SHOT_COMPOSITED=1` captures the window's screen rectangle instead and shows the real glass; that mode needs the window frontmost and unobstructed, drops `--no-activate`, and puts whatever is behind the window into the image.
 
 ## Run the real Parakeet app
 

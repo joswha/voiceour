@@ -67,9 +67,9 @@ Voiceour needs microphone permission to record. Accessibility trust lets it cons
 | --- | --- |
 | **Menu bar** | Current state, model acquisition, last transcript/outcome, recovery action, start/stop, Open Voiceour, and Quit. |
 | **Recording island** | Microphone warmup, live level, cancel/finish, and processing state. It follows app, display, and Space changes; a manual drag is stored relative to the display. |
-| **Voiceour window** | Four native macOS tabs: **General**, **Glossary**, **History**, and **System**. |
+| **Voiceour window** | Four native macOS tabs: **General**, **Glossary**, **History**, and **System**, on a system-glass ground. |
 
-The window uses a native `TabView` and grouped Forms. General owns capture/cleanup/audio settings; Glossary owns terms and imports; History owns search, transcript detail, copy/delete, and Fix/Teach; System owns readiness, permissions, diagnostics, and destructive clears.
+The window uses a native `TabView` and grouped Forms on a glass ground: the material is the system's (Liquid Glass on macOS 26, behind-window vibrancy below it), the controls are stock macOS, and Reduce Transparency swaps the material for a plain window background. General owns capture/cleanup/audio settings; Glossary owns terms and imports; History owns search, transcript detail, copy/delete, and Fix/Teach; System owns readiness, permissions, diagnostics, and destructive clears.
 
 <div align="center">
 <img src="docs/media/menu.png" width="280"

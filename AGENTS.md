@@ -48,7 +48,8 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 - Production defaults to `parakeet`; `fake` is deterministic development infrastructure and a debug-only choice.
 - The sidecar is the only child process. The pinned model acquisition is the only network path.
 - The console is native macOS: one `TabView`, four grouped Forms, standard controls, and native confirmation dialogs. Do not create custom window/navigation chrome.
-- Bespoke glass styling is limited to the menu popover and recording overlay.
+- The console window's ground is a *system* material behind unmodified native controls: `NSGlassEffectView(style: .regular)` on macOS 26, behind-window `NSVisualEffectView(material: .underWindowBackground)` below it. It paints no app-palette colour, it clears only `NSWindow.isOpaque` and `backgroundColor`, and Reduce Transparency replaces it with `windowBackgroundColor`. Content keeps its native section plates: text never sits directly on a sampled desktop.
+- Bespoke glass styling — the app's own tint, rim and shadow vocabulary — is limited to the menu popover and recording overlay.
 
 ## Runtime flow
 

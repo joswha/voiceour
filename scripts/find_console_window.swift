@@ -1,6 +1,8 @@
 // Prints the CGWindowID of Voiceour's largest on-screen window (the console),
-// or nothing if it is not open. Window ids/bounds/owner are available without
-// Screen Recording permission; only pixel capture (screencapture) needs it.
+// or, with `--rect`, that window's screen rectangle as `x,y,w,h` for
+// `screencapture -R`. Nothing is printed if the window is not open. Window
+// ids/bounds/owner are available without Screen Recording permission; only pixel
+// capture (screencapture) needs it.
 import CoreGraphics
 import Foundation
 
@@ -9,7 +11,7 @@ guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String:
     exit(1)
 }
 
-struct Candidate { let id: Int; let area: CGFloat }
+struct Candidate { let id: Int; let rect: CGRect }
 
 let best = list.compactMap { info -> Candidate? in
     guard (info[kCGWindowOwnerName as String] as? String) == "Voiceour" else { return nil }
@@ -20,9 +22,14 @@ let best = list.compactMap { info -> Candidate? in
           let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { return nil }
     // Skip the menu-bar status item / tiny windows; the console is large.
     guard rect.height > 300 else { return nil }
-    return Candidate(id: id, area: rect.width * rect.height)
-}.max { $0.area < $1.area }
+    return Candidate(id: id, rect: rect)
+}.max { ($0.rect.width * $0.rect.height) < ($1.rect.width * $1.rect.height) }
 
-if let best {
+guard let best else { exit(0) }
+
+if CommandLine.arguments.contains("--rect") {
+    let rect = best.rect
+    print("\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))")
+} else {
     print(best.id)
 }

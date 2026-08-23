@@ -40,6 +40,11 @@ enum ConsoleTab: String, CaseIterable, Hashable {
 /// content is unchanged; every setting, readout, remediation and destructive
 /// action the rail's five panes carried is on one of these four tabs.
 ///
+/// The glass came back, from the other end: the *ground* is a system material
+/// (``ConsoleGlassGround``) and the controls above it are stock. What is gone for
+/// good is the app drawing chrome — rails, cards, segment skins, a forced dark
+/// scheme — which is what VoiceOver and Full Keyboard Access were paying for.
+///
 /// The window keeps its scene id (`main`), so the menu-bar item's
 /// `openWindow(id:)` and the `--show-console` launch notification still reach
 /// it, and it keeps the appearance the user chose: the panes this replaces
@@ -105,6 +110,15 @@ struct ConsoleWindowView: View {
                 .tabItem { tabLabel(.system) }
                 .tag(ConsoleTab.system)
         }
+        // One application, not four: the scroll modifiers propagate through the
+        // environment, so this reaches every `Form` on every tab and the History
+        // list and its nested scrollers with one decision. Without it the four
+        // grouped Forms keep painting the system's opaque scroll background and
+        // the ground below is never seen. Section plates, row insets and control
+        // styling are untouched — the content still sits on native plates, which
+        // is what keeps text legible over a sampled desktop.
+        .scrollContentBackground(.hidden)
+        .background(ConsoleGlassGround())
         .onChange(of: tab) {
             guard persistsSelection else { return }
             Self.storeTab(tab)

@@ -9,12 +9,13 @@ enum LaunchOptions {
     }
 
     /// `--no-activate` stops the console window from promoting the app to `.regular`
-    /// and calling `NSApp.activate` in `ConsoleWindowView.onAppear`. `scripts/console_shot.sh`
-    /// passes it to shrink its focus blip; it cannot remove it, because the window still
-    /// has to be onscreen to be screenshotted and the show-console notification handler
-    /// in `MenuBarLabel.body`'s `.onReceive` (`MenuBarLabel.swift`) still activates. The offscreen UI harness needs no flag at all — it is
-    /// covered by the `.prohibited` branch of the same guard. A normal user launch never
-    /// passes this, so clicking the menu bar item still hands over a focused window.
+    /// and calling `NSApp.activate` in `ConsoleWindowView.onAppear`. The offscreen UI
+    /// harness needs no flag at all — it is covered by the `.prohibited` branch of the
+    /// same guard. `scripts/console_shot.sh` passes it to shrink its focus blip, and
+    /// cannot in its composited mode, which needs the window frontmost to capture the
+    /// glass ground; the relaunch path forwards whichever flags it was started with.
+    /// A normal user launch never passes this, so clicking the menu bar item still
+    /// hands over a focused window.
     static var suppressActivation: Bool {
         CommandLine.arguments.contains("--no-activate")
     }
