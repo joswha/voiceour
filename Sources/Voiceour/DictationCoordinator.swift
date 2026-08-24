@@ -679,31 +679,70 @@ public final class DictationCoordinator {
         }
     }
 
-    /// Explicitly teaches a canonical term (Teach UI). Sanitizes the surfaces,
-    /// upserts the term at `scope`, and, when a non-empty `misheard` is given,
-    /// records it as a confirmed alias so future dictation canonicalizes it.
-    /// Suggestion-only phase: never edits existing text.
+    /// The one write for a term the user authored or edited by hand. The Glossary
+    /// row's editor and History's Teach both land here, so a term created by
+    /// either is the same record.
+    ///
+    /// `termId` is the caller's claim about what it showed. A non-nil id means the
+    /// caller listed the whole set of spoken forms, so `spokenForms` IS the set and
+    /// a form the user deleted in the editor is gone. A nil id means the caller
+    /// listed nothing — History's teach names a canonical it may never have seen —
+    /// so the forms are added to whatever term already holds that spelling in that
+    /// scope, never substituted for its own. That distinction is the whole reason
+    /// the additive branch confirms each form instead of setting the list:
+    /// teaching `cube control` onto bundled `kubectl` must not delete the two
+    /// surfaces kubectl ships with.
     ///
     /// An existing term keeps the provenance it already had. Teaching a surface
     /// onto a shipped term makes the *alias* the user's, not the term, and
     /// rewriting `source` here used to hand the whole shipped entry to
     /// `clearLearnedVocabulary`, which then deleted a bundled default the user
     /// had only ever added a mishearing to.
-    public func teachCorrection(canonical: String, misheard: String?, scope: VocabularyScope) {
-        guard let cleanCanonical = VocabularySanitizer.sanitize(canonical) else { return }
-        let cleanMisheard: String? = {
-            guard let misheard, !misheard.isEmpty else { return nil }
-            return VocabularySanitizer.sanitize(misheard)
-        }()
+    ///
+    /// Suggestion-only phase: never edits text that was already inserted.
+    ///
+    /// A rename that lands on a spelling another term in the same scope already
+    /// holds is refused rather than merged: two rows with one canonical make
+    /// canonicalization depend on term order, and the second row is unreachable
+    /// in a list that names terms by their spelling. The same canonical in a
+    /// different scope stays legal — that is what scoping is for.
+    ///
+    /// - Returns: `false` when the canonical sanitizes to nothing, when the new
+    ///   spelling already belongs to another term in that scope, or when
+    ///   `commitGlossary` refuses the proposal. Nothing is written in any of the
+    ///   three cases. The two refusals name themselves in `glossaryNotice`; an
+    ///   unusable canonical is the caller's own empty field and sets no notice.
+    @discardableResult
+    public func commitTerm(
+        termId: String?,
+        canonical: String,
+        spokenForms: [String],
+        scope: VocabularyScope
+    ) -> Bool {
+        guard let cleanCanonical = VocabularySanitizer.sanitize(canonical) else { return false }
+        let cleanForms = spokenForms.compactMap { VocabularySanitizer.sanitize($0) }
         let key = cleanCanonical.lowercased()
         var proposed = settings.glossary
-        if let index = proposed.firstIndex(where: {
+        if let termId, let index = proposed.firstIndex(where: { $0.termId == termId }) {
+            if let clash = proposed.first(where: {
+                $0.termId != termId && $0.tombstonedAt == nil
+                    && $0.scope == scope && $0.canonical.lowercased() == key
+            }) {
+                glossaryNotice = "“\(clash.canonical)” is already a term. Open it to add a spoken form."
+                return false
+            }
+            var term = proposed[index]
+            term.canonical = cleanCanonical
+            term.scope = scope
+            term.tombstonedAt = nil
+            proposed[index] = TermMutation.settingAliases(cleanForms, on: term)
+        } else if let index = proposed.firstIndex(where: {
             $0.canonical.lowercased() == key && $0.scope == scope
         }) {
             var term = proposed[index]
             term.tombstonedAt = nil
-            if let cleanMisheard {
-                term = TermMutation.confirmingAlias(cleanMisheard, on: term)
+            for form in cleanForms {
+                term = TermMutation.confirmingAlias(form, on: term)
             }
             proposed[index] = term
         } else {
@@ -714,12 +753,12 @@ public final class DictationCoordinator {
                 source: .explicitCorrection,
                 scope: scope
             )
-            if let cleanMisheard {
-                term = TermMutation.confirmingAlias(cleanMisheard, on: term)
+            for form in cleanForms {
+                term = TermMutation.confirmingAlias(form, on: term)
             }
             proposed.append(term)
         }
-        commitGlossary(proposed)
+        return commitGlossary(proposed)
     }
 
     /// Accepts a pending suggestion: confirms the misheard surface as an alias

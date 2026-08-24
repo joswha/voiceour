@@ -965,6 +965,10 @@ struct ConsoleTeachEditor: View {
     @State private var canonical = ""
     @State private var misheard = ""
     @State private var scope: Scope = .global
+    /// The reason the last teach was refused, kept so the editor can stay open on
+    /// the text the user typed. A refusal used to close the editor silently and
+    /// throw the term away.
+    @State private var refusal: String?
     @FocusState private var focused: Field?
 
     private enum Field: Hashable {
@@ -1038,9 +1042,11 @@ struct ConsoleTeachEditor: View {
             }
 
             ConsoleCaption(
-                "Teaches future dictation only — this never edits text already pasted. Case and spacing variants "
-                    + "are matched automatically; add a detected surface only when dictation heard the term "
-                    + "differently."
+                refusal
+                    ?? ("Teaches future dictation only — this never edits text already pasted. Case and spacing "
+                        + "variants are matched automatically; add a detected surface only when dictation heard "
+                        + "the term differently."),
+                color: refusal.map { _ in Color.red }
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1137,15 +1143,25 @@ struct ConsoleTeachEditor: View {
         externalPrefill = nil
     }
 
+    /// Teaches the term, or keeps the editor open on the refusal. History lists
+    /// no form set — it names a canonical the glossary may already hold — so it
+    /// commits with a nil `termId` and the surface is added, never substituted
+    /// for the term's own.
     private func submit() {
         let trimmedCanonical = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCanonical.isEmpty else { return }
         let trimmedMisheard = misheard.trimmingCharacters(in: .whitespacesAndNewlines)
-        coordinator.teachCorrection(
-            canonical: trimmedCanonical,
-            misheard: trimmedMisheard.isEmpty ? nil : trimmedMisheard,
-            scope: resolvedScope
-        )
+        guard
+            coordinator.commitTerm(
+                termId: nil,
+                canonical: trimmedCanonical,
+                spokenForms: trimmedMisheard.isEmpty ? [] : [trimmedMisheard],
+                scope: resolvedScope
+            )
+        else {
+            refusal = coordinator.glossaryNotice
+            return
+        }
         reset()
     }
 
@@ -1157,6 +1173,7 @@ struct ConsoleTeachEditor: View {
         canonical = ""
         misheard = ""
         scope = .global
+        refusal = nil
         focused = nil
         isEditing = false
         externalPrefill = nil
