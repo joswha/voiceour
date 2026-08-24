@@ -31,7 +31,7 @@ Window("Voiceour", id: "main") {
 | **Home** | lifetime dictation time and words, time saved against a fixed 40 wpm typing baseline, average speaking speed, active days, current and longest streak, and a day-resolution activity grid. |
 | **General** | Fn/Globe gesture, stop-after-silence and dwell, deterministic cleanup, mute-during-capture, and a debug-only ASR picker. |
 | **Glossary** | project lexicon import, canonical terms and aliases, add/edit/remove, and learned suggestions. |
-| **History** | search, day-grouped transcript list, selected transcript detail, copy/delete, and Fix/Teach. |
+| **History** | search, day-grouped transcript list, and one buttonless transcript open under the row that selected it — click the text to copy it, select and press ⌘T to teach a correction, and reach copy/teach/delete for the whole record from the row's context menu. |
 | **System** | backend/model readiness, microphone and Accessibility capabilities, remediation links, diagnostics copy, clear history and stats, and clear learned vocabulary. |
 
 `ConsoleTab` is the shared identity for selection and the development deep link `--console-section=<home|general|glossary|history|system>`. An explicit flag wins for that launch; otherwise the last-used tab, stored under `console.last-tab`; otherwise Home.
@@ -53,6 +53,8 @@ App-owned styling in the window is narrow:
 - explanatory sentences through `ConsoleCaption`;
 - restrained row spacing through `ConsoleRow`;
 - selected transcript fill and transcript detail grouping where native Form alone does not express master/detail state.
+
+A detail whose only control is its own text needs the gestures named where they are performed: one line under the transcript states them, and the same line reports the copy confirmation and names the selection ⌘T will teach. A control that has no button must still say what it does.
 
 These helpers shape content, not chrome. A new window control should begin as a stock macOS control. A custom treatment needs an interaction or semantic requirement that the native control cannot satisfy.
 
@@ -147,7 +149,7 @@ A static state must remain understandable with all motion disabled.
 - Every interactive element needs a stable, human label and enough help to explain a nonstandard outcome.
 - State is never color-only. Chips/marks carry words; Differentiate Without Color adds symbols.
 - Explanatory captions are siblings, not folded into a control's accessibility label.
-- Selectable transcript text remains selectable and copyable without collapsing child controls into one accessibility element.
+- Selectable transcript text remains selectable and copyable without collapsing child controls into one accessibility element. Where a gesture is the only way to reach a behavior, the same element publishes it as a named accessibility action — the History transcript carries `Copy transcript` and `Teach a correction`, because VoiceOver can neither click into a text view nor drag a selection — and a completed gesture posts an announcement rather than relying on a mark appearing somewhere on the page.
 - Reduce Transparency, Increase Contrast, Differentiate Without Color, and Reduce Motion must be represented in harness scenes where they alter app-owned drawing.
 - Unknown permission is not failure. Accessibility denial is degraded copy-only behavior, not a crimson fatal state. Microphone denial is fatal because no audio can enter the pipeline.
 

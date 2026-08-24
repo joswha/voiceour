@@ -46,16 +46,20 @@
             static let midListTranscriptText =
                 "Golden files must never encode the developer's display profile."
             static let midListTranscript = UIQuery.value(midListTranscriptText)
-            // A row publishes no identifier and one combined label — stamp, outcome word,
-            // word count, then the preview — so the preview text is the only handle on it.
-            // The well publishes that same text as a value and never as a label, so exactly
-            // one node's label contains it.
+            // A closed row publishes no identifier and one combined label — stamp,
+            // outcome word, word count, then the preview — so the preview text is the
+            // only handle on it. Nothing else carries that text as a label: the open
+            // row drops its preview and the well publishes the text as a value, so
+            // exactly one node's label contains it.
             static let midListRow = UIQuery.labelContains(midListTranscriptText)
 
-            // The detail has no buttons: the transcript is the control. A synthetic
-            // click on it copies, which is what `copy.confirms` drives.
+            // The detail has no buttons: the transcript is the control. Neither
+            // gesture on it can be delivered here — a plain click is refused by an
+            // `NSTextView` in an inactive app, and Command-T is offered only to a key
+            // window, which this one can never become. `sessions.detail.in-place`
+            // therefore asserts the well and the line that names both gestures, and
+            // the gestures themselves are verified in the real app.
             static let detailTranscript = UIQuery.id("sessions.detail.transcript")
-            static let detailCopied = UIQuery.id("sessions.detail.copied")
 
             static let canonicalTerm = UIQuery.id("glossary.add-term.canonical")
             static let aliases = UIQuery.id("glossary.add-term.aliases")

@@ -374,14 +374,17 @@ struct ConsoleHistoryTab: View {
                     Spacer(minLength: VoiceourMetrics.Space.sm)
                 }
 
-                // Two lines, not one: one line of a dictated sentence is rarely
-                // enough to recognise it by, and the whole text is one row below
-                // for the selected session anyway. Full text in every row would
-                // turn 500 retained transcripts into 500 paragraphs.
-                Text(previewText(for: session))
-                    .lineLimit(2)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Two lines on a closed row: one line of a dictated sentence is
+                // rarely enough to recognise it by, and the full text in every row
+                // would turn 500 retained transcripts into 500 paragraphs. The open
+                // row carries none, because the well one row below holds the whole
+                // text — the preview above it was the same sentence twice.
+                if !isSelected {
+                    Text(previewText(for: session))
+                        .lineLimit(2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(.vertical, VoiceourMetrics.Space.xs)
             .padding(.horizontal, VoiceourMetrics.Space.sm)
@@ -399,7 +402,7 @@ struct ConsoleHistoryTab: View {
         // must not be handed less.
         .opacity(recedes ? closedRowOpacity : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(for: session))
+        .accessibilityLabel(accessibilityLabel(for: session, includesPreview: !isSelected))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         // The record-level commands, on the record. They used to sit on the
         // transcript, where they competed with the text view's own menu — the one
@@ -451,7 +454,11 @@ struct ConsoleHistoryTab: View {
     /// carries the outcome word because the row is now the transcript's only
     /// heading: the detail below it no longer repeats the stamp, the outcome or the
     /// word count that are already here.
-    private func accessibilityLabel(for session: RecentSession) -> String {
+    ///
+    /// The preview belongs to that sentence only while the row is closed. The open
+    /// row's well publishes the entire transcript as its own value one element
+    /// later, so appending the preview here would read the same words twice.
+    private func accessibilityLabel(for session: RecentSession, includesPreview: Bool) -> String {
         var parts = [SessionsFormatters.timestamp.string(from: session.createdAt)]
         if let outcome = session.outcome {
             parts.append(outcome.chip.label)
@@ -460,7 +467,9 @@ struct ConsoleHistoryTab: View {
         if session.mutedDuringCapture {
             parts.append("recorded with system audio muted")
         }
-        parts.append(previewText(for: session))
+        if includesPreview {
+            parts.append(previewText(for: session))
+        }
         return parts.joined(separator: ", ")
     }
 
