@@ -59,11 +59,24 @@ struct ConsoleHomeTab: View {
         )
     }
 
+    /// Home ranks the five destinations that receive the most dictations. Five
+    /// because the island is a ranking, not a directory: a reader learns where
+    /// their speech goes from the leaders, and a sixth row only lengthens the
+    /// page.
+    private var topApps: [DictationAppFigure] {
+        DictationStatsCalculator.topApps(of: coordinator.dictationStats, limit: 5)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xl) {
                 hero
                 statsIsland(summary)
+                // Absent rather than empty on a Mac with nothing to rank: an
+                // island headed "Top apps" over no rows states nothing.
+                if !topApps.isEmpty {
+                    topAppsIsland(topApps)
+                }
                 activityIsland(summary)
             }
             .frame(maxWidth: VoiceourMetrics.Content.table, alignment: .leading)
@@ -184,6 +197,26 @@ struct ConsoleHomeTab: View {
                     .accessibilityIdentifier("home.tile.wpm")
                 }
             }
+        }
+    }
+
+    private func topAppsIsland(_ figures: [DictationAppFigure]) -> some View {
+        HomeIsland {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
+                Text("Top apps")
+                    .roleStyle(.label)
+                    .foregroundStyle(a11y.textMid)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("home.apps.title")
+
+                ForEach(figures) { figure in
+                    HomeAppRow(figure: figure)
+                }
+            }
+            // No identifier on the stack: an identifier on a container replaces
+            // the one on every element inside it, which cost the heading its own
+            // id and gave all five rows the same one. The rows are addressed by
+            // label, exactly as History's are.
         }
     }
 

@@ -339,6 +339,28 @@ struct VoiceCoreTests {
         #expect(session.stages == nil)
     }
 
+    @Test func recentSessionOutcomeWrittenBeforeAppNamesDecodesNilName() throws {
+        let legacyJSON = """
+            {
+              "id": "00000000-0000-0000-0000-000000000105",
+              "createdAt": 42,
+              "text": "delivered before names were persisted",
+              "outcome": {
+                "disposition": "paste_attempted",
+                "targetSafety": "normalText",
+                "targetBundleId": "com.apple.TextEdit"
+              }
+            }
+            """
+
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(legacyJSON.utf8))
+        let outcome = try #require(session.outcome)
+
+        #expect(outcome.targetBundleId == "com.apple.TextEdit")
+        #expect(outcome.targetAppName == nil)
+        #expect(AppDisplayName.label(bundleId: outcome.targetBundleId, name: outcome.targetAppName) == "TextEdit")
+    }
+
     @Test func recentSessionStageTimingsRoundTrip() throws {
         let stages = SessionStageTimings(
             captureMs: 2_400,
@@ -438,7 +460,8 @@ struct VoiceCoreTests {
             disposition: .copiedOnly,
             reason: "target_terminal",
             targetSafety: .terminal,
-            targetBundleId: "com.apple.Terminal"
+            targetBundleId: "com.apple.Terminal",
+            targetAppName: "Terminal"
         )
 
         try store.save([

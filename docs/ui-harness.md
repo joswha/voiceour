@@ -76,7 +76,7 @@ Update mode writes only payloads that changed and reports them as `written`; ide
 
 `UISceneCatalog` is organized around current product surfaces:
 
-- the five native console tabs: Home, General, Glossary, History, and System, including empty, search, permission, acquisition, and confirmation states;
+- the five native console tabs: Home, General, Glossary, History, and System, including empty, search, app-filtered, permission, acquisition, and confirmation states;
 - the menu popover at rest, after an error, and with a transcript;
 - the recording panel and island while recording or waiting for real microphone signal;
 - accessibility adaptations for Reduce Transparency, Increase Contrast, and Differentiate Without Color;
@@ -92,7 +92,7 @@ Scene rules:
 4. Avoid perpetual animation in scenes. Fixed run-loop pumping makes an active animation intentionally time-dependent.
 5. Add or update the closest existing scene for a new observable static state; do not create a second fixture convention.
 
-`RenderOverrides` currently pins time, calendar/locale/time zone, permission answers, storage paths, the overlay comet, accessibility adaptations, the seeded transcript selection (`transcriptSelectionSurface`) and History's opening selection (`historyStartsDeselected`, which renders the tab as a reader who closed the transcript sees it), the portable glass branch, and text-role recording. Every field is inert in production.
+`RenderOverrides` currently pins time, calendar/locale/time zone, permission answers, storage paths, the overlay comet, accessibility adaptations, the seeded transcript selection (`transcriptSelectionSurface`), History's opening selection (`historyStartsDeselected`, which renders the tab as a reader who closed the transcript sees it) and History's opening app filter (`historyInitialAppFilter`, which renders the tab narrowed to one destination), the portable glass branch, and text-role recording. Every field is inert in production.
 
 ## Semantic flows
 
@@ -110,6 +110,8 @@ The core journeys are:
 - History's search filter and its clearing, and the selected transcript opening inside its own day group with the line that names its gestures.
 
 History's two gestures have no flow of their own, and this is measured rather than an omission. Copying is a plain click on the transcript, and `NSTextView` refuses first mouse in an app that is not active, so a synthetic click reached nothing and the pasteboard seam recorded no write. Teaching is ⌘T or the text view's own context menu, and `-performKeyEquivalent:` is offered only to the key window, which the offscreen window can never become. `sessions.detail.in-place` therefore asserts exactly one transcript well plus the instruction line that states both gestures, the `console.sessions.selection` and `console.sessions.deselected` scenes lock the open and closed states of the tab, and the gestures themselves are verified in the real app.
+
+History's app filter has no flow either, for the same measured reason: engaging it opens an `NSMenu` popup, and a window that can never order front cannot show one. `console.sessions.filtered` pins the filtered state instead — the engaged control, the `N of M sessions match` caption, the surviving rows and the open transcript naming its target — and the menu itself and the row's `Show Only <App>` command are verified in the real app.
 
 Asynchronous boundaries are explicit named gates released by the script. Waits are bounded run-loop pump counts, never wall-clock deadlines. Artifact strings may not contain live dates, durations, UUIDs, process ids, or machine paths. Production seams are value seams supplied at existing boundaries; shipping behavior must follow the same path.
 

@@ -29,6 +29,10 @@ struct ConsoleHistoryTab: View {
     /// later reload may reopen one behind their back.
     @State private var hasSeededSelection = RenderOverrides.historyStartsDeselected
     @State private var searchText = ""
+    /// The one app history is narrowed to, or nil for every app. Pinned by the
+    /// harness because an `NSMenu` popup cannot be driven offscreen.
+    @State private var appFilter: String? = RenderOverrides.historyInitialAppFilter
+    @State private var appFacets: [RecentSessionAppFacet] = []
     @FocusState private var searchFocused: Bool
 
     // Derived data cached as @State snapshots, recomputed on appear and when the
@@ -116,6 +120,9 @@ struct ConsoleHistoryTab: View {
         .onChange(of: searchText) {
             reloadDerivedData()
         }
+        .onChange(of: appFilter) {
+            reloadDerivedData()
+        }
         .onChange(of: selectedSessionID) { _, newSelection in
             pendingFixTeachPrefill = nil
             isTeaching = false
@@ -155,9 +162,17 @@ struct ConsoleHistoryTab: View {
     }
 
     private func reloadDerivedData() {
+        appFacets = RecentSessionQuery.appFacets(in: coordinator.recentSessions)
+        // A filtered app whose every row was just deleted or cleared would leave
+        // the list narrowed to nothing with no offered way back, so the filter
+        // falls away with its last row.
+        if let appFilter, !appFacets.contains(where: { $0.bundleId == appFilter }) {
+            self.appFilter = nil
+        }
         let filtered = RecentSessionQuery.matches(
             in: coordinator.recentSessions,
             query: query,
+            appBundleId: appFilter,
             timestamp: { SessionsFormatters.timestamp.string(from: $0) },
             dayHeader: { SessionsFormatters.dayHeader.string(from: $0) }
         )
@@ -231,9 +246,13 @@ struct ConsoleHistoryTab: View {
                     .accessibilityLabel("Clear search")
                     .accessibilityIdentifier("sessions.search.clear")
                 }
+
+                if !appFacets.isEmpty {
+                    appFilterMenu
+                }
             }
 
-            if !query.isEmpty {
+            if !query.isEmpty || appFilter != nil {
                 ConsoleCaption("\(filteredSessions.count) of \(coordinator.recentSessions.count) sessions match")
             }
         }
@@ -246,6 +265,51 @@ struct ConsoleHistoryTab: View {
                     .onAppear { publishColumn(proxy.frame(in: .global)) }
                     .onChange(of: proxy.frame(in: .global)) { _, frame in publishColumn(frame) }
             }
+        )
+    }
+
+    /// Narrows the list to one delivery target. A menu rather than a row of
+    /// chips: the number of apps a reader dictates into is theirs, not this
+    /// layout's, and the control keeps one width whether it offers two apps or
+    /// twenty.
+    private var appFilterMenu: some View {
+        Menu {
+            Picker("Filter by app", selection: $appFilter) {
+                Text("All Apps").tag(String?.none)
+                ForEach(appFacets) { facet in
+                    Text("\(facetLabel(facet)) (\(facet.count))").tag(String?.some(facet.bundleId))
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: VoiceourMetrics.Space.xs) {
+                Image(
+                    systemName: appFilter == nil
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill"
+                )
+                if let appFilter {
+                    Text(activeFilterLabel(appFilter)).lineLimit(1)
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Show sessions from one app")
+        .accessibilityLabel(appFilter.map { "Filtering by \(activeFilterLabel($0))" } ?? "Filter by app")
+        .accessibilityIdentifier("sessions.filter")
+    }
+
+    private func facetLabel(_ facet: RecentSessionAppFacet) -> String {
+        AppDisplayName.label(bundleId: facet.bundleId, name: facet.name)
+    }
+
+    /// The engaged filter's label, resolved through the facets so it names the
+    /// app the same way the menu just did.
+    private func activeFilterLabel(_ bundleId: String) -> String {
+        AppDisplayName.label(
+            bundleId: bundleId,
+            name: appFacets.first { $0.bundleId == bundleId }?.name
         )
     }
 
@@ -278,13 +342,23 @@ struct ConsoleHistoryTab: View {
         }
     }
 
+    /// Empty results imply a non-empty query: a filter validated against the
+    /// facets can never rule out every row on its own. It can still be the
+    /// reason a query found nothing, so it is named and offered back.
     private var noMatches: some View {
         ContentUnavailableView {
-            Text("Nothing matches \u{201C}\(query)\u{201D}")
+            if let appFilter {
+                Text("Nothing matches \u{201C}\(query)\u{201D} in \(activeFilterLabel(appFilter))")
+            } else {
+                Text("Nothing matches \u{201C}\(query)\u{201D}")
+            }
         } description: {
             Text("Search runs over transcript text, timestamps and day names.")
         } actions: {
             Button("Clear Search") { searchText = "" }
+            if appFilter != nil {
+                Button("Show All Apps") { appFilter = nil }
+            }
         }
     }
 
@@ -371,6 +445,15 @@ struct ConsoleHistoryTab: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
+                    // Where it went. The outcome mark beside it says how the
+                    // text was delivered; this says what received it.
+                    if let bundleId = session.outcome?.targetBundleId {
+                        Text(appLabel(for: session, bundleId: bundleId))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
                     Spacer(minLength: VoiceourMetrics.Space.sm)
                 }
 
@@ -417,6 +500,11 @@ struct ConsoleHistoryTab: View {
                 select(session)
                 beginTeaching(surface: nil)
             }
+            if let bundleId = session.outcome?.targetBundleId {
+                Button("Show Only \(appLabel(for: session, bundleId: bundleId))") {
+                    appFilter = bundleId
+                }
+            }
             Button("Delete Transcript\u{2026}", role: .destructive) {
                 select(session)
                 deleteError = nil
@@ -441,6 +529,13 @@ struct ConsoleHistoryTab: View {
         previews[session.id] ?? Self.preview(of: session)
     }
 
+    /// The row's destination as a reader would name it. The persisted name is
+    /// authority; a row written before names existed falls back to its bundle id
+    /// humanized, so no row shows a reverse-DNS string.
+    private func appLabel(for session: RecentSession, bundleId: String) -> String {
+        AppDisplayName.label(bundleId: bundleId, name: session.outcome?.targetAppName)
+    }
+
     /// Collapses a transcript to the index's one preview string.
     private static func preview(of session: RecentSession) -> String {
         let collapsed = session.text
@@ -462,6 +557,9 @@ struct ConsoleHistoryTab: View {
         var parts = [SessionsFormatters.timestamp.string(from: session.createdAt)]
         if let outcome = session.outcome {
             parts.append(outcome.chip.label)
+            if let bundleId = outcome.targetBundleId {
+                parts.append("to \(appLabel(for: session, bundleId: bundleId))")
+            }
         }
         parts.append(SessionsFormatters.wordCountLabel(session.wordCount, pluralOnly: true))
         if session.mutedDuringCapture {
@@ -489,12 +587,21 @@ struct ConsoleHistoryTab: View {
             ConsoleCaption(deleteError, color: .red)
         }
 
-        // Only the class of the delivery target, and only when it was not ordinary
-        // text: that is the one chip the row does not carry, and it is the reason a
-        // transcript that reads as pasted was in fact only copied.
-        if let targetSafety = session.outcome?.targetSafety, targetSafety != .normalText {
+        // What received the text, and — only when it was not ordinary text — the
+        // class of that target: the one chip the row does not carry, and the
+        // reason a transcript that reads as pasted was in fact only copied.
+        if let outcome = session.outcome,
+            outcome.targetBundleId != nil || (outcome.targetSafety ?? .normalText) != .normalText
+        {
             LabeledContent {
-                ConsoleStateMark(targetSafety.displayLabel, .neutral)
+                HStack(spacing: VoiceourMetrics.Space.sm) {
+                    if let bundleId = outcome.targetBundleId {
+                        Text(appLabel(for: session, bundleId: bundleId))
+                    }
+                    if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
+                        ConsoleStateMark(targetSafety.displayLabel, .neutral)
+                    }
+                }
             } label: {
                 Text("Target")
             }

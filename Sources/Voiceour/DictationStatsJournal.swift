@@ -19,12 +19,13 @@ extension DictationCoordinator {
     /// The day comes from `runtime.now()` in `runtime.calendar()` — the same
     /// seams the transcript journal timestamps through, so a fixture's sessions
     /// cannot land in one day row here and a different one there.
-    func recordDictationStats(words: Int, seconds: Double) async {
+    func recordDictationStats(words: Int, seconds: Double, app: DictationAppIdentity?) async {
         guard !isPreparingForTermination else { return }
         dictationStats.record(
             words: words,
             seconds: seconds,
-            day: DictationStatsLedger.dayKey(for: runtime.now(), calendar: runtime.calendar())
+            day: DictationStatsLedger.dayKey(for: runtime.now(), calendar: runtime.calendar()),
+            app: app
         )
         _ = await enqueueDictationStatsSnapshot().value
     }
@@ -58,9 +59,31 @@ extension DictationCoordinator {
             dictationStats.record(
                 words: session.wordCount,
                 seconds: Double(session.stages?.captureMs ?? 0) / 1000,
-                day: DictationStatsLedger.dayKey(for: session.createdAt, calendar: calendar)
+                day: DictationStatsLedger.dayKey(for: session.createdAt, calendar: calendar),
+                app: session.appIdentity
             )
         }
+        enqueueDictationStatsSnapshot()
+    }
+
+    /// Seeds only the per-app buckets, for an install whose ledger predates
+    /// them. Totals and day buckets are left alone: they already counted these
+    /// same sessions, and folding them twice would double every Home figure.
+    func backfillAppStats() {
+        guard !recentSessions.isEmpty else { return }
+        let calendar = runtime.calendar()
+        var folded = false
+        for session in recentSessions.reversed() {
+            guard let app = session.appIdentity else { continue }
+            dictationStats.recordApp(
+                app,
+                words: session.wordCount,
+                seconds: Double(session.stages?.captureMs ?? 0) / 1000,
+                day: DictationStatsLedger.dayKey(for: session.createdAt, calendar: calendar)
+            )
+            folded = true
+        }
+        guard folded else { return }
         enqueueDictationStatsSnapshot()
     }
 
@@ -86,5 +109,15 @@ extension DictationCoordinator {
             self.errorMessage = "Dictation stats could not be saved."
         }
         return next
+    }
+}
+
+extension RecentSession {
+    /// The delivery target this row records, or nil when it names no app —
+    /// a row from before bundle ids were persisted, or one this ledger cannot
+    /// attribute.
+    var appIdentity: DictationAppIdentity? {
+        guard let bundleId = outcome?.targetBundleId else { return nil }
+        return DictationAppIdentity(bundleId: bundleId, name: outcome?.targetAppName)
     }
 }

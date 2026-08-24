@@ -1295,6 +1295,16 @@ struct DictationCoordinatorTests {
         #expect(coordinator.dictationStats.totalWords == 5)
         #expect(coordinator.dictationStats.totalActiveDays == 1)
         #expect(coordinator.dictationStats.days.count == 1)
+        #expect(
+            coordinator.dictationStats.apps["com.apple.TextEdit"]
+                == DictationAppStat(
+                    sessions: 1,
+                    words: 5,
+                    seconds: coordinator.dictationStats.totalSeconds,
+                    name: "TextEdit",
+                    lastDay: coordinator.dictationStats.days.keys.first
+                )
+        )
 
         await coordinator.prepareForTermination()
         let persisted = try stats.store.load()
@@ -1319,6 +1329,7 @@ struct DictationCoordinatorTests {
         #expect(coordinator.lastTranscript == "correct horse battery staple")
         #expect(coordinator.dictationStats == DictationStatsLedger())
         #expect(!FileManager.default.fileExists(atPath: stats.store.url.path))
+        #expect(coordinator.dictationStats.apps.isEmpty)
     }
 
     /// First launch with a ledger seeds it from the transcripts already on disk,
@@ -1382,6 +1393,114 @@ struct DictationCoordinatorTests {
         )
 
         #expect(coordinator.dictationStats == seeded)
+    }
+
+    /// The apps-only seed exists for installs whose ledger predates per-app
+    /// tallies: the totals in that file already counted these sessions, so only
+    /// the app buckets may be folded.
+    @Test func anExistingLedgerWithoutAppTalliesIsSeededFromHistoryOnce() async throws {
+        let history = temporarySessionStore()
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        try history.store.save([
+            RecentSession(
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                text: "one two three",
+                outcome: RecentSessionOutcomeMetadata(
+                    disposition: .pasteAttempted,
+                    targetSafety: .normalText,
+                    targetBundleId: "com.apple.TextEdit",
+                    targetAppName: "TextEdit"
+                ),
+                stages: SessionStageTimings(captureMs: 4_000)
+            ),
+            // Written before names were persisted: still attributable by bundle id.
+            RecentSession(
+                createdAt: Date(timeIntervalSince1970: 1_700_086_400),
+                text: "four five",
+                outcome: RecentSessionOutcomeMetadata(
+                    disposition: .copiedOnly,
+                    reason: "target_terminal",
+                    targetSafety: .terminal,
+                    targetBundleId: "com.mitchellh.ghostty"
+                ),
+                stages: SessionStageTimings(captureMs: 2_000)
+            ),
+            // No target at all: counted in the totals already on disk, ranked nowhere.
+            RecentSession(createdAt: Date(timeIntervalSince1970: 1_700_172_800), text: "six"),
+        ])
+        var seeded = DictationStatsLedger()
+        seeded.record(words: 6, seconds: 6, day: "2024-01-02")
+        try stats.store.save(seeded)
+
+        let coordinator = makeCoordinator(
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store
+        )
+
+        // Totals untouched: the file already counted these sessions.
+        #expect(coordinator.dictationStats.totalSessions == seeded.totalSessions)
+        #expect(coordinator.dictationStats.totalWords == seeded.totalWords)
+        #expect(coordinator.dictationStats.days == seeded.days)
+        #expect(coordinator.dictationStats.apps.count == 2)
+        #expect(
+            coordinator.dictationStats.apps["com.apple.TextEdit"]
+                == DictationAppStat(
+                    sessions: 1,
+                    words: 3,
+                    seconds: 4,
+                    name: "TextEdit",
+                    lastDay: DictationStatsLedger.dayKey(
+                        for: Date(timeIntervalSince1970: 1_700_000_000),
+                        calendar: coordinator.runtime.calendar()
+                    )
+                )
+        )
+        #expect(coordinator.dictationStats.apps["com.mitchellh.ghostty"]?.name == nil)
+        #expect(coordinator.dictationStats.apps["com.mitchellh.ghostty"]?.words == 2)
+
+        await coordinator.prepareForTermination()
+        #expect(try stats.store.load() == coordinator.dictationStats)
+
+        // Relaunch: apps is no longer empty, so nothing folds a second time.
+        let relaunched = makeCoordinator(
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store
+        )
+        #expect(relaunched.dictationStats == coordinator.dictationStats)
+    }
+
+    /// A quarantined ledger loads as zeroes and deliberately does not backfill
+    /// totals. Seeding app buckets against those zeroes would rank destinations
+    /// Home has no sessions to attribute.
+    @Test func aQuarantinedLedgerIsNotSeededWithAppTallies() async throws {
+        let history = temporarySessionStore()
+        let stats = temporaryStatsStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        try history.store.save([
+            RecentSession(
+                text: "one two three",
+                outcome: RecentSessionOutcomeMetadata(
+                    disposition: .pasteAttempted,
+                    targetSafety: .normalText,
+                    targetBundleId: "com.apple.TextEdit",
+                    targetAppName: "TextEdit"
+                ),
+                stages: SessionStageTimings(captureMs: 4_000)
+            )
+        ])
+        try FileManager.default.createDirectory(at: stats.directory, withIntermediateDirectories: true)
+        try Data("{ this is not a ledger".utf8).write(to: stats.store.url)
+
+        let coordinator = makeCoordinator(
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store
+        )
+
+        #expect(coordinator.dictationStats == DictationStatsLedger())
+        #expect(coordinator.dictationStats.apps.isEmpty)
     }
 
     /// An unreadable ledger is moved aside like the history file, not silently

@@ -244,7 +244,10 @@ extension DictationCoordinator {
                 if sessionID != nil {
                     await recordDictationStats(
                         words: WordCount.count(in: finalText),
-                        seconds: Double(audio.meta.durationMs) / 1000
+                        seconds: Double(audio.meta.durationMs) / 1000,
+                        app: insertionTarget.bundleId.map {
+                            DictationAppIdentity(bundleId: $0, name: insertionTarget.appName)
+                        }
                     )
                     try ensureCurrentProcessing(generation)
                 }

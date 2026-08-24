@@ -11,17 +11,23 @@ public struct RecentSessionOutcomeMetadata: Codable, Equatable, Sendable {
     public var reason: String?
     public var targetSafety: TargetSafetyClass?
     public var targetBundleId: String?
+    /// Localized name of the delivery target, captured at delivery so History
+    /// and Home can name the app without asking the workspace later. Absent on
+    /// rows written before names were persisted.
+    public var targetAppName: String?
 
     public init(
         disposition: RecentSessionInsertionDisposition,
         reason: String? = nil,
         targetSafety: TargetSafetyClass? = nil,
-        targetBundleId: String? = nil
+        targetBundleId: String? = nil,
+        targetAppName: String? = nil
     ) {
         self.disposition = disposition
         self.reason = reason
         self.targetSafety = targetSafety
         self.targetBundleId = targetBundleId
+        self.targetAppName = targetAppName
     }
 }
 
@@ -142,21 +148,24 @@ extension RecentSessionOutcomeMetadata {
             self.init(
                 disposition: .pasteAttempted,
                 targetSafety: target.safety,
-                targetBundleId: target.bundleId
+                targetBundleId: target.bundleId,
+                targetAppName: target.appName
             )
         case .copiedOnly(let reason):
             self.init(
                 disposition: .copiedOnly,
                 reason: reason,
                 targetSafety: target.safety,
-                targetBundleId: target.bundleId
+                targetBundleId: target.bundleId,
+                targetAppName: target.appName
             )
         case .failed(let reason):
             self.init(
                 disposition: .failed,
                 reason: reason,
                 targetSafety: target.safety,
-                targetBundleId: target.bundleId
+                targetBundleId: target.bundleId,
+                targetAppName: target.appName
             )
         }
     }

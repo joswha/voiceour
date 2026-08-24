@@ -42,13 +42,61 @@ public struct DictationDayStat: Codable, Equatable, Sendable {
     }
 }
 
-/// Lifetime dictation counts, and per-day counts for the recent window.
+/// One app's lifetime dictation counts, keyed in the ledger by bundle id.
+public struct DictationAppStat: Codable, Equatable, Sendable {
+    public var sessions: Int
+    public var words: Int
+    public var seconds: Double
+    /// Last-seen localized display name; nil for folds recorded before names existed.
+    public var name: String?
+    /// Most recent ledger day key this app received a dictation.
+    public var lastDay: String?
+
+    public init(
+        sessions: Int = 0,
+        words: Int = 0,
+        seconds: Double = 0,
+        name: String? = nil,
+        lastDay: String? = nil
+    ) {
+        self.sessions = sessions
+        self.words = words
+        self.seconds = seconds
+        self.name = name
+        self.lastDay = lastDay
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try container.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        words = try container.decodeIfPresent(Int.self, forKey: .words) ?? 0
+        seconds = try container.decodeIfPresent(Double.self, forKey: .seconds) ?? 0
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        lastDay = try container.decodeIfPresent(String.self, forKey: .lastDay)
+    }
+}
+
+/// The delivery target a fold is attributed to.
+public struct DictationAppIdentity: Equatable, Sendable {
+    public var bundleId: String
+    public var name: String?
+
+    public init(bundleId: String, name: String? = nil) {
+        self.bundleId = bundleId
+        self.name = name
+    }
+}
+
+/// Lifetime dictation counts, per-day counts for the recent window, and
+/// per-app tallies.
 ///
-/// Aggregates only: no transcript text, no per-app breakdown, no session ids.
-/// It exists because the transcript journal is capped at 500 rows, so totals
-/// read off that file plateau at the cap and then fall — a tally needs a bound
-/// of its own, and this one is small enough to be a tally rather than a record
-/// of what the user said and where.
+/// Aggregates only: no transcript text and no session ids. It exists because
+/// the transcript journal is capped at 500 rows, so totals read off that file
+/// plateau at the cap and then fall — a tally needs a bound of its own, and
+/// this one is small enough to be a tally rather than a record of what the user
+/// said. Per-app tallies are aggregate counts keyed by bundle id, added
+/// deliberately so Home can rank destinations beyond that 500-row cap. Clear
+/// History erases them with the rest of the ledger.
 public struct DictationStatsLedger: Codable, Equatable, Sendable {
     public var totalSessions: Int
     public var totalWords: Int
@@ -60,6 +108,11 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
     /// Keyed `yyyy-MM-dd` in the recording calendar's local day. The key format
     /// is ISO-ordered, so lexicographic comparison is chronological comparison.
     public var days: [String: DictationDayStat]
+    /// Keyed by delivery-target bundle id. Uncapped and never pruned: the map
+    /// is bounded by the apps the user actually dictates into, each entry is
+    /// about a hundred bytes, and evicting one would make the per-app totals
+    /// lie the way the day-pruned totals deliberately do not.
+    public var apps: [String: DictationAppStat]
 
     public init(
         totalSessions: Int = 0,
@@ -67,7 +120,8 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
         totalSeconds: Double = 0,
         totalActiveDays: Int = 0,
         longestStreakDays: Int = 0,
-        days: [String: DictationDayStat] = [:]
+        days: [String: DictationDayStat] = [:],
+        apps: [String: DictationAppStat] = [:]
     ) {
         self.totalSessions = totalSessions
         self.totalWords = totalWords
@@ -75,6 +129,7 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
         self.totalActiveDays = totalActiveDays
         self.longestStreakDays = longestStreakDays
         self.days = days
+        self.apps = apps
     }
 
     public init(from decoder: Decoder) throws {
@@ -85,6 +140,7 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
         totalActiveDays = try container.decodeIfPresent(Int.self, forKey: .totalActiveDays) ?? 0
         longestStreakDays = try container.decodeIfPresent(Int.self, forKey: .longestStreakDays) ?? 0
         days = try container.decodeIfPresent([String: DictationDayStat].self, forKey: .days) ?? [:]
+        apps = try container.decodeIfPresent([String: DictationAppStat].self, forKey: .apps) ?? [:]
     }
 
     /// The ledger's day key for `date` in `calendar`.
@@ -103,11 +159,12 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
         )
     }
 
-    /// Folds one dictation into `day`'s bucket and the lifetime totals.
+    /// Folds one dictation into `day`'s bucket, the lifetime totals, and — when
+    /// the delivery target is known — that app's bucket.
     ///
     /// Idempotence is not attempted: the caller records each dictation once, at
     /// the single site that also writes the transcript journal.
-    public mutating func record(words: Int, seconds: Double, day: String) {
+    public mutating func record(words: Int, seconds: Double, day: String, app: DictationAppIdentity? = nil) {
         let isNewDay = days[day] == nil
         var bucket = days[day] ?? DictationDayStat()
         bucket.sessions += 1
@@ -124,6 +181,27 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
 
         longestStreakDays = max(longestStreakDays, runLength(containing: day))
         prune(relativeTo: day)
+
+        if let app {
+            recordApp(app, words: words, seconds: seconds, day: day)
+        }
+    }
+
+    /// Folds one dictation into `app`'s bucket only — totals and day buckets
+    /// untouched. `record` calls this; the apps-only backfill calls it directly
+    /// for sessions the totals already counted.
+    public mutating func recordApp(_ app: DictationAppIdentity, words: Int, seconds: Double, day: String) {
+        var bucket = apps[app.bundleId] ?? DictationAppStat()
+        bucket.sessions += 1
+        bucket.words += max(0, words)
+        bucket.seconds += max(0, seconds)
+        // Last non-nil name seen wins: a rename is the newer truth, and a fold
+        // that could not name the app must not erase one that could.
+        bucket.name = app.name ?? bucket.name
+        // Day keys are ISO-ordered, so the lexicographic max is the
+        // chronological max even when folds arrive out of order.
+        bucket.lastDay = max(bucket.lastDay ?? day, day)
+        apps[app.bundleId] = bucket
     }
 
     /// Consecutive active days ending at `day`, counted backwards while the

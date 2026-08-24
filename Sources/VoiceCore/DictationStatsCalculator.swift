@@ -98,6 +98,25 @@ public struct HeatmapModel: Equatable, Sendable {
     }
 }
 
+/// One app's row in Home's ranking.
+public struct DictationAppFigure: Equatable, Sendable, Identifiable {
+    public var bundleId: String
+    public var name: String?
+    public var sessions: Int
+    public var words: Int
+    /// sessions / leader's sessions, 0...1; the Home share bar's width.
+    public var share: Double
+    public var id: String { bundleId }
+
+    public init(bundleId: String, name: String?, sessions: Int, words: Int, share: Double) {
+        self.bundleId = bundleId
+        self.name = name
+        self.sessions = sessions
+        self.words = words
+        self.share = share
+    }
+}
+
 /// Pure derivations over a ledger.
 ///
 /// `today` and `calendar` are always explicit. Nothing here reads `Date()` or
@@ -151,6 +170,30 @@ public enum DictationStatsCalculator {
             return 0
         }
         return ledger.streakLength(endingAt: yesterdayKey)
+    }
+
+    /// The `limit` apps that received the most dictations, ranked.
+    ///
+    /// Fully ordered rather than merely sorted: a dictionary iterates in an
+    /// unspecified order, so ties break on words and then on bundle id, and two
+    /// launches over one ledger rank the same apps identically.
+    public static func topApps(of ledger: DictationStatsLedger, limit: Int) -> [DictationAppFigure] {
+        guard limit > 0 else { return [] }
+        let ranked = ledger.apps.sorted { lhs, rhs in
+            if lhs.value.sessions != rhs.value.sessions { return lhs.value.sessions > rhs.value.sessions }
+            if lhs.value.words != rhs.value.words { return lhs.value.words > rhs.value.words }
+            return lhs.key < rhs.key
+        }
+        guard let leaderSessions = ranked.first?.value.sessions, leaderSessions > 0 else { return [] }
+        return ranked.prefix(limit).map { entry in
+            DictationAppFigure(
+                bundleId: entry.key,
+                name: entry.value.name,
+                sessions: entry.value.sessions,
+                words: entry.value.words,
+                share: Double(entry.value.sessions) / Double(leaderSessions)
+            )
+        }
     }
 
     public static func heatmap(

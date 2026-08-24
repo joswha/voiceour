@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceCore
 
 /// The dark glass pane every Home section sits on.
 ///
@@ -194,6 +195,105 @@ struct HomeStreakStat: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
         .accessibilityValue(value)
+    }
+}
+
+/// The deterministic stand-in for an app icon: its display name's first letter
+/// on the island's own plate.
+///
+/// Never `NSWorkspace.icon(forFile:)`. A real icon would make Home's goldens
+/// depend on which apps the rendering Mac has installed, and the offscreen
+/// harness resolves names from persisted strings precisely so it does not have
+/// to ask the workspace anything.
+struct AppMonogram: View {
+    private var a11y = A11y()
+
+    let label: String
+
+    init(label: String) {
+        self.label = label
+    }
+
+    var body: some View {
+        Text(String(label.prefix(1)).uppercased())
+            .roleStyle(.label)
+            .foregroundStyle(VoiceourPalette.Alien.bloom)
+            .frame(width: VoiceourMetrics.Control.medium, height: VoiceourMetrics.Control.medium)
+            .background {
+                Circle().fill(VoiceourPalette.Plate.rest)
+            }
+            .overlay {
+                Circle().strokeBorder(
+                    a11y.reduceTransparency ? a11y.lineEdge : VoiceourPalette.Line.rule,
+                    lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
+                )
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// One app's rank on Home: its monogram, its name over a share bar, and its
+/// counts.
+///
+/// One accessibility element for the same reason `HomeStatTile` is: read as
+/// parts, VoiceOver stops on the monogram, the name, the number and the unit
+/// for a single fact.
+struct HomeAppRow: View {
+    private var a11y = A11y()
+
+    let figure: DictationAppFigure
+
+    init(figure: DictationAppFigure) {
+        self.figure = figure
+    }
+
+    private var name: String {
+        AppDisplayName.label(bundleId: figure.bundleId, name: figure.name)
+    }
+
+    private var counts: String {
+        "sessions · \(StatsFormatting.compactCount(figure.words)) words"
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: VoiceourMetrics.Space.sm) {
+            AppMonogram(label: name)
+
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                Text(name)
+                    .roleStyle(.label)
+                    .lineLimit(1)
+                shareBar
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: VoiceourMetrics.Space.xs) {
+                Text(String(figure.sessions))
+                    .roleStyle(.tileValue)
+                    .monospacedDigit()
+                Text(counts)
+                    .roleStyle(.caption)
+                    .foregroundStyle(a11y.textMid)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(name)
+        .accessibilityValue("\(figure.sessions) sessions, \(figure.words) words")
+    }
+
+    /// Magnitude encoded by length, so Differentiate Without Color needs no
+    /// branch here: the bar says the same thing with the colour removed.
+    private var shareBar: some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(VoiceourPalette.Plate.rest)
+            GeometryReader { proxy in
+                Capsule()
+                    .fill(VoiceourPalette.Alien.bloom)
+                    .frame(width: proxy.size.width * figure.share)
+            }
+        }
+        .frame(height: 4)
+        .accessibilityHidden(true)
     }
 }
 

@@ -7,10 +7,13 @@ import VoiceCore
 /// The frontmost application as far as target tracking is concerned.
 public struct WorkspaceTargetApplication: Equatable, Sendable {
     public var bundleId: String?
+    /// Localized application name, as the workspace reports it.
+    public var name: String?
     public var pid: pid_t
 
-    public init(bundleId: String?, pid: pid_t) {
+    public init(bundleId: String?, name: String?, pid: pid_t) {
         self.bundleId = bundleId
+        self.name = name
         self.pid = pid
     }
 }
@@ -35,7 +38,11 @@ public final class WorkspaceTargetTracker: TargetTracking, @unchecked Sendable {
         self.init(
             frontmostApplication: {
                 guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-                return WorkspaceTargetApplication(bundleId: app.bundleIdentifier, pid: app.processIdentifier)
+                return WorkspaceTargetApplication(
+                    bundleId: app.bundleIdentifier,
+                    name: app.localizedName,
+                    pid: app.processIdentifier
+                )
             },
             focusInspector: { Self.focusedAXRole(pid: $0) },
             secureInputActive: { IsSecureEventInputEnabled() }
@@ -54,6 +61,7 @@ public final class WorkspaceTargetTracker: TargetTracking, @unchecked Sendable {
         )
         return TargetSnapshot(
             bundleId: bundleId,
+            appName: app?.name,
             pid: pid,
             safety: safety,
             secureInputActive: isSecureInputActive

@@ -69,6 +69,12 @@ enum RenderOverrides {
     /// launch takes.
     static var historyStartsDeselected = false
 
+    /// Pins History's opening app filter. The filter is engaged through an
+    /// `NSMenu` popup, which the offscreen window can never order front, so a
+    /// scene states the filtered list rather than driving the control. Production
+    /// reads this as nil, which is every app.
+    static var historyInitialAppFilter: String?
+
     /// Forces the painted macOS 14 glass path on a newer runtime. Production
     /// follows availability normally; the harness pins this to true below.
     static var forceLegacyGlass = false

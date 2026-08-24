@@ -101,17 +101,22 @@ public enum TargetSafetyClass: String, Codable, Equatable, Sendable, CaseIterabl
 
 public struct TargetSnapshot: Equatable, Sendable {
     public var bundleId: String?
+    /// Localized application name captured with the snapshot; nil when the
+    /// running application could not name itself.
+    public var appName: String?
     public var pid: pid_t
     public var safety: TargetSafetyClass
     public var secureInputActive: Bool
 
     public init(
         bundleId: String?,
+        appName: String? = nil,
         pid: pid_t,
         safety: TargetSafetyClass,
         secureInputActive: Bool = false
     ) {
         self.bundleId = bundleId
+        self.appName = appName
         self.pid = pid
         self.safety = safety
         self.secureInputActive = secureInputActive

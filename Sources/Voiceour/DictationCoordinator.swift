@@ -235,6 +235,13 @@ public final class DictationCoordinator {
         // partial history and every dictation after it is counted exactly once.
         if !statsFileExisted {
             backfillDictationStats()
+        } else if dictationStats.totalSessions > 0 && dictationStats.apps.isEmpty {
+            // A ledger written before per-app tallies existed. Seed just the app
+            // buckets from the transcripts still on disk; the totals in the file
+            // already counted these sessions. `totalSessions > 0` keeps the
+            // quarantine path above — which deliberately does not backfill
+            // totals — from ranking apps against zeroed tiles.
+            backfillAppStats()
         }
         refreshTarget()
     }
@@ -837,7 +844,7 @@ public final class DictationCoordinator {
     }
 
     func updateTargetLabel(for snapshot: TargetSnapshot) {
-        let app = snapshot.bundleId ?? "Unknown app"
+        let app = AppDisplayName.label(bundleId: snapshot.bundleId, name: snapshot.appName)
         switch snapshot.safety {
         case .normalText:
             targetLabel = "Will paste into \(app)"

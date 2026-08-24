@@ -102,9 +102,10 @@
 
         init(
             bundleID: String = "com.apple.dt.Xcode",
+            appName: String? = "Xcode",
             safety: TargetSafetyClass = .codeEditor
         ) {
-            target = TargetSnapshot(bundleId: bundleID, pid: 4_242, safety: safety)
+            target = TargetSnapshot(bundleId: bundleID, appName: appName, pid: 4_242, safety: safety)
         }
 
         func snapshot() -> TargetSnapshot { target }
@@ -455,12 +456,13 @@
         /// mutually consistent — the day buckets sum to the totals, and 23
         /// distinct days carry one six-day run — and `DictationStatsTests`
         /// proves separately that `record` computes those same aggregates.
-        ///
         /// Chosen to exercise every readout at once: today and yesterday are
         /// empty, so the current streak is 0 while the longest is 6; the
         /// window's busiest day is a clear outlier, so all four heat levels
         /// appear; and 2025-06-15 is a Sunday, so the last heatmap column holds
-        /// six days the calendar has not reached yet.
+        /// six days the calendar has not reached yet. The six app buckets sum to
+        /// the same totals as the day buckets, and the sixth-ranked app is there
+        /// to prove Home shows exactly five.
         static let statsLedger: DictationStatsLedger = {
             // (days before `pinnedNow`, sessions, words, seconds)
             let rows: [(Int, Int, Int, Double)] = [
@@ -475,11 +477,31 @@
             ]
             var days: [String: DictationDayStat] = [:]
             for (offset, sessions, words, seconds) in rows {
-                let key = DictationStatsLedger.dayKey(
-                    for: pinnedNow.addingTimeInterval(-Double(offset) * 86_400),
-                    calendar: pinnedCalendar
+                days[dayKey(daysBeforePinnedNow: offset)] = DictationDayStat(
+                    sessions: sessions,
+                    words: words,
+                    seconds: seconds
                 )
-                days[key] = DictationDayStat(sessions: sessions, words: words, seconds: seconds)
+            }
+            // (bundle id, name, sessions, words, seconds, days before `pinnedNow`)
+            let appRows: [(String, String, Int, Int, Double, Int)] = [
+                ("com.apple.dt.Xcode", "Xcode", 64, 12_400, 5_600, 2),
+                ("com.tinyspeck.slackmacgap", "Slack", 38, 6_900, 3_000, 3),
+                ("com.microsoft.VSCode", "Visual Studio Code", 31, 5_850, 2_600, 4),
+                ("com.apple.Terminal", "Terminal", 22, 4_100, 1_900, 6),
+                ("com.apple.Safari", "Safari", 18, 3_377, 1_500, 7),
+                // Sixth by sessions: renders nowhere on Home.
+                ("com.mitchellh.ghostty", "Ghostty", 17, 3_500, 1_720, 9),
+            ]
+            var apps: [String: DictationAppStat] = [:]
+            for (bundleId, name, sessions, words, seconds, offset) in appRows {
+                apps[bundleId] = DictationAppStat(
+                    sessions: sessions,
+                    words: words,
+                    seconds: seconds,
+                    name: name,
+                    lastDay: dayKey(daysBeforePinnedNow: offset)
+                )
             }
             return DictationStatsLedger(
                 totalSessions: 190,
@@ -487,9 +509,17 @@
                 totalSeconds: 16_320,
                 totalActiveDays: 23,
                 longestStreakDays: 6,
-                days: days
+                days: days,
+                apps: apps
             )
         }()
+
+        private static func dayKey(daysBeforePinnedNow offset: Int) -> String {
+            DictationStatsLedger.dayKey(
+                for: pinnedNow.addingTimeInterval(-Double(offset) * 86_400),
+                calendar: pinnedCalendar
+            )
+        }
 
         // MARK: Settling
 
@@ -513,6 +543,7 @@
                 minutesAgo: 12,
                 text: "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay.",
                 bundleId: "com.apple.dt.Xcode",
+                appName: "Xcode",
                 captureMs: 6_800,
                 asrMs: 410,
                 // Exactly one seeded session carries the field so
@@ -524,6 +555,7 @@
                 minutesAgo: 95,
                 text: "Accessibility children stay empty until enhanced user interface is switched on.",
                 bundleId: "com.apple.dt.Xcode",
+                appName: "Xcode",
                 captureMs: 7_400,
                 asrMs: 455
             ),
@@ -532,6 +564,7 @@
                 minutesAgo: 260,
                 text: "Ship the contact sheet next to the manifest so a reviewer sees every pane at once.",
                 bundleId: "com.tinyspeck.slackmacgap",
+                appName: "Slack",
                 disposition: .copiedOnly,
                 reason: "target is a secure field",
                 captureMs: 8_100,
@@ -542,6 +575,7 @@
                 minutesAgo: 1_500,
                 text: "Golden files must never encode the developer's display profile.",
                 bundleId: "com.microsoft.VSCode",
+                appName: "Visual Studio Code",
                 captureMs: 5_600,
                 asrMs: 380
             ),
@@ -550,6 +584,7 @@
                 minutesAgo: 1_720,
                 text: "Pump the run loop a fixed number of iterations, never until it looks settled.",
                 bundleId: "com.microsoft.VSCode",
+                appName: "Visual Studio Code",
                 captureMs: 6_200,
                 asrMs: 402
             ),
@@ -558,6 +593,7 @@
                 minutesAgo: 2_950,
                 text: "Post the mouse up before sending the mouse down or AppKit's tracking loop wedges.",
                 bundleId: "com.apple.Terminal",
+                appName: "Terminal",
                 captureMs: 7_900,
                 asrMs: 468
             ),
@@ -566,6 +602,7 @@
                 minutesAgo: 4_400,
                 text: "Behind window vibrancy has no desktop to sample offscreen, so it renders flat.",
                 bundleId: "com.apple.Safari",
+                appName: "Safari",
                 disposition: .failed,
                 reason: "no insertion target",
                 captureMs: 4_300,
@@ -576,6 +613,7 @@
                 minutesAgo: 7_300,
                 text: "Every accessibility accessor needs its own responds-to guard.",
                 bundleId: "com.apple.dt.Xcode",
+                appName: "Xcode",
                 captureMs: 5_100,
                 asrMs: 342
             ),
@@ -584,6 +622,7 @@
                 minutesAgo: 11_600,
                 text: "An activation policy of prohibited is the only setting that never steals focus.",
                 bundleId: "com.apple.Terminal",
+                appName: "Terminal",
                 captureMs: 6_050,
                 asrMs: 388
             ),
@@ -594,6 +633,7 @@
             minutesAgo: Int,
             text: String,
             bundleId: String,
+            appName: String,
             disposition: RecentSessionInsertionDisposition = .pasteAttempted,
             reason: String? = nil,
             captureMs: Int,
@@ -609,7 +649,8 @@
                     disposition: disposition,
                     reason: reason,
                     targetSafety: bundleId == "com.apple.Terminal" ? .terminal : .normalText,
-                    targetBundleId: bundleId
+                    targetBundleId: bundleId,
+                    targetAppName: appName
                 ),
                 rawTranscript: text,
                 stages: SessionStageTimings(

@@ -114,10 +114,11 @@ final class FakeASR: ASRClienting, @unchecked Sendable {
 
 struct FakeTracker: TargetTracking {
     var bundleId: String? = "com.apple.TextEdit"
+    var appName: String? = "TextEdit"
     var safety: TargetSafetyClass = .normalText
 
     func snapshot() -> TargetSnapshot {
-        TargetSnapshot(bundleId: bundleId, pid: 1, safety: safety)
+        TargetSnapshot(bundleId: bundleId, appName: appName, pid: 1, safety: safety)
     }
     func stillMatches(_ snap: TargetSnapshot) -> Bool { true }
 }

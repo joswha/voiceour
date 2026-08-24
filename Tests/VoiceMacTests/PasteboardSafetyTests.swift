@@ -482,7 +482,9 @@ struct PasteboardSafetyTests {
         secureInputActive: @escaping @Sendable () -> Bool = { false }
     ) -> WorkspaceTargetTracker {
         WorkspaceTargetTracker(
-            frontmostApplication: { WorkspaceTargetApplication(bundleId: "com.apple.Safari", pid: 4242) },
+            frontmostApplication: {
+                WorkspaceTargetApplication(bundleId: "com.apple.Safari", name: "Safari", pid: 4242)
+            },
             focusInspector: { _ in inspector.next() },
             secureInputActive: secureInputActive
         )

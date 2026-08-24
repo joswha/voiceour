@@ -209,7 +209,9 @@
                     link: transcriptionLink,
                     result: transcription
                 ),
-                tracker: HarnessTracker(bundleID: targetBundleID, safety: targetSafety),
+                // No persisted name: each flow's target names itself from its own
+                // bundle id, so one tracker serves every flow's chosen app.
+                tracker: HarnessTracker(bundleID: targetBundleID, appName: nil, safety: targetSafety),
                 inserter: UIGatedInserter(link: insertionLink, outcome: insertion),
                 permissions: UIGatedPermissions(link: permissionLink),
                 hotkey: HarnessHotkey(),

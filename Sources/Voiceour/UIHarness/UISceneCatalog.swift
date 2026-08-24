@@ -197,6 +197,13 @@
                     ]
                 ),
                 console(
+                    "console.sessions.filtered",
+                    "History filtered to one app's sessions",
+                    tab: .history,
+                    fixture: .populated,
+                    appFilter: "com.apple.dt.Xcode"
+                ),
+                console(
                     "console.system.granted",
                     "System readiness with every permission granted",
                     tab: .system,
@@ -374,6 +381,7 @@
             fixture: UIFixtures.Kind,
             transcriptSelectionSurface: String? = nil,
             deselected: Bool = false,
+            appFilter: String? = nil,
             // Optional rather than `= consoleSize`: a default argument expression is
             // evaluated outside this enum's main-actor context, so it may not read a
             // main-actor static. Nil is the first-launch measure, resolved below.
@@ -392,6 +400,18 @@
                 if deselected {
                     return AnyView(
                         UIHarnessDeselectedHistoryScope {
+                            AnyView(
+                                ConsoleWindowView(
+                                    coordinator: UIFixtures.coordinator(fixture),
+                                    initialTab: tab
+                                )
+                            )
+                        }
+                    )
+                }
+                if let appFilter {
+                    return AnyView(
+                        UIHarnessFilteredHistoryScope(bundleId: appFilter) {
                             AnyView(
                                 ConsoleWindowView(
                                     coordinator: UIFixtures.coordinator(fixture),
@@ -596,6 +616,29 @@
             content
                 .onDisappear {
                     RenderOverrides.historyStartsDeselected = previous
+                }
+        }
+    }
+
+    /// Process-wide value seam scoped to the one scene that renders History
+    /// narrowed to a single app. Engaging the filter opens an `NSMenu`, which an
+    /// offscreen window that can never order front cannot show, so the filtered
+    /// state is pinned rather than performed.
+    private struct UIHarnessFilteredHistoryScope: View {
+        private let content: AnyView
+        private let previous: String?
+
+        @MainActor
+        init(bundleId: String, build: @escaping @MainActor () -> AnyView) {
+            content = build()
+            previous = RenderOverrides.historyInitialAppFilter
+            RenderOverrides.historyInitialAppFilter = bundleId
+        }
+
+        var body: some View {
+            content
+                .onDisappear {
+                    RenderOverrides.historyInitialAppFilter = previous
                 }
         }
     }

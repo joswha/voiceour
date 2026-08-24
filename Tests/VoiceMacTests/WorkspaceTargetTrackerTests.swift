@@ -22,18 +22,19 @@ struct WorkspaceTargetTrackerTests {
 
     @Test func ordinaryFieldInAKnownAppIsNormalText() {
         let snapshot = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", pid: 42),
+            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", name: "TextEdit", pid: 42),
             focus: .inspected(role: "AXTextArea", subrole: nil)
         ).snapshot()
 
         #expect(snapshot.bundleId == "com.apple.TextEdit")
+        #expect(snapshot.appName == "TextEdit")
         #expect(snapshot.pid == 42)
         #expect(snapshot.safety == .normalText)
     }
 
     @Test func secureFocusRoleOverridesAnOtherwiseOrdinaryApp() {
         let snapshot = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.apple.Safari", pid: 7),
+            app: WorkspaceTargetApplication(bundleId: "com.apple.Safari", name: "Safari", pid: 7),
             focus: .inspected(role: "AXTextField", subrole: "AXSecureTextField")
         ).snapshot()
 
@@ -44,7 +45,7 @@ struct WorkspaceTargetTrackerTests {
     /// which is the one class that permits synthetic paste.
     @Test func unavailableInspectionIsUnknownRiskyRatherThanOrdinaryText() {
         let snapshot = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", pid: 42),
+            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", name: "TextEdit", pid: 42),
             focus: .unavailable
         ).snapshot()
 
@@ -56,7 +57,7 @@ struct WorkspaceTargetTrackerTests {
     /// copy-only. An answer is not absent information.
     @Test func noFocusedElementIsOrdinaryTextRatherThanUnknownRisk() {
         let snapshot = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.hnc.Discord", pid: 42),
+            app: WorkspaceTargetApplication(bundleId: "com.hnc.Discord", name: "Discord", pid: 42),
             focus: .noFocusedElement
         ).snapshot()
 
@@ -65,7 +66,7 @@ struct WorkspaceTargetTrackerTests {
 
     @Test func noFocusedElementStillYieldsToActiveSecureInput() {
         let snapshot = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.hnc.Discord", pid: 42),
+            app: WorkspaceTargetApplication(bundleId: "com.hnc.Discord", name: "Discord", pid: 42),
             focus: .noFocusedElement,
             secureInputActive: true
         ).snapshot()
@@ -77,13 +78,14 @@ struct WorkspaceTargetTrackerTests {
         let snapshot = tracker(app: nil, focus: .unavailable).snapshot()
 
         #expect(snapshot.bundleId == nil)
+        #expect(snapshot.appName == nil)
         #expect(snapshot.pid == 0)
         #expect(snapshot.safety == .unknownRisky)
     }
 
     @Test func sameProcessAndBundleStillMatches() {
         let subject = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", pid: 42),
+            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", name: "TextEdit", pid: 42),
             focus: .inspected(role: "AXTextArea", subrole: nil)
         )
         let snapshot = subject.snapshot()
@@ -93,12 +95,12 @@ struct WorkspaceTargetTrackerTests {
 
     @Test func changedProcessDoesNotStillMatch() {
         let subject = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", pid: 42),
+            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", name: "TextEdit", pid: 42),
             focus: .inspected(role: "AXTextArea", subrole: nil)
         )
         let snapshot = subject.snapshot()
         let moved = tracker(
-            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", pid: 99),
+            app: WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", name: "TextEdit", pid: 99),
             focus: .inspected(role: "AXTextArea", subrole: nil)
         )
 
@@ -109,7 +111,7 @@ struct WorkspaceTargetTrackerTests {
     /// inside one process keeps both the pid and the bundle id, so comparing
     /// only those two let a secure field receive synthetic Cmd-V.
     @Test func sameProcessFocusChangeToASecureFieldDoesNotStillMatch() {
-        let app = WorkspaceTargetApplication(bundleId: "com.apple.Safari", pid: 42)
+        let app = WorkspaceTargetApplication(bundleId: "com.apple.Safari", name: "Safari", pid: 42)
         let before = tracker(app: app, focus: .inspected(role: "AXTextField", subrole: nil)).snapshot()
         let after = tracker(app: app, focus: .inspected(role: "AXTextField", subrole: "AXSecureTextField"))
 
@@ -118,7 +120,7 @@ struct WorkspaceTargetTrackerTests {
     }
 
     @Test func sameProcessLosingAXInspectionDoesNotStillMatch() {
-        let app = WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", pid: 42)
+        let app = WorkspaceTargetApplication(bundleId: "com.apple.TextEdit", name: "TextEdit", pid: 42)
         let before = tracker(app: app, focus: .inspected(role: "AXTextArea", subrole: nil)).snapshot()
         let after = tracker(app: app, focus: .unavailable)
 
