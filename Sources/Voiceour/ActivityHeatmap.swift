@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VoiceCore
 
@@ -12,9 +13,11 @@ struct ActivityHeatmap: View {
     private var a11y = A11y()
 
     let model: HeatmapModel
+    let calendar: Calendar
 
-    init(model: HeatmapModel) {
+    init(model: HeatmapModel, calendar: Calendar) {
         self.model = model
+        self.calendar = calendar
     }
 
     enum Geometry {
@@ -81,6 +84,9 @@ struct ActivityHeatmap: View {
             }
         }
         .frame(width: gridWidth, height: gridHeight)
+        .overlay {
+            HeatmapTooltipOverlay(model: model, calendar: calendar)
+        }
         .accessibilityElement()
         // One label, not label plus value: AppKit exposes the hosted `Canvas` as
         // a generic element, and a generic element carries no AXValue — the
@@ -222,5 +228,87 @@ struct ActivityHeatmap: View {
                         .padding(CGFloat(4 - level) * 0.75 + 0.5)
                 }
             }
+    }
+}
+
+/// Native per-square tooltips over the heatmap canvas.
+///
+/// An `NSView` with one tooltip rect per in-range square rather than 210
+/// SwiftUI views with `.help(_:)`: the grid is deliberately a single layout
+/// participant and a single accessibility element, and AppKit tooltip rects are
+/// tracking regions, not views — the pointer crossing from one square to the
+/// next re-resolves the string without re-arming the tooltip delay.
+private struct HeatmapTooltipOverlay: NSViewRepresentable {
+    let model: HeatmapModel
+    let calendar: Calendar
+
+    func makeNSView(context: Context) -> HeatmapTooltipView {
+        HeatmapTooltipView()
+    }
+
+    func updateNSView(_ view: HeatmapTooltipView, context: Context) {
+        // Calendar before model: a rebuild must never format with a stale one.
+        view.calendar = calendar
+        view.model = model
+    }
+}
+
+private final class HeatmapTooltipView: NSView, NSViewToolTipOwner {
+    var calendar = Calendar.current
+    var model: HeatmapModel? {
+        didSet {
+            // `HeatmapModel` is `Equatable`, and the home tab recomputes it on
+            // every body evaluation; only a genuinely different window is worth
+            // rebuilding 210 tooltip regions for.
+            guard model != oldValue else { return }
+            rebuildToolTips()
+        }
+    }
+
+    /// Match the canvas's top-left origin so column/row math is shared.
+    override var isFlipped: Bool { true }
+
+    private func rebuildToolTips() {
+        removeAllToolTips()
+        guard let model else { return }
+        for (column, cells) in model.columns.enumerated() {
+            for (row, cell) in cells.enumerated() where cell.isInRange {
+                // The cell, not the pitch: the 3pt gaps are dead space, so the
+                // tooltip names exactly the square under the pointer.
+                addToolTip(
+                    NSRect(
+                        x: CGFloat(column) * ActivityHeatmap.Geometry.pitch,
+                        y: CGFloat(row) * ActivityHeatmap.Geometry.pitch,
+                        width: ActivityHeatmap.Geometry.cell,
+                        height: ActivityHeatmap.Geometry.cell
+                    ),
+                    owner: self,
+                    userData: nil
+                )
+            }
+        }
+    }
+
+    /// Resolved from `point` rather than from `userData`, so a rebuild allocates
+    /// nothing per square. An empty string shows no tooltip.
+    func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData: UnsafeMutableRawPointer?
+    ) -> String {
+        let column = Int(point.x / ActivityHeatmap.Geometry.pitch)
+        let row = Int(point.y / ActivityHeatmap.Geometry.pitch)
+        guard let model,
+            model.columns.indices.contains(column),
+            model.columns[column].indices.contains(row)
+        else { return "" }
+        let cell = model.columns[column][row]
+        guard cell.isInRange else { return "" }
+        return StatsFormatting.heatmapTooltip(
+            words: cell.words,
+            dayKey: cell.dayKey,
+            calendar: calendar
+        ) ?? ""
     }
 }

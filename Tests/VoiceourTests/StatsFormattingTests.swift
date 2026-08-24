@@ -80,4 +80,62 @@ struct StatsFormattingTests {
         #expect(StatsFormatting.dayLabel(2) == "2 days")
         #expect(StatsFormatting.dayLabel(6) == "6 days")
     }
+
+    // MARK: Heatmap tooltips
+
+    /// Every seam pinned locally rather than through `RenderOverrides`: that
+    /// seam is process-wide and suites run in parallel.
+    private static var pinnedCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    @Test func tooltipStatesWordsThenDay() {
+        #expect(
+            StatsFormatting.heatmapTooltip(
+                words: 342,
+                dayKey: "2025-08-18",
+                calendar: Self.pinnedCalendar
+            ) == "342 words · Mon, Aug 18, 2025"
+        )
+    }
+
+    @Test func tooltipUsesSingularForOneWord() {
+        #expect(
+            StatsFormatting.heatmapTooltip(
+                words: 1,
+                dayKey: "2025-08-18",
+                calendar: Self.pinnedCalendar
+            ) == "1 word · Mon, Aug 18, 2025"
+        )
+    }
+
+    @Test func quietDayReadsAsNoDictation() {
+        #expect(
+            StatsFormatting.heatmapTooltip(
+                words: 0,
+                dayKey: "2025-08-17",
+                calendar: Self.pinnedCalendar
+            ) == "No dictation · Sun, Aug 17, 2025"
+        )
+    }
+
+    @Test func malformedKeyYieldsNoTooltip() {
+        #expect(
+            StatsFormatting.heatmapTooltip(
+                words: 5,
+                dayKey: "not-a-day",
+                calendar: Self.pinnedCalendar
+            ) == nil
+        )
+        #expect(
+            StatsFormatting.heatmapTooltip(
+                words: 5,
+                dayKey: "2025-08",
+                calendar: Self.pinnedCalendar
+            ) == nil
+        )
+    }
 }

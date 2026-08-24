@@ -36,6 +36,16 @@ struct VoiceourApp: App {
             let ok = VoiceourSelfTest.run()
             Darwin.exit(ok ? 0 : 1)
         }
+        // Home's heatmap is this app's only tooltip, and it is a data surface:
+        // hovering a square *is* the reading gesture, so AppKit's two-second
+        // arming delay is the whole latency of the feature. The delay is a
+        // process-wide default rather than a property of a tooltip rect, which
+        // costs nothing here — there is no other tooltip to make jumpy.
+        //
+        // Registered, not set: the registration domain is volatile, so this
+        // writes nothing to the user's preferences and a reader who has chosen
+        // their own `NSInitialToolTipDelay` still outranks it.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 1])
         NSApplication.shared.setActivationPolicy(.accessory)
         let liveCoordinator = DictationCoordinator.live()
         let recordingOverlay = RecordingOverlayController(coordinator: liveCoordinator)

@@ -210,7 +210,7 @@ struct ConsoleHomeTab: View {
                     .accessibilityIdentifier("home.streak.longest")
                 }
 
-                ActivityHeatmap(model: heatmap)
+                ActivityHeatmap(model: heatmap, calendar: calendar)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background {
                         // Measured, not laid out: the grid's span depends on the
