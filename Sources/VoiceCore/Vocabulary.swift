@@ -19,7 +19,7 @@ public enum TermSource: String, Codable, Equatable, Sendable, CaseIterable {
 }
 
 /// Where a term is eligible to activate.
-public enum VocabularyScope: Codable, Equatable, Sendable {
+public enum VocabularyScope: Codable, Hashable, Sendable {
     case global
     case bundleID(String)
     case projectID(String)
