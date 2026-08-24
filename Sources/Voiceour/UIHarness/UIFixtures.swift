@@ -10,6 +10,7 @@
 // it lives in `Sources/Voiceour/RenderOverrides.swift` and is never gated.
 #if UI_HARNESS
 
+    import AppKit
     import Foundation
     import VoiceCore
     import VoiceMac
@@ -249,6 +250,9 @@
             // rasterises the glyph to sample its colour, which the harness skips
             // entirely by supplying the sampled values directly.
             RenderOverrides.cometHead = CometEmoji(glyph: "☄️", hue: 0.08, saturation: 0.85)
+            // Which apps this Mac has installed is machine state, and an app
+            // icon is the most machine-dependent pixel a golden could hold.
+            RenderOverrides.installedApps = pinnedInstalledApps
         }
 
         // MARK: Pinned storage paths
@@ -259,6 +263,38 @@
                 "/Users/harness/Library/Application Support/Voiceour/recent-sessions.json"
             static let dictationStatsPath =
                 "/Users/harness/Library/Application Support/Voiceour/dictation-activity.json"
+        }
+
+        // MARK: Pinned installed apps
+
+        /// Two pins, chosen to lock every state an app label or badge can be in.
+        /// Xcode carries the same name the fixtures persist, so its rows prove the
+        /// icon path alone. VSCode's pinned name is deliberately "Code" against a
+        /// persisted "Visual Studio Code", so its rows prove installed-name-wins.
+        /// Slack, Terminal, Safari and Ghostty are deliberately absent even
+        /// though the rendering Mac may well have them, so their rows lock the
+        /// monogram and persisted-name fallback.
+        static let pinnedInstalledApps: [String: InstalledApp] = [
+            "com.apple.dt.Xcode": InstalledApp(
+                name: "Xcode",
+                icon: pinnedAppIcon(NSColor(srgbRed: 0.20, green: 0.48, blue: 0.97, alpha: 1))
+            ),
+            "com.microsoft.VSCode": InstalledApp(
+                name: "Code",
+                icon: pinnedAppIcon(NSColor(srgbRed: 0.13, green: 0.65, blue: 0.95, alpha: 1))
+            ),
+        ]
+
+        /// A deterministic stand-in for a real app icon: one flat rounded-rect
+        /// fill from a pure drawing handler, so every rasterisation of it is
+        /// byte-identical. A real `NSWorkspace` icon is a multi-representation
+        /// image whose pixels belong to whichever app version this Mac installed.
+        private static func pinnedAppIcon(_ color: NSColor) -> NSImage {
+            NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
+                color.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 7.2, yRadius: 7.2).fill()
+                return true
+            }
         }
 
         // MARK: Composition

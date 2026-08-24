@@ -198,13 +198,14 @@ struct HomeStreakStat: View {
     }
 }
 
-/// The deterministic stand-in for an app icon: its display name's first letter
-/// on the island's own plate.
+/// The letter fallback for an app this Mac no longer has: its display name's
+/// first letter on the island's own plate.
 ///
-/// Never `NSWorkspace.icon(forFile:)`. A real icon would make Home's goldens
-/// depend on which apps the rendering Mac has installed, and the offscreen
-/// harness resolves names from persisted strings precisely so it does not have
-/// to ask the workspace anything.
+/// Real icons come from `InstalledAppCatalog` through `AppIconBadge`. This stays
+/// the answer for a bundle id LaunchServices cannot resolve — a row can outlive
+/// the app that produced it — and Home's goldens stay machine-independent
+/// because the harness pins the catalog through `RenderOverrides.installedApps`
+/// rather than because nobody asks the workspace anything.
 struct AppMonogram: View {
     private var a11y = A11y()
 
@@ -232,11 +233,38 @@ struct AppMonogram: View {
     }
 }
 
-/// One app's rank on Home: its monogram, its name over a share bar, and its
+/// The app's own icon when this Mac still has the app, the deterministic letter
+/// monogram when it does not.
+///
+/// Bare at full badge size: a macOS icon already carries its own squircle and
+/// its own edge, so a plate behind it would be a second rounded shape around a
+/// rounded shape. The monogram keeps its plate, because a letter has no shape
+/// of its own.
+struct AppIconBadge: View {
+    let identity: AppIdentity
+
+    init(identity: AppIdentity) {
+        self.identity = identity
+    }
+
+    var body: some View {
+        if let icon = identity.icon {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: VoiceourMetrics.Control.medium, height: VoiceourMetrics.Control.medium)
+                .accessibilityHidden(true)
+        } else {
+            AppMonogram(label: identity.label)
+        }
+    }
+}
+
+/// One app's rank on Home: its icon, its name over a share bar, and its
 /// counts.
 ///
 /// One accessibility element for the same reason `HomeStatTile` is: read as
-/// parts, VoiceOver stops on the monogram, the name, the number and the unit
+/// parts, VoiceOver stops on the icon, the name, the number and the unit
 /// for a single fact.
 struct HomeAppRow: View {
     private var a11y = A11y()
@@ -247,20 +275,18 @@ struct HomeAppRow: View {
         self.figure = figure
     }
 
-    private var name: String {
-        AppDisplayName.label(bundleId: figure.bundleId, name: figure.name)
-    }
-
     private var counts: String {
         "sessions · \(StatsFormatting.compactCount(figure.words)) words"
     }
 
     var body: some View {
+        let identity = AppIdentity.resolve(bundleId: figure.bundleId, persistedName: figure.name)
+
         HStack(alignment: .center, spacing: VoiceourMetrics.Space.sm) {
-            AppMonogram(label: name)
+            AppIconBadge(identity: identity)
 
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                Text(name)
+                Text(identity.label)
                     .roleStyle(.label)
                     .lineLimit(1)
                 shareBar
@@ -277,7 +303,7 @@ struct HomeAppRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(name)
+        .accessibilityLabel(identity.label)
         .accessibilityValue("\(figure.sessions) sessions, \(figure.words) words")
     }
 

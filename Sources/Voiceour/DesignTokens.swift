@@ -465,6 +465,17 @@ enum VoiceourMetrics {
     enum Control {
         /// The one declared exception: compact status chips are marks, not controls.
         static let compactMark: CGFloat = 20
+        /// A glyph-sized app icon set beside `.caption` text, on History's
+        /// heading line. Smaller than `mini`: it is a mark inside a sentence of
+        /// small type, not something to hit.
+        ///
+        /// 13 rather than 14 because the icon has to fit inside the line box the
+        /// caption already occupies. Centred on a `.caption` box that is
+        /// baseline-aligned with the row's `.body` stamp, an icon taller than
+        /// ~13.9 pt reaches past the row's own descent and makes the row one
+        /// point taller — so a row would change height depending on whether the
+        /// reader still has the app installed.
+        static let inlineIcon: CGFloat = 13
         static let mini: CGFloat = 24
         static let small: CGFloat = 28
         static let medium: CGFloat = 32

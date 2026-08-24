@@ -50,6 +50,9 @@ struct ConsoleHistoryTab: View {
     @State private var isTeaching = false
     @State private var pendingFixTeachPrefill: ConsoleTeachPrefill?
     @State private var selectedSurface: String?
+    /// Whether the open transcript's raw text is unfolded. Detail-scoped, so it
+    /// closes again with the transcript it was opened on.
+    @State private var showsRawTranscript = false
     /// One collapsed preview line per session, built with the day groups.
     /// Collapsing newlines and trimming is two string copies, and recomputing it
     /// per row per body pass costs a full pass over the retained 500 on every
@@ -128,6 +131,7 @@ struct ConsoleHistoryTab: View {
             isTeaching = false
             deleteError = nil
             selectedSurface = nil
+            showsRawTranscript = false
             // A row's own Copy command selects the row it copied, so retiring the
             // confirmation unconditionally here would erase the mark that copy just
             // asked for. Only a move to a different transcript retires it.
@@ -162,7 +166,13 @@ struct ConsoleHistoryTab: View {
     }
 
     private func reloadDerivedData() {
-        appFacets = RecentSessionQuery.appFacets(in: coordinator.recentSessions)
+        // Ordered by the label the menu will actually show, which the installed
+        // app can rename out from under the persisted one ("Visual Studio Code"
+        // resolves to "Code"). VoiceCore's own sort is the same total order over
+        // persisted names, and stays that for its pure consumers.
+        appFacets = Self.sortedByResolvedLabel(
+            RecentSessionQuery.appFacets(in: coordinator.recentSessions)
+        )
         // A filtered app whose every row was just deleted or cleared would leave
         // the list narrowed to nothing with no offered way back, so the filter
         // falls away with its last row.
@@ -300,17 +310,38 @@ struct ConsoleHistoryTab: View {
         .accessibilityIdentifier("sessions.filter")
     }
 
+    @MainActor
     private func facetLabel(_ facet: RecentSessionAppFacet) -> String {
-        AppDisplayName.label(bundleId: facet.bundleId, name: facet.name)
+        AppIdentity.resolve(bundleId: facet.bundleId, persistedName: facet.name).label
+    }
+
+    /// `RecentSessionQuery.appFacets`' own total order — count desc, then label,
+    /// then bundle id — re-applied over the labels this surface displays. Only
+    /// the middle key can differ, and only for an installed app whose own name
+    /// is not the one the row persisted.
+    @MainActor
+    private static func sortedByResolvedLabel(
+        _ facets: [RecentSessionAppFacet]
+    ) -> [RecentSessionAppFacet] {
+        facets
+            .map { (facet: $0, label: AppIdentity.resolve(bundleId: $0.bundleId, persistedName: $0.name).label) }
+            .sorted { lhs, rhs in
+                if lhs.facet.count != rhs.facet.count { return lhs.facet.count > rhs.facet.count }
+                let comparison = lhs.label.localizedCaseInsensitiveCompare(rhs.label)
+                if comparison != .orderedSame { return comparison == .orderedAscending }
+                return lhs.facet.bundleId < rhs.facet.bundleId
+            }
+            .map(\.facet)
     }
 
     /// The engaged filter's label, resolved through the facets so it names the
     /// app the same way the menu just did.
+    @MainActor
     private func activeFilterLabel(_ bundleId: String) -> String {
-        AppDisplayName.label(
+        AppIdentity.resolve(
             bundleId: bundleId,
-            name: appFacets.first { $0.bundleId == bundleId }?.name
-        )
+            persistedName: appFacets.first { $0.bundleId == bundleId }?.name
+        ).label
     }
 
     /// The plates' x range, widened by one row inset so the few points between a
@@ -446,12 +477,32 @@ struct ConsoleHistoryTab: View {
                         .foregroundStyle(.secondary)
 
                     // Where it went. The outcome mark beside it says how the
-                    // text was delivered; this says what received it.
+                    // text was delivered; this says what received it — with the
+                    // app's own icon when this Mac still has the app, because a
+                    // reader recognises a scanned list of destinations by icon
+                    // faster than by reading five small words.
                     if let bundleId = session.outcome?.targetBundleId {
-                        Text(appLabel(for: session, bundleId: bundleId))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        let identity = appIdentity(for: session, bundleId: bundleId)
+                        // Centre-aligned inside the outer `.firstTextBaseline`
+                        // row: the nested stack publishes its Text's baseline, so
+                        // the label still sits on the row's baseline while the
+                        // icon centres on that label rather than on the stamp.
+                        HStack(alignment: .center, spacing: VoiceourMetrics.Space.xs) {
+                            if let icon = identity.icon {
+                                Image(nsImage: icon)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .frame(
+                                        width: VoiceourMetrics.Control.inlineIcon,
+                                        height: VoiceourMetrics.Control.inlineIcon
+                                    )
+                                    .accessibilityHidden(true)
+                            }
+                            Text(identity.label)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
 
                     Spacer(minLength: VoiceourMetrics.Space.sm)
@@ -529,11 +580,20 @@ struct ConsoleHistoryTab: View {
         previews[session.id] ?? Self.preview(of: session)
     }
 
-    /// The row's destination as a reader would name it. The persisted name is
-    /// authority; a row written before names existed falls back to its bundle id
-    /// humanized, so no row shows a reverse-DNS string.
+    /// The row's destination, as its icon and the name a reader would use for
+    /// it: the installed app's own name, else the name persisted with the row,
+    /// else its bundle id humanized, so no row shows a reverse-DNS string and no
+    /// row shows a name the app has since changed.
+    @MainActor
+    private func appIdentity(for session: RecentSession, bundleId: String) -> AppIdentity {
+        .resolve(bundleId: bundleId, persistedName: session.outcome?.targetAppName)
+    }
+
+    /// The same destination where only the name is wanted: the filter command,
+    /// the open transcript's Target row, and the row's spoken label.
+    @MainActor
     private func appLabel(for session: RecentSession, bundleId: String) -> String {
-        AppDisplayName.label(bundleId: bundleId, name: session.outcome?.targetAppName)
+        appIdentity(for: session, bundleId: bundleId).label
     }
 
     /// Collapses a transcript to the index's one preview string.
@@ -575,12 +635,13 @@ struct ConsoleHistoryTab: View {
 
     /// The open transcript, emitted under its row inside the plate they share.
     ///
-    /// It carries no buttons. The transcript is the subject and the gestures are on
-    /// it: a plain click copies the whole thing, a selection plus Command-T (or a
-    /// right-click) teaches a correction, and the record-level commands live in the
-    /// row's own context menu. What is left to draw is the text, one line that says
-    /// what to do or what just happened, and the small measurements behind the
-    /// dictation.
+    /// It carries no action buttons. The transcript is the subject and the gestures
+    /// are on it: a plain click copies the whole thing, a selection plus Command-T
+    /// (or a right-click) teaches a correction, and the record-level commands live in
+    /// the row's own context menu. What is left to draw is the text, one line that
+    /// says what to do or what just happened, and the small measurements behind the
+    /// dictation — of which only the raw text is a fold, because it alone is long
+    /// enough to bury everything under it.
     @ViewBuilder
     private func detail(for session: RecentSession) -> some View {
         if let deleteError {
@@ -616,7 +677,7 @@ struct ConsoleHistoryTab: View {
         }
 
         if let raw = rawTranscript(for: session) {
-            metadataRow("Raw", raw, mono: true)
+            rawRow(raw)
         }
 
         if let leastSure = session.leastConfidentWord {
@@ -753,17 +814,37 @@ struct ConsoleHistoryTab: View {
         return raw
     }
 
-    private func metadataRow(_ label: String, _ value: String, mono: Bool = false) -> some View {
+    /// The pre-cleanup text, folded shut. It answers one narrow question — what
+    /// cleanup and the glossary changed — and at dictation length it is a wall of
+    /// monospaced text several times the height of every other evidence row, which
+    /// pushed the least sure word and the teach editor off the page for a reading
+    /// almost nobody asks for. So the row states that raw text exists and differs,
+    /// and unfolds it only when asked. Every newly opened transcript starts folded.
+    private func rawRow(_ raw: String) -> some View {
+        DisclosureGroup(isExpanded: $showsRawTranscript) {
+            metadataText(raw, mono: true)
+        } label: {
+            Text("Raw")
+        }
+        .accessibilityIdentifier("sessions.detail.raw")
+    }
+
+    private func metadataRow(_ label: String, _ value: String) -> some View {
         LabeledContent {
-            Text(value)
-                .font(mono ? .callout.monospaced() : .callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            metadataText(value, mono: false)
         } label: {
             Text(label)
         }
+    }
+
+    /// One styling site for every measured value under the transcript.
+    private func metadataText(_ value: String, mono: Bool) -> some View {
+        Text(value)
+            .font(mono ? .callout.monospaced() : .callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Actions

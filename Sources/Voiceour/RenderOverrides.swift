@@ -75,6 +75,13 @@ enum RenderOverrides {
     /// reads this as nil, which is every app.
     static var historyInitialAppFilter: String?
 
+    /// Pins the installed-app catalog so a golden never encodes which apps the
+    /// rendering Mac happens to have. Non-nil replaces the catalog wholesale: an
+    /// absent key means "not installed", which falls back to the letter monogram
+    /// and the persisted snapshot name. Production reads this as nil, which is
+    /// the live LaunchServices lookup.
+    static var installedApps: [String: InstalledApp]?
+
     /// Forces the painted macOS 14 glass path on a newer runtime. Production
     /// follows availability normally; the harness pins this to true below.
     static var forceLegacyGlass = false
