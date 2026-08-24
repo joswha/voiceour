@@ -109,7 +109,8 @@ The core journeys are:
 - menu transcript copying;
 - recording controls and microphone warmup;
 - settings, glossary, System recovery actions, and Home's lifetime figures across the five tabs;
-- History's search filter and its clearing, and the selected transcript opening inside its own day group with the line that names its gestures.
+- History's search filter and its clearing, and the selected transcript opening inside its own day group with the line that names its gestures;
+- History's raw fold: the open transcript's RAW row shut with its raw text absent from the tree, an accessibility press unfolding exactly that text, and a second press shutting it again.
 
 History's two gestures have no flow of their own, and this is measured rather than an omission. Copying is a plain click on the transcript, and `NSTextView` refuses first mouse in an app that is not active, so a synthetic click reached nothing and the pasteboard seam recorded no write. Teaching is ⌘T or the text view's own context menu, and `-performKeyEquivalent:` is offered only to the key window, which the offscreen window can never become. `sessions.detail.in-place` therefore asserts exactly one transcript well plus the instruction line that states both gestures, the `console.sessions.selection` and `console.sessions.deselected` scenes lock the open and closed states of the tab, and the gestures themselves are verified in the real app.
 

@@ -582,8 +582,11 @@
                 appName: "Xcode",
                 captureMs: 6_800,
                 asrMs: 410,
-                // Exactly one seeded session carries the field so
-                // console.sessions.selection renders the LEAST SURE row.
+                // Exactly one seeded session carries either field: this is the row
+                // console.sessions.selection opens, so it is the one that renders the
+                // LEAST SURE row and the folded RAW row.
+                rawTranscript:
+                    "uh wire the offscreen renderer to NSHostingView and uh capture with cache display",
                 leastConfidentWord: LeastConfidentWord(text: "cacheDisplay", score: 0.43)
             ),
             session(
@@ -674,6 +677,8 @@
             reason: String? = nil,
             captureMs: Int,
             asrMs: Int,
+            /// Nil means cleanup changed nothing, which is the case that draws no RAW row.
+            rawTranscript: String? = nil,
             leastConfidentWord: LeastConfidentWord? = nil
         ) -> RecentSession {
             RecentSession(
@@ -688,7 +693,7 @@
                     targetBundleId: bundleId,
                     targetAppName: appName
                 ),
-                rawTranscript: text,
+                rawTranscript: rawTranscript ?? text,
                 stages: SessionStageTimings(
                     captureMs: captureMs,
                     asrMs: asrMs,

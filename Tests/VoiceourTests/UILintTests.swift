@@ -104,6 +104,29 @@
             #expect(evaluate(root).isEmpty)
         }
 
+        @Test func systemDrawnDisclosureTrianglesAreNotHeldToTheControlScale() {
+            // History's RAW fold publishes a 60x16 triangle no modifier can resize:
+            // a `.frame(minHeight: 24)` on its label moved the row and left the
+            // published box at 16 pt. A 16 pt app-drawn button is still a finding.
+            let triangle = node(
+                role: "AXWindow",
+                frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                children: [
+                    node(role: "AXDisclosureTriangle", label: "Raw", frame: CGRect(x: 10, y: 10, width: 60, height: 16))
+                ]
+            )
+            let button = node(
+                role: "AXWindow",
+                frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                children: [
+                    node(role: "AXButton", label: "Raw", frame: CGRect(x: 10, y: 10, width: 60, height: 16))
+                ]
+            )
+
+            #expect(evaluate(triangle).contains { $0.rule == "control-height" } == false)
+            #expect(evaluate(button).contains { $0.rule == "control-height" })
+        }
+
         @Test func documentContentOverflowingAScrollViewportIsNotAClippedChild() {
             let overflowing = node(
                 role: "AXGroup",

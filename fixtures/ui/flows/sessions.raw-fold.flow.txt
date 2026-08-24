@@ -1,0 +1,13 @@
+flow: sessions.raw-fold
+title: The raw transcript stays folded until it is asked for
+fixture: static
+transitions: idle
+PASS 1 folded | count id=sessions.detail.raw exactly 1 | 1 match
+PASS 2 folded | value id=sessions.detail.raw == "false" | "false"
+PASS 3 folded | absent value="uh wire the offscreen renderer to NSHostingView and uh capture with cache display" | 0 matches
+PASS 4 unfolded | count id=sessions.detail.raw exactly 1 | 1 match
+PASS 5 unfolded | value id=sessions.detail.raw == "true" | "true"
+PASS 6 unfolded | count value="uh wire the offscreen renderer to NSHostingView and uh capture with cache display" exactly 1 | 1 match
+PASS 7 refolded | count id=sessions.detail.raw exactly 1 | 1 match
+PASS 8 refolded | value id=sessions.detail.raw == "false" | "false"
+PASS 9 refolded | absent value="uh wire the offscreen renderer to NSHostingView and uh capture with cache display" | 0 matches

@@ -61,6 +61,14 @@
             // the gestures themselves are verified in the real app.
             static let detailTranscript = UIQuery.id("sessions.detail.transcript")
 
+            // The pre-cleanup text of the newest transcript, folded shut until asked
+            // for. The fixture gives exactly one session a raw text that differs from
+            // its final text, so exactly one node can carry either of these.
+            static let rawFold = UIQuery.id("sessions.detail.raw")
+            static let newestRawText =
+                "uh wire the offscreen renderer to NSHostingView and uh capture with cache display"
+            static let newestRaw = UIQuery.value(newestRawText)
+
             static let canonicalTerm = UIQuery.id("glossary.add-term.canonical")
             static let aliases = UIQuery.id("glossary.add-term.aliases")
             static let addTerm = UIQuery.id("glossary.add-term.submit")
@@ -208,6 +216,47 @@
                                     ),
                                     .exactly(1)
                                 ),
+                            ]
+                        ),
+                    ]),
+                // The raw text is the one measurement the detail folds away, because at
+                // dictation length it is several times the height of every other evidence
+                // row. History arrives on the newest transcript, which is the one seeded
+                // row whose raw text differs from its final text, so the fold is already
+                // on screen and already shut.
+                UIFlow(
+                    id: "sessions.raw-fold",
+                    title: "The raw transcript stays folded until it is asked for",
+                    tags: ["sessions", "console", "detail"],
+                    host: .console(.history),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "folded",
+                            [
+                                .count(Selector.rawFold, .exactly(1)),
+                                .value(Selector.rawFold, .equals("false")),
+                                .absent(Selector.newestRaw),
+                            ]
+                        ),
+                        .act(.press(Selector.rawFold)),
+                        .wait(.element(Selector.newestRaw)),
+                        .check(
+                            "unfolded",
+                            [
+                                .count(Selector.rawFold, .exactly(1)),
+                                .value(Selector.rawFold, .equals("true")),
+                                .count(Selector.newestRaw, .exactly(1)),
+                            ]
+                        ),
+                        .act(.press(Selector.rawFold)),
+                        .wait(.absent(Selector.newestRaw)),
+                        .check(
+                            "refolded",
+                            [
+                                .count(Selector.rawFold, .exactly(1)),
+                                .value(Selector.rawFold, .equals("false")),
+                                .absent(Selector.newestRaw),
                             ]
                         ),
                     ]),

@@ -557,6 +557,12 @@
                 // surfaces this app paints — the menu and the overlay — not the system
                 // controls in the console's forms.
                 guard trimmed(entry.node.subrole)?.lowercased() != "axswitch" else { continue }
+                // A native form's disclosure triangle publishes the same 16 pt box
+                // whatever the row around it does: measured, a `.frame(minHeight: 24)`
+                // on History's RAW label moved the row down 4 pt and left the published
+                // triangle at 60x16. Same reason as the switch above — the height is
+                // AppKit's, not this project's.
+                guard entry.node.role.lowercased() != "axdisclosuretriangle" else { continue }
                 let height = (frame.height * 10).rounded() / 10
                 guard !allowedControlHeights.contains(height) else { continue }
                 if height > containerHeightFloor {

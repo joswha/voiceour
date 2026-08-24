@@ -825,8 +825,15 @@ struct ConsoleHistoryTab: View {
             metadataText(raw, mono: true)
         } label: {
             Text("Raw")
+                .accessibilityIdentifier("sessions.detail.raw")
+                // Measured: the triangle SwiftUI publishes answers an accessibility
+                // press with success and does not change its own state, so a VoiceOver
+                // reader could see the fold and never open it. The default action is
+                // the one an accessibility press performs.
+                .accessibilityAction {
+                    showsRawTranscript.toggle()
+                }
         }
-        .accessibilityIdentifier("sessions.detail.raw")
     }
 
     private func metadataRow(_ label: String, _ value: String) -> some View {
