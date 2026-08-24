@@ -74,15 +74,27 @@ Update mode writes only payloads that changed and reports them as `written`; ide
 
 ### Committed documentation captures
 
-`fixtures/ui/` holds digests; `docs/media/` holds the few full PNGs that public documentation displays. They are harness output copied byte for byte, never hand-edited, and never a gate:
+`fixtures/ui/` holds digests; `docs/media/` holds the few full PNGs that public documentation displays. They are deterministic harness derivatives, never hand-edited and never a gate:
 
 | file | source scene |
 | --- | --- |
+| `docs/media/dictation-island-still.png` | portable `overlay.island.recording` at 2×, centered pixel-for-pixel on a transparent 720×216 canvas |
 | `docs/media/home-sample.png` | `console.home.readme` |
 | `docs/media/history-sample.png` | `console.sessions.selection` |
 | `docs/media/glossary-sample.png` | `console.glossary.populated` |
 
-Regenerate them with `scripts/ui_harness.sh --only console.home.readme,console.sessions.selection,console.glossary.populated`, then copy the three `.build/ui-harness/*.png` files over their `docs/media` counterparts. `docs/media/app-icon.png` is `sips`-exported from `Resources/AppIcon.icns` at 256×256.
+Regenerate the three console captures with `scripts/ui_harness.sh --only console.home.readme,console.sessions.selection,console.glossary.populated`, then copy their `.build/ui-harness/*.png` files over the `docs/media` counterparts. Build the island still from current code with:
+
+```sh
+scripts/ui_harness.sh --update --only overlay.island.recording --except os26 \
+  --scale 2 --out .build/ui-harness/docs --golden .build/ui-harness/docs-golden
+ffmpeg -y -loglevel error \
+  -i .build/ui-harness/docs/overlay.island.recording@2x.png \
+  -vf 'pad=720:216:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba' \
+  -frames:v 1 docs/media/dictation-island-still.png
+```
+
+`docs/media/app-icon.png` is `sips`-exported from `Resources/AppIcon.icns` at 256×256.
 
 ## Scene inventory
 
