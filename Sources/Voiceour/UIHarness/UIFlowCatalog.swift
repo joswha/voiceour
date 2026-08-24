@@ -69,6 +69,15 @@
                 "uh wire the offscreen renderer to NSHostingView and uh capture with cache display"
             static let newestRaw = UIQuery.value(newestRawText)
 
+            // The record's own measurements — what received the text, how long each
+            // stage took, and the decoder's least sure word — folded shut beside Raw
+            // and independent of it. Each is the label of one `LabeledContent`, which
+            // publishes it as the value of a static text node.
+            static let detailsFold = UIQuery.id("sessions.detail.details")
+            static let detailsTarget = UIQuery.value("Target")
+            static let detailsTimings = UIQuery.value("Timings")
+            static let detailsLeastSure = UIQuery.value("Least sure")
+
             static let addTermButton = UIQuery.id("glossary.add-term")
             static let glossarySearch = UIQuery.id("glossary.search.field")
             static let termCanonical = UIQuery.id("glossary.term.canonical")
@@ -265,6 +274,77 @@
                                 .count(Selector.rawFold, .exactly(1)),
                                 .value(Selector.rawFold, .equals("false")),
                                 .absent(Selector.newestRaw),
+                            ]
+                        ),
+                    ]),
+                // Target, Timings and Least sure are the record's own measurements, and a
+                // reader who opened a transcript came for the words. They sit behind a
+                // second disclosure beside Raw, with its own binding: opening either fold
+                // must leave the other one shut. History arrives on the newest transcript,
+                // the one seeded row that carries all three of them.
+                UIFlow(
+                    id: "sessions.details-fold",
+                    title: "Session metadata stays folded until it is asked for",
+                    tags: ["sessions", "console", "detail"],
+                    host: .console(.history),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "folded",
+                            [
+                                .count(Selector.detailsFold, .exactly(1)),
+                                .value(Selector.detailsFold, .equals("false")),
+                                .absent(Selector.detailsTarget),
+                                .absent(Selector.detailsTimings),
+                                .absent(Selector.detailsLeastSure),
+                                .exists(Selector.rawFold),
+                                .value(Selector.rawFold, .equals("false")),
+                            ]
+                        ),
+                        .act(.press(Selector.detailsFold)),
+                        .wait(.element(Selector.detailsTarget)),
+                        .check(
+                            "unfolded",
+                            [
+                                .count(Selector.detailsFold, .exactly(1)),
+                                .value(Selector.detailsFold, .equals("true")),
+                                .count(Selector.detailsTarget, .exactly(1)),
+                                .count(Selector.detailsTimings, .exactly(1)),
+                                .count(Selector.detailsLeastSure, .exactly(1)),
+                                .value(Selector.rawFold, .equals("false")),
+                            ]
+                        ),
+                        .act(.press(Selector.detailsFold)),
+                        .wait(.absent(Selector.detailsTarget)),
+                        .check(
+                            "refolded",
+                            [
+                                .count(Selector.detailsFold, .exactly(1)),
+                                .value(Selector.detailsFold, .equals("false")),
+                                .absent(Selector.detailsTarget),
+                                .absent(Selector.detailsTimings),
+                                .absent(Selector.detailsLeastSure),
+                                .value(Selector.rawFold, .equals("false")),
+                            ]
+                        ),
+                        // A fold is a question asked about one transcript, so it closes with
+                        // it: opening Details and then selecting another record must not
+                        // carry that answer over. The mid-list row also has no differing raw
+                        // text, so its detail proves the other half of the composition — a
+                        // Details fold without a Raw fold above it.
+                        .act(.press(Selector.detailsFold)),
+                        .wait(.element(Selector.detailsTarget)),
+                        .act(.press(Selector.midListRow)),
+                        .wait(.element(Selector.midListTranscript)),
+                        .check(
+                            "switched",
+                            [
+                                .count(Selector.detailsFold, .exactly(1)),
+                                .value(Selector.detailsFold, .equals("false")),
+                                .absent(Selector.detailsTarget),
+                                .absent(Selector.detailsTimings),
+                                .absent(Selector.detailsLeastSure),
+                                .absent(Selector.rawFold),
                             ]
                         ),
                     ]),

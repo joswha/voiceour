@@ -7,9 +7,10 @@ import VoiceMac
 ///
 /// One scrolling grouped form with exactly one transcript open. The open one takes
 /// its own plate inside its day, directly under the row that selected it, and
-/// carries its actions above the text: what you can do with it, then the words,
-/// then the evidence. Every closed row recedes while it is open, so the page has
-/// one subject rather than a detail wedged into an undifferentiated list.
+/// leads with the words themselves, then the line that names the gestures on
+/// them, then the two folds that hold the evidence. Every closed row recedes
+/// while it is open, so the page has one subject rather than a detail wedged
+/// into an undifferentiated list.
 ///
 /// The detail used to be a single `Section("Transcript")` emitted after every day
 /// group, which put it below the entire list — with the nine-session fixture at
@@ -53,6 +54,10 @@ struct ConsoleHistoryTab: View {
     /// Whether the open transcript's raw text is unfolded. Detail-scoped, so it
     /// closes again with the transcript it was opened on.
     @State private var showsRawTranscript = false
+    /// Whether the open transcript's own measurements are unfolded. Detail-scoped
+    /// beside the raw fold and independent of it: a reader who asked one of those
+    /// two questions has not asked the other.
+    @State private var showsSessionDetails = false
     /// One collapsed preview line per session, built with the day groups.
     /// Collapsing newlines and trimming is two string copies, and recomputing it
     /// per row per body pass costs a full pass over the retained 500 on every
@@ -132,6 +137,7 @@ struct ConsoleHistoryTab: View {
             deleteError = nil
             selectedSurface = nil
             showsRawTranscript = false
+            showsSessionDetails = false
             // A row's own Copy command selects the row it copied, so retiring the
             // confirmation unconditionally here would erase the mark that copy just
             // asked for. Only a move to a different transcript retires it.
@@ -645,50 +651,27 @@ struct ConsoleHistoryTab: View {
     /// It carries no action buttons. The transcript is the subject and the gestures
     /// are on it: a plain click copies the whole thing, a selection plus Command-T
     /// (or a right-click) teaches a correction, and the record-level commands live in
-    /// the row's own context menu. What is left to draw is the text, one line that
-    /// says what to do or what just happened, and the small measurements behind the
-    /// dictation — of which only the raw text is a fold, because it alone is long
-    /// enough to bury everything under it.
+    /// the row's own context menu. So what it draws is the text, one line that says
+    /// what to do or what just happened, and then two folds — the pre-cleanup text
+    /// and the record's own measurements. Both are shut: a reader who opened a
+    /// transcript came for the words, and three labelled measurements above and
+    /// below them answered questions nobody had asked yet.
     @ViewBuilder
     private func detail(for session: RecentSession) -> some View {
         if let deleteError {
             ConsoleCaption(deleteError, color: .red)
         }
 
-        // What received the text, and — only when it was not ordinary text — the
-        // class of that target: the one chip the row does not carry, and the
-        // reason a transcript that reads as pasted was in fact only copied.
-        if let outcome = session.outcome,
-            outcome.targetBundleId != nil || (outcome.targetSafety ?? .normalText) != .normalText
-        {
-            LabeledContent {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    if let bundleId = outcome.targetBundleId {
-                        Text(appLabel(for: session, bundleId: bundleId))
-                    }
-                    if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
-                        ConsoleStateMark(targetSafety.displayLabel, .neutral)
-                    }
-                }
-            } label: {
-                Text("Target")
-            }
-        }
-
         transcript(for: session)
 
         footer(for: session)
-
-        if let stages = session.stages {
-            metadataRow("Timings", stages.detailLine)
-        }
 
         if let raw = rawTranscript(for: session) {
             rawRow(raw)
         }
 
-        if let leastSure = session.leastConfidentWord {
-            leastSureRow(leastSure)
+        if hasSessionDetails(for: session) {
+            detailsRow(for: session)
         }
 
         if isTeaching {
@@ -793,6 +776,70 @@ struct ConsoleHistoryTab: View {
         isTeaching = true
     }
 
+    /// Whether this record knows anything about where its text went: a destination
+    /// app, or a safety class that was not ordinary text — the one chip the row does
+    /// not carry, and the reason a transcript that reads as pasted was only copied.
+    private func hasTargetDetails(for session: RecentSession) -> Bool {
+        guard let outcome = session.outcome else { return false }
+        return outcome.targetBundleId != nil || (outcome.targetSafety ?? .normalText) != .normalText
+    }
+
+    /// Whether anything at all sits behind the fold. A record with no target, no
+    /// stage timings and no least sure word draws no empty Details row.
+    private func hasSessionDetails(for session: RecentSession) -> Bool {
+        hasTargetDetails(for: session) || session.stages != nil || session.leastConfidentWord != nil
+    }
+
+    /// The measurements behind the dictation, folded shut. They are evidence about
+    /// the transcript rather than the transcript, so they are asked for rather than
+    /// read: the target row used to sit above the text and push it down the page,
+    /// and the timings and least sure word sat below it between the words and the
+    /// teach editor. Every newly opened transcript starts folded, and this fold is
+    /// independent of Raw's — either may be open without the other.
+    private func detailsRow(for session: RecentSession) -> some View {
+        DisclosureGroup(isExpanded: $showsSessionDetails) {
+            targetRow(for: session)
+
+            if let stages = session.stages {
+                metadataRow("Timings", stages.detailLine)
+            }
+
+            if let leastSure = session.leastConfidentWord {
+                leastSureRow(leastSure)
+            }
+        } label: {
+            Text("Details")
+                .accessibilityIdentifier("sessions.detail.details")
+                // Measured on Raw: the triangle SwiftUI publishes answers an
+                // accessibility press with success and does not change its own state,
+                // so a VoiceOver reader could see the fold and never open it. The
+                // default action is the one an accessibility press performs.
+                .accessibilityAction {
+                    showsSessionDetails.toggle()
+                }
+        }
+    }
+
+    /// What received the text, and — only when it was not ordinary text — the class
+    /// of that target.
+    @ViewBuilder
+    private func targetRow(for session: RecentSession) -> some View {
+        if let outcome = session.outcome, hasTargetDetails(for: session) {
+            LabeledContent {
+                HStack(spacing: VoiceourMetrics.Space.sm) {
+                    if let bundleId = outcome.targetBundleId {
+                        Text(appLabel(for: session, bundleId: bundleId))
+                    }
+                    if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
+                        ConsoleStateMark(targetSafety.displayLabel, .neutral)
+                    }
+                }
+            } label: {
+                Text("Target")
+            }
+        }
+    }
+
     /// The decoder's least sure word for this dictation, with its per-token
     /// probability. Not calibrated, and not a control: a reader who wants to correct
     /// it selects it in the transcript above and presses Command-T, like any other
@@ -824,9 +871,10 @@ struct ConsoleHistoryTab: View {
     /// The pre-cleanup text, folded shut. It answers one narrow question — what
     /// cleanup and the glossary changed — and at dictation length it is a wall of
     /// monospaced text several times the height of every other evidence row, which
-    /// pushed the least sure word and the teach editor off the page for a reading
-    /// almost nobody asks for. So the row states that raw text exists and differs,
-    /// and unfolds it only when asked. Every newly opened transcript starts folded.
+    /// pushed everything under it — the measurements and the teach editor — off the
+    /// page for a reading almost nobody asks for. So the row states that raw text
+    /// exists and differs, and unfolds it only when asked. Every newly opened
+    /// transcript starts folded.
     private func rawRow(_ raw: String) -> some View {
         DisclosureGroup(isExpanded: $showsRawTranscript) {
             metadataText(raw, mono: true)

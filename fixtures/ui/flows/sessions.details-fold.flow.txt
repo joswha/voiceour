@@ -1,0 +1,29 @@
+flow: sessions.details-fold
+title: Session metadata stays folded until it is asked for
+fixture: static
+transitions: idle
+PASS 1 folded | count id=sessions.detail.details exactly 1 | 1 match
+PASS 2 folded | value id=sessions.detail.details == "false" | "false"
+PASS 3 folded | absent value="Target" | 0 matches
+PASS 4 folded | absent value="Timings" | 0 matches
+PASS 5 folded | absent value="Least sure" | 0 matches
+PASS 6 folded | exists id=sessions.detail.raw | 1 match
+PASS 7 folded | value id=sessions.detail.raw == "false" | "false"
+PASS 8 unfolded | count id=sessions.detail.details exactly 1 | 1 match
+PASS 9 unfolded | value id=sessions.detail.details == "true" | "true"
+PASS 10 unfolded | count value="Target" exactly 1 | 1 match
+PASS 11 unfolded | count value="Timings" exactly 1 | 1 match
+PASS 12 unfolded | count value="Least sure" exactly 1 | 1 match
+PASS 13 unfolded | value id=sessions.detail.raw == "false" | "false"
+PASS 14 refolded | count id=sessions.detail.details exactly 1 | 1 match
+PASS 15 refolded | value id=sessions.detail.details == "false" | "false"
+PASS 16 refolded | absent value="Target" | 0 matches
+PASS 17 refolded | absent value="Timings" | 0 matches
+PASS 18 refolded | absent value="Least sure" | 0 matches
+PASS 19 refolded | value id=sessions.detail.raw == "false" | "false"
+PASS 20 switched | count id=sessions.detail.details exactly 1 | 1 match
+PASS 21 switched | value id=sessions.detail.details == "false" | "false"
+PASS 22 switched | absent value="Target" | 0 matches
+PASS 23 switched | absent value="Timings" | 0 matches
+PASS 24 switched | absent value="Least sure" | 0 matches
+PASS 25 switched | absent id=sessions.detail.raw | 0 matches
