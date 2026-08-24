@@ -83,7 +83,7 @@ Transcripts live in one file, `recent-sessions.json`, newest first, capped at th
 
 - Home — lifetime figures, top destination apps, streaks, and an activity grid.
 - General — tap gesture, auto-stop, cleanup, muting, session sounds, and the debug-only backend picker.
-- Glossary — canonical terms and aliases, project import, learned suggestions.
+- Glossary — learned suggestions, a searchable term list with one term open in its own plate, project import.
 - History — search, an app filter, day-grouped transcripts, and one open transcript.
 - System — backend and model readiness, permissions, diagnostics, and clear actions.
 

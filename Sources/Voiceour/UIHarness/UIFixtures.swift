@@ -155,6 +155,11 @@
             case populated
             /// Populated history, but every glossary term removed.
             case emptyGlossary
+            /// Populated history with a glossary that is not all bundled: one
+            /// taught term and one project-scoped term, so the row treatments
+            /// that only a non-default ledger can show — the scope chip and both
+            /// filter facets — actually render.
+            case mixedGlossary
             /// A live recording session on the dev backend: `state == .recording`.
             case recording
             /// Real backend with the microphone denied: `state == .error`.
@@ -194,6 +199,11 @@
                 return make(sessions: history)
             case .emptyGlossary:
                 return make(sessions: history, settings: settings(glossary: []))
+            case .mixedGlossary:
+                return make(
+                    sessions: history,
+                    settings: settings(glossary: VoiceCore.Settings.defaultGlossary + [taughtTerm, scopedTerm])
+                )
             case .recording:
                 return makeRecording()
             case .micDenied:
@@ -333,6 +343,25 @@
             cacheOk: false,
             downloadFraction: 0.42,
             warming: nil
+        )
+
+        /// The two terms `mixedGlossary` adds. Their ids are fixed rather than
+        /// generated: a term id is an accessibility identifier in committed
+        /// goldens, and a UUID would rewrite them on every run.
+        private static let taughtTerm = ProtectedTerm(
+            canonical: "NeuroDock",
+            spokenAliases: ["neuro dock"],
+            termId: "term-neurodock",
+            source: .explicitCorrection,
+            scope: .global
+        )
+        private static let scopedTerm = ProtectedTerm(
+            canonical: "VoiceourBench",
+            spokenAliases: [],
+            protected: false,
+            termId: "term-voiceourbench",
+            source: .manualImport,
+            scope: .projectID("proj-voiceour")
         )
 
         static func settings(

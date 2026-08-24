@@ -3,113 +3,701 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VoiceCore
 
-/// Glossary: the canonical spellings dictation is held to, the speech-to-text
-/// detections that map onto them, and the corrections the last dictation
-/// proposed.
+/// Glossary: the spellings dictation is held to, the spoken forms that map onto
+/// them, and the corrections the last dictation proposed.
+///
+/// A searchable list of records with exactly one open at a time — History's
+/// shape, with one group where History has days. The open term keeps its row as
+/// the heading and puts `ConsoleTermEditor` on a plate of its own directly
+/// under it; every other row recedes, so the page has one subject.
+///
+/// The table this replaced put a permanent unbordered field in every row, under
+/// a static title that read as a value and was false as well: a term with no
+/// spoken forms is still matched by the case and spacing variants of its own
+/// spelling. That sentence now has one place to live, the editor's
+/// `Also matched` readout, and the row says what it holds instead.
 struct ConsoleGlossaryTab: View {
     var coordinator: DictationCoordinator
 
-    @State private var newTerm = ""
-    @State private var newAliases = ""
-    @State private var duplicate: String?
-    /// The refusal `commitGlossary` published for the edit that was just
-    /// attempted. Read from `glossaryNotice` only when the commit returned
-    /// false, so a stale notice from an earlier action can never be reported
-    /// here as this edit's problem.
+    /// The open term, or nil for a closed list. A lexicon opens as a list: the
+    /// reader came to find one spelling among many, not to edit the first.
+    @State private var selectedTermId: String?
+    /// Whether a new term is being composed, and the term it is so far. Three
+    /// plain properties rather than one optional struct: a non-optional binding
+    /// derived from optional state (`Binding($draft)`) is force-unwrapping, and
+    /// SwiftUI reads it once more after Save clears it — measured as a trap in
+    /// `BindingOperations.ForceUnwrapping.get`.
+    @State private var isComposing = false
+    @State private var draftTerm = ""
+    @State private var draftForms: [String] = []
+    @State private var draftScope: VocabularyScope = .global
+    @State private var searchText = ""
+    @State private var originFilter: TermOrigin?
+    /// The refusal the last commit published, held so the editor can stay open
+    /// on the text the reader typed. Read from `glossaryNotice` only when a
+    /// commit actually refused, so a stale notice is never reported as this
+    /// edit's problem.
     @State private var refusal: String?
+    @State private var pendingRemoval: ProtectedTerm?
     @State private var importOutcome: ImportOutcome?
+    @FocusState private var searchFocused: Bool
+
+    /// The open term's editable copy, seeded when a term opens and written back
+    /// only by Save. Escape closes the editor, which discards it.
+    @State private var editedTerm = ""
+    @State private var editedForms: [String] = []
+    @State private var editedScope: VocabularyScope = .global
+
+    /// Derived data cached as snapshots, recomputed when the ledger, the query
+    /// or the filter changes. An imported lexicon is hundreds of rows, and
+    /// filtering and sorting them inside `body` would redo that work on every
+    /// keystroke and every selection read.
+    @State private var matchingTerms: [ProtectedTerm] = []
+    @State private var originFacets: [TermOriginFacet] = []
+    @State private var liveTermCount = 0
+
     private var a11y = A11y()
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
     }
 
+    private static let editorCaption =
+        "Add a spoken form only when dictation heard something else. Case and spacing variants are "
+        + "matched automatically."
+    private static let termsFooter =
+        "Click a term to edit it. Case and spacing variants of a term are matched automatically."
+
     var body: some View {
-        let terms = visibleTerms
-        let showsPolicy = Set(terms.map(\.casePolicy)).count > 1
-        let showsProtected = terms.contains { !$0.protected }
+        // Resolved once per body pass rather than once per row: rows recede only
+        // while the open term is actually on screen, so a query that hides it
+        // must not dim every row it left visible with no subject to dim them for.
+        let selectedID = selectedTermId
+        let recedes = selectedID.map { id in matchingTerms.contains { $0.termId == id } } ?? false
 
         Form {
-            Section {
-                ConsoleGlossaryComposer(
-                    term: $newTerm,
-                    aliases: $newAliases,
-                    failure: addFailure,
-                    add: addTerm
-                )
-            } header: {
-                Text("Add a term")
-            } footer: {
-                ConsoleCaption(
-                    "Also heard as is optional. Case and spacing variants of the term are matched automatically."
-                )
-            }
-
-            Section("Project lexicon") {
-                projectLexiconRow
-            }
-
-            Section {
-                if terms.isEmpty {
-                    // Says what a canonical term is rather than reporting that a
-                    // list is empty.
-                    ContentUnavailableView {
-                        Text("No canonical terms yet")
-                    } description: {
-                        Text(
-                            "A canonical term is the spelling Voiceour holds a word to when dictation keeps hearing "
-                                + "it wrong. Add the first one above, or import a project word list."
-                        )
-                    }
-                } else {
-                    ForEach(terms) { term in
-                        ConsoleGlossaryTermRow(
-                            term: term,
-                            showsPolicy: showsPolicy,
-                            showsProtected: showsProtected,
-                            updateAliases: { aliases in commitAliases(aliases, on: term) },
-                            remove: { remove(term) }
-                        )
-                        .transition(.opacity)
-                    }
-                }
-            } header: {
-                Text("Terms")
-            } footer: {
-                if !terms.isEmpty {
-                    ConsoleCaption(
-                        "When editing a term, add an alternate only if dictation heard a different phrase."
-                    )
-                }
-            }
-
+            // First, not last: a suggestion is about the dictation that just
+            // happened, and under hundreds of imported terms it is invisible.
             if !coordinator.pendingSuggestions.isEmpty {
                 Section {
                     ConsoleSuggestionsList(coordinator: coordinator)
                 } header: {
-                    Text("Suggested corrections")
+                    Text("From your last dictation")
                 } footer: {
                     ConsoleCaption(
-                        "From your last dictation. Accept teaches future dictation only — the text you already "
-                            + "pasted is never changed."
+                        "Accept teaches future dictation only — the text you already pasted is never changed."
                     )
                 }
             }
+
+            Section {
+                controlsRow
+            }
+
+            // Pinned above the list: a draft is on screen regardless of where
+            // its spelling will sort once it exists.
+            if isComposing {
+                Section {
+                    draftEditor
+                } header: {
+                    Text("New term")
+                }
+            }
+
+            if liveTermCount == 0 {
+                Section {
+                    emptyTerms
+                }
+            } else if matchingTerms.isEmpty {
+                Section {
+                    noMatches
+                }
+            } else {
+                termSections(selectedID: selectedID, recedes: recedes)
+            }
+
+            Section("Word list") {
+                projectLexiconRow
+            }
         }
         .formStyle(.grouped)
-        .onChange(of: newTerm) { _, _ in
-            duplicate = nil
-            refusal = nil
+        .onAppear(perform: reloadDerivedData)
+        .onChange(of: coordinator.settings.glossary) {
+            reloadDerivedData()
+        }
+        .onChange(of: searchText) {
+            reloadDerivedData()
+        }
+        .onChange(of: originFilter) {
+            reloadDerivedData()
+        }
+        .onChange(of: selectedTermId) {
+            seedEditor()
+        }
+        .confirmationDialog(
+            "Remove this term?",
+            isPresented: removalConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Term", role: .destructive) {
+                if let term = pendingRemoval { remove(term) }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingRemoval = nil
+            }
+        } message: {
+            Text(
+                "Dictation stops holding \u{201C}\(pendingRemoval?.canonical ?? "")\u{201D} to this spelling. "
+                    + "Text you already pasted is not affected."
+            )
         }
     }
 
-    /// Tombstoned terms are retired from cleanup, vocabulary compilation, and
+    // MARK: Derived data
+
+    private var query: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Tombstoned terms are retired from cleanup, vocabulary compilation and
     /// candidate retrieval, so they are not live, editable rows here either.
-    private var visibleTerms: [ProtectedTerm] {
+    private var liveTerms: [ProtectedTerm] {
         coordinator.settings.glossary.filter { $0.tombstonedAt == nil }
     }
 
-    // MARK: Project lexicon
+    private func reloadDerivedData() {
+        let terms = coordinator.settings.glossary
+        liveTermCount = terms.reduce(into: 0) { count, term in
+            if term.tombstonedAt == nil { count += 1 }
+        }
+        originFacets = GlossaryQuery.originFacets(in: terms)
+        // A filter whose last term was just removed or cleared would narrow the
+        // list to nothing with no offered way back, so it falls away with it.
+        if let engaged = originFilter, !originFacets.contains(where: { $0.origin == engaged }) {
+            originFilter = nil
+        }
+        matchingTerms = GlossaryQuery.matches(in: terms, query: query, origin: originFilter)
+        if let open = selectedTermId, !terms.contains(where: { $0.termId == open && $0.tombstonedAt == nil }) {
+            selectedTermId = nil
+        }
+    }
+
+    // MARK: Controls
+
+    private var controlsRow: some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                TextField("Search terms and spoken forms", text: $searchText)
+                    .focused($searchFocused)
+                    .onSubmit(selectFirstMatch)
+                    .accessibilityIdentifier("glossary.search.field")
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .frame(
+                                width: VoiceourMetrics.Control.mini,
+                                height: VoiceourMetrics.Control.mini
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Clear search")
+                    .accessibilityLabel("Clear search")
+                    .accessibilityIdentifier("glossary.search.clear")
+                }
+
+                if originFacets.count > 1 {
+                    originFilterMenu
+                }
+
+                Button("Add Term", action: beginDraft)
+                    .accessibilityIdentifier("glossary.add-term")
+            }
+
+            controlsCaption
+        }
+    }
+
+    /// One line under the controls, in precedence order: an import that failed,
+    /// an import that landed, then how far the query and filter narrowed the
+    /// list. They never compete — an import is the newer answer to the newer
+    /// gesture, and the next search clears it.
+    @ViewBuilder
+    private var controlsCaption: some View {
+        if let importFailure {
+            ConsoleCaption(importFailure, color: .red)
+        } else if let importedLabel {
+            ConsoleStateMark(importedLabel, .ok)
+        } else if !query.isEmpty || originFilter != nil {
+            ConsoleCaption("\(matchingTerms.count) of \(liveTermCount) terms match")
+        }
+    }
+
+    /// Narrows the list to terms the reader authored, or to the ones this build
+    /// shipped. A menu rather than a row of chips, for the same reason History
+    /// uses one: the control keeps its width whatever it offers.
+    private var originFilterMenu: some View {
+        Menu {
+            Picker("Filter by origin", selection: $originFilter) {
+                Text("All Terms").tag(TermOrigin?.none)
+                ForEach(originFacets) { facet in
+                    Text("\(Self.originTitle(facet.origin)) (\(facet.count))")
+                        .tag(TermOrigin?.some(facet.origin))
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: VoiceourMetrics.Space.xs) {
+                Image(
+                    systemName: originFilter == nil
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill"
+                )
+                if let originFilter {
+                    Text(Self.originTitle(originFilter)).lineLimit(1)
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Show terms of one origin")
+        .accessibilityLabel(
+            originFilter.map { "Filtering by \(Self.originTitle($0))" } ?? "Filter by origin"
+        )
+        .accessibilityIdentifier("glossary.filter")
+    }
+
+    private static func originTitle(_ origin: TermOrigin) -> String {
+        switch origin {
+        case .yours: "Yours"
+        case .builtIn: "Built-in"
+        }
+    }
+
+    /// Return in the search field opens the first match and hands focus back to
+    /// the list, instead of re-running the filter every keystroke already ran.
+    private func selectFirstMatch() {
+        guard let first = matchingTerms.first else { return }
+        endDraft()
+        selectedTermId = first.termId
+        searchFocused = false
+    }
+
+    // MARK: Empty states
+
+    private var emptyTerms: some View {
+        // Says what a term is rather than reporting that a list is empty.
+        ContentUnavailableView {
+            Text("No terms yet")
+        } description: {
+            Text(
+                "A term is the spelling Voiceour holds a word to when dictation keeps hearing it wrong. "
+                    + "Add one, or import a project word list."
+            )
+        } actions: {
+            Button("Add Term", action: beginDraft)
+        }
+    }
+
+    /// Empty results imply a non-empty query: a filter validated against the
+    /// facets can never rule out every term on its own. It can still be the
+    /// reason a query found nothing, so it is offered back.
+    private var noMatches: some View {
+        ContentUnavailableView {
+            Text("Nothing matches \u{201C}\(query)\u{201D}")
+        } description: {
+            Text("Search runs over terms and their spoken forms.")
+        } actions: {
+            Button("Clear Search") { searchText = "" }
+            if originFilter != nil {
+                Button("Show All Terms") { originFilter = nil }
+            }
+        }
+    }
+
+    // MARK: List
+
+    /// The terms, as one to three grouped plates: the rows above the open term,
+    /// the open term itself, and the rows below it. The open record gets its own
+    /// plate because an editor emitted inside the index's plate reads as more
+    /// index, and the heading stays on whichever plate comes first so the list
+    /// is named exactly once.
+    @ViewBuilder
+    private func termSections(selectedID: String?, recedes: Bool) -> some View {
+        let terms = matchingTerms
+
+        if let open = terms.firstIndex(where: { $0.termId == selectedID }) {
+            let before = terms[..<open]
+            let after = terms[(open + 1)...]
+
+            if before.isEmpty {
+                Section {
+                    openRecord(terms[open])
+                } header: {
+                    Text("Terms")
+                } footer: {
+                    if after.isEmpty { footerCaption }
+                }
+            } else {
+                Section("Terms") { rows(before, recedes: recedes) }
+                Section {
+                    openRecord(terms[open])
+                } footer: {
+                    if after.isEmpty { footerCaption }
+                }
+            }
+
+            if !after.isEmpty {
+                Section {
+                    rows(after, recedes: recedes)
+                } footer: {
+                    footerCaption
+                }
+            }
+        } else {
+            Section {
+                rows(terms[...], recedes: recedes)
+            } header: {
+                Text("Terms")
+            } footer: {
+                footerCaption
+            }
+        }
+    }
+
+    private var footerCaption: some View {
+        ConsoleCaption(Self.termsFooter)
+    }
+
+    private func rows(_ terms: ArraySlice<ProtectedTerm>, recedes: Bool) -> some View {
+        // A Section otherwise treats every term as an eager Form row, and one
+        // import can add hundreds of them, each with its own Button, label and
+        // context menu. One lazy child keeps the native plate while
+        // materializing only the rows near the viewport.
+        LazyVStack(spacing: VoiceourMetrics.Space.lg + VoiceourMetrics.Space.xs) {
+            ForEach(terms) { term in
+                row(for: term, isSelected: false, recedes: recedes)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func openRecord(_ term: ProtectedTerm) -> some View {
+        row(for: term, isSelected: true, recedes: false)
+        ConsoleTermEditor(
+            term: $editedTerm,
+            spokenForms: $editedForms,
+            scope: $editedScope,
+            scopeOptions: scopeOptions(for: term.scope),
+            derivedForms: Glossary.derivedAliases(for: term.canonical),
+            candidateForms: [],
+            failure: refusal,
+            caption: Self.editorCaption,
+            submit: ConsoleTermEditor.Command(
+                title: "Save",
+                identifier: "glossary.term.save",
+                isEnabled: canSave(term),
+                perform: { save(term) }
+            ),
+            cancel: closeTerm,
+            destructive: ConsoleTermEditor.Command(
+                title: "Remove Term\u{2026}",
+                identifier: "glossary.term.remove",
+                isEnabled: true,
+                perform: { pendingRemoval = term }
+            ),
+            identifierPrefix: "glossary.term"
+        )
+        .id(term.termId)
+    }
+
+    /// How far a closed row recedes while a term is open.
+    private var closedRowOpacity: Double {
+        a11y.contrast == .increased ? 0.8 : 0.45
+    }
+
+    private func row(for term: ProtectedTerm, isSelected: Bool, recedes: Bool) -> some View {
+        let forms = Glossary.userAliases(for: term)
+
+        return Button {
+            select(term)
+        } label: {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
+                    Text(term.canonical)
+                        .font(.body.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(term.canonical)
+
+                    // A global term is available everywhere and needs no badge
+                    // to say so.
+                    if term.scope != .global {
+                        ConsoleStateMark(term.scope.displayLabel, .neutral)
+                    }
+
+                    Spacer(minLength: VoiceourMetrics.Space.sm)
+                }
+
+                // The forms themselves, not a count of them: the whole question
+                // a reader scans this list with is which spelling caught the
+                // phrase they keep having to fix. The open row drops the line
+                // because the editor one row below lists every form as its own
+                // removable row.
+                if !isSelected {
+                    Text(Self.summary(of: forms))
+                        .font(forms.isEmpty ? .body : .body.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.vertical, VoiceourMetrics.Space.xs)
+            .padding(.horizontal, VoiceourMetrics.Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                selectionFill(isSelected: isSelected),
+                in: RoundedRectangle(cornerRadius: VoiceourMetrics.Radius.row, style: .continuous)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // A closed row beside an open one is context, not content. The
+        // escalation inverts under Increase Contrast: a reader who asked for
+        // more contrast must not be handed less.
+        .opacity(recedes ? closedRowOpacity : 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Self.accessibilityLabel(for: term, forms: forms))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("glossary.term.\(term.termId)")
+        .contextMenu {
+            Button("Remove Term\u{2026}", role: .destructive) {
+                select(term)
+                pendingRemoval = term
+            }
+        }
+    }
+
+    private static func summary(of forms: [String]) -> String {
+        forms.isEmpty ? "Matched by its spelling only" : "Heard as " + forms.joined(separator: " · ")
+    }
+
+    private static func accessibilityLabel(for term: ProtectedTerm, forms: [String]) -> String {
+        var parts = [term.canonical]
+        if term.scope != .global {
+            parts.append(term.scope.displayLabel)
+        }
+        parts.append(
+            forms.isEmpty
+                ? "matched by its spelling only"
+                : "heard as \(forms.joined(separator: ", "))"
+        )
+        return parts.joined(separator: ", ")
+    }
+
+    /// Increase Contrast escalates the wash: at 0.18 the accent tint is a hint,
+    /// which is the right weight for a selection that is also marked
+    /// `.isSelected`, and the wrong weight for a reader who asked for more.
+    private func selectionFill(isSelected: Bool) -> Color {
+        guard isSelected else { return .clear }
+        return Color.accentColor.opacity(a11y.contrast == .increased ? 0.34 : 0.18)
+    }
+
+    // MARK: Editing
+
+    private func select(_ term: ProtectedTerm) {
+        // Pressing a row is an answer to the draft as well: a two-field draft is
+        // not worth a confirmation, and Save is the default action.
+        endDraft()
+        selectedTermId = term.termId
+    }
+
+    private func closeTerm() {
+        selectedTermId = nil
+    }
+
+    private func seedEditor() {
+        refusal = nil
+        guard let open = selectedTermId,
+            let term = coordinator.settings.glossary.first(where: { $0.termId == open })
+        else {
+            editedTerm = ""
+            editedForms = []
+            editedScope = .global
+            return
+        }
+        seedEditor(with: term)
+    }
+
+    private func seedEditor(with term: ProtectedTerm) {
+        editedTerm = term.canonical
+        editedForms = Glossary.userAliases(for: term)
+        editedScope = term.scope
+    }
+
+    /// Save answers a change. Offering it against an unchanged row would make a
+    /// no-op look like a write, and an empty spelling is not a term.
+    private func canSave(_ term: ProtectedTerm) -> Bool {
+        guard !editedTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return editedTerm != term.canonical
+            || editedForms != Glossary.userAliases(for: term)
+            || editedScope != term.scope
+    }
+
+    /// The row's editor lists the whole form set, so it commits with the term's
+    /// id: what it shows is what the record becomes, and a form deleted here is
+    /// deleted. A refusal keeps the editor open on the text that caused it.
+    private func save(_ term: ProtectedTerm) {
+        var accepted = false
+        withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
+            accepted = coordinator.commitTerm(
+                termId: term.termId,
+                canonical: editedTerm,
+                spokenForms: editedForms,
+                scope: editedScope
+            )
+        }
+        guard accepted else {
+            refusal = coordinator.glossaryNotice
+            return
+        }
+        refusal = nil
+        // Reseeded from what was stored: the sanitizer can drop characters the
+        // editor still shows, and the row must not disagree with the record.
+        if let stored = coordinator.settings.glossary.first(where: { $0.termId == term.termId }) {
+            seedEditor(with: stored)
+        }
+    }
+
+    private func beginDraft() {
+        refusal = nil
+        selectedTermId = nil
+        draftTerm = ""
+        draftForms = []
+        draftScope = .global
+        isComposing = true
+    }
+
+    private func endDraft() {
+        guard isComposing else { return }
+        isComposing = false
+        draftTerm = ""
+        draftForms = []
+        draftScope = .global
+    }
+
+    private var draftEditor: some View {
+        ConsoleTermEditor(
+            term: $draftTerm,
+            spokenForms: $draftForms,
+            scope: $draftScope,
+            scopeOptions: scopeOptions(for: nil),
+            derivedForms: Glossary.derivedAliases(for: draftTerm),
+            candidateForms: [],
+            failure: refusal,
+            caption: Self.editorCaption,
+            submit: ConsoleTermEditor.Command(
+                title: "Save",
+                identifier: "glossary.draft.save",
+                isEnabled: !draftTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                perform: saveDraft
+            ),
+            cancel: endDraft,
+            destructive: nil,
+            identifierPrefix: "glossary.draft"
+        )
+    }
+
+    /// A new term is refused rather than merged when the spelling already
+    /// exists: `commitTerm` would fold the forms into the term that holds it,
+    /// which is a silent edit of a record the reader cannot see from here.
+    private func saveDraft() {
+        let trimmed = draftTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let existing = liveTerms.first(where: {
+            $0.canonical.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            refusal =
+                "\u{201C}\(existing.canonical)\u{201D} is already a term. Open it to add a spoken form."
+            return
+        }
+
+        let before = Set(coordinator.settings.glossary.map(\.termId))
+        var accepted = false
+        withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
+            accepted = coordinator.commitTerm(
+                termId: nil,
+                canonical: trimmed,
+                spokenForms: draftForms,
+                scope: draftScope
+            )
+        }
+        guard accepted else {
+            refusal = coordinator.glossaryNotice
+            return
+        }
+        refusal = nil
+        endDraft()
+        selectedTermId = coordinator.settings.glossary.first { !before.contains($0.termId) }?.termId
+    }
+
+    /// The scopes a term may be committed to, in offer order.
+    ///
+    /// The term's own scope is always offered, so a bundle-scoped term is never
+    /// silently rewritten to global by an editor that could not express it.
+    private func scopeOptions(for termScope: VocabularyScope?) -> [(scope: VocabularyScope, title: String)] {
+        var options: [(scope: VocabularyScope, title: String)] = [(.global, "Global")]
+        if case .bundleID(let bundleId) = termScope {
+            options.append((.bundleID(bundleId), "This App"))
+        }
+        let projectTitle = "Project · \(coordinator.activeProjectName ?? "This Project")"
+        if let projectId = coordinator.activeProjectId, !projectId.isEmpty {
+            options.append((.projectID(projectId), projectTitle))
+        }
+        if case .projectID(let projectId) = termScope,
+            !options.contains(where: { $0.scope == .projectID(projectId) })
+        {
+            options.append((.projectID(projectId), projectTitle))
+        }
+        return options
+    }
+
+    // MARK: Removal
+
+    private var removalConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                pendingRemoval = nil
+            }
+        )
+    }
+
+    /// Removal is not a proposal to validate: dropping a term can never make the
+    /// surviving spoken forms ambiguous, so it writes and saves directly rather
+    /// than going through the sanitizer that guards edits and additions.
+    private func remove(_ term: ProtectedTerm) {
+        withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
+            coordinator.settings.glossary.removeAll { $0.termId == term.termId }
+        }
+        coordinator.saveSettings()
+        if selectedTermId == term.termId {
+            selectedTermId = nil
+        }
+        pendingRemoval = nil
+    }
+
+    // MARK: Word list
 
     private var projectLexiconRow: some View {
         // A failure is the more urgent sentence and it occupies the same slot:
@@ -122,12 +710,7 @@ struct ConsoleGlossaryTab: View {
             captionColor: importFailure.map { _ in Color.red }
         ) {
             LabeledContent {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    if let importedLabel {
-                        ConsoleStateMark(importedLabel, .ok)
-                    }
-                    Button("Import Word List…") { importLexicon() }
-                }
+                Button("Import Word List\u{2026}") { importLexicon() }
             } label: {
                 HStack(spacing: VoiceourMetrics.Space.sm) {
                     Text("Word list")
@@ -176,298 +759,11 @@ struct ConsoleGlossaryTab: View {
         if case .failed(let message) = importOutcome { return message }
         return nil
     }
-
-    // MARK: Add a term
-
-    /// The duplicate refusal and the ambiguous-alias refusal are the same kind of
-    /// answer to the same gesture, so they share one line rather than stacking
-    /// two warnings under one composer.
-    private var addFailure: String? {
-        if let duplicate { return "\(duplicate) is already in the ledger." }
-        return refusal
-    }
-
-    private func addTerm() {
-        let trimmed = newTerm.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        // Keep the typed text and name the collision: a silent wipe is
-        // indistinguishable from a no-op.
-        if let existing = coordinator.settings.glossary.first(where: {
-            $0.canonical.caseInsensitiveCompare(trimmed) == .orderedSame
-        }) {
-            duplicate = existing.canonical
-            refusal = nil
-            return
-        }
-        duplicate = nil
-        // A term typed here remains user-authored so `clearLearnedVocabulary()`
-        // can reach it; the composer makes it globally available.
-        let term = ProtectedTerm(
-            canonical: trimmed,
-            spokenAliases: parsedGlossaryAliases(newAliases),
-            protected: false,
-            source: .manualImport,
-            scope: .global
-        )
-        // Refused rather than added when one of its spoken forms already names
-        // another term: the ledger keeps the text so the user can edit it.
-        var accepted = false
-        withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
-            accepted = commit(coordinator.settings.glossary + [term])
-        }
-        guard accepted else { return }
-        newTerm = ""
-        newAliases = ""
-    }
-
-    // MARK: Mutations
-
-    /// Every alias edit and every addition goes through `commitGlossary`, which
-    /// refuses a proposal whose spoken forms are ambiguous — an alias that also
-    /// names another term's canonical or alias makes canonicalization depend on
-    /// term order. The refusal is published on `glossaryNotice`, the
-    /// glossary-local channel, and this tab lifts it onto the row that caused it.
-    @discardableResult
-    private func commit(_ proposed: [ProtectedTerm]) -> Bool {
-        guard coordinator.commitGlossary(proposed) else {
-            refusal = coordinator.glossaryNotice
-            return false
-        }
-        refusal = nil
-        return true
-    }
-
-    private func commitAliases(_ aliases: [String], on term: ProtectedTerm) {
-        guard let index = coordinator.settings.glossary.firstIndex(where: { $0.termId == term.termId })
-        else { return }
-        var proposed = coordinator.settings.glossary
-        proposed[index] = TermMutation.settingAliases(aliases, on: proposed[index])
-        commit(proposed)
-    }
-
-    /// Removal is not a proposal to validate: dropping a term can never make the
-    /// surviving aliases ambiguous, so it writes and saves directly rather than
-    /// going through the sanitizer that guards edits and additions.
-    private func remove(_ term: ProtectedTerm) {
-        withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
-            coordinator.settings.glossary.removeAll { $0.termId == term.termId }
-        }
-        coordinator.saveSettings()
-    }
-}
-
-// MARK: - Add-term composer
-
-/// Visible, labeled fields so adding a term is one type-and-return. Form
-/// `LabeledContent` was collapsing the wells into 16 pt caret slivers.
-private struct ConsoleGlossaryComposer: View {
-    @Binding var term: String
-    @Binding var aliases: String
-    var failure: String?
-    var add: () -> Void
-
-    @FocusState private var focused: Field?
-
-    private enum Field: Hashable {
-        case term
-        case aliases
-    }
-
-    var body: some View {
-        ConsoleRow(caption: failure, captionColor: failure.map { _ in Color.orange }) {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                composerField(
-                    title: "Term",
-                    prompt: "kubectl",
-                    text: $term,
-                    field: .term,
-                    identifier: "glossary.add-term.canonical"
-                )
-                composerField(
-                    title: "Also heard as",
-                    prompt: "cube cuddle",
-                    text: $aliases,
-                    field: .aliases,
-                    identifier: "glossary.add-term.aliases"
-                )
-                HStack {
-                    Spacer(minLength: 0)
-                    Button("Add", action: submit)
-                        .disabled(term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("Add term")
-                        .accessibilityIdentifier("glossary.add-term.submit")
-                }
-            }
-        }
-    }
-
-    private func composerField(
-        title: String,
-        prompt: String,
-        text: Binding<String>,
-        field: Field,
-        identifier: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-            Text(title)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField(title, text: text, prompt: Text(prompt))
-                .font(.body.monospaced())
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
-                .autocorrectionDisabled(true)
-                .labelsHidden()
-                .focused($focused, equals: field)
-                .onSubmit(submit)
-                .accessibilityIdentifier(identifier)
-        }
-    }
-
-    private func submit() {
-        add()
-        if term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            focused = .term
-        }
-    }
-}
-
-// MARK: - Term row
-
-/// One glossary entry. POLICY collapses while every term shares one policy, and
-/// the lock disappears while every term is protected, so either one that remains
-/// can tell rows apart. SCOPE paints only for a non-global term, because a global
-/// term is available everywhere and needs no badge to say so.
-private struct ConsoleGlossaryTermRow: View {
-    var term: ProtectedTerm
-    var showsPolicy: Bool
-    var showsProtected: Bool
-    var updateAliases: ([String]) -> Void
-    var remove: () -> Void
-
-    @State private var aliasText: String
-    @FocusState private var aliasFieldFocused: Bool
-
-    init(
-        term: ProtectedTerm,
-        showsPolicy: Bool,
-        showsProtected: Bool,
-        updateAliases: @escaping ([String]) -> Void,
-        remove: @escaping () -> Void
-    ) {
-        self.term = term
-        self.showsPolicy = showsPolicy
-        self.showsProtected = showsProtected
-        self.updateAliases = updateAliases
-        self.remove = remove
-        _aliasText = State(initialValue: Glossary.userAliases(for: term).joined(separator: ", "))
-    }
-
-    var body: some View {
-        LabeledContent {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                aliasField
-
-                Button {
-                    remove()
-                } label: {
-                    // The glyph is 13 pt; the affordance has to be bigger than the ink.
-                    // A borderless button is exactly its label's size, so without this the
-                    // target was 13x13 — under this project's own 22x22 hit floor and well
-                    // under what a trackpad can hit reliably. 24 is the first size that
-                    // clears the floor AND sits on the control scale.
-                    Image(systemName: "xmark.circle.fill")
-                        .imageScale(.medium)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Remove \(term.canonical)")
-                .accessibilityLabel("Remove \(term.canonical)")
-                .accessibilityIdentifier("remove.\(term.termId)")
-            }
-        } label: {
-            HStack(spacing: VoiceourMetrics.Space.xs) {
-                Text(term.canonical)
-                    .font(.body.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(term.canonical)
-
-                if showsProtected && term.protected {
-                    Image(systemName: "lock.fill")
-                        .imageScale(.small)
-                        .foregroundStyle(.secondary)
-                        .help("Protected — deterministic cleanup keeps this canonical spelling")
-                        .accessibilityLabel("Protected term \(term.canonical)")
-                        .accessibilityIdentifier("protected.\(term.termId)")
-                }
-
-                if showsPolicy {
-                    Text(term.casePolicy.rawValue.uppercased())
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-
-                if let scopeLabel {
-                    ConsoleStateMark(scopeLabel, .neutral)
-                }
-            }
-        }
-    }
-
-    private var aliasField: some View {
-        TextField("No alternate detections", text: $aliasText)
-            .font(.body.monospaced())
-            .autocorrectionDisabled(true)
-            .frame(width: VoiceourMetrics.Column.glossaryAliases)
-            .focused($aliasFieldFocused)
-            .help(
-                aliasText.isEmpty
-                    ? "No alternate speech-to-text detections for \(term.canonical)"
-                    : "Speech-to-text detected \(term.canonical) as \(aliasText)"
-            )
-            .accessibilityLabel("Speech-to-text detections for \(term.canonical)")
-            .accessibilityIdentifier("aliases.\(term.termId)")
-            .onSubmit {
-                aliasFieldFocused = false
-            }
-            .onExitCommand {
-                // Escape restores the persisted value without writing it back.
-                aliasText = Glossary.userAliases(for: term).joined(separator: ", ")
-                aliasFieldFocused = false
-            }
-            .onChange(of: aliasFieldFocused) { _, isFocused in
-                if !isFocused {
-                    commit()
-                }
-            }
-            .onChange(of: Glossary.userAliases(for: term)) { _, aliases in
-                if !aliasFieldFocused {
-                    aliasText = aliases.joined(separator: ", ")
-                }
-            }
-    }
-
-    /// A global term needs no scope badge because it is available everywhere.
-    private var scopeLabel: String? {
-        guard term.scope != .global else { return nil }
-        return term.scope.displayLabel
-    }
-
-    private func commit() {
-        let aliases = parsedGlossaryAliases(aliasText)
-        aliasText = aliases.joined(separator: ", ")
-        guard aliases != Glossary.userAliases(for: term) else { return }
-        updateAliases(aliases)
-    }
 }
 
 // MARK: - Suggested corrections
 
-/// The corrections the last dictation proposed. Accepting one teaches future
+/// The corrections the last dictation proposed. Teaching one changes future
 /// dictation; nothing here ever edits text that was already inserted.
 struct ConsoleSuggestionsList: View {
     var coordinator: DictationCoordinator
@@ -481,27 +777,23 @@ struct ConsoleSuggestionsList: View {
         ForEach(visible) { suggestion in
             LabeledContent {
                 HStack(spacing: VoiceourMetrics.Space.sm) {
-                    Button("Keep") { dismissedIDs.insert(suggestion.id) }
-                        .help("Keep the pasted text and hide this suggestion. Nothing is taught.")
-                        .accessibilityLabel("Keep pasted text for \(suggestion.misheard)")
-                        .accessibilityIdentifier("suggestion.\(suggestion.id).keep")
-
-                    Button("Accept") { coordinator.acceptSuggestion(id: suggestion.id) }
+                    // Teach and Ignore, because Keep and Reject were two words
+                    // for outcomes a reader could not tell apart: one hid the
+                    // row, the other taught the glossary never to offer it.
+                    Button("Teach") { coordinator.acceptSuggestion(id: suggestion.id) }
                         .help(
                             "Teach Voiceour to use \u{201C}\(suggestion.canonical)\u{201D} next time. "
                                 + "Your pasted text is unchanged."
                         )
                         .accessibilityLabel(
-                            "Accept correction from \(suggestion.misheard) to \(suggestion.canonical)"
+                            "Teach correction from \(suggestion.misheard) to \(suggestion.canonical)"
                         )
                         .accessibilityIdentifier("suggestion.\(suggestion.id).accept")
 
-                    Button("Reject") { coordinator.rejectSuggestion(id: suggestion.id) }
-                        .help("Don't suggest this correction again.")
-                        .accessibilityLabel(
-                            "Reject correction from \(suggestion.misheard) to \(suggestion.canonical)"
-                        )
-                        .accessibilityIdentifier("suggestion.\(suggestion.id).reject")
+                    Button("Ignore") { dismissedIDs.insert(suggestion.id) }
+                        .help("Hide this suggestion. Nothing is taught and the pasted text is unchanged.")
+                        .accessibilityLabel("Ignore suggestion for \(suggestion.misheard)")
+                        .accessibilityIdentifier("suggestion.\(suggestion.id).ignore")
                 }
             } label: {
                 HStack(spacing: VoiceourMetrics.Space.xs) {
@@ -520,6 +812,12 @@ struct ConsoleSuggestionsList: View {
                 .accessibilityLabel(
                     "Suggested correction: \(suggestion.misheard) becomes \(suggestion.canonical)"
                 )
+            }
+            // Never offering this pairing again is a rarer answer than the two
+            // on the row, and it is the only one that writes a rejection.
+            .contextMenu {
+                Button("Never Suggest This") { coordinator.rejectSuggestion(id: suggestion.id) }
+                    .accessibilityIdentifier("suggestion.\(suggestion.id).reject")
             }
         }
     }

@@ -446,10 +446,6 @@ enum VoiceourMetrics {
     enum Column {
         static let rail: CGFloat = 176
         static let settingsLabel: CGFloat = 176
-        static let glossaryCanonical: CGFloat = 176
-        static let glossaryAliases: CGFloat = 320
-        static let glossaryPolicy: CGFloat = 64
-        static let glossaryScopeMin: CGFloat = 140
         static let rowAction: CGFloat = Control.medium
     }
 
@@ -572,8 +568,8 @@ enum VoiceourMetrics {
     enum Window {
         static let minWidth: CGFloat = Column.rail + Space.xl * 2 + Content.table
         static let minHeight: CGFloat = 560
-        /// First-launch size. Width IS `minWidth`: the widest measure (the
-        /// Glossary table) fits the region exactly and the form measure sits
+        /// First-launch size. Width IS `minWidth`: the widest measure
+        /// (`Content.table`) fits the region exactly and the form measure sits
         /// with symmetric 90pt gutters, so the console opens at its tightest
         /// legal, geometrically fitted size instead of floating its column in
         /// spare glass. Growing the window only grows the gutters evenly.

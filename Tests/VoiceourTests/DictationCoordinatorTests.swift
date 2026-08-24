@@ -994,7 +994,7 @@ struct DictationCoordinatorTests {
         let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
 
         #expect(!coordinator.hasLearnedVocabulary)
-        coordinator.teachCorrection(canonical: "kubectl", misheard: "cube control", scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube control"], scope: .global)
 
         let taught = try #require(coordinator.settings.glossary.first { $0.canonical == "kubectl" })
         #expect(taught.source == .bundled)
@@ -1014,7 +1014,7 @@ struct DictationCoordinatorTests {
                 ProtectedTerm(canonical: "ProjectTerm", spokenAliases: [], source: .manualImport),
             ]
         )
-        coordinator.teachCorrection(canonical: "kubectl", misheard: "cube control", scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube control"], scope: .global)
 
         coordinator.clearLearnedVocabulary()
 
@@ -1087,7 +1087,7 @@ struct DictationCoordinatorTests {
             asrText: "please run cube uh cuddle on the pod"
         )
 
-        coordinator.teachCorrection(canonical: "kubectl", misheard: "cube uh cuddle", scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube uh cuddle"], scope: .global)
         await driveUtterance(coordinator)
         #expect(coordinator.lastTranscript == "please run kubectl on the pod")
 
@@ -1111,6 +1111,109 @@ struct DictationCoordinatorTests {
         )
         await driveUtterance(coordinator)
         #expect(coordinator.lastTranscript == "please run cube cuddle on the pod")
+    }
+
+    /// A term edited from its own row arrives with the whole form set the row
+    /// displayed, so the set is authoritative: dropping a form in the editor has
+    /// to actually drop it. The id is the row's identity and must survive the
+    /// write, or the open row would jump to a different record.
+    @Test func editingATermReplacesItsSpokenFormsAndKeepsItsId() throws {
+        let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
+
+        #expect(
+            coordinator.commitTerm(
+                termId: "kubectl",
+                canonical: "kubectl",
+                spokenForms: ["kube cuddle"],
+                scope: .global
+            ))
+
+        let edited = try #require(coordinator.settings.glossary.first { $0.termId == "kubectl" })
+        #expect(edited.canonical == "kubectl")
+        #expect(Glossary.userAliases(for: edited) == ["kube cuddle"])
+    }
+
+    /// History's teach names a canonical it may never have seen and lists no
+    /// forms, so its write is additive. Treating it as a replacement would let
+    /// teaching `cube control` delete the two surfaces kubectl ships with.
+    @Test func teachingOntoABundledTermAddsAFormWithoutDroppingShippedOnes() throws {
+        let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
+
+        #expect(
+            coordinator.commitTerm(
+                termId: nil,
+                canonical: "kubectl",
+                spokenForms: ["cube control"],
+                scope: .global
+            ))
+
+        let taught = try #require(coordinator.settings.glossary.first { $0.canonical == "kubectl" })
+        let forms = Glossary.userAliases(for: taught)
+        #expect(forms.contains("cube cuddle"))
+        #expect(forms.contains("kube cuddle"))
+        #expect(forms.contains("cube control"))
+    }
+
+    /// Correcting a term's spelling is an edit of that record, not a new term
+    /// beside it: the id and every form it already held stay put.
+    @Test func renamingATermKeepsItsIdAndItsForms() throws {
+        let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
+        let original = try #require(coordinator.settings.glossary.first { $0.termId == "kubectl" })
+        let displayedForms = Glossary.userAliases(for: original)
+
+        #expect(
+            coordinator.commitTerm(
+                termId: "kubectl",
+                canonical: "kubectl-2",
+                spokenForms: displayedForms,
+                scope: .global
+            ))
+
+        let renamed = try #require(coordinator.settings.glossary.first { $0.termId == "kubectl" })
+        #expect(renamed.canonical == "kubectl-2")
+        #expect(Glossary.userAliases(for: renamed) == displayedForms)
+    }
+
+    /// Renaming a term onto a spelling another term in the same scope already
+    /// holds is refused, not merged. Two rows with one canonical make
+    /// canonicalization depend on term order, and the second row is unreachable
+    /// in a list that names terms — the user would think the rename was lost.
+    @Test func renamingATermToAnExistingCanonicalInItsScopeIsRefused() throws {
+        let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
+        let before = coordinator.settings.glossary
+        let event = try #require(before.first { $0.termId == "CGEvent" })
+
+        // Case differs, the spelling does not: `kubectl` is already a term.
+        #expect(
+            coordinator.commitTerm(
+                termId: "CGEvent",
+                canonical: "KUBECTL",
+                spokenForms: Glossary.userAliases(for: event),
+                scope: .global
+            ) == false)
+
+        #expect(coordinator.glossaryNotice == "“kubectl” is already a term. Open it to add a spoken form.")
+        #expect(coordinator.settings.glossary == before)
+    }
+
+    /// A refused edit changes nothing and says why, so the editor can stay open
+    /// on the text the user typed. A silent partial write here would leave the
+    /// row showing forms the glossary never accepted.
+    @Test func aRefusedTermEditReturnsFalseAndSetsTheNotice() {
+        let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
+        let before = coordinator.settings.glossary
+
+        // "cube cuddle" already belongs to the bundled kubectl term.
+        #expect(
+            coordinator.commitTerm(
+                termId: "CGEvent",
+                canonical: "CGEvent",
+                spokenForms: ["cube cuddle"],
+                scope: .global
+            ) == false)
+
+        #expect(coordinator.glossaryNotice == "That spoken form already belongs to another term.")
+        #expect(coordinator.settings.glossary == before)
     }
 
     @Test func clearingHistoryRemovesTheJournalFromDisk() async throws {
@@ -1598,7 +1701,7 @@ struct DictationCoordinatorTests {
         let coordinator = makeCoordinator(settingsStore: temporarySettingsStore())
 
         // "cube cuddle" already belongs to the bundled kubectl term.
-        coordinator.teachCorrection(canonical: "Ghostty", misheard: "cube cuddle", scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "Ghostty", spokenForms: ["cube cuddle"], scope: .global)
 
         #expect(coordinator.glossaryNotice == "That spoken form already belongs to another term.")
         #expect(coordinator.errorMessage == nil)

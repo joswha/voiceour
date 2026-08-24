@@ -692,7 +692,7 @@ struct ConsoleHistoryTab: View {
         }
 
         if isTeaching {
-            ConsoleTeachEditor(
+            ConsoleTeachHost(
                 coordinator: coordinator,
                 session: session,
                 externalPrefill: $pendingFixTeachPrefill,
@@ -953,132 +953,68 @@ struct ConsoleTeachPrefill: Equatable {
 
 /// Teaches a correction for a word the last dictation heard wrong.
 ///
+/// The fields are `ConsoleTermEditor`, the one term editor, so a term taught
+/// from a transcript names the same two things the Glossary row names. What is
+/// session-shaped stays here: the scopes this transcript can offer, the
+/// surfaces its raw text held and its final text did not, the one-shot prefill
+/// from a right-click, and the write itself.
+///
 /// Teaching writes the user's glossary and nothing else: it never edits text
 /// that was already inserted, which is why the caption says so and why the
 /// editor sits below the transcript rather than over it.
-struct ConsoleTeachEditor: View {
+struct ConsoleTeachHost: View {
     var coordinator: DictationCoordinator
     var session: RecentSession
     @Binding var externalPrefill: ConsoleTeachPrefill?
     @Binding var isEditing: Bool
 
     @State private var canonical = ""
-    @State private var misheard = ""
-    @State private var scope: Scope = .global
-    @FocusState private var focused: Field?
-
-    private enum Field: Hashable {
-        case canonical
-        case misheard
-    }
-
-    private enum Scope: Hashable {
-        case global
-        case app
-        case project
-    }
+    @State private var spokenForms: [String] = []
+    @State private var scope: VocabularyScope = .global
+    /// The reason the last teach was refused, kept so the editor can stay open
+    /// on the text the user typed. A refusal used to close the editor silently
+    /// and throw the term away.
+    @State private var refusal: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            // Stacked, bordered, full-measure wells, exactly like the glossary's
-            // add-term composer. A `LabeledContent` here put a fixed-width unbordered
-            // field in the trailing column of a 684 pt row, so the term the user was
-            // typing sat unframed against the right edge of the window.
-            teachField(
-                title: "Canonical term",
-                prompt: "kubectl",
-                text: $canonical,
-                field: .canonical,
-                identifier: "sessions.teach.canonical"
-            )
-            teachField(
-                title: "Detected as (optional)",
-                prompt: "cube control",
-                text: $misheard,
-                field: .misheard,
-                identifier: "sessions.teach.misheard"
-            )
-
-            if !mishearingCandidates.isEmpty {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-                    Text("Heard in the raw transcript")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: VoiceourMetrics.Space.xs) {
-                            ForEach(mishearingCandidates, id: \.self) { candidate in
-                                Button(candidate) { misheard = candidate }
-                                    .accessibilityLabel("Use detected surface \(candidate)")
-                            }
-                        }
-                    }
-                }
-            }
-
-            Picker("Scope", selection: $scope) {
-                Text("Global").tag(Scope.global)
-                if appBundleId != nil {
-                    Text("This App").tag(Scope.app)
-                }
-                if projectId != nil {
-                    Text(coordinator.activeProjectName.map { "Project · \($0)" } ?? "This Project")
-                        .tag(Scope.project)
-                }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize(horizontal: true, vertical: false)
-
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Button("Teach") { submit() }
-                    .disabled(!canSubmit)
-                    .accessibilityIdentifier("sessions.teach.submit")
-                Button("Cancel") { cancel() }
-                    .accessibilityIdentifier("sessions.teach.cancel")
-                Spacer(minLength: 0)
-            }
-
-            ConsoleCaption(
-                "Teaches future dictation only — this never edits text already pasted. Case and spacing variants "
-                    + "are matched automatically; add a detected surface only when dictation heard the term "
-                    + "differently."
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            applyExternalPrefill()
-            focused = .canonical
-        }
-        .onExitCommand(perform: cancel)
+        ConsoleTermEditor(
+            term: $canonical,
+            spokenForms: $spokenForms,
+            scope: $scope,
+            scopeOptions: scopeOptions,
+            derivedForms: [],
+            candidateForms: mishearingCandidates,
+            failure: refusal,
+            caption: "Teaches future dictation only — this never edits text already pasted.",
+            submit: ConsoleTermEditor.Command(
+                title: "Teach",
+                identifier: "sessions.teach.submit",
+                isEnabled: canSubmit,
+                perform: submit
+            ),
+            cancel: cancel,
+            destructive: nil,
+            identifierPrefix: "sessions.teach"
+        )
+        .onAppear(perform: applyExternalPrefill)
         .onChange(of: externalPrefill) {
             applyExternalPrefill()
         }
     }
 
-    /// One labelled, bordered well. The caption above the field is hidden from
-    /// accessibility because the field itself already publishes the same title.
-    private func teachField(
-        title: String,
-        prompt: String,
-        text: Binding<String>,
-        field: Field,
-        identifier: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-            Text(title)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField(title, text: text, prompt: Text(prompt))
-                .font(.body.monospaced())
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
-                .autocorrectionDisabled(true)
-                .labelsHidden()
-                .focused($focused, equals: field)
-                .onSubmit(submit)
-                .accessibilityLabel(title)
-                .accessibilityIdentifier(identifier)
+    /// Global always; the delivery target and the active project only when this
+    /// transcript has one. A scope the session cannot name is not offered.
+    private var scopeOptions: [(scope: VocabularyScope, title: String)] {
+        var options: [(scope: VocabularyScope, title: String)] = [(.global, "Global")]
+        if let appBundleId {
+            options.append((.bundleID(appBundleId), "This App"))
         }
+        if let projectId {
+            options.append(
+                (.projectID(projectId), "Project · \(coordinator.activeProjectName ?? "This Project")")
+            )
+        }
+        return options
     }
 
     private var appBundleId: String? {
@@ -1092,8 +1028,7 @@ struct ConsoleTeachEditor: View {
     }
 
     /// Words present in the raw pre-cleanup transcript but not in the final text
-    /// — the likely mishearing surfaces the user may want to map to a canonical
-    /// term.
+    /// — the likely mishearing surfaces the user may want to map to a term.
     private var mishearingCandidates: [String] {
         guard let raw = session.rawTranscript else { return [] }
         let finalWords = Set(
@@ -1113,39 +1048,37 @@ struct ConsoleTeachEditor: View {
         return candidates
     }
 
-    private var resolvedScope: VocabularyScope {
-        switch scope {
-        case .global: .global
-        case .app: appBundleId.map(VocabularyScope.bundleID) ?? .global
-        case .project: projectId.map(VocabularyScope.projectID) ?? .global
-        }
-    }
-
     private var canSubmit: Bool {
         !canonical.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Seeds the editor from a transcript right-click: the highlighted surface
-    /// becomes the misheard alias and focus lands on the canonical field the user
-    /// types. An already-open draft keeps its typed canonical and chosen scope —
-    /// only the misheard surface is replaced. Consumes the one-shot binding so a
-    /// repeat right-click of the same word re-triggers.
+    /// becomes the spoken form the user is teaching. An already-open draft keeps
+    /// its typed term and chosen scope — only the form is replaced. Consumes the
+    /// one-shot binding so a repeat right-click of the same word re-triggers.
     private func applyExternalPrefill() {
         guard let prefill = externalPrefill else { return }
-        misheard = prefill.word
-        focused = .canonical
+        spokenForms = [prefill.word]
         externalPrefill = nil
     }
 
+    /// History lists no form set — it names a term the glossary may already hold
+    /// — so it commits with a nil `termId`, and its form is added to that term
+    /// rather than substituted for the forms the term already carries.
     private func submit() {
-        let trimmedCanonical = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCanonical.isEmpty else { return }
-        let trimmedMisheard = misheard.trimmingCharacters(in: .whitespacesAndNewlines)
-        coordinator.teachCorrection(
-            canonical: trimmedCanonical,
-            misheard: trimmedMisheard.isEmpty ? nil : trimmedMisheard,
-            scope: resolvedScope
-        )
+        let trimmed = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard
+            coordinator.commitTerm(
+                termId: nil,
+                canonical: trimmed,
+                spokenForms: spokenForms,
+                scope: scope
+            )
+        else {
+            refusal = coordinator.glossaryNotice
+            return
+        }
         reset()
     }
 
@@ -1155,9 +1088,9 @@ struct ConsoleTeachEditor: View {
 
     private func reset() {
         canonical = ""
-        misheard = ""
+        spokenForms = []
         scope = .global
-        focused = nil
+        refusal = nil
         isEditing = false
         externalPrefill = nil
     }

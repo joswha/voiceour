@@ -1,0 +1,8 @@
+flow: glossary.edit-term
+title: A term opens in place and takes a new spoken form
+fixture: static
+transitions: idle
+PASS 1 open | exists id=glossary.term.canonical | 1 match
+PASS 2 open | exists id=glossary.term.add-form | 1 match
+PASS 3 open | exists id=glossary.term.save | 1 match
+PASS 4 saved | exists label~="kube kettle" | 2 matches

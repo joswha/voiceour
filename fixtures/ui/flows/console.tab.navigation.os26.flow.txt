@@ -8,13 +8,13 @@ PASS 3 home | absent id=capture.hotkey | 0 matches
 PASS 4 general | count id=capture.hotkey exactly 1 | 1 match
 PASS 5 general | value id=console.tab.general == "1" | "1"
 PASS 6 general | value id=console.tab.home == "0" | "0"
-PASS 7 general | absent id=glossary.add-term.canonical | 0 matches
-PASS 8 glossary | count id=glossary.add-term.canonical exactly 1 | 1 match
+PASS 7 general | absent id=glossary.search.field | 0 matches
+PASS 8 glossary | count id=glossary.search.field exactly 1 | 1 match
 PASS 9 glossary | absent id=capture.hotkey | 0 matches
 PASS 10 glossary | value id=console.tab.glossary == "1" | "1"
 PASS 11 glossary | value id=console.tab.general == "0" | "0"
 PASS 12 history | count id=sessions.search.field exactly 1 | 1 match
-PASS 13 history | absent id=glossary.add-term.canonical | 0 matches
+PASS 13 history | absent id=glossary.search.field | 0 matches
 PASS 14 history | value id=console.tab.history == "1" | "1"
 PASS 15 history | value id=console.tab.glossary == "0" | "0"
 PASS 16 system | count id=system.diagnostics.copy exactly 1 | 1 match

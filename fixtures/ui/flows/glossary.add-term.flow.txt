@@ -1,8 +1,8 @@
 flow: glossary.add-term
-title: A canonical term can be added through the glossary
+title: A term can be added through the glossary
 fixture: static
 transitions: idle
-PASS 1 empty | text == "No canonical terms yet" exactly 1 | 1 match
-PASS 2 added | exists value="FlowTerm" | 1 match
-PASS 3 added | exists id=remove.FlowTerm | 1 match
+PASS 1 empty | text == "No terms yet" exactly 1 | 1 match
+PASS 2 added | exists id=glossary.term.FlowTerm | 1 match
+PASS 3 added | exists label~="heard as flow form, other form" | 1 match
 PASS 4 added | model glossaryTermCount == "1" | 1
