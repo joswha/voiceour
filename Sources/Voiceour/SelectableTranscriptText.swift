@@ -22,6 +22,10 @@ struct SelectableTranscriptText: NSViewRepresentable {
     var text: String
     var onFixTeach: (String) -> Void
     var onSelectionChange: ((String?) -> Void)?
+    /// A single click that selected nothing — the whole transcript is what the
+    /// reader asked for, so History copies it. A drag, a double-click and a
+    /// right-click all leave a selection behind and never reach this.
+    var onPlainClick: (() -> Void)?
 
     private static let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
     private static let textColor = NSColor.labelColor
@@ -30,12 +34,14 @@ struct SelectableTranscriptText: NSViewRepresentable {
         identity: UUID,
         text: String,
         onFixTeach: @escaping (String) -> Void,
-        onSelectionChange: ((String?) -> Void)? = nil
+        onSelectionChange: ((String?) -> Void)? = nil,
+        onPlainClick: (() -> Void)? = nil
     ) {
         self.identity = identity
         self.text = text
         self.onFixTeach = onFixTeach
         self.onSelectionChange = onSelectionChange
+        self.onPlainClick = onPlainClick
     }
 
     /// Deliberately not `selectedTextBackgroundColor`: that one is derived from
@@ -75,6 +81,7 @@ struct SelectableTranscriptText: NSViewRepresentable {
         applySelectionStyle(to: view)
         view.onFixTeach = onFixTeach
         view.onSelectionChange = onSelectionChange
+        view.onPlainClick = onPlainClick
         view.install(
             identity: identity,
             attributedText: attributed,
@@ -87,6 +94,7 @@ struct SelectableTranscriptText: NSViewRepresentable {
         applySelectionStyle(to: view)
         view.onFixTeach = onFixTeach
         view.onSelectionChange = onSelectionChange
+        view.onPlainClick = onPlainClick
         if view.installedIdentity != identity || view.string != text {
             view.install(
                 identity: identity,
@@ -125,13 +133,15 @@ struct SelectableTranscriptText: NSViewRepresentable {
 
 private let fixTeachSurfaceTrim = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
 
-/// NSTextView that reports completed selection changes, prepends a "Fix / Teach"
-/// item to the selection context menu (keeping the native Copy/Look Up items),
-/// and reports the chosen context-menu surface — the active selection, or the
-/// word under the click when nothing is selected — back through `onFixTeach`.
+/// NSTextView that reports completed selection changes, reports a plain click that
+/// selected nothing, prepends a "Fix / Teach" item to the selection context menu
+/// (keeping the native Copy/Look Up items), and reports the chosen context-menu
+/// surface — the active selection, or the word under the click when nothing is
+/// selected — back through `onFixTeach`.
 final class FixTeachTextView: NSTextView {
     var onFixTeach: ((String) -> Void)?
     var onSelectionChange: ((String?) -> Void)?
+    var onPlainClick: (() -> Void)?
 
     /// The transcript currently in the text storage. Read by the representable so
     /// a switch between two sessions holding identical text still reinstalls, and
@@ -141,6 +151,15 @@ final class FixTeachTextView: NSTextView {
     private var lastSelectionSurface: String?
     private var textInstallationGeneration = 0
     private var suppressesSelectionReporting = false
+
+    /// A click is "plain" only if it began and ended a single click that left no
+    /// selection: `mouseDown` runs AppKit's whole tracking loop, so by the time it
+    /// returns a drag has already produced its range and a double-click its word.
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        guard event.clickCount == 1, selectedRange.length == 0 else { return }
+        onPlainClick?()
+    }
 
     override func isAccessibilityEnabled() -> Bool { true }
 

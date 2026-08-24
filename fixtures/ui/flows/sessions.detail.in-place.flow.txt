@@ -4,5 +4,5 @@ fixture: static
 transitions: idle
 PASS 1 moved | count value="Golden files must never encode the developer's display profile." exactly 1 | 1 match
 PASS 2 moved | absent value="Wire the offscreen renderer to NSHostingView and capture with cacheDisplay." | 0 matches
-PASS 3 moved | count id=sessions.detail.copy exactly 1 | 1 match
-PASS 4 moved | count id=sessions.detail.teach exactly 1 | 1 match
+PASS 3 moved | count id=sessions.detail.transcript exactly 1 | 1 match
+PASS 4 moved | text == "Click the transcript to copy it. Select any words, or right-click one, then press ⌘T to teach a correction." exactly 1 | 1 match

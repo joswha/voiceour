@@ -1,8 +1,0 @@
-flow: sessions.teach.opens
-title: Teach opens the correction editor for the open transcript
-fixture: static
-transitions: idle
-PASS 1 teaching | count id=sessions.teach.canonical exactly 1 | 1 match
-PASS 2 teaching | exists id=sessions.teach.misheard | 1 match
-PASS 3 teaching | exists id=sessions.teach.submit | 1 match
-PASS 4 teaching | text == "Teaches future dictation only — this never edits text already pasted. Case and spacing variants are matched automatically; add a detected surface only when dictation heard the term differently." exactly 1 | 1 match

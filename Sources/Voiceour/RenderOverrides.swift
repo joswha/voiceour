@@ -61,6 +61,14 @@ enum RenderOverrides {
     /// fixture offsets while production falls back to no seeded selection.
     static var transcriptSelectionSurface: String?
 
+    /// Renders History as a reader who has closed the open transcript sees it —
+    /// nothing open, nothing dimmed. The tab otherwise opens its newest transcript
+    /// on arrival, which no scene step can undo: deselection is a click on the
+    /// form's own background, and the harness can only press accessibility nodes.
+    /// Production reads this as `false`, which is the same first-visit path a real
+    /// launch takes.
+    static var historyStartsDeselected = false
+
     /// Forces the painted macOS 14 glass path on a newer runtime. Production
     /// follows availability normally; the harness pins this to true below.
     static var forceLegacyGlass = false

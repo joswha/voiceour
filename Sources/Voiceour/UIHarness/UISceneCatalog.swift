@@ -172,6 +172,13 @@
                     transcriptSelectionSurface: "offscreen renderer"
                 ),
                 console(
+                    "console.sessions.deselected",
+                    "History after the open transcript was closed",
+                    tab: .history,
+                    fixture: .populated,
+                    deselected: true
+                ),
+                console(
                     "console.sessions.empty",
                     "History with nothing dictated yet",
                     tab: .history,
@@ -366,6 +373,7 @@
             tab: ConsoleTab,
             fixture: UIFixtures.Kind,
             transcriptSelectionSurface: String? = nil,
+            deselected: Bool = false,
             // Optional rather than `= consoleSize`: a default argument expression is
             // evaluated outside this enum's main-actor context, so it may not read a
             // main-actor static. Nil is the first-launch measure, resolved below.
@@ -381,6 +389,18 @@
                 tags: ["console"] + tags,
                 steps: steps
             ) {
+                if deselected {
+                    return AnyView(
+                        UIHarnessDeselectedHistoryScope {
+                            AnyView(
+                                ConsoleWindowView(
+                                    coordinator: UIFixtures.coordinator(fixture),
+                                    initialTab: tab
+                                )
+                            )
+                        }
+                    )
+                }
                 if let transcriptSelectionSurface {
                     return AnyView(
                         UIHarnessTranscriptSelectionScope(surface: transcriptSelectionSurface) {
@@ -553,6 +573,29 @@
             content
                 .onDisappear {
                     RenderOverrides.transcriptSelectionSurface = previousSurface
+                }
+        }
+    }
+
+    /// Process-wide value seam scoped to the one scene that renders History with no
+    /// transcript open. Closing one is a click on the form's own background, which
+    /// no scene step can address — steps press accessibility nodes — so the state is
+    /// pinned rather than performed.
+    private struct UIHarnessDeselectedHistoryScope: View {
+        private let content: AnyView
+        private let previous: Bool
+
+        @MainActor
+        init(build: @escaping @MainActor () -> AnyView) {
+            content = build()
+            previous = RenderOverrides.historyStartsDeselected
+            RenderOverrides.historyStartsDeselected = true
+        }
+
+        var body: some View {
+            content
+                .onDisappear {
+                    RenderOverrides.historyStartsDeselected = previous
                 }
         }
     }

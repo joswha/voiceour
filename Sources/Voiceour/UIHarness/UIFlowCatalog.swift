@@ -25,14 +25,6 @@
         private static let glossaryAliases = "flow term, flow-term"
         private static let noMatchQuery = "definitely-not-a-transcript"
 
-        /// The teach editor's own caption, asserted exactly: the transcript caption one
-        /// row above it in the same detail also says teaching changes future dictation
-        /// only, so only an exact match tells the two sentences apart.
-        private static let teachEditorCaption =
-            "Teaches future dictation only — this never edits text already pasted. Case and spacing variants "
-            + "are matched automatically; add a detected surface only when dictation heard the term "
-            + "differently."
-
         /// Queries are exact. Every action and single-node expectation rejects zero
         /// or multiple matches rather than silently retargeting a nearby control.
         private enum Selector {
@@ -60,16 +52,10 @@
             // one node's label contains it.
             static let midListRow = UIQuery.labelContains(midListTranscriptText)
 
-            static let detailCopy = UIQuery.id("sessions.detail.copy")
+            // The detail has no buttons: the transcript is the control. A synthetic
+            // click on it copies, which is what `copy.confirms` drives.
+            static let detailTranscript = UIQuery.id("sessions.detail.transcript")
             static let detailCopied = UIQuery.id("sessions.detail.copied")
-            static let detailTeach = UIQuery.id("sessions.detail.teach")
-
-            // The teach editor's wells are the glossary composer's shape — a hidden
-            // caption above a bordered field — so the field's identifier is the handle,
-            // not a label rendered as static text.
-            static let teachCanonical = UIQuery.id("sessions.teach.canonical")
-            static let teachMisheard = UIQuery.id("sessions.teach.misheard")
-            static let teachSubmit = UIQuery.id("sessions.teach.submit")
 
             static let canonicalTerm = UIQuery.id("glossary.add-term.canonical")
             static let aliases = UIQuery.id("glossary.add-term.aliases")
@@ -183,9 +169,21 @@
                     ]),
                 // The detail is emitted inside the day group that holds its row, so
                 // selecting an older transcript has to open it there and close the one
-                // History arrived on. One Copy and one Teach in the tree is the assertion
+                // History arrived on. One transcript well in the tree is the assertion
                 // that only one detail is ever open — the trailing `Section("Transcript")`
-                // this replaced could not be wrong about that, and this can.
+                // this replaced could not be wrong about that, and this can. The footer
+                // line is asserted with it because it is now the only place the tab states
+                // its two gestures, and both of them are unreachable from here.
+                //
+                // Measured: copying and teaching cannot have flows of their own. Copy is a
+                // plain click on the transcript, and `NSTextView` refuses first mouse in an
+                // app that is not active, so the synthetic click lands on nothing — the
+                // override never ran and the pasteboard seam recorded no write. Teaching is
+                // Command-T or the text view's own context menu, and
+                // `-performKeyEquivalent:` is consulted only for the key window, which this
+                // one can never become. Both gestures are verified in the real app; the
+                // `console.sessions.selection` scene locks what the footer says once a
+                // selection exists.
                 UIFlow(
                     id: "sessions.detail.in-place",
                     title: "Selecting a transcript opens its detail on the row it belongs to",
@@ -200,54 +198,14 @@
                             [
                                 .count(Selector.midListTranscript, .exactly(1)),
                                 .absent(Selector.newestTranscript),
-                                .count(Selector.detailCopy, .exactly(1)),
-                                .count(Selector.detailTeach, .exactly(1)),
-                            ]
-                        ),
-                    ]),
-                // Copy keeps its title and puts the confirmation beside it, so the button
-                // no longer proves anything by renaming itself: the proof is the mark in
-                // the tree plus the exact bytes the pasteboard seam recorded. The seam is
-                // also why this flow never touches the clipboard of whoever ran it.
-                UIFlow(
-                    id: "sessions.copy.confirms",
-                    title: "Copying a transcript writes the clipboard and confirms in place",
-                    tags: ["sessions", "console", "copy"],
-                    host: .console(.history),
-                    fixture: .static(.populated),
-                    steps: [
-                        .act(.press(Selector.detailCopy)),
-                        .wait(.element(Selector.detailCopied)),
-                        .check(
-                            "copied",
-                            [
-                                .text(.equals("COPIED TO CLIPBOARD"), .exactly(1)),
-                                .exists(Selector.detailCopied),
-                                .model(.pasteboardText, .equals(Selector.newestTranscriptText)),
-                                .model(.pasteboardWrites, .equals("1")),
-                            ]
-                        ),
-                    ]),
-                // Teaching is now reachable from exactly one control in the detail — the
-                // button that hid itself on selection and the separate "Detected as" bar
-                // are both gone — so if this press stops opening the editor, the tab has
-                // no way left to teach a correction from the transcript it is showing.
-                UIFlow(
-                    id: "sessions.teach.opens",
-                    title: "Teach opens the correction editor for the open transcript",
-                    tags: ["sessions", "console", "teach"],
-                    host: .console(.history),
-                    fixture: .static(.populated),
-                    steps: [
-                        .act(.press(Selector.detailTeach)),
-                        .wait(.element(Selector.teachCanonical)),
-                        .check(
-                            "teaching",
-                            [
-                                .count(Selector.teachCanonical, .exactly(1)),
-                                .exists(Selector.teachMisheard),
-                                .exists(Selector.teachSubmit),
-                                .text(.equals(teachEditorCaption), .exactly(1)),
+                                .count(Selector.detailTranscript, .exactly(1)),
+                                .text(
+                                    .equals(
+                                        "Click the transcript to copy it. Select any words, or right-click one, "
+                                            + "then press \u{2318}T to teach a correction."
+                                    ),
+                                    .exactly(1)
+                                ),
                             ]
                         ),
                     ]),

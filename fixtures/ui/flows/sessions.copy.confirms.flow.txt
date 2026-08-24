@@ -1,8 +1,0 @@
-flow: sessions.copy.confirms
-title: Copying a transcript writes the clipboard and confirms in place
-fixture: static
-transitions: idle
-PASS 1 copied | text == "COPIED TO CLIPBOARD" exactly 1 | 1 match
-PASS 2 copied | exists id=sessions.detail.copied | 1 match
-PASS 3 copied | model pasteboardText == "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay." | "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay."
-PASS 4 copied | model pasteboardWrites == "1" | 1
