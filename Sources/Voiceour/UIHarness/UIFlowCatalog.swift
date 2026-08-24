@@ -99,8 +99,6 @@
             static let systemContent = UIQuery.id("system.diagnostics.copy")
             static let homeContent = UIQuery.id("home.hero")
 
-            static let homePrivacyToggle = UIQuery.id("home.privacy.toggle")
-            static let homePrivacyDetail = UIQuery.id("home.privacy.detail")
             static let homeTimeTile = UIQuery.id("home.tile.time")
             static let homeWordsTile = UIQuery.id("home.tile.words")
             static let homeSpeedTile = UIQuery.id("home.tile.wpm")
@@ -368,15 +366,14 @@
             ]
         }
 
-        /// Home states the fixture ledger's figures, discloses its privacy
-        /// sentence, and still states them after a round trip through another
-        /// tab — the derived values are recomputed on every appearance, so a
-        /// stale or re-zeroed readout would show up here rather than in a
-        /// reader's console.
+        /// Home states the fixture ledger's figures, and still states them after
+        /// a round trip through another tab — the derived values are recomputed
+        /// on every appearance, so a stale or re-zeroed readout would show up
+        /// here rather than in a reader's console.
         private static var homeStatsFlow: UIFlow {
             UIFlow(
                 id: "home.stats",
-                title: "Home reports the lifetime ledger and its privacy disclosure",
+                title: "Home reports the lifetime ledger",
                 tags: ["console", "home", "stats"],
                 host: .console(.home),
                 fixture: .static(.populated),
@@ -398,16 +395,6 @@
                                         + "23 active days, busiest day 4351 words"
                                 )
                             ),
-                            .absent(Selector.homePrivacyDetail),
-                        ]
-                    ),
-                    .act(.press(Selector.homePrivacyToggle)),
-                    .wait(.element(Selector.homePrivacyDetail)),
-                    .check(
-                        "disclosed",
-                        [
-                            .count(Selector.homePrivacyDetail, .exactly(1)),
-                            .value(Selector.homePrivacyToggle, .equals("Expanded")),
                         ]
                     ),
                     .act(.navigate(.history)),

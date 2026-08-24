@@ -13,7 +13,6 @@ import VoiceCore
 struct ConsoleHomeTab: View {
     var coordinator: DictationCoordinator
 
-    @State private var isShowingPrivacyDetail = false
     /// Corrected by geometry below; starts at the measure a console at or above
     /// its intended width gives the grid, so the first pass draws the final span.
     @State private var gridWidth = ActivityHeatmap.Geometry.defaultWidth
@@ -92,7 +91,7 @@ struct ConsoleHomeTab: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            Text("Speak, don't type")
+            Text("voiceouurs, rejoice!")
                 .roleStyle(.heroMetric)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("home.hero")
@@ -102,51 +101,6 @@ struct ConsoleHomeTab: View {
                     .roleStyle(.caption)
                     .foregroundStyle(a11y.textMid)
                     .accessibilityIdentifier("home.empty")
-            }
-
-            privacyDisclosure
-        }
-    }
-
-    /// The privacy claim, and the sentence behind it.
-    ///
-    /// Inline rather than a popover: the offscreen harness's window is
-    /// `.prohibited` and can never order a second window front, so a popover
-    /// would be a claim about this app's privacy that no gate can read.
-    private var privacyDisclosure: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            Button {
-                withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.quick) {
-                    isShowingPrivacyDetail.toggle()
-                }
-            } label: {
-                HStack(spacing: VoiceourMetrics.Space.xs) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: VoiceourMetrics.Icon.mark, weight: .semibold))
-                        .foregroundStyle(VoiceourPalette.Alien.bloom)
-                        .accessibilityHidden(true)
-                    Text("Your data stays private.")
-                        .roleStyle(.caption)
-                        .foregroundStyle(a11y.textMid)
-                        .underline(pattern: .dot)
-                }
-                .frame(minHeight: VoiceourMetrics.Control.small, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Your data stays private")
-            .accessibilityValue(isShowingPrivacyDetail ? "Expanded" : "Collapsed")
-            .accessibilityIdentifier("home.privacy.toggle")
-
-            if isShowingPrivacyDetail {
-                Text(
-                    "Stats are computed on this Mac from your local dictation journal. "
-                        + "Nothing ever leaves your machine."
-                )
-                .roleStyle(.caption)
-                .foregroundStyle(a11y.textMid)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("home.privacy.detail")
             }
         }
     }
