@@ -432,8 +432,15 @@ struct ConsoleHistoryTab: View {
     }
 
     private func rows(_ sessions: ArraySlice<RecentSession>, recedes: Bool) -> some View {
-        ForEach(sessions) { session in
-            row(for: session, isSelected: false, recedes: recedes)
+        // A Section otherwise treats every session as an eager Form row. At the
+        // retained limit that builds 500 complete Button/accessibility/context-menu
+        // responder trees, then revisits all of them when one transcript opens.
+        // One lazy child keeps the native day plate while materializing only rows
+        // near the scroll viewport.
+        LazyVStack(spacing: VoiceourMetrics.Space.lg + VoiceourMetrics.Space.xs) {
+            ForEach(sessions) { session in
+                row(for: session, isSelected: false, recedes: recedes)
+            }
         }
     }
 
