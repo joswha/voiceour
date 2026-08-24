@@ -1,14 +1,25 @@
+import AppKit
 import SwiftUI
 import VoiceCore
 import VoiceMac
 
 /// History: the transcripts this Mac kept, and what can be done with one.
 ///
-/// Search, day groups and the transcript detail all live on one scrolling form.
-/// The two-column master/detail card layout this replaces existed to give the
-/// detail a fixed reading window beside a fixed-height list; a form scrolls as
-/// one document, so the transcript sizes to its own text instead of scrolling
-/// inside a nested viewport.
+/// One scrolling grouped form with exactly one transcript open. The open one takes
+/// its own plate inside its day, directly under the row that selected it, and
+/// carries its actions above the text: what you can do with it, then the words,
+/// then the evidence. Every closed row recedes while it is open, so the page has
+/// one subject rather than a detail wedged into an undifferentiated list.
+///
+/// The detail used to be a single `Section("Transcript")` emitted after every day
+/// group, which put it below the entire list — with the nine-session fixture at
+/// the app's own launch height the transcript started 211 pt under the fold, and a
+/// real history of 500 transcripts puts it a page-down away.
+///
+/// The two-column master/detail card layout that preceded that existed to give the
+/// detail a fixed reading window beside a fixed-height list; a form scrolls as one
+/// document, so the transcript sizes to its own text instead of scrolling inside a
+/// nested viewport.
 struct ConsoleHistoryTab: View {
     var coordinator: DictationCoordinator
 
@@ -31,6 +42,11 @@ struct ConsoleHistoryTab: View {
     @State private var isTeaching = false
     @State private var pendingFixTeachPrefill: ConsoleTeachPrefill?
     @State private var selectedSurface: String?
+    /// One collapsed preview line per session, built with the day groups.
+    /// Collapsing newlines and trimming is two string copies, and recomputing it
+    /// per row per body pass costs a full pass over the retained 500 on every
+    /// keystroke and every selection change.
+    @State private var previews: [RecentSession.ID: String] = [:]
 
     private var a11y = A11y()
 
@@ -39,6 +55,11 @@ struct ConsoleHistoryTab: View {
     }
 
     var body: some View {
+        // Resolved once per body pass rather than once per row: the row used to ask
+        // `selectedSession`, which scans the filtered list, and history retains up
+        // to 500 transcripts.
+        let selectedID = selectedSessionID
+
         Form {
             if hasSessions {
                 Section {
@@ -46,22 +67,12 @@ struct ConsoleHistoryTab: View {
                 }
 
                 ForEach(dayGroups) { group in
-                    Section(SessionsFormatters.dayHeader.string(from: group.day)) {
-                        ForEach(group.sessions) { session in
-                            row(for: session)
-                        }
-                    }
+                    daySections(group, selectedID: selectedID)
                 }
 
                 if dayGroups.isEmpty {
                     Section {
                         noMatches
-                    }
-                }
-
-                if let session = selectedSession {
-                    Section("Transcript") {
-                        detail(for: session)
                     }
                 }
             } else {
@@ -78,11 +89,15 @@ struct ConsoleHistoryTab: View {
         .onChange(of: searchText) {
             reloadDerivedData()
         }
-        .onChange(of: selectedSession?.id) {
+        .onChange(of: selectedSessionID) { _, newSelection in
             pendingFixTeachPrefill = nil
             isTeaching = false
             deleteError = nil
             selectedSurface = nil
+            // A row's own Copy command selects the row it copied, so retiring the
+            // confirmation unconditionally here would erase the mark that copy just
+            // asked for. Only a move to a different transcript retires it.
+            guard copiedSessionID != newSelection else { return }
             resetCopyFeedbackTask?.cancel()
             copiedSessionID = nil
         }
@@ -115,15 +130,6 @@ struct ConsoleHistoryTab: View {
         !coordinator.recentSessions.isEmpty
     }
 
-    private var selectedSession: RecentSession? {
-        if let selectedSessionID,
-            let session = filteredSessions.first(where: { $0.id == selectedSessionID })
-        {
-            return session
-        }
-        return filteredSessions.first
-    }
-
     private func reloadDerivedData() {
         let filtered = RecentSessionQuery.matches(
             in: coordinator.recentSessions,
@@ -132,6 +138,11 @@ struct ConsoleHistoryTab: View {
             dayHeader: { SessionsFormatters.dayHeader.string(from: $0) }
         )
         filteredSessions = filtered
+        var collapsed = [RecentSession.ID: String](minimumCapacity: filtered.count)
+        for session in filtered {
+            collapsed[session.id] = Self.preview(of: session)
+        }
+        previews = collapsed
         dayGroups = RecentSessionQuery.dayGroups(
             of: filtered,
             calendar: RenderOverrides.calendar ?? Calendar.current
@@ -219,11 +230,58 @@ struct ConsoleHistoryTab: View {
 
     // MARK: List
 
-    private func row(for session: RecentSession) -> some View {
-        let isSelected = selectedSession?.id == session.id
+    /// One day, as one to three grouped plates: the rows above the open transcript,
+    /// the open transcript itself, and the rows below it.
+    ///
+    /// The open record gets its own plate because a record's detail emitted inside
+    /// the index's plate reads as more index — the rows under it looked like part of
+    /// the transcript above them. A plate boundary is the form's own way of saying
+    /// "this is one thing", and the day's heading stays on whichever plate comes
+    /// first so the day is still named exactly once.
+    @ViewBuilder
+    private func daySections(_ group: RecentSessionDayGroup, selectedID: RecentSession.ID?) -> some View {
+        let header = SessionsFormatters.dayHeader.string(from: group.day)
+        let sessions = group.sessions
 
-        return Button {
-            selectedSessionID = session.id
+        if let open = sessions.firstIndex(where: { $0.id == selectedID }) {
+            let before = sessions[..<open]
+            let after = sessions[(open + 1)...]
+
+            if before.isEmpty {
+                Section(header) { openRecord(sessions[open]) }
+            } else {
+                Section(header) { rows(before) }
+                Section { openRecord(sessions[open]) }
+            }
+
+            if !after.isEmpty {
+                Section { rows(after) }
+            }
+        } else {
+            Section(header) { rows(sessions[...]) }
+        }
+    }
+
+    private func rows(_ sessions: ArraySlice<RecentSession>) -> some View {
+        ForEach(sessions) { session in
+            row(for: session, isSelected: false)
+        }
+    }
+
+    @ViewBuilder
+    private func openRecord(_ session: RecentSession) -> some View {
+        row(for: session, isSelected: true)
+        detail(for: session)
+    }
+
+    /// How far a closed row recedes while another transcript is open.
+    private var closedRowOpacity: Double {
+        a11y.contrast == .increased ? 0.8 : 0.45
+    }
+
+    private func row(for session: RecentSession, isSelected: Bool) -> some View {
+        Button {
+            select(session)
         } label: {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
@@ -252,8 +310,12 @@ struct ConsoleHistoryTab: View {
                     Spacer(minLength: VoiceourMetrics.Space.sm)
                 }
 
+                // Two lines, not one: one line of a dictated sentence is rarely
+                // enough to recognise it by, and the whole text is one row below
+                // for the selected session anyway. Full text in every row would
+                // turn 500 retained transcripts into 500 paragraphs.
                 Text(previewText(for: session))
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -267,9 +329,37 @@ struct ConsoleHistoryTab: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // A closed row beside an open one is context, not content: with a transcript
+        // open, every other row recedes so the page has one subject. The escalation
+        // is inverted under Increase Contrast — a reader who asked for more contrast
+        // must not be handed less.
+        .opacity(isSelected || selectedSessionID == nil ? 1 : closedRowOpacity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(for: session))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // The record-level commands, on the record. They used to sit on the
+        // transcript, where they competed with the text view's own menu — the one
+        // that can actually teach the word under the pointer. Each one opens the
+        // row it acts on, so its result is visible where the click landed.
+        .contextMenu {
+            Button("Copy Transcript") {
+                select(session)
+                copy(session)
+            }
+            Button("Fix / Teach a Word\u{2026}") {
+                select(session)
+                beginTeaching(surface: nil)
+            }
+            Button("Delete Transcript\u{2026}", role: .destructive) {
+                select(session)
+                deleteError = nil
+                pendingDeleteSession = session
+            }
+        }
+    }
+
+    private func select(_ session: RecentSession) {
+        selectedSessionID = session.id
     }
 
     /// Increase Contrast escalates the wash: at 0.18 the accent tint is a hint,
@@ -281,6 +371,11 @@ struct ConsoleHistoryTab: View {
     }
 
     private func previewText(for session: RecentSession) -> String {
+        previews[session.id] ?? Self.preview(of: session)
+    }
+
+    /// Collapses a transcript to the index's one preview string.
+    private static func preview(of session: RecentSession) -> String {
         let collapsed = session.text
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
@@ -288,42 +383,62 @@ struct ConsoleHistoryTab: View {
         return collapsed.isEmpty ? "Empty transcript" : collapsed
     }
 
+    /// The whole row in one sentence, in the order a reader would say it. It
+    /// carries the outcome word because the row is now the transcript's only
+    /// heading: the detail below it no longer repeats the stamp, the outcome or the
+    /// word count that are already here.
     private func accessibilityLabel(for session: RecentSession) -> String {
-        let prefix =
-            "\(SessionsFormatters.timestamp.string(from: session.createdAt)), "
-            + SessionsFormatters.wordCountLabel(session.wordCount, pluralOnly: true)
-        if session.mutedDuringCapture {
-            return "\(prefix), recorded with system audio muted, \(previewText(for: session))"
+        var parts = [SessionsFormatters.timestamp.string(from: session.createdAt)]
+        if let outcome = session.outcome {
+            parts.append(outcome.chip.label)
         }
-        return "\(prefix), \(previewText(for: session))"
+        parts.append(SessionsFormatters.wordCountLabel(session.wordCount, pluralOnly: true))
+        if session.mutedDuringCapture {
+            parts.append("recorded with system audio muted")
+        }
+        parts.append(previewText(for: session))
+        return parts.joined(separator: ", ")
     }
 
     // MARK: Detail
 
+    /// The open transcript, emitted under its row inside the plate they share.
+    ///
+    /// It states nothing the row above it already states. A stamp, an outcome mark
+    /// and a word count were repeated one line under the row that had just shown
+    /// all three; what is left is what the row cannot hold — the actions, the whole
+    /// text, and the evidence behind it. The action bar sits *above* the transcript
+    /// deliberately: as the detail's last row, a long dictation pushed Copy and
+    /// Teach off the bottom of the window, which is exactly where a reader who has
+    /// just finished reading needs them.
     @ViewBuilder
     private func detail(for session: RecentSession) -> some View {
-        LabeledContent {
-            Button("Delete") {
-                deleteError = nil
-                pendingDeleteSession = session
-            }
-            .disabled(isDeletePersistencePending)
-        } label: {
-            Text(SessionsFormatters.detailStamp.string(from: session.createdAt))
-                .font(.headline)
-        }
-
         if let deleteError {
             ConsoleCaption(deleteError, color: .red)
         }
 
-        chips(for: session)
+        // Only the class of the delivery target, and only when it was not ordinary
+        // text: that is the one chip the row does not carry, and it is the reason a
+        // transcript that reads as pasted was in fact only copied.
+        if let targetSafety = session.outcome?.targetSafety, targetSafety != .normalText {
+            LabeledContent {
+                ConsoleStateMark(targetSafety.displayLabel, .neutral)
+            } label: {
+                Text("Target")
+            }
+        }
+
+        actions(for: session)
 
         transcript(for: session)
 
-        if let surface = visibleSelectedSurface {
-            teachSelectionBar(surface)
-        }
+        // The one gesture in this window that is not a control. It was documented
+        // only in a hover tooltip on a button that hid itself as soon as the reader
+        // selected anything, which is how a shipped feature became invisible.
+        ConsoleCaption(
+            "Select any part of the transcript, or just right-click a word, to teach a correction "
+                + "(\u{2318}T). Teaching changes future dictation only."
+        )
 
         if let stages = session.stages {
             metadataRow("Timings", stages.detailLine)
@@ -337,8 +452,6 @@ struct ConsoleHistoryTab: View {
             leastSureRow(leastSure)
         }
 
-        actions(for: session)
-
         if isTeaching {
             ConsoleTeachEditor(
                 coordinator: coordinator,
@@ -347,28 +460,6 @@ struct ConsoleHistoryTab: View {
                 isEditing: $isTeaching
             )
             .id(session.id)
-        }
-    }
-
-    private func chips(for session: RecentSession) -> some View {
-        HStack(spacing: VoiceourMetrics.Space.sm) {
-            if session.mutedDuringCapture {
-                Image(systemName: "mic.slash.fill")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .help("System audio muted for this recording.")
-                    .accessibilityLabel("Recorded with system audio muted")
-            }
-            if let outcome = session.outcome {
-                ConsoleStateMark(outcome.chip.label, outcome.severity)
-            }
-            if let targetSafety = session.outcome?.targetSafety, targetSafety != .normalText {
-                ConsoleStateMark("TARGET \(targetSafety.displayLabel)", .neutral)
-            }
-            Text(SessionsFormatters.wordCountLabel(session.wordCount))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
         }
     }
 
@@ -381,8 +472,7 @@ struct ConsoleHistoryTab: View {
             identity: session.id,
             text: session.text.isEmpty ? "Empty transcript" : session.text,
             onFixTeach: { word in
-                pendingFixTeachPrefill = ConsoleTeachPrefill(word: word)
-                isTeaching = true
+                beginTeaching(surface: word)
             },
             onSelectionChange: { selectedSurface = $0 }
         )
@@ -393,14 +483,6 @@ struct ConsoleHistoryTab: View {
             in: RoundedRectangle(cornerRadius: VoiceourMetrics.Radius.row, style: .continuous)
         )
         .contentShape(Rectangle())
-        .contextMenu {
-            Button("Copy Transcript") { copy(session) }
-            Button("Fix / Teach a Word") { isTeaching = true }
-            Button("Delete Session", role: .destructive) {
-                deleteError = nil
-                pendingDeleteSession = session
-            }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Transcript")
         .accessibilityValue(
@@ -418,29 +500,48 @@ struct ConsoleHistoryTab: View {
             : AnyShapeStyle(HierarchicalShapeStyle.quaternary)
     }
 
-    private var visibleSelectedSurface: String? {
-        isTeaching ? nil : selectedSurface
+    /// The title of the one teach control. With a selection it names exactly what
+    /// pressing it teaches; with none it is the plain invitation. This used to be
+    /// two controls: a button that hid itself the moment text was selected, and a
+    /// separate "Detected as" bar that appeared elsewhere in its place.
+    private var teachTitle: String {
+        guard let surface = selectedSurface, !surface.isEmpty else { return "Fix / Teach\u{2026}" }
+        return "Teach \u{201C}\(Self.shortened(surface))\u{201D}"
     }
 
-    private func teachSelectionBar(_ surface: String) -> some View {
-        LabeledContent {
-            Button("Teach") {
-                pendingFixTeachPrefill = ConsoleTeachPrefill(word: surface)
-                isTeaching = true
-            }
-            .accessibilityIdentifier("sessions.transcript.teachSelection")
-            .accessibilityLabel("Teach correction for detected surface \(surface)")
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
-                Text("Detected as")
-                    .foregroundStyle(.secondary)
-                Text(surface)
-                    .font(.body.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(surface)
-            }
+    private var teachHelp: String {
+        guard let surface = selectedSurface, !surface.isEmpty else {
+            return "Teach a correction for a word in this transcript."
         }
+        return "Teach a correction for \u{201C}\(surface)\u{201D}."
+    }
+
+    private var teachAccessibilityLabel: String {
+        guard let surface = selectedSurface, !surface.isEmpty else {
+            return "Fix or teach a word in this transcript"
+        }
+        return "Teach correction for selected text \(surface)"
+    }
+
+    /// A selection is arbitrary user text and the title belongs to a control in a
+    /// row, so it is trimmed in the middle at a fixed budget instead of stretching
+    /// the action bar to the width of a paragraph.
+    private static func shortened(_ surface: String, budget: Int = 28) -> String {
+        // `count` walks the whole string and a selection can be the whole
+        // transcript; this stops one character past the budget.
+        guard surface.index(surface.startIndex, offsetBy: budget + 1, limitedBy: surface.endIndex) != nil
+        else { return surface }
+        let head = (budget - 1) / 2
+        return "\(surface.prefix(head))\u{2026}\(surface.suffix(budget - 1 - head))"
+    }
+
+    /// Opens the teach editor, prefilled with `surface` when one is known. Only an
+    /// explicit press or menu choice reaches here; no automatic path teaches.
+    private func beginTeaching(surface: String?) {
+        if let surface, !surface.isEmpty {
+            pendingFixTeachPrefill = ConsoleTeachPrefill(word: surface)
+        }
+        isTeaching = true
     }
 
     /// The decoder's least sure word for this dictation, with its per-token
@@ -449,12 +550,9 @@ struct ConsoleHistoryTab: View {
     /// score.
     private func leastSureRow(_ leastSure: LeastConfidentWord) -> some View {
         LabeledContent {
-            Button("Teach…") {
-                pendingFixTeachPrefill = ConsoleTeachPrefill(word: leastSure.text)
-                isTeaching = true
-            }
-            .accessibilityIdentifier("sessions.leastSure.teach")
-            .accessibilityLabel("Teach correction for least sure word \(leastSure.text)")
+            Button("Teach…") { beginTeaching(surface: leastSure.text) }
+                .accessibilityIdentifier("sessions.leastSure.teach")
+                .accessibilityLabel("Teach correction for least sure word \(leastSure.text)")
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
                 Text("Least sure")
@@ -491,18 +589,46 @@ struct ConsoleHistoryTab: View {
         }
     }
 
+    /// Everything that can be done to this transcript, on one row above the text.
+    ///
+    /// The confirmation mark is inserted *after* the button that produces it: this
+    /// bar is leading-aligned, so a mark inserted before Copy would slide Copy out
+    /// from under the pointer that just pressed it. (The System tab's diagnostics
+    /// row is the mirror image — trailing-aligned, so its mark goes before its
+    /// button.) The word is spelled out rather than reusing that tab's bare COPIED
+    /// because `.copiedOnly` delivery already paints an amber COPIED outcome mark on
+    /// the row above, and the same word in two colours is not a state.
+    ///
+    /// Delete sits across the spacer: it is the one action here that cannot be
+    /// undone, and it must not be adjacent to the one that is pressed most.
     private func actions(for session: RecentSession) -> some View {
         HStack(spacing: VoiceourMetrics.Space.sm) {
-            Button(copiedSessionID == session.id ? "Copied" : "Copy") { copy(session) }
+            Button("Copy") { copy(session) }
                 .help("Copy the full transcript to the clipboard.")
-                .accessibilityLabel(copiedSessionID == session.id ? "Copied to clipboard" : "Copy transcript")
+                .accessibilityLabel("Copy transcript")
+                .accessibilityIdentifier("sessions.detail.copy")
 
-            if visibleSelectedSurface == nil {
-                Button("Fix / Teach") { isTeaching = true }
-                    .help("Teach a correction for a word in this transcript. Right-click a word to prefill it.")
+            if copiedSessionID == session.id {
+                ConsoleStateMark("COPIED TO CLIPBOARD", .ok)
+                    .accessibilityIdentifier("sessions.detail.copied")
             }
 
-            Spacer(minLength: 0)
+            Button(teachTitle) { beginTeaching(surface: selectedSurface) }
+                .keyboardShortcut("t", modifiers: .command)
+                .help(teachHelp)
+                .accessibilityLabel(teachAccessibilityLabel)
+                .accessibilityIdentifier("sessions.detail.teach")
+
+            Spacer(minLength: VoiceourMetrics.Space.sm)
+
+            Button("Delete") {
+                deleteError = nil
+                pendingDeleteSession = session
+            }
+            .disabled(isDeletePersistencePending)
+            .help("Remove this transcript from this Mac.")
+            .accessibilityLabel("Delete transcript")
+            .accessibilityIdentifier("sessions.detail.delete")
         }
     }
 
@@ -510,6 +636,7 @@ struct ConsoleHistoryTab: View {
 
     private func copy(_ session: RecentSession) {
         GeneralPasteboard.copy(session.text)
+        announceCopy()
         resetCopyFeedbackTask?.cancel()
         // Both directions of the confirmation run through one curve and one
         // Reduce Motion branch; the arrival used to snap and only the exit faded.
@@ -525,6 +652,20 @@ struct ConsoleHistoryTab: View {
                 copiedSessionID = nil
             }
         }
+    }
+
+    /// The mark is the confirmation a reader sees; VoiceOver hears the same
+    /// sentence, because a mark that appears beside a button the cursor has already
+    /// left confirms nothing. A no-op when VoiceOver is not running.
+    private func announceCopy() {
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "Transcript copied to clipboard",
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
     }
 
     private var feedbackAnimation: Animation? {
@@ -595,7 +736,12 @@ struct ConsoleTeachEditor: View {
     @State private var canonical = ""
     @State private var misheard = ""
     @State private var scope: Scope = .global
-    @FocusState private var canonicalFocused: Bool
+    @FocusState private var focused: Field?
+
+    private enum Field: Hashable {
+        case canonical
+        case misheard
+    }
 
     private enum Scope: Hashable {
         case global
@@ -605,36 +751,38 @@ struct ConsoleTeachEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            LabeledContent {
-                TextField("e.g. kubectl", text: $canonical)
-                    .font(.body.monospaced())
-                    .frame(width: VoiceourMetrics.Column.glossaryCanonical)
-                    .focused($canonicalFocused)
-                    .onSubmit(submit)
-            } label: {
-                Text("Canonical term")
-            }
-
-            LabeledContent {
-                TextField("e.g. cube control", text: $misheard)
-                    .font(.body.monospaced())
-                    .frame(width: VoiceourMetrics.Column.glossaryAliases)
-                    .onSubmit(submit)
-            } label: {
-                Text("Detected as (optional)")
-            }
+            // Stacked, bordered, full-measure wells, exactly like the glossary's
+            // add-term composer. A `LabeledContent` here put a fixed-width unbordered
+            // field in the trailing column of a 684 pt row, so the term the user was
+            // typing sat unframed against the right edge of the window.
+            teachField(
+                title: "Canonical term",
+                prompt: "kubectl",
+                text: $canonical,
+                field: .canonical,
+                identifier: "sessions.teach.canonical"
+            )
+            teachField(
+                title: "Detected as (optional)",
+                prompt: "cube control",
+                text: $misheard,
+                field: .misheard,
+                identifier: "sessions.teach.misheard"
+            )
 
             if !mishearingCandidates.isEmpty {
-                LabeledContent {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+                    Text("Heard in the raw transcript")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: VoiceourMetrics.Space.xs) {
                             ForEach(mishearingCandidates, id: \.self) { candidate in
                                 Button(candidate) { misheard = candidate }
+                                    .accessibilityLabel("Use detected surface \(candidate)")
                             }
                         }
                     }
-                } label: {
-                    Text("Detected as in raw")
                 }
             }
 
@@ -654,7 +802,9 @@ struct ConsoleTeachEditor: View {
             HStack(spacing: VoiceourMetrics.Space.sm) {
                 Button("Teach") { submit() }
                     .disabled(!canSubmit)
+                    .accessibilityIdentifier("sessions.teach.submit")
                 Button("Cancel") { cancel() }
+                    .accessibilityIdentifier("sessions.teach.cancel")
                 Spacer(minLength: 0)
             }
 
@@ -667,11 +817,38 @@ struct ConsoleTeachEditor: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             applyExternalPrefill()
-            canonicalFocused = true
+            focused = .canonical
         }
         .onExitCommand(perform: cancel)
         .onChange(of: externalPrefill) {
             applyExternalPrefill()
+        }
+    }
+
+    /// One labelled, bordered well. The caption above the field is hidden from
+    /// accessibility because the field itself already publishes the same title.
+    private func teachField(
+        title: String,
+        prompt: String,
+        text: Binding<String>,
+        field: Field,
+        identifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField(title, text: text, prompt: Text(prompt))
+                .font(.body.monospaced())
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
+                .autocorrectionDisabled(true)
+                .labelsHidden()
+                .focused($focused, equals: field)
+                .onSubmit(submit)
+                .accessibilityLabel(title)
+                .accessibilityIdentifier(identifier)
         }
     }
 
@@ -727,7 +904,7 @@ struct ConsoleTeachEditor: View {
     private func applyExternalPrefill() {
         guard let prefill = externalPrefill else { return }
         misheard = prefill.word
-        canonicalFocused = true
+        focused = .canonical
         externalPrefill = nil
     }
 
@@ -751,7 +928,7 @@ struct ConsoleTeachEditor: View {
         canonical = ""
         misheard = ""
         scope = .global
-        canonicalFocused = false
+        focused = nil
         isEditing = false
         externalPrefill = nil
     }

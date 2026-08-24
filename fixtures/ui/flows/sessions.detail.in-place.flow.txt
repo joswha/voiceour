@@ -1,0 +1,8 @@
+flow: sessions.detail.in-place
+title: Selecting a transcript opens its detail on the row it belongs to
+fixture: static
+transitions: idle
+PASS 1 moved | count value="Golden files must never encode the developer's display profile." exactly 1 | 1 match
+PASS 2 moved | absent value="Wire the offscreen renderer to NSHostingView and capture with cacheDisplay." | 0 matches
+PASS 3 moved | count id=sessions.detail.copy exactly 1 | 1 match
+PASS 4 moved | count id=sessions.detail.teach exactly 1 | 1 match

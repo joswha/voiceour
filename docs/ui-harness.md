@@ -106,7 +106,8 @@ The core journeys are:
 - an ASR failure;
 - menu transcript copying;
 - recording controls and microphone warmup;
-- settings, glossary, history search/delete, System recovery actions, and Home's lifetime figures and privacy disclosure across the five tabs.
+- settings, glossary, System recovery actions, and Home's lifetime figures and privacy disclosure across the five tabs;
+- History's search filter and its clearing, the selected transcript opening inside its own day group, the copy confirmation mark beside the Copy button, and the teach editor opening from the detail.
 
 Asynchronous boundaries are explicit named gates released by the script. Waits are bounded run-loop pump counts, never wall-clock deadlines. Artifact strings may not contain live dates, durations, UUIDs, process ids, or machine paths. Production seams are value seams supplied at existing boundaries; shipping behavior must follow the same path.
 
