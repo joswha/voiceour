@@ -90,6 +90,7 @@ public final class DictationCoordinator {
     let recentSessionSnapshotSave: @Sendable (RecentSessionStore, [RecentSession]) throws -> Void
     let dictationStatsStore: DictationStatsStore
     let audioMuter: SystemAudioMuting
+    let sessionCues: SessionCuePlaying
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
@@ -155,6 +156,7 @@ public final class DictationCoordinator {
             try store.save(sessions)
         },
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
+        sessionCues: SessionCuePlaying = NoOpSessionCuePlayer(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
         },
@@ -173,6 +175,7 @@ public final class DictationCoordinator {
         self.recentSessionSnapshotSave = recentSessionSnapshotSave
         self.dictationStatsStore = dictationStatsStore
         self.audioMuter = audioMuter
+        self.sessionCues = sessionCues
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
         // Two durable files, both moved aside rather than overwritten when they
@@ -471,7 +474,8 @@ public final class DictationCoordinator {
             settings: settings,
             activeASRBackend: backend,
             settingsStore: store,
-            audioMuter: audioMuter
+            audioMuter: audioMuter,
+            sessionCues: SessionCuePlayer()
         )
         if let settingsFailure {
             coordinator.errorMessage = settingsFailure

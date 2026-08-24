@@ -94,3 +94,17 @@ public struct NoOpSystemAudioMuter: SystemAudioMuting {
 
     public func restore() async {}
 }
+
+/// Plays a session cue through whatever the default output device is.
+///
+/// Fire-and-forget: `play` returns once the sound has been started, never when it
+/// has finished. A cue that cannot be played is not a dictation failure.
+public protocol SessionCuePlaying: Sendable {
+    func play(_ cue: SessionCue) async
+}
+
+public struct NoOpSessionCuePlayer: SessionCuePlaying {
+    public init() {}
+
+    public func play(_ cue: SessionCue) async {}
+}

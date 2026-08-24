@@ -34,6 +34,7 @@ extension DictationCoordinator {
         pendingSuggestions = []
         updateTargetLabel(for: snapshot)
         let shouldMuteSystemAudio = settings.muteSystemAudioDuringCapture
+        let playsCues = settings.sessionSoundsEnabled
 
         Task { @MainActor in
             // A cancel/restart queued ahead of this task must win: without
@@ -42,12 +43,38 @@ extension DictationCoordinator {
             guard generations.isCurrent(generation), state == .checkingPermissions else { return }
 
             let audioMuter = audioMuter
+            let sessionCues = sessionCues
+            let runtime = runtime
+            // Started, never awaited: the microphone opens further down in this
+            // same main-actor turn and must not wait for a sound.
+            if playsCues {
+                Task { await sessionCues.play(.listeningStarted) }
+            }
             // Arm this session's restore before the mute is enqueued: from here
             // on some path owes the user a restore, whether or not the mute has
             // resolved and published `isSystemAudioMuted` yet.
             systemAudioRestore = nil
-            let muteTask = enqueueMuteOperation { () -> Bool in
-                shouldMuteSystemAudio ? await audioMuter.mute() : false
+            let cueDeferral = playsCues ? SessionCue.durationNanoseconds : 0
+            let muteTask = enqueueMuteOperation { [self] () -> Bool in
+                // Explicit `self.` inside the nested main-actor closure: implicit
+                // `self` is not available in an escaping closure's nested closure.
+                guard shouldMuteSystemAudio else { return false }
+                if cueDeferral > 0 {
+                    // The muter ramps the output device to zero over 120 ms, which
+                    // would duck the start cue mid-rise. The cue gets its own
+                    // window; the microphone never waits for it. The sleep lives
+                    // inside the enqueued closure so `pendingMuteResult` is still
+                    // armed synchronously and the FIFO order is unchanged.
+                    try? await runtime.sleep(cueDeferral)
+                    let ownsMute = await MainActor.run {
+                        self.generations.isCurrent(generation)
+                            && (self.state == .checkingPermissions || self.state == .recording)
+                    }
+                    // A cancel or a stop inside the cue's window must not duck the
+                    // user's audio for a session that is already over.
+                    guard ownsMute else { return false }
+                }
+                return await audioMuter.mute()
             }
             pendingMuteResult = muteTask
 
@@ -248,5 +275,22 @@ extension DictationCoordinator {
         }
         systemAudioRestore = restore
         return restore
+    }
+
+    /// The falling cue, placed where it is audible.
+    ///
+    /// `SystemAudioMuter.restore()` lifts the hardware mute and only then ramps
+    /// the volume back over 120 ms, so a cue fired at the stop tap is either
+    /// silent or swells in from zero — which reads as a backwards sound. When a
+    /// mute was held the cue waits for that ramp; when none was it plays at once.
+    func playListeningEndedCue(after restore: Task<Void, Never>, wasMuted: Bool) {
+        guard settings.sessionSoundsEnabled else { return }
+        let sessionCues = sessionCues
+        Task {
+            if wasMuted {
+                await restore.value
+            }
+            await sessionCues.play(.listeningEnded)
+        }
     }
 }

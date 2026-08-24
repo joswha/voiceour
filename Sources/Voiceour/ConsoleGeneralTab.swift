@@ -51,6 +51,7 @@ struct ConsoleGeneralTab: View {
 
             Section("Audio") {
                 muteRow
+                cueRow
             }
 
             // One real backend ships, so a release build has nothing to choose
@@ -173,6 +174,19 @@ struct ConsoleGeneralTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var cueRow: some View {
+        ConsoleRow(
+            caption: "A rising tone when the microphone opens and a falling tone when it closes. "
+                + "System audio fades out after the rising tone rather than over it."
+        ) {
+            Toggle(
+                "Play a sound when listening starts and stops",
+                isOn: settingBinding(coordinator, \.sessionSoundsEnabled)
+            )
+            .accessibilityIdentifier("voice.cues.toggle")
+        }
     }
 
     private var muteReadout: (label: String, severity: ConsoleStateMark.Severity, detail: String) {

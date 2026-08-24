@@ -130,7 +130,8 @@ extension DictationCoordinator {
             // awaited: its 120 ms volume fade does not gate transcription, and
             // awaiting it here delayed every ASR call on a muted session by longer
             // than the inference itself.
-            beginSystemAudioRestore()
+            let systemAudioRestored = beginSystemAudioRestore()
+            playListeningEndedCue(after: systemAudioRestored, wasMuted: mutedDuringCapture)
             try ensureCurrentProcessing(generation)
 
             // No-speech gate, before inference rather than after. ASR models do not

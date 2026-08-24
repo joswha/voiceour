@@ -43,6 +43,12 @@ Each utterance uses two target snapshots. The capture target is taken before rec
 
 Stopping always finalizes one WAV and performs one final decode. `CleanupEngine.clean` then removes configured fillers and performs glossary canonicalization. There is no probabilistic text-processing stage after ASR.
 
+### Session cues
+
+Two synthesized tones mark the boundaries of listening and nothing else: a rising glide when the microphone opens, the same glide mirrored in pitch when capture closes. `SessionCue`/`SessionCueSynth` in `VoiceCore` are the whole sound design — an exponential pitch glide with a small overshoot, a −15 dB second harmonic, and a raised-cosine edge at both ends, rendered to an in-memory 48 kHz mono 16-bit WAV. Nothing is shipped as a resource and nothing is written to disk. `SessionCuePlayer` in `VoiceMac` keeps one prepared `AVAudioPlayer` per cue and latches itself off for the process if the device refuses one, because a missing sound is not a dictation failure.
+
+Placement is dictated by the muter, not by taste. `SystemAudioMuter` ramps the default output device to zero over 120 ms, so the start cue is played first and the enqueued mute operation then waits one cue length (`SessionCue.durationNanoseconds`) before touching the device — inside the muter's FIFO, so `pendingMuteResult` is still armed synchronously and nothing about capture waits for a sound. A session already decided when that wait expires mutes nothing at all: fading a user's audio down for a capture that is over is worse than not ducking a 140 ms utterance. The end cue chains onto the restore task for a session that held a mute, because `restore()` lifts the hardware mute and only then ramps the volume back, and a cue fired at the stop tap would swell in from zero. It plays on `.manual`, `.autoStop` and `.silentCapture` stops alike, and never on cancel — the audio was discarded, and a falling tone would promise the opposite. `sessionSoundsEnabled` defaults on and removes both the sounds and the mute deferral when off.
+
 ## Microphone capture and recorder ownership
 
 `MicrophoneCapture` is an `AVCaptureSession` pinned to a selected input-device UID. It has no output graph, avoiding the measured AUHAL failure where `AVAudioEngine` could not combine a pinned built-in input with Bluetooth output (`kAudioUnitErr_FormatNotSupported`, -10868).
@@ -127,7 +133,7 @@ No audio history exists. Successful, cancelled, failed, and scavenged recordings
 `Window("Voiceour", id: "main")` hosts `ConsoleWindowView`, a native `TabView` with five destinations — four `Form(.grouped)` and one page:
 
 1. **Home** — lifetime dictation time, words, time saved against a fixed 40 wpm typing baseline, average speaking speed, the five apps that receive the most dictations, the streak row, and a day-resolution activity grid.
-2. **General** — tap gesture, auto-stop and silence, deterministic cleanup, system-audio muting, and the debug-only backend picker.
+2. **General** — tap gesture, auto-stop and silence, deterministic cleanup, system-audio muting, the session cues, and the debug-only backend picker.
 3. **Glossary** — project import, canonical terms and aliases, learned suggestions, add/edit/remove actions.
 4. **History** — search, an app filter, day-grouped transcripts that name their destination, and the selected transcript opened inside its own day group as a buttonless well the reader clicks to copy and selects from to teach.
 5. **System** — backend/model readiness, permissions and remediation, diagnostics copy, and destructive clear actions.

@@ -33,12 +33,14 @@ On macOS 26 the live surface uses system Liquid Glass; older systems use the pai
 
 ```text
    TAP       Tap Fn / Globe once. Do not hold it or combine it with another key.
+    |        A short rising tone plays first; system audio fades out after it.
     |
    SPEAK     A movable island appears near the focused window. It says WARMING
     |        until the selected microphone produces real signal, then shows a waveform.
     |
    STOP      Tap Fn / Globe again, press the finish control, or let auto-stop finish.
-    |        Voiceour finalizes one WAV and performs one final decode.
+    |        Voiceour finalizes one WAV and performs one final decode, and a falling
+    |        tone plays once your system audio has faded back in.
     |
    CLEAN     Deterministic cleanup removes configured fillers and canonicalizes
     |        protected glossary terms such as kubectl, --no-config, p95, and codenames.
@@ -48,6 +50,8 @@ On macOS 26 the live surface uses system Liquid Glass; older systems use the pai
 ```
 
 There is no wake word, background listener, live transcript line, or second model pass over the text.
+
+The two tones are the only sounds Voiceour makes. Both are synthesized, and General → Audio → *Play a sound when listening starts and stops* turns them off; a capture shorter than the rising tone leaves system audio alone entirely.
 
 ## First real launch
 

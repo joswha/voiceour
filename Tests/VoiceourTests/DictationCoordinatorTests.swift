@@ -779,6 +779,10 @@ struct DictationCoordinatorTests {
     @Test func aRefusedMuteIsPublishedAsUnavailableAndClearedByASuccessfulOne() async {
         var settings = VoiceCore.Settings()
         settings.muteSystemAudioDuringCapture = true
+        // The subject here is the muter, not the cue. With sounds on the mute
+        // deliberately waits one cue length, and these sessions are decided inside
+        // that window; the cue's own timing is pinned by the session-cue tests.
+        settings.sessionSoundsEnabled = false
 
         let refused = makeCoordinator(
             asr: FakeASR(behavior: .text("unmuted utterance")),
@@ -813,6 +817,9 @@ struct DictationCoordinatorTests {
     @Test func systemAudioIsMutedForTheRecordingAndRestoredExactlyOnceOnEveryExitPath() async {
         var settings = VoiceCore.Settings()
         settings.muteSystemAudioDuringCapture = true
+        // Cue off for the same reason as above: this pins mute/restore ownership
+        // per exit path, not the sound that now precedes the device fade.
+        settings.sessionSoundsEnabled = false
 
         let onSuccess = CountingAudioMuter()
         let success = makeCoordinator(
@@ -1672,6 +1679,158 @@ struct DictationCoordinatorTests {
         )
     }
 
+    // MARK: Session cues
+
+    @Test func theStartCuePlaysBeforeTheDeviceIsMuted() async {
+        let log = AudioEventLog()
+        let clock = VirtualClock()
+        let coordinator = makeCoordinator(
+            audioMuter: LoggingAudioMuter(log: log),
+            sessionCues: LoggingCuePlayer(log: log),
+            runtimeOverride: cueTimingRuntime(clock: clock, log: log)
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        await waitUntil { log.events.contains(.mute) }
+
+        let events = log.events
+        #expect(events.first == .cue(.listeningStarted))
+        // The mute waited one whole cue length before touching the device, so the
+        // 120 ms fade cannot duck the rise. Logged rather than read off
+        // `clock.elapsed()`, which the 40 ms metering poll also advances.
+        #expect(events.firstIndex(of: .slept(SessionCue.durationNanoseconds))! < events.firstIndex(of: .mute)!)
+        #expect(clock.elapsed() >= SessionCue.duration)
+    }
+
+    @Test func theEndCuePlaysAfterTheRestoreRamp() async {
+        let log = AudioEventLog()
+        let clock = VirtualClock()
+        let coordinator = makeCoordinator(
+            audioMuter: LoggingAudioMuter(log: log),
+            sessionCues: LoggingCuePlayer(log: log),
+            runtimeOverride: clock.runtime
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { log.events.contains(.cue(.listeningEnded)) }
+
+        let events = log.events
+        // Default settings, so this is also the cued session's whole audio order:
+        // rise, duck, restore, fall. The mute is not skipped just because a cue
+        // ran ahead of it.
+        #expect(events.firstIndex(of: .cue(.listeningStarted))! < events.firstIndex(of: .mute)!)
+        #expect(events.firstIndex(of: .mute)! < events.firstIndex(of: .restore)!)
+        #expect(events.firstIndex(of: .restore)! < events.firstIndex(of: .cue(.listeningEnded))!)
+    }
+
+    /// The accepted cost of giving the cue its own window: a session decided
+    /// inside that window ducks nothing at all. Deliberate, not incidental — the
+    /// alternative is fading the user's audio down for a capture that is already
+    /// over, and this also proves the guard cannot mute for a dead session.
+    @Test func aSessionDecidedInsideTheCueWindowNeverDucksTheAudio() async {
+        let log = AudioEventLog()
+        let clock = VirtualClock()
+        let cueWindow = TestGate()
+        let coordinator = makeCoordinator(
+            audioMuter: LoggingAudioMuter(log: log),
+            sessionCues: LoggingCuePlayer(log: log),
+            runtimeOverride: cueTimingRuntime(clock: clock, log: log, holdingCueSleepOn: cueWindow)
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        await waitUntil { log.events.contains(.slept(SessionCue.durationNanoseconds)) }
+        coordinator.stopAndProcess()
+        cueWindow.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        let events = log.events
+        #expect(events.contains(.cue(.listeningStarted)))
+        #expect(!events.contains(.mute))
+        // Nothing was muted, so the end cue plays without waiting for a fade.
+        #expect(events.contains(.cue(.listeningEnded)))
+    }
+
+    @Test func anAutoStopStillPlaysTheEndCue() async {
+        let log = AudioEventLog()
+        let coordinator = makeCoordinator(sessionCues: LoggingCuePlayer(log: log))
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess(trigger: .autoStop(silenceStartedAt: Date()))
+        await waitUntil { log.events.contains(.cue(.listeningEnded)) }
+    }
+
+    @Test func cancellingPlaysNoEndCue() async {
+        let log = AudioEventLog()
+        let coordinator = makeCoordinator(sessionCues: LoggingCuePlayer(log: log))
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.cancel()
+        await waitUntil { coordinator.state == .idle }
+
+        #expect(log.events.contains(.cue(.listeningStarted)))
+        #expect(!log.events.contains(.cue(.listeningEnded)))
+    }
+
+    @Test func theSettingOffPlaysNothingAndDoesNotDeferTheMute() async {
+        let log = AudioEventLog()
+        var settings = VoiceCore.Settings()
+        settings.sessionSoundsEnabled = false
+        let clock = VirtualClock()
+        let coordinator = makeCoordinator(
+            audioMuter: LoggingAudioMuter(log: log),
+            sessionCues: LoggingCuePlayer(log: log),
+            settings: settings,
+            runtimeOverride: cueTimingRuntime(clock: clock, log: log)
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        await waitUntil { log.events.contains(.mute) }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .idle }
+
+        // No cue, and no cue-length wait in front of the mute either: with the
+        // setting off the device fades out on the tap, as it did before cues.
+        let events = log.events
+        #expect(events.contains(.mute))
+        #expect(!events.contains { if case .cue = $0 { true } else { false } })
+        #expect(!events.contains(.slept(SessionCue.durationNanoseconds)))
+    }
+
+    /// The clock every cue-timing test runs on: it advances virtually and records
+    /// each sleep into the same ordered log as the cue and the muter, so "the mute
+    /// waited a cue length" is an observed event rather than an inference from a
+    /// wall clock the metering poll also moves.
+    ///
+    /// `holdingCueSleepOn` parks the cue-length wait — and only that wait, never
+    /// the 40 ms metering poll — until the gate fires, which is how a test can
+    /// stand inside the cue's window and end the session there.
+    private func cueTimingRuntime(
+        clock: VirtualClock,
+        log: AudioEventLog,
+        holdingCueSleepOn gate: TestGate? = nil
+    ) -> DictationRuntime {
+        let base = clock.runtime
+        return DictationRuntime(
+            now: base.now,
+            makeUUID: base.makeUUID,
+            sleep: { nanoseconds in
+                log.append(.slept(nanoseconds))
+                if let gate, nanoseconds == SessionCue.durationNanoseconds {
+                    await gate.wait()
+                }
+                try await base.sleep(nanoseconds)
+            },
+            calendar: base.calendar
+        )
+    }
+
     // MARK: Helpers
 
     private func makeCoordinator(
@@ -1682,6 +1841,7 @@ struct DictationCoordinatorTests {
         permissions: PermissionsChecking = FakePermissions(),
         activeASRBackend: String = "fake",
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
+        sessionCues: SessionCuePlaying = NoOpSessionCuePlayer(),
         settings: VoiceCore.Settings = VoiceCore.Settings(),
         settingsStore: SettingsStore? = nil,
         hotkey: HotkeyBinding = FakeHotkey(),
@@ -1723,6 +1883,7 @@ struct DictationCoordinatorTests {
                 ),
             recentSessionSnapshotSave: recentSessionSnapshotSave,
             audioMuter: audioMuter,
+            sessionCues: sessionCues,
             temporaryAudioRemover: temporaryAudioRemover,
             runtimeOverride: runtimeOverride
         )
@@ -1930,6 +2091,57 @@ private final class CountingAudioMuter: SystemAudioMuting, @unchecked Sendable {
 
     func restore() async {
         lock.withLock { restores += 1 }
+    }
+}
+
+/// One ordered log shared by the cue player and the muter, because the property
+/// under test is the *order* of a sound against a 120 ms device fade.
+private enum AudioEvent: Equatable {
+    case cue(SessionCue)
+    case mute
+    case restore
+    /// A sleep the coordinator asked the runtime for, so the mute's cue-length
+    /// wait is ordered against the sound instead of inferred from a wall clock.
+    case slept(UInt64)
+}
+
+private final class AudioEventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [AudioEvent] = []
+
+    var events: [AudioEvent] { lock.withLock { entries } }
+
+    func append(_ event: AudioEvent) {
+        lock.withLock { entries.append(event) }
+    }
+}
+
+private final class LoggingCuePlayer: SessionCuePlaying, @unchecked Sendable {
+    private let log: AudioEventLog
+
+    init(log: AudioEventLog) {
+        self.log = log
+    }
+
+    func play(_ cue: SessionCue) async {
+        log.append(.cue(cue))
+    }
+}
+
+private final class LoggingAudioMuter: SystemAudioMuting, @unchecked Sendable {
+    private let log: AudioEventLog
+
+    init(log: AudioEventLog) {
+        self.log = log
+    }
+
+    func mute() async -> Bool {
+        log.append(.mute)
+        return true
+    }
+
+    func restore() async {
+        log.append(.restore)
     }
 }
 

@@ -96,6 +96,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var asrBackend: String
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
+    public var sessionSoundsEnabled: Bool
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
 
@@ -104,6 +105,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case asrBackend = "asr_backend"
         case glossary
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
+        case sessionSoundsEnabled = "session_sounds_enabled"
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
     }
@@ -113,6 +115,7 @@ public struct Settings: Codable, Equatable, Sendable {
         asrBackend: String = "parakeet",
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
+        sessionSoundsEnabled: Bool = true,
         autoStopEnabled: Bool = false,
         autoStopSilenceMs: Int = 2500
     ) {
@@ -120,6 +123,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.asrBackend = asrBackend
         self.glossary = glossary
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
+        self.sessionSoundsEnabled = sessionSoundsEnabled
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
     }
@@ -133,6 +137,9 @@ public struct Settings: Codable, Equatable, Sendable {
         muteSystemAudioDuringCapture =
             try container.decodeIfPresent(Bool.self, forKey: .muteSystemAudioDuringCapture)
             ?? defaults.muteSystemAudioDuringCapture
+        sessionSoundsEnabled =
+            try container.decodeIfPresent(Bool.self, forKey: .sessionSoundsEnabled)
+            ?? defaults.sessionSoundsEnabled
         autoStopEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoStopEnabled) ?? defaults.autoStopEnabled
         autoStopSilenceMs =
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs
