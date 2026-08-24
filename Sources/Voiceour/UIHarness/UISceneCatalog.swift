@@ -133,6 +133,14 @@
                     fixture: .populated
                 ),
                 console(
+                    "console.home.readme",
+                    "Home sample analytics for the public README",
+                    tab: .home,
+                    fixture: .populated,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_080),
+                    tags: ["docs"]
+                ),
+                console(
                     "console.home.empty",
                     "Home with nothing dictated yet",
                     tab: .home,

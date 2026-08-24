@@ -72,6 +72,18 @@ Update mode writes only payloads that changed and reports them as `written`; ide
 
 `manifest.jsonl` uses sorted-key NDJSON with one run row followed by catalog-order result rows. Scene statuses are `ok`, `changed`, `missing-golden`, `written`, and `failed`. Nullable fields are explicit `null`. The flow manifest records the same run/result shape around checkpoints and expectations.
 
+### Committed documentation captures
+
+`fixtures/ui/` holds digests; `docs/media/` holds the few full PNGs that public documentation displays. They are harness output copied byte for byte, never hand-edited, and never a gate:
+
+| file | source scene |
+| --- | --- |
+| `docs/media/home-sample.png` | `console.home.readme` |
+| `docs/media/history-sample.png` | `console.sessions.selection` |
+| `docs/media/glossary-sample.png` | `console.glossary.populated` |
+
+Regenerate them with `scripts/ui_harness.sh --only console.home.readme,console.sessions.selection,console.glossary.populated`, then copy the three `.build/ui-harness/*.png` files over their `docs/media` counterparts. `docs/media/app-icon.png` is `sips`-exported from `Resources/AppIcon.icns` at 256×256.
+
 ## Scene inventory
 
 `UISceneCatalog` is organized around current product surfaces:
@@ -80,7 +92,8 @@ Update mode writes only payloads that changed and reports them as `written`; ide
 - the menu popover at rest, after an error, and with a transcript;
 - the recording panel and island while recording or waiting for real microphone signal;
 - accessibility adaptations for Reduce Transparency, Increase Contrast, and Differentiate Without Color;
-- representative `os26` menu and overlay branches.
+- representative `os26` menu and overlay branches;
+- one `docs`-tagged scene, `console.home.readme`: the same populated Home fixture at a 1,080-point measure, tall enough to hold the figures, five app rows, streaks, activity grid and legend in one unscrolled capture for public documentation.
 
 Use `make ui-list` as the authoritative inventory. A scene is a deterministic id, title, size, color scheme, tags, optional accessibility adaptation, optional interaction steps, and a closure building the real view.
 
@@ -94,7 +107,7 @@ Scene rules:
 
 `RenderOverrides` currently pins time, calendar/locale/time zone, permission answers, storage paths, the overlay comet, accessibility adaptations, the seeded transcript selection (`transcriptSelectionSurface`), History's opening selection (`historyStartsDeselected`, which renders the tab as a reader who closed the transcript sees it) and History's opening app filter (`historyInitialAppFilter`, which renders the tab narrowed to one destination), the installed-app catalog (`installedApps`), the portable glass branch, and text-role recording. Every field is inert in production.
 
-`installedApps` replaces the catalog wholesale rather than augmenting it: a non-nil dictionary is the whole set of apps the render believes are installed, and an absent key means "not installed", which falls back to the letter monogram on Home and to the persisted snapshot name everywhere. Production reads it as nil, which is the live `InstalledAppCatalog` LaunchServices lookup. `UIFixtures.pinnedInstalledApps` pins exactly two apps, each locking a different state: Xcode carries the name the fixtures already persist, so its rows prove the icon path alone, while VSCode's pinned name is deliberately `Code` against a persisted `Visual Studio Code`, so its rows prove that the installed name wins. Slack, Terminal, Safari and Ghostty are deliberately absent even though the rendering Mac probably has them, so their rows lock the fallback. The pinned icons are flat rounded-rect fills drawn by a pure handler; a real `NSWorkspace` icon is a multi-representation image whose pixels belong to whichever app version this Mac installed.
+`installedApps` replaces the catalog wholesale rather than augmenting it: a non-nil dictionary is the whole set of apps the render believes are installed, and an absent key means "not installed", which falls back to the letter monogram on Home and to the persisted snapshot name everywhere. Production reads it as nil, which is the live `InstalledAppCatalog` LaunchServices lookup. `UIFixtures.pinnedInstalledApps` pins exactly two apps, each locking a different state: Xcode carries the name the fixtures already persist, so its rows prove the icon path alone, while VSCode's pinned name is deliberately `Code` against a persisted `Visual Studio Code`, so its rows prove that the installed name wins. Home's app buckets — cmux, ChatGPT, Claude, Brave Browser, Safari and Ghostty — and the Slack and Terminal history rows are all deliberately absent from the pin even though the rendering Mac probably has some of them, so their rows lock the fallback. The pinned icons are flat rounded-rect fills drawn by a pure handler; a real `NSWorkspace` icon is a multi-representation image whose pixels belong to whichever app version this Mac installed.
 
 ## Semantic flows
 

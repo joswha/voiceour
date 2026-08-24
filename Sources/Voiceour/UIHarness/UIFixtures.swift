@@ -271,9 +271,10 @@
         /// Xcode carries the same name the fixtures persist, so its rows prove the
         /// icon path alone. VSCode's pinned name is deliberately "Code" against a
         /// persisted "Visual Studio Code", so its rows prove installed-name-wins.
-        /// Slack, Terminal, Safari and Ghostty are deliberately absent even
-        /// though the rendering Mac may well have them, so their rows lock the
-        /// monogram and persisted-name fallback.
+        /// cmux, ChatGPT, Claude, Brave Browser, Safari and Ghostty are
+        /// deliberately absent even though the rendering Mac may well have
+        /// them, so their Home rows lock the monogram and persisted-name
+        /// fallback; the Slack and Terminal history rows take the same path.
         static let pinnedInstalledApps: [String: InstalledApp] = [
             "com.apple.dt.Xcode": InstalledApp(
                 name: "Xcode",
@@ -521,10 +522,10 @@
             }
             // (bundle id, name, sessions, words, seconds, days before `pinnedNow`)
             let appRows: [(String, String, Int, Int, Double, Int)] = [
-                ("com.apple.dt.Xcode", "Xcode", 64, 12_400, 5_600, 2),
-                ("com.tinyspeck.slackmacgap", "Slack", 38, 6_900, 3_000, 3),
-                ("com.microsoft.VSCode", "Visual Studio Code", 31, 5_850, 2_600, 4),
-                ("com.apple.Terminal", "Terminal", 22, 4_100, 1_900, 6),
+                ("com.cmuxterm.app", "cmux", 64, 12_400, 5_600, 2),
+                ("com.openai.codex", "ChatGPT", 38, 6_900, 3_000, 3),
+                ("com.anthropic.claudefordesktop", "Claude", 31, 5_850, 2_600, 4),
+                ("com.brave.Browser", "Brave Browser", 22, 4_100, 1_900, 6),
                 ("com.apple.Safari", "Safari", 18, 3_377, 1_500, 7),
                 // Sixth by sessions: renders nowhere on Home.
                 ("com.mitchellh.ghostty", "Ghostty", 17, 3_500, 1_720, 9),
