@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VoiceCore
 
@@ -42,6 +43,12 @@ struct ConsoleTermEditor: View {
     var identifierPrefix: String
 
     @State private var addText = ""
+    /// Installed while the editor is on screen. Escape is AppKit's to report
+    /// here: both hosts sit inside a grouped `Form`, which is an `NSScrollView`
+    /// that consumes the key before SwiftUI offers it to `onExitCommand` — the
+    /// same measurement that gave History its own input monitor. The modifier
+    /// below is kept for a host that is not inside one.
+    @State private var escapeMonitor: Any?
     @FocusState private var focused: Field?
 
     private enum Field: Hashable {
@@ -71,6 +78,23 @@ struct ConsoleTermEditor: View {
         // used to focus its first field in `onAppear`, and that affordance is
         // the editor's own rather than each host's.
         .defaultFocus($focused, .term)
+        .onAppear {
+            guard escapeMonitor == nil else { return }
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.keyCode == 53,
+                    event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                    event.window?.isKeyWindow == true
+                else { return event }
+                cancel()
+                return nil
+            }
+        }
+        .onDisappear {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+            }
+            escapeMonitor = nil
+        }
     }
 
     // MARK: - Term
