@@ -1,8 +1,5 @@
 flow: glossary.remove-term
-title: A glossary row can be removed immediately
+title: Removing a term asks first
 fixture: static
 transitions: idle
-PASS 1 present | exists value="kubectl" | 1 match
-PASS 2 present | exists id=remove.kubectl | 1 match
-PASS 3 removed | absent value="kubectl" | 0 matches
-PASS 4 removed | absent id=remove.kubectl | 0 matches
+PASS 1 awaiting-confirmation | model glossaryTermCount == "9" | 9

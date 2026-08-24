@@ -167,6 +167,28 @@
                     tags: ["empty"]
                 ),
                 console(
+                    "console.glossary.mixed",
+                    "Glossary with a taught term and a project-scoped term",
+                    tab: .glossary,
+                    fixture: .mixedGlossary
+                ),
+                console(
+                    "console.glossary.editing",
+                    "Glossary with one term open for editing",
+                    tab: .glossary,
+                    fixture: .mixedGlossary,
+                    tags: ["steps"],
+                    steps: [.press("glossary.term.kubectl")]
+                ),
+                console(
+                    "console.glossary.search",
+                    "Glossary narrowed by a typed query",
+                    tab: .glossary,
+                    fixture: .mixedGlossary,
+                    tags: ["steps"],
+                    steps: [.type("dock", into: "glossary.search.field")]
+                ),
+                console(
                     "console.sessions.populated",
                     "History list, day groups and transcript detail",
                     tab: .history,

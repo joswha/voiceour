@@ -30,7 +30,7 @@ Window("Voiceour", id: "main") {
 | --- | --- |
 | **Home** | lifetime dictation time and words, time saved against a fixed 40 wpm typing baseline, average speaking speed, active days, current and longest streak, and a day-resolution activity grid. |
 | **General** | Fn/Globe gesture, stop-after-silence and dwell, deterministic cleanup, mute-during-capture, and a debug-only ASR picker. |
-| **Glossary** | project lexicon import, canonical terms and aliases, add/edit/remove, and learned suggestions. |
+| **Glossary** | learned suggestions, a search row carrying the origin filter and `Add Term`, an alphabetical term list with one term open in its own plate under the row that opened it, and project word-list import. The open term uses the same `Term` / `Heard as` editor as History's ⌘T teach. |
 | **History** | search, day-grouped transcript list, and one buttonless transcript open under the row that selected it — click the text to copy it, select and press ⌘T to teach a correction, and reach copy/teach/delete for the whole record from the row's context menu. |
 | **System** | backend/model readiness, microphone and Accessibility capabilities, remediation links, diagnostics copy, clear history and stats, and clear learned vocabulary. |
 

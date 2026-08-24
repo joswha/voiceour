@@ -136,7 +136,7 @@ No audio history exists. Successful, cancelled, failed, and scavenged recordings
 
 1. **Home** — lifetime dictation time, words, time saved against a fixed 40 wpm typing baseline, average speaking speed, the five apps that receive the most dictations, the streak row, and a day-resolution activity grid.
 2. **General** — tap gesture, auto-stop and silence, deterministic cleanup, system-audio muting, the session cues, and the debug-only backend picker.
-3. **Glossary** — project import, canonical terms and aliases, learned suggestions, add/edit/remove actions.
+3. **Glossary** — the corrections the last dictation proposed, a search row that also carries an origin filter and `Add Term`, the alphabetical term list with exactly one term open in its own plate, and project word-list import. A row names its term, its scope when it is not global, and the spoken forms it holds; the open term's editor is `ConsoleTermEditor`, the same editor History's ⌘T teach renders, with `Term`, one row per spoken form, an add field, the derived `Also matched` readout, and Save / Cancel / Remove Term. Removal confirms first.
 4. **History** — search, an app filter, day-grouped transcripts that name their destination, and the selected transcript opened inside its own day group as a buttonless well the reader clicks to copy and selects from to teach.
 5. **System** — backend/model readiness, permissions and remediation, diagnostics copy, and destructive clear actions.
 

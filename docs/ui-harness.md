@@ -133,13 +133,16 @@ The core journeys are:
 - an ASR failure;
 - menu transcript copying;
 - recording controls and microphone warmup;
-- settings, glossary, System recovery actions, and Home's lifetime figures across the five tabs;
+- settings, System recovery actions, and Home's lifetime figures across the five tabs;
+- Glossary: adding a term through the draft plate, opening a term in place and teaching it another spoken form, and pressing Remove Term without confirming it;
 - History's search filter and its clearing, and the selected transcript opening inside its own day group with the line that names its gestures;
 - History's raw fold: the open transcript's RAW row shut with its raw text absent from the tree, an accessibility press unfolding exactly that text, and a second press shutting it again.
 
 History's two gestures have no flow of their own, and this is measured rather than an omission. Copying is a plain click on the transcript, and `NSTextView` refuses first mouse in an app that is not active, so a synthetic click reached nothing and the pasteboard seam recorded no write. Teaching is ⌘T or the text view's own context menu, and `-performKeyEquivalent:` is offered only to the key window, which the offscreen window can never become. `sessions.detail.in-place` therefore asserts exactly one transcript well plus the instruction line that states both gestures, the `console.sessions.selection` and `console.sessions.deselected` scenes lock the open and closed states of the tab, and the gestures themselves are verified in the real app.
 
-History's app filter has no flow either, for the same measured reason: engaging it opens an `NSMenu` popup, and a window that can never order front cannot show one. `console.sessions.filtered` pins the filtered state instead — the engaged control, the `N of M sessions match` caption, the surviving rows and the open transcript naming its target — and the menu itself and the row's `Show Only <App>` command are verified in the real app.
+History's app filter has no flow either, for the same measured reason: engaging it opens an `NSMenu` popup, and a window that can never order front cannot show one. `console.sessions.filtered` pins the filtered state instead — the engaged control, the `N of M sessions match` caption, the surviving rows and the open transcript naming its target — and the menu itself and the row's `Show Only <App>` command are verified in the real app. The Glossary's origin filter is the same control and is pinned the same way by `console.glossary.mixed`, which offers both facets.
+
+`glossary.remove-term` stops at the confirmation rather than completing the removal: a `confirmationDialog` cannot be driven by a window that never becomes key, exactly as History's delete confirmation cannot. Stopping there still asserts the property that matters — one press of Remove Term deletes nothing — and the confirmed removal is verified in the real app.
 
 Asynchronous boundaries are explicit named gates released by the script. Waits are bounded run-loop pump counts, never wall-clock deadlines. Artifact strings may not contain live dates, durations, UUIDs, process ids, or machine paths. Production seams are value seams supplied at existing boundaries; shipping behavior must follow the same path.
 

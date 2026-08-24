@@ -67,6 +67,10 @@ struct ConsoleTermEditor: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onExitCommand(perform: cancel)
+        // Opening the editor is a request to type the spelling: History's teach
+        // used to focus its first field in `onAppear`, and that affordance is
+        // the editor's own rather than each host's.
+        .defaultFocus($focused, .term)
     }
 
     // MARK: - Term
@@ -90,7 +94,8 @@ struct ConsoleTermEditor: View {
                 .labelsHidden()
                 .focused($focused, equals: .term)
                 .onSubmit(submitIfEnabled)
-                .accessibilityLabel("Term")
+                // No explicit label: a hidden-label `TextField` still publishes
+                // its title, and adding one made VoiceOver read "Term, Term".
                 .accessibilityIdentifier("\(identifierPrefix).canonical")
         }
     }
@@ -118,8 +123,7 @@ struct ConsoleTermEditor: View {
                 .autocorrectionDisabled(true)
                 .labelsHidden()
                 .focused($focused, equals: .addForm)
-                .onSubmit(appendForms)
-                .accessibilityLabel("Heard as")
+                .onSubmit { appendForms() }
                 .accessibilityIdentifier("\(identifierPrefix).add-form")
         }
     }
@@ -193,9 +197,9 @@ struct ConsoleTermEditor: View {
     /// trailing edge so it cannot be hit while reaching for Save.
     private var commandRow: some View {
         HStack(spacing: VoiceourMetrics.Space.sm) {
-            Button(submit.title, action: submit.perform)
+            Button(submit.title, action: performSubmit)
                 .keyboardShortcut(.defaultAction)
-                .disabled(!submit.isEnabled)
+                .disabled(!isSubmitEnabled)
                 .accessibilityIdentifier(submit.identifier)
             Button("Cancel", action: cancel)
                 .accessibilityIdentifier("\(identifierPrefix).cancel")
@@ -210,19 +214,39 @@ struct ConsoleTermEditor: View {
 
     // MARK: - Editing
 
-    private func submitIfEnabled() {
-        guard submit.isEnabled else { return }
+    /// A form typed into the add field but never entered still counts, both for
+    /// whether the command is offered and for what it commits. Typing a form and
+    /// pressing Save is the obvious gesture, and dropping that text on the floor
+    /// would report a save that saved less than the editor was showing.
+    private var pendingForms: [String] {
+        parsedGlossaryAliases(addText)
+    }
+
+    private var isSubmitEnabled: Bool {
+        if submit.isEnabled { return true }
+        return !pendingForms.isEmpty && !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func performSubmit() {
+        appendForms(keepingFocus: false)
         submit.perform()
+    }
+
+    private func submitIfEnabled() {
+        guard isSubmitEnabled else { return }
+        performSubmit()
     }
 
     /// Adds everything the add field currently holds. The comma-separated parse
     /// stays because a pasted list of forms is one of the ways a term arrives.
-    private func appendForms() {
-        for form in parsedGlossaryAliases(addText) {
+    private func appendForms(keepingFocus: Bool = true) {
+        for form in pendingForms {
             appendForm(form)
         }
         addText = ""
-        focused = .addForm
+        if keepingFocus {
+            focused = .addForm
+        }
     }
 
     /// Adds a form the set does not already hold. Case-insensitive, because two

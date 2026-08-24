@@ -22,7 +22,7 @@
         private static let pasteBundleID = "com.example.Writer"
         private static let terminalBundleID = "com.apple.Terminal"
         private static let glossaryTerm = "FlowTerm"
-        private static let glossaryAliases = "flow term, flow-term"
+        private static let glossaryForms = "flow form, other form"
         private static let noMatchQuery = "definitely-not-a-transcript"
 
         /// Queries are exact. Every action and single-node expectation rejects zero
@@ -69,11 +69,19 @@
                 "uh wire the offscreen renderer to NSHostingView and uh capture with cache display"
             static let newestRaw = UIQuery.value(newestRawText)
 
-            static let canonicalTerm = UIQuery.id("glossary.add-term.canonical")
-            static let aliases = UIQuery.id("glossary.add-term.aliases")
-            static let addTerm = UIQuery.id("glossary.add-term.submit")
-            static let addedTermRemove = UIQuery.id("remove.FlowTerm")
-            static let bundledTermRemove = UIQuery.id("remove.kubectl")
+            static let addTermButton = UIQuery.id("glossary.add-term")
+            static let glossarySearch = UIQuery.id("glossary.search.field")
+            static let termCanonical = UIQuery.id("glossary.term.canonical")
+            static let termAddForm = UIQuery.id("glossary.term.add-form")
+            static let termSave = UIQuery.id("glossary.term.save")
+            static let termRemove = UIQuery.id("glossary.term.remove")
+            static let draftCanonical = UIQuery.id("glossary.draft.canonical")
+            static let draftAddForm = UIQuery.id("glossary.draft.add-form")
+            static let draftSave = UIQuery.id("glossary.draft.save")
+            // A row is addressed by its term id, which is the canonical spelling
+            // for a term created without one.
+            static let bundledTermRow = UIQuery.id("glossary.term.kubectl")
+            static let addedTermRow = UIQuery.id("glossary.term.FlowTerm")
 
             static let autoStop = UIQuery.id("voice.auto-stop.toggle")
             static let autoStopDuration = UIQuery.id("voice.auto-stop.duration")
@@ -102,7 +110,7 @@
             ])
 
             static let generalContent = UIQuery.id("capture.hotkey")
-            static let glossaryContent = canonicalTerm
+            static let glossaryContent = glossarySearch
             static let historyContent = sessionSearch
             static let systemContent = UIQuery.id("system.diagnostics.copy")
             static let homeContent = UIQuery.id("home.hero")
@@ -316,36 +324,61 @@
             [
                 UIFlow(
                     id: "glossary.add-term",
-                    title: "A canonical term can be added through the glossary",
+                    title: "A term can be added through the glossary",
                     tags: ["glossary", "console", "settings"],
                     host: .console(.glossary),
                     fixture: .static(.emptyGlossary),
                     steps: [
-                        .check("empty", [.text(.equals("No canonical terms yet"), .exactly(1))]),
-                        .act(.type(glossaryTerm, into: Selector.canonicalTerm)),
-                        .act(.type(glossaryAliases, into: Selector.aliases)),
-                        .act(.press(Selector.addTerm)),
-                        .wait(.element(Selector.addedTermRemove)),
+                        .check("empty", [.text(.equals("No terms yet"), .exactly(1))]),
+                        .act(.press(Selector.addTermButton)),
+                        .act(.type(glossaryTerm, into: Selector.draftCanonical)),
+                        .act(.type(glossaryForms, into: Selector.draftAddForm)),
+                        .act(.press(Selector.draftSave)),
+                        .wait(.element(Selector.addedTermRow)),
                         .check(
                             "added",
                             [
-                                .exists(.value(glossaryTerm)),
-                                .exists(Selector.addedTermRemove),
+                                .exists(Selector.addedTermRow),
+                                // The one typed line is two forms, not one string.
+                                .exists(.labelContains("heard as flow form, other form")),
                                 .model(.glossaryTermCount, .equals("1")),
                             ]
                         ),
                     ]),
                 UIFlow(
-                    id: "glossary.remove-term",
-                    title: "A glossary row can be removed immediately",
+                    id: "glossary.edit-term",
+                    title: "A term opens in place and takes a new spoken form",
                     tags: ["glossary", "console", "settings"],
                     host: .console(.glossary),
-                    fixture: .static(.populated),
+                    fixture: .static(.mixedGlossary),
                     steps: [
-                        .check("present", [.exists(.value("kubectl")), .exists(Selector.bundledTermRemove)]),
-                        .act(.press(Selector.bundledTermRemove)),
-                        .wait(.absent(Selector.bundledTermRemove)),
-                        .check("removed", [.absent(.value("kubectl")), .absent(Selector.bundledTermRemove)]),
+                        .act(.press(Selector.bundledTermRow)),
+                        .check(
+                            "open",
+                            [
+                                .exists(Selector.termCanonical),
+                                .exists(Selector.termAddForm),
+                                .exists(Selector.termSave),
+                            ]
+                        ),
+                        .act(.type("kube kettle", into: Selector.termAddForm)),
+                        .act(.press(Selector.termSave)),
+                        .check("saved", [.exists(.labelContains("kube kettle"))]),
+                    ]),
+                UIFlow(
+                    id: "glossary.remove-term",
+                    title: "Removing a term asks first",
+                    tags: ["glossary", "console", "settings"],
+                    host: .console(.glossary),
+                    fixture: .static(.mixedGlossary),
+                    steps: [
+                        .act(.press(Selector.bundledTermRow)),
+                        .act(.press(Selector.termRemove)),
+                        // The safety property, and where this flow stops: a
+                        // `confirmationDialog` cannot be driven by a window that
+                        // never becomes key, exactly as History's delete
+                        // confirmation is not flow-covered either.
+                        .check("awaiting-confirmation", [.model(.glossaryTermCount, .equals("9"))]),
                     ]),
             ]
         }
