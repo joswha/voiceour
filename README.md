@@ -51,7 +51,7 @@ On macOS 26 the live surface uses system Liquid Glass; older systems use the pai
 
 There is no wake word, background listener, live transcript line, or second model pass over the text.
 
-The two tones are the only sounds Voiceour makes. Both are synthesized, and General → Audio → *Play a sound when listening starts and stops* turns them off; a capture shorter than the rising tone leaves system audio alone entirely.
+The three tones are the only sounds Voiceour makes: a rising glide when listening starts, a falling glide when it ends with a transcript on the way, and two clipped falling tones when you discard the utterance with Escape or the island's X. All are synthesized, and General → Audio → *Play a sound when listening starts, stops or is discarded* turns them off; a capture shorter than the rising tone leaves system audio alone entirely.
 
 ## First real launch
 

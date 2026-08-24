@@ -1699,8 +1699,11 @@ struct DictationCoordinatorTests {
         // The mute waited one whole cue length before touching the device, so the
         // 120 ms fade cannot duck the rise. Logged rather than read off
         // `clock.elapsed()`, which the 40 ms metering poll also advances.
-        #expect(events.firstIndex(of: .slept(SessionCue.durationNanoseconds))! < events.firstIndex(of: .mute)!)
-        #expect(clock.elapsed() >= SessionCue.duration)
+        #expect(
+            events.firstIndex(of: .slept(SessionCue.listeningStarted.totalNanoseconds))!
+                < events.firstIndex(of: .mute)!
+        )
+        #expect(clock.elapsed() >= SessionCue.listeningStarted.totalSeconds)
     }
 
     @Test func theEndCuePlaysAfterTheRestoreRamp() async {
@@ -1742,7 +1745,7 @@ struct DictationCoordinatorTests {
 
         coordinator.start()
         await waitUntil { coordinator.state == .recording }
-        await waitUntil { log.events.contains(.slept(SessionCue.durationNanoseconds)) }
+        await waitUntil { log.events.contains(.slept(SessionCue.listeningStarted.totalNanoseconds)) }
         coordinator.stopAndProcess()
         cueWindow.fire()
         await waitUntil { !coordinator.isProcessingInFlight }
@@ -1764,7 +1767,7 @@ struct DictationCoordinatorTests {
         await waitUntil { log.events.contains(.cue(.listeningEnded)) }
     }
 
-    @Test func cancellingPlaysNoEndCue() async {
+    @Test func cancellingPlaysTheCancelCueAndNeverTheEndCue() async {
         let log = AudioEventLog()
         let coordinator = makeCoordinator(sessionCues: LoggingCuePlayer(log: log))
 
@@ -1774,7 +1777,43 @@ struct DictationCoordinatorTests {
         await waitUntil { coordinator.state == .idle }
 
         #expect(log.events.contains(.cue(.listeningStarted)))
+        #expect(log.events.contains(.cue(.listeningCancelled)))
+        // The falling cue promises a transcript. A discarded utterance has none.
         #expect(!log.events.contains(.cue(.listeningEnded)))
+    }
+
+    @Test func theCancelCuePlaysAfterTheRestoreRamp() async {
+        let log = AudioEventLog()
+        let clock = VirtualClock()
+        let coordinator = makeCoordinator(
+            audioMuter: LoggingAudioMuter(log: log),
+            sessionCues: LoggingCuePlayer(log: log),
+            runtimeOverride: clock.runtime
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        await waitUntil { log.events.contains(.mute) }
+        coordinator.cancel()
+        await waitUntil { log.events.contains(.cue(.listeningCancelled)) }
+
+        let events = log.events
+        // Same reason as the end cue: the muter lifts the hardware mute and only
+        // then ramps the volume back, so a cue at the tap swells in from zero.
+        #expect(events.firstIndex(of: .restore)! < events.firstIndex(of: .cue(.listeningCancelled))!)
+    }
+
+    /// Escape is claimed only while a session is live, but `cancel()` is public and
+    /// unguarded, and a cue for a cancel that cancelled nothing is a lie.
+    @Test func cancellingAnIdleCoordinatorPlaysNothing() async {
+        let log = AudioEventLog()
+        let coordinator = makeCoordinator(sessionCues: LoggingCuePlayer(log: log))
+
+        coordinator.cancel()
+        await waitUntil { coordinator.state == .idle }
+        await drain()
+
+        #expect(log.events.isEmpty)
     }
 
     @Test func theSettingOffPlaysNothingAndDoesNotDeferTheMute() async {
@@ -1800,7 +1839,7 @@ struct DictationCoordinatorTests {
         let events = log.events
         #expect(events.contains(.mute))
         #expect(!events.contains { if case .cue = $0 { true } else { false } })
-        #expect(!events.contains(.slept(SessionCue.durationNanoseconds)))
+        #expect(!events.contains(.slept(SessionCue.listeningStarted.totalNanoseconds)))
     }
 
     /// The clock every cue-timing test runs on: it advances virtually and records
@@ -1822,7 +1861,7 @@ struct DictationCoordinatorTests {
             makeUUID: base.makeUUID,
             sleep: { nanoseconds in
                 log.append(.slept(nanoseconds))
-                if let gate, nanoseconds == SessionCue.durationNanoseconds {
+                if let gate, nanoseconds == SessionCue.listeningStarted.totalNanoseconds {
                     await gate.wait()
                 }
                 try await base.sleep(nanoseconds)

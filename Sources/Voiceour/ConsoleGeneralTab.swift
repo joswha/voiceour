@@ -178,11 +178,12 @@ struct ConsoleGeneralTab: View {
 
     private var cueRow: some View {
         ConsoleRow(
-            caption: "A rising tone when the microphone opens and a falling tone when it closes. "
-                + "System audio fades out after the rising tone rather than over it."
+            caption: "A rising tone when the microphone opens, a falling tone when it closes, and two "
+                + "clipped falling tones when you discard the utterance. System audio fades out after "
+                + "the rising tone rather than over it."
         ) {
             Toggle(
-                "Play a sound when listening starts and stops",
+                "Play a sound when listening starts, stops or is discarded",
                 isOn: settingBinding(coordinator, \.sessionSoundsEnabled)
             )
             .accessibilityIdentifier("voice.cues.toggle")

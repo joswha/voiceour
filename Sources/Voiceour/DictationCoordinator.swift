@@ -464,6 +464,7 @@ public final class DictationCoordinator {
             components.usesSystemAudioMuter
             ? SystemAudioMuter()
             : NoOpSystemAudioMuter()
+        let sessionCues = SessionCuePlayer()
         let coordinator = DictationCoordinator(
             recorder: recorder,
             asr: asr,
@@ -475,7 +476,7 @@ public final class DictationCoordinator {
             activeASRBackend: backend,
             settingsStore: store,
             audioMuter: audioMuter,
-            sessionCues: SessionCuePlayer()
+            sessionCues: sessionCues
         )
         if let settingsFailure {
             coordinator.errorMessage = settingsFailure
@@ -484,6 +485,10 @@ public final class DictationCoordinator {
         // menu can show a first run's download instead of failing every dictation
         // with a raw `model_not_installed` while it runs.
         coordinator.warmUpBackend()
+        // Same reason, for sound: the process's first audio start costs an order of
+        // magnitude more than every later one, and the start cue has 140 ms before
+        // the muter ducks the device. Paid here rather than on the first dictation.
+        Task { await sessionCues.warmUp() }
         return coordinator
     }
 
@@ -598,6 +603,10 @@ public final class DictationCoordinator {
         // discarding raced each other: the pipeline's `recorder.stop()` could
         // return the WAV that this path had already deleted.
         let ownsRecorder = state == .recording
+        // Captured before `cancelActiveWork` publishes `.cancelled`: only a
+        // session that was actually in flight was discarded, and Escape reaching
+        // an idle coordinator must not announce a cancel that cancelled nothing.
+        let discardedASession = state.isActive
         cancelActiveWork()
 
         if ownsRecorder {
@@ -607,11 +616,20 @@ public final class DictationCoordinator {
                 await recorder.discardRecording()
                 await self.restoreSystemAudioIfNeeded()
                 self.isCancellingRecording = false
+                // After the restore, never at the tap: the muter lifts the hardware
+                // mute and only then ramps the volume back, so a cue played here
+                // is heard at the user's own volume rather than swelling in.
+                if discardedASession {
+                    self.playListeningCancelledCue()
+                }
                 self.resetToIdleWhenInactive()
             }
         } else {
             Task { @MainActor in
                 await self.restoreSystemAudioIfNeeded()
+                if discardedASession {
+                    self.playListeningCancelledCue()
+                }
                 self.resetToIdleWhenInactive()
             }
         }

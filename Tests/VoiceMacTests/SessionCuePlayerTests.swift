@@ -15,7 +15,7 @@ struct SessionCuePlayerTests {
     @Test func avAudioPlayerAcceptsEveryCueAtItsDeclaredLength() throws {
         for cue in SessionCue.allCases {
             let player = try AVAudioPlayer(data: SessionCueSynth.wavData(for: cue))
-            #expect(abs(player.duration - SessionCue.duration) < 0.001)
+            #expect(abs(player.duration - cue.totalSeconds) < 0.001)
             #expect(player.numberOfChannels == 1)
             #expect(player.prepareToPlay())
         }

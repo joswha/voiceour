@@ -54,7 +54,7 @@ extension DictationCoordinator {
             // on some path owes the user a restore, whether or not the mute has
             // resolved and published `isSystemAudioMuted` yet.
             systemAudioRestore = nil
-            let cueDeferral = playsCues ? SessionCue.durationNanoseconds : 0
+            let cueDeferral = playsCues ? SessionCue.listeningStarted.totalNanoseconds : 0
             let muteTask = enqueueMuteOperation { [self] () -> Bool in
                 // Explicit `self.` inside the nested main-actor closure: implicit
                 // `self` is not available in an escaping closure's nested closure.
@@ -292,5 +292,18 @@ extension DictationCoordinator {
             }
             await sessionCues.play(.listeningEnded)
         }
+    }
+
+    /// The cancel cue, for a caller that has already awaited this session's
+    /// restore.
+    ///
+    /// `cancel()` awaits `restoreSystemAudioIfNeeded()` on its own task before it
+    /// resets, so by the time this runs the user's audio is back at its own volume
+    /// and the cue needs no ramp to wait on — unlike the stop path, which lets the
+    /// restore fade under the transcription and therefore has to chain on its task.
+    func playListeningCancelledCue() {
+        guard settings.sessionSoundsEnabled else { return }
+        let sessionCues = sessionCues
+        Task { await sessionCues.play(.listeningCancelled) }
     }
 }

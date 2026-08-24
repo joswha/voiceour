@@ -1,34 +1,74 @@
 import Foundation
 
-/// The two boundaries of listening, and the only two sounds the app makes.
+/// The three things listening can do, and the only sounds the app makes.
 ///
 /// Synthesized rather than shipped: no target declares `resources:`, so an asset
 /// would add resource handling to `Package.swift` and to `scripts/bundle_app.sh`
-/// for two tones whose parameters fit in a table.
+/// for three tones whose parameters fit in a table.
 public enum SessionCue: String, Sendable, CaseIterable {
     /// Capture has opened: a rising glide.
     case listeningStarted
-    /// Capture has closed: the same glide, mirrored in pitch.
+    /// Capture has closed and the transcript is coming: the same glide, mirrored
+    /// in pitch.
     case listeningEnded
+    /// The user discarded the utterance with Escape or the island's X: two
+    /// clipped tones falling a fourth, nothing delivered.
+    case listeningCancelled
 
-    /// Length of every cue. Matches `VoiceourMotion.quickDuration` (0.14 s) so a
-    /// cue finishes just before the recording island's 0.18 s entrance settles.
-    /// `VoiceCore` cannot import the token itself; keep the two in step.
-    public static let duration: TimeInterval = 0.14
+    /// Length of one shaped tone. Matches `VoiceourMotion.quickDuration` (0.14 s)
+    /// so a cue finishes just before the recording island's 0.18 s entrance
+    /// settles. `VoiceCore` cannot import the token itself; keep the two in step.
+    public static let toneSeconds: TimeInterval = 0.14
 
-    public static let durationNanoseconds = UInt64(duration * 1_000_000_000)
-
-    public var voice: SessionCueVoice {
+    /// The tones this cue is made of, in order.
+    ///
+    /// Both glides are one tone. Cancel is deliberately not a third glide: it has
+    /// to be recognisable as "discarded" against a falling cue the ear already
+    /// knows, and direction alone is too thin a difference to carry that when
+    /// nobody is listening carefully. So it changes texture instead — two clipped
+    /// tones with an audible silence between them, E♭5 down to B♭4, a falling
+    /// perfect fourth that lands below both glides. The first tone is short and
+    /// the second is longer, which is the shape of "uh-uh" rather than of a beep
+    /// repeated twice.
+    public var phrase: [SessionCueVoice] {
         switch self {
         case .listeningStarted:
-            SessionCueVoice(startHz: 620, endHz: 1240, overshoot: 0.05)
+            [SessionCueVoice(startHz: 620, endHz: 1240, overshoot: 0.05)]
         case .listeningEnded:
-            SessionCueVoice(startHz: 1240, endHz: 620, overshoot: -0.05)
+            [SessionCueVoice(startHz: 1240, endHz: 620, overshoot: -0.05)]
+        case .listeningCancelled:
+            [
+                SessionCueVoice(
+                    durationSeconds: 0.06,
+                    startHz: 620,
+                    endHz: 600,
+                    overshoot: 0,
+                    releaseSeconds: 0.03
+                ),
+                SessionCueVoice(
+                    durationSeconds: 0.1,
+                    startHz: 466,
+                    endHz: 440,
+                    overshoot: 0,
+                    leadingGapSeconds: 0.022
+                ),
+            ]
         }
+    }
+
+    /// Wall length of the whole cue, silences included.
+    public var totalSeconds: TimeInterval {
+        phrase.reduce(0) { $0 + $1.leadingGapSeconds + $1.durationSeconds }
+    }
+
+    /// Rounded, not truncated: `0.182 * 1e9` is 181_999_999.99 in binary floating
+    /// point, and a cue length is a duration, not a floor.
+    public var totalNanoseconds: UInt64 {
+        UInt64((totalSeconds * 1_000_000_000).rounded())
     }
 }
 
-/// One cue's synthesis parameters: an exponential pitch glide with a small
+/// One tone's synthesis parameters: an exponential pitch glide with a small
 /// overshoot that settles onto the end tone, a quiet second harmonic for body,
 /// and a raised-cosine envelope at both edges so neither edge clicks.
 ///
@@ -48,9 +88,13 @@ public struct SessionCueVoice: Equatable, Sendable {
     public var releaseSeconds: TimeInterval
     /// Ceiling on the summed partials, so `peak` is the real sample ceiling.
     public var peak: Double
+    /// Silence rendered before this tone. Arrangement rather than timbre, but it
+    /// lives here instead of in a wrapper type: one scalar is not worth a second
+    /// struct, and a phrase reads better as tones that know their own upbeat.
+    public var leadingGapSeconds: TimeInterval
 
     public init(
-        durationSeconds: TimeInterval = SessionCue.duration,
+        durationSeconds: TimeInterval = SessionCue.toneSeconds,
         startHz: Double,
         endHz: Double,
         overshoot: Double,
@@ -58,7 +102,8 @@ public struct SessionCueVoice: Equatable, Sendable {
         secondHarmonic: Double = 0.18,
         attackSeconds: TimeInterval = 0.007,
         releaseSeconds: TimeInterval = 0.055,
-        peak: Double = 0.16
+        peak: Double = 0.16,
+        leadingGapSeconds: TimeInterval = 0
     ) {
         self.durationSeconds = durationSeconds
         self.startHz = startHz
@@ -69,6 +114,7 @@ public struct SessionCueVoice: Equatable, Sendable {
         self.attackSeconds = attackSeconds
         self.releaseSeconds = releaseSeconds
         self.peak = peak
+        self.leadingGapSeconds = leadingGapSeconds
     }
 }
 
@@ -76,6 +122,25 @@ public struct SessionCueVoice: Equatable, Sendable {
 /// sound design is a test subject rather than a binary nobody can diff.
 public enum SessionCueSynth {
     public static let sampleRate: Double = 48_000
+
+    /// A whole cue: each tone preceded by its own silence.
+    public static func samples(for cue: SessionCue, sampleRate: Double = sampleRate) -> [Float] {
+        let phrase = cue.phrase
+        // One tone is its own rendering, returned without a second copy.
+        guard phrase.count > 1 else {
+            return phrase.first.map { samples(for: $0, sampleRate: sampleRate) } ?? []
+        }
+        var rendered = [Float]()
+        rendered.reserveCapacity(Int((cue.totalSeconds * sampleRate).rounded()))
+        for voice in phrase {
+            let gap = Int((voice.leadingGapSeconds * sampleRate).rounded())
+            if gap > 0 {
+                rendered.append(contentsOf: repeatElement(0, count: gap))
+            }
+            rendered.append(contentsOf: samples(for: voice, sampleRate: sampleRate))
+        }
+        return rendered
+    }
 
     public static func samples(for voice: SessionCueVoice, sampleRate: Double = sampleRate) -> [Float] {
         let count = Int((voice.durationSeconds * sampleRate).rounded())
@@ -133,7 +198,7 @@ public enum SessionCueSynth {
     /// A complete mono 16-bit PCM WAV in memory. `AVAudioPlayer(data:)` is the
     /// consumer; nothing is ever written to disk.
     public static func wavData(for cue: SessionCue, sampleRate: Double = sampleRate) -> Data {
-        wavData(samples: samples(for: cue.voice, sampleRate: sampleRate), sampleRate: sampleRate)
+        wavData(samples: samples(for: cue, sampleRate: sampleRate), sampleRate: sampleRate)
     }
 
     public static func wavData(samples: [Float], sampleRate: Double) -> Data {

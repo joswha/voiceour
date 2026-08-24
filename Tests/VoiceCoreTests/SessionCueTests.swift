@@ -5,43 +5,55 @@ import Testing
 
 @Suite("Session cues")
 struct SessionCueTests {
-    @Test func aCueIsExactlyTheDeclaredLength() {
-        #expect(SessionCueSynth.samples(for: SessionCue.listeningStarted.voice).count == 6720)
-        #expect(SessionCueSynth.samples(for: SessionCue.listeningEnded.voice).count == 6720)
-        #expect(SessionCue.durationNanoseconds == 140_000_000)
+    @Test func eachCueIsExactlyTheDeclaredLength() {
+        #expect(SessionCue.listeningStarted.phrase.count == 1)
+        #expect(SessionCue.listeningEnded.phrase.count == 1)
+        #expect(SessionCue.listeningCancelled.phrase.count == 2)
+
+        #expect(SessionCueSynth.samples(for: .listeningStarted).count == 6720)
+        #expect(SessionCueSynth.samples(for: .listeningEnded).count == 6720)
+        // 0.06 s tone, 0.022 s silence, 0.1 s tone.
+        #expect(SessionCueSynth.samples(for: .listeningCancelled).count == 8736)
+
+        #expect(SessionCue.listeningStarted.totalNanoseconds == 140_000_000)
+        #expect(SessionCue.listeningCancelled.totalNanoseconds == 182_000_000)
     }
 
     @Test func bothEdgesLeaveAndReturnToSilence() {
         for cue in SessionCue.allCases {
-            let samples = SessionCueSynth.samples(for: cue.voice)
+            let samples = SessionCueSynth.samples(for: cue)
             #expect(abs(samples.first ?? 1) < 1e-4)
             #expect(abs(samples.last ?? 1) < 1e-4)
         }
     }
 
-    @Test func noSampleExceedsTheDeclaredPeakAndTheCueIsNotSilent() {
+    @Test func noSampleExceedsTheDeclaredPeakAndNoCueIsSilent() {
         for cue in SessionCue.allCases {
-            let loudest = SessionCueSynth.samples(for: cue.voice).map(abs).max() ?? 0
-            #expect(loudest <= Float(cue.voice.peak) + 1e-6)
+            let ceiling = cue.phrase.map(\.peak).max() ?? 0
+            let loudest = SessionCueSynth.samples(for: cue).map(abs).max() ?? 0
+            #expect(loudest <= Float(ceiling) + 1e-6)
+            // Every cue reaches the same ceiling, so no cue is heard as the quiet one.
             #expect(loudest > 0.12)
         }
     }
 
     @Test func neighbouringSamplesNeverStep() {
         for cue in SessionCue.allCases {
-            let samples = SessionCueSynth.samples(for: cue.voice)
+            let samples = SessionCueSynth.samples(for: cue)
             var largest: Float = 0
             for index in 1..<samples.count {
                 largest = max(largest, abs(samples[index] - samples[index - 1]))
             }
             // A click is a discontinuity, not a slope: 0.05 is ~1.6x the steepest
-            // slope this voice can reach at its overshoot frequency.
+            // slope this voice can reach at its overshoot frequency. It also covers
+            // the cancel cue's two joins, where a tone must enter and leave the
+            // interior silence from zero.
             #expect(largest < 0.05)
         }
     }
 
     @Test func theRisingCueClimbsPastItsEndToneAndSettlesOnIt() {
-        let voice = SessionCue.listeningStarted.voice
+        let voice = SessionCue.listeningStarted.phrase[0]
         #expect(abs(SessionCueSynth.frequency(at: 0, voice: voice) - 620) < 1e-6)
         #expect(abs(SessionCueSynth.frequency(at: 0.8, voice: voice) - 1302) < 1e-6)
         #expect(abs(SessionCueSynth.frequency(at: 1, voice: voice) - 1240) < 1e-6)
@@ -55,7 +67,7 @@ struct SessionCueTests {
     }
 
     @Test func theFallingCueMirrorsPitchAndIsNotTimeReversed() {
-        let falling = SessionCue.listeningEnded.voice
+        let falling = SessionCue.listeningEnded.phrase[0]
         #expect(abs(SessionCueSynth.frequency(at: 0, voice: falling) - 1240) < 1e-6)
         #expect(abs(SessionCueSynth.frequency(at: 1, voice: falling) - 620) < 1e-6)
 
@@ -66,18 +78,62 @@ struct SessionCueTests {
             previous = value
         }
 
-        let rising = SessionCueSynth.samples(for: SessionCue.listeningStarted.voice)
-        #expect(SessionCueSynth.samples(for: falling) != Array(rising.reversed()))
+        let rising = SessionCueSynth.samples(for: .listeningStarted)
+        #expect(SessionCueSynth.samples(for: .listeningEnded) != Array(rising.reversed()))
+    }
+
+    /// Cancel has to be recognisable against a falling cue the ear already knows,
+    /// so it differs in texture and not only in pitch: two clipped tones with a
+    /// real silence between them, the second longer than the first.
+    @Test func theCancelCueIsTwoClippedTonesSeparatedBySilence() {
+        let phrase = SessionCue.listeningCancelled.phrase
+        let opening = phrase[0]
+        let landing = phrase[1]
+
+        #expect(opening.leadingGapSeconds == 0)
+        #expect(landing.leadingGapSeconds > 0.015)
+        #expect(landing.durationSeconds > opening.durationSeconds)
+        // A falling perfect fourth, E♭5 to B♭4, so the gesture lands below both glides.
+        #expect(abs(opening.startHz / landing.startHz - 4.0 / 3.0) < 0.02)
+        #expect(landing.endHz < SessionCue.listeningEnded.phrase[0].endHz)
+
+        let gap = Int((landing.leadingGapSeconds * SessionCueSynth.sampleRate).rounded())
+        #expect(quietestRun(in: SessionCueSynth.samples(for: .listeningCancelled)) >= gap)
+    }
+
+    @Test func neitherGlideCarriesAnInteriorSilence() {
+        // The property that keeps the three cues apart: only cancel has a hole in
+        // the middle, so a glide retuned to cancel's pitches would fail here.
+        #expect(quietestRun(in: SessionCueSynth.samples(for: .listeningStarted)) < 4)
+        #expect(quietestRun(in: SessionCueSynth.samples(for: .listeningEnded)) < 4)
     }
 
     @Test func theWavIsAMonoSixteenBitRiffOfTheRightLength() {
         let data = SessionCueSynth.wavData(for: .listeningStarted)
         #expect(data.count == 44 + 6720 * 2)
+        #expect(SessionCueSynth.wavData(for: .listeningCancelled).count == 44 + 8736 * 2)
         #expect(String(decoding: data[0..<4], as: UTF8.self) == "RIFF")
         #expect(String(decoding: data[8..<12], as: UTF8.self) == "WAVE")
         #expect(data[22] == 1 && data[23] == 0)  // one channel
         #expect(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 24, as: UInt32.self) } == 48_000)
         #expect(data[34] == 16 && data[35] == 0)  // bits per sample
+    }
+
+    /// Longest run of near-silent samples away from the edges, where every cue is
+    /// quiet because its envelope opens and closes there.
+    private func quietestRun(in samples: [Float]) -> Int {
+        let margin = samples.count / 20
+        var longest = 0
+        var current = 0
+        for sample in samples[margin..<(samples.count - margin)] {
+            if abs(sample) < 1e-5 {
+                current += 1
+                longest = max(longest, current)
+            } else {
+                current = 0
+            }
+        }
+        return longest
     }
 }
 
