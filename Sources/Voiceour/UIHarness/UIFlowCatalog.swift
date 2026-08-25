@@ -137,6 +137,16 @@
             static let homeLongestStreak = UIQuery.id("home.streak.longest")
             static let homeActivityGrid = UIQuery.id("home.activity.grid")
 
+            /// Home's first-run card. The gesture line is the card's headline, so
+            /// its presence is the card's presence; the three chips are what the
+            /// card is *for*, and the caption it supersedes must never render
+            /// beside it.
+            static let firstRunGesture = UIQuery.id("home.first-run.gesture")
+            static let firstRunModel = UIQuery.id("home.first-run.model")
+            static let firstRunMicrophone = UIQuery.id("home.first-run.microphone")
+            static let firstRunAccessibility = UIQuery.id("home.first-run.accessibility")
+            static let homeZeroCaption = UIQuery.id("home.empty")
+
             static func tab(_ tab: ConsoleTab) -> UIQuery {
                 .id("console.tab.\(tab.rawValue)")
             }
@@ -552,12 +562,74 @@
         private static var consoleFlows: [UIFlow] {
             [
                 homeStatsFlow,
+                homeFirstRunFlow,
                 tabNavigationFlow(
                     id: "console.tab.navigation",
                     title: "The native console switches through every tab",
                     tags: ["console", "tab", "navigation"]
                 ),
             ]
+        }
+
+        /// The card a fresh install opens on, and the one event that retires it.
+        ///
+        /// The retirement is a durable decision made inside the stop pipeline, so
+        /// the interesting assertion is negative and ordered: the card is still
+        /// there while a recording is live — a started dictation has completed
+        /// nothing — and gone once a transcript has been delivered. Home's zeroed
+        /// caption must never appear beside the card or in place of it afterwards:
+        /// the card names the gesture in full, and by the time it leaves there are
+        /// figures to read.
+        ///
+        /// Driven through `dictate` rather than a control because the trigger is
+        /// the global Fn/Globe tap, which an offscreen window can never receive,
+        /// and the console has no start button of its own.
+        private static var homeFirstRunFlow: UIFlow {
+            UIFlow(
+                id: "home.first-run",
+                title: "Home's first-run card retires on the first delivered dictation",
+                tags: ["console", "home", "first-run"],
+                host: .console(.home),
+                fixture: .static(.firstRun),
+                steps: [
+                    .wait(.element(Selector.firstRunGesture)),
+                    .check(
+                        "owed",
+                        [
+                            .count(Selector.firstRunGesture, .exactly(1)),
+                            .label(
+                                Selector.firstRunGesture,
+                                .equals("Tap Fn or Globe to dictate, speak, then tap again to finish.")
+                            ),
+                            .count(Selector.firstRunModel, .exactly(1)),
+                            .count(Selector.firstRunMicrophone, .exactly(1)),
+                            .count(Selector.firstRunAccessibility, .exactly(1)),
+                            .absent(Selector.homeZeroCaption),
+                            .model(.recentSessionCount, .equals("0")),
+                        ]
+                    ),
+                    .act(.dictate(.start)),
+                    .wait(.state(.recording)),
+                    .check(
+                        "recording",
+                        [
+                            .count(Selector.firstRunGesture, .exactly(1)),
+                            .model(.recentSessionCount, .equals("0")),
+                        ]
+                    ),
+                    .act(.dictate(.stopAndProcess)),
+                    .wait(.absent(Selector.firstRunGesture)),
+                    .check(
+                        "retired",
+                        [
+                            .absent(Selector.firstRunGesture),
+                            .absent(Selector.homeZeroCaption),
+                            .count(Selector.homeContent, .exactly(1)),
+                            .model(.recentSessionCount, .equals("1")),
+                        ]
+                    ),
+                ]
+            )
         }
 
         /// Home states the fixture ledger's figures, and still states them after

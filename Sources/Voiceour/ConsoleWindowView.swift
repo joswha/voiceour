@@ -61,9 +61,17 @@ struct ConsoleWindowView: View {
     /// `initialTab` nil means "no override": the window opens on the last-used
     /// tab, falling back to `.home` on first launch, and persists every
     /// selection change.
+    ///
+    /// An install that has never completed a dictation opens on Home regardless of
+    /// what is stored. A stored tab is a returning reader's preference, and there
+    /// is no returning reader yet — the launch that opens this window opens it
+    /// *for* Home's first-run card, and landing on Glossary because that is where
+    /// the reader last looked around would hide the one thing worth showing them.
+    /// Selection still persists from here; only the opening tab is decided.
     init(coordinator: DictationCoordinator, initialTab: ConsoleTab?) {
         self.coordinator = coordinator
-        _tab = State(initialValue: initialTab ?? Self.storedTab() ?? .home)
+        let opening = coordinator.owesFirstRunGuidance ? ConsoleTab.home : Self.storedTab() ?? .home
+        _tab = State(initialValue: initialTab ?? opening)
         externalTab = nil
         persistsSelection = (initialTab == nil)
     }
@@ -276,6 +284,18 @@ struct ConsoleStateMark: View {
 /// The word `or` carries its own weight — it is the only thing distinguishing
 /// "Fn or Globe" from "Fn then Globe".
 struct ConsoleHotkeyHint: View {
+    /// The gesture as one sentence, for surfaces that state it as text instead of
+    /// as this view's keycap-weighted line. Home reads it: its islands are
+    /// fixed-dark in both system appearances and carry their own text ladder, so
+    /// they cannot host a view that paints itself `.secondary`.
+    static let sentence = "Tap Fn or Globe to dictate"
+
+    /// The whole gesture, for the one surface that teaches it rather than
+    /// reminding of it. The second tap is what finishes, because the binder
+    /// toggles on release: a reader who holds the key down dictates nothing, and
+    /// a first run is exactly where that goes wrong.
+    static let fullGesture = "\(sentence), speak, then tap again to finish."
+
     var body: some View {
         HStack(spacing: VoiceourMetrics.Space.xs) {
             Text("Tap")
@@ -287,6 +307,6 @@ struct ConsoleHotkeyHint: View {
         .font(.callout)
         .foregroundStyle(.secondary)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Tap Fn or Globe to dictate")
+        .accessibilityLabel(Self.sentence)
     }
 }

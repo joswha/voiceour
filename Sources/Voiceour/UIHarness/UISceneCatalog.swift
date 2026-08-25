@@ -142,10 +142,35 @@
                 ),
                 console(
                     "console.home.empty",
-                    "Home with nothing dictated yet",
+                    "Home with its history and lifetime figures erased",
                     tab: .home,
-                    fixture: .firstRun,
+                    fixture: .erasedFigures,
                     tags: ["empty"]
+                ),
+                // The three states a fresh install actually meets, in the order a
+                // reader meets them. All three carry Home's first-run card, which
+                // exists only until a dictation is delivered, so no other scene can
+                // show them: a fixture with sessions has already retired it.
+                console(
+                    "console.home.first-run.downloading",
+                    "Home's first-run card while the speech model downloads",
+                    tab: .home,
+                    fixture: .firstRunDownloading,
+                    tags: ["first-run"]
+                ),
+                console(
+                    "console.home.first-run.ready",
+                    "Home's first-run card with the model ready and no permission answered",
+                    tab: .home,
+                    fixture: .firstRunReady,
+                    tags: ["first-run"]
+                ),
+                console(
+                    "console.home.first-run.failed",
+                    "Home's first-run card after the sidecar reported a failed acquisition",
+                    tab: .home,
+                    fixture: .firstRunAcquisitionFailed,
+                    tags: ["first-run"]
                 ),
                 console(
                     "console.glossary.populated",

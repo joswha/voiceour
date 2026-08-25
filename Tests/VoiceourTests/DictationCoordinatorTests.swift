@@ -1396,6 +1396,88 @@ struct DictationCoordinatorTests {
         #expect(persisted == coordinator.dictationStats)
     }
 
+    /// The same agreement *while* the dictation is in flight, not only once it
+    /// has finished.
+    ///
+    /// `recentSessions` publishes before its own snapshot is awaited, so a ledger
+    /// folded on the far side of that await left a real interval in which the
+    /// journal held a session the ledger did not — and Home reads both.
+    /// `owesFirstRunGuidance` retires on either record, so that interval rendered
+    /// a retired first-run card above four zeroes with the caption that names the
+    /// gesture underneath it, told to a reader who had just used the gesture.
+    ///
+    /// Standing inside the transcript's own durable write is what makes the
+    /// interval reachable on every run rather than caught by a lucky sample: the
+    /// main actor is free there, which is exactly when the console renders.
+    @Test func theTwoDurableRecordsAreNeverSeparatelyObservable() async {
+        let history = temporarySessionStore()
+        let stats = temporaryStatsStore()
+        let settings = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        defer { try? FileManager.default.removeItem(at: settings.url.deletingLastPathComponent()) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("one two three")),
+            settingsStore: settings,
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+
+        #expect(coordinator.recentSessions.count == 1)
+        #expect(coordinator.dictationStats.totalSessions == 1)
+        // The card is already gone here, on the journal row alone. The ledger has
+        // to have moved with it, because Home's zeroed caption is what fills the
+        // space the card leaves.
+        #expect(!coordinator.owesFirstRunGuidance)
+
+        writer.release(call: 1)
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(coordinator.recentSessions.count == 1)
+        #expect(coordinator.dictationStats.totalSessions == 1)
+    }
+
+    /// Quit inside that same window. The transcript's write is already queued and
+    /// the drain will land it, so the ledger's fold has to be queued with it: a
+    /// termination that dropped the fold would leave the two files disagreeing for
+    /// the rest of the install's life, which no later dictation could repair.
+    @Test func aTerminationDuringTheTranscriptWriteStillCountsTheDictation() async throws {
+        let history = temporarySessionStore()
+        let stats = temporaryStatsStore()
+        let settings = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+        defer { try? FileManager.default.removeItem(at: settings.url.deletingLastPathComponent()) }
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("one two three")),
+            settingsStore: settings,
+            recentSessionStore: history.store,
+            dictationStatsStore: stats.store,
+            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { writer.snapshotCount == 1 }
+
+        let termination = Task { @MainActor in await coordinator.prepareForTermination() }
+        await drain()
+        writer.release(call: 1)
+        await termination.value
+
+        #expect(try history.store.load().count == 1)
+        #expect(try stats.store.load().totalSessions == 1)
+    }
+
     /// A secure target reaches neither durable record. The ledger holds only
     /// counts, but a count is still evidence that something was dictated into a
     /// password field.
@@ -2130,6 +2212,140 @@ struct DictationCoordinatorTests {
                 try await base.sleep(nanoseconds)
             },
             calendar: base.calendar
+        )
+    }
+
+    // MARK: First-run guidance
+
+    /// The card's visibility rule, through the coordinator that publishes it.
+    ///
+    /// A genuinely fresh install owes guidance. An install with either durable
+    /// record — the transcript journal or the lifetime ledger — has plainly
+    /// dictated before and is owed none, which is what stops an existing install
+    /// upgrading into this build from being handed onboarding it does not need.
+    @Test
+    func aFreshInstallIsOwedFirstRunGuidance() {
+        let coordinator = makeCoordinator(settingsStore: scratchSettingsStore())
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(coordinator.dictationStats.totalSessions == 0)
+        #expect(coordinator.owesFirstRunGuidance)
+    }
+
+    @Test
+    func anInstallWithJournalledSessionsIsOwedNoGuidance() throws {
+        let session = temporarySessionStore()
+        try session.store.save([
+            RecentSession(
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                text: "already dictated"
+            )
+        ])
+        defer { try? FileManager.default.removeItem(at: session.directory) }
+
+        // Settings still say nothing: this is exactly the upgrade case, where the
+        // flag has never been written because this build has never run.
+        let coordinator = makeCoordinator(
+            settingsStore: scratchSettingsStore(),
+            recentSessionStore: session.store
+        )
+        #expect(!coordinator.settings.hasCompletedFirstRun)
+        #expect(!coordinator.recentSessions.isEmpty)
+        #expect(!coordinator.owesFirstRunGuidance)
+    }
+
+    /// The ledger alone is enough. A reader whose transcripts were cleared but
+    /// whose lifetime figures survive has still dictated before.
+    @Test
+    func anInstallWithOnlyLedgerSessionsIsOwedNoGuidance() throws {
+        let stats = temporaryStatsStore()
+        var ledger = DictationStatsLedger()
+        ledger.record(words: 12, seconds: 6, day: "2025-06-15")
+        try stats.store.save(ledger)
+        defer { try? FileManager.default.removeItem(at: stats.directory) }
+
+        let coordinator = makeCoordinator(
+            settingsStore: scratchSettingsStore(),
+            dictationStatsStore: stats.store
+        )
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(coordinator.dictationStats.totalSessions == 1)
+        #expect(!coordinator.owesFirstRunGuidance)
+    }
+
+    /// Every delivery target retires the guidance, including the one that reaches
+    /// neither durable record: a secure field creates no history row and folds no
+    /// ledger, and a reader who dictated into a password field has still used the
+    /// gesture the card exists to teach.
+    @Test(arguments: [TargetSafetyClass.normalText, .secure])
+    func aDeliveredDictationRetiresFirstRunGuidance(_ safety: TargetSafetyClass) async {
+        let store = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("first dictation")),
+            tracker: FakeTracker(safety: safety),
+            settingsStore: store
+        )
+        #expect(coordinator.owesFirstRunGuidance)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(coordinator.settings.hasCompletedFirstRun)
+        #expect(!coordinator.owesFirstRunGuidance)
+        // The secure branch proves the retirement is not riding the journal: it
+        // wrote no row, so the flag is the only thing that changed.
+        #expect(coordinator.recentSessions.isEmpty == (safety == .secure))
+    }
+
+    /// A start that never produced a transcript completes no first run. Both
+    /// halves matter: a refusal never reaches the pipeline at all, and a cancel
+    /// reaches it and leaves through the cancellation path above the retirement.
+    @Test
+    func aRefusedStartLeavesFirstRunGuidanceOwed() async {
+        let store = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let coordinator = makeCoordinator(
+            permissions: DeniedMicrophonePermissions(),
+            activeASRBackend: "parakeet",
+            settingsStore: store
+        )
+        coordinator.start()
+        await waitUntil { coordinator.errorMessage != nil }
+
+        #expect(!coordinator.settings.hasCompletedFirstRun)
+        #expect(coordinator.owesFirstRunGuidance)
+    }
+
+    @Test
+    func aCancelledDictationLeavesFirstRunGuidanceOwed() async {
+        let store = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let gate = TestGate()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .gatedText(gate, "never delivered")),
+            settingsStore: store
+        )
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+        coordinator.cancel()
+        gate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(!coordinator.settings.hasCompletedFirstRun)
+        #expect(coordinator.owesFirstRunGuidance)
+    }
+
+    /// Never the real `~/Library/Application Support/settings.json`: these tests
+    /// drive `saveSettings()`, and the default store is the user's own file.
+    private func scratchSettingsStore() -> SettingsStore {
+        SettingsStore(
+            url: FileManager.default.temporaryDirectory
+                .appendingPathComponent("voiceour-first-run-tests-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("settings.json")
         )
     }
 

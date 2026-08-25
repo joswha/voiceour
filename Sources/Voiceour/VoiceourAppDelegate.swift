@@ -30,10 +30,37 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
         guard !Self.terminateIfDuplicateApplication() else { return }
         Self.shared = self
 
-        guard LaunchOptions.showConsoleOnLaunch else { return }
+        guard LaunchOptions.showConsoleOnLaunch || owesFirstRunGuidance else { return }
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .voiceourShowConsole, object: nil)
         }
+    }
+
+    /// Whether this launch should open the console because the install has never
+    /// completed a dictation. A menu-bar app's entire first-run surface is one
+    /// glyph, which cannot state the gesture, the model download or which grants
+    /// matter; Home's first-run card can, and this is what puts it in front of a
+    /// reader who has no reason to go looking for it.
+    ///
+    /// Four things keep the offscreen UI harness out of this, and the first two are
+    /// structural rather than conditional:
+    ///
+    /// 1. `--ui-harness` exits the process inside `VoiceourApp.init()`, before
+    ///    SwiftUI finishes launching, so this callback never runs at all.
+    /// 2. The harness is compiled only under `-DUI_HARNESS` and never installs this
+    ///    delegate, so `coordinator` is nil and the check below is false anyway.
+    /// 3. The policy guard: the harness pins `.prohibited` in
+    ///    `UIHarnessRuntime.prepareProcess()`, and a prohibited process may never
+    ///    order a window front. It is the same guard `ConsolePresentation`
+    ///    already makes, made here so nothing is even posted.
+    /// 4. The harness builds coordinators through `UIFixtures`, never
+    ///    `DictationCoordinator.live()`.
+    ///
+    /// `--show-console` above is deliberately *not* behind the policy guard: it is
+    /// an explicit request, `scripts/console_shot.sh` pairs it with `--no-activate`,
+    /// and the presentation layer already declines to steal focus for that pair.
+    private var owesFirstRunGuidance: Bool {
+        NSApp.activationPolicy() != .prohibited && coordinator?.owesFirstRunGuidance == true
     }
 
     /// `open -a Voiceour`, a click on the Dock icon the open console puts there,

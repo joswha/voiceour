@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import VoiceCore
@@ -151,5 +152,51 @@ struct DictationPolicyTests {
         #expect(failed.isCritical)
         #expect(!failed.isActive)
         #expect(failed.displayName.contains("Copied"))
+    }
+
+    // MARK: First-run guidance
+
+    /// The rule Home's card and the launch-open both read. Table-driven because
+    /// the interesting property is which combinations are owed guidance and which
+    /// are not: only a genuinely fresh install is.
+    @Test func onlyAnInstallWithNoRecordOfDictatingIsOwedFirstRunGuidance() {
+        #expect(
+            DictationPolicy.owesFirstRunGuidance(
+                hasCompletedFirstRun: false, journaledSessions: 0, ledgerSessions: 0))
+        // The flag is the authority once it is set, even on a Mac whose durable
+        // records were later erased.
+        #expect(
+            !DictationPolicy.owesFirstRunGuidance(
+                hasCompletedFirstRun: true, journaledSessions: 0, ledgerSessions: 0))
+        // Either surviving record is proof of prior use on its own, which is what
+        // spares an install upgrading into this build from being shown onboarding
+        // it does not need.
+        #expect(
+            !DictationPolicy.owesFirstRunGuidance(
+                hasCompletedFirstRun: false, journaledSessions: 1, ledgerSessions: 0))
+        #expect(
+            !DictationPolicy.owesFirstRunGuidance(
+                hasCompletedFirstRun: false, journaledSessions: 0, ledgerSessions: 1))
+    }
+
+    /// The flag decodes to false when the key is absent, so a settings file
+    /// written by an earlier build stays readable and is never quarantined over a
+    /// field it could not have known about.
+    @Test func settingsWithoutTheFirstRunKeyDecodeToNotCompleted() throws {
+        let legacy = Data(#"{"cleanup_enabled": true, "auto_stop_silence_ms": 1500}"#.utf8)
+        let decoded = try JSONDecoder().decode(Settings.self, from: legacy)
+
+        #expect(!decoded.hasCompletedFirstRun)
+        #expect(decoded.autoStopSilenceMs == 1500)
+    }
+
+    /// And a round trip preserves it, so the one write the stop pipeline makes is
+    /// the one a later launch reads.
+    @Test func theFirstRunFlagSurvivesARoundTrip() throws {
+        var settings = Settings()
+        settings.hasCompletedFirstRun = true
+        let decoded = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(settings))
+
+        #expect(decoded.hasCompletedFirstRun)
     }
 }

@@ -80,18 +80,22 @@ The selection travels one path. Settings persists it as `asr_model_variant`; the
 
 ## Persistence
 
-Transcripts live in one file, `recent-sessions.json`, newest first, capped at the newest 500. Lifetime totals need a second file, `dictation-activity.json`, because at that cap each new dictation evicts an older one: `DictationStatsLedger` holds aggregates only — sessions, words, seconds, active days, streaks, one bucket per local day and per destination app — and no transcript text or session ids. Settings, transcript, and ledger writes share one detached FIFO tail, keeping write order intact and file I/O off the main actor. An unreadable file is quarantined as `<name>.corrupt-<ISO8601>`, and the reader sees that filename. No audio is retained.
+Transcripts live in one file, `recent-sessions.json`, newest first, capped at the newest 500. Lifetime totals need a second file, `dictation-activity.json`, because at that cap each new dictation evicts an older one: `DictationStatsLedger` holds aggregates only — sessions, words, seconds, active days, streaks, one bucket per local day and per destination app — and no transcript text or session ids. Settings, transcript, and ledger writes share one detached FIFO tail, keeping write order intact and file I/O off the main actor. A delivered dictation folds both records in one main-actor turn, from the journaled row itself, and only then enqueues the two writes: neither record is ever observable without the other, which matters because Home reads them together and the first-run card retires on either one. An unreadable file is quarantined as `<name>.corrupt-<ISO8601>`, and the reader sees that filename. No audio is retained.
 
 ## Console window
 
 `Window("Voiceour", id: "main")` hosts `ConsoleWindowView`, a `TabView` with four tabs.
 
-- Home — lifetime figures, top destination apps, streaks, and an activity grid.
+- Home — lifetime figures, top destination apps, streaks, an activity grid, and the first-run card described below.
 - Glossary — learned suggestions, a searchable term list with one term open in its own plate, word-list import.
 - History — search, an app filter, day-grouped transcripts, and one open transcript.
 - Settings — tap gesture, auto-stop, cleanup, muting, session sounds, the speech-model footprint choice, the debug-only backend picker, then backend and model readiness, permissions, diagnostics, and clear actions.
 
 Preferences lead that last tab and readouts follow it. There is no General tab: a switch and the permission that decides whether the switch can take effect were on two different destinations.
+
+An install that has never completed a dictation opens this window at launch, on Home, and Home carries a first-run card above its figures. A menu-bar app's whole first-run surface is otherwise one status glyph, which cannot state the tap gesture, cannot show that a 1.26 GB model download is running, and cannot say which permissions matter — microphone required and prompted at the first dictation, Accessibility optional and worth the paste rather than a clipboard copy. The card reports those three states through `ConsoleReadiness`, the same values and the same sentences the Settings tab's readiness rows use, and offers the same remediation buttons. It retires at the first dictation that produced a transcript and reached delivery, which is also when the figures beneath it start saying something.
+
+Whether the card is owed is `DictationPolicy.owesFirstRunGuidance`: `Settings.hasCompletedFirstRun` is the app's own record, written once from the stop pipeline, and both durable records — the transcript journal and the lifetime ledger — must additionally be empty. Reading the records is what stops an install that predates the flag from being handed onboarding: an absent key decodes to `false`, because a key that was never written is no evidence a dictation happened, and an install that has dictated has at least one record to prove it did. The flag is set one line outside the branch that writes those records, so a secure delivery target — which reaches neither — retires the card exactly like a journalled one. A refused start, a cancel, and a failed decode never reach that line.
 
 `ConsolePresentation` owns showing that window, and every path goes through it: the menu bar item, the `--show-console` launch notification, `applicationShouldHandleReopen` (a Dock-icon click, `open -a`, a second launch of the bundle), and the window's own `onAppear`. It promotes the process to `.regular` while the console is hosted, drops back to `.accessory` when it closes, and orders the window front and deminiaturizes it on every show.
 

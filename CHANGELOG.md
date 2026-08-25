@@ -10,6 +10,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 
 ### Added
 
+- **First-run guidance.** An install that has never completed a dictation opens the console on Home at launch, where a card states the whole gesture — tap Fn or Globe, speak, tap again — the speech model's live download or failure, and which permissions matter: microphone required, Accessibility optional and the difference between a paste and a clipboard copy. It retires itself at the first delivered dictation, including one into a secure field, and an install that has already dictated never sees it.
 - **Tap-to-dictate.** One solitary Fn/Globe tap starts one utterance; a second tap, the overlay's finish control, Escape, or auto-stop ends it. Stop finalizes one WAV and performs one decode. Modified Fn combinations pass through untouched.
 - **Local recognition.** A single `voiceour-asr` sidecar decodes on-device through vendored parakeet.cpp/ggml on Metal and Accelerate, using the pinned `ggml-org/parakeet-GGUF` weights. English only.
 - **Two model footprints.** Settings offers Balanced (1.26 GB) and Compact (0.67 GB) conversions of the same checkpoint. The selection applies on the next launch, and only one artifact is ever resident.

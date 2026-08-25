@@ -49,4 +49,30 @@ extension DictationPolicy {
         guard !isSynthetic, let telemetry else { return false }
         return telemetry.snrDB < minimumCaptureSNRDB
     }
+
+    /// Whether this install still owes its reader the first-run guidance: Home's
+    /// readiness card, and the launch that opens the console on it.
+    ///
+    /// Three inputs, because no one of them answers the question alone.
+    ///
+    /// * `hasCompletedFirstRun` is the app's own record, written at the point a
+    ///   dictation produced a transcript and reached delivery. Once true it is the
+    ///   authority and nothing below it is consulted.
+    /// * The two durable records — the transcript journal and the lifetime ledger —
+    ///   are the evidence for an install that predates the flag. Either one holding
+    ///   a session means this Mac has plainly dictated before, so it is never shown
+    ///   onboarding and no migration write is needed to say so.
+    ///
+    /// Both records are read rather than one, because they fail independently: a
+    /// ledger quarantined as `<name>.corrupt-<ISO8601>` reloads empty and is
+    /// deliberately not backfilled, and the journal keeps only the newest 500 rows.
+    /// Whichever survives is proof enough, so a corrupt file costs a reader a reset
+    /// tally and never a tutorial they do not need.
+    public static func owesFirstRunGuidance(
+        hasCompletedFirstRun: Bool,
+        journaledSessions: Int,
+        ledgerSessions: Int
+    ) -> Bool {
+        !hasCompletedFirstRun && journaledSessions == 0 && ledgerSessions == 0
+    }
 }

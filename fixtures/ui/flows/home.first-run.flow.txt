@@ -1,0 +1,17 @@
+flow: home.first-run
+title: Home's first-run card retires on the first delivered dictation
+fixture: static
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
+PASS 1 owed | count id=home.first-run.gesture exactly 1 | 1 match
+PASS 2 owed | label id=home.first-run.gesture == "Tap Fn or Globe to dictate, speak, then tap again to finish." | "Tap Fn or Globe to dictate, speak, then tap again to finish."
+PASS 3 owed | count id=home.first-run.model exactly 1 | 1 match
+PASS 4 owed | count id=home.first-run.microphone exactly 1 | 1 match
+PASS 5 owed | count id=home.first-run.accessibility exactly 1 | 1 match
+PASS 6 owed | absent id=home.empty | 0 matches
+PASS 7 owed | model recentSessionCount == "0" | 0
+PASS 8 recording | count id=home.first-run.gesture exactly 1 | 1 match
+PASS 9 recording | model recentSessionCount == "0" | 0
+PASS 10 retired | absent id=home.first-run.gesture | 0 matches
+PASS 11 retired | absent id=home.empty | 0 matches
+PASS 12 retired | count id=home.hero exactly 1 | 1 match
+PASS 13 retired | model recentSessionCount == "1" | 1

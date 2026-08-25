@@ -1,5 +1,7 @@
+import AppKit
 import SwiftUI
 import VoiceCore
+import VoiceMac
 
 /// Home: what this Mac has dictated, all of it.
 ///
@@ -66,10 +68,23 @@ struct ConsoleHomeTab: View {
         DictationStatsCalculator.topApps(of: coordinator.dictationStats, limit: 5)
     }
 
+    /// Whether this install still owes its reader the first-run card. Read once
+    /// per body so the card and the caption it supersedes cannot both appear.
+    private var owesGuidance: Bool {
+        coordinator.owesFirstRunGuidance
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xl) {
                 hero
+                // Above the figures, because on the launch it appears the figures
+                // are four zeros and this is the whole page. It retires itself on
+                // the first delivered dictation, which is the same moment the
+                // figures start saying something, so the two never compete.
+                if owesGuidance {
+                    ConsoleFirstRunCard(coordinator: coordinator)
+                }
                 statsIsland(summary)
                 // Absent rather than empty on a Mac with nothing to rank: an
                 // island headed "Top apps" over no rows states nothing.
@@ -96,13 +111,17 @@ struct ConsoleHomeTab: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("home.hero")
 
-            if summary.totalSessions == 0 {
+            // Only for a reader who has dictated before and has nothing to show
+            // for it — a quarantined ledger, an erased history. A genuinely fresh
+            // install gets the card above instead, which names the same gesture in
+            // full: two lines teaching one tap is one line too many.
+            if !owesGuidance, summary.totalSessions == 0 {
                 // Home is the tab the console opens on, so a reader who has dictated
                 // nothing lands here rather than on History, whose own empty state also
                 // names the gesture. `ConsoleHotkeyHint`'s wording, kept as one caption
                 // line in Home's voice: this page is figures, and how to start is the
                 // one thing a zeroed page still owes the reader.
-                Text("Tap Fn or Globe to dictate — your first session lights this up.")
+                Text("\(ConsoleHotkeyHint.sentence) — your first session lights this up.")
                     .roleStyle(.caption)
                     .foregroundStyle(a11y.textMid)
                     .accessibilityIdentifier("home.empty")
@@ -216,5 +235,123 @@ struct ConsoleHomeTab: View {
                     }
             }
         }
+    }
+}
+
+/// Home's first-run card: the three things a fresh install cannot learn from a
+/// menu-bar glyph, and nothing else.
+///
+/// It exists because the app's whole first-run surface used to be a 👽 in the menu
+/// bar. A reader could not learn the gesture, could not see that a 1.26 GB model
+/// was downloading, and could not tell which permissions mattered. Those are the
+/// three rows. It is not a settings pane and not a tutorial: every state it names
+/// is already reported on Settings, and this is a temporary readout of the same
+/// values while they are the only news on the page.
+///
+/// It retires on the first delivered dictation (see
+/// `DictationCoordinator.completeFirstRun()`), so it is never dismissed, never
+/// stepped through, and owns no state a reader has to clear.
+///
+/// The vocabulary is the island's, not the native window's: a `HomeIsland` is
+/// fixed-dark in both system appearances, so its marks are ``StatusChip`` on the
+/// app palette rather than ``ConsoleStateMark`` on system semantic colours. The
+/// remediation button stays a stock `Button` — it is the same control Settings
+/// offers, pointed at the same pane, and a control is entitled to its own chrome.
+struct ConsoleFirstRunCard: View {
+    var coordinator: DictationCoordinator
+
+    /// Real TCC state in production; the harness pins a fixed snapshot through the
+    /// same seam the Settings tab reads, so a golden never encodes this Mac's
+    /// privacy grants.
+    private let permissions: PermissionsChecking = RenderOverrides.permissions ?? SystemPermissions()
+    private var a11y = A11y()
+
+    @State private var microphone: PermissionState = .notDetermined
+    @State private var synthPaste: PermissionState = .notDetermined
+
+    init(coordinator: DictationCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    var body: some View {
+        HomeIsland {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
+                // The headline is the instruction. A card teaching one gesture does
+                // not also need a heading announcing that it is going to.
+                Text(ConsoleHotkeyHint.fullGesture)
+                    .roleStyle(.label)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("home.first-run.gesture")
+
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                    row(
+                        "Speech model",
+                        ConsoleReadiness.backend(coordinator),
+                        identifier: "home.first-run.model"
+                    )
+                    // Required, and requested contextually: nothing prompts for the
+                    // microphone until the first dictation actually needs it.
+                    row(
+                        "Microphone — required",
+                        ConsoleReadiness.microphone(coordinator, microphone),
+                        identifier: "home.first-run.microphone"
+                    )
+                    // Optional, and the sentence says what it buys: with the grant a
+                    // transcript is pasted, without it the transcript is on the
+                    // clipboard. Missing trust is a documented degradation, so this
+                    // row is amber at worst and never crimson.
+                    row(
+                        "Accessibility — optional",
+                        ConsoleReadiness.insertion(synthPaste),
+                        identifier: "home.first-run.accessibility"
+                    )
+                }
+            }
+        }
+        .onAppear {
+            // The same probe the Settings tab and the menu fire, de-duplicated by
+            // the coordinator's own TTL. The acquisition repoll chain it starts is
+            // what keeps the percentage moving while the reader watches it.
+            coordinator.refreshBackendHealth()
+            refreshPermissions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Returning from System Settings is this card's most important state
+            // change, exactly as it is on the Settings tab.
+            refreshPermissions()
+        }
+    }
+
+    /// One state: what it is about, the word for where it stands, the sentence
+    /// that explains it, and the one thing the reader can do about it.
+    private func row(_ label: String, _ readout: ConsoleReadout, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Text(label)
+                    .roleStyle(.label)
+
+                StatusChip(label: readout.label, mode: StatusChip.Mode(readout.severity))
+                    .accessibilityIdentifier(identifier)
+
+                if let remediation = readout.remediation?.identified("\(identifier).action") {
+                    Button(remediation.title, action: remediation.perform)
+                        .accessibilityLabel(remediation.accessibilityLabel)
+                        .accessibilityIdentifier(remediation.identifier)
+                }
+            }
+
+            Text(readout.detail)
+                .roleStyle(.caption)
+                .foregroundStyle(a11y.textMid)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("\(identifier).detail")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func refreshPermissions() {
+        microphone = permissions.microphone()
+        synthPaste = permissions.synthPaste()
     }
 }

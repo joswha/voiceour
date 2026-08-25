@@ -150,6 +150,21 @@
         enum Kind {
             /// Nothing dictated yet: no sessions, bundled glossary, dev backend.
             case firstRun
+            /// A fresh install on the real backend, part-way through acquiring its
+            /// 1.26 GB artifact, with no permission answered yet. What a reader
+            /// actually meets on the launch that installed the app.
+            case firstRunDownloading
+            /// A fresh install on the real backend with the model already on disk
+            /// and warm, microphone unanswered and Accessibility untrusted — the
+            /// state a second launch reaches before the first dictation.
+            case firstRunReady
+            /// A fresh install whose acquisition failed and said why. The sidecar's
+            /// own verdict, which outranks every inferred readout.
+            case firstRunAcquisitionFailed
+            /// An install that has completed a dictation and has nothing left to
+            /// show: history and lifetime figures erased. Zeroed like `firstRun`,
+            /// but owed no guidance, so Home keeps its caption instead of the card.
+            case erasedFigures
             /// A fixed nine-session history on the dev backend.
             case populated
             /// Populated history, but every glossary term removed.
@@ -194,6 +209,36 @@
             switch kind {
             case .firstRun:
                 return make(sessions: [], permissions: .notDetermined)
+            case .firstRunDownloading:
+                return make(
+                    sessions: [],
+                    settings: settings(backend: realBackend),
+                    backend: realBackend,
+                    health: downloadingBackendHealth,
+                    permissions: .notDetermined
+                )
+            case .firstRunReady:
+                return make(
+                    sessions: [],
+                    settings: settings(backend: realBackend),
+                    backend: realBackend,
+                    health: realBackendHealth,
+                    permissions: .notDetermined
+                )
+            case .firstRunAcquisitionFailed:
+                return make(
+                    sessions: [],
+                    settings: settings(backend: realBackend),
+                    backend: realBackend,
+                    health: failedAcquisitionHealth,
+                    permissions: .notDetermined
+                )
+            case .erasedFigures:
+                return make(
+                    sessions: [],
+                    settings: settings(hasCompletedFirstRun: true),
+                    permissions: .notDetermined
+                )
             case .populated:
                 return make(sessions: history)
             case .emptyGlossary:
@@ -344,6 +389,22 @@
             warming: nil
         )
 
+        /// Acquisition stopped and the sidecar named why. `lastAcquisitionError` is
+        /// its own verdict, which the coordinator publishes on the very first probe
+        /// and which outranks every inferred readout — the one branch a failure that
+        /// refuses in microseconds can be observed through.
+        private static let failedAcquisitionHealth = ASRBackendHealth(
+            backendId: "parakeet-cpp",
+            backendStatus: .modelMissing,
+            ready: false,
+            modelLoaded: false,
+            cacheOk: false,
+            lastAcquisitionError: ASRAcquisitionFailure(
+                code: .insufficientDiskSpace,
+                detail: "needs 1.26 GB, 384 MB free"
+            )
+        )
+
         /// The two terms `mixedGlossary` adds. Their ids are fixed rather than
         /// generated: a term id is an accessibility identifier in committed
         /// goldens, and a UUID would rewrite them on every run.
@@ -363,14 +424,19 @@
 
         static func settings(
             backend: String = "fake",
-            glossary: [ProtectedTerm] = VoiceCore.Settings.defaultGlossary
+            glossary: [ProtectedTerm] = VoiceCore.Settings.defaultGlossary,
+            /// Whether this install has already completed a dictation. False on
+            /// every fixture but one, because that is what a fresh install holds;
+            /// the guidance card is still absent wherever a fixture has sessions.
+            hasCompletedFirstRun: Bool = false
         ) -> VoiceCore.Settings {
             VoiceCore.Settings(
                 asrBackend: backend,
                 glossary: glossary,
                 // Silence would otherwise let the metering task stop a `.recording`
                 // fixture out from under the renderer.
-                autoStopEnabled: false
+                autoStopEnabled: false,
+                hasCompletedFirstRun: hasCompletedFirstRun
             )
         }
 

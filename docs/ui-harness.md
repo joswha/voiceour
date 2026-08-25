@@ -76,7 +76,9 @@ ffmpeg -y -loglevel error \
 
 ## Scenes
 
-A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations; `os26` branches.
+A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, first-run, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations; `os26` branches.
+
+Home's first-run card needs no seam of its own. Whether it is owed is computed from three real inputs a fixture already owns — the persisted `has_completed_first_run` flag, the seeded transcript journal, and the seeded lifetime ledger — so the `firstRunDownloading`, `firstRunReady`, `firstRunAcquisitionFailed` and `erasedFigures` fixtures reach their states the way a real install does. Adding a `RenderOverrides` field for it would be a branch that exists only to make a golden pass.
 
 Scene rules:
 

@@ -255,6 +255,37 @@ public final class DictationCoordinator {
     public var activeBackend: String { activeASRBackend }
     public var activeModelVariant: ASRModelVariant { activeVariant }
 
+    /// True while this install still owes its reader the first-run guidance: the
+    /// card Home shows above its figures, and the launch that opens the console on
+    /// it. Derived, never stored, so the two durable records the rule reads stay the
+    /// only state involved.
+    public var owesFirstRunGuidance: Bool {
+        DictationPolicy.owesFirstRunGuidance(
+            hasCompletedFirstRun: settings.hasCompletedFirstRun,
+            journaledSessions: recentSessions.count,
+            ledgerSessions: dictationStats.totalSessions
+        )
+    }
+
+    /// Retires the first-run guidance on the first dictation that produced a
+    /// transcript and reached delivery.
+    ///
+    /// Called from the stop pipeline beside the two durable records, but
+    /// deliberately *outside* the branch that writes them: a secure delivery target
+    /// reaches neither the journal nor the ledger, and a reader whose first
+    /// dictation landed in a password field has still learned the gesture. Retiring
+    /// only where the ledger is folded would leave the card explaining a gesture the
+    /// reader had already used.
+    ///
+    /// A refused start, a cancel and a failed decode never arrive here at all —
+    /// none of them reaches this point in `processStop` — so the flag means what it
+    /// says. Idempotent and quiet: a second dictation pays for no settings write.
+    func completeFirstRun() {
+        guard !settings.hasCompletedFirstRun else { return }
+        settings.hasCompletedFirstRun = true
+        saveSettings()
+    }
+
     /// Fraction of the pinned model this backend has downloaded, or nil when no
     /// acquisition is in flight. Read by the menu as well as the console: a 1.26 GB
     /// download that is only visible on one settings tab looks like a hung app.

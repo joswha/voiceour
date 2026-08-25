@@ -95,6 +95,20 @@ public struct Settings: Codable, Equatable, Sendable {
     public var sessionSoundsEnabled: Bool
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
+    /// Whether this install has ever completed a dictation.
+    ///
+    /// Written once, from the stop pipeline, at the point a transcript exists and
+    /// delivery is about to begin. Read only by Home's first-run guidance card and
+    /// by the launch that opens the console on it.
+    ///
+    /// An absent key decodes to `false`, exactly like every other field here. The
+    /// flag records a measured event, and a key that was never written is no
+    /// evidence that the event happened — inferring "already onboarded" from
+    /// silence would be a fabrication. An install upgrading into this build is
+    /// still not shown onboarding, because ``DictationPolicy/owesFirstRunGuidance``
+    /// additionally requires both durable records to be empty, and an install that
+    /// has dictated has at least one of them.
+    public var hasCompletedFirstRun: Bool
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -105,6 +119,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case sessionSoundsEnabled = "session_sounds_enabled"
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
+        case hasCompletedFirstRun = "has_completed_first_run"
     }
 
     public init(
@@ -115,7 +130,8 @@ public struct Settings: Codable, Equatable, Sendable {
         muteSystemAudioDuringCapture: Bool = true,
         sessionSoundsEnabled: Bool = true,
         autoStopEnabled: Bool = false,
-        autoStopSilenceMs: Int = 2500
+        autoStopSilenceMs: Int = 2500,
+        hasCompletedFirstRun: Bool = false
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -125,6 +141,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.sessionSoundsEnabled = sessionSoundsEnabled
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
+        self.hasCompletedFirstRun = hasCompletedFirstRun
     }
 
     public init(from decoder: Decoder) throws {
@@ -145,6 +162,9 @@ public struct Settings: Codable, Equatable, Sendable {
         autoStopEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoStopEnabled) ?? defaults.autoStopEnabled
         autoStopSilenceMs =
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs
+        hasCompletedFirstRun =
+            try container.decodeIfPresent(Bool.self, forKey: .hasCompletedFirstRun)
+            ?? defaults.hasCompletedFirstRun
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

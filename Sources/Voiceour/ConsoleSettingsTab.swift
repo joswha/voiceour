@@ -110,16 +110,16 @@ struct ConsoleSettingsTab: View {
             Section("Readiness") {
                 readinessRow(
                     "Backend",
-                    backendReadout,
+                    ConsoleReadiness.backend(coordinator),
                     statusIdentifier: "system.backend.status"
                 )
                 modelRow
-                readinessRow("Microphone", microphoneReadout)
+                readinessRow("Microphone", ConsoleReadiness.microphone(coordinator, microphone))
             }
 
             Section("Capture") {
-                readinessRow("Fn/Globe capture", captureReadout)
-                readinessRow("Insertion", insertionReadout)
+                readinessRow("Fn/Globe capture", ConsoleReadiness.capture(accessibility))
+                readinessRow("Insertion", ConsoleReadiness.insertion(synthPaste))
             }
 
             Section {
@@ -438,31 +438,16 @@ struct ConsoleSettingsTab: View {
     /// readout must never name a model that is not running.
     private var runningSummary: String {
         restartRequired
-            ? "\(activeBackendName) IN USE"
-            : (activeDescriptor ?? ASRBackendRegistry.builtIn.defaultDescriptor).modelLabel
+            ? "\(ConsoleReadiness.activeBackendName(coordinator)) IN USE"
+            : (ConsoleReadiness.activeDescriptor(coordinator) ?? ASRBackendRegistry.builtIn.defaultDescriptor)
+                .modelLabel
     }
 
     // MARK: Readiness rows
 
-    /// One readiness readout: the word the mark carries, its rung on the severity
-    /// ladder, the sentence that explains it, and the one remediation this tab can
-    /// offer for it.
-    ///
-    /// The branch ladders below choose between readouts, never between whole row
-    /// literals, so the row that renders one is written exactly once.
-    private struct Readout {
-        var label: String
-        var severity: ConsoleStateMark.Severity
-        var detail: String
-        var remediation: Remediation?
-    }
-
-    private struct Remediation {
-        var title: String
-        var accessibilityLabel: String
-        var identifier: String
-        var perform: () -> Void
-    }
+    /// The readouts themselves live in ``ConsoleReadiness``, shared with Home's
+    /// first-run card. This tab owns only the row shape: the branch ladders that
+    /// choose between readouts are written once, over there.
 
     /// A fact row: state on the trailing rail, its explanation on the caption
     /// line, remediation after the mark — what is wrong, then what to do about it.
@@ -470,7 +455,7 @@ struct ConsoleSettingsTab: View {
     /// app is ready is the same reader who needs to know why it is not.
     private func readinessRow(
         _ label: String,
-        _ readout: Readout,
+        _ readout: ConsoleReadout,
         statusIdentifier: String? = nil
     ) -> some View {
         ConsoleRow(caption: readout.detail) {
@@ -508,213 +493,6 @@ struct ConsoleSettingsTab: View {
         } label: {
             Text("Model")
         }
-    }
-
-    /// The one remediation this tab can perform for a backend that is not ready:
-    /// re-run the health probe in place, which is the check the readout is asking
-    /// for. `refreshBackendHealth` clears `backendHealthError` before it probes,
-    /// so the row flips to CHECKING… and back on its own.
-    private var recheck: Remediation {
-        Remediation(
-            title: "Re-check",
-            accessibilityLabel: "Re-check backend health",
-            identifier: "system.backend.recheck",
-            perform: { coordinator.refreshBackendHealth() }
-        )
-    }
-
-    private func privacySettings(
-        label: String,
-        identifier: String,
-        pane: PrivacySettings
-    ) -> Remediation {
-        Remediation(
-            title: "Open System Settings…",
-            accessibilityLabel: label,
-            identifier: identifier,
-            perform: { pane.open() }
-        )
-    }
-
-    /// How the running backend describes itself. A saved id from a future build
-    /// resolves to no descriptor, so the readout falls back to the id rather than
-    /// naming a backend that is not running.
-    private var activeDescriptor: ASRBackendDescriptor? {
-        ASRBackendRegistry.builtIn.descriptor(for: coordinator.activeBackend)
-    }
-
-    /// Spelled exactly as the Backend picker labels it, so the sentence and the
-    /// option the reader chose share one vocabulary.
-    private var activeBackendName: String {
-        activeDescriptor?.displayName ?? coordinator.activeBackend.uppercased()
-    }
-
-    private var activeModelLabel: String {
-        activeDescriptor?.modelLabel ?? coordinator.activeBackend
-    }
-
-    private var backendReadout: Readout {
-        if coordinator.activeBackend == "fake" {
-            return Readout(
-                label: "DEV READY",
-                severity: .ok,
-                detail:
-                    "Fake backend is ready for first launch and does not require microphone access or a model "
-                    + "download."
-            )
-        } else if let failure = coordinator.acquisitionFailure {
-            // The published acquisition failure outranks every readout below it,
-            // and it is now the sidecar's own verdict wherever it has one — DISK
-            // FULL, DOWNLOAD FAILED, DOWNLOAD DAMAGED, MODEL FAILED — with the
-            // inferred DOWNLOAD FAILED and ENGINE OFFLINE behind it. Without this
-            // branch the row fell through to MODEL NEEDED or CHECK NEEDED and
-            // every dictation failed with a raw code.
-            return Readout(
-                label: failure.title.uppercased(),
-                severity: failure.isRetryable ? .warn : .crit,
-                detail: failure.cause,
-                remediation: recheck
-            )
-        } else if let fraction = coordinator.modelDownloadFraction {
-            // Formatted by hand rather than through ByteCountFormatter: that
-            // formatter is locale-aware and rendered "1,26 GB" on this host, which
-            // would bake the developer's region into a committed golden.
-            let sizeText = String(
-                format: "%.2f GB", Double(coordinator.activeModelVariant.sizeBytes) / 1_000_000_000)
-            return Readout(
-                label: "DOWNLOADING",
-                severity: .neutral,
-                detail: "\(activeModelLabel) — \(Int(fraction * 100))% of \(sizeText) fetched."
-            )
-        } else if coordinator.isBackendWarming {
-            // Ahead of READY on purpose: `ready` is already true while the model is
-            // loading, so the honest state during a 3.5 s cold load is "warming",
-            // not "ready".
-            return Readout(
-                label: "WARMING",
-                severity: .neutral,
-                detail: "\(activeBackendName) is loading its model and compiling Metal pipelines."
-            )
-        } else if coordinator.backendHealth?.cacheOk == true && coordinator.backendHealth?.ready == true {
-            return Readout(
-                label: "READY",
-                severity: .ok,
-                detail: "\(activeBackendName) is configured for local transcription."
-            )
-        } else if coordinator.backendHealth == nil, coordinator.backendHealthError == nil {
-            // The probe starts from this tab's own onAppear, so "no verdict yet" is
-            // a loading state, not a fault: it must not paint as a warning.
-            return Readout(
-                label: "CHECKING…",
-                severity: .neutral,
-                detail: "Probing the local backend for cache and model health."
-            )
-        } else if coordinator.backendHealth == nil {
-            return Readout(
-                label: "CHECK NEEDED",
-                severity: .warn,
-                detail: probeFailureDetail,
-                remediation: recheck
-            )
-        } else {
-            return Readout(
-                label: "MODEL NEEDED",
-                severity: .warn,
-                // Not "may cold-load or download on first real transcription": since
-                // `start()` gained its readiness preflight, a tap with no usable model
-                // is refused before recording, so no dictation will ever trigger that
-                // download. What the reader needs is why the tap does nothing.
-                detail:
-                    "\(activeBackendName) has no usable copy of \(activeModelLabel), so a dictation tap is "
-                    + "refused instead of recording. Re-check after the download has finished.",
-                remediation: recheck
-            )
-        }
-    }
-
-    /// The probe's own sentence when it published one. `backendHealthError` is a
-    /// `String(describing:)` dump, so the readable half is lifted back out of it;
-    /// the whole dump reaches a bug report through Copy Diagnostics instead of
-    /// being pasted into a settings row.
-    private var probeFailureDetail: String {
-        let standing = "The local backend did not answer its health probe. Re-check before starting real dictation."
-        guard let payload = coordinator.backendHealthError else { return standing }
-        return "\(standing) \(DiagnosticsReport.sentence(in: payload))"
-    }
-
-    private var microphoneReadout: Readout {
-        if coordinator.activeBackend == "fake" {
-            return Readout(
-                label: "NOT REQUIRED",
-                severity: .neutral,
-                detail: "Fake mode uses synthetic audio for development and tests."
-            )
-        } else if microphone == .granted {
-            return Readout(
-                label: "GRANTED",
-                severity: .ok,
-                detail: "Real recording can start without a microphone prompt."
-            )
-        } else if microphone == .notDetermined {
-            return Readout(
-                label: "WILL PROMPT",
-                severity: .warn,
-                detail: "macOS may ask for microphone access when the first real recording starts."
-            )
-        } else {
-            return Readout(
-                label: "DENIED",
-                severity: .crit,
-                detail: "Grant microphone access in System Settings to use real recording.",
-                remediation: privacySettings(
-                    label: "Open Microphone privacy settings",
-                    identifier: "system.microphone.settings",
-                    pane: .microphone
-                )
-            )
-        }
-    }
-
-    private var captureReadout: Readout {
-        if accessibility == .granted {
-            return Readout(
-                label: "ACTIVE TAP",
-                severity: .ok,
-                detail: "Standalone Fn/Globe taps can be consumed before macOS shows its popup."
-            )
-        }
-        return Readout(
-            label: "PASSIVE FALLBACK",
-            severity: .warn,
-            detail:
-                "Recording can still toggle, but macOS may also react to the key until Accessibility is granted.",
-            remediation: privacySettings(
-                label: "Open Accessibility privacy settings for key capture",
-                identifier: "system.capture.settings",
-                pane: .accessibility
-            )
-        )
-    }
-
-    private var insertionReadout: Readout {
-        if synthPaste == .granted {
-            return Readout(
-                label: "PASTE READY",
-                severity: .ok,
-                detail: "Eligible text targets can receive Cmd-V after dictation."
-            )
-        }
-        return Readout(
-            label: "COPY-ONLY RISK",
-            severity: .warn,
-            detail:
-                "Voiceour will keep transcripts on the clipboard when synthetic paste is unavailable or unsafe.",
-            remediation: privacySettings(
-                label: "Open Accessibility privacy settings for paste",
-                identifier: "system.insertion.settings",
-                pane: .accessibility
-            )
-        )
     }
 
     // MARK: Diagnostics
