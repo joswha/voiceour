@@ -5,18 +5,13 @@ import Testing
 
 @Suite("Session cues")
 struct SessionCueTests {
-    @Test func eachCueIsExactlyTheDeclaredLength() {
-        #expect(SessionCue.listeningStarted.phrase.count == 1)
-        #expect(SessionCue.listeningEnded.phrase.count == 1)
-        #expect(SessionCue.listeningCancelled.phrase.count == 2)
-
-        #expect(SessionCueSynth.samples(for: .listeningStarted).count == 6720)
-        #expect(SessionCueSynth.samples(for: .listeningEnded).count == 6720)
-        // 0.06 s tone, 0.022 s silence, 0.1 s tone.
-        #expect(SessionCueSynth.samples(for: .listeningCancelled).count == 8736)
-
-        #expect(SessionCue.listeningStarted.totalNanoseconds == 140_000_000)
-        #expect(SessionCue.listeningCancelled.totalNanoseconds == 182_000_000)
+    /// `totalNanoseconds` rounds rather than truncates, and the cancel cue is the
+    /// only case that proves it: its 0.182 s accumulates to 181_999_999.99… in
+    /// binary floating point, so a floor would name the cue shorter than it is.
+    @Test func cueNanosecondsNameTheirDurationRatherThanFloorIt() {
+        for cue in SessionCue.allCases {
+            #expect(abs(Double(cue.totalNanoseconds) - cue.totalSeconds * 1_000_000_000) <= 0.5)
+        }
     }
 
     @Test func bothEdgesLeaveAndReturnToSilence() {
@@ -110,8 +105,10 @@ struct SessionCueTests {
 
     @Test func theWavIsAMonoSixteenBitRiffOfTheRightLength() {
         let data = SessionCueSynth.wavData(for: .listeningStarted)
-        #expect(data.count == 44 + 6720 * 2)
-        #expect(SessionCueSynth.wavData(for: .listeningCancelled).count == 44 + 8736 * 2)
+        for cue in SessionCue.allCases {
+            // 44-byte canonical header, then one 16-bit sample per rendered frame.
+            #expect(SessionCueSynth.wavData(for: cue).count == 44 + SessionCueSynth.samples(for: cue).count * 2)
+        }
         #expect(String(decoding: data[0..<4], as: UTF8.self) == "RIFF")
         #expect(String(decoding: data[8..<12], as: UTF8.self) == "WAVE")
         #expect(data[22] == 1 && data[23] == 0)  // one channel

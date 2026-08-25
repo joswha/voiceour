@@ -8,8 +8,8 @@ public struct AutoStopDetector: Sendable {
 
     private var firstSampleAt: Date?
     /// When the level last reached the silence threshold, i.e. the instant the trailing silence
-    /// began. Carried on `StopTrigger.autoStop` so a session records why it ended.
-    public private(set) var lastLoudAt: Date?
+    /// began. `observe` measures the dwell against it, so it is the clock the auto-stop runs on.
+    private var lastLoudAt: Date?
     private var hasObservedSpeech = false
     private var hasFired = false
 

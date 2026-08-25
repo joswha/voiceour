@@ -6,12 +6,12 @@ import VoiceMac
 
 /// Publishes the microphone input level and capture-live flag, which update at
 /// the metering cadence (25Hz while recording). These live on a dedicated
-/// `ObservableObject` rather than directly on `DictationCoordinator` because,
-/// on the monolithic coordinator, every publish invalidated all ~12 console
-/// view bodies observing the coordinator (none of which display these values)
-/// — the metering tick alone forced a whole-tree re-render 25 times a second
-/// during recording. It remains Combine-published because its sole consumer is
-/// the AppKit-side recording overlay controller.
+/// `ObservableObject` rather than directly on `DictationCoordinator` because a
+/// publish there invalidates all ~12 console view bodies observing the
+/// coordinator, none of which display these values: the metering tick alone
+/// would force a whole-tree re-render 25 times a second during recording. It is
+/// Combine-published because its sole consumer is the AppKit-side recording
+/// overlay controller.
 @MainActor
 public final class AudioLevelMeter: ObservableObject {
     @Published public private(set) var level: Float = 0
@@ -52,8 +52,8 @@ public final class DictationCoordinator {
     public internal(set) var lastFailure: UserFacingDictationFailure?
     /// Surface-local refusals for the Glossary tab — a collision, a bad word
     /// list. Never read by the menu: a glossary refusal is not a dictation
-    /// failure, and the two used to compete for one crimson headline. `start()`
-    /// does not clear it; the next glossary action does.
+    /// failure, and one crimson headline cannot serve both. `start()` does not
+    /// clear it; the next glossary action does.
     public internal(set) var glossaryNotice: String?
     public private(set) var backendHealth: ASRBackendHealth?
     public private(set) var backendHealthError: String?
@@ -105,14 +105,14 @@ public final class DictationCoordinator {
     private var backendAcquisitionPollTask: Task<Void, Never>?
     /// Guards refreshBackendHealth against duplicate sidecar probes: skip a
     /// fresh probe while one is in flight or within backendHealthTTL of the
-    /// last completion. System and Diagnostics both probe from onAppear on
-    /// every tab entry, so bare switches would otherwise fan out dupes.
+    /// last completion. Settings probes from `onAppear` on every entry and the
+    /// menu probes when it opens, so bare switches would otherwise fan out dupes.
     private var backendHealthProbeInFlight = false
     private var backendHealthLastRefresh: Date?
     private let backendHealthTTL: TimeInterval = 5
     /// Generation counters for async work a newer request supersedes. One
-    /// primitive with named scopes replaced bare `Int` fields compared by hand
-    /// across every guard block on the stop path.
+    /// primitive with named scopes, so every guard on the stop path compares a
+    /// token against its own scope rather than a hand-compared `Int`.
     var generations = AsyncGenerationGate()
     var isPreparingForTermination = false
     /// FIFO tail for complete recent-session snapshots. Each detached element
@@ -268,9 +268,9 @@ public final class DictationCoordinator {
     }
 
     /// Why the backend cannot serve dictation, in the user's terms, or nil when it
-    /// can. Fed by the health probe and by `warmUp()`, which used to swallow its
-    /// failure entirely: a download that could not start left the app looking idle
-    /// and every dictation failing with a raw code.
+    /// can. Fed by the health probe and by `warmUp()`, whose failure has nowhere
+    /// else to surface: a download that cannot start would otherwise leave the app
+    /// looking idle while every dictation failed with a raw code.
     public internal(set) var acquisitionFailure: UserFacingDictationFailure?
 
     /// Starts the model acquisition the first dictation would otherwise wait for,
@@ -325,8 +325,8 @@ public final class DictationCoordinator {
 
     /// One mapping from transition to published failure, shared by both probe
     /// completions. `.unreachable` reuses the wire's `backend_unavailable` row so
-    /// the System tab, menu and diagnostics all say ENGINE OFFLINE with one
-    /// vocabulary rather than blaming a download that never ran.
+    /// Settings, the menu and the diagnostics report all say ENGINE OFFLINE with
+    /// one vocabulary rather than blaming a download that never ran.
     private func applyAcquisitionTransition(_ change: AcquisitionChange) {
         switch change {
         case .downloadFailed(let detail):
@@ -341,10 +341,10 @@ public final class DictationCoordinator {
     }
 
     public func refreshBackendHealth(timeoutMs: Int = 3_000, force: Bool = false) {
-        // Collapse duplicate probes: onAppear fires this on every System /
-        // Diagnostics tab entry. Skip while a probe is in flight, or if the
-        // last completion (success or failure) landed within the TTL. `force`
-        // is the acquisition repoll, whose whole job is to beat that TTL.
+        // Collapse duplicate probes: `onAppear` fires this on every entry to the
+        // Settings tab, and the menu fires it when it opens. Skip while a probe is
+        // in flight, or if the last completion (success or failure) landed within
+        // the TTL. `force` is the acquisition repoll, whose whole job is to beat it.
         if backendHealthProbeInFlight { return }
         if !force, let last = backendHealthLastRefresh,
             runtime.now().timeIntervalSince(last) < backendHealthTTL
@@ -394,7 +394,7 @@ public final class DictationCoordinator {
 
     /// Keeps the readiness readout moving while the backend downloads or warms.
     ///
-    /// A percentage that only advances when the user re-enters the System tab is not progress
+    /// A percentage that only advances when the user re-enters the Settings tab is not progress
     /// reporting. The chain stops on its own the moment neither condition holds, so a resting
     /// backend costs nothing.
     private func scheduleAcquisitionRepollIfNeeded(_ health: ASRBackendHealth) {
@@ -418,9 +418,7 @@ public final class DictationCoordinator {
 
     public static func live() -> DictationCoordinator {
         Task.detached(priority: .utility) {
-            RecordingScavenger.sweep(
-                directory: FileManager.default.temporaryDirectory.appendingPathComponent("voiceour")
-            )
+            RecordingScavenger.sweep(directory: CaptureTemporaryFile.directory)
         }
 
         let store = SettingsStore()
@@ -557,17 +555,7 @@ public final class DictationCoordinator {
         }
     }
 
-    /// What ended the recording. Auto-stop carries the instant the trailing silence began,
-    /// which is the only thing that makes adopting a preview honest. `silentCapture` is the
-    /// warm-up deadline firing: the microphone never delivered a non-zero sample, so the
-    /// session is ended for the user rather than left recording digital silence forever.
-    public enum StopTrigger: Equatable, Sendable {
-        case manual
-        case autoStop(silenceStartedAt: Date)
-        case silentCapture
-    }
-
-    public func stopAndProcess(trigger: StopTrigger = .manual) {
+    public func stopAndProcess() {
         guard state == .recording, !isProcessingInFlight else { return }
         let stopReleaseStarted = runtime.now()
         stopInputMetering()
@@ -578,11 +566,7 @@ public final class DictationCoordinator {
         isProcessingInFlight = true
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.processStop(
-                generation: generation,
-                stopReleaseStarted: stopReleaseStarted,
-                trigger: trigger
-            )
+            await self.processStop(generation: generation, stopReleaseStarted: stopReleaseStarted)
             guard self.processingTaskIdentity == identity else { return }
             self.processingTask = nil
             self.processingTaskIdentity = nil
@@ -667,11 +651,11 @@ public final class DictationCoordinator {
     /// Persists settings on the journal's FIFO rather than on the main actor.
     ///
     /// Every caller is a UI edit — a toggle, a slider, a taught term — and a
-    /// synchronous write put an atomic file replacement plus two `chmod`s on the
-    /// keystroke path. Queued behind the same tail as history so the two durable
-    /// files cannot be written out of order relative to each other, and a failure
-    /// is reported instead of discarded: `try?` meant a full disk or a revoked
-    /// permission looked exactly like a successful save.
+    /// synchronous write would put an atomic file replacement plus two `chmod`s on
+    /// the keystroke path. Queued behind the same tail as history so the two
+    /// durable files cannot be written out of order relative to each other, and a
+    /// failure is reported instead of discarded: `try?` would make a full disk or a
+    /// revoked permission look exactly like a successful save.
     public func saveSettings() {
         let store = settingsStore
         let snapshot = settings
@@ -708,9 +692,9 @@ public final class DictationCoordinator {
     ///
     /// An existing term keeps the provenance it already had. Teaching a surface
     /// onto a shipped term makes the *alias* the user's, not the term, and
-    /// rewriting `source` here used to hand the whole shipped entry to
-    /// `clearLearnedVocabulary`, which then deleted a bundled default the user
-    /// had only ever added a mishearing to.
+    /// rewriting `source` here would hand the whole shipped entry to
+    /// `clearLearnedVocabulary`, which would then delete a bundled default the
+    /// user had only ever added a mishearing to.
     ///
     /// Suggestion-only phase: never edits text that was already inserted.
     ///
@@ -855,13 +839,13 @@ public final class DictationCoordinator {
                     // An orphaned default: shipped by an older build and since
                     // removed from `defaultGlossary`. There is no shipped surface
                     // set to restore it to, so it falls back to its canonical
-                    // alone. Stripping only `labeledAliases` here cleared the
+                    // alone. Stripping only `labeledAliases` would clear the
                     // user's own confirmations while preserving stale aliases
                     // from a version that no longer exists — exactly backwards,
-                    // and it made a damaging alias unremovable by the button
-                    // whose whole job is removing it. A removed default shipped
+                    // and would make a damaging alias unremovable by the button
+                    // whose whole job is removing it: a removed default shipped
                     // `Cloud` as an alias of `Claude`, which rewrote every
-                    // "Google Cloud" this user dictated into "Google Claude".
+                    // "Google Cloud" the user dictated into "Google Claude".
                     // The row survives because the canonical may still be a term
                     // the user relies on; only the unshipped surfaces go.
                     var stripped = term
@@ -921,7 +905,7 @@ public final class DictationCoordinator {
     /// case-insensitively, and appending the rest. Both rules are needed for a
     /// re-import to stay idempotent: ledgers written by earlier builds hold
     /// imported rows under `project:<uuid>/…` ids that no fresh import can
-    /// reproduce, so id matching alone appended a duplicate every time.
+    /// reproduce, so id matching alone would append a duplicate on every re-import.
     ///
     /// Returns the proposal rather than assigning it: the caller validates first.
     private func glossaryMerging(_ terms: [ProtectedTerm]) -> [ProtectedTerm] {

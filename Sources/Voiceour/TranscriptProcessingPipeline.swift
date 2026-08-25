@@ -105,11 +105,7 @@ extension DictationCoordinator {
         refreshTarget()
     }
 
-    func processStop(
-        generation: AsyncGenerationGate.Token,
-        stopReleaseStarted: Date,
-        trigger: DictationCoordinator.StopTrigger = .manual
-    ) async {
+    func processStop(generation: AsyncGenerationGate.Token, stopReleaseStarted: Date) async {
         var audioURL: URL?
         defer { removeTemporaryAudio(&audioURL) }
         // The mute resolves concurrently with recorder start; await the pending
@@ -184,13 +180,11 @@ extension DictationCoordinator {
 
             let finalText = deterministic
             try ensureCurrentProcessing(generation)
-            lastTranscript = finalText
             let stages = SessionStageTimings(
                 captureMs: audio.meta.durationMs,
                 asrMs: asrMs,
                 insertMs: nil,
                 startLatencyMs: recorder.lastStartLatencyMs(),
-                asrPath: asr.lastTranscriptionPath(),
                 asrBackendId: result.backendId,
                 asrLoadMs: result.timingsMs.load,
                 asrInferenceMs: result.timingsMs.inference,

@@ -9,9 +9,7 @@ public final class FakeAudioRecorder: AudioRecording, @unchecked Sendable {
     public init() {}
 
     public func start() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voiceour", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        outputURL = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+        outputURL = try CaptureTemporaryFile.makeWAVURL()
         startedAt = Date()
     }
 

@@ -80,7 +80,8 @@ public struct ASRBackendDescriptor: Sendable {
 /// metadata. Registering one descriptor now covers all of them.
 ///
 /// It lives in VoiceMac rather than VoiceCore because the factories construct
-/// AVFoundation and Speech adapters, which VoiceCore may not import.
+/// AVFoundation capture recorders and a process-launching sidecar client, neither
+/// of which VoiceCore may import.
 public struct ASRBackendRegistry: Sendable {
     public let descriptors: [ASRBackendDescriptor]
     private static let fakeBackendID = "fake"

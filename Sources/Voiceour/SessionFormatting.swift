@@ -18,7 +18,6 @@ extension SessionStageTimings {
     var detailLine: String {
         var parts: [String] = []
         if let asrMs { parts.append("ASR \(asrMs) ms") }
-        if let asrPath, !asrPath.isEmpty { parts.append(asrPath) }
         if let insertMs { parts.append("insert \(insertMs) ms") }
         if let startLatencyMs { parts.append("start \(startLatencyMs) ms") }
         return parts.joined(separator: " · ")

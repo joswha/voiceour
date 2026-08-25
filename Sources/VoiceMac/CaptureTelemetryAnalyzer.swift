@@ -57,47 +57,6 @@ enum CaptureTelemetryAnalyzer {
         )
     }
 
-    /// Analyzes normalized, interleaved Float PCM collected by an experimental capture path.
-    /// Non-finite samples are treated as zero so every emitted metric remains finite.
-    static func analyze(
-        samples: [Float],
-        sampleRateHz: Int,
-        channels: Int,
-        outputFormat: CaptureAudioFormat,
-        processingMode: CaptureProcessingMode,
-        routeChangeCount: Int,
-        droppedBufferCount: Int,
-        zeroBufferCount: Int
-    ) -> CaptureTelemetry {
-        let safeSampleRate = max(1, sampleRateHz)
-        let safeChannels = max(1, channels)
-        let completeSampleCount = samples.count - samples.count % safeChannels
-        let metrics = statistics(
-            sampleCount: completeSampleCount,
-            sampleRateHz: safeSampleRate,
-            channels: safeChannels,
-            clipThreshold: 1.0
-        ) { index in
-            let value = Double(samples[index])
-            return value.isFinite ? value : 0
-        }
-        let inputFormat = CaptureAudioFormat(
-            sampleRateHz: sampleRateHz,
-            channels: channels,
-            encoding: "pcm_f32"
-        )
-
-        return telemetry(
-            metrics: metrics,
-            inputFormat: inputFormat,
-            outputFormat: outputFormat,
-            processingMode: processingMode,
-            routeChangeCount: routeChangeCount,
-            droppedBufferCount: droppedBufferCount,
-            zeroBufferCount: zeroBufferCount
-        )
-    }
-
     private static func telemetry(
         metrics: Metrics,
         inputFormat: CaptureAudioFormat,

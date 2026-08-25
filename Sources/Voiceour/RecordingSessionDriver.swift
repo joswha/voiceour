@@ -163,15 +163,12 @@ extension DictationCoordinator {
                             // already rejects a capture that heard nothing, and that path
                             // restores system audio, discards the WAV and reports the
                             // device by name.
-                            self.stopAndProcess(trigger: .silentCapture)
+                            self.stopAndProcess()
                             return false
                         }
                     }
                     if autoStopDetector?.observe(level: level, at: runtime.now()) == true {
-                        // The detector's own last-loud instant is the moment silence began, and
-                        // it is the criterion that authorized this stop.
-                        let silenceStartedAt = autoStopDetector?.lastLoudAt ?? runtime.now()
-                        self.stopAndProcess(trigger: .autoStop(silenceStartedAt: silenceStartedAt))
+                        self.stopAndProcess()
                         return false
                     }
                     return true

@@ -258,12 +258,21 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
     /// through a zone with daylight saving would land two adjacent keys on the
     /// same instant-plus-24-hours and skip a day once a year.
     static func dayKey(offsetting key: String, byDays offset: Int) -> String? {
-        guard let date = utcDate(from: key) else { return nil }
-        guard let moved = utcCalendar.date(byAdding: .day, value: offset, to: date) else { return nil }
+        guard let start = date(forDayKey: key, calendar: utcCalendar) else { return nil }
+        guard let moved = utcCalendar.date(byAdding: .day, value: offset, to: start) else { return nil }
         return dayKey(for: moved, calendar: utcCalendar)
     }
 
-    static func utcDate(from key: String) -> Date? {
+    /// The instant `key` names in `calendar`, or nil when `key` is not a day key
+    /// this type wrote. The exact inverse of `dayKey(for:calendar:)`, and the one
+    /// place a day key is validated and parsed.
+    ///
+    /// The calendar belongs to the caller because a day key is an already-resolved
+    /// local day rather than an instant. This type's own arithmetic passes
+    /// `utcCalendar`, so a daylight-saving boundary cannot fold two adjacent keys
+    /// onto one instant; a reader rendering a key as a date passes the calendar it
+    /// reads the ledger with, so the rendered day is the day the ledger keyed.
+    public static func date(forDayKey key: String, calendar: Calendar) -> Date? {
         let parts = key.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count == 3,
             let year = Int(parts[0]),
@@ -274,7 +283,7 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
         components.year = year
         components.month = month
         components.day = day
-        return utcCalendar.date(from: components)
+        return calendar.date(from: components)
     }
 
     static let utcCalendar: Calendar = {

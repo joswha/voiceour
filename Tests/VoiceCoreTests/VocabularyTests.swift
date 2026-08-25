@@ -16,7 +16,6 @@ struct ProtectedTermCodableTests {
         #expect(term.id == "NSPasteboard")
         #expect(term.spokenAliases == ["n s pasteboard", "ns paste board"])
         #expect(term.source == .bundled)
-        #expect(term.cloudEligible)
         #expect(term.labeledAliases.isEmpty)
         #expect(term.tombstonedAt == nil)
     }
@@ -38,20 +37,12 @@ struct ProtectedTermCodableTests {
             spokenAliases: ["ns paste board"],
             termId: "term-1",
             source: .explicitCorrection,
-            cloudEligible: false,
             labeledAliases: [AliasLabel(surface: "ns paste board", confirmedAt: Date(timeIntervalSince1970: 100))]
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ProtectedTerm.self, from: data)
 
         #expect(decoded == original)
-    }
-
-    @Test func defaultGlossaryUsesCanonicalAsTermId() {
-        for term in Settings.defaultGlossary {
-            #expect(term.termId == term.canonical)
-            #expect(term.source == .bundled)
-        }
     }
 }
 
@@ -82,6 +73,18 @@ struct VocabularyCompilerTests {
             ephemeral: []
         )
         #expect(snapshot.terms.map(\.canonical) == ["Alive"])
+    }
+
+    /// The two rules compose in the right order: a tombstoned term is gone even
+    /// when its source outranks a live one, so trust cannot resurrect it.
+    @Test func tombstonedTermsAreDroppedRegardlessOfTrust() {
+        let terms = [
+            term("bundled", source: .bundled),
+            term("explicit", source: .explicitCorrection),
+            term("dead", source: .manualImport, tombstonedAt: Date(timeIntervalSince1970: 1)),
+        ]
+        let snapshot = VocabularyCompiler.compile(persistent: terms, ephemeral: [])
+        #expect(snapshot.terms.map(\.canonical) == ["explicit", "bundled"])
     }
 
     @Test func ordersByTrustThenRecency() {
@@ -163,25 +166,23 @@ struct VocabularyCompilerTests {
         )
 
         #expect(snapshot.terms.map(\.canonical) == ["alive", "future"])
-        #expect(Glossary.activeTerms(terms, now: now).map(\.canonical) == ["alive", "future"])
     }
 
-    @Test func passesEphemeralThroughAndComputesCloudEligible() {
-        let candidate = EphemeralContextCandidate(id: "e1", surface: "Zephyr")
-        let terms = [
-            term("cloudy"),
-            {
-                var t = term("local")
-                t.cloudEligible = false
-                return t
-            }(),
+    /// Ephemeral candidates bypass the term budget entirely: they are live context
+    /// for one utterance, not persisted authority, so a glossary large enough to
+    /// exhaust the budget must not crowd them out.
+    @Test func passesEphemeralCandidatesThroughUntouched() {
+        let candidates = [
+            EphemeralContextCandidate(id: "e1", surface: "Zephyr"),
+            EphemeralContextCandidate(id: "e2", surface: "Nimbus"),
         ]
         let snapshot = VocabularyCompiler.compile(
-            persistent: terms,
-            ephemeral: [candidate]
+            persistent: [term("cloudy")],
+            ephemeral: candidates,
+            limit: 0
         )
-        #expect(snapshot.ephemeral == [candidate])
-        #expect(snapshot.terms.filter(\.cloudEligible).map(\.canonical) == ["cloudy"])
+        #expect(snapshot.terms.isEmpty)
+        #expect(snapshot.ephemeral == candidates)
     }
 
     @Test func isDeterministic() {
@@ -239,21 +240,8 @@ struct VocabularySanitizerTests {
     }
 }
 
-@Suite("Glossary active terms and labeled aliases")
+@Suite("Glossary labeled aliases")
 struct GlossaryVocabularyTests {
-    @Test func activeTermsDropsTombstonedAndOrdersByTrust() {
-        let terms = [
-            ProtectedTerm(canonical: "bundled", spokenAliases: [], source: .bundled),
-            ProtectedTerm(canonical: "explicit", spokenAliases: [], source: .explicitCorrection),
-            ProtectedTerm(
-                canonical: "dead", spokenAliases: [], source: .manualImport,
-                tombstonedAt: Date(timeIntervalSince1970: 1)
-            ),
-        ]
-        let active = Glossary.activeTerms(terms)
-        #expect(active.map(\.canonical) == ["explicit", "bundled"])
-    }
-
     @Test func labeledAliasParticipatesOnlyWhenNotRejected() {
         let confirmed = ProtectedTerm(
             canonical: "kubectl",

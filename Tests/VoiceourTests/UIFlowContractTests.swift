@@ -20,11 +20,6 @@
             #expect(UICount.atMost(2).accepts(2))
             #expect(UICount.atMost(2).accepts(1))
             #expect(!UICount.atMost(2).accepts(3))
-
-            #expect(UICount.between(2, 4).accepts(2))
-            #expect(UICount.between(2, 4).accepts(4))
-            #expect(!UICount.between(2, 4).accepts(1))
-            #expect(!UICount.between(2, 4).accepts(5))
         }
 
         @Test func textAcceptsEveryRuleAndEmptyBoundary() {
@@ -35,14 +30,6 @@
             #expect(UIText.contains("").accepts("voice"))
             #expect(UIText.contains("oic").accepts("voice"))
             #expect(!UIText.contains("other").accepts("voice"))
-
-            #expect(UIText.hasPrefix("").accepts("voice"))
-            #expect(UIText.hasPrefix("voice").accepts("voice"))
-            #expect(!UIText.hasPrefix("ice").accepts("voice"))
-
-            #expect(UIText.hasSuffix("").accepts("voice"))
-            #expect(UIText.hasSuffix("voice").accepts("voice"))
-            #expect(!UIText.hasSuffix("voi").accepts("voice"))
 
             #expect(UIText.isEmpty.accepts(""))
             #expect(!UIText.isEmpty.accepts("voice"))
@@ -221,7 +208,6 @@
                 (.value("Ready"), "value=\"Ready\""),
                 (.placeholder("Search"), "placeholder=\"Search\""),
                 (.labelContains("Sav"), "label~=\"Sav\""),
-                (.valueContains("ead"), "value~=\"ead\""),
                 (.role("AXButton"), "role=AXButton"),
                 (.all([.label("Save"), .role("AXButton")]), "label=\"Save\" & role=AXButton"),
             ]
@@ -238,14 +224,13 @@
                 (.value(.id("status"), .equals("line\nbreak")), "value id=status == \"line\\nbreak\""),
                 (.label(.id("save"), .contains("Sav")), "label id=save contains \"Sav\""),
                 (.role(.id("save"), "AXButton"), "role id=save == AXButton"),
-                (.text(.hasPrefix("Ready"), .atLeast(1)), "text starts with \"Ready\" at least 1"),
+                (.text(.contains("Ready"), .atLeast(1)), "text contains \"Ready\" at least 1"),
                 (.state(.recording), "state == recording"),
                 (
                     .transitions([.idle, .recording], .subsequence),
                     "transitions subsequence [idle -> recording]"
                 ),
                 (.model(.transcript, .isNotEmpty), "model transcript is not empty"),
-                (.warnings(.atMost(0)), "interaction warnings at most 0"),
                 (.lintClean, "lint clean"),
             ]
             for (expectation, expected) in expectations {

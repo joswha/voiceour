@@ -8,16 +8,6 @@ import SwiftUI
 enum VoiceourPalette {
     enum Ink {
         static let void = Color(.sRGB, red: 0.02, green: 0.03, blue: 0.05, opacity: 1.00)
-        static let scrim = void.opacity(0.88)
-        /// The opaque stand-in for the glass ground under Reduce Transparency.
-        /// It has to be *lighter* than `surface`, not darker: the vibrancy ground
-        /// rasterises above the content plane (measured (47,48,51) at mid-window,
-        /// (96,96,96) near the titlebar, against a (14,17,22) card), so filling
-        /// with `void` inverts figure and ground and flattens the console to
-        /// 1.06:1. This value continues the family's tint rule (r, r+0.010,
-        /// r+0.030) and lands at **1.50:1 against `surface`** — the same step the
-        /// live glass makes across the middle of the window.
-        static let frost = Color(.sRGB, red: 0.190, green: 0.200, blue: 0.220, opacity: 1.00)
         static let pane = Color(.sRGB, red: 0.06, green: 0.07, blue: 0.09, opacity: 0.62)
         static let rimDark = Color(.sRGB, red: 0.00, green: 0.00, blue: 0.00, opacity: 0.34)
         static let surface = Color(.sRGB, red: 0.055, green: 0.065, blue: 0.085, opacity: 1.00)
@@ -34,7 +24,6 @@ enum VoiceourPalette {
         static let high = Color(.sRGB, red: 0.89, green: 0.91, blue: 0.95, opacity: 1.00)
         static let mid = Color(.sRGB, red: 0.64, green: 0.71, blue: 0.80, opacity: 1.00)
         static let low = Color(.sRGB, red: 0.51, green: 0.56, blue: 0.64, opacity: 1.00)
-        static let mono = Color(.sRGB, red: 0.64, green: 0.75, blue: 0.86, opacity: 1.00)
         static let monoStrong = Color(.sRGB, red: 0.84, green: 0.92, blue: 0.98, opacity: 1.00)
     }
 
@@ -68,7 +57,6 @@ enum VoiceourPalette {
         static let mint = Color(.sRGB, red: 0.66, green: 0.96, blue: 0.82, opacity: 1.00)
         static let amber = Color(.sRGB, red: 0.98, green: 0.78, blue: 0.42, opacity: 1.00)
         static let crimson = Color(.sRGB, red: 0.98, green: 0.44, blue: 0.44, opacity: 1.00)
-        static let wash = cyan.opacity(0.45)
         static let focusHalo = cyan.opacity(0.25)
     }
 
@@ -126,56 +114,39 @@ enum VoiceourPalette {
 }
 
 enum VoiceourTypography {
-    static let eyebrow = Font.system(size: 11, weight: .semibold, design: .monospaced)
-    static let title = Font.system(size: 17, weight: .semibold, design: .default)
     static let label = Font.system(size: 13, weight: .medium, design: .default)
-    static let body = Font.system(size: 13, weight: .regular, design: .default)
-    static let bodyMono = Font.system(size: 13, weight: .regular, design: .monospaced)
     static let caption = Font.system(size: 12, weight: .regular, design: .default)
     static let micro = Font.system(size: 10, weight: .medium, design: .monospaced)
     static let metric = Font.system(size: 32, weight: .light, design: .monospaced)
-    /// Widget-tile readout for word values (READY, GRANTED, MLX): smaller
-    /// than `metric` numerals but still unmistakably the tile's payload.
+    /// Widget-tile readout for word values (READY, GRANTED): smaller than
+    /// `metric` numerals but still unmistakably the tile's payload.
     static let tileValue = Font.system(size: 20, weight: .medium, design: .monospaced)
     /// Oversized numerical readout. Larger than `metric`; pair with
     /// `.monospacedDigit()` at the call site.
     static let heroMetric = Font.system(size: 64, weight: .thin, design: .monospaced)
-    /// Empty-state glyph role. Decorative instances remain accessibility-hidden.
-    static let emptyGlyph = Font.system(size: 48, weight: .thin, design: .default)
 }
 
 enum TextRole {
     case heroMetric
     case metric
     case tileValue
-    case title
     case label
-    case body
-    case bodyMono
     case caption
-    case eyebrow
     case micro
-    case emptyGlyph
 
     var font: Font {
         switch self {
         case .heroMetric: VoiceourTypography.heroMetric
         case .metric: VoiceourTypography.metric
         case .tileValue: VoiceourTypography.tileValue
-        case .title: VoiceourTypography.title
         case .label: VoiceourTypography.label
-        case .body: VoiceourTypography.body
-        case .bodyMono: VoiceourTypography.bodyMono
         case .caption: VoiceourTypography.caption
-        case .eyebrow: VoiceourTypography.eyebrow
         case .micro: VoiceourTypography.micro
-        case .emptyGlyph: VoiceourTypography.emptyGlyph
         }
     }
 
     var tracking: CGFloat {
         switch self {
-        case .eyebrow: 1.4
         case .micro: 0.8
         default: 0
         }
@@ -186,22 +157,18 @@ enum TextRole {
         case .heroMetric: 64
         case .metric: 32
         case .tileValue: 20
-        case .title: 17
-        case .label, .body, .bodyMono: 13
+        case .label: 13
         case .caption: 12
-        case .eyebrow: 11
         case .micro: 10
-        case .emptyGlyph: 48
         }
     }
 
     var weight: Font.Weight {
         switch self {
-        case .heroMetric, .emptyGlyph: .thin
+        case .heroMetric: .thin
         case .metric: .light
         case .tileValue, .label, .micro: .medium
-        case .title, .eyebrow: .semibold
-        case .body, .bodyMono, .caption: .regular
+        case .caption: .regular
         }
     }
 
@@ -215,16 +182,12 @@ enum TextRole {
 
     var foreground: Color {
         switch self {
-        case .heroMetric, .metric, .title, .label, .body:
+        case .heroMetric, .metric, .label:
             VoiceourPalette.Text.high
         case .tileValue:
             VoiceourPalette.Text.monoStrong
-        case .bodyMono:
-            VoiceourPalette.Text.mono
-        case .caption, .eyebrow, .micro:
+        case .caption, .micro:
             VoiceourPalette.Text.low
-        case .emptyGlyph:
-            VoiceourPalette.Mark.faint
         }
     }
 }
@@ -354,15 +317,6 @@ struct RoleStyledText: View {
         )
     }
 
-    func fontWeight(_ weight: Font.Weight?) -> RoleStyledText {
-        RoleStyledText(
-            text: text.fontWeight(weight),
-            role: role,
-            foreground: foreground,
-            isBold: role.isBold || TextRole.isBold(weight)
-        )
-    }
-
     func monospacedDigit() -> RoleStyledText {
         RoleStyledText(
             text: text.monospacedDigit(),
@@ -374,10 +328,6 @@ struct RoleStyledText: View {
 }
 
 extension View {
-    func roleStyle(_ role: TextRole) -> some View {
-        modifier(TextRoleModifier(role: role))
-    }
-
     /// A role plus a state colour, for a non-`Text` label (a `ButtonStyle`'s
     /// `configuration.label`) whose colour changes with the control's state.
     ///
@@ -418,15 +368,6 @@ extension Text {
     func roleStyle(_ role: TextRole) -> RoleStyledText {
         RoleStyledText(self, role: role)
     }
-
-    /// Canvas requires a concrete `Text`. The defaulted second parameter keeps
-    /// the source spelling unchanged while contextual overload resolution picks
-    /// this path only for `GraphicsContext.draw`.
-    func roleStyle(_ role: TextRole, canvas: Bool = true) -> Text {
-        font(role.font)
-            .tracking(role.tracking)
-            .foregroundStyle(role.foreground)
-    }
 }
 
 enum VoiceourMetrics {
@@ -445,17 +386,13 @@ enum VoiceourMetrics {
 
     enum Column {
         static let rail: CGFloat = 176
-        static let settingsLabel: CGFloat = 176
-        static let rowAction: CGFloat = Control.medium
     }
 
-    /// Capped column widths so pane content sits on a fixed measure instead of
-    /// stretching edge-to-edge with the window. Every pane is left-flush against
-    /// this column; tables get more room than simple label/control forms.
+    /// The capped width every pane's content sits on, so a pane holds a fixed
+    /// measure instead of stretching edge-to-edge with the window. Every pane is
+    /// left-flush against this column.
     enum Content {
-        static let form: CGFloat = 760
         static let table: CGFloat = 940
-        static let grid: CGFloat = 1360
     }
 
     enum Control {
@@ -477,24 +414,14 @@ enum VoiceourMetrics {
         static let medium: CGFloat = 32
         static let large: CGFloat = 40
         static let pressedScale: CGFloat = 0.985
-
-        enum Toggle {
-            static let trackWidth: CGFloat = 42
-            static let trackHeight: CGFloat = Control.mini
-            static let knob: CGFloat = 20
-            static let knobInset: CGFloat = Space.hair
-            static let travel: CGFloat = trackWidth - knob - knobInset * 2
-            static let hitWidth: CGFloat = 44
-            static let hitHeight: CGFloat = Control.small
-        }
     }
 
-    /// Explicit widths for short, purpose-sized fields such as millisecond counters,
-    /// so a four-digit number never claims the full content column. Fields that hold
-    /// free-form text (URLs, model ids, keys) stay flexible up to the column.
+    /// The explicit width for a short, purpose-sized field such as a millisecond
+    /// counter, so a four-digit number never claims the full content column.
+    /// Fields that hold free-form text (URLs, model ids, keys) stay flexible up
+    /// to the column.
     enum Field {
         static let short: CGFloat = 120
-        static let medium: CGFloat = 280
     }
 
     enum Stroke {
@@ -512,46 +439,24 @@ enum VoiceourMetrics {
 
     enum Space {
         static let hair: CGFloat = 2
-        static let titlebar: CGFloat = 32
         static let xs: CGFloat = 4
         static let sm: CGFloat = 8
         static let md: CGFloat = 12
         static let lg: CGFloat = 16
         static let xl: CGFloat = 24
-        static let xxl: CGFloat = 32
-        static let section: CGFloat = 40
     }
 
     enum Row {
-        static let nav: CGFloat = 32
-        static let table: CGFloat = 40
-        static let settings: CGFloat = 44
         static let list: CGFloat = 64
-    }
-
-    enum Button {
-        static let horizontal: CGFloat = 12
     }
 
     enum Chip {
         static let horizontal: CGFloat = 10
     }
 
-    enum TextField {
-        static let horizontal: CGFloat = 12
-    }
-
     enum Icon {
         static let mark: CGFloat = 10
         static let row: CGFloat = 13
-        static let nav: CGFloat = 13
-        /// The navigation glyph's layout slot.
-        static let navSlot: CGFloat = Space.lg
-        static let empty: CGFloat = 48
-    }
-
-    enum Dot {
-        static let live: CGFloat = 6
     }
 
     enum Shadow {
@@ -567,12 +472,10 @@ enum VoiceourMetrics {
 
     enum Window {
         static let minWidth: CGFloat = Column.rail + Space.xl * 2 + Content.table
-        static let minHeight: CGFloat = 560
-        /// First-launch size. Width IS `minWidth`: the widest measure
-        /// (`Content.table`) fits the region exactly and the form measure sits
-        /// with symmetric 90pt gutters, so the console opens at its tightest
-        /// legal, geometrically fitted size instead of floating its column in
-        /// spare glass. Growing the window only grows the gutters evenly.
+        /// First-launch size. Width IS `minWidth`: `Content.table` fits the
+        /// region exactly, so the console opens at its tightest legal,
+        /// geometrically fitted size instead of floating its column in spare
+        /// glass. Growing the window only grows the gutters evenly.
         static let defaultWidth: CGFloat = minWidth
         static let defaultHeight: CGFloat = 820
     }

@@ -19,7 +19,7 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
 
     weak var coordinator: DictationCoordinator?
     private var isRestarting = false
-    private let applicationRelauncher: ApplicationRelaunching = ProcessApplicationRelauncher(
+    private let applicationRelauncher = ProcessApplicationRelauncher(
         executableURL: URL(fileURLWithPath: CommandLine.arguments.first ?? "")
     )
     private var isTerminatingAfterCleanup = false

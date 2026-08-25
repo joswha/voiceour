@@ -41,10 +41,7 @@ struct CaptureWAVTarget {
             throw RecorderError.outputUnavailable
         }
 
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "voiceour", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+        let url = try CaptureTemporaryFile.makeWAVURL()
 
         // commonFormat/interleaved set the file's PROCESSING format to match the
         // converter output; the default Float32 processing format makes

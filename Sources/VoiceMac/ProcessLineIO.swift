@@ -5,8 +5,8 @@ import Foundation
 // Teardown invariant for every reader in this file: it drains a *duplicate* of
 // the caller's descriptor, so closing the caller's `FileHandle` no longer ends
 // it. Every teardown path MUST call `stop()` on every source it created.
-// Today that is `SidecarASRClient.terminateRunning`, `closeStarting` and
-// `failAllAndStop`, plus `OmpRpcRuntime.stopRunning` and `closeChild`. `deinit`
+// Today those paths are `SidecarASRClient.terminateRunning`, `closeStarting`
+// and `failAllAndStop`, and nothing else tears a reader down. `deinit`
 // closes the duplicate as a backstop for a dropped reader; it is not a
 // substitute for stopping one, because a reader is kept alive by the task
 // suspended in `nextLine()`.

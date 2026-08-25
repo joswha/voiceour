@@ -323,7 +323,9 @@ public enum DictationStatsCalculator {
 
     /// The key of the first day of the week containing `dayKey`.
     private static func weekStartKey(for dayKey: String, calendar: Calendar) -> String? {
-        guard let date = DictationStatsLedger.utcDate(from: dayKey) else { return nil }
+        guard
+            let date = DictationStatsLedger.date(forDayKey: dayKey, calendar: DictationStatsLedger.utcCalendar)
+        else { return nil }
         // `firstWeekday` is the region's, read from the caller's calendar; the
         // arithmetic runs in UTC so the answer is a pure day offset.
         let weekday = DictationStatsLedger.utcCalendar.component(.weekday, from: date)

@@ -342,28 +342,6 @@ struct DictationStatsTests {
         #expect(summary.averageWPM == 1)
     }
 
-    /// The one-time backfill folds journal rows through the same `record`, so a
-    /// ledger seeded from history must equal one grown a dictation at a time.
-    @Test func foldingAHistoryMatchesRecordingItLive() {
-        let rows: [(day: Int, words: Int, seconds: Double)] = [
-            (-6, 40, 20), (-5, 15, 9), (-5, 60, 31), (-2, 90, 44), (0, 12, 7),
-        ]
-        var seeded = DictationStatsLedger()
-        for row in rows {
-            seeded.record(words: row.words, seconds: row.seconds, day: key(row.day))
-        }
-
-        var live = DictationStatsLedger()
-        for row in rows {
-            live.record(words: row.words, seconds: row.seconds, day: key(row.day))
-        }
-
-        #expect(seeded == live)
-        #expect(seeded.totalSessions == 5)
-        #expect(seeded.totalActiveDays == 4)
-        #expect(seeded.totalWords == 217)
-    }
-
     @Test func negativeInputsCannotReduceATotal() {
         var ledger = DictationStatsLedger()
         ledger.record(words: -5, seconds: -3, day: today)
@@ -383,14 +361,6 @@ struct DictationStatsTests {
         #expect(WordCount.count(in: text(40)) == 40)
     }
 
-    /// `RecentSession.wordCount` now delegates here; the journal's reported
-    /// counts must not move.
-    @Test func recentSessionWordCountDelegatesToTheSharedCount() {
-        let body = "  Wire the offscreen renderer\tand capture.  "
-        #expect(RecentSession(text: body).wordCount == WordCount.count(in: body))
-        #expect(RecentSession(text: body).wordCount == 6)
-    }
-
     // MARK: Day keys
 
     @Test func dayKeysAreIsoOrderedAndZeroPadded() {
@@ -403,6 +373,23 @@ struct DictationStatsTests {
         #expect(DictationStatsLedger.dayKey(offsetting: "2025-03-01", byDays: -1) == "2025-02-28")
         #expect(DictationStatsLedger.dayKey(offsetting: "2024-02-28", byDays: 1) == "2024-02-29")
         #expect(DictationStatsLedger.dayKey(offsetting: "not-a-day", byDays: 1) == nil)
+    }
+
+    /// The parse is the exact inverse of `dayKey(for:calendar:)` in whatever
+    /// calendar the caller hands it. That is what lets a reader render a key as
+    /// the local day the ledger keyed: resolved in UTC and formatted in a western
+    /// zone, the same key would name the previous day.
+    @Test func aDayKeyResolvesThroughTheCallersCalendar() throws {
+        var pacific = DictationStatsLedger.utcCalendar
+        pacific.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let local = try #require(DictationStatsLedger.date(forDayKey: "2025-03-07", calendar: pacific))
+        let utcInstant = try #require(
+            DictationStatsLedger.date(forDayKey: "2025-03-07", calendar: DictationStatsLedger.utcCalendar))
+
+        #expect(DictationStatsLedger.dayKey(for: local, calendar: pacific) == "2025-03-07")
+        // Two days before that year's DST start, so PST is a flat UTC-8.
+        #expect(local.timeIntervalSince(utcInstant) == 8 * 3600)
+        #expect(DictationStatsLedger.date(forDayKey: "not-a-day", calendar: pacific) == nil)
     }
 
     // MARK: Per-app tallies

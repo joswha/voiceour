@@ -36,12 +36,10 @@ public protocol ASRClienting: Sendable {
     func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult
     func health(timeoutMs: Int) async throws -> ASRBackendHealth
     func warmUp() async
-    func lastTranscriptionPath() -> String?
 }
 
 extension ASRClienting {
     public func warmUp() async {}
-    public func lastTranscriptionPath() -> String? { nil }
 }
 
 public protocol TargetTracking: Sendable {

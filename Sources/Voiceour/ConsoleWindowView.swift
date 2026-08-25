@@ -37,22 +37,17 @@ enum ConsoleTab: String, CaseIterable, Hashable {
 
 /// The console window: a native `TabView` over Home and three grouped `Form`s.
 ///
-/// This replaces a bespoke shell — a left rail, a pane registry, glass window
-/// chrome and a private row/segment/confirm component library — that spent
-/// ~2200 lines drawing surfaces AppKit already draws, and drawing them in a way
-/// VoiceOver and Full Keyboard Access had to be taught about row by row. The
-/// content is unchanged; every setting, readout, remediation and destructive
-/// action the rail's five panes carried is on one of the three Form tabs.
+/// Every surface here is a stock AppKit control, and the app draws no rails,
+/// cards, segment skins or window chrome of its own. VoiceOver and Full Keyboard
+/// Access get all of that for free from native controls, and have to be taught
+/// about it row by row whenever the app draws it instead.
 ///
-/// The glass came back, from the other end: the *ground* is a system material
-/// (``ConsoleGlassGround``) and the controls above it are stock. What is gone for
-/// good is the app drawing chrome — rails, cards, segment skins, a forced dark
-/// scheme — which is what VoiceOver and Full Keyboard Access were paying for.
+/// The glass is the *ground*, never the controls: a system material
+/// (``ConsoleGlassGround``) behind unmodified native content.
 ///
 /// The window keeps its scene id (`main`), so the menu-bar item's
-/// `openWindow(id:)` and the `--show-console` launch notification still reach
-/// it, and it keeps the appearance the user chose: the panes this replaces
-/// pinned a dark scheme because their palette had no light values, which is
+/// `openWindow(id:)` and the `--show-console` launch notification both reach it,
+/// and it keeps the appearance the user chose: pinning a colour scheme is
 /// exactly the kind of override a native window has no business making.
 struct ConsoleWindowView: View {
     var coordinator: DictationCoordinator

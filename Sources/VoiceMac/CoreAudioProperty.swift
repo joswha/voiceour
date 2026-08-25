@@ -27,6 +27,22 @@ enum CoreAudioProperty {
         return didRead ? value : nil
     }
 
+    /// Reads a `CFString`-valued property. Separate from ``read(_:from:initialValue:)``
+    /// because the HAL hands back a *retained* `CFString` rather than a POD value, so the
+    /// reference has to be consumed exactly once instead of copied out of raw bytes.
+    static func readString(_ address: AudioObjectPropertyAddress, from objectID: AudioObjectID) -> String? {
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<CFString?>.size)
+        var address = address
+        guard AudioObjectHasProperty(objectID, &address),
+            AudioObjectGetPropertyData(objectID, &address, 0, nil, &size, &value) == noErr,
+            let string = value?.takeRetainedValue()
+        else {
+            return nil
+        }
+        return string as String
+    }
+
     static func deviceIDs() -> [AudioObjectID]? {
         var address = address(kAudioHardwarePropertyDevices, scope: kAudioObjectPropertyScopeGlobal)
         var size: UInt32 = 0

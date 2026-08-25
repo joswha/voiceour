@@ -20,9 +20,9 @@ enum LaunchOptions {
         CommandLine.arguments.contains("--no-activate")
     }
 
-    /// Reveals the development-only backend picker on the General tab — the one
-    /// control that can switch dictation to the synthetic `fake` recogniser. A
-    /// launch argument rather than a setting: it configures how the install is
+    /// Reveals the development-only backend picker in Settings — the one control
+    /// that can switch dictation to the synthetic `fake` recogniser. A launch
+    /// argument rather than a setting: it configures how the install is
     /// developed, not anything a shipped user has a reason to choose, and a
     /// release user who found it could only downgrade their own dictation.
     static var showsDebugPanes: Bool {
@@ -31,11 +31,9 @@ enum LaunchOptions {
 
     /// The tab the console window is forced to open on. `--console-section=`
     /// keeps its spelling: it is a development deep link that predates the tabs,
-    /// and nothing outside this app types it. Nil when the flag is absent OR
-    /// names an unknown tab — junk used to fall back to `.general`; now junk
-    /// means "no override" and the stored last-used tab wins. `general` and
-    /// `system` are themselves junk now: both destinations merged into
-    /// `settings`.
+    /// and nothing outside this app types it. Nil when the flag is absent or
+    /// names anything other than a live `ConsoleTab`, and nil means "no
+    /// override": the stored last-used tab wins.
     static var consoleSectionOverride: ConsoleTab? {
         consoleSectionOverride(in: CommandLine.arguments)
     }

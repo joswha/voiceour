@@ -99,18 +99,13 @@ enum CoreAudioOutputDevice {
         )
     }
 
+    /// The durable output identity mute ownership is recorded against, so a restore can
+    /// find the same speakers after a reboot recycles the `AudioObjectID`.
     static func uid(deviceID: AudioObjectID) -> String? {
-        var value: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<CFString?>.size)
-        var uidAddress = CoreAudioProperty.address(
-            kAudioDevicePropertyDeviceUID, scope: kAudioObjectPropertyScopeGlobal)
-        guard AudioObjectHasProperty(deviceID, &uidAddress),
-            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &size, &value) == noErr,
-            let uid = value?.takeRetainedValue()
-        else {
-            return nil
-        }
-        return uid as String
+        CoreAudioProperty.readString(
+            CoreAudioProperty.address(kAudioDevicePropertyDeviceUID, scope: kAudioObjectPropertyScopeGlobal),
+            from: deviceID
+        )
     }
 
     static func device(forUID uid: String) -> AudioObjectID? {

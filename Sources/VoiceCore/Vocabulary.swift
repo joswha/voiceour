@@ -49,13 +49,11 @@ public struct EphemeralContextCandidate: Equatable, Sendable {
     public let id: String
     public let surface: String
     public let phones: [String]
-    public let capturedBundleId: String?
 
-    public init(id: String, surface: String, phones: [String] = [], capturedBundleId: String? = nil) {
+    public init(id: String, surface: String, phones: [String] = []) {
         self.id = id
         self.surface = surface
         self.phones = phones
-        self.capturedBundleId = capturedBundleId
     }
 }
 
@@ -63,16 +61,13 @@ public struct EphemeralContextCandidate: Equatable, Sendable {
 public struct VocabularySnapshot: Equatable, Sendable {
     public let terms: [ProtectedTerm]
     public let ephemeral: [EphemeralContextCandidate]
-    public let generatedAt: Date
 
     public init(
         terms: [ProtectedTerm],
-        ephemeral: [EphemeralContextCandidate],
-        generatedAt: Date
+        ephemeral: [EphemeralContextCandidate]
     ) {
         self.terms = terms
         self.ephemeral = ephemeral
-        self.generatedAt = generatedAt
     }
 }
 
@@ -142,11 +137,7 @@ public enum VocabularyCompiler {
             }
         }
 
-        return VocabularySnapshot(
-            terms: selected,
-            ephemeral: ephemeral,
-            generatedAt: now
-        )
+        return VocabularySnapshot(terms: selected, ephemeral: ephemeral)
     }
 
     private static func isPriority(_ term: ProtectedTerm) -> Bool {

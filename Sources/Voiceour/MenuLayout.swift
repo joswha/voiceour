@@ -1,9 +1,9 @@
 import SwiftUI
 
 enum MenuLayout {
-    /// A named measure rather than `Space.section * 7`: nothing about this
-    /// popover follows from seven section gaps, and tuning the spacing scale
-    /// must not silently resize the menu bar. Belongs beside `Content.form` /
+    /// A named measure rather than a multiple of the spacing scale: nothing
+    /// about this popover follows from a count of section gaps, and tuning the
+    /// scale must not silently resize the menu bar. Belongs beside
     /// `Content.table` once `DesignTokens` is in scope for this change.
     static let popoverWidth: CGFloat = 280
 

@@ -11,7 +11,6 @@
 #if UI_HARNESS
 
     import Foundation
-    import SwiftUI
     import VoiceCore
 
     // Shared vocabulary for the end-to-end flow layer.
@@ -57,8 +56,6 @@
         case placeholder(String)
         /// Label containing this substring. Use only where the label is genuinely dynamic.
         case labelContains(String)
-        /// Value containing this substring.
-        case valueContains(String)
         /// Accessibility role, e.g. `AXButton`, `AXStaticText`, `AXTextField`, `AXCheckBox`.
         case role(String)
         /// Every child query must match the same node.
@@ -71,7 +68,6 @@
             case .value(let value): return "value=\(Self.quote(value))"
             case .placeholder(let value): return "placeholder=\(Self.quote(value))"
             case .labelContains(let value): return "label~=\(Self.quote(value))"
-            case .valueContains(let value): return "value~=\(Self.quote(value))"
             case .role(let value): return "role=\(value)"
             case .all(let queries): return queries.map(\.description).joined(separator: " & ")
             }
@@ -94,14 +90,12 @@
         case exactly(Int)
         case atLeast(Int)
         case atMost(Int)
-        case between(Int, Int)
 
         func accepts(_ observed: Int) -> Bool {
             switch self {
             case .exactly(let count): return observed == count
             case .atLeast(let count): return observed >= count
             case .atMost(let count): return observed <= count
-            case .between(let low, let high): return observed >= low && observed <= high
             }
         }
 
@@ -110,7 +104,6 @@
             case .exactly(let count): return "exactly \(count)"
             case .atLeast(let count): return "at least \(count)"
             case .atMost(let count): return "at most \(count)"
-            case .between(let low, let high): return "between \(low) and \(high)"
             }
         }
     }
@@ -119,8 +112,6 @@
     enum UIText: Hashable, CustomStringConvertible {
         case equals(String)
         case contains(String)
-        case hasPrefix(String)
-        case hasSuffix(String)
         case isEmpty
         case isNotEmpty
 
@@ -132,8 +123,6 @@
             // harness bug the first time an author writes `.contains(someEmptyConstant)`, so
             // spell the mathematical answer instead: every string contains the empty string.
             case .contains(let expected): return expected.isEmpty || observed.contains(expected)
-            case .hasPrefix(let expected): return observed.hasPrefix(expected)
-            case .hasSuffix(let expected): return observed.hasSuffix(expected)
             case .isEmpty: return observed.isEmpty
             case .isNotEmpty: return !observed.isEmpty
             }
@@ -143,8 +132,6 @@
             switch self {
             case .equals(let value): return "== \(UIQuery.quote(value))"
             case .contains(let value): return "contains \(UIQuery.quote(value))"
-            case .hasPrefix(let value): return "starts with \(UIQuery.quote(value))"
-            case .hasSuffix(let value): return "ends with \(UIQuery.quote(value))"
             case .isEmpty: return "is empty"
             case .isNotEmpty: return "is not empty"
             }
@@ -284,8 +271,6 @@
         case transitions([UIStatePattern], UITransitionOrder)
         /// A model fact satisfies the text rule.
         case model(UIModelKey, UIText)
-        /// The interaction script produced this many warnings so far.
-        case warnings(UICount)
         /// Re-running the lint rules over this checkpoint's tree and raster finds no error.
         case lintClean
 
@@ -305,7 +290,6 @@
             case .transitions(let states, let order):
                 return "transitions \(order.rawValue) [\(states.map(\.rawValue).joined(separator: " -> "))]"
             case .model(let key, let text): return "model \(key) \(text)"
-            case .warnings(let count): return "interaction warnings \(count)"
             case .lintClean: return "lint clean"
             }
         }
@@ -317,7 +301,7 @@
             case .exists(let query), .absent(let query): return query
             case .count(let query, _), .enabled(let query, _), .selected(let query, _): return query
             case .value(let query, _), .label(let query, _), .role(let query, _): return query
-            case .text, .state, .transitions, .model, .warnings, .lintClean: return nil
+            case .text, .state, .transitions, .model, .lintClean: return nil
             }
         }
     }
@@ -351,8 +335,6 @@
         case backendHealthUnavailable
         /// Backend health probing returning its next readiness snapshot.
         case backendHealth
-        /// Recent-session persistence completing.
-        case persistence
 
         var description: String { rawValue }
     }
@@ -363,7 +345,6 @@
         case start
         case stopAndProcess
         case cancel
-        case toggle
 
         var description: String { rawValue }
     }
@@ -400,15 +381,12 @@
         case element(UIQuery)
         /// Until no node matches.
         case absent(UIQuery)
-        /// Unconditional fixed pump, in run-loop turns.
-        case settle(Int)
 
         var description: String {
             switch self {
             case .state(let pattern): return "state == \(pattern)"
             case .element(let query): return "exists \(query)"
             case .absent(let query): return "absent \(query)"
-            case .settle(let turns): return "settle \(turns) turns"
             }
         }
     }
@@ -429,7 +407,6 @@
         case console(ConsoleTab)
         case menu
         case overlay
-        case custom(size: CGSize, colorScheme: ColorScheme, build: @MainActor (UIFlowContext) -> AnyView)
     }
 
     // MARK: - Flow

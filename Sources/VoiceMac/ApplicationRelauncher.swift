@@ -2,11 +2,7 @@ import Foundation
 
 /// Launches a fresh Voiceour process before the current process exits. The app
 /// layer owns the cleanup ordering; this adapter owns only Process setup.
-public protocol ApplicationRelaunching {
-    func launch(arguments: [String], environment: [String: String]) throws
-}
-
-public struct ProcessApplicationRelauncher: ApplicationRelaunching {
+public struct ProcessApplicationRelauncher {
     public let executableURL: URL
 
     public init(executableURL: URL) {

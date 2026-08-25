@@ -1,4 +1,5 @@
 import Foundation
+import VoiceCore
 
 /// How Home states a duration, a count, a day tally and one heatmap square's
 /// hover sentence.
@@ -59,23 +60,14 @@ enum StatsFormatting {
     /// The calendar carries all three Foundation seams (calendar, locale, time
     /// zone), resolved by the caller the way `ConsoleHomeTab.calendar` resolves
     /// them, so the rendered day is the same local day the ledger keyed. The
-    /// key's components are re-resolved through that calendar at local midnight
-    /// rather than through `DictationStatsLedger`'s UTC arithmetic: a UTC
-    /// midnight formatted in a western zone would name the previous day.
+    /// key is parsed by `DictationStatsLedger.date(forDayKey:calendar:)`, the one
+    /// place a day key is validated, and resolved through that calendar at local
+    /// midnight rather than through the ledger's UTC arithmetic: a UTC midnight
+    /// formatted in a western zone would name the previous day.
     ///
     /// Returns nil for a string that is not a day key this app wrote.
     static func heatmapTooltip(words: Int, dayKey: String, calendar: Calendar) -> String? {
-        let parts = dayKey.split(separator: "-", omittingEmptySubsequences: false)
-        guard parts.count == 3,
-            let year = Int(parts[0]),
-            let month = Int(parts[1]),
-            let day = Int(parts[2])
-        else { return nil }
-        var components = DateComponents()
-        components.year = year
-        components.month = month
-        components.day = day
-        guard let date = calendar.date(from: components) else { return nil }
+        guard let date = DictationStatsLedger.date(forDayKey: dayKey, calendar: calendar) else { return nil }
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = calendar.locale

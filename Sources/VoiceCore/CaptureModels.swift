@@ -12,13 +12,13 @@ public struct CaptureAudioFormat: Codable, Equatable, Sendable {
     }
 }
 
+/// Which input-processing chain produced a capture, carried on its telemetry so
+/// the measured numbers can be attributed to the chain that made them. The
+/// shipping recorder runs the standard chain; `voiceProcessingNoAGC` names the
+/// AGC-disabled variant the analyzer is exercised against.
 public enum CaptureProcessingMode: String, Codable, Equatable, Sendable, CaseIterable {
     case standard
-    case native
-    case voiceProcessing = "voice-processing"
     case voiceProcessingNoAGC = "voice-processing-no-agc"
-    case soundIsolation = "sound-isolation"
-    case soundIsolationHighQuality = "sound-isolation-high-quality"
 }
 
 public struct CaptureTelemetry: Codable, Equatable, Sendable {

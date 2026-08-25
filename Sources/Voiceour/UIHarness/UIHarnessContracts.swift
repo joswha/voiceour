@@ -28,7 +28,6 @@
         case reduceTransparency
         case increaseContrast
         case differentiateWithoutColor
-        case reduceMotion
     }
 
     /// A single deterministic thing the harness can render, dump and lint.
@@ -143,8 +142,6 @@
                 RenderOverrides.increasedContrast = true
             case .differentiateWithoutColor:
                 RenderOverrides.differentiateWithoutColor = true
-            case .reduceMotion:
-                RenderOverrides.reduceMotion = true
             }
         }
     }

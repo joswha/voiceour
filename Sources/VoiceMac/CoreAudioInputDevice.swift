@@ -124,6 +124,9 @@ enum CoreAudioInputDevice {
         )
     }
 
+    /// The durable input identity. Named apart from ``CoreAudioOutputDevice.uid`` on
+    /// purpose: an input UID is what a capture session pins itself to, an output UID is
+    /// what mute ownership is recorded against.
     private static func uid(deviceID: AudioObjectID) -> String? {
         readString(deviceID: deviceID, selector: kAudioDevicePropertyDeviceUID)
     }
@@ -133,16 +136,8 @@ enum CoreAudioInputDevice {
     }
 
     private static func readString(deviceID: AudioObjectID, selector: AudioObjectPropertySelector) -> String? {
-        var value: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<CFString?>.size)
-        var stringAddress = CoreAudioProperty.address(selector, scope: kAudioObjectPropertyScopeGlobal)
-        guard AudioObjectHasProperty(deviceID, &stringAddress),
-            AudioObjectGetPropertyData(deviceID, &stringAddress, 0, nil, &size, &value) == noErr,
-            let string = value?.takeRetainedValue()
-        else {
-            return nil
-        }
-        return string as String
+        CoreAudioProperty.readString(
+            CoreAudioProperty.address(selector, scope: kAudioObjectPropertyScopeGlobal), from: deviceID)
     }
 
     /// Input channels across every input stream. A device with none cannot

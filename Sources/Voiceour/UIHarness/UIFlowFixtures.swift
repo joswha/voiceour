@@ -84,7 +84,7 @@
             }
         }
 
-        /// The System tab's automatic probe returns an unavailable snapshot only
+        /// The Settings tab's automatic probe returns an unavailable snapshot only
         /// after the script releases `.backendHealthUnavailable`. Explicit Re-check
         /// then parks at `.backendHealth` before returning ready. Both asynchronous
         /// state changes are therefore checkpoints rather than scheduler races.
@@ -111,25 +111,6 @@
                 unavailableLink.bind(to: context)
                 readyLink.bind(to: context)
                 return context
-            }
-        }
-
-        /// Clearing history owns a detached persistence task. The synchronous save
-        /// seam blocks on a sticky condition while the flow's named `.persistence`
-        /// gate controls when the task may complete.
-        static func historyClear() -> UIFlowFixture {
-            let barrier = UIBlockingGate()
-            let gates: Set<UIGate> = [.persistence]
-            return UIFlowFixture(name: "history-clear", armedGates: gates) {
-                let coordinator = UIFixtures.make(
-                    sessions: UIFixtures.history,
-                    recentSessionSnapshotSave: { _, _ in barrier.arrive() }
-                )
-                return UIFlowContext(
-                    coordinator: coordinator,
-                    armedGates: gates,
-                    releaseHooks: [.persistence: { barrier.release() }]
-                )
             }
         }
 
@@ -324,26 +305,6 @@
         }
 
         func warmUp() async {}
-        nonisolated func lastTranscriptionPath() -> String? { "ui-flow" }
-    }
-    /// One-shot synchronous bridge for a detached persistence closure. Release is
-    /// sticky so the script may open the named gate just before the save arrives.
-    private final class UIBlockingGate: @unchecked Sendable {
-        private let condition = NSCondition()
-        private var isReleased = false
-
-        func arrive() {
-            condition.lock()
-            while !isReleased { condition.wait() }
-            condition.unlock()
-        }
-
-        func release() {
-            condition.lock()
-            isReleased = true
-            condition.broadcast()
-            condition.unlock()
-        }
     }
 
     struct UIGatedPermissions: PermissionsChecking {
@@ -421,7 +382,6 @@
         }
 
         func warmUp() async {}
-        func lastTranscriptionPath() -> String? { "ui-flow" }
     }
 
     struct UIGatedInserter: TextInserting {

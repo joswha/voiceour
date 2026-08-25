@@ -33,10 +33,10 @@ extension DictationPolicy {
     ///
     /// This exists because ASR models invent text from noise rather than returning
     /// nothing. Measured on this machine, 8 s of quiet dither through the shipping
-    /// default backend produced `"Esta mañana está en su mayor mayor mayor."`, and
-    /// through `ark-0.6b` produced `"嗯。"` — fabricated text in a language the user
-    /// was not speaking, which `shouldSkipTranscript` cannot catch because it is not
-    /// whitespace. A dictation app pastes that into the user's document.
+    /// default backend produced `"Esta mañana está en su mayor mayor mayor."` —
+    /// fabricated text in a language the user was not speaking, which
+    /// `shouldSkipTranscript` cannot catch because it is not whitespace. A
+    /// dictation app pastes that into the user's document.
     ///
     /// Fails open in both directions that matter. Absent telemetry proceeds, because
     /// suppressing a real dictation on no evidence is worse than passing noise

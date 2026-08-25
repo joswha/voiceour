@@ -94,7 +94,6 @@
         }
 
         func warmUp() async {}
-        func lastTranscriptionPath() -> String? { nil }
     }
 
     /// Fixed paste target. Never touches `NSWorkspace` or the accessibility API.
@@ -396,10 +395,7 @@
             /// ledger. Either way the file's presence is decided here, so no
             /// fixture ever takes the coordinator's one-time backfill path by
             /// accident and folds the nine seeded transcripts into its totals.
-            stats: DictationStatsLedger? = nil,
-            recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
-                _, _ in
-            }
+            stats: DictationStatsLedger? = nil
         ) -> DictationCoordinator {
             RenderOverrides.permissions = HarnessPermissions(state: permissions)
             let scratch = nextScratchDirectory()
@@ -421,13 +417,15 @@
                     stats ?? (sessions.isEmpty ? DictationStatsLedger() : statsLedger),
                     in: scratch
                 ),
-                recentSessionSnapshotSave: recentSessionSnapshotSave,
+                // Fixtures keep the persistence tail inert: a scripted dictation
+                // must not depend on a scratch-file write completing.
+                recentSessionSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime
             )
 
             // Scene fixtures resolve health before rendering so a result cannot
-            // land mid-capture. A flow that scripts the System tab opts out and
+            // land mid-capture. A flow that scripts the Settings tab opts out and
             // gates that tab's own probe instead.
             if resolveBackendHealth {
                 coordinator.refreshBackendHealth(timeoutMs: 500)
@@ -726,8 +724,7 @@
                     captureMs: captureMs,
                     asrMs: asrMs,
                     insertMs: 24,
-                    startLatencyMs: 18,
-                    asrPath: "parakeet"
+                    startLatencyMs: 18
                 ),
                 leastConfidentWord: leastConfidentWord
             )

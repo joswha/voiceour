@@ -36,7 +36,6 @@ struct WordListImporterTests {
 
             for term in terms {
                 #expect(term.source == .manualImport)
-                #expect(term.cloudEligible == false)
                 #expect(term.protected == false)
                 #expect(term.casePolicy == .exact)
                 #expect(term.spokenAliases.isEmpty)
@@ -79,7 +78,6 @@ struct WordListImporterTests {
             #expect(terms.map(\.canonical) == ["Postgres", "Redis", "Envoy"])
             for term in terms {
                 #expect(term.source == .manualImport)
-                #expect(term.cloudEligible == false)
                 #expect(term.protected == false)
             }
         }

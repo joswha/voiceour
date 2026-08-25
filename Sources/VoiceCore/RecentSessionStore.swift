@@ -39,7 +39,6 @@ public struct SessionStageTimings: Codable, Equatable, Sendable {
     public var asrMs: Int?
     public var insertMs: Int?
     public var startLatencyMs: Int?
-    public var asrPath: String?
     public var stopReleaseToInsertionOutcomeMs: Int?
     public var asrBackendId: String?
     public var asrLoadMs: Int?
@@ -51,7 +50,6 @@ public struct SessionStageTimings: Codable, Equatable, Sendable {
         asrMs: Int? = nil,
         insertMs: Int? = nil,
         startLatencyMs: Int? = nil,
-        asrPath: String? = nil,
         stopReleaseToInsertionOutcomeMs: Int? = nil,
         asrBackendId: String? = nil,
         asrLoadMs: Int? = nil,
@@ -62,7 +60,6 @@ public struct SessionStageTimings: Codable, Equatable, Sendable {
         self.asrMs = asrMs
         self.insertMs = insertMs
         self.startLatencyMs = startLatencyMs
-        self.asrPath = asrPath
         self.stopReleaseToInsertionOutcomeMs = stopReleaseToInsertionOutcomeMs
         self.asrBackendId = asrBackendId
         self.asrLoadMs = asrLoadMs

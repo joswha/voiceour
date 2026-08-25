@@ -297,11 +297,12 @@ struct VoiceCoreTests {
         #expect(settings.muteSystemAudioDuringCapture == true)
     }
 
-    /// `scope` was a real per-term key until vocabulary stopped being scoped at
-    /// all. Ledgers written by scoped builds carry it as an object, so decoding
-    /// has to ignore an unknown-shaped key rather than fail and quarantine the
-    /// user's whole glossary.
-    @Test func settingsJSONWithRetiredTermScopeKeyStillDecodes() throws {
+    /// `scope` and `cloud_eligible` were real per-term keys — one until vocabulary
+    /// stopped being scoped at all, the other until the cloud refiner it gated was
+    /// deleted. Ledgers written by those builds still carry them, `scope` as an
+    /// object, so decoding has to ignore an unknown key of any shape rather than
+    /// fail and quarantine the user's whole glossary.
+    @Test func settingsJSONWithRetiredTermKeysStillDecodes() throws {
         let json = """
             {
               "asr_backend": "parakeet",
@@ -310,7 +311,8 @@ struct VoiceCoreTests {
                   "canonical": "Kubernetes",
                   "spoken_aliases": ["cube are netes"],
                   "source": "manualImport",
-                  "scope": {"kind": "project_id", "value": "proj-x"}
+                  "scope": {"kind": "project_id", "value": "proj-x"},
+                  "cloud_eligible": false
                 }
               ]
             }
@@ -437,7 +439,6 @@ struct VoiceCoreTests {
             asrMs: 125,
             insertMs: 18,
             startLatencyMs: 42,
-            asrPath: "streamed",
             stopReleaseToInsertionOutcomeMs: 211,
             asrBackendId: "parakeet-cpp",
             asrLoadMs: 7,
@@ -484,7 +485,12 @@ struct VoiceCoreTests {
         #expect(session.leastConfidentWord == nil)
     }
 
-    @Test func sessionStageTimingsMissingFieldsDecodeAsNil() throws {
+    /// One row written before the later fields existed and after `asrPath` stopped
+    /// existing. `asrPath` was a diagnostic no production ASR client ever filled
+    /// in, so rows on disk still name it: an absent key has to decode nil and a
+    /// retired one has to be ignored, or one stale row quarantines the whole
+    /// history file.
+    @Test func sessionStageTimingsDecodeMissingFieldsAsNilAndIgnoreRetiredKeys() throws {
         let partialJSON = """
             {
               "id": "00000000-0000-0000-0000-000000000102",
@@ -503,6 +509,7 @@ struct VoiceCoreTests {
         let session = try JSONDecoder().decode(RecentSession.self, from: Data(partialJSON.utf8))
         let stages = try #require(session.stages)
 
+        #expect(stages.asrMs == 125)
         #expect(stages.stopReleaseToInsertionOutcomeMs == nil)
         #expect(stages.asrBackendId == nil)
         #expect(stages.asrLoadMs == nil)

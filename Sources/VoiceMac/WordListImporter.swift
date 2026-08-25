@@ -44,12 +44,12 @@ enum WordListImportError: Error, Equatable, LocalizedError {
 /// (e.g. `NSOpenPanel`) lives in the UI layer and is deliberately not part of
 /// this type.
 ///
-/// Imported terms are tagged `source == .manualImport`, `cloudEligible == false`,
-/// and `protected == false`: imported vocabulary is local-only and must never
-/// reach a cloud refiner prompt (see `RefinerPolicy`).
+/// Imported terms are tagged `source == .manualImport` and `protected == false`:
+/// an untrusted list is ordinary learned vocabulary, never a curated protected
+/// term.
 public enum WordListImporter {
     /// Reads a newline- or JSON-array word list from `url`, sanitizes and caps the
-    /// entries, and returns them as cloud-ineligible terms.
+    /// entries, and returns them as unprotected manual-import terms.
     ///
     /// - Throws: `WordListImportError.symlinkEscapesParentDirectory` if the file
     ///   resolves outside its parent directory, or
@@ -133,8 +133,7 @@ public enum WordListImporter {
                     spokenAliases: [],
                     casePolicy: .exact,
                     protected: false,
-                    source: .manualImport,
-                    cloudEligible: false
+                    source: .manualImport
                 )
             )
         }

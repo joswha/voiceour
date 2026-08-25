@@ -14,7 +14,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
     public var casePolicy: CasePolicy
     public var protected: Bool
     public var source: TermSource
-    public var cloudEligible: Bool
     public var labeledAliases: [AliasLabel]
     public var tombstonedAt: Date?
 
@@ -25,7 +24,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         case casePolicy = "case_policy"
         case protected
         case source
-        case cloudEligible = "cloud_eligible"
         case labeledAliases = "labeled_aliases"
         case tombstonedAt = "tombstoned_at"
     }
@@ -37,7 +35,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         protected: Bool = true,
         termId: String? = nil,
         source: TermSource = .bundled,
-        cloudEligible: Bool = true,
         labeledAliases: [AliasLabel] = [],
         tombstonedAt: Date? = nil
     ) {
@@ -47,7 +44,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         self.casePolicy = casePolicy
         self.protected = protected
         self.source = source
-        self.cloudEligible = cloudEligible
         self.labeledAliases = labeledAliases
         self.tombstonedAt = tombstonedAt
     }
@@ -61,7 +57,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         casePolicy = try container.decodeIfPresent(CasePolicy.self, forKey: .casePolicy) ?? .exact
         protected = try container.decodeIfPresent(Bool.self, forKey: .protected) ?? true
         source = try container.decodeIfPresent(TermSource.self, forKey: .source) ?? .bundled
-        cloudEligible = try container.decodeIfPresent(Bool.self, forKey: .cloudEligible) ?? true
         labeledAliases = try container.decodeIfPresent([AliasLabel].self, forKey: .labeledAliases) ?? []
         tombstonedAt = try container.decodeIfPresent(Date.self, forKey: .tombstonedAt)
     }

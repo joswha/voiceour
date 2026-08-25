@@ -129,23 +129,6 @@ public enum Glossary {
         return locked.allSatisfy { containsTerm($0, in: candidate) }
     }
 
-    /// Pure view of persistent terms: drops tombstoned entries and orders by
-    /// source trust (then original order for determinism).
-    public static func activeTerms(
-        _ terms: [ProtectedTerm],
-        now: Date = Date()
-    ) -> [ProtectedTerm] {
-        terms.enumerated().filter { _, term in
-            if let tombstonedAt = term.tombstonedAt, tombstonedAt <= now { return false }
-            return true
-        }.sorted { lhs, rhs in
-            let lt = lhs.element.source.trustRank
-            let rt = rhs.element.source.trustRank
-            if lt != rt { return lt > rt }
-            return lhs.offset < rhs.offset
-        }.map(\.element)
-    }
-
     /// Whether `alias` may stand in for `canonical` *wherever it appears*.
     ///
     /// A glossary alias is not a suggestion, it is an unconditional rewrite of

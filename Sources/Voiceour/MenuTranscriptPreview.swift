@@ -47,7 +47,7 @@ struct MenuTranscriptPreview: View {
             // Pinned rather than content-sized, for two reasons that resolve to
             // the same number. The popover must not reflow its own height as
             // transcripts change length, and `lineLimit(3)` bounds the content
-            // at 62 pt — the 13 pt eyebrow row, `Space.xs`, and three 15 pt
+            // at 62 pt — the 13 pt `.micro` header row, `Space.xs`, and three 15 pt
             // caption lines — so `Row.list` clears the tallest case. It is also
             // the smallest measure that keeps the press target on the control
             // scale: 64 plus the well's own `Space.sm` padding is 80.
@@ -60,9 +60,9 @@ struct MenuTranscriptPreview: View {
     }
 }
 
-/// A well that is also the control. `PlateSurface(kind: .well)` pins itself to
-/// `.rest`, so an interactive well cannot escalate through it; the tokens and
-/// the derived radius are the shared ones either way.
+/// A well that is also the control, so this style owns the recess: it paints
+/// `Ink.well`, escalates that fill with the interaction ladder, and derives its
+/// radius concentrically from the popover.
 private struct MenuWellButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         MenuWellBody(configuration: configuration)
@@ -110,10 +110,10 @@ private struct MenuWellBody: View {
                 MenuLayout.innerShape
                     .strokeBorder(stroke, lineWidth: strokeWidth)
             }
-            // This body paints `Ink.well` by hand rather than routing through
-            // `PlateSurface`, so it also has to declare what it painted — otherwise
-            // every transcript sample is measured against the popover's ground
-            // instead of the recess the text actually sits in.
+            // This body paints `Ink.well` and its wash by hand, so it also has
+            // to declare what it painted — otherwise every transcript sample is
+            // measured against the popover's ground instead of the recess the
+            // text actually sits in.
             .environment(\.surfaceGround, inheritedGround.painting(VoiceourPalette.Ink.well).painting(wash))
             .contentShape(MenuLayout.innerShape)
             .focusEffectDisabled()

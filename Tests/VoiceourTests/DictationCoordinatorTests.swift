@@ -17,7 +17,20 @@ import Testing
 struct DictationCoordinatorTests {
     // MARK: Stale-generation guards
 
-    @Test func staleTranscriptionResultDoesNotChangeStateAfterNewerSessionStarted() async {
+    /// What happens to the session while its decode is still in flight. Either
+    /// way the result is stale by the time it lands, and a stale result may
+    /// publish nothing: not the transcript, not the outcome.
+    enum StaleResultCause: String, CaseIterable, Sendable {
+        /// Escape mid-transcription, and nothing else.
+        case cancellation
+        /// The same cancel plus the restart the user immediately asks for. The
+        /// cancelled pipeline still owns the recorder, so that restart is refused
+        /// outright and only a start after the result lands is honoured.
+        case cancellationThenRestart
+    }
+
+    @Test(arguments: StaleResultCause.allCases)
+    func aSupersededTranscriptionResultNeverPublishes(_ cause: StaleResultCause) async {
         let gate = TestGate()
         let recorder = FakeRecorder()
         let asr = FakeASR(behavior: .gatedText(gate, "stale transcript"))
@@ -32,41 +45,29 @@ struct DictationCoordinatorTests {
         await waitUntil { coordinator.state == .idle }
         #expect(coordinator.isProcessingInFlight)
 
-        coordinator.start()
-        #expect(recorder.startCount == 1)
-        #expect(coordinator.state == .idle)
+        if cause == .cancellationThenRestart {
+            // The cancelled pipeline still owns the recorder, so this start is
+            // refused rather than racing the old session's stop/cleanup.
+            coordinator.start()
+            #expect(recorder.startCount == 1)
+            #expect(coordinator.state == .idle)
+        }
 
         gate.fire()
         await waitUntil { !coordinator.isProcessingInFlight }
-        #expect(coordinator.lastTranscript == "")
-        #expect(coordinator.lastOutcome == nil)
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        #expect(recorder.startCount == 2)
-        #expect(coordinator.lastTranscript == "")
-        #expect(coordinator.lastOutcome == nil)
-    }
-
-    @Test func cancelledSessionLateResultDoesNotResurrectState() async {
-        let gate = TestGate()
-        let asr = FakeASR(behavior: .gatedText(gate, "late transcript"))
-        let coordinator = makeCoordinator(asr: asr)
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        coordinator.stopAndProcess()
-        await waitUntil { coordinator.state == .transcribing }
-
-        coordinator.cancel()
-        await waitUntil { coordinator.state == .idle }
-
-        gate.fire()
-        await waitUntil { !coordinator.isProcessingInFlight }
-
         #expect(coordinator.state == .idle)
-        #expect(coordinator.lastOutcome == nil)
         #expect(coordinator.lastTranscript == "")
+        #expect(coordinator.lastOutcome == nil)
+
+        if cause == .cancellationThenRestart {
+            // And the session started after the result landed is a clean one:
+            // the recorder runs again and the stale text never reappears.
+            coordinator.start()
+            await waitUntil { coordinator.state == .recording }
+            #expect(recorder.startCount == 2)
+            #expect(coordinator.lastTranscript == "")
+            #expect(coordinator.lastOutcome == nil)
+        }
     }
 
     // The system-audio restore ramps the user's volume back over a 120 ms fade
@@ -335,10 +336,16 @@ struct DictationCoordinatorTests {
 
     // MARK: Recent-session persistence
 
-    @Test func firstSessionCheckpointPublishesImmediatelyAndPrecedesInsertion() async {
+    /// The journal writes twice per delivered dictation — the transcript before
+    /// insertion, the outcome after it — and the UI is published ahead of both.
+    /// Blocking each write in turn stands inside the window it opens: the
+    /// publication that write is supposed to be behind is already on screen, and
+    /// once it lands the durable file agrees with what the user was shown.
+    @Test(arguments: [1, 2])
+    func aBlockedCheckpointNeverHoldsBackItsPublication(_ blockedWrite: Int) async {
         let fixture = temporarySessionStore()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let writer = SessionSnapshotWriterSpy(blockingCalls: [1])
+        let writer = SessionSnapshotWriterSpy(blockingCalls: [blockedWrite])
         let inserter = CapturingInserter()
         let coordinator = makeCoordinator(
             asr: FakeASR(behavior: .text("checkpointed transcript")),
@@ -350,15 +357,27 @@ struct DictationCoordinatorTests {
         coordinator.start()
         await waitUntil { coordinator.state == .recording }
         coordinator.stopAndProcess()
-        await waitUntil { writer.snapshotCount == 1 }
+        await waitUntil { writer.snapshotCount == blockedWrite }
 
+        // Insertion, and therefore the outcome, is on the far side of write 1.
+        let outcomeIsPublished = blockedWrite == 2
+        #expect(coordinator.state == .readyToInsert)
         #expect(coordinator.recentSessions.map(\.text) == ["checkpointed transcript"])
-        #expect(inserter.insertionCount == 0)
-        writer.release(call: 1)
-        await waitUntil { writer.snapshotCount == 2 }
-        await waitUntil { coordinator.lastOutcome != nil }
+        #expect(inserter.insertionCount == (outcomeIsPublished ? 1 : 0))
+        #expect((coordinator.lastOutcome == .pasteAttempted) == outcomeIsPublished)
+        #expect((coordinator.recentSessions.first?.outcome?.disposition == .pasteAttempted) == outcomeIsPublished)
+        #expect((coordinator.recentSessions.first?.stages?.insertMs != nil) == outcomeIsPublished)
 
+        writer.release(call: blockedWrite)
+        // Strictly after the last durable write: `processStop` awaits each
+        // snapshot, and `isProcessingInFlight` clears only once it returns.
+        await waitUntil { !coordinator.isProcessingInFlight }
+
+        #expect(writer.snapshotCount == 2)
         #expect(inserter.insertionCount == 1)
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+        // Write 1 is the pre-insertion checkpoint: the ASR stage timings are
+        // already known, the insertion's are not.
         #expect(writer.snapshots[0].first?.outcome == nil)
         #expect(writer.snapshots[0].first?.stages?.insertMs == nil)
         #expect(writer.snapshots[0].first?.stages?.stopReleaseToInsertionOutcomeMs == nil)
@@ -369,6 +388,10 @@ struct DictationCoordinatorTests {
         #expect(writer.snapshots[1].first?.outcome?.disposition == .pasteAttempted)
         #expect(writer.snapshots[1].first?.stages?.insertMs != nil)
         #expect(writer.snapshots[1].first?.stages?.stopReleaseToInsertionOutcomeMs != nil)
+
+        let reloaded = try? fixture.store.load()
+        #expect(reloaded?.first?.outcome == coordinator.recentSessions.first?.outcome)
+        #expect(reloaded?.first?.stages?.insertMs == coordinator.recentSessions.first?.stages?.insertMs)
     }
 
     @Test func cancellationDuringFirstCheckpointNeverInserts() async {
@@ -429,39 +452,23 @@ struct DictationCoordinatorTests {
         #expect(persisted.last?.stages?.stopReleaseToInsertionOutcomeMs != nil)
     }
 
-    @Test func outcomeIsVisibleWhileSecondCheckpointIsPending() async {
-        let fixture = temporarySessionStore()
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let writer = SessionSnapshotWriterSpy(blockingCalls: [2])
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("outcome checkpoint")),
-            recentSessionStore: fixture.store,
-            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
-        )
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        coordinator.stopAndProcess()
-        await waitUntil { writer.snapshotCount == 2 }
-
-        #expect(coordinator.lastOutcome == .pasteAttempted)
-        #expect(coordinator.recentSessions.first?.outcome?.disposition == .pasteAttempted)
-        #expect(coordinator.recentSessions.first?.stages?.insertMs != nil)
-        #expect(coordinator.state == .readyToInsert)
-        writer.release(call: 2)
-        await waitUntil { coordinator.state != .readyToInsert }
-
-        let reloaded = try? fixture.store.load()
-        #expect(reloaded?.first?.outcome == coordinator.recentSessions.first?.outcome)
-        #expect(reloaded?.first?.stages?.insertMs == coordinator.recentSessions.first?.stages?.insertMs)
+    /// The two destructive history operations. Both are queued on the same FIFO
+    /// tail as the session checkpoints, so a checkpoint that was already in
+    /// flight cannot land after them and put the rows back.
+    enum DestructiveHistoryOperation: String, CaseIterable, Sendable {
+        case delete
+        case clear
     }
 
-    @Test func deleteQueuedBehindPendingCheckpointCannotResurrectSession() async {
+    @Test(arguments: DestructiveHistoryOperation.allCases)
+    func aDestructiveWriteBehindAPendingCheckpointCannotBeResurrected(
+        _ operation: DestructiveHistoryOperation
+    ) async {
         let fixture = temporarySessionStore()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let writer = SessionSnapshotWriterSpy(blockingCalls: [1, 2])
         let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("history to delete")),
+            asr: FakeASR(behavior: .text("history to erase")),
             recentSessionStore: fixture.store,
             recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
         )
@@ -471,56 +478,27 @@ struct DictationCoordinatorTests {
         coordinator.stopAndProcess()
         await waitUntil { writer.snapshotCount == 1 }
         let id = coordinator.recentSessions[0].id
-        var deletionCompleted = false
-        let deletion = Task { @MainActor in
-            let durable = await coordinator.deleteRecentSession(id: id)
-            deletionCompleted = true
+        var operationCompleted = false
+        let destruction = Task { @MainActor in
+            let durable: Bool
+            switch operation {
+            case .delete: durable = await coordinator.deleteRecentSession(id: id)
+            case .clear: durable = await coordinator.clearRecentSessions()
+            }
+            operationCompleted = true
             return durable
         }
 
+        // Published immediately, acknowledged only once the write behind both
+        // blocked checkpoints has actually run.
         await waitUntil { coordinator.recentSessions.isEmpty }
-        #expect(!deletionCompleted)
+        #expect(!operationCompleted)
         writer.release(call: 1)
         await waitUntil { writer.snapshotCount == 2 }
-        #expect(!deletionCompleted)
+        #expect(!operationCompleted)
         writer.release(call: 2)
-        #expect(await deletion.value)
-        #expect(deletionCompleted)
-        await coordinator.prepareForTermination()
-
-        #expect((try? fixture.store.load()) == [])
-        #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
-    }
-
-    @Test func clearQueuedBehindPendingCheckpointCannotResurrectHistory() async {
-        let fixture = temporarySessionStore()
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let writer = SessionSnapshotWriterSpy(blockingCalls: [1, 2])
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("history to clear")),
-            recentSessionStore: fixture.store,
-            recentSessionSnapshotSave: { try writer.save(store: $0, sessions: $1) }
-        )
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        coordinator.stopAndProcess()
-        await waitUntil { writer.snapshotCount == 1 }
-        var clearCompleted = false
-        let clear = Task { @MainActor in
-            let durable = await coordinator.clearRecentSessions()
-            clearCompleted = true
-            return durable
-        }
-
-        await waitUntil { coordinator.recentSessions.isEmpty }
-        #expect(!clearCompleted)
-        writer.release(call: 1)
-        await waitUntil { writer.snapshotCount == 2 }
-        #expect(!clearCompleted)
-        writer.release(call: 2)
-        #expect(await clear.value)
-        #expect(clearCompleted)
+        #expect(await destruction.value)
+        #expect(operationCompleted)
         await coordinator.prepareForTermination()
 
         #expect((try? fixture.store.load()) == [])
@@ -653,7 +631,13 @@ struct DictationCoordinatorTests {
         #expect((try? fixture.store.load().map(\.text)) == ["termination boundary"])
     }
 
-    @Test func escapeCancelsALiveSessionAndIsArmedOnlyWhileOneRuns() async {
+    /// Escape belongs to the focused app at every other moment, so the binder
+    /// claims it only while a session runs. The armed flag lives in the binder
+    /// though, so a keypress that raced a session ending can still arrive at an
+    /// idle coordinator: that one must cancel nothing and must not flash
+    /// `.cancelled`.
+    @Test(arguments: [false, true])
+    func escapeIsArmedOnlyWhileASessionRunsAndOnlyEndsALiveOne(_ startsASession: Bool) async {
         let hotkey = FakeHotkey()
         let recorder = FakeRecorder()
         let coordinator = makeCoordinator(
@@ -663,28 +647,20 @@ struct DictationCoordinatorTests {
         )
 
         #expect(!hotkey.isCancelArmed)
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        #expect(hotkey.isCancelArmed)
+        if startsASession {
+            coordinator.start()
+            await waitUntil { coordinator.state == .recording }
+        }
+        #expect(hotkey.isCancelArmed == startsASession)
 
         hotkey.triggerCancel()
         await waitUntil { coordinator.state == .idle }
-        #expect(recorder.startCount == 1)
-        #expect(coordinator.lastTranscript.isEmpty)
-        #expect(!hotkey.isCancelArmed)
-    }
-
-    /// The armed flag lives in the binder, so a keypress that races a session
-    /// ending can still arrive at an idle coordinator. It must not flash `.cancelled`.
-    @Test func escapeFromIdleIsANoOp() async {
-        let hotkey = FakeHotkey()
-        let coordinator = makeCoordinator(hotkey: hotkey)
-
-        hotkey.triggerCancel()
         await drain()
 
         #expect(coordinator.state == .idle)
+        #expect(!hotkey.isCancelArmed)
+        #expect(recorder.startCount == (startsASession ? 1 : 0))
+        #expect(coordinator.lastTranscript.isEmpty)
     }
 
     // MARK: Recording session
@@ -814,96 +790,103 @@ struct DictationCoordinatorTests {
         #expect(!granted.isSystemAudioMuteUnavailable)
     }
 
-    @Test func systemAudioIsMutedForTheRecordingAndRestoredExactlyOnceOnEveryExitPath() async {
-        var settings = VoiceCore.Settings()
-        settings.muteSystemAudioDuringCapture = true
-        // Cue off for the same reason as above: this pins mute/restore ownership
-        // per exit path, not the sound that now precedes the device fade.
-        settings.sessionSoundsEnabled = false
-
-        let onSuccess = CountingAudioMuter()
-        let success = makeCoordinator(
-            asr: FakeASR(behavior: .text("muted utterance")),
-            audioMuter: onSuccess,
-            settings: settings
-        )
-        success.start()
-        await waitUntil { success.state == .recording }
-        #expect(success.isSystemAudioMuted)
-        success.stopAndProcess()
-        await waitUntil { !success.isProcessingInFlight }
-        #expect(onSuccess.muteCount == 1)
-        #expect(onSuccess.restoreCount == 1)
-        #expect(!success.isSystemAudioMuted)
-
-        let onCancel = CountingAudioMuter()
-        let cancelled = makeCoordinator(
-            asr: FakeASR(behavior: .text("cancelled utterance")),
-            audioMuter: onCancel,
-            settings: settings
-        )
-        cancelled.start()
-        await waitUntil { cancelled.state == .recording }
-        cancelled.cancel()
-        await waitUntil { !cancelled.isSystemAudioMuted }
-        #expect(onCancel.muteCount == 1)
-        #expect(onCancel.restoreCount == 1)
-
-        // Cancelling AFTER stopAndProcess is the case a local flag cannot cover:
-        // cancel() restores on its own task while the cancelled stop pipeline
-        // restores in its catch. Two owners, one session, still exactly one restore.
-        let onLateCancel = CountingAudioMuter()
-        let transcriptionGate = TestGate()
-        let lateCancelled = makeCoordinator(
-            asr: FakeASR(behavior: .gatedText(transcriptionGate, "cancelled mid-transcription")),
-            audioMuter: onLateCancel,
-            settings: settings
-        )
-        lateCancelled.start()
-        await waitUntil { lateCancelled.state == .recording }
-        lateCancelled.stopAndProcess()
-        await waitUntil { lateCancelled.state == .transcribing }
-        lateCancelled.cancel()
-        transcriptionGate.fire()
-        await waitUntil { !lateCancelled.isProcessingInFlight }
-        await drain()
-        #expect(onLateCancel.muteCount == 1)
-        #expect(onLateCancel.restoreCount == 1)
-        #expect(!lateCancelled.isSystemAudioMuted)
-
-        let onError = CountingAudioMuter()
-        let asrError = ASRErrorMessage(
-            requestId: "req",
-            code: .internalError,
-            category: "backend",
-            retryable: false,
-            userMessageKey: "asr_error",
-            detail: "boom"
-        )
-        let failed = makeCoordinator(
-            asr: FakeASR(behavior: .throwError(asrError)),
-            audioMuter: onError,
-            settings: settings
-        )
-        failed.start()
-        await waitUntil { failed.state == .recording }
-        failed.stopAndProcess()
-        await waitUntil { !failed.isProcessingInFlight }
-        #expect(onError.muteCount == 1)
-        // Exactly one, on the error path too: the stop path restores as soon as
-        // capture ends, and the catch blocks only restore when that point was
-        // never reached. An ASR failure used to restore twice.
-        #expect(onError.restoreCount == 1)
-        #expect(!failed.isSystemAudioMuted)
+    /// Every way a muted session can end. The mute is a side effect on the rest
+    /// of the Mac, so restore ownership is the invariant: whichever path reaches
+    /// it first performs exactly one restore, and no other path performs a second.
+    enum MutedSessionExit: String, CaseIterable, Sendable {
+        /// The ordinary stop: the pipeline restores the moment capture ends.
+        case stop
+        /// Escape while recording: this path owns both the discard and the restore.
+        case cancelWhileRecording
+        /// Escape after the stop, the case a local flag cannot cover: `cancel()`
+        /// restores on its own task while the cancelled pipeline restores in its
+        /// catch. Two owners, one session, still exactly one restore.
+        case cancelDuringTranscription
+        /// A wire failure: the stop path restores as soon as capture ends and the
+        /// catch blocks restore only when that point was never reached, so an ASR
+        /// error restores once rather than twice.
+        case asrFailure
     }
 
-    /// The window that a `guard isSystemAudioMuted` dedupe got wrong: the device is
-    /// already muted, but `beginRecording` publishes the flag only after awaiting
-    /// the mute task. A quit landing here used to skip the restore entirely, and
-    /// `applicationShouldTerminate` calls `Darwin.exit` the moment
-    /// `prepareForTermination()` returns — so the user's audio stayed muted until
-    /// the next launch recovered durable ownership.
-    @Test func terminationDuringAnInFlightMuteStillRestoresSystemAudio() async {
+    @Test(arguments: MutedSessionExit.allCases)
+    func aMutedSessionIsRestoredExactlyOnceOnEveryExitPath(_ exitPath: MutedSessionExit) async {
+        var settings = VoiceCore.Settings()
+        settings.muteSystemAudioDuringCapture = true
+        // Cue off: this pins mute/restore ownership per exit path, not the sound
+        // that precedes the device fade.
+        settings.sessionSoundsEnabled = false
+
+        let transcriptionGate = TestGate()
+        let behavior: FakeASR.Behavior
+        switch exitPath {
+        case .stop, .cancelWhileRecording:
+            behavior = .text("muted utterance")
+        case .cancelDuringTranscription:
+            behavior = .gatedText(transcriptionGate, "cancelled mid-transcription")
+        case .asrFailure:
+            behavior = .throwError(
+                ASRErrorMessage(
+                    requestId: "req",
+                    code: .internalError,
+                    category: "backend",
+                    retryable: false,
+                    userMessageKey: "asr_error",
+                    detail: "boom"
+                ))
+        }
+
+        let muter = CountingAudioMuter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: behavior),
+            audioMuter: muter,
+            settings: settings
+        )
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        // The flag publishes only after the mute task resolves, so waiting on it
+        // is what puts every row in the same place: device muted, mute landed.
+        await waitUntil { coordinator.isSystemAudioMuted }
+
+        switch exitPath {
+        case .stop, .asrFailure:
+            coordinator.stopAndProcess()
+        case .cancelWhileRecording:
+            coordinator.cancel()
+        case .cancelDuringTranscription:
+            coordinator.stopAndProcess()
+            await waitUntil { coordinator.state == .transcribing }
+            coordinator.cancel()
+            transcriptionGate.fire()
+        }
+
+        await waitUntil { !coordinator.isProcessingInFlight && !coordinator.isSystemAudioMuted }
+        // Settle before counting: a second owner's restore would land here.
+        await drain()
+
+        #expect(muter.muteCount == 1)
+        #expect(muter.restoreCount == 1)
+        #expect(!coordinator.isSystemAudioMuted)
+    }
+
+    /// Quitting from inside the window where the device is already muted but
+    /// `beginRecording` has not published the flag yet — it publishes only after
+    /// awaiting the mute task, which is the window a `guard isSystemAudioMuted`
+    /// dedupe gets wrong. `applicationShouldTerminate` calls `Darwin.exit` the
+    /// moment `prepareForTermination()` returns, so a termination that returns
+    /// early leaves the user's audio muted until the next launch recovers durable
+    /// ownership.
+    enum ClaimedRestore: String, CaseIterable, Sendable {
+        /// Termination is the first path to want this session's restore.
+        case unclaimed
+        /// `cancel()` claimed it first and is itself parked behind the gated mute,
+        /// so termination must await *that* restore rather than observing "someone
+        /// else is doing it" and returning into the exit.
+        case claimedByCancel
+    }
+
+    @Test(arguments: ClaimedRestore.allCases)
+    func terminationAwaitsTheRestoreItOwesFromInsideTheMuteWindow(_ claim: ClaimedRestore) async {
         var settings = VoiceCore.Settings()
         settings.muteSystemAudioDuringCapture = true
 
@@ -921,47 +904,11 @@ struct DictationCoordinatorTests {
         await waitUntil { muter.isMuted }
         #expect(!coordinator.isSystemAudioMuted, "the flag publishes only after the mute resolves")
 
-        var terminationCompleted = false
-        let termination = Task { @MainActor in
-            await coordinator.prepareForTermination()
-            terminationCompleted = true
+        if claim == .claimedByCancel {
+            coordinator.cancel()
+            await drain()
+            #expect(muter.restoreCount == 0, "the claimed restore is still behind the mute")
         }
-        await drain()
-        #expect(!terminationCompleted, "termination must not return while the mute is in flight")
-
-        muteGate.fire()
-        await termination.value
-        #expect(terminationCompleted)
-
-        // The invariant that matters is the device, not the published flag.
-        #expect(!muter.isMuted, "quitting must never leave the user's audio muted")
-        #expect(muter.muteCount == 1)
-        #expect(muter.restoreCount == 1)
-        #expect(!coordinator.isSystemAudioMuted)
-    }
-
-    /// And when another path claimed the restore first, termination must await that
-    /// same restore rather than observing "someone else is doing it" and returning
-    /// into `Darwin.exit`.
-    @Test func terminationWaitsForARestoreAnotherPathAlreadyClaimed() async {
-        var settings = VoiceCore.Settings()
-        settings.muteSystemAudioDuringCapture = true
-
-        let muteGate = TestGate()
-        let muter = GatedAudioMuter(muteGate: muteGate)
-        let coordinator = makeCoordinator(
-            asr: FakeASR(behavior: .text("cancel then quit")),
-            audioMuter: muter,
-            settings: settings
-        )
-
-        coordinator.start()
-        await waitUntil { muter.isMuted }
-
-        // cancel() claims the restore and blocks behind the gated mute.
-        coordinator.cancel()
-        await drain()
-        #expect(muter.restoreCount == 0, "the claimed restore is still behind the mute")
 
         var terminationCompleted = false
         let termination = Task { @MainActor in
@@ -969,19 +916,21 @@ struct DictationCoordinatorTests {
             terminationCompleted = true
         }
         await drain()
-        // The assertion the test is named for: without it, termination returning
-        // early would still leave the audio restored by the time the gate fired,
-        // and this would pass on scheduler timing alone.
-        #expect(!terminationCompleted, "termination returned before the claimed restore ran")
+        // Without this, a termination that returned early would still find the
+        // audio restored by the time the gate fired, and the row would pass on
+        // scheduler timing alone.
+        #expect(!terminationCompleted, "termination returned before the restore it owes ran")
         #expect(muter.restoreCount == 0)
 
         muteGate.fire()
         await termination.value
 
         #expect(terminationCompleted)
-        #expect(!muter.isMuted)
+        // The invariant that matters is the device, not the published flag.
+        #expect(!muter.isMuted, "quitting must never leave the user's audio muted")
         #expect(muter.muteCount == 1)
         #expect(muter.restoreCount == 1)
+        #expect(!coordinator.isSystemAudioMuted)
     }
 
     // MARK: Vocabulary teaching and clearing
@@ -1221,8 +1170,7 @@ struct DictationCoordinatorTests {
             spokenAliases: [],
             protected: false,
             termId: "project:legacy/Kubernetes",
-            source: .manualImport,
-            cloudEligible: false
+            source: .manualImport
         )
         let coordinator = makeVocabularyCoordinator(glossary: [legacy])
         let directory = FileManager.default.temporaryDirectory
@@ -1836,7 +1784,14 @@ struct DictationCoordinatorTests {
         #expect(clock.elapsed() >= SessionCue.listeningStarted.totalSeconds)
     }
 
-    @Test func theEndCuePlaysAfterTheRestoreRamp() async {
+    /// The cued session's whole audio order, for each way it can end: rise, duck,
+    /// restore, then the terminal cue. The muter lifts the hardware mute and only
+    /// then ramps the volume back, so a cue played at the tap would swell in from
+    /// zero, and the mute is not skipped just because a cue ran ahead of it. Each
+    /// ending plays its own cue and never the other's: the falling cue promises a
+    /// transcript, and a discarded utterance has none.
+    @Test(arguments: [SessionCue.listeningEnded, .listeningCancelled])
+    func theTerminalCuePlaysAfterTheRestoreRampAndNeverTheOtherEnding(_ terminal: SessionCue) async {
         let log = AudioEventLog()
         let clock = VirtualClock()
         let coordinator = makeCoordinator(
@@ -1847,16 +1802,20 @@ struct DictationCoordinatorTests {
 
         coordinator.start()
         await waitUntil { coordinator.state == .recording }
-        coordinator.stopAndProcess()
-        await waitUntil { log.events.contains(.cue(.listeningEnded)) }
+        await waitUntil { log.events.contains(.mute) }
+        if terminal == .listeningEnded {
+            coordinator.stopAndProcess()
+        } else {
+            coordinator.cancel()
+        }
+        await waitUntil { log.events.contains(.cue(terminal)) }
 
         let events = log.events
-        // Default settings, so this is also the cued session's whole audio order:
-        // rise, duck, restore, fall. The mute is not skipped just because a cue
-        // ran ahead of it.
         #expect(events.firstIndex(of: .cue(.listeningStarted))! < events.firstIndex(of: .mute)!)
         #expect(events.firstIndex(of: .mute)! < events.firstIndex(of: .restore)!)
-        #expect(events.firstIndex(of: .restore)! < events.firstIndex(of: .cue(.listeningEnded))!)
+        #expect(events.firstIndex(of: .restore)! < events.firstIndex(of: .cue(terminal))!)
+        let otherEnding: SessionCue = terminal == .listeningEnded ? .listeningCancelled : .listeningEnded
+        #expect(!events.contains(.cue(otherEnding)))
     }
 
     /// The accepted cost of giving the cue its own window: a session decided
@@ -1885,52 +1844,6 @@ struct DictationCoordinatorTests {
         #expect(!events.contains(.mute))
         // Nothing was muted, so the end cue plays without waiting for a fade.
         #expect(events.contains(.cue(.listeningEnded)))
-    }
-
-    @Test func anAutoStopStillPlaysTheEndCue() async {
-        let log = AudioEventLog()
-        let coordinator = makeCoordinator(sessionCues: LoggingCuePlayer(log: log))
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        coordinator.stopAndProcess(trigger: .autoStop(silenceStartedAt: Date()))
-        await waitUntil { log.events.contains(.cue(.listeningEnded)) }
-    }
-
-    @Test func cancellingPlaysTheCancelCueAndNeverTheEndCue() async {
-        let log = AudioEventLog()
-        let coordinator = makeCoordinator(sessionCues: LoggingCuePlayer(log: log))
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        coordinator.cancel()
-        await waitUntil { coordinator.state == .idle }
-
-        #expect(log.events.contains(.cue(.listeningStarted)))
-        #expect(log.events.contains(.cue(.listeningCancelled)))
-        // The falling cue promises a transcript. A discarded utterance has none.
-        #expect(!log.events.contains(.cue(.listeningEnded)))
-    }
-
-    @Test func theCancelCuePlaysAfterTheRestoreRamp() async {
-        let log = AudioEventLog()
-        let clock = VirtualClock()
-        let coordinator = makeCoordinator(
-            audioMuter: LoggingAudioMuter(log: log),
-            sessionCues: LoggingCuePlayer(log: log),
-            runtimeOverride: clock.runtime
-        )
-
-        coordinator.start()
-        await waitUntil { coordinator.state == .recording }
-        await waitUntil { log.events.contains(.mute) }
-        coordinator.cancel()
-        await waitUntil { log.events.contains(.cue(.listeningCancelled)) }
-
-        let events = log.events
-        // Same reason as the end cue: the muter lifts the hardware mute and only
-        // then ramps the volume back, so a cue at the tap swells in from zero.
-        #expect(events.firstIndex(of: .restore)! < events.firstIndex(of: .cue(.listeningCancelled))!)
     }
 
     /// Escape is claimed only while a session is live, but `cancel()` is public and
@@ -2513,8 +2426,6 @@ private final class SessionSnapshotWriterSpy: @unchecked Sendable {
     private let failingCalls: Set<Int>
     private var gates: [Int: DispatchSemaphore] = [:]
     private var savedSnapshots: [[RecentSession]] = []
-    private var activeCalls = 0
-    private var maxActiveCalls = 0
 
     init(blockingCalls: Set<Int> = [], failingCalls: Set<Int> = []) {
         self.blockingCalls = blockingCalls
@@ -2532,23 +2443,14 @@ private final class SessionSnapshotWriterSpy: @unchecked Sendable {
         lock.withLock { savedSnapshots }
     }
 
-    var maximumConcurrency: Int {
-        lock.withLock { maxActiveCalls }
-    }
-
     func release(call: Int) {
         lock.withLock { gates[call] }?.signal()
     }
 
     func save(store: RecentSessionStore, sessions: [RecentSession]) throws {
         let call = lock.withLock { () -> Int in
-            activeCalls += 1
-            maxActiveCalls = max(maxActiveCalls, activeCalls)
             savedSnapshots.append(sessions)
             return savedSnapshots.count
-        }
-        defer {
-            lock.withLock { activeCalls -= 1 }
         }
 
         if blockingCalls.contains(call) {

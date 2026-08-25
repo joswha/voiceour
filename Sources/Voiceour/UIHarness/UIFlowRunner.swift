@@ -123,7 +123,6 @@
                                     context: context,
                                     capture: capture,
                                     findings: findings,
-                                    warnings: UIHarnessRuntime.lastInteractionWarnings,
                                     checkpoint: checkpoint,
                                     ordinal: expectationOrdinal
                                 )
@@ -225,11 +224,6 @@
                         )
                     )
                 }
-
-            case .custom(let size, let colorScheme, let build):
-                return Host(size: size, colorScheme: colorScheme, navigateConsole: nil) {
-                    build(context)
-                }
             }
         }
 
@@ -248,7 +242,6 @@
                 case .start: context.coordinator.start()
                 case .stopAndProcess: context.coordinator.stopAndProcess()
                 case .cancel: context.coordinator.cancel()
-                case .toggle: context.coordinator.toggle()
                 }
 
             case .navigate(let tab):
@@ -327,7 +320,6 @@
                         context: context,
                         capture: nil,
                         findings: [],
-                        warnings: UIHarnessRuntime.lastInteractionWarnings,
                         checkpoint: "action",
                         ordinal: ordinal
                     ).candidates
@@ -390,7 +382,6 @@
                             context: context,
                             capture: nil,
                             findings: [],
-                            warnings: UIHarnessRuntime.lastInteractionWarnings,
                             checkpoint: "action",
                             ordinal: ordinal
                         ).candidates
@@ -475,24 +466,6 @@
             context: UIFlowContext
         ) -> UIFlowFailure? {
             switch condition {
-            case .settle(let requestedTurns):
-                let turns = max(0, requestedTurns)
-                for _ in 0..<min(turns, waitBudget) {
-                    UIHarnessRuntime.pump(iterations: 1)
-                }
-                guard turns <= waitBudget else {
-                    return UIFlowFailure(
-                        ordinal: ordinal,
-                        checkpoint: nil,
-                        domain: .wait,
-                        expectation: condition.description,
-                        observed: "settled \(waitBudget) turns; not observed within \(waitBudget) turns",
-                        selector: nil,
-                        candidates: []
-                    )
-                }
-                return nil
-
             case .state(let pattern):
                 if pattern.matches(context.coordinator.state) { return nil }
                 for _ in 0..<waitBudget {

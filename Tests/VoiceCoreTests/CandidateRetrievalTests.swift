@@ -6,11 +6,7 @@ import Testing
 @Suite("CandidateRetriever")
 struct CandidateRetrievalTests {
     private func snapshot(_ terms: [ProtectedTerm]) -> VocabularySnapshot {
-        VocabularySnapshot(
-            terms: terms,
-            ephemeral: [],
-            generatedAt: Date(timeIntervalSince1970: 0)
-        )
+        VocabularySnapshot(terms: terms, ephemeral: [])
     }
 
     private func substring(_ transcript: String, _ candidate: TermCandidate) -> String {

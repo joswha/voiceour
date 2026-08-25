@@ -27,7 +27,6 @@
             context: UIFlowContext,
             capture: UICapture?,
             findings: [UIFinding],
-            warnings: [String],
             checkpoint: String,
             ordinal: Int
         ) -> UIExpectationLine {
@@ -111,12 +110,6 @@
                 let probe = modelProbe(key, context: context)
                 result = Evaluation(passed: rule.accepts(probe.value), observed: probe.rendered)
 
-            case .warnings(let count):
-                result = Evaluation(
-                    passed: count.accepts(warnings.count),
-                    observed: "\(warnings.count) warnings"
-                )
-
             case .lintClean:
                 guard capture != nil else {
                     result = Evaluation(passed: false, observed: "capture unavailable")
@@ -177,7 +170,6 @@
             case .value(let value): return node.value == value
             case .placeholder(let value): return node.placeholder == value
             case .labelContains(let value): return node.label?.contains(value) ?? false
-            case .valueContains(let value): return node.value?.contains(value) ?? false
             case .role(let value): return node.role == value
             case .all(let queries): return queries.allSatisfy { nodeMatches($0, node: node) }
             }
@@ -233,7 +225,7 @@
         private static func queryNeedles(_ query: UIQuery) -> [String] {
             switch query {
             case .id(let value), .label(let value), .value(let value), .placeholder(let value),
-                .labelContains(let value), .valueContains(let value):
+                .labelContains(let value):
                 return [value]
             case .role:
                 return []

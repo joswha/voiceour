@@ -71,15 +71,6 @@ struct A11y: DynamicProperty {
         contrast == .increased ? VoiceourPalette.Ink.void : VoiceourPalette.Ink.surface
     }
 
-    /// The opaque colour the window ground resolves to, for anything that has to
-    /// blend *into* it — a scroll-edge fade, a scrim, a taper. Under Reduce
-    /// Transparency `GlassSurface` paints `Ink.frost`, so a fade that still ran
-    /// to `Ink.void` would lay a dark band across a light ground. One decision,
-    /// one place; callers stop mirroring the branch.
-    var ground: Color {
-        reduceTransparency ? VoiceourPalette.Ink.frost : VoiceourPalette.Ink.void
-    }
-
     var meterRest: Color {
         contrast == .increased ? VoiceourPalette.Contrast.meterRest : VoiceourPalette.Meter.rest
     }

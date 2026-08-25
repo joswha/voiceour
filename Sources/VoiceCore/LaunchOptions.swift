@@ -46,8 +46,8 @@ public struct LaunchOptions: Equatable, Sendable {
 
     /// Normalizes a backend id, rejecting anything unregistered.
     ///
-    /// The default keeps VoiceCore free of the registry (which must import
-    /// AVFoundation and Speech). Callers that have the registry pass its
+    /// The default keeps VoiceCore free of the registry, which lives in VoiceMac
+    /// and imports AVFoundation. Callers that have the registry pass its
     /// `backendIDs` so there is one source of truth at runtime; the default is
     /// only the fallback for argument parsing during `init`.
     ///
