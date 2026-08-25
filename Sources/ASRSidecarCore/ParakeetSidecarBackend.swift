@@ -37,6 +37,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     private var downloadFraction: Double?
     /// True from `warmUp` entry until it returns, the download included.
     private var warmingInProgress = false
+    /// Why the last acquisition did not finish, or nil when none has failed since the last
+    /// success. Reported on `health` so the app learns the truth instead of inferring it from a
+    /// transition; cleared where `loadFailed` is cleared, because the same event settles both.
+    private var lastAcquisitionError: ASRAcquisitionFailure?
     /// When the last decode finished, or the model was loaded. Drives the idle unload.
     private var lastDecodeEndedAt = DispatchTime.now()
     private var idleTimer: DispatchSourceTimer?
@@ -94,6 +98,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         let failed = loadFailed
         let fraction = downloadFraction
         let warming = warmingInProgress
+        let acquisitionError = lastAcquisitionError
         stateLock.unlock()
         return ASRBackendHealth(
             backendId: backendId,
@@ -104,7 +109,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             downloadFraction: fraction,
             // Nil rather than false once the model is loaded, so an idle-unloaded backend does
             // not read as warming when it is simply resting.
-            warming: warming && !loaded ? true : nil
+            warming: warming && !loaded ? true : nil,
+            lastAcquisitionError: acquisitionError
         )
     }
 
@@ -130,6 +136,27 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 $0.downloadFraction = nil
             }
         }
+        let loaded: (any ParakeetRuntimeContext)?
+        do {
+            loaded = try acquireModel(isShuttingDown: isShuttingDown)
+        } catch {
+            // The one place an acquisition failure is observed. Before this latch the server
+            // caught it, logged one stderr line and dropped it, leaving the app to infer a
+            // failure from "was acquiring, now neither" — invisible on a first probe and never
+            // produced at all by a refusal that fails instantly.
+            withState { $0.lastAcquisitionError = Self.acquisitionFailure(for: error) }
+            throw error
+        }
+        // A warm decode owns Metal buffers too, so shutdown must never begin one after EOF.
+        guard let loaded, !isShuttingDown() else { return }
+        // Outside the latch on purpose: the throwaway decode is an optimization, not
+        // acquisition. The artifact is on disk and loaded, and a decode that cannot run
+        // belongs to the request that hits it, with its own request id and terminal.
+        _ = try decode(loaded, samples: [Float](repeating: 0, count: 8000), isCancelled: { false })
+    }
+
+    /// Fetches the artifact if needed and builds the context. Nil when shutdown cut it short.
+    private func acquireModel(isShuttingDown: () -> Bool) throws -> (any ParakeetRuntimeContext)? {
         try cache.ensureModel { fraction in
             self.withState { $0.downloadFraction = fraction }
             self.log(String(format: "VOICEOUR_PRELOAD download %.0f%%", fraction * 100))
@@ -138,11 +165,17 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
 
         // EOF may arrive during acquisition. Avoid constructing a Metal-backed context that
         // shutdown would immediately have to tear down from another thread.
-        guard !isShuttingDown() else { return }
-        let context = try loadContext()
-        // A warm decode owns Metal buffers too, so shutdown must never begin one after EOF.
-        guard !isShuttingDown() else { return }
-        _ = try decode(context, samples: [Float](repeating: 0, count: 8000), isCancelled: { false })
+        guard !isShuttingDown() else { return nil }
+        return try loadContext()
+    }
+
+    /// The wire shape of an acquisition failure. `ParakeetModelCacheError` carries its own code
+    /// so the taxonomy stays in one place; anything else here came out of the context build.
+    static func acquisitionFailure(for error: Error) -> ASRAcquisitionFailure {
+        if let cacheError = error as? ParakeetModelCacheError {
+            return ASRAcquisitionFailure(code: cacheError.wireCode, detail: cacheError.description)
+        }
+        return ASRAcquisitionFailure(code: .modelLoadFailed, detail: String(describing: error))
     }
 
     private func withState(_ body: (ParakeetSidecarBackend) -> Void) {
@@ -344,6 +377,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             context = created
             loadMs = elapsed
             loadFailed = false
+            // The artifact is here and it loads, so whatever the last attempt tripped over is
+            // settled. Same rule as `loadFailed`, and it must be the same event: a stale
+            // DOWNLOAD FAILED outliving a working model is the mirror of the bug this fixes.
+            lastAcquisitionError = nil
             lastDecodeEndedAt = DispatchTime.now()
             stateLock.unlock()
             startIdleTimerIfNeeded()

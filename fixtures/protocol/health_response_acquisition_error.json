@@ -1,0 +1,12 @@
+{
+  "type": "health",
+  "protocol_version": 1,
+  "request_id": "00000000-0000-0000-0000-000000000002",
+  "ready": false,
+  "model_loaded": false,
+  "cache_ok": false,
+  "last_acquisition_error": {
+    "code": "insufficient_disk_space",
+    "detail": "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+  }
+}

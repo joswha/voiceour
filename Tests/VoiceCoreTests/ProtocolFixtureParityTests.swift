@@ -10,6 +10,9 @@ struct ProtocolFixtureParityTests {
             "hello.json": { _ = try ASRWire.decode(ASRHello.self, from: $0) },
             "health_request.json": { _ = try ASRWire.decode(ASRHealthRequest.self, from: $0) },
             "health_response.json": { _ = try ASRWire.decode(ASRHealthResponse.self, from: $0) },
+            "health_response_acquisition_error.json": {
+                _ = try ASRWire.decode(ASRHealthResponse.self, from: $0)
+            },
             "transcribe.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
             "result.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "result_with_words.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
@@ -51,6 +54,54 @@ struct ProtocolFixtureParityTests {
         )
 
         #expect(request.expectedModel == pinned)
+    }
+
+    /// A `health` frame from a sidecar that has nothing to report must decode where the field
+    /// exists, and one that reports must decode into the wire's own taxonomy. Both directions
+    /// matter: the app and the sidecar are separately signed binaries that a user can end up
+    /// running at different versions, and an optional field that only decodes when present is
+    /// not optional.
+    @Test func aHealthFrameDecodesWithAndWithoutAReportedAcquisitionError() throws {
+        let silent = try ASRWire.decode(
+            ASRHealthResponse.self,
+            from: Data(contentsOf: repoRoot().appendingPathComponent("fixtures/protocol/health_response.json"))
+        )
+        #expect(silent.lastAcquisitionError == nil)
+        // The neighbouring optionals are populated there, so the absent field is the subject
+        // rather than a frame that simply omits everything optional.
+        #expect(silent.downloadFraction == 0.42)
+        #expect(silent.warming == false)
+
+        let reporting = try ASRWire.decode(
+            ASRHealthResponse.self,
+            from: Data(
+                contentsOf: repoRoot()
+                    .appendingPathComponent("fixtures/protocol/health_response_acquisition_error.json"))
+        )
+        let failure = try #require(reporting.lastAcquisitionError)
+        #expect(failure.code == .insufficientDiskSpace)
+        #expect(failure.detail?.contains("bytes free for") == true)
+        // The refusal happens before a byte is fetched, so there is no progress to report and
+        // nothing is warming: absent, not zero.
+        #expect(reporting.downloadFraction == nil)
+        #expect(reporting.warming == nil)
+    }
+
+    /// The field has to survive a round trip through the shipped coder, not just decode from a
+    /// hand-written fixture: `ASRWire` converts keys, so a nested payload is where a snake-case
+    /// mismatch would hide.
+    @Test func aReportedAcquisitionErrorSurvivesTheWireCoder() throws {
+        let sent = ASRHealthResponse(
+            requestId: "r1",
+            ready: false,
+            modelLoaded: false,
+            cacheOk: false,
+            lastAcquisitionError: ASRAcquisitionFailure(code: .modelDownloadFailed, detail: "HTTP 403")
+        )
+
+        let line = try ASRWire.encodeLine(sent)
+        #expect(String(decoding: line, as: UTF8.self).contains("\"last_acquisition_error\""))
+        #expect(try ASRWire.decode(ASRHealthResponse.self, from: line) == sent)
     }
 
     @Test func resultWithWordsDecodesPopulatedWordEvidence() throws {

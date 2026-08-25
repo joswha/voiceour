@@ -314,6 +314,8 @@ public final class DictationCoordinator {
 
     enum AcquisitionChange: Equatable {
         case none
+        /// The sidecar named its own unresolved acquisition failure.
+        case reported(code: ASRErrorCode, detail: String?)
         /// Acquisition was running and stopped without producing a cache.
         case downloadFailed(detail: String?)
         /// The sidecar did not answer at all and no cached model exists.
@@ -321,23 +323,35 @@ public final class DictationCoordinator {
         case cleared
     }
 
-    /// Pure so the rules are testable without a sidecar. The wire carries no error
-    /// string for a failed download: `ParakeetSidecarBackend.warmUp` resets
+    /// Pure so the rules are testable without a sidecar.
+    ///
+    /// `health.lastAcquisitionError` is the sidecar's own verdict and outranks every
+    /// inference below it: the backend caught the error, so believing it is strictly
+    /// better than reading a transition. It is also the only thing that can see an
+    /// acquisition that failed *before the first probe* — a refusal such as
+    /// `insufficient_disk_space` fails in microseconds, leaving no "was acquiring"
+    /// edge to infer from and `previous == nil` when the answer arrives.
+    ///
+    /// An acquisition in flight still outranks the latch, because the latch holds the
+    /// *last* failure and a running retry has not failed yet. Below that the original
+    /// inference stands for a sidecar that reports nothing: `warmUp` resets
     /// `downloadFraction` and `warming` in a `defer`, so a failed download is the
-    /// transition "was acquiring, now neither, cache still absent". A probe that
-    /// never answered is a different fault — nothing was downloading, the engine
-    /// is simply not there — and must not read as a failed download.
+    /// transition "was acquiring, now neither, cache still absent". A probe that never
+    /// answered is a different fault — nothing was downloading, the engine is simply
+    /// not there — and must not read as a failed download.
     static func acquisitionTransition(
         previous: ASRBackendHealth?,
         current: ASRBackendHealth?,
         transportError: String?
     ) -> AcquisitionChange {
         if let current {
-            if current.cacheOk || current.downloadFraction != nil || current.warming == true {
-                return .cleared
+            if current.downloadFraction != nil || current.warming == true { return .cleared }
+            if let reported = current.lastAcquisitionError {
+                return .reported(code: reported.code, detail: reported.detail)
             }
+            if current.cacheOk { return .cleared }
             let wasAcquiring = previous?.downloadFraction != nil || previous?.warming == true
-            if wasAcquiring && !current.cacheOk { return .downloadFailed(detail: nil) }
+            if wasAcquiring { return .downloadFailed(detail: nil) }
             return .none
         }
         // Transport failure: only a fault when the model is not already on disk.
@@ -348,13 +362,18 @@ public final class DictationCoordinator {
     }
 
     /// One mapping from transition to published failure, shared by both probe
-    /// completions. `.unreachable` reuses the wire's `backend_unavailable` row so
-    /// Settings, the menu and the diagnostics report all say ENGINE OFFLINE with
-    /// one vocabulary rather than blaming a download that never ran.
+    /// completions, and one vocabulary: every case resolves through the single
+    /// code-to-sentence table. `.unreachable` reuses the wire's `backend_unavailable`
+    /// row so Settings, the menu and the diagnostics report all say ENGINE OFFLINE
+    /// rather than blaming a download that never ran, and `.downloadFailed` — the
+    /// inference, for a sidecar that names nothing — reuses `model_download_failed`,
+    /// which is what a sidecar that does name it reports.
     private func applyAcquisitionTransition(_ change: AcquisitionChange) {
         switch change {
+        case .reported(let code, let detail):
+            acquisitionFailure = UserFacingDictationFailure(code: code, detail: detail)
         case .downloadFailed(let detail):
-            acquisitionFailure = .acquisitionFailed(detail: detail)
+            acquisitionFailure = UserFacingDictationFailure(code: .modelDownloadFailed, detail: detail)
         case .unreachable(let detail):
             acquisitionFailure = UserFacingDictationFailure(code: .backendUnavailable, detail: detail)
         case .cleared:

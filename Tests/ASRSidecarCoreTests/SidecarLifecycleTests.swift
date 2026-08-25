@@ -37,11 +37,65 @@ struct SidecarLifecycleTests {
 
         #expect(throws: ScriptedLoadError.self) { try backend.warmUp() }
         #expect(!backend.health().ready)
+        // The same event has to settle both latches, and this one is what the app reads: the
+        // failure used to reach one stderr line and nothing else, leaving the app to guess.
+        #expect(backend.health().lastAcquisitionError?.code == .modelLoadFailed)
 
         try backend.warmUp()
 
         #expect(backend.health().ready)
         #expect(backend.health().modelLoaded)
+        #expect(backend.health().lastAcquisitionError == nil)
+    }
+
+    /// A refusal the volume raises before a byte is fetched has to reach the wire.
+    ///
+    /// This is the shape inference can never see. `warmUp` fails in microseconds, so the health
+    /// frame that follows has no fraction, nothing warming and no cache — byte for byte the
+    /// answer a probe gets when the preload simply has not started yet. Only the backend's own
+    /// verdict tells those two apart, and without it the app showed a stale MODEL NEEDED
+    /// sentence while every dictation was already being refused.
+    @Test func aVolumeRefusalIsReportedOnHealthRatherThanOnlyLogged() throws {
+        let bytes = Data("pretend these are weights".utf8)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecar-no-room-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("published.bin")
+        try bytes.write(to: source)
+
+        let cache = ParakeetModelCache(
+            directory: directory.appendingPathComponent("model", isDirectory: true),
+            artifact: ParakeetModelManifest(
+                modelId: "test/model",
+                revision: "test-revision",
+                file: "model.bin",
+                sha256: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+                sizeBytes: Int64(bytes.count)
+            ),
+            source: source,
+            ownsVariantRoot: false,
+            // Exactly the headroom margin, so the artifact's own bytes are what does not fit.
+            availableCapacity: { _ in ParakeetModelCache.downloadHeadroomBytes }
+        )
+        let backend = ParakeetSidecarBackend(
+            cache: cache,
+            log: { _ in },
+            idleUnloadMs: 0,
+            contextFactory: { _ in EmptyParakeetRuntimeContext() }
+        )
+
+        #expect(throws: ParakeetModelCacheError.self) { try backend.warmUp() }
+
+        let health = backend.health()
+        let reported = try #require(health.lastAcquisitionError)
+        #expect(reported.code == .insufficientDiskSpace)
+        // The byte budget the user has to act on, carried as a diagnostic.
+        #expect(reported.detail?.contains("bytes free for model.bin") == true)
+        // Indistinguishable from a preload that has not started, but for the field above.
+        #expect(health.downloadFraction == nil)
+        #expect(health.warming == nil)
+        #expect(!health.cacheOk)
     }
 
     /// The superseded variant is retired once the selected one has *loaded*, never merely once

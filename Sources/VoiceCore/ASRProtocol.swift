@@ -98,6 +98,17 @@ public enum ASRErrorCode: String, Codable, Equatable, Sendable, CaseIterable {
     case unsupportedAudioFormat = "unsupported_audio_format"
     case modelNotInstalled = "model_not_installed"
     case manifestMismatch = "manifest_mismatch"
+    /// Bytes arrived but were not the pinned artifact: wrong length or wrong digest. Distinct
+    /// from `manifestMismatch`, which is a refusal to overwrite a directory that deliberately
+    /// holds a different artifact — that one needs a hand, this one needs another attempt.
+    case artifactMismatch = "artifact_mismatch"
+    /// The transfer never produced the artifact. One code for every transport reason, an
+    /// offline Mac and an HTTP refusal alike: the sentence and the remedy are the same, and
+    /// which one it was belongs in `detail`, never in a status line.
+    case modelDownloadFailed = "model_download_failed"
+    /// The volume cannot hold the artifact. Established before a byte is fetched, and the only
+    /// acquisition failure a retry cannot clear.
+    case insufficientDiskSpace = "insufficient_disk_space"
     case modelLoadFailed = "model_load_failed"
     case inferenceFailed = "inference_failed"
     case timeout
@@ -151,6 +162,27 @@ public struct ASRHealthRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// Why the backend's last model acquisition did not finish, latched until one succeeds.
+///
+/// The wire used to carry nothing at all here: the sidecar caught its preload error, logged it
+/// to stderr, and dropped it, so the app could only infer a failure from the transition "was
+/// acquiring, now neither, cache still absent" — which a *first* probe cannot see, and which an
+/// immediate refusal such as `insufficientDiskSpace` never produces. The backend knows; this is
+/// how it says so.
+///
+/// `code` is the one wire taxonomy, never a parallel acquisition enum, so the app's single
+/// mapping from code to sentence covers this too. `detail` is the backend's own bounded
+/// message — an HTTP status, a digest pair, a byte budget — and stays a diagnostic.
+public struct ASRAcquisitionFailure: Codable, Equatable, Sendable {
+    public var code: ASRErrorCode
+    public var detail: String?
+
+    public init(code: ASRErrorCode, detail: String? = nil) {
+        self.code = code
+        self.detail = detail
+    }
+}
+
 public struct ASRHealthResponse: Codable, Equatable, Sendable {
     public var type: String
     public var protocolVersion: Int
@@ -163,6 +195,10 @@ public struct ASRHealthResponse: Codable, Equatable, Sendable {
     /// True while the backend is loading the model and compiling its pipelines. Nil once the
     /// model is loaded, so an idle-unloaded backend does not read as warming.
     public var warming: Bool?
+    /// The backend's last unresolved acquisition failure, or nil when it has none. Optional in
+    /// both directions on purpose: an older sidecar never writes the key and a newer one's
+    /// frame still decodes where nothing reads it.
+    public var lastAcquisitionError: ASRAcquisitionFailure?
 
     public init(
         type: String = "health",
@@ -172,7 +208,8 @@ public struct ASRHealthResponse: Codable, Equatable, Sendable {
         modelLoaded: Bool,
         cacheOk: Bool,
         downloadFraction: Double? = nil,
-        warming: Bool? = nil
+        warming: Bool? = nil,
+        lastAcquisitionError: ASRAcquisitionFailure? = nil
     ) {
         self.type = type
         self.protocolVersion = protocolVersion
@@ -182,6 +219,7 @@ public struct ASRHealthResponse: Codable, Equatable, Sendable {
         self.cacheOk = cacheOk
         self.downloadFraction = downloadFraction
         self.warming = warming
+        self.lastAcquisitionError = lastAcquisitionError
     }
 }
 
@@ -193,6 +231,7 @@ public struct ASRBackendHealth: Equatable, Sendable {
     public var cacheOk: Bool
     public var downloadFraction: Double?
     public var warming: Bool?
+    public var lastAcquisitionError: ASRAcquisitionFailure?
 
     public init(
         backendId: String,
@@ -201,7 +240,8 @@ public struct ASRBackendHealth: Equatable, Sendable {
         modelLoaded: Bool,
         cacheOk: Bool,
         downloadFraction: Double? = nil,
-        warming: Bool? = nil
+        warming: Bool? = nil,
+        lastAcquisitionError: ASRAcquisitionFailure? = nil
     ) {
         self.backendId = backendId
         self.backendStatus = backendStatus
@@ -210,6 +250,7 @@ public struct ASRBackendHealth: Equatable, Sendable {
         self.cacheOk = cacheOk
         self.downloadFraction = downloadFraction
         self.warming = warming
+        self.lastAcquisitionError = lastAcquisitionError
     }
 }
 
@@ -424,7 +465,12 @@ extension ASRErrorMessage {
     /// Python `protocol_error`: the client's retry policy and its localized strings key off
     /// these three derived fields, so sidecar and native backends must agree byte for byte.
     public init(code: ASRErrorCode, requestId: String?, detail: String?) {
-        let setup: Set<ASRErrorCode> = [.modelNotInstalled, .manifestMismatch, .backendUnavailable]
+        // The acquisition codes are setup, not runtime: nothing about the request is wrong and
+        // resending it now cannot help, which is also why none of them joins `retryable`.
+        let setup: Set<ASRErrorCode> = [
+            .modelNotInstalled, .manifestMismatch, .artifactMismatch, .modelDownloadFailed,
+            .insufficientDiskSpace, .backendUnavailable,
+        ]
         let retryable: Set<ASRErrorCode> = [.timeout, .internalError, .inferenceFailed]
         self.init(
             requestId: requestId,

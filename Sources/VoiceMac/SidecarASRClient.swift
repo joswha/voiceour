@@ -656,7 +656,10 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
                         modelLoaded: response.modelLoaded,
                         cacheOk: response.cacheOk,
                         downloadFraction: response.downloadFraction,
-                        warming: response.warming
+                        warming: response.warming,
+                        // Absent on an older sidecar, which decodes to nil and reads as "it
+                        // reports nothing" — the app then falls back to its own inference.
+                        lastAcquisitionError: response.lastAcquisitionError
                     ))
             case .error(let error):
                 if let requestId = error.requestId {

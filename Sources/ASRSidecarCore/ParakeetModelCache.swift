@@ -24,6 +24,19 @@ public enum ParakeetModelCacheError: Error, Equatable, CustomStringConvertible {
         case .insufficientDiskSpace(let detail): return detail
         }
     }
+
+    /// The wire code that names this mechanism.
+    ///
+    /// Beside the cases rather than in a switch at each caller, and it reuses the protocol's
+    /// one taxonomy so the app's single code-to-sentence mapping already covers acquisition.
+    public var wireCode: ASRErrorCode {
+        switch self {
+        case .manifestMismatch: return .manifestMismatch
+        case .artifactMismatch: return .artifactMismatch
+        case .downloadFailed: return .modelDownloadFailed
+        case .insufficientDiskSpace: return .insufficientDiskSpace
+        }
+    }
 }
 
 /// Identity of the one weight file the sidecar loads, and what gets written next to it.

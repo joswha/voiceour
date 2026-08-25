@@ -75,6 +75,26 @@ extension UserFacingDictationFailure {
             isRetryable: true,
             destination: .voiceSettings
         ),
+        .artifactMismatch: Row(
+            title: "DOWNLOAD DAMAGED",
+            cause: "The speech model that arrived did not match what this build expects, so it was discarded.",
+            isRetryable: true,
+            destination: .voiceSettings
+        ),
+        .modelDownloadFailed: Row(
+            title: "DOWNLOAD FAILED",
+            cause: "The speech model could not be downloaded.",
+            isRetryable: true,
+            destination: .voiceSettings
+        ),
+        .insufficientDiskSpace: Row(
+            // The byte budget the sidecar measured stays in `detail`: a reader who has to free
+            // space needs to know that, not that 1,342,177,280 bytes were wanted.
+            title: "DISK FULL",
+            cause: "Voiceour needs more free space on this Mac before it can download the speech model.",
+            isRetryable: false,
+            destination: .voiceSettings
+        ),
         .modelLoadFailed: Row(
             title: "MODEL FAILED",
             cause: "The speech model could not be loaded on this Mac.",
@@ -189,17 +209,6 @@ extension UserFacingDictationFailure {
         isRetryable: false,
         destination: .systemSettings
     )
-
-    /// The model download itself failed, as opposed to a decode that needed it.
-    public static func acquisitionFailed(detail: String?) -> UserFacingDictationFailure {
-        UserFacingDictationFailure(
-            title: "DOWNLOAD FAILED",
-            cause: "The speech model could not be downloaded.",
-            isRetryable: true,
-            destination: .voiceSettings,
-            detail: detail
-        )
-    }
 
     /// Progress as whole percent, floored: 99.6% reads as 99%, never as a
     /// finished download that is still running.

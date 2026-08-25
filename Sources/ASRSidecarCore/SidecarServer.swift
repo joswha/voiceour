@@ -149,6 +149,9 @@ public final class SidecarServer {
                 let elapsed = (DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
                 log("VOICEOUR_PRELOAD warm in \(elapsed)ms")
             } catch {
+                // The stderr line stays, and it is not the report: the backend latched this
+                // failure into its own state on the way out, and `health` carries it on the
+                // wire. Stdout remains protocol-only.
                 log("VOICEOUR_PRELOAD failed: \(error)")
             }
         }
@@ -171,7 +174,8 @@ public final class SidecarServer {
                     modelLoaded: health.modelLoaded,
                     cacheOk: health.cacheOk,
                     downloadFraction: health.downloadFraction,
-                    warming: health.warming
+                    warming: health.warming,
+                    lastAcquisitionError: health.lastAcquisitionError
                 )
             )
         case .cancel(let request):

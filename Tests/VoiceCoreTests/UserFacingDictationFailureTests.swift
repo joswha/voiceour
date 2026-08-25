@@ -47,6 +47,37 @@ import Testing
         #expect(missing.destination == .voiceSettings)
     }
 
+    /// Each acquisition mechanism reads as its own remedy rather than one
+    /// "could not be downloaded" for all of them, and the one a retry cannot
+    /// clear does not offer one. The machine numbers stay diagnostics.
+    @Test func eachAcquisitionFailureReadsAsItsOwnRemedy() {
+        let noRoom = UserFacingDictationFailure(
+            code: .insufficientDiskSpace,
+            detail: "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+        )
+        #expect(noRoom.title == "DISK FULL")
+        #expect(
+            noRoom.cause
+                == "Voiceour needs more free space on this Mac before it can download the speech model.")
+        // Freeing space is the remedy; repeating the request is not one.
+        #expect(noRoom.isRetryable == false)
+        #expect(noRoom.detail?.contains("1342177280") == true)
+        #expect(!noRoom.cause.contains("1342177280"))
+
+        // One code for every transport reason, and the HTTP status stays out of the sentence.
+        let refused = UserFacingDictationFailure(code: .modelDownloadFailed, detail: "HTTP 403")
+        #expect(refused.title == "DOWNLOAD FAILED")
+        #expect(refused.cause == "The speech model could not be downloaded.")
+        #expect(!refused.cause.contains("403"))
+        #expect(refused.detail == "HTTP 403")
+
+        // Bytes that arrived wrong are not the manifest guard's refusal to touch a
+        // directory that deliberately holds something else: different cause, different fix.
+        let damaged = UserFacingDictationFailure(code: .artifactMismatch, detail: "sha256 dead, expected beef")
+        #expect(damaged.title == "DOWNLOAD DAMAGED")
+        #expect(damaged.cause != UserFacingDictationFailure(code: .manifestMismatch, detail: nil).cause)
+    }
+
     /// Progress is floored, so 99.6% never reads as a finished download.
     @Test func progressIsFlooredRatherThanRounded() {
         #expect(UserFacingDictationFailure.percent(0.996) == "99%")

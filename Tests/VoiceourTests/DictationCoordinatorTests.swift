@@ -1682,6 +1682,157 @@ struct DictationCoordinatorTests {
         #expect(coordinator.errorMessage == nil)
     }
 
+    // MARK: Acquisition failure reporting and inference
+
+    /// The race this exists for. A refusal such as `insufficient_disk_space` fails in
+    /// microseconds — before the first health probe can answer — so there is no "was
+    /// acquiring" edge to infer from and `previous` is nil. Inference sees nothing and
+    /// the app used to show a stale, false MODEL NEEDED sentence while every dictation
+    /// was refused. The sidecar's own verdict is the only thing that can see this.
+    @Test func acquisitionTransitionSurfacesAnErrorReportedOnTheFirstProbe() {
+        let refused = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false,
+            lastAcquisitionError: ASRAcquisitionFailure(
+                code: .insufficientDiskSpace,
+                detail: "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+            )
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: nil, current: refused, transportError: nil
+            )
+                == .reported(
+                    code: .insufficientDiskSpace,
+                    detail:
+                        "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+                )
+        )
+    }
+
+    /// A reported error outranks inference even where inference would have answered,
+    /// and it carries the code — DOWNLOAD DAMAGED is not DOWNLOAD FAILED.
+    @Test func aReportedErrorOutranksTheStoppedDownloadInference() {
+        let downloading = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.8
+        )
+        let stopped = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false,
+            lastAcquisitionError: ASRAcquisitionFailure(
+                code: .artifactMismatch, detail: "sha256 deadbeef, expected 833bffc9"
+            )
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: downloading, current: stopped, transportError: nil
+            ) == .reported(code: .artifactMismatch, detail: "sha256 deadbeef, expected 833bffc9")
+        )
+    }
+
+    /// A retry in flight outranks the latch: it holds the *last* failure, and the
+    /// attempt that is running has not failed. Otherwise the automatic re-acquisition
+    /// would repaint DOWNLOAD FAILED over its own progress.
+    @Test func anAcquisitionInFlightOutranksAStillLatchedError() {
+        let retrying = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.1,
+            lastAcquisitionError: ASRAcquisitionFailure(code: .modelDownloadFailed, detail: "HTTP 429")
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: nil, current: retrying, transportError: nil
+            ) == .cleared
+        )
+    }
+
+    /// The sidecar clears its own latch on a successful load, so a health frame with a
+    /// good cache and no reported error clears the app's copy too.
+    @Test func aClearedLatchClearsThePublishedFailure() {
+        let refused = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false,
+            lastAcquisitionError: ASRAcquisitionFailure(code: .modelDownloadFailed, detail: "offline")
+        )
+        let recovered = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .ready,
+            ready: true, modelLoaded: true, cacheOk: true
+        )
+
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: refused, current: recovered, transportError: nil
+            ) == .cleared
+        )
+    }
+
+    /// The two faults the transition rules must keep apart, with the reported field in
+    /// play: a probe that never answered is `unreachable` and not a failed download, and
+    /// a transport failure over a cached model is no fault at all.
+    @Test func aReportedErrorNeverTurnsAnUnansweredProbeIntoADownloadFailure() {
+        let cached = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .ready,
+            ready: true, modelLoaded: true, cacheOk: true
+        )
+        let refused = ASRBackendHealth(
+            backendId: "parakeet", backendStatus: .modelMissing,
+            ready: false, modelLoaded: false, cacheOk: false,
+            lastAcquisitionError: ASRAcquisitionFailure(code: .insufficientDiskSpace, detail: "no room")
+        )
+
+        // No current answer at all: the latch in `previous` is history, not this probe's
+        // verdict, and the engine being absent is the fault to report.
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: refused, current: nil, transportError: "sidecar exited"
+            ) == .unreachable(detail: "sidecar exited")
+        )
+        #expect(
+            DictationCoordinator.acquisitionTransition(
+                previous: cached, current: nil, transportError: "offline"
+            ) == .none
+        )
+    }
+
+    /// End to end through the probe: a sidecar that reports a refusal on the very first
+    /// answer publishes a user-facing failure, and it is the disk-space sentence rather
+    /// than "could not be downloaded" or a raw code. The byte budget stays a diagnostic.
+    @Test func aRefusalReportedOnTheFirstProbeReachesTheAcquisitionFailure() async throws {
+        let detail = "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+        let asr = FakeASR(
+            behavior: .text("never transcribed"),
+            backendHealth: ASRBackendHealth(
+                backendId: "parakeet", backendStatus: .modelMissing,
+                ready: false, modelLoaded: false, cacheOk: false,
+                lastAcquisitionError: ASRAcquisitionFailure(code: .insufficientDiskSpace, detail: detail)
+            )
+        )
+        let coordinator = makeCoordinator(asr: asr, activeASRBackend: "parakeet")
+
+        // The first probe of the process: nothing precedes it, which is exactly the state
+        // the transition inference cannot read.
+        #expect(coordinator.backendHealth == nil)
+        coordinator.refreshBackendHealth(force: true)
+        await waitUntil { coordinator.acquisitionFailure != nil }
+
+        let failure = try #require(coordinator.acquisitionFailure)
+        #expect(failure.title == "DISK FULL")
+        #expect(
+            failure.cause
+                == "Voiceour needs more free space on this Mac before it can download the speech model.")
+        #expect(failure.isRetryable == false)
+        // Actionable sentence, machine numbers behind it.
+        #expect(failure.detail == detail)
+        #expect(!failure.cause.contains("1342177280"))
+        // And the preflight refuses with that same sentence rather than demoting it to
+        // "has not finished downloading yet".
+        #expect(coordinator.modelReadinessRefusal?.title == "DISK FULL")
+    }
+
     // MARK: Acquisition failure inference
 
     /// The wire carries no error string for a failed download; failure is the

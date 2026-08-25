@@ -51,7 +51,7 @@ Starting and stopping capture blocks, so it runs off the main actor on a serial 
 
 Newline-delimited JSON over the sidecar's stdin and stdout. Stdout carries protocol frames only; logs go to stderr. Every frame carries `protocol_version: 1`, and the client rejects any mismatch.
 
-The sidecar emits `hello` on start and accepts `health`, `transcribe`, and `cancel`. Each request gets exactly one terminal response — `result`, `error`, or `cancelled` — matched by request id. `health` reports readiness, model and cache state, download progress, and warmup.
+The sidecar emits `hello` on start and accepts `health`, `transcribe`, and `cancel`. Each request gets exactly one terminal response — `result`, `error`, or `cancelled` — matched by request id. `health` reports readiness, model and cache state, download progress, warmup, and the backend's last unresolved acquisition failure. That failure is a wire error code plus a diagnostic detail, optional in both directions, latched by the backend when a download, verification, disk-space or load attempt fails and cleared by the next successful load. The app takes it over any state it could infer for itself.
 
 `SidecarASRClient` owns one persistent child and multiplexes request ids. The child's environment is an allowlist — `PATH`, `HOME`, `TMPDIR`, the proxy and TLS variables downloading needs, and `VOICEOUR_` names — so no other parent variable crosses the boundary. Registered backends are exactly `parakeet` (production) and `fake` (development, tests, benchmarks), and the recognizer is English-only.
 

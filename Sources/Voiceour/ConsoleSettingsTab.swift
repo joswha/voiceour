@@ -563,9 +563,10 @@ struct ConsoleSettingsTab: View {
                     + "download."
             )
         } else if let failure = coordinator.acquisitionFailure {
-            // The published acquisition failure — DOWNLOAD FAILED for a stopped
-            // download, ENGINE OFFLINE for a probe that never answered — is the
-            // honest state even while a stale fraction lingers: without this
+            // The published acquisition failure outranks every readout below it,
+            // and it is now the sidecar's own verdict wherever it has one — DISK
+            // FULL, DOWNLOAD FAILED, DOWNLOAD DAMAGED, MODEL FAILED — with the
+            // inferred DOWNLOAD FAILED and ENGINE OFFLINE behind it. Without this
             // branch the row fell through to MODEL NEEDED or CHECK NEEDED and
             // every dictation failed with a raw code.
             return Readout(
@@ -619,9 +620,13 @@ struct ConsoleSettingsTab: View {
             return Readout(
                 label: "MODEL NEEDED",
                 severity: .warn,
+                // Not "may cold-load or download on first real transcription": since
+                // `start()` gained its readiness preflight, a tap with no usable model
+                // is refused before recording, so no dictation will ever trigger that
+                // download. What the reader needs is why the tap does nothing.
                 detail:
-                    "\(activeBackendName) may cold-load or download \(activeModelLabel) on first real "
-                    + "transcription.",
+                    "\(activeBackendName) has no usable copy of \(activeModelLabel), so a dictation tap is "
+                    + "refused instead of recording. Re-check after the download has finished.",
                 remediation: recheck
             )
         }

@@ -92,13 +92,13 @@ The sidecar protocol is newline-delimited JSON over stdin/stdout.
 - Startup emits `hello` with sidecar/backend status and capabilities.
 - Accepted requests are `health`, `transcribe`, and `cancel`.
 - Every decode request gets exactly one terminal `result`, `error`, or `cancelled`.
-- `health` reports ready/model/cache state plus optional download fraction and warming state.
+- `health` reports ready/model/cache state plus optional download fraction, warming state, and last unresolved acquisition failure. That failure is a wire `ASRErrorCode` plus a diagnostic detail, never a parallel taxonomy, and optional in both directions: a sidecar that omits it and one that sends it both decode.
 - `transcribe` carries request id, WAV metadata, expected model identity, and timeout.
 - Preserve request ids end-to-end so concurrent client bookkeeping cannot cross responses.
 - Keep one persistent sidecar per client. Timeout, malformed frame, EOF, or crash must fail pending work and permit a clean later spawn.
 - Server decode work stays serialized. Cancellation remains readable while decode runs.
 - The server owns its preload thread, sets shutdown before EOF exit, and performs a bounded join. Never add an unbounded Darwin `waitUntilExit()` after bounded shutdown.
-- A successful model load clears an earlier load-failure latch.
+- A successful model load clears an earlier load-failure latch, and the acquisition-failure latch with it. The sidecar is the authority on why acquisition failed; the app reports what the sidecar states and infers only where it states nothing.
 - Model context construction/freeing is serialized; concurrent contexts can destroy ggml's shared Metal device.
 
 Change protocol models, client/server encoding, and `fixtures/protocol/` together. A field or request type present on only one side is a broken change.
