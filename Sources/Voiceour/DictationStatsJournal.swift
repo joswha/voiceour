@@ -14,20 +14,26 @@ import VoiceCore
 /// write would leave Home claiming dictations History had already dropped.
 @MainActor
 extension DictationCoordinator {
-    /// Folds one completed dictation into the ledger and persists it.
+    /// Folds one journaled dictation into the ledger.
     ///
-    /// The day comes from `runtime.now()` in `runtime.calendar()` — the same
-    /// seams the transcript journal timestamps through, so a fixture's sessions
-    /// cannot land in one day row here and a different one there.
-    func recordDictationStats(words: Int, seconds: Double, app: DictationAppIdentity?) async {
-        guard !isPreparingForTermination else { return }
+    /// Publish-only and synchronous: the durable write is enqueued by
+    /// `recordDeliveredDictation`, its one caller, in the same main-actor turn
+    /// that appended the transcript row. Awaiting a write in here would put a
+    /// suspension between the two records and make each separately observable,
+    /// which is exactly what this file exists to prevent.
+    ///
+    /// Measured off the row itself rather than re-derived from the pipeline's
+    /// locals, so the ledger cannot describe a different dictation than the
+    /// journal does: `wordCount` is the journal's own count, `stages.captureMs`
+    /// is the measured microphone duration the backfill below reads too, and the
+    /// day is the day the row is stamped rather than a second read of the clock.
+    func foldDictationStats(for session: RecentSession, deliveredTo app: DictationAppIdentity?) {
         dictationStats.record(
-            words: words,
-            seconds: seconds,
-            day: DictationStatsLedger.dayKey(for: runtime.now(), calendar: runtime.calendar()),
+            words: session.wordCount,
+            seconds: Double(session.stages?.captureMs ?? 0) / 1000,
+            day: DictationStatsLedger.dayKey(for: session.createdAt, calendar: runtime.calendar()),
             app: app
         )
-        _ = await enqueueDictationStatsSnapshot().value
     }
 
     /// Erases the lifetime counts. Paired with the transcript clear rather than

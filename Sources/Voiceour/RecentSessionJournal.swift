@@ -1,7 +1,8 @@
 import Foundation
 import VoiceCore
 
-/// Recent-session history: normalization, append, outcome update, the serialized
+/// Recent-session history: normalization, the delivered-dictation append that is
+/// also the lifetime ledger's one fold site, outcome update, the serialized
 /// snapshot-write FIFO, and the destructive clear/delete paths.
 ///
 /// Extracted from `DictationCoordinator` as an extension rather than a separate
@@ -13,7 +14,10 @@ import VoiceCore
 /// One durable file, `recent-sessions.json`: the capped transcript corpus the
 /// user can re-read and delete. Every mutation below writes it through one FIFO,
 /// so a later snapshot can never land before an earlier one and a destructive
-/// write can never be resurrected by a checkpoint queued behind it.
+/// write can never be resurrected by a checkpoint queued behind it. The ledger's
+/// own file is written through the same FIFO, and folded here rather than a step
+/// later, so the two durable records cannot disagree — not on disk, and not for
+/// one main-actor turn either.
 @MainActor
 extension DictationCoordinator {
     @discardableResult
@@ -30,13 +34,31 @@ extension DictationCoordinator {
         return await enqueueJournalSnapshot().value
     }
 
+    /// Journals one delivered dictation: the transcript row, and the same
+    /// dictation folded into the lifetime ledger, published together.
+    ///
+    /// One method rather than two calls because `recentSessions` publishes
+    /// before its own snapshot is awaited. A ledger folded on the far side of
+    /// that await sat a whole main-actor suspension behind the journal, and Home
+    /// reads both: `owesFirstRunGuidance` retires on either record, so the
+    /// first-run card left while every figure still read zero and the caption
+    /// that names the gesture appeared under the hero — to a reader who had just
+    /// used it. A termination arriving inside that window dropped the fold
+    /// outright and left the two files permanently disagreeing. Both folds now
+    /// land in one turn with no suspension between them, and the two snapshots
+    /// drain through the one ordered tail in the order they were folded.
+    ///
+    /// Returns nil and folds nothing for a transcript that is only whitespace:
+    /// there is no dictation to record. A secure delivery target never arrives
+    /// here at all — it reaches neither record.
     @discardableResult
-    func recordRecentSession(
+    func recordDeliveredDictation(
         text: String,
         rawTranscript: String? = nil,
         mutedDuringCapture: Bool,
         stages: SessionStageTimings? = nil,
-        leastConfidentWord: LeastConfidentWord? = nil
+        leastConfidentWord: LeastConfidentWord? = nil,
+        deliveredTo app: DictationAppIdentity?
     ) async -> RecentSession.ID? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
@@ -51,7 +73,12 @@ extension DictationCoordinator {
             leastConfidentWord: leastConfidentWord
         )
         recentSessions = recentSessionStore.normalized([session] + recentSessions)
-        _ = await enqueueJournalSnapshot().value
+        foldDictationStats(for: session, deliveredTo: app)
+
+        let journal = enqueueJournalSnapshot()
+        let ledger = enqueueDictationStatsSnapshot()
+        _ = await journal.value
+        _ = await ledger.value
         return session.id
     }
 

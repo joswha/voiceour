@@ -218,31 +218,33 @@ extension DictationCoordinator {
                 sessionID = nil
             } else {
                 let journalSpan = StopPath.signposter.beginInterval(StopPath.Stage.journal)
-                sessionID = await recordRecentSession(
+                // Both durable records, folded in one main-actor turn and then
+                // written through the one ordered tail, so they agree about what
+                // happened at every instant Home can read them: a secure target
+                // reaches neither, and every delivery disposition reaches both —
+                // the words were spoken and transcribed whether or not the paste
+                // landed.
+                sessionID = await recordDeliveredDictation(
                     text: finalText,
                     rawTranscript: rawTranscript,
                     mutedDuringCapture: mutedDuringCapture,
                     stages: stages,
-                    leastConfidentWord: leastConfidentWord
+                    leastConfidentWord: leastConfidentWord,
+                    deliveredTo: insertionTarget.bundleId.map {
+                        DictationAppIdentity(bundleId: $0, name: insertionTarget.appName)
+                    }
                 )
                 StopPath.signposter.endInterval(StopPath.Stage.journal, journalSpan)
                 try ensureCurrentProcessing(generation)
-                // Counted exactly where the transcript is journaled, so the two
-                // durable records agree about what happened: a secure target
-                // reaches neither, and every delivery disposition reaches both —
-                // the words were spoken and transcribed whether or not the paste
-                // landed.
-                if sessionID != nil {
-                    await recordDictationStats(
-                        words: WordCount.count(in: finalText),
-                        seconds: Double(audio.meta.durationMs) / 1000,
-                        app: insertionTarget.bundleId.map {
-                            DictationAppIdentity(bundleId: $0, name: insertionTarget.appName)
-                        }
-                    )
-                    try ensureCurrentProcessing(generation)
-                }
             }
+
+            // The first run ends here: one line below the two durable records and
+            // one line outside the branch that writes them. Every gate that makes
+            // this a real dictation has already held — the no-speech gate, the empty
+            // transcript gate, every generation check — and a secure target, which
+            // reaches neither record, passes through this line exactly like a
+            // journalled one. See `completeFirstRun()`.
+            completeFirstRun()
 
             let insertStarted = runtime.now()
             let insertSpan = StopPath.signposter.beginInterval(StopPath.Stage.insert)
