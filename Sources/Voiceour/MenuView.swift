@@ -233,8 +233,10 @@ struct MenuView: View {
         }
     }
 
-    /// Same lifetime as `statusLabel`: the chip's colour has to agree with its
-    /// word, so both read the failure before falling through to the state.
+    /// Same lifetime as `statusLabel`, and the colour has to agree with the word.
+    /// It reads the failure the same way, with one exception: while the model is
+    /// still arriving, a refusal is amber rather than crimson, so "DOWNLOADING
+    /// MODEL" is painted as the wait it is instead of as a fault.
     private var statusMode: StatusChip.Mode {
         if let summary = reportedOutcome?.summary {
             switch summary.severity {
@@ -244,12 +246,20 @@ struct MenuView: View {
             case .neutral: return .neutral
             }
         }
+        // A start refused because the model is still arriving is a wait, not a fault, so it
+        // keeps the amber the chip already showed before the tap: nothing got worse by asking.
+        // `acquisitionFailure` is excluded deliberately — a download that stopped IS a fault,
+        // and it outranks the fraction that is still sitting in `backendHealth`.
+        let acquiring = coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming
+        if acquiring && coordinator.acquisitionFailure == nil {
+            return .warn
+        }
         if coordinator.errorMessage != nil || coordinator.lastFailure != nil
             || coordinator.acquisitionFailure != nil
         {
             return .crit
         }
-        if coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming {
+        if acquiring {
             return .warn
         }
 

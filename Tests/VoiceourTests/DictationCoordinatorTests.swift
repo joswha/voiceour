@@ -1757,6 +1757,75 @@ struct DictationCoordinatorTests {
         )
     }
 
+    // MARK: Model-readiness preflight
+
+    /// Tapping Fn while the artifact is still downloading must cost a tap, not an
+    /// utterance: the session never reaches `.recording`, so nothing is spoken into a
+    /// recorder whose decode is guaranteed to come back `model_not_installed`.
+    @Test func aStartIsRefusedWhileTheModelIsStillDownloading() async {
+        let recorder = FakeRecorder()
+        let asr = FakeASR(
+            behavior: .text("never transcribed"),
+            backendHealth: ASRBackendHealth(
+                backendId: "parakeet", backendStatus: .modelMissing,
+                ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.43
+            )
+        )
+        let coordinator = makeCoordinator(recorder: recorder, asr: asr, activeASRBackend: "parakeet")
+        coordinator.refreshBackendHealth(force: true)
+        await waitUntil { coordinator.backendHealth != nil }
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .idle }
+
+        #expect(recorder.startCount == 0)
+        // The percentage is what makes this a wait rather than a fault, and it is the
+        // sentence every other surface already shows.
+        #expect(coordinator.lastFailure?.cause == "The speech model is still downloading — 43% done.")
+        #expect(coordinator.errorMessage == "The speech model is still downloading — 43% done.")
+    }
+
+    /// The other half of the contract. A cached artifact whose context is still being
+    /// compiled is 2-3 s from ready and the decode already waits for it, so refusing on
+    /// `warming` would break dictation for every cold launch.
+    @Test func aStartProceedsWhileTheCachedModelIsMerelyWarming() async {
+        let recorder = FakeRecorder()
+        let asr = FakeASR(
+            behavior: .text("transcribed"),
+            backendHealth: ASRBackendHealth(
+                backendId: "parakeet", backendStatus: .ready,
+                ready: true, modelLoaded: false, cacheOk: true, warming: true
+            )
+        )
+        let coordinator = makeCoordinator(recorder: recorder, asr: asr, activeASRBackend: "parakeet")
+        coordinator.refreshBackendHealth(force: true)
+        await waitUntil { coordinator.backendHealth != nil }
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+
+        #expect(recorder.startCount == 1)
+        #expect(coordinator.lastFailure == nil)
+    }
+
+    /// Health that has never resolved is not evidence of absence. Refusing on it would
+    /// strand every dictation behind a probe that has not landed yet, and the sidecar
+    /// remains the authority on its own readiness.
+    @Test func anUnresolvedHealthProbeDoesNotRefuseAStart() async {
+        let recorder = FakeRecorder()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .text("transcribed")),
+            activeASRBackend: "parakeet"
+        )
+
+        #expect(coordinator.backendHealth == nil)
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+
+        #expect(recorder.startCount == 1)
+    }
+
     // MARK: Session cues
 
     @Test func theStartCuePlaysBeforeTheDeviceIsMuted() async {

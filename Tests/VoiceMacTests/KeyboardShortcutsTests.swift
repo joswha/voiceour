@@ -274,6 +274,20 @@ struct HotkeyEventRouterTests {
         #expect(try binder.handleTap(modifierChange(Self.fn, flags: [])) == false)
     }
 
+    /// The other half of a rebuild: the detectors are cleared, but Escape must still
+    /// cancel a session that is on screen right now. Arming mirrors session state, which
+    /// a tap coming or going does not change, so the binder restores it onto the fresh
+    /// router — otherwise a rebuild silently handed Escape back to the focused app for a
+    /// live dictation.
+    @Test func tapRebuildKeepsEscapeArmedForASessionAlreadyOnScreen() throws {
+        let binder = KeyboardShortcutsBinder()
+        binder.setCancelArmed(true)
+
+        binder.teardownTap()
+
+        #expect(try binder.handleTap(key(Self.escape, down: true)) == true)
+    }
+
     /// The Escape claim must not steal the arming state the Fn toggle depends on.
     @Test func standaloneFnTapStillTogglesWhileArmed() throws {
         var router = HotkeyEventRouter()

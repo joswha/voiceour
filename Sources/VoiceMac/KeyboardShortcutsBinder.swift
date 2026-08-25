@@ -255,6 +255,12 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     private var handler: (@Sendable () -> Void)?
     private var cancelHandler: (@Sendable () -> Void)?
     private var didPromptForAccessibility = false
+    /// True once the passive path has routed a real dictation gesture. The prompt
+    /// waits on this; see `promptForAccessibilityIfEarned()`.
+    private var didUseGestureWithoutTap = false
+    /// The app's own view of whether a session is on screen, kept beside the router's
+    /// copy so recreating the router cannot drop a fact only the app knows.
+    private var isSessionActive = false
 
     /// Diagnostic channel for the tap-vs-passive decision. The two paths are
     /// visually identical until a standalone Globe tap opens the system emoji
@@ -282,6 +288,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     /// run on the main thread — the tap's run-loop source is attached to
     /// `CFRunLoopGetMain()` — so this needs no more synchronisation than `handler`.
     public func setCancelArmed(_ isArmed: Bool) {
+        isSessionActive = isArmed
         router.isCancelArmed = isArmed
     }
 
@@ -298,21 +305,33 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             // suppress the popup because a passive NSEvent monitor cannot consume events.
             Self.log.error("tapCreate failed at install; falling back to passive monitors (emoji popup NOT suppressed)")
             installPassiveMonitors()
-            promptForAccessibilityOnce()
         }
         // Either way, keep watching: the tap must win back the key the moment it can.
         startWatchdog()
     }
 
-    /// The active event tap needs the Accessibility grant, and nothing else in the
-    /// app requests it at launch: microphone is requested at session start and
-    /// PostEvent at first insertion, so a fresh install (or a TCC entry gone stale)
-    /// silently landed on the passive path where the emoji picker reappears. One
-    /// prompt per process, at install time only — the watchdog's silent retries must
-    /// never spawn dialogs on a timer. Granting flips the toggle in System Settings
-    /// and the watchdog promotes to the tap within a tick, no relaunch.
-    private func promptForAccessibilityOnce() {
+    /// Asks for Accessibility trust once the reader has shown they want what it buys.
+    ///
+    /// Nothing in the hotkey path needs the grant to exist for the app to work: the
+    /// passive monitors are installed either way and already toggle recording on a
+    /// solitary Fn/Globe release, insertion degrades to copy-only rather than pasting
+    /// silently, and this watchdog promotes to the tap within one tick of the grant
+    /// arriving, with no relaunch. Asking at install time therefore bought nothing but
+    /// the earliest possible refusal: an unexplained system dialog about controlling
+    /// the computer, for an app the reader had not used yet.
+    ///
+    /// So it waits for the gesture itself, which is the thing trust actually buys. By
+    /// then the reader has met the emoji picker the tap exists to swallow, and the
+    /// dialog answers a question they now have. Still one prompt per process: the
+    /// watchdog's silent retries must never spawn dialogs on a timer.
+    ///
+    /// Never during a live session. `AXIsProcessTrustedWithOptions` puts a system alert
+    /// on screen, and a transcript's delivery target is snapshotted from whatever is
+    /// focused when insertion begins — prompting mid-utterance would move the
+    /// destination out from under the reader.
+    private func promptForAccessibilityIfEarned() {
         guard !didPromptForAccessibility else { return }
+        guard eventTap == nil, didUseGestureWithoutTap, !isSessionActive else { return }
         didPromptForAccessibility = true
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
@@ -352,16 +371,31 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             Self.log.error("event tap mach port invalidated; rebuilding")
             teardownTap()
         }
-        // A rebuilt tap must not inherit a press whose key-down belonged to the old tap.
-        router = HotkeyEventRouter()
         if installEventTap() {
-            // The tap now owns the key; drop the passive path so a toggle cannot fire twice.
+            // The tap now owns the key; drop the passive path so a toggle cannot fire
+            // twice, and start the new tap on a clean router so it cannot pair a release
+            // with a press only the passive monitor saw.
+            resetRouter()
             Self.log.log("hotkey path upgraded: passive monitors -> session event tap")
             removePassiveMonitors()
         } else if monitorTokens.isEmpty {
             Self.log.error("tapCreate still failing; staying on passive monitors")
             installPassiveMonitors()
         }
+        promptForAccessibilityIfEarned()
+    }
+
+    /// Clears both detectors so no half-seen press survives a tap that came or went,
+    /// while restoring the arming the app owns: `isCancelArmed` mirrors session state,
+    /// which a rebuild does not change, and dropping it would disarm Escape for a
+    /// session already on screen.
+    ///
+    /// Called only where the tap itself changed. A tick that merely fails to create one
+    /// leaves the passive path's router alone: recreating it every two seconds threw
+    /// away an Fn hold in progress, so a tap that straddled a tick toggled nothing.
+    private func resetRouter() {
+        router = HotkeyEventRouter()
+        router.isCancelArmed = isSessionActive
     }
 
     private func installEventTap() -> Bool {
@@ -475,6 +509,10 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             case .pass, .consume:
                 return
             case .toggle:
+                // The reader wants the gesture and is not getting the suppression the
+                // tap would give it, so the grant is now worth asking for. The watchdog
+                // does the asking, off the session path.
+                self.didUseGestureWithoutTap = true
                 self.handler?()
             case .cancel:
                 self.cancelHandler?()
@@ -502,7 +540,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             eventTap = nil
         }
         // Once the tap is gone, no held-key belief can be paired with future events.
-        router = HotkeyEventRouter()
+        resetRouter()
     }
 
     private func removePassiveMonitors() {

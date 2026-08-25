@@ -273,6 +273,30 @@ public final class DictationCoordinator {
     /// looking idle while every dictation failed with a raw code.
     public internal(set) var acquisitionFailure: UserFacingDictationFailure?
 
+    /// Why a session started right now could not be transcribed, or nil when it could.
+    ///
+    /// A tap during the first run's download used to enter `recording`: the overlay said
+    /// WARMING, the reader spoke a whole sentence, and only the *second* tap — the stop —
+    /// reached the sidecar and came back `model_not_installed`. The utterance was gone.
+    /// Refusing before `recording` costs a tap and saves an utterance.
+    ///
+    /// Only the artifact's absence refuses, which is what `cacheOk` reports. A backend
+    /// that has the weights on disk and is warming a context is 2-3 s from ready and the
+    /// decode already waits for it, so refusing that would be the regression this avoids.
+    /// Health that has never resolved is not evidence either: nothing has been measured,
+    /// and the sidecar stays the authority on its own readiness.
+    var modelReadinessRefusal: UserFacingDictationFailure? {
+        guard let health = backendHealth, !health.cacheOk else { return nil }
+        // One vocabulary across every surface: while an acquisition failure stands, the
+        // refusal repeats it rather than demoting DOWNLOAD FAILED to "not finished yet".
+        if let acquisitionFailure { return acquisitionFailure }
+        return UserFacingDictationFailure(
+            code: .modelNotInstalled,
+            detail: nil,
+            acquisitionFraction: health.downloadFraction
+        )
+    }
+
     /// Starts the model acquisition the first dictation would otherwise wait for,
     /// and keeps the readout moving while it runs.
     public func warmUpBackend() {
@@ -537,6 +561,15 @@ public final class DictationCoordinator {
             return
         }
 
+        // Before the microphone, because a dictation the model cannot serve should
+        // not also ask a fresh install for microphone access it has no use for yet.
+        // A first run therefore meets one thing at a time: the download, then the
+        // permission, then dictation.
+        if let refusal = modelReadinessRefusal {
+            failModelNotReady(refusal)
+            return
+        }
+
         switch permissions.microphone() {
         case .granted:
             beginRecording(generation: generation)
@@ -553,6 +586,16 @@ public final class DictationCoordinator {
                 }
             }
         }
+    }
+
+    /// Reports a refused start and returns to idle, the same shape as a denied
+    /// microphone: a precondition that was never met, so nothing was captured and
+    /// nothing was lost. `.modelNotInstalled` is the code the sidecar would have
+    /// answered with, and `errorMessage`/`lastFailure` outlive the reset so the menu
+    /// still carries the reason after the state has gone quiet again.
+    private func failModelNotReady(_ failure: UserFacingDictationFailure) {
+        publishRecordingError(.modelNotInstalled, failure: failure)
+        resetToIdleWhenInactive()
     }
 
     public func stopAndProcess() {

@@ -97,7 +97,12 @@ struct ConsoleHomeTab: View {
                 .accessibilityIdentifier("home.hero")
 
             if summary.totalSessions == 0 {
-                Text("Dictate once to light this up.")
+                // Home is the tab the console opens on, so a reader who has dictated
+                // nothing lands here rather than on History, whose own empty state also
+                // names the gesture. `ConsoleHotkeyHint`'s wording, kept as one caption
+                // line in Home's voice: this page is figures, and how to start is the
+                // one thing a zeroed page still owes the reader.
+                Text("Tap Fn or Globe to dictate — your first session lights this up.")
                     .roleStyle(.caption)
                     .foregroundStyle(a11y.textMid)
                     .accessibilityIdentifier("home.empty")

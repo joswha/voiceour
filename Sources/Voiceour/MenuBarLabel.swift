@@ -5,16 +5,30 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Model acquisition is not a `SessionState`, so without a case of its own the
+    /// icon sat at rest for however long 1.26 GB takes on a first run — the one
+    /// window where nothing the reader tries can work. Amber is the colour the menu
+    /// and the System pane already give a PREPARING backend, and it ranks below both
+    /// signals about a session the reader started: an error still shows crimson and a
+    /// live session still shows cyan.
+    private var isAcquiringModel: Bool {
+        coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming
+    }
+
     private var dotColor: Color? {
         if coordinator.state.isCritical {
             VoiceourPalette.Signal.crimson
         } else if coordinator.state.isActive {
             VoiceourPalette.Signal.cyan
+        } else if isAcquiringModel {
+            VoiceourPalette.Signal.amber
         } else {
             nil
         }
     }
 
+    /// Deliberately not pulsing for acquisition: a repeatForever animation would run
+    /// for the whole download.
     private var isPulsing: Bool {
         coordinator.state == .recording
     }
@@ -26,6 +40,8 @@ struct MenuBarLabel: View {
             "Voiceour: recording"
         } else if coordinator.state.isActive {
             "Voiceour: working"
+        } else if isAcquiringModel {
+            "Voiceour: preparing the speech model"
         } else {
             "Voiceour: idle"
         }

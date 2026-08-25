@@ -77,10 +77,25 @@ final class FakeASR: ASRClienting, @unchecked Sendable {
     }
 
     private let behavior: Behavior
+    private let lock = NSLock()
+    private var _backendHealth: ASRBackendHealth
 
-    init(behavior: Behavior) {
-        self.behavior = behavior
+    /// What a health probe answers. Settable because model readiness is a start
+    /// precondition: a test that wants a session refused has to be able to say the
+    /// artifact is not on disk.
+    var backendHealth: ASRBackendHealth {
+        get { lock.withLock { _backendHealth } }
+        set { lock.withLock { _backendHealth = newValue } }
     }
+
+    init(behavior: Behavior, backendHealth: ASRBackendHealth = FakeASR.ready) {
+        self.behavior = behavior
+        self._backendHealth = backendHealth
+    }
+
+    static let ready = ASRBackendHealth(
+        backendId: "fake", backendStatus: .ready, ready: true, modelLoaded: true, cacheOk: true
+    )
 
     func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
         switch behavior {
@@ -97,7 +112,7 @@ final class FakeASR: ASRClienting, @unchecked Sendable {
     }
 
     func health(timeoutMs: Int) async throws -> ASRBackendHealth {
-        ASRBackendHealth(backendId: "fake", backendStatus: .ready, ready: true, modelLoaded: true, cacheOk: true)
+        backendHealth
     }
 
     private static func result(_ text: String) -> ASRResult {

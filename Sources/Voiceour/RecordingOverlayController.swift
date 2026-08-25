@@ -231,10 +231,36 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
             element: NSApp as Any,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: state.displayName,
+                .announcement: Self.announcement(
+                    for: state,
+                    failure: coordinator?.lastFailure ?? coordinator?.acquisitionFailure
+                ),
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
+    }
+
+    /// What VoiceOver hears, which has to be what the menu shows. Pure so the rule is
+    /// testable without a panel, the same way the coordinator's acquisition rules are.
+    ///
+    /// `SessionState.error` formats itself as `Error: <wire code>`, so announcing the
+    /// state verbatim speaks `Error: backend_unavailable` or `Error: model_not_installed`
+    /// — mechanism names, which is exactly what a user-facing sentence may never be. The
+    /// coordinator publishes the failure the menu renders, so the spoken sentence is
+    /// that one.
+    ///
+    /// The wire code's own row is the floor rather than `displayName`: it is the same
+    /// table the menu resolves, it needs nothing published to be correct, and it leaves
+    /// no ordering between a state change and its failure assignment that could put a
+    /// raw code back into the announcement. Every other state already names itself in
+    /// plain words.
+    nonisolated static func announcement(
+        for state: SessionState,
+        failure: UserFacingDictationFailure?
+    ) -> String {
+        guard case .error(let code) = state else { return state.displayName }
+        if let failure { return failure.cause }
+        return UserFacingDictationFailure(code: code, detail: nil).cause
     }
 
     private func screen(containing frame: NSRect) -> NSScreen? {
