@@ -11,12 +11,17 @@ public enum ParakeetModelCacheError: Error, Equatable, CustomStringConvertible {
     case artifactMismatch(String)
     /// The transfer never produced the artifact.
     case downloadFailed(String)
+    /// The volume cannot hold the artifact, established before any of it was fetched.
+    /// Distinct from `downloadFailed` because nothing was attempted and nothing will help
+    /// except free space: the remedy is the user's, not a retry's.
+    case insufficientDiskSpace(String)
 
     public var description: String {
         switch self {
         case .manifestMismatch(let detail): return detail
         case .artifactMismatch(let detail): return detail
         case .downloadFailed(let detail): return detail
+        case .insufficientDiskSpace(let detail): return detail
         }
     }
 }
@@ -78,9 +83,29 @@ public struct ParakeetModelCache: @unchecked Sendable {
     /// Pause between download attempts. A test seam: the shipped value is a courtesy to a
     /// server that just dropped us, and a unit suite must not sleep through it.
     public let retryDelay: TimeInterval
+    /// Whether the directories beside `directory` are this cache's variants to retire.
+    ///
+    /// False for a `VOICEOUR_MODEL_CACHE` override, which names one directory its caller owns:
+    /// what sits next to it is none of this cache's business. Decided by whoever chose
+    /// `directory`, because that is the only place that knows where the path came from.
+    public let ownsVariantRoot: Bool
+    /// How the preflight asks a volume what it can still give, in bytes, or nil when the volume
+    /// cannot be asked. A seam: a genuinely full disk is not something a unit suite can arrange.
+    public let availableCapacity: (URL) -> Int64?
 
     /// Attempts one `ensureModel` makes before giving up. Each resumes where the last stopped.
     public static let downloadAttempts = 3
+
+    /// Free space required beyond the bytes still to fetch before a download may start.
+    ///
+    /// The artifact streams into a `.download` file inside `directory` and is then *renamed*
+    /// onto its final name, so the peak requirement is one copy of it rather than two, and this
+    /// is margin rather than a second copy. 256 MiB — a fifth of the `f16` artifact — buys two
+    /// things. `volumeAvailableCapacityForImportantUsage` is a forecast and not a reservation,
+    /// so another process may take space during the minutes a 1.26 GB transfer runs; and a
+    /// download that only just fits leaves the volume with nothing, which is where the manifest
+    /// write, APFS metadata and every other app on the machine start failing instead.
+    public static let downloadHeadroomBytes: Int64 = 256 * 1024 * 1024
 
     public static func defaultSessionConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
@@ -92,14 +117,18 @@ public struct ParakeetModelCache: @unchecked Sendable {
         directory: URL,
         artifact: ParakeetModelManifest = .pinned(.default),
         source: URL = ASRModelVariant.default.downloadURL,
+        ownsVariantRoot: Bool = true,
         sessionConfiguration: URLSessionConfiguration = ParakeetModelCache.defaultSessionConfiguration(),
-        retryDelay: TimeInterval = 2
+        retryDelay: TimeInterval = 2,
+        availableCapacity: @escaping (URL) -> Int64? = ParakeetModelCache.volumeAvailableCapacity
     ) {
         self.directory = directory
         self.artifact = artifact
         self.source = source
+        self.ownsVariantRoot = ownsVariantRoot
         self.sessionConfiguration = sessionConfiguration
         self.retryDelay = retryDelay
+        self.availableCapacity = availableCapacity
     }
 
     /// The cache for one variant: `VOICEOUR_MODEL_CACHE` when set, else the app cache directory.
@@ -114,7 +143,8 @@ public struct ParakeetModelCache: @unchecked Sendable {
             return ParakeetModelCache(
                 directory: URL(fileURLWithPath: override, isDirectory: true),
                 artifact: .pinned(variant),
-                source: variant.downloadURL
+                source: variant.downloadURL,
+                ownsVariantRoot: false
             )
         }
         return ParakeetModelCache(
@@ -132,17 +162,16 @@ public struct ParakeetModelCache: @unchecked Sendable {
 
     /// Deletes the cached artifacts of every variant other than this cache's own.
     ///
-    /// Called once this cache's artifact is acquired and verified. Only one variant is ever
-    /// wanted, so without this a switch would leave the superseded artifact — up to 1.26 GB —
-    /// on disk forever.
+    /// Called once this cache's artifact has *loaded*, which is why the ordering matters more
+    /// than it looks: only one variant is ever wanted, so without this a switch would leave the
+    /// superseded artifact — up to 1.26 GB — on disk forever, but delete it any earlier and a
+    /// selected artifact that turns out to be unloadable takes the last good weights with it.
     ///
     /// Resolved from this cache's own directory rather than from the caches root, so the rule is
-    /// "retire my siblings" and a test can exercise it in a temporary directory. Skipped under
-    /// `VOICEOUR_MODEL_CACHE`, whose single directory is the caller's to manage.
-    public func removeSupersededVariants(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) {
-        guard (environment["VOICEOUR_MODEL_CACHE"] ?? "").isEmpty else { return }
+    /// "retire my siblings" and a test can exercise it in a temporary directory. A cache that
+    /// does not own its variant root retires nothing.
+    public func removeSupersededVariants() {
+        guard ownsVariantRoot else { return }
         let parent = directory.deletingLastPathComponent()
         for variant in ASRModelVariant.allCases where variant.fileName != artifact.file {
             try? FileManager.default.removeItem(
@@ -187,8 +216,11 @@ public struct ParakeetModelCache: @unchecked Sendable {
         if cacheOK() { return }
         try requireMatchingManifestOrAbsent()
 
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporaryURL = directory.appendingPathComponent(artifact.file + ".download")
+        // Before the directory, so a volume that cannot hold this leaves nothing behind at all.
+        try requireCapacityToFinish(resuming: temporaryURL)
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let digest = try streamArtifact(to: temporaryURL, progress: progress)
         try verify(temporaryURL, digest: digest)
@@ -199,6 +231,48 @@ public struct ParakeetModelCache: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(artifact).write(to: manifestURL, options: .atomic)
+    }
+
+    /// Refuses a download the volume cannot finish, before a byte of it is fetched.
+    ///
+    /// Without this the reader waits out a 1.26 GB transfer only to be told the write failed —
+    /// the same answer an hour later, after spending the bandwidth to hear it.
+    ///
+    /// Only the bytes still missing are required: a resumed transfer already owns what is on
+    /// disk, and demanding the whole artifact again would refuse a download that is one chunk
+    /// from done. No answer is not a refusal — a volume that cannot be asked gets the attempt it
+    /// would have got before this check existed.
+    private func requireCapacityToFinish(resuming partial: URL) throws {
+        guard let available = availableCapacity(directory) else { return }
+        let alreadyFetched = fileSize(at: partial) ?? 0
+        let needed = max(0, artifact.sizeBytes - alreadyFetched) + Self.downloadHeadroomBytes
+        guard available < needed else { return }
+        throw ParakeetModelCacheError.insufficientDiskSpace(
+            "needs \(needed) bytes free for \(artifact.file), volume has \(available)"
+        )
+    }
+
+    /// What the volume holding `url` can still give a download it considers important.
+    ///
+    /// `.volumeAvailableCapacityForImportantUsage` is the key Apple documents for deciding
+    /// whether a file can be downloaded: unlike the raw free-byte count it includes space the
+    /// system would purge to make room, so it is the honest number to hold a 1.26 GB artifact
+    /// against.
+    ///
+    /// Asked of the nearest existing ancestor, because the cache directory does not exist before
+    /// the first acquisition and the answer wanted is about the volume, not about the path.
+    public static func volumeAvailableCapacity(_ url: URL) -> Int64? {
+        var probe = url.standardizedFileURL
+        while true {
+            if let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+                let capacity = values.volumeAvailableCapacityForImportantUsage
+            {
+                return capacity
+            }
+            let parent = probe.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != probe.path else { return nil }
+            probe = parent
+        }
     }
 
     /// Refuses to overwrite a directory that already holds a different artifact.

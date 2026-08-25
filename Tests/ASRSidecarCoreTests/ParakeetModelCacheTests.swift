@@ -37,11 +37,14 @@ struct ParakeetModelCacheTests {
 
     /// The literal name is the assertion: `f16` keeps the directory it has always had, so an
     /// existing install is not orphaned into re-downloading 1.26 GB the first time this runs.
+    /// That directory is one of the app's own per-variant subdirectories, so this cache is the
+    /// one that may retire its siblings.
     @Test func standardFallsBackToTheAppCacheDirectory() {
         let cache = ParakeetModelCache.standard(environment: [:])
 
         #expect(cache.directory.lastPathComponent == "parakeet-tdt-0.6b-v3-ggml")
         #expect(cache.directory.deletingLastPathComponent().lastPathComponent == "Voiceour")
+        #expect(cache.ownsVariantRoot)
     }
 
     /// The selection reaches the sidecar as an environment value, and it has to move the whole
@@ -186,11 +189,11 @@ struct ParakeetModelCacheTests {
         #expect(!FileManager.default.fileExists(atPath: cache.modelURL.path))
     }
 
-    /// Only one artifact is ever wanted, so the acquisition of a selection has to retire the
-    /// previous one: without this a switch leaves up to 1.26 GB of superseded weights on disk
-    /// forever. The cache's own directory decides who its siblings are, so nothing outside the
-    /// models root can be reached.
-    @Test func acquiringOneVariantRetiresTheOthersAndNothingElse() throws {
+    /// Only one artifact is ever wanted, so a proven selection has to retire the previous one:
+    /// without this a switch leaves up to 1.26 GB of superseded weights on disk forever. The
+    /// cache's own directory decides who its siblings are, so nothing outside the models root
+    /// can be reached. When the retirement happens is `SidecarLifecycleTests`' subject.
+    @Test func retiringTheSupersededVariantsReachesTheSiblingsAndNothingElse() throws {
         let root = temporaryDirectory()
         let kept = ASRModelVariant.f16
         let superseded = ASRModelVariant.q8
@@ -208,7 +211,7 @@ struct ParakeetModelCacheTests {
             directory: root.appendingPathComponent(kept.cacheDirectoryName, isDirectory: true),
             artifact: .pinned(kept)
         )
-        cache.removeSupersededVariants(environment: [:])
+        cache.removeSupersededVariants()
 
         #expect(FileManager.default.fileExists(atPath: cache.directory.path))
         #expect(FileManager.default.fileExists(atPath: unrelated.path))
@@ -218,17 +221,18 @@ struct ParakeetModelCacheTests {
     }
 
     /// The override names one directory the caller owns, so a development or benchmark run that
-    /// pins the path must never have its neighbours deleted.
+    /// pins the path must never have its neighbours deleted. `standard` is where that is
+    /// decided, because it is the only place that knows the path came from the environment.
     @Test func anOverriddenCacheDirectoryNeverRetiresItsNeighbours() throws {
         let root = temporaryDirectory()
+        let overridden = root.appendingPathComponent(ASRModelVariant.f16.cacheDirectoryName, isDirectory: true)
         let neighbour = root.appendingPathComponent(ASRModelVariant.q8.cacheDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: neighbour, withIntermediateDirectories: true)
 
-        let cache = ParakeetModelCache(
-            directory: root.appendingPathComponent(ASRModelVariant.f16.cacheDirectoryName, isDirectory: true),
-            artifact: .pinned(.f16)
-        )
-        cache.removeSupersededVariants(environment: ["VOICEOUR_MODEL_CACHE": root.path])
+        let cache = ParakeetModelCache.standard(environment: ["VOICEOUR_MODEL_CACHE": overridden.path])
+        #expect(!cache.ownsVariantRoot)
+
+        cache.removeSupersededVariants()
 
         #expect(FileManager.default.fileExists(atPath: neighbour.path))
     }
@@ -264,5 +268,72 @@ struct ParakeetModelCacheTests {
         // The source is gone; a second call must not attempt to fetch it again.
         try cache.ensureModel()
         #expect(cache.cacheOK())
+    }
+
+    /// A transfer the volume cannot finish is refused before it starts. Without the preflight
+    /// the reader waits out a 1.26 GB download and is then told the write failed, which is the
+    /// same information an hour later — and the refusal carries its own case so the sentence
+    /// shown can name disk space instead of blaming the network.
+    ///
+    /// The injected capacity is exactly the headroom margin, so what this pins is that the
+    /// artifact's own bytes are required *on top of* it.
+    @Test func aVolumeThatCannotHoldTheArtifactIsRefusedBeforeAnythingIsWritten() throws {
+        let bytes = Data("pretend these are weights".utf8)
+        let source = temporaryDirectory().appendingPathComponent("source.bin")
+        try bytes.write(to: source)
+        let directory = temporaryDirectory().appendingPathComponent("model", isDirectory: true)
+        let cache = ParakeetModelCache(
+            directory: directory,
+            artifact: artifact(for: bytes),
+            source: source,
+            availableCapacity: { _ in ParakeetModelCache.downloadHeadroomBytes }
+        )
+
+        do {
+            try cache.ensureModel()
+            Issue.record("a volume with no room for the artifact still started the download")
+        } catch ParakeetModelCacheError.insufficientDiskSpace {
+            // The one acceptable outcome; any other error fails this test by escaping it.
+        }
+
+        #expect(!cache.cacheOK())
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    /// A resumed transfer already owns the bytes on disk, so only the missing ones are required.
+    /// Demanding the whole artifact again would refuse a download that is one chunk from done —
+    /// exactly the hotel-connection case the partial file exists for.
+    @Test func aResumedDownloadOnlyRequiresTheBytesItStillHasToFetch() throws {
+        let bytes = Data("pretend these are weights".utf8)
+        let source = temporaryDirectory().appendingPathComponent("source.bin")
+        try bytes.write(to: source)
+        let directory = temporaryDirectory()
+        let pinned = artifact(for: bytes)
+        let cache = ParakeetModelCache(
+            directory: directory,
+            artifact: pinned,
+            source: source,
+            // Room for the margin plus one byte: enough for what is missing, nowhere near
+            // enough for the whole artifact again.
+            availableCapacity: { _ in ParakeetModelCache.downloadHeadroomBytes + 1 }
+        )
+        try bytes.dropLast().write(to: directory.appendingPathComponent(pinned.file + ".download"))
+
+        try cache.ensureModel()
+
+        #expect(cache.cacheOK())
+        #expect(try Data(contentsOf: cache.modelURL) == bytes)
+    }
+
+    /// The shipped probe answers about the volume, not about the path, so it has to survive a
+    /// cache directory that does not exist yet — which is every first launch.
+    @Test func theVolumeProbeAnswersForADirectoryThatDoesNotExistYet() throws {
+        let missing = temporaryDirectory()
+            .appendingPathComponent("not-created-yet", isDirectory: true)
+            .appendingPathComponent("nor-this", isDirectory: true)
+
+        let capacity = try #require(ParakeetModelCache.volumeAvailableCapacity(missing))
+
+        #expect(capacity > 0)
     }
 }

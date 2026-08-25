@@ -40,6 +40,13 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     /// When the last decode finished, or the model was loaded. Drives the idle unload.
     private var lastDecodeEndedAt = DispatchTime.now()
     private var idleTimer: DispatchSourceTimer?
+    /// Whether this process has already spent its one automatic re-acquisition.
+    /// See `reacquireOnce()`; guarded by `stateLock`.
+    private var reacquisitionSpent = false
+    /// The shutdown latch the server hands to `warmUp`, kept so acquisition started later —
+    /// the one automatic re-acquisition — bails out of model work on EOF exactly as the preload
+    /// thread does. Nil only in a process that never preloaded.
+    private var shutdownProbe: (() -> Bool)?
 
     /// Idle time after which the loaded model is released, or 0 to keep it forever.
     ///
@@ -113,7 +120,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
 
     func warmUp(isShuttingDown: @escaping () -> Bool) throws {
         guard !isShuttingDown() else { return }
-        withState { $0.warmingInProgress = true }
+        withState {
+            $0.warmingInProgress = true
+            $0.shutdownProbe = isShuttingDown
+        }
         defer {
             withState {
                 $0.warmingInProgress = false
@@ -125,10 +135,6 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             self.log(String(format: "VOICEOUR_PRELOAD download %.0f%%", fraction * 100))
         }
         withState { $0.downloadFraction = nil }
-        // The wanted artifact is now present and verified, so any sibling variant on disk is a
-        // superseded selection. Retiring it here — not at selection time — means the old weights
-        // survive until the new ones are proven, and a failed switch still has a model to load.
-        cache.removeSupersededVariants()
 
         // EOF may arrive during acquisition. Avoid constructing a Metal-backed context that
         // shutdown would immediately have to tear down from another thread.
@@ -279,10 +285,43 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         log("cached model failed digest re-verification after a load failure; removing it")
         try? FileManager.default.removeItem(at: cache.modelURL)
         try? FileManager.default.removeItem(at: cache.manifestURL)
+        reacquireOnce()
         return .failure(
             code: .modelNotInstalled,
             detail: "cached model failed digest re-verification and was removed; it will be re-downloaded"
         )
+    }
+
+    /// Re-acquires the artifact the load-failure path just deleted, at most once per process.
+    ///
+    /// The deletion above leaves the sidecar with no weights at all, and nothing else in the
+    /// process would fetch them again: every later `transcribe` would answer
+    /// `model_not_installed` — which the app presents as "the speech model has not finished
+    /// downloading yet" — until the reader found the menu's retry or relaunched. This is what
+    /// makes that sentence, and the promise in the detail above, true.
+    ///
+    /// Off the caller's thread because the caller is a decode inside the client's 30 s timeout,
+    /// which a fresh 1.26 GB transfer cannot fit. Latched at one attempt because an automatic
+    /// re-download must never become a loop; it cannot become one on its own either, since
+    /// `ensureModel` verifies the digest before the bytes are moved into place, so a load failure
+    /// over freshly fetched bytes finds a matching digest and reports a broken runtime instead of
+    /// deleting them again. The latch is the second brake, not the only one.
+    private func reacquireOnce() {
+        stateLock.lock()
+        let claimed = !reacquisitionSpent
+        reacquisitionSpent = true
+        let isShuttingDown = shutdownProbe ?? { false }
+        stateLock.unlock()
+        guard claimed, !isShuttingDown() else { return }
+
+        log("re-acquiring the removed model once; the next dictation can use it")
+        Thread.detachNewThread { [self] in
+            do {
+                try warmUp(isShuttingDown: isShuttingDown)
+            } catch {
+                log("automatic re-acquisition failed: \(error)")
+            }
+        }
     }
 
     /// Creates the context on first use, exactly once.
@@ -308,6 +347,15 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             lastDecodeEndedAt = DispatchTime.now()
             stateLock.unlock()
             startIdleTimerIfNeeded()
+            // A context that loaded is the strongest evidence this artifact is the wanted one —
+            // far stronger than the byte count `cacheOK()` compares — so this is where the
+            // superseded variants are retired. Any earlier and a selected artifact that has
+            // rotted to the right size passes `cacheOK()`, its sibling is deleted, the load
+            // fails, the load-failure path removes the selection too, and the reader is left
+            // with no model at all. Every process that loads a model reaches this line once,
+            // whether or not the acquisition above fetched anything, so a switch onto an
+            // already-cached variant still retires the one it replaced.
+            cache.removeSupersededVariants()
             return created
         } catch {
             stateLock.lock()
