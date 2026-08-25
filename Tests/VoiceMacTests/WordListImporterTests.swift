@@ -4,15 +4,15 @@ import Testing
 @testable import VoiceCore
 @testable import VoiceMac
 
-@Suite("ProjectLexiconImporterTests")
-struct ProjectLexiconImporterTests {
+@Suite("WordListImporterTests")
+struct WordListImporterTests {
     // MARK: - Fixtures
 
     /// Creates an isolated temp directory that is torn down when `body` returns.
     private func withTempDirectory<T>(_ body: (URL) throws -> T) throws -> T {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory.appendingPathComponent(
-            "ProjectLexiconImporterTests-\(UUID().uuidString)"
+            "WordListImporterTests-\(UUID().uuidString)"
         )
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: directory) }
@@ -30,14 +30,12 @@ struct ProjectLexiconImporterTests {
             let file = directory.appendingPathComponent("words.txt")
             try write("Kubernetes\nGraphQL\nParakeet\n", to: file)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: file, projectId: "proj-42")
+            let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(lexicon.projectId == "proj-42")
-            #expect(lexicon.terms.map(\.canonical) == ["Kubernetes", "GraphQL", "Parakeet"])
+            #expect(terms.map(\.canonical) == ["Kubernetes", "GraphQL", "Parakeet"])
 
-            for term in lexicon.terms {
+            for term in terms {
                 #expect(term.source == .manualImport)
-                #expect(term.scope == .projectID("proj-42"))
                 #expect(term.cloudEligible == false)
                 #expect(term.protected == false)
                 #expect(term.casePolicy == .exact)
@@ -52,9 +50,9 @@ struct ProjectLexiconImporterTests {
             let file = directory.appendingPathComponent("words.txt")
             try write("alpha\n\n   \nbeta\n\t\n", to: file)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: file, projectId: "p")
+            let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(lexicon.terms.map(\.canonical) == ["alpha", "beta"])
+            #expect(terms.map(\.canonical) == ["alpha", "beta"])
         }
     }
 
@@ -63,9 +61,9 @@ struct ProjectLexiconImporterTests {
             let file = directory.appendingPathComponent("words.txt")
             try write("gamma\r\ndelta\r\n", to: file)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: file, projectId: "p")
+            let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(lexicon.terms.map(\.canonical) == ["gamma", "delta"])
+            #expect(terms.map(\.canonical) == ["gamma", "delta"])
         }
     }
 
@@ -76,12 +74,11 @@ struct ProjectLexiconImporterTests {
             let file = directory.appendingPathComponent("words.json")
             try write("[\"Postgres\", \"Redis\", \"Envoy\"]", to: file)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: file, projectId: "svc")
+            let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(lexicon.terms.map(\.canonical) == ["Postgres", "Redis", "Envoy"])
-            for term in lexicon.terms {
+            #expect(terms.map(\.canonical) == ["Postgres", "Redis", "Envoy"])
+            for term in terms {
                 #expect(term.source == .manualImport)
-                #expect(term.scope == .projectID("svc"))
                 #expect(term.cloudEligible == false)
                 #expect(term.protected == false)
             }
@@ -96,9 +93,9 @@ struct ProjectLexiconImporterTests {
             // Backticks, angle-bracket delimiters, and control chars are unsafe.
             try write("safeTerm\nevil`code\n<script>\nbad\u{202E}term\nkeeper\n", to: file)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: file, projectId: "p")
+            let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(lexicon.terms.map(\.canonical) == ["safeTerm", "keeper"])
+            #expect(terms.map(\.canonical) == ["safeTerm", "keeper"])
         }
     }
 
@@ -108,14 +105,10 @@ struct ProjectLexiconImporterTests {
             let long = String(repeating: "x", count: 10)
             try write("short\n\(long)\ntiny\n", to: file)
 
-            let limits = ProjectLexiconLimits(maxTerms: 100, maxTermLength: 5)
-            let lexicon = try ProjectLexiconImporter.importLexicon(
-                from: file,
-                projectId: "p",
-                limits: limits
-            )
+            let limits = WordListLimits(maxTerms: 100, maxTermLength: 5)
+            let terms = try WordListImporter.importWordList(from: file, limits: limits)
 
-            #expect(lexicon.terms.map(\.canonical) == ["short", "tiny"])
+            #expect(terms.map(\.canonical) == ["short", "tiny"])
         }
     }
 
@@ -124,14 +117,10 @@ struct ProjectLexiconImporterTests {
             let file = directory.appendingPathComponent("words.txt")
             try write("one\ntwo\nthree\nfour\n", to: file)
 
-            let limits = ProjectLexiconLimits(maxTerms: 2, maxTermLength: 64)
-            let lexicon = try ProjectLexiconImporter.importLexicon(
-                from: file,
-                projectId: "p",
-                limits: limits
-            )
+            let limits = WordListLimits(maxTerms: 2, maxTermLength: 64)
+            let terms = try WordListImporter.importWordList(from: file, limits: limits)
 
-            #expect(lexicon.terms.map(\.canonical) == ["one", "two"])
+            #expect(terms.map(\.canonical) == ["one", "two"])
         }
     }
 
@@ -140,9 +129,9 @@ struct ProjectLexiconImporterTests {
             let file = directory.appendingPathComponent("words.txt")
             try write("repeat\nunique\nrepeat\n", to: file)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: file, projectId: "p")
+            let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(lexicon.terms.map(\.canonical) == ["repeat", "unique"])
+            #expect(terms.map(\.canonical) == ["repeat", "unique"])
         }
     }
 
@@ -156,9 +145,9 @@ struct ProjectLexiconImporterTests {
             let link = directory.appendingPathComponent("link.txt")
             try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
 
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: link, projectId: "p")
+            let terms = try WordListImporter.importWordList(from: link)
 
-            #expect(lexicon.terms.map(\.canonical) == ["insideTerm"])
+            #expect(terms.map(\.canonical) == ["insideTerm"])
         }
     }
 
@@ -172,9 +161,9 @@ struct ProjectLexiconImporterTests {
                 try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
 
                 do {
-                    _ = try ProjectLexiconImporter.importLexicon(from: link, projectId: "p")
+                    _ = try WordListImporter.importWordList(from: link)
                     Issue.record("expected an escaping symlink to be rejected")
-                } catch let error as ProjectLexiconImportError {
+                } catch let error as WordListImportError {
                     guard case .symlinkEscapesParentDirectory = error else {
                         Issue.record("unexpected error case: \(error)")
                         return

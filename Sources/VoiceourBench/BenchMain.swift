@@ -217,12 +217,22 @@ struct BenchRunner {
         }
     }
 
+    /// The artifact this run loads. Resolved from the environment exactly as the app resolves
+    /// it, and read once so the emitted metadata cannot name a different file than the one the
+    /// client was launched with.
+    private static let modelVariant = ASRModelVariant.resolved(
+        ProcessInfo.processInfo.environment[ASRModelVariant.environmentKey]
+    )
+
     /// The registry's client for `backend`, which for every registered backend is
     /// the sidecar client: this benchmark transcribes files and never records.
     private static func makeASRClient(backend: String) -> any ASRClienting {
         ASRBackendRegistry.builtIn.client(
             for: backend,
-            context: ASRBackendContext(sidecarExecutableURL: ASRBackendContext.siblingSidecarURL())
+            context: ASRBackendContext(
+                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
+                modelVariant: modelVariant
+            )
         )
     }
 
@@ -262,6 +272,7 @@ struct BenchRunner {
             backend: options.backend,
             modelId: model.id,
             modelRevision: model.revision,
+            modelFile: model.file,
             startedAt: ISO8601DateFormatter().string(from: Date())
         )
     }
@@ -271,17 +282,25 @@ struct BenchRunner {
     /// backend's rows and make the whole record untrustworthy.
     ///
     /// A backend with no model at all — `fake` — reports its own name rather than
-    /// borrowing another backend's model.
-    private static func modelIdentity(for backend: String?) -> (id: String, revision: String) {
+    /// borrowing another backend's model, and names no file.
+    ///
+    /// The file is the loaded artifact, which the descriptor cannot supply: every variant of
+    /// the pinned repository shares one id and revision, so a record without the file name
+    /// makes two runs on different weights look like the same model to a comparison.
+    private static func modelIdentity(for backend: String?) -> (id: String, revision: String, file: String?) {
         guard
             let backend,
             let descriptor = ASRBackendRegistry.builtIn.descriptor(for: backend),
             let modelId = descriptor.modelId
         else {
             let name = backend ?? "none"
-            return (name, name)
+            return (name, name, nil)
         }
-        return (modelId, descriptor.modelRevision ?? ProcessInfo.processInfo.operatingSystemVersionString)
+        return (
+            modelId,
+            descriptor.modelRevision ?? ProcessInfo.processInfo.operatingSystemVersionString,
+            modelVariant.fileName
+        )
     }
 
     private func processPipelineRow(
@@ -476,6 +495,10 @@ struct BenchMeta: Encodable {
     var backend: String?
     var modelId: String
     var modelRevision: String
+    /// The loaded weight file, absent for a backend that has no model. `model_id` and
+    /// `model_revision` are shared by every variant of the pinned repository, so this is the
+    /// only field that tells two artifacts' runs apart.
+    var modelFile: String?
     var startedAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -484,6 +507,7 @@ struct BenchMeta: Encodable {
         case backend
         case modelId = "model_id"
         case modelRevision = "model_revision"
+        case modelFile = "model_file"
         case startedAt = "started_at"
     }
 
@@ -498,6 +522,11 @@ struct BenchMeta: Encodable {
         }
         try container.encode(modelId, forKey: .modelId)
         try container.encode(modelRevision, forKey: .modelRevision)
+        if let modelFile {
+            try container.encode(modelFile, forKey: .modelFile)
+        } else {
+            try container.encodeNil(forKey: .modelFile)
+        }
         try container.encode(startedAt, forKey: .startedAt)
     }
 }

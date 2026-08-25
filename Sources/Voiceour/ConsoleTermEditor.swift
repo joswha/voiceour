@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import VoiceCore
 
-/// The one editor for a glossary term: the spelling dictation is held to, the
-/// spoken forms that map onto it, and the scope it is active in.
+/// The one editor for a glossary term: the spelling dictation is held to and the
+/// spoken forms that map onto it.
 ///
 /// It is presentational by construction. It holds no coordinator, reads no
 /// settings and performs no write: it edits the bindings its host owns and
@@ -25,16 +25,9 @@ struct ConsoleTermEditor: View {
 
     @Binding var term: String
     @Binding var spokenForms: [String]
-    @Binding var scope: VocabularyScope
-    /// The scopes this term may be committed to, in offer order. One option
-    /// means the choice does not exist and the picker is not drawn.
-    var scopeOptions: [(scope: VocabularyScope, title: String)]
     /// The case and spacing variants matched without the user typing them. This
     /// readout is the answer to "why don't I have to list every variant".
     var derivedForms: [String]
-    /// Surfaces the raw transcript held and the final text did not — the forms
-    /// most likely worth adding, offered rather than retyped.
-    var candidateForms: [String]
     var failure: String?
     var caption: String
     var submit: Command
@@ -62,12 +55,6 @@ struct ConsoleTermEditor: View {
             heardAsField
             if !derivedForms.isEmpty {
                 derivedReadout
-            }
-            if !candidateForms.isEmpty {
-                candidateStrip
-            }
-            if scopeOptions.count > 1 {
-                scopePicker
             }
             commandRow
             ConsoleCaption(failure ?? caption, color: failure.map { _ in Color.red })
@@ -189,33 +176,7 @@ struct ConsoleTermEditor: View {
         }
     }
 
-    private var candidateStrip: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-            Text("Heard in the raw transcript")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: VoiceourMetrics.Space.xs) {
-                    ForEach(candidateForms, id: \.self) { candidate in
-                        Button(candidate) { appendForm(candidate) }
-                            .accessibilityLabel("Use detected surface \(candidate)")
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Scope and commands
-
-    private var scopePicker: some View {
-        Picker("Scope", selection: $scope) {
-            ForEach(scopeOptions, id: \.scope) { option in
-                Text(option.title).tag(option.scope)
-            }
-        }
-        .pickerStyle(.segmented)
-        .fixedSize(horizontal: true, vertical: false)
-    }
+    // MARK: - Commands
 
     /// The affirmative pair leads; the destructive command is pushed to the
     /// trailing edge so it cannot be hit while reaching for Save.

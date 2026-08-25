@@ -66,8 +66,6 @@ public final class DictationCoordinator {
     /// provide. Sticky until the next capture answers the question again.
     public internal(set) var isSystemAudioMuteUnavailable: Bool = false
     public internal(set) var pendingSuggestions: [TermSuggestion] = []
-    public private(set) var activeProjectId: String?
-    public private(set) var activeProjectName: String?
     public private(set) var isProcessingInFlight: Bool = false
 
     private let stateSubject = CurrentValueSubject<SessionState, Never>(.idle)
@@ -94,7 +92,10 @@ public final class DictationCoordinator {
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
-    var target: TargetSnapshot?
+    /// The artifact the running sidecar was launched with, as opposed to
+    /// `settings.asrModelVariant`, which is what the next launch will use. Keeping both is what
+    /// lets Settings say a selection needs a restart instead of lying about what is loaded.
+    private let activeVariant: ASRModelVariant
     var inputMeteringTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var processingTaskIdentity: UUID?
@@ -148,6 +149,7 @@ public final class DictationCoordinator {
         hotkey: HotkeyBinding,
         settings: VoiceCore.Settings = VoiceCore.Settings(),
         activeASRBackend: String? = nil,
+        activeModelVariant: ASRModelVariant? = nil,
         settingsStore: SettingsStore = SettingsStore(),
         recentSessionStore: RecentSessionStore = RecentSessionStore(),
         dictationStatsStore: DictationStatsStore = DictationStatsStore(),
@@ -170,6 +172,7 @@ public final class DictationCoordinator {
         self.hotkey = hotkey
         self.settings = settings
         self.activeASRBackend = activeASRBackend ?? settings.asrBackend
+        self.activeVariant = activeModelVariant ?? settings.asrModelVariant
         self.settingsStore = settingsStore
         self.recentSessionStore = recentSessionStore
         self.recentSessionSnapshotSave = recentSessionSnapshotSave
@@ -250,6 +253,7 @@ public final class DictationCoordinator {
     }
 
     public var activeBackend: String { activeASRBackend }
+    public var activeModelVariant: ASRModelVariant { activeVariant }
 
     /// Fraction of the pinned model this backend has downloaded, or nil when no
     /// acquisition is in flight. Read by the menu as well as the console: a 1.26 GB
@@ -453,9 +457,17 @@ public final class DictationCoordinator {
 
         let permissions = SystemPermissions()
         let tracker = WorkspaceTargetTracker()
+        // The environment override exists for the same reason the backend has one: a benchmark
+        // or a harness run must be able to pin the artifact without editing the user's settings.
+        let modelVariant = ASRModelVariant.resolved(
+            env[ASRModelVariant.environmentKey] ?? settings.asrModelVariant.rawValue
+        )
         let components = registry.liveComponents(
             for: backend,
-            context: ASRBackendContext(sidecarExecutableURL: ASRBackendContext.siblingSidecarURL())
+            context: ASRBackendContext(
+                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
+                modelVariant: modelVariant
+            )
         )
         let recorder = components.recorder
         let asr = components.client
@@ -474,6 +486,7 @@ public final class DictationCoordinator {
             hotkey: KeyboardShortcutsBinder(),
             settings: settings,
             activeASRBackend: backend,
+            activeModelVariant: modelVariant,
             settingsStore: store,
             audioMuter: audioMuter,
             sessionCues: sessionCues
@@ -592,7 +605,7 @@ public final class DictationCoordinator {
         backendHealthProbeInFlight = false
         stopInputMetering()
         state = .cancelled
-        clearCapturedTargetAndRefreshLabel()
+        refreshTarget()
     }
 
     public func cancel() {
@@ -687,8 +700,8 @@ public final class DictationCoordinator {
     /// caller listed the whole set of spoken forms, so `spokenForms` IS the set and
     /// a form the user deleted in the editor is gone. A nil id means the caller
     /// listed nothing — History's teach names a canonical it may never have seen —
-    /// so the forms are added to whatever term already holds that spelling in that
-    /// scope, never substituted for its own. That distinction is the whole reason
+    /// so the forms are added to whatever term already holds that spelling, never
+    /// substituted for its own. That distinction is the whole reason
     /// the additive branch confirms each form instead of setting the list:
     /// teaching `cube control` onto bundled `kubectl` must not delete the two
     /// surfaces kubectl ships with.
@@ -701,23 +714,21 @@ public final class DictationCoordinator {
     ///
     /// Suggestion-only phase: never edits text that was already inserted.
     ///
-    /// A rename that lands on a spelling another term in the same scope already
-    /// holds is refused rather than merged: two rows with one canonical make
-    /// canonicalization depend on term order, and the second row is unreachable
-    /// in a list that names terms by their spelling. The same canonical in a
-    /// different scope stays legal — that is what scoping is for.
+    /// One live term per spelling, ledger-wide: a rename that lands on a spelling
+    /// another term already holds is refused rather than merged, because two rows
+    /// with one canonical make canonicalization depend on term order and the
+    /// second row is unreachable in a list that names terms by their spelling.
     ///
     /// - Returns: `false` when the canonical sanitizes to nothing, when the new
-    ///   spelling already belongs to another term in that scope, or when
-    ///   `commitGlossary` refuses the proposal. Nothing is written in any of the
-    ///   three cases. The two refusals name themselves in `glossaryNotice`; an
-    ///   unusable canonical is the caller's own empty field and sets no notice.
+    ///   spelling already belongs to another term, or when `commitGlossary`
+    ///   refuses the proposal. Nothing is written in any of the three cases. The
+    ///   two refusals name themselves in `glossaryNotice`; an unusable canonical
+    ///   is the caller's own empty field and sets no notice.
     @discardableResult
     public func commitTerm(
         termId: String?,
         canonical: String,
-        spokenForms: [String],
-        scope: VocabularyScope
+        spokenForms: [String]
     ) -> Bool {
         guard let cleanCanonical = VocabularySanitizer.sanitize(canonical) else { return false }
         let cleanForms = spokenForms.compactMap { VocabularySanitizer.sanitize($0) }
@@ -726,19 +737,16 @@ public final class DictationCoordinator {
         if let termId, let index = proposed.firstIndex(where: { $0.termId == termId }) {
             if let clash = proposed.first(where: {
                 $0.termId != termId && $0.tombstonedAt == nil
-                    && $0.scope == scope && $0.canonical.lowercased() == key
+                    && $0.canonical.lowercased() == key
             }) {
                 glossaryNotice = "“\(clash.canonical)” is already a term. Open it to add a spoken form."
                 return false
             }
             var term = proposed[index]
             term.canonical = cleanCanonical
-            term.scope = scope
             term.tombstonedAt = nil
             proposed[index] = TermMutation.settingAliases(cleanForms, on: term)
-        } else if let index = proposed.firstIndex(where: {
-            $0.canonical.lowercased() == key && $0.scope == scope
-        }) {
+        } else if let index = proposed.firstIndex(where: { $0.canonical.lowercased() == key }) {
             var term = proposed[index]
             term.tombstonedAt = nil
             for form in cleanForms {
@@ -750,8 +758,7 @@ public final class DictationCoordinator {
                 canonical: cleanCanonical,
                 spokenAliases: [],
                 termId: makeUniqueTermId(preferred: cleanCanonical),
-                source: .explicitCorrection,
-                scope: scope
+                source: .explicitCorrection
             )
             for form in cleanForms {
                 term = TermMutation.confirmingAlias(form, on: term)
@@ -867,18 +874,15 @@ public final class DictationCoordinator {
         }
     }
 
-    /// Imports a user-selected project word list, resolving (or creating) the
-    /// active project, and merges the sanitized terms into the glossary,
-    /// deduplicating by term id. Surfaces failures on `glossaryNotice`.
-    public func importProjectLexicon(from url: URL) {
-        let projectId = activeProjectId ?? "project-\(UUID().uuidString)"
-        let resolvedName = activeProjectName ?? Self.projectName(for: url)
+    /// Imports a user-selected word list and merges the sanitized terms into the
+    /// glossary. Surfaces failures on `glossaryNotice`.
+    public func importWordList(from url: URL) {
         do {
-            let lexicon = try ProjectLexiconImporter.importLexicon(from: url, projectId: projectId)
+            let imported = try WordListImporter.importWordList(from: url)
             let merged = glossaryMerging(
-                lexicon.terms.map { term in
+                imported.map { term in
                     var namespaced = term
-                    namespaced.termId = "project:\(projectId)/\(term.canonical)"
+                    namespaced.termId = "wordlist:\(term.canonical)"
                     return namespaced
                 })
             // Validated post-merge, because the importer sees only the file: an
@@ -889,8 +893,6 @@ public final class DictationCoordinator {
                 return
             }
             settings.glossary = merged
-            activeProjectId = projectId
-            activeProjectName = resolvedName
             glossaryNotice = nil
             saveSettings()
         } catch let error as LocalizedError {
@@ -914,26 +916,30 @@ public final class DictationCoordinator {
         }
     }
 
-    func clearCapturedTargetAndRefreshLabel() {
-        target = nil
-        refreshTarget()
-    }
-
-    /// The glossary with `terms` merged in, replacing any existing term with the
-    /// same `termId` and appending the rest, so re-imports stay idempotent.
+    /// The glossary with `terms` merged in, replacing an existing row when its
+    /// `termId` matches or when it is an imported row whose canonical matches
+    /// case-insensitively, and appending the rest. Both rules are needed for a
+    /// re-import to stay idempotent: ledgers written by earlier builds hold
+    /// imported rows under `project:<uuid>/…` ids that no fresh import can
+    /// reproduce, so id matching alone appended a duplicate every time.
     ///
     /// Returns the proposal rather than assigning it: the caller validates first.
     private func glossaryMerging(_ terms: [ProtectedTerm]) -> [ProtectedTerm] {
         var merged = settings.glossary
         var indexByTermId: [String: Int] = [:]
+        var importedIndexByCanonical: [String: Int] = [:]
         for (index, term) in merged.enumerated() {
             indexByTermId[term.termId] = index
+            if term.source == .manualImport {
+                importedIndexByCanonical[term.canonical.lowercased()] = index
+            }
         }
         for term in terms {
-            if let index = indexByTermId[term.termId] {
+            if let index = indexByTermId[term.termId] ?? importedIndexByCanonical[term.canonical.lowercased()] {
                 merged[index] = term
             } else {
                 indexByTermId[term.termId] = merged.count
+                importedIndexByCanonical[term.canonical.lowercased()] = merged.count
                 merged.append(term)
             }
         }
@@ -941,24 +947,13 @@ public final class DictationCoordinator {
     }
 
     /// Returns `preferred` when free, otherwise a `#N`-suffixed variant, so a new
-    /// term never collides with an existing term id (e.g. same canonical, other scope).
+    /// term never collides with an existing term id.
     private func makeUniqueTermId(preferred: String) -> String {
         let existing = Set(settings.glossary.map(\.termId))
         guard existing.contains(preferred) else { return preferred }
         var suffix = 2
         while existing.contains("\(preferred)#\(suffix)") { suffix += 1 }
         return "\(preferred)#\(suffix)"
-    }
-
-    /// Derives a human-friendly project name from an imported lexicon URL,
-    /// preferring the containing directory name.
-    private static func projectName(for url: URL) -> String {
-        let parent = url.deletingLastPathComponent().lastPathComponent
-        if !parent.isEmpty, parent != "/", parent != "." {
-            return parent
-        }
-        let base = url.deletingPathExtension().lastPathComponent
-        return base.isEmpty ? "Imported Project" : base
     }
 
     func ensureCurrentProcessing(_ generation: AsyncGenerationGate.Token) throws {

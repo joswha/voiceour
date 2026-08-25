@@ -38,7 +38,7 @@ uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --
 
 ## Row identity
 
-Every manifest row needs a unique string `id` and an `audio_path`; `reference`, `formatted_reference`, and `audio_s` are scored when present. `report.py` rejects missing, duplicate, or unknown ids and publishes `successful_row_ids` and `error_row_ids`. `compare.py` refuses a comparison unless tier, backend, model id, model revision, and both id sets match.
+Every manifest row needs a unique string `id` and an `audio_path`; `reference`, `formatted_reference`, and `audio_s` are scored when present. `report.py` rejects missing, duplicate, or unknown ids and publishes `successful_row_ids` and `error_row_ids`. `compare.py` refuses a comparison unless tier, backend, model id, model revision, model file, and both id sets match. The model file is part of that tuple because every artifact of the pinned repository shares its id and revision, so `f16` and `q8_0` reports would otherwise compare as one model; a report written before that field existed reads as `unknown` and never matches a named artifact.
 
 ## Metrics
 
@@ -56,7 +56,7 @@ The regression gate is candidate minus baseline U-WER <= `0.0035` (+0.35 percent
 
 ## Current Parakeet baselines — 2026-08-15
 
-Hardware: Apple M4 Pro, macOS 26.5.2. Both runs used the pinned f16 artifact, identical deterministic row selection, and zero error rows.
+Hardware: Apple M4 Pro, macOS 26.5.2. Both runs used the default f16 artifact, identical deterministic row selection, and zero error rows. Select another artifact with `VOICEOUR_MODEL_VARIANT`, which the runner records as `model_file`.
 
 | tier | rows | U-WER | CER | case F1 | punctuation micro F1 | ASR p50 / p95 | RTFx |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

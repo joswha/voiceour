@@ -173,7 +173,7 @@ offscreen UI harness injects the no-op, so no harness run can make a noise. No
 | `VoiceMac/SessionCuePlayer.swift` | Actor holding one prepared `AVAudioPlayer` per cue, built once from the in-memory WAV `Data` at init and replayed by resetting `currentTime`. | `AVFoundation`, `VoiceCore` |
 | `Voiceour/RecordingSessionDriver.swift` | Fires the up cue and defers the mute by the cue duration inside the existing serialized mute closure. | port, `DictationRuntime.sleep` |
 | `Voiceour/TranscriptProcessingPipeline.swift` | Chains the down cue on the restore task. | port |
-| `Voiceour/ConsoleGeneralTab.swift` | The one toggle. | settings |
+| `Voiceour/ConsoleSettingsTab.swift` | The one toggle. | settings |
 
 The player never reads settings and never decides *when*; the coordinator gates
 on `settings.sessionSoundsEnabled` at the call sites. One decision, one place.

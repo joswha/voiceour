@@ -8,9 +8,14 @@ public struct ASRBackendContext: Sendable {
     /// executable: SwiftPM's products directory and an app bundle's `Contents/MacOS` are both
     /// flat, so one rule covers `swift run`, the benchmark and the shipped bundle.
     public let sidecarExecutableURL: URL
+    /// Which artifact of the pinned repository this launch should load. Held here rather than
+    /// on the descriptor because it is the user's current selection, not a property of the
+    /// backend: the descriptor set is compiled, the selection changes.
+    public let modelVariant: ASRModelVariant
 
-    public init(sidecarExecutableURL: URL) {
+    public init(sidecarExecutableURL: URL, modelVariant: ASRModelVariant = .default) {
         self.sidecarExecutableURL = sidecarExecutableURL
+        self.modelVariant = modelVariant
     }
 
     /// The sibling lookup itself, so every caller resolves it identically.
@@ -133,15 +138,16 @@ public struct ASRBackendRegistry: Sendable {
             id: Self.parakeetBackendID,
             displayName: "PARAKEET",
             modelLabel: ASRModelContract.modelId,
-            modelId: Self.parakeetModel.modelId,
-            modelRevision: Self.parakeetModel.revision,
+            modelId: ASRModelContract.modelId,
+            modelRevision: ASRModelContract.revision,
             makeComponents: { context in
                 ASRBackendComponents(
                     recorder: MicrophoneRecorder(),
                     client: SidecarASRClient(
                         sidecarExecutableURL: context.sidecarExecutableURL,
                         backend: Self.parakeetBackendID,
-                        expectedModel: Self.parakeetModel
+                        modelVariant: context.modelVariant,
+                        expectedModel: Self.parakeetModel(context.modelVariant)
                     ),
                     usesSystemAudioMuter: true
                 )
@@ -149,11 +155,15 @@ public struct ASRBackendRegistry: Sendable {
         ),
     ])
 
-    /// The model each sidecar backend must have loaded, which is also the
-    /// identity its descriptor publishes: one place per backend where an id and
-    /// its pinned revision are written, rather than four.
-    private static let parakeetModel = ASRExpectedModel(
-        modelId: ASRModelContract.modelId,
-        revision: ASRModelContract.revision
-    )
+    /// The model the sidecar must have loaded, echoed on every transcribe.
+    ///
+    /// The artifact is part of it because the pinned repository holds several: without `file`
+    /// a sidecar still serving the previously selected variant would pass the check.
+    private static func parakeetModel(_ variant: ASRModelVariant) -> ASRExpectedModel {
+        ASRExpectedModel(
+            modelId: ASRModelContract.modelId,
+            revision: ASRModelContract.revision,
+            file: variant.fileName
+        )
+    }
 }

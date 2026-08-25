@@ -12,7 +12,8 @@
   },
   "expected_model": {
     "model_id": "ggml-org/parakeet-GGUF",
-    "revision": "35156454d1a39de06863303dd209fd2bed6ee079"
+    "revision": "35156454d1a39de06863303dd209fd2bed6ee079",
+    "file": "ggml-parakeet-tdt-0.6b-v3-f16.bin"
   },
   "timeout_ms": 30000
 }

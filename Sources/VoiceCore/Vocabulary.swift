@@ -18,51 +18,6 @@ public enum TermSource: String, Codable, Equatable, Sendable, CaseIterable {
     }
 }
 
-/// Where a term is eligible to activate.
-public enum VocabularyScope: Codable, Hashable, Sendable {
-    case global
-    case bundleID(String)
-    case projectID(String)
-
-    enum CodingKeys: String, CodingKey {
-        case kind
-        case value
-    }
-
-    private enum Kind: String, Codable {
-        case global
-        case bundleID = "bundle_id"
-        case projectID = "project_id"
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try container.decode(Kind.self, forKey: .kind)
-        switch kind {
-        case .global:
-            self = .global
-        case .bundleID:
-            self = .bundleID(try container.decode(String.self, forKey: .value))
-        case .projectID:
-            self = .projectID(try container.decode(String.self, forKey: .value))
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .global:
-            try container.encode(Kind.global, forKey: .kind)
-        case .bundleID(let value):
-            try container.encode(Kind.bundleID, forKey: .kind)
-            try container.encode(value, forKey: .value)
-        case .projectID(let value):
-            try container.encode(Kind.projectID, forKey: .kind)
-            try container.encode(value, forKey: .value)
-        }
-    }
-}
-
 /// An observed surface form that may be confirmed or rejected by the user.
 public struct AliasLabel: Codable, Equatable, Sendable {
     public var surface: String
@@ -108,18 +63,15 @@ public struct EphemeralContextCandidate: Equatable, Sendable {
 public struct VocabularySnapshot: Equatable, Sendable {
     public let terms: [ProtectedTerm]
     public let ephemeral: [EphemeralContextCandidate]
-    public let capturedBundleId: String?
     public let generatedAt: Date
 
     public init(
         terms: [ProtectedTerm],
         ephemeral: [EphemeralContextCandidate],
-        capturedBundleId: String?,
         generatedAt: Date
     ) {
         self.terms = terms
         self.ephemeral = ephemeral
-        self.capturedBundleId = capturedBundleId
         self.generatedAt = generatedAt
     }
 }
@@ -139,14 +91,11 @@ public enum VocabularyCompiler {
     public static func compile(
         persistent: [ProtectedTerm],
         ephemeral: [EphemeralContextCandidate],
-        capturedBundleId: String?,
-        activeProjectId: String?,
         limit: Int = 100,
         now: Date = Date()
     ) -> VocabularySnapshot {
         let activated = persistent.enumerated().filter { _, term in
-            (term.tombstonedAt.map { $0 > now } ?? true)
-                && isActive(scope: term.scope, bundleId: capturedBundleId, projectId: activeProjectId)
+            term.tombstonedAt.map { $0 > now } ?? true
         }
 
         // Stable ordering: trust desc, recency desc, then original index for determinism.
@@ -196,24 +145,12 @@ public enum VocabularyCompiler {
         return VocabularySnapshot(
             terms: selected,
             ephemeral: ephemeral,
-            capturedBundleId: capturedBundleId,
             generatedAt: now
         )
     }
 
     private static func isPriority(_ term: ProtectedTerm) -> Bool {
         term.source == .explicitCorrection || term.protected
-    }
-
-    private static func isActive(scope: VocabularyScope, bundleId: String?, projectId: String?) -> Bool {
-        switch scope {
-        case .global:
-            true
-        case .bundleID(let id):
-            bundleId == id
-        case .projectID(let id):
-            projectId == id
-        }
     }
 
     /// Recency proxy: latest confirmation across the term's active aliases.

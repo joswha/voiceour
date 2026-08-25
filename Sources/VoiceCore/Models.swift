@@ -14,7 +14,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
     public var casePolicy: CasePolicy
     public var protected: Bool
     public var source: TermSource
-    public var scope: VocabularyScope
     public var cloudEligible: Bool
     public var labeledAliases: [AliasLabel]
     public var tombstonedAt: Date?
@@ -26,7 +25,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         case casePolicy = "case_policy"
         case protected
         case source
-        case scope
         case cloudEligible = "cloud_eligible"
         case labeledAliases = "labeled_aliases"
         case tombstonedAt = "tombstoned_at"
@@ -39,7 +37,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         protected: Bool = true,
         termId: String? = nil,
         source: TermSource = .bundled,
-        scope: VocabularyScope = .global,
         cloudEligible: Bool = true,
         labeledAliases: [AliasLabel] = [],
         tombstonedAt: Date? = nil
@@ -50,7 +47,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         self.casePolicy = casePolicy
         self.protected = protected
         self.source = source
-        self.scope = scope
         self.cloudEligible = cloudEligible
         self.labeledAliases = labeledAliases
         self.tombstonedAt = tombstonedAt
@@ -65,7 +61,6 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
         casePolicy = try container.decodeIfPresent(CasePolicy.self, forKey: .casePolicy) ?? .exact
         protected = try container.decodeIfPresent(Bool.self, forKey: .protected) ?? true
         source = try container.decodeIfPresent(TermSource.self, forKey: .source) ?? .bundled
-        scope = try container.decodeIfPresent(VocabularyScope.self, forKey: .scope) ?? .global
         cloudEligible = try container.decodeIfPresent(Bool.self, forKey: .cloudEligible) ?? true
         labeledAliases = try container.decodeIfPresent([AliasLabel].self, forKey: .labeledAliases) ?? []
         tombstonedAt = try container.decodeIfPresent(Date.self, forKey: .tombstonedAt)
@@ -94,6 +89,12 @@ public struct Settings: Codable, Equatable, Sendable {
     /// debug pane, never by default. It used to BE the default, which meant a
     /// release build transcribed synthetic text until the user found the picker.
     public var asrBackend: String
+    /// Which artifact of the pinned model repository the sidecar loads.
+    ///
+    /// Stored as its raw tag and resolved through `ASRModelVariant.resolved`, so a value
+    /// written by a future build degrades to the default instead of throwing — a decode failure
+    /// here would quarantine the whole settings file over one unknown word.
+    public var asrModelVariant: ASRModelVariant
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
     public var sessionSoundsEnabled: Bool
@@ -103,6 +104,7 @@ public struct Settings: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
         case asrBackend = "asr_backend"
+        case asrModelVariant = "asr_model_variant"
         case glossary
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
         case sessionSoundsEnabled = "session_sounds_enabled"
@@ -113,6 +115,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public init(
         cleanupEnabled: Bool = true,
         asrBackend: String = "parakeet",
+        asrModelVariant: ASRModelVariant = .default,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
         sessionSoundsEnabled: Bool = true,
@@ -121,6 +124,7 @@ public struct Settings: Codable, Equatable, Sendable {
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
+        self.asrModelVariant = asrModelVariant
         self.glossary = glossary
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
         self.sessionSoundsEnabled = sessionSoundsEnabled
@@ -133,6 +137,9 @@ public struct Settings: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         cleanupEnabled = try container.decodeIfPresent(Bool.self, forKey: .cleanupEnabled) ?? defaults.cleanupEnabled
         asrBackend = try container.decodeIfPresent(String.self, forKey: .asrBackend) ?? defaults.asrBackend
+        asrModelVariant = ASRModelVariant.resolved(
+            try container.decodeIfPresent(String.self, forKey: .asrModelVariant)
+        )
         glossary = try container.decodeIfPresent([ProtectedTerm].self, forKey: .glossary) ?? defaults.glossary
         muteSystemAudioDuringCapture =
             try container.decodeIfPresent(Bool.self, forKey: .muteSystemAudioDuringCapture)

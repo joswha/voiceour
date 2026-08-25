@@ -148,12 +148,6 @@
                     tags: ["empty"]
                 ),
                 console(
-                    "console.general.default",
-                    "General settings: capture, cleanup and audio",
-                    tab: .general,
-                    fixture: .populated
-                ),
-                console(
                     "console.glossary.populated",
                     "Glossary with the bundled canonical terms",
                     tab: .glossary,
@@ -168,7 +162,7 @@
                 ),
                 console(
                     "console.glossary.mixed",
-                    "Glossary with a taught term and a project-scoped term",
+                    "Glossary with a taught term and an imported term",
                     tab: .glossary,
                     fixture: .mixedGlossary
                 ),
@@ -234,21 +228,21 @@
                     appFilter: "com.apple.dt.Xcode"
                 ),
                 console(
-                    "console.system.granted",
-                    "System readiness with every permission granted",
-                    tab: .system,
+                    "console.settings.granted",
+                    "Settings preferences and readiness with every permission granted",
+                    tab: .settings,
                     fixture: .backendReady
                 ),
                 console(
-                    "console.system.denied",
-                    "System readiness with permissions denied",
-                    tab: .system,
+                    "console.settings.denied",
+                    "Settings readiness with permissions denied",
+                    tab: .settings,
                     fixture: .backendUnavailable
                 ),
                 console(
-                    "console.system.downloading",
-                    "System readiness while the model is still downloading",
-                    tab: .system,
+                    "console.settings.downloading",
+                    "Settings readiness while the model is still downloading",
+                    tab: .settings,
                     fixture: .backendDownloading
                 ),
             ]
@@ -309,15 +303,15 @@
                 ),
                 accessibilityConsole(
                     "a11y.increase-contrast",
-                    "General settings with Increase Contrast enabled",
-                    tab: .general,
+                    "Settings preferences with Increase Contrast enabled",
+                    tab: .settings,
                     fixture: .populated,
                     adaptation: .increaseContrast
                 ),
                 accessibilityConsole(
                     "a11y.differentiate-without-color",
-                    "Denied system state with Differentiate Without Color enabled",
-                    tab: .system,
+                    "Denied readiness state with Differentiate Without Color enabled",
+                    tab: .settings,
                     fixture: .backendUnavailable,
                     adaptation: .differentiateWithoutColor
                 ),

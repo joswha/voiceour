@@ -4,7 +4,7 @@
   "request_id": "00000000-0000-0000-0000-000000000002",
   "backend_id": "parakeet-cpp",
   "model_id": "ggml-org/parakeet-GGUF",
-  "model_revision": "0000000000000000000000000000000000000000",
+  "model_revision": "35156454d1a39de06863303dd209fd2bed6ee079",
   "transcript": {
     "text": "raw asr text",
     "language": "en",

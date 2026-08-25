@@ -67,6 +67,27 @@ public enum GlossaryQuery {
             }
     }
 
+    /// The live term that already owns `surface`, or nil. A surface is owned when
+    /// it case-insensitively equals a term's canonical or one of the user-authored
+    /// aliases `Glossary.userAliases(for:)` returns. Tombstoned terms never match:
+    /// a removed term is not a prior teaching, and re-teaching its spelling goes
+    /// through `commitTerm`'s additive branch, which revives the row.
+    ///
+    /// First match in ledger order, which is deterministic.
+    /// `VocabularySanitizer.aliasesAreUnambiguous` already guarantees an alias
+    /// belongs to at most one term, so order only decides between legacy rows
+    /// that duplicate a canonical.
+    public static func termOwning(surface: String, in terms: [ProtectedTerm]) -> ProtectedTerm? {
+        let trimmed = surface.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let key = trimmed.lowercased()
+        return terms.first { term in
+            guard term.tombstonedAt == nil else { return false }
+            if term.canonical.lowercased() == key { return true }
+            return Glossary.userAliases(for: term).contains { $0.lowercased() == key }
+        }
+    }
+
     /// The origins the terms list can be filtered by, the reader's own first.
     ///
     /// An origin no live term carries is omitted: a filter whose only effect is

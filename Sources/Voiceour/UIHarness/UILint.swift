@@ -563,6 +563,14 @@
                 // triangle at 60x16. Same reason as the switch above — the height is
                 // AppKit's, not this project's.
                 guard entry.node.role.lowercased() != "axdisclosuretriangle" else { continue }
+                // A native form's radio button is 16 pt, and `.controlSize(.large)` moves it only
+                // to 18 pt — measured, both off the Control scale. Same reason as the two above:
+                // the height belongs to AppKit's radio cell, not to this project's scale. The
+                // console's tab buttons publish the same role at 24 pt and stay measured.
+                guard
+                    !(entry.node.role.lowercased() == "axradiobutton"
+                        && trimmed(entry.node.subrole)?.lowercased() != "axtabbutton")
+                else { continue }
                 let height = (frame.height * 10).rounded() / 10
                 guard !allowedControlHeights.contains(height) else { continue }
                 if height > containerHeightFloor {

@@ -448,8 +448,10 @@ def markdown_table(report: dict[str, Any]) -> str:
         ("tier", report["tier"]),
         ("mode", report["mode"]),
         # The backend is the variable under test in an A/B; two tables that omit
-        # it are indistinguishable on screen.
+        # it are indistinguishable on screen. So is the weight artifact, which
+        # two variants of the pinned model share every other identity with.
         ("backend", (report.get("meta") or {}).get("backend")),
+        ("model file", (report.get("meta") or {}).get("model_file")),
         ("rows", report["counts"]["successful_rows"]),
         ("errors", report["counts"]["error_rows"]),
         ("uwer raw", metrics.get("uwer_raw")),

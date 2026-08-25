@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import VoiceCore
 import VoiceMac
 
 /// Internal rather than private: the console's restart action reaches the live
@@ -124,11 +125,18 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
         return result
     }
 
+    /// The environment a restart hands its successor, minus the overrides that would outrank the
+    /// settings the user just changed.
+    ///
+    /// Bootstrap reads the environment ahead of the persisted value for both the backend and the
+    /// model variant, so leaving either here would restart the app into the old selection and make
+    /// the restart-to-apply button look broken.
     static func restartEnvironment(from environment: [String: String] = ProcessInfo.processInfo.environment) -> [String:
         String]
     {
         var result = environment
         result.removeValue(forKey: "VOICEOUR_ASR_BACKEND")
+        result.removeValue(forKey: ASRModelVariant.environmentKey)
         return result
     }
 

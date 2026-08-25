@@ -9,7 +9,6 @@ struct CandidateRetrievalTests {
         VocabularySnapshot(
             terms: terms,
             ephemeral: [],
-            capturedBundleId: nil,
             generatedAt: Date(timeIntervalSince1970: 0)
         )
     }

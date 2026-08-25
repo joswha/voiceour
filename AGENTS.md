@@ -12,10 +12,10 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 - **VoiceCore** — Foundation-only domain models, policies, and contracts.
 - **VoiceMac** — macOS adapters for capture, sidecar launch, targets, pasteboard, permissions, hotkeys, and system audio.
 - **ASR sidecar** — the signed sibling `voiceour-asr` executable. It links vendored parakeet.cpp/ggml and speaks NDJSON v1 over stdio.
-- **Capture target** — app/window context snapshotted before recording; it selects app-scoped vocabulary.
+- **Capture target** — app/window context snapshotted before recording; it names the record-start target label.
 - **Delivery target** — app/window/control context snapshotted immediately before persistence and insertion, then identity-checked again by the inserter.
 - **Cleanup** — deterministic filler removal and glossary canonicalization. It is the only text-processing stage after ASR.
-- **Console** — the native `Window("Voiceour", id: "main")` containing Home, General, Glossary, History, and System tabs.
+- **Console** — the native `Window("Voiceour", id: "main")` containing Home, Glossary, History, and Settings tabs.
 - **Lifetime ledger** — `dictation-activity.json`: aggregate counts per local day and per destination app, read by Home. Never the retired `dictation-stats.json`, which is still swept off disk at launch.
 - **Secure delivery** — concealed pasteboard copy, never Cmd-V and never a History row.
 
@@ -25,7 +25,7 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 | --- | --- |
 | `Sources/VoiceCore/` | Foundation-only settings, state, cleanup, glossary, ASR wire types, history models, failure presentation, and safety policy. |
 | `Sources/VoiceMac/` | AVFoundation/AppKit/CoreGraphics adapters: recording, fake audio, sidecar process client, targets, pasteboard insertion, permissions, hotkeys, and muting. |
-| `Sources/Voiceour/` | SwiftUI menu, overlay, five-tab console, Home stats islands, persistence journal, and coordinator/pipeline orchestration. |
+| `Sources/Voiceour/` | SwiftUI menu, overlay, four-tab console, Home stats islands, persistence journal, and coordinator/pipeline orchestration. |
 | `Sources/Voiceour/UIHarness/` | Compile-gated scene renderer, AX dump, PNG digest, lint, semantic flow runner, and NDJSON reports. |
 | `Sources/ASRSidecarCore/` | Model cache, WAV loading, Parakeet context/token mapping, fake/real sidecar backends, and server. |
 | `Sources/VoiceourASR/` | `voiceour-asr` executable entry point. |
@@ -105,18 +105,22 @@ Change protocol models, client/server encoding, and `fixtures/protocol/` togethe
 
 ## Model contract and vendor rules
 
-The production pin is:
+The repository pin is model `ggml-org/parakeet-GGUF` at revision `35156454d1a39de06863303dd209fd2bed6ee079`. That one revision holds two interchangeable conversions of the same checkpoint:
 
-- model `ggml-org/parakeet-GGUF`
-- revision `35156454d1a39de06863303dd209fd2bed6ee079`
-- file `ggml-parakeet-tdt-0.6b-v3-f16.bin`
-- SHA-256 `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f`
-- size 1,255,897,319 bytes
+| variant | file | SHA-256 | size |
+| --- | --- | --- | --- |
+| `f16` — Balanced | `ggml-parakeet-tdt-0.6b-v3-f16.bin` | `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f` | 1,255,897,319 bytes |
+| `q8_0` — Compact | `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | `4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e` | 668,757,119 bytes |
+
+`f16` is the default, the compiled fallback for an unknown or stale persisted value, and the faster of the two at decode on the committed corpus. The selection is a footprint trade and never a quality claim: `q8_0` saves 587 MB of disk and resident memory, and the two agree on transcripts to within the accuracy the committed corpus can resolve. Never present either artifact as more accurate.
 
 Rules:
 
-- Treat model id, revision, filename, digest, size, descriptor metadata, cache manifest, docs, fixtures, and tests as one compatibility contract.
-- `cacheOK` requires the full manifest to equal the compiled pin and the file's on-disk size to equal the pinned size. Download completion verifies digest; load failure may force rehash.
+- Treat model id, revision, every variant's filename, digest and size, descriptor metadata, cache manifest, docs, fixtures, and tests as one compatibility contract.
+- `cacheOK` requires the full manifest to equal the selected variant's pin and the file's on-disk size to equal that variant's pinned size. Download completion verifies digest; load failure may force rehash.
+- Switching variants is restart-to-apply, like the debug backend picker. `DictationCoordinator.activeModelVariant` is the artifact the running sidecar was launched with and `settings.asrModelVariant` is what the next launch will use; keep both so Settings can say a selection needs a restart instead of misreporting what is loaded.
+- Exactly one artifact is resident. Each variant owns its own cache subdirectory, and the others are deleted once the wanted one is acquired and verified — never at selection time, so a failed switch still has weights to load, and never under `VOICEOUR_MODEL_CACHE`, whose single directory belongs to its caller. `f16` keeps the cache directory name it has always had so an existing install is not orphaned into re-downloading 1.26 GB.
+- `expected_model` pins `file` alongside id and revision. Every artifact of the pinned revision shares those two, so `file` is the only field that catches a sidecar still holding the previous selection's weights.
 - Vendor parakeet.cpp/ggml from `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage), preserving upstream-relative paths.
 - Mark each local change to an upstream file with `VOICEOUR PATCH` and list it in `Vendor/parakeet/NOTICE.md`.
 - `scripts/vendor_parakeet.sh --check` must reject unexpected files and verify embedded Metal regeneration is byte-reproducible.
@@ -149,14 +153,15 @@ This app touches the user's microphone, active workspace, clipboard, and keyboar
 - Escape canonical text with `NSRegularExpression.escapedTemplate` before replacement.
 - Reject an alias that case-insensitively equals another term's canonical or alias. Enforce this in Teach, add, accept, and import.
 - Only explicit user action may confirm, tombstone, import, or clear learned vocabulary. Automatic/background paths never teach.
-- Keep each utterance's active vocabulary snapshot bounded and selected from the capture target.
+- Keep each utterance's active vocabulary snapshot bounded. A term is active everywhere: vocabulary is never scoped to an app or a project, and both editors offer exactly Term and Heard as.
+- History's ⌘T teach opens the term the selected surface already belongs to — its spelling and every user-authored form — and commits with that term's id, so a prior teaching is visible and full-set semantics apply. An unowned surface opens a blank spelling and commits additively.
 - Ephemeral candidate retrieval remains in memory and never becomes persisted authority without explicit acceptance.
 
 ## Local-first and network policy
 
 - Real ASR is local through `parakeet`; the fake backend is non-production.
-- The only acceptable network access is acquisition of the compiled model URL. Do not add network text processing, telemetry, crash reporting, accounts, update checks, or arbitrary URLs.
-- The sidecar launch environment is an allowlist: `PATH`, `HOME`, `TMPDIR`, proxy/TLS names needed by acquisition, and `VOICEOUR_*`. Never inherit the full parent environment.
+- The only acceptable network access is acquisition of one of the compiled model URLs — the variant's artifact on the same host, in the same repository, at the same revision, verified against its compiled digest. Do not add network text processing, telemetry, crash reporting, accounts, update checks, or arbitrary URLs.
+- The sidecar launch environment is an allowlist: `PATH`, `HOME`, `TMPDIR`, proxy/TLS names needed by acquisition, and `VOICEOUR_*`. Never inherit the full parent environment. `VOICEOUR_MODEL_VARIANT` names the artifact — `f16` or `q8_0` — and is written last and unconditionally for a model-backed sidecar, so an inherited shell value cannot outrank the user's selection; in the app process it does outrank the persisted setting, which is what lets the harness and the benchmark pin an artifact without editing the user's settings.
 - Voiceour stores no credential and has no credential UI, environment contract, base URL, or keychain item.
 
 The absence of a secret store is measured. This bundle cannot use the macOS data-protection keychain: it ships no provisioning profile, and `Resources/Voiceour.entitlements` is audio-input only. `SecItemAdd` returned `errSecMissingEntitlement` (-34018); adding `keychain-access-groups` to an ad-hoc signature caused AMFI to kill it as “adhoc signed but contains restricted entitlements.” Do not introduce a feature that quietly depends on that keychain.
@@ -220,7 +225,7 @@ Benchmark commands must retain `uv --no-config`. Do not run real model or microp
 
 `Voiceour --ui-harness` is compiled only with `-DUI_HARNESS`. It renders real SwiftUI into a borderless offscreen window, captures via `NSHostingView.cacheDisplay`, dumps in-process AX, lints, compares scene digests/dumps, and runs semantic journeys that write `.flow.txt` journals.
 
-Current scene inventory covers Home, General, Glossary, History, System, menu, overlay, accessibility adaptations, and representative macOS 26 menu/overlay branches. Flows cover the five tabs — History through its in-place detail and its two search journeys — plus the core delivered/copy-only/cancel/error journeys; History's click-to-copy and ⌘T gestures have no flow because neither can be delivered to a window that never becomes key, and its app filter has none because an `NSMenu` popup cannot be shown by a window that never orders front, so the `console.sessions.selection`, `console.sessions.deselected` and `console.sessions.filtered` scenes lock what those states say and the gestures themselves are verified in the real app. Use `make ui-list` and `make ui-flow-list` as authoritative inventories.
+Current scene inventory covers Home, Glossary, History, Settings, menu, overlay, accessibility adaptations, and representative macOS 26 menu/overlay branches. Flows cover the four tabs — History through its in-place detail and its two search journeys — plus the core delivered/copy-only/cancel/error journeys; History's click-to-copy and ⌘T gestures have no flow because neither can be delivered to a window that never becomes key, and its app filter has none because an `NSMenu` popup cannot be shown by a window that never orders front, so the `console.sessions.selection`, `console.sessions.deselected` and `console.sessions.filtered` scenes lock what those states say and the gestures themselves are verified in the real app. Use `make ui-list` and `make ui-flow-list` as authoritative inventories.
 
 Load-bearing measured invariants:
 

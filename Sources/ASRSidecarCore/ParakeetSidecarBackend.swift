@@ -125,6 +125,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             self.log(String(format: "VOICEOUR_PRELOAD download %.0f%%", fraction * 100))
         }
         withState { $0.downloadFraction = nil }
+        // The wanted artifact is now present and verified, so any sibling variant on disk is a
+        // superseded selection. Retiring it here — not at selection time — means the old weights
+        // survive until the new ones are proven, and a failed switch still has a model to load.
+        cache.removeSupersededVariants()
 
         // EOF may arrive during acquisition. Avoid constructing a Metal-backed context that
         // shutdown would immediately have to tear down from another thread.
@@ -224,7 +228,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         switch SidecarRequestValidation.validate(
             request,
             modelId: ASRModelContract.modelId,
-            modelRevision: ASRModelContract.revision
+            modelRevision: ASRModelContract.revision,
+            modelFile: cache.artifact.file
         ) {
         case .audioPath(let url): audioURL = url
         case .failure(let code, let detail): return .failure(code: code, detail: detail)

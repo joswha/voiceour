@@ -16,7 +16,6 @@ struct ProtectedTermCodableTests {
         #expect(term.id == "NSPasteboard")
         #expect(term.spokenAliases == ["n s pasteboard", "ns paste board"])
         #expect(term.source == .bundled)
-        #expect(term.scope == .global)
         #expect(term.cloudEligible)
         #expect(term.labeledAliases.isEmpty)
         #expect(term.tombstonedAt == nil)
@@ -39,7 +38,6 @@ struct ProtectedTermCodableTests {
             spokenAliases: ["ns paste board"],
             termId: "term-1",
             source: .explicitCorrection,
-            scope: .bundleID("com.example.app"),
             cloudEligible: false,
             labeledAliases: [AliasLabel(surface: "ns paste board", confirmedAt: Date(timeIntervalSince1970: 100))]
         )
@@ -53,7 +51,6 @@ struct ProtectedTermCodableTests {
         for term in Settings.defaultGlossary {
             #expect(term.termId == term.canonical)
             #expect(term.source == .bundled)
-            #expect(term.scope == .global)
         }
     }
 }
@@ -63,7 +60,6 @@ struct VocabularyCompilerTests {
     private func term(
         _ canonical: String,
         source: TermSource = .bundled,
-        scope: VocabularyScope = .global,
         protected: Bool = false,
         tombstonedAt: Date? = nil
     ) -> ProtectedTerm {
@@ -72,7 +68,6 @@ struct VocabularyCompilerTests {
             spokenAliases: [],
             protected: protected,
             source: source,
-            scope: scope,
             tombstonedAt: tombstonedAt
         )
     }
@@ -84,28 +79,9 @@ struct VocabularyCompilerTests {
         ]
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
-            ephemeral: [],
-            capturedBundleId: nil,
-            activeProjectId: nil
+            ephemeral: []
         )
         #expect(snapshot.terms.map(\.canonical) == ["Alive"])
-    }
-
-    @Test func activatesGlobalAndMatchingScopes() {
-        let terms = [
-            term("G", scope: .global),
-            term("A", scope: .bundleID("com.a")),
-            term("B", scope: .bundleID("com.b")),
-            term("P", scope: .projectID("proj-1")),
-            term("Q", scope: .projectID("proj-2")),
-        ]
-        let snapshot = VocabularyCompiler.compile(
-            persistent: terms,
-            ephemeral: [],
-            capturedBundleId: "com.a",
-            activeProjectId: "proj-1"
-        )
-        #expect(Set(snapshot.terms.map(\.canonical)) == Set(["G", "A", "P"]))
     }
 
     @Test func ordersByTrustThenRecency() {
@@ -117,9 +93,7 @@ struct VocabularyCompilerTests {
         ]
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
-            ephemeral: [],
-            capturedBundleId: nil,
-            activeProjectId: nil
+            ephemeral: []
         )
         #expect(snapshot.terms.map(\.canonical) == ["explicit", "manual", "profile", "bundled"])
     }
@@ -132,8 +106,6 @@ struct VocabularyCompilerTests {
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
             ephemeral: [],
-            capturedBundleId: nil,
-            activeProjectId: nil,
             limit: 3
         )
         #expect(snapshot.terms.count == 3)
@@ -149,8 +121,6 @@ struct VocabularyCompilerTests {
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
             ephemeral: [],
-            capturedBundleId: nil,
-            activeProjectId: nil,
             limit: 2
         )
         #expect(snapshot.terms.contains { $0.canonical == "correction" })
@@ -169,8 +139,6 @@ struct VocabularyCompilerTests {
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
             ephemeral: [],
-            capturedBundleId: nil,
-            activeProjectId: nil,
             limit: 100
         )
         let expectedIDs =
@@ -191,8 +159,6 @@ struct VocabularyCompilerTests {
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
             ephemeral: [],
-            capturedBundleId: nil,
-            activeProjectId: nil,
             now: now
         )
 
@@ -212,12 +178,9 @@ struct VocabularyCompilerTests {
         ]
         let snapshot = VocabularyCompiler.compile(
             persistent: terms,
-            ephemeral: [candidate],
-            capturedBundleId: "com.a",
-            activeProjectId: nil
+            ephemeral: [candidate]
         )
         #expect(snapshot.ephemeral == [candidate])
-        #expect(snapshot.capturedBundleId == "com.a")
         #expect(snapshot.terms.filter(\.cloudEligible).map(\.canonical) == ["cloudy"])
     }
 
@@ -228,12 +191,8 @@ struct VocabularyCompilerTests {
             term("c", source: .explicitCorrection),
         ]
         let now = Date(timeIntervalSince1970: 42)
-        let first = VocabularyCompiler.compile(
-            persistent: terms, ephemeral: [], capturedBundleId: nil, activeProjectId: nil, now: now
-        )
-        let second = VocabularyCompiler.compile(
-            persistent: terms, ephemeral: [], capturedBundleId: nil, activeProjectId: nil, now: now
-        )
+        let first = VocabularyCompiler.compile(persistent: terms, ephemeral: [], now: now)
+        let second = VocabularyCompiler.compile(persistent: terms, ephemeral: [], now: now)
         #expect(first == second)
     }
 }
@@ -293,16 +252,6 @@ struct GlossaryVocabularyTests {
         ]
         let active = Glossary.activeTerms(terms)
         #expect(active.map(\.canonical) == ["explicit", "bundled"])
-    }
-
-    @Test func activeTermsRespectsScope() {
-        let terms = [
-            ProtectedTerm(canonical: "g", spokenAliases: [], scope: .global),
-            ProtectedTerm(canonical: "a", spokenAliases: [], scope: .bundleID("com.a")),
-            ProtectedTerm(canonical: "p", spokenAliases: [], scope: .projectID("proj-1")),
-        ]
-        let active = Glossary.activeTerms(terms, bundleId: "com.a", projectId: nil)
-        #expect(Set(active.map(\.canonical)) == Set(["g", "a"]))
     }
 
     @Test func labeledAliasParticipatesOnlyWhenNotRejected() {

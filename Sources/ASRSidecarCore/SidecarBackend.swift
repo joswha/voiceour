@@ -60,7 +60,8 @@ public enum SidecarRequestValidation {
     public static func validate(
         _ request: ASRTranscribeRequest,
         modelId: String,
-        modelRevision: String
+        modelRevision: String,
+        modelFile: String
     ) -> Outcome {
         if let expected = request.expectedModel {
             if !expected.modelId.isEmpty, expected.modelId != modelId {
@@ -68,6 +69,11 @@ public enum SidecarRequestValidation {
             }
             if !expected.revision.isEmpty, expected.revision != modelRevision {
                 return .failure(code: .manifestMismatch, detail: "expected_model revision mismatch")
+            }
+            // The one field that distinguishes the artifacts of a single pinned revision, and so
+            // the only one that catches a sidecar still holding the previously selected weights.
+            if !expected.file.isEmpty, expected.file != modelFile {
+                return .failure(code: .manifestMismatch, detail: "expected_model file mismatch")
             }
         }
         let path = URL(fileURLWithPath: request.audio.path)

@@ -994,7 +994,7 @@ struct DictationCoordinatorTests {
         let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
 
         #expect(!coordinator.hasLearnedVocabulary)
-        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube control"], scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube control"])
 
         let taught = try #require(coordinator.settings.glossary.first { $0.canonical == "kubectl" })
         #expect(taught.source == .bundled)
@@ -1014,7 +1014,7 @@ struct DictationCoordinatorTests {
                 ProtectedTerm(canonical: "ProjectTerm", spokenAliases: [], source: .manualImport),
             ]
         )
-        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube control"], scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube control"])
 
         coordinator.clearLearnedVocabulary()
 
@@ -1087,7 +1087,7 @@ struct DictationCoordinatorTests {
             asrText: "please run cube uh cuddle on the pod"
         )
 
-        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube uh cuddle"], scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "kubectl", spokenForms: ["cube uh cuddle"])
         await driveUtterance(coordinator)
         #expect(coordinator.lastTranscript == "please run kubectl on the pod")
 
@@ -1124,8 +1124,7 @@ struct DictationCoordinatorTests {
             coordinator.commitTerm(
                 termId: "kubectl",
                 canonical: "kubectl",
-                spokenForms: ["kube cuddle"],
-                scope: .global
+                spokenForms: ["kube cuddle"]
             ))
 
         let edited = try #require(coordinator.settings.glossary.first { $0.termId == "kubectl" })
@@ -1143,8 +1142,7 @@ struct DictationCoordinatorTests {
             coordinator.commitTerm(
                 termId: nil,
                 canonical: "kubectl",
-                spokenForms: ["cube control"],
-                scope: .global
+                spokenForms: ["cube control"]
             ))
 
         let taught = try #require(coordinator.settings.glossary.first { $0.canonical == "kubectl" })
@@ -1165,8 +1163,7 @@ struct DictationCoordinatorTests {
             coordinator.commitTerm(
                 termId: "kubectl",
                 canonical: "kubectl-2",
-                spokenForms: displayedForms,
-                scope: .global
+                spokenForms: displayedForms
             ))
 
         let renamed = try #require(coordinator.settings.glossary.first { $0.termId == "kubectl" })
@@ -1174,11 +1171,11 @@ struct DictationCoordinatorTests {
         #expect(Glossary.userAliases(for: renamed) == displayedForms)
     }
 
-    /// Renaming a term onto a spelling another term in the same scope already
-    /// holds is refused, not merged. Two rows with one canonical make
-    /// canonicalization depend on term order, and the second row is unreachable
-    /// in a list that names terms — the user would think the rename was lost.
-    @Test func renamingATermToAnExistingCanonicalInItsScopeIsRefused() throws {
+    /// Renaming a term onto a spelling another term already holds is refused, not
+    /// merged. Two rows with one canonical make canonicalization depend on term
+    /// order, and the second row is unreachable in a list that names terms — the
+    /// user would think the rename was lost.
+    @Test func renamingATermToAnExistingCanonicalIsRefused() throws {
         let coordinator = makeVocabularyCoordinator(glossary: Settings.defaultGlossary)
         let before = coordinator.settings.glossary
         let event = try #require(before.first { $0.termId == "CGEvent" })
@@ -1188,8 +1185,7 @@ struct DictationCoordinatorTests {
             coordinator.commitTerm(
                 termId: "CGEvent",
                 canonical: "KUBECTL",
-                spokenForms: Glossary.userAliases(for: event),
-                scope: .global
+                spokenForms: Glossary.userAliases(for: event)
             ) == false)
 
         #expect(coordinator.glossaryNotice == "“kubectl” is already a term. Open it to add a spoken form.")
@@ -1208,12 +1204,43 @@ struct DictationCoordinatorTests {
             coordinator.commitTerm(
                 termId: "CGEvent",
                 canonical: "CGEvent",
-                spokenForms: ["cube cuddle"],
-                scope: .global
+                spokenForms: ["cube cuddle"]
             ) == false)
 
         #expect(coordinator.glossaryNotice == "That spoken form already belongs to another term.")
         #expect(coordinator.settings.glossary == before)
+    }
+
+    /// Re-importing the same word list adds nothing. Imported rows written by
+    /// scoped builds carry `project:<uuid>/…` ids no fresh import can reproduce,
+    /// so matching on term id alone appended a duplicate `Kubernetes` on every
+    /// relaunch-and-reimport.
+    @Test func reimportingAWordListMergesOntoTheImportedRowItAlreadyHas() throws {
+        let legacy = ProtectedTerm(
+            canonical: "Kubernetes",
+            spokenAliases: [],
+            protected: false,
+            termId: "project:legacy/Kubernetes",
+            source: .manualImport,
+            cloudEligible: false
+        )
+        let coordinator = makeVocabularyCoordinator(glossary: [legacy])
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-wordlist-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("words.txt")
+        try Data("Kubernetes\n".utf8).write(to: file)
+
+        coordinator.importWordList(from: file)
+        coordinator.importWordList(from: file)
+
+        #expect(coordinator.glossaryNotice == nil)
+        let live = coordinator.settings.glossary.filter {
+            $0.tombstonedAt == nil && $0.canonical == "Kubernetes"
+        }
+        #expect(live.count == 1)
+        #expect(live.first?.source == .manualImport)
     }
 
     @Test func clearingHistoryRemovesTheJournalFromDisk() async throws {
@@ -1701,7 +1728,7 @@ struct DictationCoordinatorTests {
         let coordinator = makeCoordinator(settingsStore: temporarySettingsStore())
 
         // "cube cuddle" already belongs to the bundled kubectl term.
-        coordinator.commitTerm(termId: nil, canonical: "Ghostty", spokenForms: ["cube cuddle"], scope: .global)
+        coordinator.commitTerm(termId: nil, canonical: "Ghostty", spokenForms: ["cube cuddle"])
 
         #expect(coordinator.glossaryNotice == "That spoken form already belongs to another term.")
         #expect(coordinator.errorMessage == nil)

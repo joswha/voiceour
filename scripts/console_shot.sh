@@ -9,7 +9,7 @@
 # The offscreen harness remains the gate. See docs/ui-harness.md.
 #
 # Usage: scripts/console_shot.sh [tab] [output.png]
-#   tab:    home | general (default) | glossary | history | system
+#   tab:    home | glossary | history | settings (default)
 #   output: defaults to .build/console-<tab>.png
 #
 # Two capture modes, because the two jobs want opposite things:
@@ -35,7 +35,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-SECTION="${1:-general}"
+SECTION="${1:-settings}"
 OUT="${2:-$ROOT/.build/console-$SECTION.png}"
 COMPOSITED="${CONSOLE_SHOT_COMPOSITED:-0}"
 

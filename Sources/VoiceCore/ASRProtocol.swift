@@ -2,22 +2,87 @@ import Foundation
 
 public let asrProtocolVersion = 1
 
-/// The one pinned artifact the real ASR backend loads.
+/// The pinned model repository every real decode loads from.
 ///
-/// A single GGUF-converted checkpoint downloaded from Hugging Face and verified by digest,
-/// not a repository snapshot: the sidecar links parakeet.cpp and reads exactly this file.
-/// The registry advertises `modelId`/`revision`, the sidecar's model cache uses every field,
-/// and both must move together with `Vendor/parakeet` and the protocol fixtures.
+/// One Hugging Face repository at one revision holding several conversions of the same
+/// checkpoint. `ASRModelVariant` names those artifacts; this is the identity they all share,
+/// which is what the backend registry advertises and what the sidecar's `expected_model`
+/// check compares. It must move together with `Vendor/parakeet` and the protocol fixtures.
 public enum ASRModelContract {
     public static let modelId = "ggml-org/parakeet-GGUF"
     public static let revision = "35156454d1a39de06863303dd209fd2bed6ee079"
-    public static let fileName = "ggml-parakeet-tdt-0.6b-v3-f16.bin"
-    public static let sha256 = "833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f"
-    public static let sizeBytes: Int64 = 1_255_897_319
+}
 
-    public static let downloadURL = URL(
-        string: "https://huggingface.co/\(modelId)/resolve/\(revision)/\(fileName)"
-    )!
+/// The interchangeable weight artifacts of the pinned repository.
+///
+/// Every case is the same checkpoint at the same revision converted at a different precision:
+/// same vocabulary, same TDT decoder, same wire protocol, and the same transcripts to within
+/// the accuracy the committed corpus can resolve. Only the footprint differs, so the choice
+/// offered to a reader is a disk and memory trade and never a quality claim. `f16` stays the
+/// default because it is also the faster of the two on that corpus.
+///
+/// The raw value is the artifact's quantization tag: it is the only part of the file name that
+/// varies, and it keeps a persisted choice readable.
+public enum ASRModelVariant: String, Codable, Equatable, CaseIterable, Sendable {
+    case f16
+    case q8 = "q8_0"
+
+    /// The compiled default, and where a stale or unknown persisted value lands.
+    public static let `default` = ASRModelVariant.f16
+
+    /// How the app names the selection to the sidecar it spawns. The launch environment is an
+    /// allowlist that already passes `VOICEOUR_*`, so both sides read this one constant.
+    public static let environmentKey = "VOICEOUR_MODEL_VARIANT"
+
+    public var fileName: String { "ggml-parakeet-tdt-0.6b-v3-\(rawValue).bin" }
+
+    public var sha256: String {
+        switch self {
+        case .f16: return "833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f"
+        case .q8: return "4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e"
+        }
+    }
+
+    public var sizeBytes: Int64 {
+        switch self {
+        case .f16: return 1_255_897_319
+        case .q8: return 668_757_119
+        }
+    }
+
+    /// What Settings calls it. Deliberately not the quantization tag: the reader is choosing a
+    /// footprint, and `q8_0` names the conversion rather than the consequence.
+    public var displayName: String {
+        switch self {
+        case .f16: return "Balanced"
+        case .q8: return "Compact"
+        }
+    }
+
+    /// Its own directory under the app's cache, so two artifacts can never share one manifest.
+    ///
+    /// `f16` keeps the directory name it has always had: an existing install must not be
+    /// orphaned into re-downloading 1.26 GB the first time this build runs.
+    public var cacheDirectoryName: String {
+        switch self {
+        case .f16: return "parakeet-tdt-0.6b-v3-ggml"
+        case .q8: return "parakeet-tdt-0.6b-v3-ggml-q8_0"
+        }
+    }
+
+    public var downloadURL: URL {
+        URL(
+            string:
+                "https://huggingface.co/\(ASRModelContract.modelId)/resolve/\(ASRModelContract.revision)/\(fileName)"
+        )!
+    }
+
+    /// Resolves a persisted or environment value, degrading to `default` rather than trapping:
+    /// a variant written by a future build must not stop dictation working.
+    public static func resolved(_ rawValue: String?) -> ASRModelVariant {
+        guard let rawValue, let variant = ASRModelVariant(rawValue: rawValue) else { return .default }
+        return variant
+    }
 }
 
 public enum BackendStatus: String, Codable, Equatable, Sendable {
@@ -166,13 +231,21 @@ public struct ASRAudioMeta: Codable, Equatable, Sendable {
     }
 }
 
+/// What the client requires the sidecar to have loaded.
+///
+/// `file` is load-bearing rather than decorative: every artifact in the pinned repository
+/// shares `modelId` and `revision`, so those two alone cannot tell `f16` from `q8_0` and a
+/// sidecar left over from the previous selection would satisfy the check while decoding with
+/// the wrong weights.
 public struct ASRExpectedModel: Codable, Equatable, Sendable {
     public var modelId: String
     public var revision: String
+    public var file: String
 
-    public init(modelId: String, revision: String) {
+    public init(modelId: String, revision: String, file: String) {
         self.modelId = modelId
         self.revision = revision
+        self.file = file
     }
 }
 

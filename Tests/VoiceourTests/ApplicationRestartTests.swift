@@ -53,9 +53,10 @@ struct ApplicationRestartTests {
             ])
     }
 
-    @Test func restartRemovesOnlyTheBackendEnvironmentOverride() {
+    @Test func restartRemovesOnlyTheEngineSelectionEnvironmentOverrides() {
         let environment = VoiceourAppDelegate.restartEnvironment(from: [
             "VOICEOUR_ASR_BACKEND": "mlx",
+            "VOICEOUR_MODEL_VARIANT": "q8_0",
             "VOICEOUR_REPO_ROOT": "/tmp/voiceour",
             "PATH": "/usr/bin",
         ])

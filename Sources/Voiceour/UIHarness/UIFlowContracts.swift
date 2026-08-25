@@ -227,6 +227,9 @@
         case cleanupEnabled
         /// Active ASR backend identifier.
         case activeBackend
+        /// Raw tag of `settings.asrModelVariant`: the selection, which is what a restart applies,
+        /// as opposed to `activeBackend`, which is what is already running.
+        case selectedModelVariant
         /// `true`/`false` for `coordinator.isProcessingInFlight`.
         case processingInFlight
         /// Text the insertion adapter was last asked to deliver (empty when none).

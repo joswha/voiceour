@@ -38,6 +38,34 @@ struct SidecarClientTests {
         #expect(configuration.environment["GITHUB_TOKEN"] == nil)
     }
 
+    /// The selection reaches the sidecar as one environment value, and it has to outrank an
+    /// inherited one: a `VOICEOUR_MODEL_VARIANT` exported in the shell that launched the app
+    /// would otherwise decide which weights load instead of the reader's own choice.
+    @Test func sidecarLaunchEnvironmentCarriesTheSelectedVariantOverAnInheritedOne() {
+        let configuration = SidecarLaunchConfiguration.sidecar(
+            executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
+            backend: "parakeet",
+            modelVariant: .q8,
+            parentEnvironment: [ASRModelVariant.environmentKey: "f16"]
+        )
+
+        #expect(configuration.environment[ASRModelVariant.environmentKey] == "q8_0")
+    }
+
+    /// A backend that loads no weights is told nothing about them. Handing the fake sidecar a
+    /// variant is the same category of lie as handing it Parakeet's model id: a claim about
+    /// weights it never reads.
+    @Test func sidecarLaunchEnvironmentOmitsTheVariantForABackendThatPinsNone() {
+        let configuration = SidecarLaunchConfiguration.sidecar(
+            executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
+            backend: "fake",
+            parentEnvironment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        #expect(configuration.environment[ASRModelVariant.environmentKey] == nil)
+        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "fake")
+    }
+
     @Test func resultWithProtocolVersionTwoIsRejectedRatherThanDelivered() async throws {
         let script = #"""
             printf '%s\n' '{"backend_id":"fake","backend_status":"ready","capabilities":{"final_utterance":true},"protocol_version":1,"sidecar_version":"0.1.0","type":"hello"}'
@@ -156,7 +184,11 @@ struct SidecarClientTests {
 
         let client = SidecarASRClient(
             launch: stubLaunch("echo-result", requestFile.path),
-            expectedModel: ASRExpectedModel(modelId: ASRModelContract.modelId, revision: ASRModelContract.revision)
+            expectedModel: ASRExpectedModel(
+                modelId: ASRModelContract.modelId,
+                revision: ASRModelContract.revision,
+                file: ASRModelVariant.q8.fileName
+            )
         )
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 1_234)
         #expect(result.transcript.text == "encoding-ok")
@@ -168,6 +200,7 @@ struct SidecarClientTests {
         #expect(!decoded.requestId.isEmpty)
         #expect(decoded.expectedModel?.modelId == ASRModelContract.modelId)
         #expect(decoded.expectedModel?.revision == ASRModelContract.revision)
+        #expect(decoded.expectedModel?.file == ASRModelVariant.q8.fileName)
         #expect(decoded.timeoutMs == 1_234)
 
         guard let raw = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
@@ -182,6 +215,10 @@ struct SidecarClientTests {
         #expect((raw["request_id"] as? String)?.isEmpty == false)
         #expect(expectedModel["model_id"] as? String == ASRModelContract.modelId)
         #expect(expectedModel["revision"] as? String == ASRModelContract.revision)
+        // `file` is what tells one artifact of the pinned revision from another, so it has to
+        // reach the wire under exactly that key and carry the client's own artifact — not the
+        // default, which would agree with a stale sidecar by accident.
+        #expect(expectedModel["file"] as? String == ASRModelVariant.q8.fileName)
         #expect(raw["timeout_ms"] as? Int == 1_234)
         #expect(audio["path"] as? String == "/tmp/sidecar-client-test.wav")
         #expect(audio["format"] as? String == "wav")

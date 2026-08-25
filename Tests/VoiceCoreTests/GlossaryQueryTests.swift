@@ -13,7 +13,6 @@ struct GlossaryQueryTests {
         aliases: [String] = [],
         termId: String? = nil,
         source: TermSource = .explicitCorrection,
-        scope: VocabularyScope = .global,
         tombstonedAt: Date? = nil
     ) -> ProtectedTerm {
         ProtectedTerm(
@@ -21,7 +20,6 @@ struct GlossaryQueryTests {
             spokenAliases: aliases,
             termId: termId,
             source: source,
-            scope: scope,
             tombstonedAt: tombstonedAt
         )
     }
@@ -50,11 +48,11 @@ struct GlossaryQueryTests {
         #expect(matches.map(\.canonical) == ["alfred", "Zed", "zsh"])
     }
 
-    /// Two records can hold one spelling in different scopes; the id breaks the
-    /// tie so the list does not reshuffle between reloads.
+    /// A ledger written by a scoped build can hold one spelling twice; the id
+    /// breaks the tie so the list does not reshuffle between reloads.
     @Test func equalSpellingsOrderByTermId() {
         let terms = [
-            term("kubectl", termId: "kubectl-project", scope: .projectID("proj-voiceour")),
+            term("kubectl", termId: "kubectl-project"),
             term("kubectl", termId: "kubectl-global"),
         ]
 
@@ -169,5 +167,61 @@ struct GlossaryQueryTests {
         let facets = GlossaryQuery.originFacets(in: terms)
 
         #expect(facets == [TermOriginFacet(origin: .builtIn, count: 2)])
+    }
+
+    // MARK: Prior teaching
+
+    /// History's teach opens the term a selected word already belongs to, so the
+    /// reader sees the teaching they gave it rather than a blank editor. These
+    /// are the surfaces that count as belonging.
+    @Test func aSurfaceEqualToACanonicalOwnsItsTermCaseInsensitively() throws {
+        let terms = [term("kubectl"), term("NeuroDock")]
+
+        let owner = try #require(GlossaryQuery.termOwning(surface: "KUBECTL", in: terms))
+
+        #expect(owner.canonical == "kubectl")
+    }
+
+    @Test func aSurfaceEqualToASpokenAliasOwnsItsTerm() throws {
+        let terms = [term("etc.", aliases: ["etcetera"]), term("kubectl")]
+
+        let owner = try #require(GlossaryQuery.termOwning(surface: "Etcetera", in: terms))
+
+        #expect(owner.canonical == "etc.")
+    }
+
+    @Test func aSurfaceEqualToAConfirmedLabeledAliasOwnsItsTerm() throws {
+        var taught = term("kubectl")
+        taught = TermMutation.confirmingAlias("cube cuddle", on: taught, at: Date(timeIntervalSince1970: 5))
+        let terms = [term("zsh"), taught]
+
+        let owner = try #require(GlossaryQuery.termOwning(surface: "cube cuddle", in: terms))
+
+        #expect(owner.canonical == "kubectl")
+    }
+
+    /// A multi-word selection arrives with the surrounding whitespace the text
+    /// view handed over. Trimming is the lookup's job, not the caller's.
+    @Test func aSurroundedMultiWordSurfaceIsTrimmedBeforeMatching() throws {
+        let terms = [term("NSPasteboard", aliases: ["ns paste board"])]
+
+        let owner = try #require(GlossaryQuery.termOwning(surface: "  ns paste board\n", in: terms))
+
+        #expect(owner.canonical == "NSPasteboard")
+    }
+
+    /// A removed term is not a prior teaching. Re-teaching its spelling goes
+    /// through the additive branch, which revives the row.
+    @Test func aTombstonedTermNeverOwnsItsSurface() {
+        let terms = [term("kubectl", tombstonedAt: Date(timeIntervalSince1970: 1))]
+
+        #expect(GlossaryQuery.termOwning(surface: "kubectl", in: terms) == nil)
+    }
+
+    @Test func anUntaughtSurfaceOwnsNothing() {
+        let terms = [term("kubectl", aliases: ["cube cuddle"])]
+
+        #expect(GlossaryQuery.termOwning(surface: "Ghostty", in: terms) == nil)
+        #expect(GlossaryQuery.termOwning(surface: "   ", in: terms) == nil)
     }
 }

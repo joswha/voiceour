@@ -1,10 +1,10 @@
 import Foundation
 import VoiceCore
 
-/// Caps applied when importing an untrusted project word list. Bounds both the
-/// number of accepted terms and the length of any single term so a hostile or
-/// accidentally huge manifest cannot flood the active vocabulary.
-public struct ProjectLexiconLimits: Equatable, Sendable {
+/// Caps applied when importing an untrusted word list. Bounds both the number of
+/// accepted terms and the length of any single term so a hostile or accidentally
+/// huge file cannot flood the active vocabulary.
+public struct WordListLimits: Equatable, Sendable {
     public var maxTerms: Int
     public var maxTermLength: Int
 
@@ -13,25 +13,13 @@ public struct ProjectLexiconLimits: Equatable, Sendable {
         self.maxTermLength = maxTermLength
     }
 
-    public static var `default`: ProjectLexiconLimits {
-        ProjectLexiconLimits(maxTerms: 500, maxTermLength: 64)
+    public static var `default`: WordListLimits {
+        WordListLimits(maxTerms: 500, maxTermLength: 64)
     }
 }
 
-/// A sanitized, project-scoped set of imported terms. Value type: importing has
-/// no side effects beyond reading the source file.
-public struct ProjectLexicon: Equatable, Sendable {
-    public let projectId: String
-    public let terms: [ProtectedTerm]
-
-    public init(projectId: String, terms: [ProtectedTerm]) {
-        self.projectId = projectId
-        self.terms = terms
-    }
-}
-
-/// Failures raised while importing a project lexicon.
-enum ProjectLexiconImportError: Error, Equatable, LocalizedError {
+/// Failures raised while importing a word list.
+enum WordListImportError: Error, Equatable, LocalizedError {
     /// The selected file is (or points through) a symlink whose target resolves
     /// outside the selected file's own parent directory.
     case symlinkEscapesParentDirectory(selected: URL, resolved: URL, parent: URL)
@@ -44,42 +32,40 @@ enum ProjectLexiconImportError: Error, Equatable, LocalizedError {
             return
                 "Refusing to import \"\(selected.lastPathComponent)\": it resolves to \(resolved.path), which is outside its parent directory \(parent.path)."
         case .unreadableFile(let url):
-            return "Could not read the lexicon file at \(url.path) as UTF-8 text."
+            return "Could not read the word list at \(url.path) as UTF-8 text."
         }
     }
 }
 
-/// Deterministic, injectable importer for user-selected project word lists.
+/// Deterministic, injectable importer for user-selected word lists.
 ///
 /// The core entry point is URL-based and side-effect-free beyond reading the
 /// referenced file, so it is fully unit-testable with temp files. File selection
 /// (e.g. `NSOpenPanel`) lives in the UI layer and is deliberately not part of
 /// this type.
 ///
-/// Imported terms are tagged `source == .manualImport`, `scope == .projectID`,
-/// `cloudEligible == false`, and `protected == false`: project vocabulary is
-/// local-only and must never reach a cloud refiner prompt (see `RefinerPolicy`).
-public enum ProjectLexiconImporter {
+/// Imported terms are tagged `source == .manualImport`, `cloudEligible == false`,
+/// and `protected == false`: imported vocabulary is local-only and must never
+/// reach a cloud refiner prompt (see `RefinerPolicy`).
+public enum WordListImporter {
     /// Reads a newline- or JSON-array word list from `url`, sanitizes and caps the
-    /// entries, and returns them as project-scoped, cloud-ineligible terms.
+    /// entries, and returns them as cloud-ineligible terms.
     ///
-    /// - Throws: `ProjectLexiconImportError.symlinkEscapesParentDirectory` if the
-    ///   file resolves outside its parent directory, or
-    ///   `ProjectLexiconImportError.unreadableFile` if it cannot be read/decoded.
-    public static func importLexicon(
+    /// - Throws: `WordListImportError.symlinkEscapesParentDirectory` if the file
+    ///   resolves outside its parent directory, or
+    ///   `WordListImportError.unreadableFile` if it cannot be read/decoded.
+    public static func importWordList(
         from url: URL,
-        projectId: String,
-        limits: ProjectLexiconLimits = .default
-    ) throws -> ProjectLexicon {
+        limits: WordListLimits = .default
+    ) throws -> [ProtectedTerm] {
         try rejectSymlinkEscape(url)
 
         guard let data = try? Data(contentsOf: url) else {
-            throw ProjectLexiconImportError.unreadableFile(url)
+            throw WordListImportError.unreadableFile(url)
         }
 
         let rawEntries = try parseEntries(from: data, url: url)
-        let terms = buildTerms(from: rawEntries, projectId: projectId, limits: limits)
-        return ProjectLexicon(projectId: projectId, terms: terms)
+        return buildTerms(from: rawEntries, limits: limits)
     }
 
     // MARK: - Symlink containment
@@ -100,7 +86,7 @@ public enum ProjectLexiconImporter {
             && Array(fileComponents.prefix(parentComponents.count)) == parentComponents
 
         if !containedInParent {
-            throw ProjectLexiconImportError.symlinkEscapesParentDirectory(
+            throw WordListImportError.symlinkEscapesParentDirectory(
                 selected: url,
                 resolved: resolvedFile,
                 parent: resolvedParent
@@ -117,7 +103,7 @@ public enum ProjectLexiconImporter {
             return jsonEntries
         }
         guard let text = String(data: data, encoding: .utf8) else {
-            throw ProjectLexiconImportError.unreadableFile(url)
+            throw WordListImportError.unreadableFile(url)
         }
         return text.split(whereSeparator: { $0.isNewline }).map(String.init)
     }
@@ -126,8 +112,7 @@ public enum ProjectLexiconImporter {
 
     private static func buildTerms(
         from rawEntries: [String],
-        projectId: String,
-        limits: ProjectLexiconLimits
+        limits: WordListLimits
     ) -> [ProtectedTerm] {
         var terms: [ProtectedTerm] = []
         var seen: Set<String> = []
@@ -149,7 +134,6 @@ public enum ProjectLexiconImporter {
                     casePolicy: .exact,
                     protected: false,
                     source: .manualImport,
-                    scope: .projectID(projectId),
                     cloudEligible: false
                 )
             )

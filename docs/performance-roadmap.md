@@ -7,7 +7,7 @@ Measurements were updated through 2026-08-15 on an Apple M4 Pro (10 performance 
 - runtime: Swift `voiceour-asr` with vendored parakeet.cpp/ggml, Metal, and Accelerate
 - model: `ggml-org/parakeet-GGUF`
 - revision: `35156454d1a39de06863303dd209fd2bed6ee079`
-- artifact: `ggml-parakeet-tdt-0.6b-v3-f16.bin`, 1,255,897,319 bytes
+- artifact: `ggml-parakeet-tdt-0.6b-v3-f16.bin`, 1,255,897,319 bytes — the default, and what every measurement here used unless it says otherwise
 - decode: greedy TDT in the persistent sidecar
 - after ASR: deterministic cleanup and glossary canonicalization only
 
@@ -40,7 +40,7 @@ The 1.3-second Bluetooth gap is HFP/SCO warmup filled with digital zeros, so the
 
 At stop, the 120 ms `SystemAudioMuter.restore()` fade overlaps transcription instead of blocking inference.
 
-## f16 remains the pin
+## Why f16 is the default
 
 Same tiers and revision, measured 2026-08-15; f16 first, q8_0 second. The f16 column here is the 2026-08-14 baseline this experiment was matched against, so its throughput differs slightly from the corpus baseline above:
 
@@ -50,7 +50,9 @@ Same tiers and revision, measured 2026-08-15; f16 first, q8_0 second. The f16 co
 - FLEURS ASR p50 / p95: 90.5 / 125.4 ms, 109.0 / 156.5 ms; RTFx 99.7, 84.1
 - U-WER: LibriSpeech 2.807%, 2.782%; FLEURS 4.416%, 4.416%
 
-Quantization saves 587 MB at effectively unchanged accuracy but loses 7–19% throughput, so f16 remains the compiled contract. Reports: `20260815T143055Z-librispeech-parakeet-stt.json`, `20260815T143116Z-fleurs-parakeet-stt.json`.
+Quantization saves 587 MB at effectively unchanged accuracy but loses 7–19% throughput, which is why f16 is the default and the compiled fallback. That is not a reason to withhold the trade: q8_0 ships as the user-selectable Compact option, because roughly half the footprint for that throughput is a choice only the reader can make. Reports: `20260815T143055Z-librispeech-parakeet-stt.json`, `20260815T143116Z-fleurs-parakeet-stt.json`.
+
+Weaker corroboration, 32 LibriSpeech rows: both artifacts scored U-WER 2.2422%, with 31 of 32 transcripts byte-identical. A run that short cannot resolve a difference this small — it sits below the corpus's resolution — so it agrees with the accuracy result above without independently establishing it.
 
 ## Ranked next measurements
 

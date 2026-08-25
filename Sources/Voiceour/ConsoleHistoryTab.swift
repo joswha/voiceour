@@ -1003,9 +1003,9 @@ struct ConsoleTeachPrefill: Equatable {
 ///
 /// The fields are `ConsoleTermEditor`, the one term editor, so a term taught
 /// from a transcript names the same two things the Glossary row names. What is
-/// session-shaped stays here: the scopes this transcript can offer, the
-/// surfaces its raw text held and its final text did not, the one-shot prefill
-/// from a right-click, and the write itself.
+/// session-shaped stays here: the one-shot prefill from a right-click, the
+/// lookup that resolves it to a term the glossary already holds, and the write
+/// itself.
 ///
 /// Teaching writes the user's glossary and nothing else: it never edits text
 /// that was already inserted, which is why the caption says so and why the
@@ -1018,7 +1018,9 @@ struct ConsoleTeachHost: View {
 
     @State private var canonical = ""
     @State private var spokenForms: [String] = []
-    @State private var scope: VocabularyScope = .global
+    /// The live term the prefilled surface already belongs to, when it belongs to
+    /// one. Non-nil makes the commit a full-set edit of that record.
+    @State private var matchedTermId: String?
     /// The reason the last teach was refused, kept so the editor can stay open
     /// on the text the user typed. A refusal used to close the editor silently
     /// and throw the term away.
@@ -1028,10 +1030,7 @@ struct ConsoleTeachHost: View {
         ConsoleTermEditor(
             term: $canonical,
             spokenForms: $spokenForms,
-            scope: $scope,
-            scopeOptions: scopeOptions,
-            derivedForms: [],
-            candidateForms: mishearingCandidates,
+            derivedForms: Glossary.derivedAliases(for: canonical),
             failure: refusal,
             caption: "Teaches future dictation only — this never edits text already pasted.",
             submit: ConsoleTermEditor.Command(
@@ -1050,78 +1049,55 @@ struct ConsoleTeachHost: View {
         }
     }
 
-    /// Global always; the delivery target and the active project only when this
-    /// transcript has one. A scope the session cannot name is not offered.
-    private var scopeOptions: [(scope: VocabularyScope, title: String)] {
-        var options: [(scope: VocabularyScope, title: String)] = [(.global, "Global")]
-        if let appBundleId {
-            options.append((.bundleID(appBundleId), "This App"))
-        }
-        if let projectId {
-            options.append(
-                (.projectID(projectId), "Project · \(coordinator.activeProjectName ?? "This Project")")
-            )
-        }
-        return options
-    }
-
-    private var appBundleId: String? {
-        let id = session.outcome?.targetBundleId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (id?.isEmpty == false) ? id : nil
-    }
-
-    private var projectId: String? {
-        let id = coordinator.activeProjectId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (id?.isEmpty == false) ? id : nil
-    }
-
-    /// Words present in the raw pre-cleanup transcript but not in the final text
-    /// — the likely mishearing surfaces the user may want to map to a term.
-    private var mishearingCandidates: [String] {
-        guard let raw = session.rawTranscript else { return [] }
-        let finalWords = Set(
-            session.text
-                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-                .map { $0.lowercased() }
-        )
-        var seen: Set<String> = []
-        var candidates: [String] = []
-        for token in raw.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
-            let word = String(token)
-            let key = word.lowercased()
-            guard !finalWords.contains(key), seen.insert(key).inserted else { continue }
-            candidates.append(word)
-            if candidates.count >= 12 { break }
-        }
-        return candidates
-    }
-
     private var canSubmit: Bool {
         !canonical.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Seeds the editor from a transcript right-click: the highlighted surface
-    /// becomes the spoken form the user is teaching. An already-open draft keeps
-    /// its typed term and chosen scope — only the form is replaced. Consumes the
+    /// Seeds the editor from a transcript right-click, on open and on re-aim
+    /// both. A surface the glossary already owns opens that term: its spelling
+    /// and every user-authored form it carries, so a prior teaching is visible
+    /// rather than invisible. An unowned surface opens a blank spelling with the
+    /// surface as its one form — the Glossary Add Term shape. Consumes the
     /// one-shot binding so a repeat right-click of the same word re-triggers.
+    ///
+    /// Re-aiming replaces a typed-but-uncommitted draft: the gesture means "open
+    /// this word's record", and preserving the old term would show a spelling
+    /// that has nothing to do with the word just clicked.
     private func applyExternalPrefill() {
         guard let prefill = externalPrefill else { return }
-        spokenForms = [prefill.word]
+        if let owner = GlossaryQuery.termOwning(surface: prefill.word, in: coordinator.settings.glossary) {
+            matchedTermId = owner.termId
+            canonical = owner.canonical
+            var forms = Glossary.userAliases(for: owner)
+            let isCanonical = prefill.word.caseInsensitiveCompare(owner.canonical) == .orderedSame
+            let alreadyListed = forms.contains { $0.caseInsensitiveCompare(prefill.word) == .orderedSame }
+            if !isCanonical, !alreadyListed {
+                forms.append(prefill.word)
+            }
+            spokenForms = forms
+        } else {
+            matchedTermId = nil
+            canonical = ""
+            spokenForms = [prefill.word]
+        }
         externalPrefill = nil
     }
 
-    /// History lists no form set — it names a term the glossary may already hold
-    /// — so it commits with a nil `termId`, and its form is added to that term
-    /// rather than substituted for the forms the term already carries.
+    /// Teaches whatever the prefill resolved to. A matched term commits with its
+    /// own id, so the editor's form list IS the term's set and a row the user
+    /// removed is removed — the same full-set semantics as Glossary Save. An
+    /// unmatched spelling commits with a nil id, so its form is added to whatever
+    /// term already holds that spelling rather than substituted for the forms
+    /// that term already carries. A `matchedTermId` whose term vanished mid-edit
+    /// falls through `commitTerm`'s canonical-match branch, which is additive.
     private func submit() {
         let trimmed = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard
             coordinator.commitTerm(
-                termId: nil,
+                termId: matchedTermId,
                 canonical: trimmed,
-                spokenForms: spokenForms,
-                scope: scope
+                spokenForms: spokenForms
             )
         else {
             refusal = coordinator.glossaryNotice
@@ -1137,7 +1113,7 @@ struct ConsoleTeachHost: View {
     private func reset() {
         canonical = ""
         spokenForms = []
-        scope = .global
+        matchedTermId = nil
         refusal = nil
         isEditing = false
         externalPrefill = nil

@@ -237,6 +237,48 @@ struct VoiceCoreTests {
         #expect(settings.muteSystemAudioDuringCapture == true)
     }
 
+    /// A model variant this build has never heard of degrades to the default rather than
+    /// throwing. Throwing here would quarantine the whole settings file — glossary, mute
+    /// choice and all — over one unrecognised word written by a build the user has since
+    /// rolled back from.
+    @Test func settingsJSONWithAnUnknownModelVariantKeepsTheDefaultAndTheRestOfTheFile() throws {
+        let json = """
+            {
+              "asr_backend": "parakeet",
+              "asr_model_variant": "q3_k_xxs",
+              "mute_system_audio_during_capture": false
+            }
+            """
+
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+
+        #expect(settings.asrModelVariant == .default)
+        #expect(settings.asrBackend == "parakeet")
+        #expect(settings.muteSystemAudioDuringCapture == false)
+    }
+
+    /// A settings file written before the selection existed keeps dictating with the artifact
+    /// it already has on disk, which is the default one.
+    @Test func settingsJSONWithoutAModelVariantKeepsTheDefault() throws {
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "parakeet"}"#.utf8))
+
+        #expect(settings.asrModelVariant == .default)
+    }
+
+    /// The persisted form is the artifact's quantization tag, not the case name and not the
+    /// display name: it is what the sidecar is launched with and what a reader sees in the file.
+    @Test func settingsModelVariantRoundTripsThroughItsPersistedTag() throws {
+        var settings = Settings()
+        settings.asrModelVariant = .q8
+
+        let data = try JSONEncoder().encode(settings)
+        #expect(String(decoding: data, as: UTF8.self).contains(#""asr_model_variant":"q8_0""#))
+
+        let decoded = try JSONDecoder().decode(Settings.self, from: data)
+        #expect(decoded.asrModelVariant == .q8)
+        #expect(decoded == settings)
+    }
+
     /// `mute_scope` was a real key until the muter stopped caring which
     /// transport the output device used. Every installed settings file still
     /// carries it, so decoding has to ignore it rather than fail.
@@ -253,6 +295,34 @@ struct VoiceCoreTests {
 
         #expect(settings.asrBackend == "parakeet")
         #expect(settings.muteSystemAudioDuringCapture == true)
+    }
+
+    /// `scope` was a real per-term key until vocabulary stopped being scoped at
+    /// all. Ledgers written by scoped builds carry it as an object, so decoding
+    /// has to ignore an unknown-shaped key rather than fail and quarantine the
+    /// user's whole glossary.
+    @Test func settingsJSONWithRetiredTermScopeKeyStillDecodes() throws {
+        let json = """
+            {
+              "asr_backend": "parakeet",
+              "glossary": [
+                {
+                  "canonical": "Kubernetes",
+                  "spoken_aliases": ["cube are netes"],
+                  "source": "manualImport",
+                  "scope": {"kind": "project_id", "value": "proj-x"}
+                }
+              ]
+            }
+            """
+
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+
+        let term = try #require(settings.glossary.first)
+        #expect(settings.glossary.count == 1)
+        #expect(term.canonical == "Kubernetes")
+        #expect(term.spokenAliases == ["cube are netes"])
+        #expect(term.source == .manualImport)
     }
 
     /// A settings file written by a pre-overhaul build carries every retired key plus a

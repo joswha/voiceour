@@ -48,14 +48,16 @@ public struct ParakeetModelManifest: Codable, Equatable, Sendable {
         self.sizeBytes = sizeBytes
     }
 
-    /// The artifact this build ships against.
-    public static let pinned = ParakeetModelManifest(
-        modelId: ASRModelContract.modelId,
-        revision: ASRModelContract.revision,
-        file: ASRModelContract.fileName,
-        sha256: ASRModelContract.sha256,
-        sizeBytes: ASRModelContract.sizeBytes
-    )
+    /// The artifact for one variant of the pinned repository.
+    public static func pinned(_ variant: ASRModelVariant) -> ParakeetModelManifest {
+        ParakeetModelManifest(
+            modelId: ASRModelContract.modelId,
+            revision: ASRModelContract.revision,
+            file: variant.fileName,
+            sha256: variant.sha256,
+            sizeBytes: variant.sizeBytes
+        )
+    }
 }
 
 /// The app-owned directory holding one pinned GGUF weight file plus its manifest.
@@ -88,8 +90,8 @@ public struct ParakeetModelCache: @unchecked Sendable {
 
     public init(
         directory: URL,
-        artifact: ParakeetModelManifest = .pinned,
-        source: URL = ASRModelContract.downloadURL,
+        artifact: ParakeetModelManifest = .pinned(.default),
+        source: URL = ASRModelVariant.default.downloadURL,
         sessionConfiguration: URLSessionConfiguration = ParakeetModelCache.defaultSessionConfiguration(),
         retryDelay: TimeInterval = 2
     ) {
@@ -100,20 +102,53 @@ public struct ParakeetModelCache: @unchecked Sendable {
         self.retryDelay = retryDelay
     }
 
-    /// `VOICEOUR_MODEL_CACHE` when set, else the app cache directory.
+    /// The cache for one variant: `VOICEOUR_MODEL_CACHE` when set, else the app cache directory.
+    ///
+    /// The override names one explicit directory, so it deliberately does not gain a per-variant
+    /// subdirectory: a caller who pins the path owns what lands there.
     public static func standard(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> ParakeetModelCache {
+        let variant = ASRModelVariant.resolved(environment[ASRModelVariant.environmentKey])
         if let override = environment["VOICEOUR_MODEL_CACHE"], !override.isEmpty {
-            return ParakeetModelCache(directory: URL(fileURLWithPath: override, isDirectory: true))
+            return ParakeetModelCache(
+                directory: URL(fileURLWithPath: override, isDirectory: true),
+                artifact: .pinned(variant),
+                source: variant.downloadURL
+            )
         }
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         return ParakeetModelCache(
-            directory:
-                caches
-                .appendingPathComponent("Voiceour", isDirectory: true)
-                .appendingPathComponent("parakeet-tdt-0.6b-v3-ggml", isDirectory: true)
+            directory: Self.variantDirectory(variant),
+            artifact: .pinned(variant),
+            source: variant.downloadURL
         )
+    }
+
+    private static func variantDirectory(_ variant: ASRModelVariant) -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Voiceour", isDirectory: true)
+            .appendingPathComponent(variant.cacheDirectoryName, isDirectory: true)
+    }
+
+    /// Deletes the cached artifacts of every variant other than this cache's own.
+    ///
+    /// Called once this cache's artifact is acquired and verified. Only one variant is ever
+    /// wanted, so without this a switch would leave the superseded artifact — up to 1.26 GB —
+    /// on disk forever.
+    ///
+    /// Resolved from this cache's own directory rather than from the caches root, so the rule is
+    /// "retire my siblings" and a test can exercise it in a temporary directory. Skipped under
+    /// `VOICEOUR_MODEL_CACHE`, whose single directory is the caller's to manage.
+    public func removeSupersededVariants(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard (environment["VOICEOUR_MODEL_CACHE"] ?? "").isEmpty else { return }
+        let parent = directory.deletingLastPathComponent()
+        for variant in ASRModelVariant.allCases where variant.fileName != artifact.file {
+            try? FileManager.default.removeItem(
+                at: parent.appendingPathComponent(variant.cacheDirectoryName, isDirectory: true)
+            )
+        }
     }
 
     public var modelURL: URL { directory.appendingPathComponent(artifact.file) }
@@ -150,7 +185,7 @@ public struct ParakeetModelCache: @unchecked Sendable {
     /// to start over because one TCP connection died.
     public func ensureModel(progress: ((Double) -> Void)? = nil) throws {
         if cacheOK() { return }
-        try requirePinnedManifestOrAbsent()
+        try requireMatchingManifestOrAbsent()
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporaryURL = directory.appendingPathComponent(artifact.file + ".download")
@@ -166,12 +201,19 @@ public struct ParakeetModelCache: @unchecked Sendable {
         try encoder.encode(artifact).write(to: manifestURL, options: .atomic)
     }
 
-    private func requirePinnedManifestOrAbsent() throws {
+    /// Refuses to overwrite a directory that already holds a different artifact.
+    ///
+    /// `file` is part of the comparison because every variant shares `modelId` and `revision`:
+    /// on those two alone this guard would pass for any of them, and a download would clobber
+    /// the manifest while leaving the previous weight file orphaned beside it.
+    private func requireMatchingManifestOrAbsent() throws {
         guard let existing = manifest() else { return }
-        let matches = existing.modelId == artifact.modelId && existing.revision == artifact.revision
+        let matches =
+            existing.modelId == artifact.modelId && existing.revision == artifact.revision
+            && existing.file == artifact.file
         guard matches else {
             throw ParakeetModelCacheError.manifestMismatch(
-                "manifest has model_id=\(existing.modelId) revision=\(existing.revision)"
+                "manifest has model_id=\(existing.modelId) revision=\(existing.revision) file=\(existing.file)"
             )
         }
     }

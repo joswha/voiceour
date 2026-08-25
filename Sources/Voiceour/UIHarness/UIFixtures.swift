@@ -156,9 +156,9 @@
             /// Populated history, but every glossary term removed.
             case emptyGlossary
             /// Populated history with a glossary that is not all bundled: one
-            /// taught term and one project-scoped term, so the row treatments
-            /// that only a non-default ledger can show — the scope chip and both
-            /// filter facets — actually render.
+            /// taught term and one imported term, so the row treatment only a
+            /// non-default ledger can show — both origin filter facets —
+            /// actually renders.
             case mixedGlossary
             /// A live recording session on the dev backend: `state == .recording`.
             case recording
@@ -202,7 +202,7 @@
             case .mixedGlossary:
                 return make(
                     sessions: history,
-                    settings: settings(glossary: VoiceCore.Settings.defaultGlossary + [taughtTerm, scopedTerm])
+                    settings: settings(glossary: VoiceCore.Settings.defaultGlossary + [taughtTerm, importedTerm])
                 )
             case .recording:
                 return makeRecording()
@@ -352,16 +352,14 @@
             canonical: "NeuroDock",
             spokenAliases: ["neuro dock"],
             termId: "term-neurodock",
-            source: .explicitCorrection,
-            scope: .global
+            source: .explicitCorrection
         )
-        private static let scopedTerm = ProtectedTerm(
+        private static let importedTerm = ProtectedTerm(
             canonical: "VoiceourBench",
             spokenAliases: [],
             protected: false,
             termId: "term-voiceourbench",
-            source: .manualImport,
-            scope: .projectID("proj-voiceour")
+            source: .manualImport
         )
 
         static func settings(

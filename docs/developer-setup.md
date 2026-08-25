@@ -22,7 +22,7 @@ This builds and launches the debug app on the fake backend: synthetic audio, no 
 scripts/run_real.sh
 ```
 
-This builds `.build/Voiceour.app` and launches the real backend, so macOS attributes permission grants to the bundle. The first launch downloads the pinned model — `ggml-org/parakeet-GGUF`, revision `35156454d1a39de06863303dd209fd2bed6ee079`, file `ggml-parakeet-tdt-0.6b-v3-f16.bin` — and shows progress in the menu. Dictation works offline once that cache exists.
+This builds `.build/Voiceour.app` and launches the real backend, so macOS attributes permission grants to the bundle. The first launch downloads the selected artifact of the pinned model — `ggml-org/parakeet-GGUF`, revision `35156454d1a39de06863303dd209fd2bed6ee079`, file `ggml-parakeet-tdt-0.6b-v3-f16.bin` unless Settings or the environment asks for Compact — and shows progress in the menu. Dictation works offline once that cache exists.
 
 Relaunch an existing bundle without rebuilding:
 
@@ -53,6 +53,8 @@ swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.w
 Bless golden changes with `make ui-update` or `make ui-flow-update` only after reading the generated `.ax.diff` or `.flow.diff`. See [`ui-harness.md`](ui-harness.md).
 
 Two suites skip without their flag: `VOICEOUR_PARAKEET_INTEGRATION=1 swift test` needs the model cache; `VOICEOUR_CAPTURE_INTEGRATION=1 swift test` opens the microphone. Manual permission and insertion checks live in [`permissions.md`](permissions.md). Benchmark tiers and commands live in [`benchmarks.md`](benchmarks.md).
+
+Three environment seams pin one run instead of persisting a choice. `VOICEOUR_MODEL_VARIANT=f16|q8_0` picks the speech-model artifact, outranks the Settings selection for that launch, and degrades to `f16` on an unrecognized value; the app writes the resolved value into the sidecar's launch environment, so the helper never acts on a stale inherited one. `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory — how a cold download is exercised — and that directory is neither per-variant nor pruned. `VOICEOUR_ASR_BACKEND` selects a registered backend.
 
 `scripts/console_shot.sh <tab> <output.png>` captures a real onscreen console window and needs Screen Recording permission.
 

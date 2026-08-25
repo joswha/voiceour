@@ -1,0 +1,8 @@
+flow: voice.model-selection
+title: Choosing a smaller model records the choice and asks for a restart
+fixture: static
+transitions: idle
+PASS 1 balanced-in-use | model selectedModelVariant == "f16" | "f16"
+PASS 2 balanced-in-use | absent id=voice.model.restart | 0 matches
+PASS 3 compact-pending-restart | model selectedModelVariant == "q8_0" | "q8_0"
+PASS 4 compact-pending-restart | exists id=voice.model.restart | 1 match

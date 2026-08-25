@@ -29,10 +29,8 @@ extension DictationCoordinator {
     static let captureWarmUpDeadline: TimeInterval = 6
 
     func beginRecording(generation: AsyncGenerationGate.Token) {
-        let snapshot = tracker.snapshot()
-        target = snapshot
         pendingSuggestions = []
-        updateTargetLabel(for: snapshot)
+        updateTargetLabel(for: tracker.snapshot())
         let shouldMuteSystemAudio = settings.muteSystemAudioDuringCapture
         let playsCues = settings.sessionSoundsEnabled
 
@@ -196,7 +194,7 @@ extension DictationCoordinator {
         state = .error(code)
         lastFailure = failure
         errorMessage = failure.cause
-        clearCapturedTargetAndRefreshLabel()
+        refreshTarget()
     }
 
     /// A denied microphone is a precondition that was never met, not a session

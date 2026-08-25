@@ -33,7 +33,9 @@ enum LaunchOptions {
     /// keeps its spelling: it is a development deep link that predates the tabs,
     /// and nothing outside this app types it. Nil when the flag is absent OR
     /// names an unknown tab — junk used to fall back to `.general`; now junk
-    /// means "no override" and the stored last-used tab wins.
+    /// means "no override" and the stored last-used tab wins. `general` and
+    /// `system` are themselves junk now: both destinations merged into
+    /// `settings`.
     static var consoleSectionOverride: ConsoleTab? {
         consoleSectionOverride(in: CommandLine.arguments)
     }

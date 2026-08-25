@@ -26,18 +26,43 @@ struct ParakeetModelCacheTests {
         )
     }
 
+    /// An explicit override owns the one directory it names, so the selected variant decides the
+    /// artifact inside it rather than earning a subdirectory of its own.
     @Test func standardHonorsTheEnvironmentOverride() {
         let cache = ParakeetModelCache.standard(environment: ["VOICEOUR_MODEL_CACHE": "/tmp/voiceour-model-cache"])
 
         #expect(cache.directory.path == "/tmp/voiceour-model-cache")
-        #expect(cache.modelURL.lastPathComponent == ASRModelContract.fileName)
+        #expect(cache.modelURL.lastPathComponent == ASRModelVariant.default.fileName)
     }
 
+    /// The literal name is the assertion: `f16` keeps the directory it has always had, so an
+    /// existing install is not orphaned into re-downloading 1.26 GB the first time this runs.
     @Test func standardFallsBackToTheAppCacheDirectory() {
         let cache = ParakeetModelCache.standard(environment: [:])
 
         #expect(cache.directory.lastPathComponent == "parakeet-tdt-0.6b-v3-ggml")
         #expect(cache.directory.deletingLastPathComponent().lastPathComponent == "Voiceour")
+    }
+
+    /// The selection reaches the sidecar as an environment value, and it has to move the whole
+    /// triple together: a directory, an artifact and a URL that disagree would download one
+    /// variant's bytes over another's manifest.
+    @Test func standardResolvesTheSelectedVariantsDirectoryArtifactAndSource() {
+        let cache = ParakeetModelCache.standard(environment: [ASRModelVariant.environmentKey: "q8_0"])
+
+        #expect(cache.directory.lastPathComponent == ASRModelVariant.q8.cacheDirectoryName)
+        #expect(cache.artifact == .pinned(.q8))
+        #expect(cache.source == ASRModelVariant.q8.downloadURL)
+    }
+
+    /// A tag no build of this app ever wrote must load the default rather than fail: the
+    /// environment is also how a shell reaches in, and a typo there is not a reason to refuse
+    /// to dictate.
+    @Test func standardFallsBackToTheDefaultVariantForAnUnknownTag() {
+        let cache = ParakeetModelCache.standard(environment: [ASRModelVariant.environmentKey: "q3_k_xxs"])
+
+        #expect(cache.artifact == .pinned(.default))
+        #expect(cache.directory.lastPathComponent == ASRModelVariant.default.cacheDirectoryName)
     }
 
     @Test func cacheIsNotOkWithoutAManifest() {
@@ -139,6 +164,73 @@ struct ParakeetModelCacheTests {
         let cache = ParakeetModelCache(directory: directory, artifact: artifact(for: bytes), source: source)
 
         #expect(throws: ParakeetModelCacheError.self) { try cache.ensureModel() }
+    }
+
+    /// The case `model_id` and `revision` cannot see: one pinned repository holds several
+    /// conversions of the same checkpoint, so a directory left by the other variant agrees on
+    /// both and differs only in `file`. Overwriting its manifest would leave the previous
+    /// weight file orphaned beside a manifest that no longer describes it — and the manifest is
+    /// the only record of what those bytes are.
+    @Test func aManifestForADifferentArtifactOfTheSameRevisionIsNeverOverwritten() throws {
+        let bytes = Data("weights".utf8)
+        let directory = temporaryDirectory()
+        let sibling = artifact(for: Data("the other conversion".utf8), file: "tiny-other.bin")
+        try JSONEncoder().encode(sibling).write(to: directory.appendingPathComponent("manifest.json"))
+
+        let source = temporaryDirectory().appendingPathComponent("source.bin")
+        try bytes.write(to: source)
+        let cache = ParakeetModelCache(directory: directory, artifact: artifact(for: bytes), source: source)
+
+        #expect(throws: ParakeetModelCacheError.self) { try cache.ensureModel() }
+        #expect(cache.manifest() == sibling)
+        #expect(!FileManager.default.fileExists(atPath: cache.modelURL.path))
+    }
+
+    /// Only one artifact is ever wanted, so the acquisition of a selection has to retire the
+    /// previous one: without this a switch leaves up to 1.26 GB of superseded weights on disk
+    /// forever. The cache's own directory decides who its siblings are, so nothing outside the
+    /// models root can be reached.
+    @Test func acquiringOneVariantRetiresTheOthersAndNothingElse() throws {
+        let root = temporaryDirectory()
+        let kept = ASRModelVariant.f16
+        let superseded = ASRModelVariant.q8
+        let unrelated = root.appendingPathComponent("someone-elses-cache", isDirectory: true)
+        for directory in [
+            root.appendingPathComponent(kept.cacheDirectoryName, isDirectory: true),
+            root.appendingPathComponent(superseded.cacheDirectoryName, isDirectory: true),
+            unrelated,
+        ] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("weights".utf8).write(to: directory.appendingPathComponent("model.bin"))
+        }
+
+        let cache = ParakeetModelCache(
+            directory: root.appendingPathComponent(kept.cacheDirectoryName, isDirectory: true),
+            artifact: .pinned(kept)
+        )
+        cache.removeSupersededVariants(environment: [:])
+
+        #expect(FileManager.default.fileExists(atPath: cache.directory.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(superseded.cacheDirectoryName).path))
+    }
+
+    /// The override names one directory the caller owns, so a development or benchmark run that
+    /// pins the path must never have its neighbours deleted.
+    @Test func anOverriddenCacheDirectoryNeverRetiresItsNeighbours() throws {
+        let root = temporaryDirectory()
+        let neighbour = root.appendingPathComponent(ASRModelVariant.q8.cacheDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: neighbour, withIntermediateDirectories: true)
+
+        let cache = ParakeetModelCache(
+            directory: root.appendingPathComponent(ASRModelVariant.f16.cacheDirectoryName, isDirectory: true),
+            artifact: .pinned(.f16)
+        )
+        cache.removeSupersededVariants(environment: ["VOICEOUR_MODEL_CACHE": root.path])
+
+        #expect(FileManager.default.fileExists(atPath: neighbour.path))
     }
 
     @Test func aCorruptDownloadIsDiscardedRatherThanCached() throws {

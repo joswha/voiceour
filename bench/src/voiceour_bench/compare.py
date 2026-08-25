@@ -41,6 +41,19 @@ def _load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _model_file(meta: dict[str, Any]) -> str:
+    """The weight artifact a run loaded.
+
+    Every conversion of the pinned model repository shares one `model_id` and
+    `model_revision`, so the file name is the only field that separates an f16 run from a
+    q8_0 one. A report written before the runner recorded it names no artifact, which is
+    unknown rather than a match: two such reports still compare, one against a report that
+    does name its artifact does not.
+    """
+    value = meta.get("model_file")
+    return value if isinstance(value, str) and value else "unknown"
+
+
 def _format_ids(ids: set[str], limit: int = 10) -> str:
     ordered = sorted(ids)
     shown = ", ".join(ordered[:limit])
@@ -146,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
             baseline_meta.get("model_revision"),
             candidate_meta.get("model_revision"),
         ),
+        ("model_file", _model_file(baseline_meta), _model_file(candidate_meta)),
     )
     for field, baseline_value, candidate_value in provenance:
         if baseline_value != candidate_value:
@@ -186,11 +200,11 @@ def main(argv: list[str] | None = None) -> int:
     # provenance visible in the output a human reads before the comparison table.
     print(
         f"baseline: {args.baseline.name} backend={baseline_meta.get('backend', '?')} "
-        f"started={baseline_meta.get('started_at', '?')}"
+        f"model_file={_model_file(baseline_meta)} started={baseline_meta.get('started_at', '?')}"
     )
     print(
         f"candidate: {args.candidate.name} backend={candidate_meta.get('backend', '?')} "
-        f"started={candidate_meta.get('started_at', '?')}"
+        f"model_file={_model_file(candidate_meta)} started={candidate_meta.get('started_at', '?')}"
     )
     keys = sorted(set(baseline) | set(candidate))
     print("| metric | baseline | candidate | delta |")

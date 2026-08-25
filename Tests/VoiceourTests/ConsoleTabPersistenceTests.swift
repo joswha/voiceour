@@ -21,8 +21,8 @@ struct ConsoleTabPersistenceTests {
         #expect(ConsoleWindowView.storedTab(in: defaults) == nil)
         ConsoleWindowView.storeTab(.history, in: defaults)
         #expect(ConsoleWindowView.storedTab(in: defaults) == .history)
-        ConsoleWindowView.storeTab(.system, in: defaults)
-        #expect(ConsoleWindowView.storedTab(in: defaults) == .system)
+        ConsoleWindowView.storeTab(.settings, in: defaults)
+        #expect(ConsoleWindowView.storedTab(in: defaults) == .settings)
         ConsoleWindowView.storeTab(.home, in: defaults)
         #expect(ConsoleWindowView.storedTab(in: defaults) == .home)
     }
@@ -44,12 +44,16 @@ struct ConsoleTabPersistenceTests {
     }
 
     /// Explicit flag wins; absence and junk both mean "no override" so the
-    /// stored last-used tab can decide. Junk used to fall back to `.general`.
+    /// stored last-used tab can decide. `general` is junk now that its
+    /// preferences moved onto Settings, so a stale deep link degrades to the
+    /// stored tab rather than opening a destination that no longer exists.
     @Test func consoleSectionOverrideParsesFlagAbsenceAndJunk() {
-        #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=system"]) == .system)
+        #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=settings"]) == .settings)
         #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=glossary"]) == .glossary)
         #expect(LaunchOptions.consoleSectionOverride(in: ["--debug"]) == nil)
         #expect(LaunchOptions.consoleSectionOverride(in: []) == nil)
         #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=diagnostics"]) == nil)
+        #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=general"]) == nil)
+        #expect(LaunchOptions.consoleSectionOverride(in: ["--console-section=system"]) == nil)
     }
 }

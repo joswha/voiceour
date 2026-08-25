@@ -48,10 +48,9 @@
         @Test func everyConsoleTabHasASceneGolden() {
             let prefixes: [ConsoleTab: String] = [
                 .home: "console.home.",
-                .general: "console.general.",
                 .glossary: "console.glossary.",
                 .history: "console.sessions.",
-                .system: "console.system.",
+                .settings: "console.settings.",
             ]
             let ids = UISceneCatalog.all().map(\.id)
             for tab in ConsoleTab.allCases {

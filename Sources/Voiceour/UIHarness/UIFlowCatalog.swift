@@ -96,6 +96,9 @@
             static let autoStopDuration = UIQuery.id("voice.auto-stop.duration")
             static let cleanup = UIQuery.id("voice.cleanup.toggle")
 
+            static let modelPickerCompact = UIQuery.label("Compact")
+            static let modelRestart = UIQuery.id("voice.model.restart")
+
             static let backendRecheck = UIQuery.id("system.backend.recheck")
             static let backendStatus = UIQuery.id("system.backend.status")
 
@@ -118,10 +121,13 @@
                 .value("Recording"),
             ])
 
-            static let generalContent = UIQuery.id("capture.hotkey")
+            /// The Dictation trigger row: the preference half of the merged
+            /// Settings tab, and its first row.
+            static let settingsContent = UIQuery.id("capture.hotkey")
             static let glossaryContent = glossarySearch
             static let historyContent = sessionSearch
-            static let systemContent = UIQuery.id("system.diagnostics.copy")
+            /// The Privacy row's action: the readiness half of the same tab.
+            static let settingsDiagnostics = UIQuery.id("system.diagnostics.copy")
             static let homeContent = UIQuery.id("home.hero")
 
             static let homeTimeTile = UIQuery.id("home.tile.time")
@@ -359,7 +365,7 @@
                     id: "voice.toggle-cleanup",
                     title: "Transcript cleanup can be switched off",
                     tags: ["voice", "console", "settings"],
-                    host: .console(.general),
+                    host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
                         .check(
@@ -372,11 +378,37 @@
                             [.value(Selector.cleanup, .equals("0")), .model(.cleanupEnabled, .equals("false"))]
                         ),
                     ]),
+                // The restart affordance is the whole switching mechanism: the picker only
+                // records a choice, and a selection that never offers the restart would leave
+                // the app running the previous weights with no way to notice.
+                UIFlow(
+                    id: "voice.model-selection",
+                    title: "Choosing a smaller model records the choice and asks for a restart",
+                    tags: ["voice", "console", "settings", "model"],
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "balanced-in-use",
+                            [
+                                .model(.selectedModelVariant, .equals("f16")),
+                                .absent(Selector.modelRestart),
+                            ]
+                        ),
+                        .act(.press(Selector.modelPickerCompact)),
+                        .check(
+                            "compact-pending-restart",
+                            [
+                                .model(.selectedModelVariant, .equals("q8_0")),
+                                .exists(Selector.modelRestart),
+                            ]
+                        ),
+                    ]),
                 UIFlow(
                     id: "voice.auto-stop-dependency",
                     title: "Auto-stop controls the silence field enablement",
                     tags: ["voice", "console", "settings"],
-                    host: .console(.general),
+                    host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
                         .check(
@@ -471,7 +503,7 @@
                     id: "system.recheck-backend",
                     title: "An unanswered backend probe reads as ENGINE OFFLINE until re-proven",
                     tags: ["system", "console", "settings"],
-                    host: .console(.system),
+                    host: .console(.settings),
                     fixture: .backendRecovery(),
                     steps: [
                         .wait(.element(Selector.backendStatusWithValue("CHECKING…"))),
@@ -975,18 +1007,7 @@
                         [
                             .count(Selector.homeContent, .exactly(1)),
                             .value(Selector.tab(.home), .equals("1")),
-                            .absent(Selector.generalContent),
-                        ]
-                    ),
-                    .act(.navigate(.general)),
-                    .wait(.element(Selector.generalContent)),
-                    .check(
-                        "general",
-                        [
-                            .count(Selector.generalContent, .exactly(1)),
-                            .value(Selector.tab(.general), .equals("1")),
-                            .value(Selector.tab(.home), .equals("0")),
-                            .absent(Selector.glossaryContent),
+                            .absent(Selector.settingsContent),
                         ]
                     ),
                     .act(.navigate(.glossary)),
@@ -995,9 +1016,9 @@
                         "glossary",
                         [
                             .count(Selector.glossaryContent, .exactly(1)),
-                            .absent(Selector.generalContent),
                             .value(Selector.tab(.glossary), .equals("1")),
-                            .value(Selector.tab(.general), .equals("0")),
+                            .value(Selector.tab(.home), .equals("0")),
+                            .absent(Selector.historyContent),
                         ]
                     ),
                     .act(.navigate(.history)),
@@ -1011,14 +1032,18 @@
                             .value(Selector.tab(.glossary), .equals("0")),
                         ]
                     ),
-                    .act(.navigate(.system)),
-                    .wait(.element(Selector.systemContent)),
+                    .act(.navigate(.settings)),
+                    .wait(.element(Selector.settingsContent)),
+                    // Both halves of the merged tab in one check: the preference
+                    // rows the General tab used to own and the diagnostics row the
+                    // System tab used to own now render on one destination.
                     .check(
-                        "system",
+                        "settings",
                         [
-                            .count(Selector.systemContent, .exactly(1)),
+                            .count(Selector.settingsContent, .exactly(1)),
+                            .count(Selector.settingsDiagnostics, .exactly(1)),
                             .absent(Selector.historyContent),
-                            .value(Selector.tab(.system), .equals("1")),
+                            .value(Selector.tab(.settings), .equals("1")),
                             .value(Selector.tab(.history), .equals("0")),
                         ]
                     ),

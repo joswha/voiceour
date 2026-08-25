@@ -17,14 +17,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # Keyed by the pinned revision, so the cache is invalidated by exactly the
-      # thing that changes the bytes. A miss costs one download; a stale hit is
-      # impossible.
+      # The pinned revision publishes several conversions of one checkpoint, so the
+      # revision alone does not identify the bytes: the key carries the artifact's
+      # file name too. This caches the default variant, which is what the build under
+      # test downloads when nothing sets VOICEOUR_MODEL_VARIANT.
       - name: Cache the pinned Parakeet artifact
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml
-          key: parakeet-gguf-35156454d1a39de06863303dd209fd2bed6ee079
+          key: parakeet-gguf-35156454d1a39de06863303dd209fd2bed6ee079-ggml-parakeet-tdt-0.6b-v3-f16.bin
 
       - name: Build
         run: swift build

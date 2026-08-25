@@ -75,7 +75,7 @@ extension DictationCoordinator {
 
     func finishCancelledProcessing(generation: AsyncGenerationGate.Token) {
         state = .cancelled
-        clearCapturedTargetAndRefreshLabel()
+        refreshTarget()
         resetToIdleWhenInactive(generation: generation)
     }
 
@@ -102,7 +102,7 @@ extension DictationCoordinator {
         state = failedState
         lastFailure = failure
         errorMessage = failure?.cause
-        clearCapturedTargetAndRefreshLabel()
+        refreshTarget()
     }
 
     func processStop(
@@ -149,17 +149,13 @@ extension DictationCoordinator {
             }
 
             // One vocabulary snapshot per utterance, compiled here and held for
-            // the rest of the stop path. `settings.glossary` and
-            // `activeProjectId` stay mutable across the ASR await, so compiling
-            // again later let an edit mid-transcription change the glossary
-            // cleanup and suggestion retrieval disagree about.
+            // the rest of the stop path. `settings.glossary` stays mutable across
+            // the ASR await, so compiling again later let an edit mid-transcription
+            // make the glossary cleanup and suggestion retrieval disagree.
             let vocabularySpan = StopPath.signposter.beginInterval(StopPath.Stage.vocabulary)
-            let snapshot = target ?? tracker.snapshot()
             let vocabulary = VocabularyCompiler.compile(
                 persistent: settings.glossary,
-                ephemeral: [],
-                capturedBundleId: snapshot.bundleId,
-                activeProjectId: activeProjectId
+                ephemeral: []
             )
             StopPath.signposter.endInterval(StopPath.Stage.vocabulary, vocabularySpan)
 
@@ -296,7 +292,7 @@ extension DictationCoordinator {
                 }
             }
             state = DictationPolicy.sessionState(for: outcome)
-            clearCapturedTargetAndRefreshLabel()
+            refreshTarget()
             resetToIdleWhenInactive(generation: generation)
         } catch is CancellationError {
             await finishFailedProcessing(

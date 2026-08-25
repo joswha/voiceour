@@ -1,47 +1,49 @@
 import AppKit
 import SwiftUI
 
-/// The console's five destinations.
+/// The console's four destinations.
 ///
 /// Identity type for the window's tab selection and for the development-only
 /// `--console-section=<name>` deep link, so both spell a destination the same
 /// way. Ordered as the tab bar renders them.
+///
+/// There is no separate General tab. Every preference it carried lives on
+/// Settings, above the readiness and permission readouts those preferences
+/// depend on: one destination answers both "what is this set to" and "is this
+/// Mac allowed to do it", which a reader had to visit two tabs to learn.
 enum ConsoleTab: String, CaseIterable, Hashable {
     case home
-    case general
     case glossary
     case history
-    case system
+    case settings
 
     var label: String {
         switch self {
         case .home: "Home"
-        case .general: "General"
         case .glossary: "Glossary"
         case .history: "History"
-        case .system: "System"
+        case .settings: "Settings"
         }
     }
 
     var symbol: String {
         switch self {
         case .home: "sparkles"
-        case .general: "slider.horizontal.3"
         case .glossary: "text.book.closed"
         case .history: "clock.arrow.circlepath"
-        case .system: "lock.shield"
+        case .settings: "gearshape"
         }
     }
 }
 
-/// The console window: a native `TabView` over Home and four grouped `Form`s.
+/// The console window: a native `TabView` over Home and three grouped `Form`s.
 ///
 /// This replaces a bespoke shell — a left rail, a pane registry, glass window
 /// chrome and a private row/segment/confirm component library — that spent
 /// ~2200 lines drawing surfaces AppKit already draws, and drawing them in a way
 /// VoiceOver and Full Keyboard Access had to be taught about row by row. The
 /// content is unchanged; every setting, readout, remediation and destructive
-/// action the rail's five panes carried is on one of the four settings tabs.
+/// action the rail's five panes carried is on one of the three Form tabs.
 ///
 /// The glass came back, from the other end: the *ground* is a system material
 /// (``ConsoleGlassGround``) and the controls above it are stock. What is gone for
@@ -101,10 +103,6 @@ struct ConsoleWindowView: View {
                 .tabItem { tabLabel(.home) }
                 .tag(ConsoleTab.home)
 
-            ConsoleGeneralTab(coordinator: coordinator)
-                .tabItem { tabLabel(.general) }
-                .tag(ConsoleTab.general)
-
             ConsoleGlossaryTab(coordinator: coordinator)
                 .tabItem { tabLabel(.glossary) }
                 .tag(ConsoleTab.glossary)
@@ -113,13 +111,13 @@ struct ConsoleWindowView: View {
                 .tabItem { tabLabel(.history) }
                 .tag(ConsoleTab.history)
 
-            ConsoleSystemTab(coordinator: coordinator)
-                .tabItem { tabLabel(.system) }
-                .tag(ConsoleTab.system)
+            ConsoleSettingsTab(coordinator: coordinator)
+                .tabItem { tabLabel(.settings) }
+                .tag(ConsoleTab.settings)
         }
-        // One application, not four: the scroll modifiers propagate through the
+        // One application, not three: the scroll modifiers propagate through the
         // environment, so this reaches every `Form` on every tab and the History
-        // list and its nested scrollers with one decision. Without it the four
+        // list and its nested scrollers with one decision. Without it the
         // grouped Forms keep painting the system's opaque scroll background and
         // the ground below is never seen. Section plates, row insets and control
         // styling are untouched — the content still sits on native plates, which

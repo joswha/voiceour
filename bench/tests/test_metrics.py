@@ -361,17 +361,23 @@ def _write_report(
     backend: str = "parakeet",
     model_id: str = "model",
     model_revision: str = "revision",
+    model_file: str | None = "ggml-parakeet-tdt-0.6b-v3-f16.bin",
 ):
     error_ids = error_ids or []
+    meta = {
+        "backend": backend,
+        "model_id": model_id,
+        "model_revision": model_revision,
+    }
+    # `None` writes a report with no artifact recorded, which is what the committed
+    # reports predating the field look like.
+    if model_file is not None:
+        meta["model_file"] = model_file
     path.write_text(
         json.dumps(
             {
                 "tier": tier,
-                "meta": {
-                    "backend": backend,
-                    "model_id": model_id,
-                    "model_revision": model_revision,
-                },
+                "meta": meta,
                 "counts": {
                     "successful_rows": len(successful_ids),
                     "error_rows": len(error_ids),
@@ -476,6 +482,8 @@ def test_compare_accepts_identical_row_ids_in_different_order(tmp_path) -> None:
         ("backend", {"backend": "fake"}),
         ("model_id", {"model_id": "other-model"}),
         ("model_revision", {"model_revision": "other-revision"}),
+        # Two conversions of one checkpoint: same id, same revision, different weights.
+        ("model_file", {"model_file": "ggml-parakeet-tdt-0.6b-v3-q8_0.bin"}),
     ],
 )
 def test_compare_refuses_different_report_provenance(tmp_path, capsys, field, candidate_overrides) -> None:
@@ -488,6 +496,19 @@ def test_compare_refuses_different_report_provenance(tmp_path, capsys, field, ca
 
     assert compare_main([str(baseline), str(candidate)]) == 2
     assert field in capsys.readouterr().err
+
+
+def test_compare_tolerates_reports_that_record_no_model_file(tmp_path, capsys) -> None:
+    baseline = _write_report(tmp_path / "baseline.json", successful_ids=["row"], model_file=None)
+    candidate = _write_report(tmp_path / "candidate.json", successful_ids=["row"], model_file=None)
+
+    assert compare_main([str(baseline), str(candidate)]) == 0
+
+    named = _write_report(tmp_path / "named.json", successful_ids=["row"])
+    assert compare_main([str(baseline), str(named)]) == 2
+    refusal = capsys.readouterr().err
+    assert "model_file" in refusal
+    assert "unknown" in refusal
 
 
 def test_compare_refuses_when_complete_row_ids_are_unavailable(tmp_path, capsys) -> None:

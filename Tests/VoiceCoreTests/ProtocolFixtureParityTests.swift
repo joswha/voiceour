@@ -35,6 +35,24 @@ struct ProtocolFixtureParityTests {
         }
     }
 
+    /// The fixtures are the wire's committed shape, so the request one has to name the artifact
+    /// a default install actually asks for. Without `file` the pinned repository's variants are
+    /// indistinguishable on the wire, which is the whole reason the field exists — a fixture
+    /// that drops it, or names the artifact of a variant that is no longer the default, is a
+    /// protocol document that no shipped client would produce.
+    @Test func transcribeFixtureNamesTheDefaultVariantOfThePinnedRepository() throws {
+        let fixtureURL = repoRoot().appendingPathComponent("fixtures/protocol/transcribe.json")
+        let request = try ASRWire.decode(ASRTranscribeRequest.self, from: Data(contentsOf: fixtureURL))
+
+        let pinned = ASRExpectedModel(
+            modelId: ASRModelContract.modelId,
+            revision: ASRModelContract.revision,
+            file: ASRModelVariant.default.fileName
+        )
+
+        #expect(request.expectedModel == pinned)
+    }
+
     @Test func resultWithWordsDecodesPopulatedWordEvidence() throws {
         let fixtureURL = repoRoot()
             .appendingPathComponent("fixtures/protocol/result_with_words.json")
@@ -71,6 +89,10 @@ struct ProtocolFixtureParityTests {
         #expect(lastWordConfidence == 0.91)
 
         #expect(result.backendId == "parakeet-cpp")
+        // A reply attributed to the real backend has to claim the revision that backend loads:
+        // this fixture answers the request in `transcribe.json`, and a client that pins one
+        // revision while the recorded reply names another documents an exchange it would reject.
         #expect(result.modelId == ASRModelContract.modelId)
+        #expect(result.modelRevision == ASRModelContract.revision)
     }
 }

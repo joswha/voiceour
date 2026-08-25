@@ -47,7 +47,9 @@ enum DiagnosticsReport {
             lines.append("  health error: \(payload)")
         }
         if let fraction = coordinator.modelDownloadFraction {
-            lines.append("  download: \(Int(fraction * 100))% of \(ASRModelContract.sizeBytes) bytes")
+            lines.append(
+                "  download: \(Int(fraction * 100))% of \(coordinator.activeModelVariant.sizeBytes) bytes"
+            )
         }
         if let failure = coordinator.acquisitionFailure {
             lines.append("  acquisition failure: \(failure.title) — \(failure.cause)")
@@ -104,7 +106,9 @@ enum DiagnosticsReport {
         }
         guard let modelId = descriptor.modelId else { return descriptor.modelLabel }
         guard let revision = descriptor.modelRevision else { return modelId }
-        return "\(modelId)@\(revision)"
+        // The artifact is named too: every variant shares the id and revision, so without it a
+        // bug report cannot say which weights produced the transcript it is about.
+        return "\(modelId)@\(revision) (\(coordinator.activeModelVariant.rawValue))"
     }
 
     /// A missing model is a recoverable gap — download it and dictation works. An

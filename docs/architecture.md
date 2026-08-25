@@ -41,7 +41,7 @@ Invariants:
 - Stale async work is ignored. Each phase takes a token from `AsyncGenerationGate`; a result whose token is no longer current is dropped, not applied to a newer session.
 - Cleanup runs exactly once, after ASR.
 
-Each utterance takes two target snapshots: the capture target before recording, which selects app-scoped vocabulary, and a fresh delivery target immediately before persistence and insertion.
+Each utterance takes two target snapshots: the capture target before recording, which names the record-start "Will paste into X" label, and a fresh delivery target immediately before persistence and insertion. Vocabulary is compiled once per utterance from the glossary alone; a term is active everywhere, never scoped to an app or a project.
 
 Starting and stopping capture blocks, so it runs off the main actor on a serial queue.
 
@@ -57,13 +57,18 @@ The sidecar emits `hello` on start and accepts `health`, `transcribe`, and `canc
 
 ## Model pin
 
+One repository at one revision, holding two conversions of the same checkpoint:
+
 - model: `ggml-org/parakeet-GGUF`
 - revision: `35156454d1a39de06863303dd209fd2bed6ee079`
-- file: `ggml-parakeet-tdt-0.6b-v3-f16.bin`
-- SHA-256: `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f`
-- size: 1,255,897,319 bytes
+- `f16` — Balanced: `ggml-parakeet-tdt-0.6b-v3-f16.bin`, SHA-256 `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f`, 1,255,897,319 bytes
+- `q8_0` — Compact: `ggml-parakeet-tdt-0.6b-v3-q8_0.bin`, SHA-256 `4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e`, 668,757,119 bytes
 
-`ParakeetModelCache.cacheOK` accepts a cached artifact only when the manifest's id, revision, file, digest, and size all equal this compiled pin, and the file on disk is exactly that size. Downloads verify the streaming digest. To exercise a cold download, point `VOICEOUR_MODEL_CACHE` at an empty directory; overriding `HOME` does not move the cache, so a scratch home silently reuses the real artifact and proves nothing.
+`f16` is the default and the fallback for an unknown or stale persisted value. The two decode the same text to within what the committed corpus can resolve, so the choice is a footprint trade: `q8_0` saves 587 MB and loads faster, `f16` decodes faster. [performance-roadmap.md](performance-roadmap.md) holds the measurements.
+
+The selection travels one path. Settings persists it as `asr_model_variant`; the app resolves `VOICEOUR_MODEL_VARIANT` first and that setting second, so a harness or benchmark run can pin an artifact without editing the user's settings; the resolved variant is written into the sidecar's launch environment, which picks that variant's cache subdirectory, artifact manifest, and download URL; and every real decode request carries `expected_model.file`, the one field that can distinguish two artifacts of a single revision, so a sidecar still holding the previous selection fails the request instead of transcribing with the wrong weights. Switching therefore takes effect on the next launch, and `DictationCoordinator.activeModelVariant` stays the running sidecar's artifact so Settings can say so.
+
+`ParakeetModelCache.cacheOK` accepts a cached artifact only when the manifest's id, revision, file, digest, and size all equal the selected variant's compiled pin, and the file on disk is exactly that size. Downloads verify the streaming digest. Once the wanted artifact is verified, the other variants' cache directories are removed: only one artifact is ever resident, and `f16` keeps the legacy directory name so an existing install is not orphaned into re-downloading 1.26 GB. To exercise a cold download, point `VOICEOUR_MODEL_CACHE` at an empty directory; that override names one directory for whichever variant is selected, so it neither gains a per-variant subdirectory nor prunes anything. Overriding `HOME` does not move the cache, so a scratch home silently reuses the real artifact and proves nothing.
 
 ## Cleanup and glossary
 
@@ -79,13 +84,14 @@ Transcripts live in one file, `recent-sessions.json`, newest first, capped at th
 
 ## Console window
 
-`Window("Voiceour", id: "main")` hosts `ConsoleWindowView`, a `TabView` with five tabs.
+`Window("Voiceour", id: "main")` hosts `ConsoleWindowView`, a `TabView` with four tabs.
 
 - Home — lifetime figures, top destination apps, streaks, and an activity grid.
-- General — tap gesture, auto-stop, cleanup, muting, session sounds, and the debug-only backend picker.
-- Glossary — learned suggestions, a searchable term list with one term open in its own plate, project import.
+- Glossary — learned suggestions, a searchable term list with one term open in its own plate, word-list import.
 - History — search, an app filter, day-grouped transcripts, and one open transcript.
-- System — backend and model readiness, permissions, diagnostics, and clear actions.
+- Settings — tap gesture, auto-stop, cleanup, muting, session sounds, the speech-model footprint choice, the debug-only backend picker, then backend and model readiness, permissions, diagnostics, and clear actions.
+
+Preferences lead that last tab and readouts follow it. There is no General tab: a switch and the permission that decides whether the switch can take effect were on two different destinations.
 
 [design-bible.md](design-bible.md) owns the visual language.
 

@@ -30,7 +30,6 @@ struct ConsoleGlossaryTab: View {
     @State private var isComposing = false
     @State private var draftTerm = ""
     @State private var draftForms: [String] = []
-    @State private var draftScope: VocabularyScope = .global
     @State private var searchText = ""
     @State private var originFilter: TermOrigin?
     /// The refusal the last commit published, held so the editor can stay open
@@ -46,7 +45,6 @@ struct ConsoleGlossaryTab: View {
     /// only by Save. Escape closes the editor, which discards it.
     @State private var editedTerm = ""
     @State private var editedForms: [String] = []
-    @State private var editedScope: VocabularyScope = .global
 
     /// Derived data cached as snapshots, recomputed when the ledger, the query
     /// or the filter changes. An imported lexicon is hundreds of rows, and
@@ -117,7 +115,7 @@ struct ConsoleGlossaryTab: View {
             }
 
             Section("Word list") {
-                projectLexiconRow
+                wordListRow
             }
         }
         .formStyle(.grouped)
@@ -300,7 +298,7 @@ struct ConsoleGlossaryTab: View {
         } description: {
             Text(
                 "A term is the spelling Voiceour holds a word to when dictation keeps hearing it wrong. "
-                    + "Add one, or import a project word list."
+                    + "Add one, or import a word list."
             )
         } actions: {
             Button("Add Term", action: beginDraft)
@@ -395,10 +393,7 @@ struct ConsoleGlossaryTab: View {
         ConsoleTermEditor(
             term: $editedTerm,
             spokenForms: $editedForms,
-            scope: $editedScope,
-            scopeOptions: scopeOptions(for: term.scope),
             derivedForms: Glossary.derivedAliases(for: term.canonical),
-            candidateForms: [],
             failure: refusal,
             caption: Self.editorCaption,
             submit: ConsoleTermEditor.Command(
@@ -437,12 +432,6 @@ struct ConsoleGlossaryTab: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(term.canonical)
-
-                    // A global term is available everywhere and needs no badge
-                    // to say so.
-                    if term.scope != .global {
-                        ConsoleStateMark(term.scope.displayLabel, .neutral)
-                    }
 
                     Spacer(minLength: VoiceourMetrics.Space.sm)
                 }
@@ -493,9 +482,6 @@ struct ConsoleGlossaryTab: View {
 
     private static func accessibilityLabel(for term: ProtectedTerm, forms: [String]) -> String {
         var parts = [term.canonical]
-        if term.scope != .global {
-            parts.append(term.scope.displayLabel)
-        }
         parts.append(
             forms.isEmpty
                 ? "matched by its spelling only"
@@ -532,7 +518,6 @@ struct ConsoleGlossaryTab: View {
         else {
             editedTerm = ""
             editedForms = []
-            editedScope = .global
             return
         }
         seedEditor(with: term)
@@ -541,7 +526,6 @@ struct ConsoleGlossaryTab: View {
     private func seedEditor(with term: ProtectedTerm) {
         editedTerm = term.canonical
         editedForms = Glossary.userAliases(for: term)
-        editedScope = term.scope
     }
 
     /// Save answers a change. Offering it against an unchanged row would make a
@@ -550,7 +534,6 @@ struct ConsoleGlossaryTab: View {
         guard !editedTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return editedTerm != term.canonical
             || editedForms != Glossary.userAliases(for: term)
-            || editedScope != term.scope
     }
 
     /// The row's editor lists the whole form set, so it commits with the term's
@@ -562,8 +545,7 @@ struct ConsoleGlossaryTab: View {
             accepted = coordinator.commitTerm(
                 termId: term.termId,
                 canonical: editedTerm,
-                spokenForms: editedForms,
-                scope: editedScope
+                spokenForms: editedForms
             )
         }
         guard accepted else {
@@ -583,7 +565,6 @@ struct ConsoleGlossaryTab: View {
         selectedTermId = nil
         draftTerm = ""
         draftForms = []
-        draftScope = .global
         isComposing = true
     }
 
@@ -592,17 +573,13 @@ struct ConsoleGlossaryTab: View {
         isComposing = false
         draftTerm = ""
         draftForms = []
-        draftScope = .global
     }
 
     private var draftEditor: some View {
         ConsoleTermEditor(
             term: $draftTerm,
             spokenForms: $draftForms,
-            scope: $draftScope,
-            scopeOptions: scopeOptions(for: nil),
             derivedForms: Glossary.derivedAliases(for: draftTerm),
-            candidateForms: [],
             failure: refusal,
             caption: Self.editorCaption,
             submit: ConsoleTermEditor.Command(
@@ -637,8 +614,7 @@ struct ConsoleGlossaryTab: View {
             accepted = coordinator.commitTerm(
                 termId: nil,
                 canonical: trimmed,
-                spokenForms: draftForms,
-                scope: draftScope
+                spokenForms: draftForms
             )
         }
         guard accepted else {
@@ -648,27 +624,6 @@ struct ConsoleGlossaryTab: View {
         refusal = nil
         endDraft()
         selectedTermId = coordinator.settings.glossary.first { !before.contains($0.termId) }?.termId
-    }
-
-    /// The scopes a term may be committed to, in offer order.
-    ///
-    /// The term's own scope is always offered, so a bundle-scoped term is never
-    /// silently rewritten to global by an editor that could not express it.
-    private func scopeOptions(for termScope: VocabularyScope?) -> [(scope: VocabularyScope, title: String)] {
-        var options: [(scope: VocabularyScope, title: String)] = [(.global, "Global")]
-        if case .bundleID(let bundleId) = termScope {
-            options.append((.bundleID(bundleId), "This App"))
-        }
-        let projectTitle = "Project · \(coordinator.activeProjectName ?? "This Project")"
-        if let projectId = coordinator.activeProjectId, !projectId.isEmpty {
-            options.append((.projectID(projectId), projectTitle))
-        }
-        if case .projectID(let projectId) = termScope,
-            !options.contains(where: { $0.scope == .projectID(projectId) })
-        {
-            options.append((.projectID(projectId), projectTitle))
-        }
-        return options
     }
 
     // MARK: Removal
@@ -699,30 +654,24 @@ struct ConsoleGlossaryTab: View {
 
     // MARK: Word list
 
-    private var projectLexiconRow: some View {
+    private var wordListRow: some View {
         // A failure is the more urgent sentence and it occupies the same slot:
         // the standing hint has nothing to add while an import is broken, and the
-        // next `importLexicon()` clears it.
+        // next `importWordList()` clears it.
         ConsoleRow(
             caption: importFailure
-                ?? "Import a newline- or JSON-array word list. Terms are added project-scoped, stay on this Mac, "
-                + "and duplicates are merged.",
+                ?? "Import a newline- or JSON-array word list. Terms stay on this Mac, and duplicates are merged.",
             captionColor: importFailure.map { _ in Color.red }
         ) {
             LabeledContent {
-                Button("Import Word List\u{2026}") { importLexicon() }
+                Button("Import Word List\u{2026}") { importWordList() }
             } label: {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    Text("Word list")
-                    if let projectName = coordinator.activeProjectName {
-                        ConsoleStateMark("PROJECT · \(projectName)", .neutral)
-                    }
-                }
+                Text("Word list")
             }
         }
     }
 
-    private func importLexicon() {
+    private func importWordList() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -730,14 +679,14 @@ struct ConsoleGlossaryTab: View {
         panel.allowsOtherFileTypes = true
         panel.allowedContentTypes = [.plainText, .json]
         panel.prompt = "Import"
-        panel.message = "Choose a project word list (.txt or .json)."
+        panel.message = "Choose a word list (.txt or .json)."
         importOutcome = nil
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        // `importProjectLexicon` merges synchronously and reports failures on
+        // `importWordList` merges synchronously and reports failures on
         // `glossaryNotice`, the glossary-local channel. The surface that owns
         // the action reports its own outcome.
         let before = coordinator.settings.glossary.count
-        coordinator.importProjectLexicon(from: url)
+        coordinator.importWordList(from: url)
         if let message = coordinator.glossaryNotice {
             importOutcome = .failed(message)
         } else {

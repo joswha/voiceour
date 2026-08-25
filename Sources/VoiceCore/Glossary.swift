@@ -129,22 +129,15 @@ public enum Glossary {
         return locked.allSatisfy { containsTerm($0, in: candidate) }
     }
 
-    /// Pure view of persistent terms for a capture context: drops tombstoned
-    /// entries, activates global + matching bundle/project scopes, and orders by
+    /// Pure view of persistent terms: drops tombstoned entries and orders by
     /// source trust (then original order for determinism).
     public static func activeTerms(
         _ terms: [ProtectedTerm],
-        bundleId: String? = nil,
-        projectId: String? = nil,
         now: Date = Date()
     ) -> [ProtectedTerm] {
         terms.enumerated().filter { _, term in
             if let tombstonedAt = term.tombstonedAt, tombstonedAt <= now { return false }
-            switch term.scope {
-            case .global: return true
-            case .bundleID(let id): return bundleId == id
-            case .projectID(let id): return projectId == id
-            }
+            return true
         }.sorted { lhs, rhs in
             let lt = lhs.element.source.trustRank
             let rt = rhs.element.source.trustRank

@@ -31,6 +31,7 @@ struct SidecarLaunchConfiguration: Sendable {
     static func sidecar(
         executableURL: URL,
         backend: String = "fake",
+        modelVariant: ASRModelVariant? = nil,
         parentEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> SidecarLaunchConfiguration {
         // The helper receives only process basics and Voiceour controls, not unrelated API keys
@@ -49,6 +50,11 @@ struct SidecarLaunchConfiguration: Sendable {
         }
         environment["VOICEOUR_ASR_BACKEND"] = backend
         environment["VOICEOUR_PRELOAD"] = "1"
+        // Set last and unconditionally for a model-backed sidecar, so an inherited
+        // VOICEOUR_MODEL_VARIANT from the parent shell cannot outrank the user's selection.
+        if let modelVariant {
+            environment[ASRModelVariant.environmentKey] = modelVariant.rawValue
+        }
         return SidecarLaunchConfiguration(
             executableURL: executableURL,
             arguments: [],
@@ -84,10 +90,15 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
     public convenience init(
         sidecarExecutableURL: URL,
         backend: String = ProcessInfo.processInfo.environment["VOICEOUR_ASR_BACKEND"] ?? "fake",
+        modelVariant: ASRModelVariant? = nil,
         expectedModel: ASRExpectedModel? = nil
     ) {
         self.init(
-            launch: .sidecar(executableURL: sidecarExecutableURL, backend: backend),
+            launch: .sidecar(
+                executableURL: sidecarExecutableURL,
+                backend: backend,
+                modelVariant: modelVariant
+            ),
             expectedModel: expectedModel
         )
     }
