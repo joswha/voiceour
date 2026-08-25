@@ -1,4 +1,4 @@
-.PHONY: build test bundle verify-bundle fixture dev format format-check check-docs lint-python
+.PHONY: build test bundle verify-bundle fixture format format-check check-docs lint-python
 
 build:
 	swift build -Xswiftc -warnings-as-errors
@@ -31,9 +31,6 @@ verify-bundle:
 
 fixture:
 	scripts/make_fixture.sh
-
-dev:
-	scripts/run_dev.sh
 
 .PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-update ui-flow-list ui-all
 

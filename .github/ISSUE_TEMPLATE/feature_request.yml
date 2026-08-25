@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a behavior Voiceour does not have.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [docs/non-goals.md](https://github.com/joswha/voiceour/blob/main/docs/non-goals.md) first. Live transcripts, model-based rewriting, background listening, saved audio, telemetry, a second recognizer, a language picker, and a control socket are decided product positions, not gaps.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were trying to do, and what made it hard. Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like Voiceour to do
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Existing settings, glossary terms, or workarounds, and why they fall short.
+  - type: checkboxes
+    id: non-goals
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have read the non-goals and this is not one of them.
+          required: true

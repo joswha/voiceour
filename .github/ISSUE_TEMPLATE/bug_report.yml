@@ -1,0 +1,82 @@
+name: Bug report
+description: Something Voiceour does that it should not, or fails to do.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Dictation touches the microphone, the clipboard, and whichever app had focus, so please say **which app you were dictating into** — delivery behavior is deliberately different per target class.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+      placeholder: |
+        1. Focused a text field in ...
+        2. Tapped Fn and said "..."
+        3. Tapped Fn again
+        4. Expected the text to paste; instead ...
+    validations:
+      required: true
+  - type: input
+    id: target-app
+    attributes:
+      label: Destination app
+      description: The app you were dictating into, and its kind (ordinary text field, terminal, code editor, password field).
+      placeholder: Ghostty (terminal)
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.3 / 26.1"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Mac model
+      placeholder: MacBook Pro, M4 Pro
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Voiceour version or commit
+      description: The release you downloaded, or the commit you built.
+    validations:
+      required: true
+  - type: dropdown
+    id: model-variant
+    attributes:
+      label: Model variant
+      options:
+        - Balanced (f16, default)
+        - Compact (q8_0)
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: permissions
+    attributes:
+      label: Permissions granted
+      description: Missing Accessibility trust degrades delivery to copy-only by design, so this changes what correct behavior looks like.
+      options:
+        - label: Microphone
+        - label: Accessibility
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        `log stream --predicate 'subsystem == "com.voiceour.app"' --level debug` while reproducing.
+        Please redact any dictated text you would rather not publish.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have removed any transcript text, clipboard contents, or screenshots I do not want to be public.
+          required: true

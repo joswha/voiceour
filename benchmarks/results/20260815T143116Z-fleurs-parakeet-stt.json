@@ -9,8 +9,8 @@
   },
   "generated_at": "2026-08-15T14:31:16.040139+00:00",
   "inputs": {
-    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/fleurs/manifest.jsonl",
-    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260815T143108Z-fleurs-parakeet-stt.results.jsonl"
+    "manifest_jsonl": "benchmarks/data/fleurs/manifest.jsonl",
+    "results_jsonl": "benchmarks/results/20260815T143108Z-fleurs-parakeet-stt.results.jsonl"
   },
   "meta": {
     "backend": "parakeet",

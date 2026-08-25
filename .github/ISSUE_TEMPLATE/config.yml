@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/joswha/voiceour/security/advisories/new
+    about: Private disclosure only. Please do not open a public issue for a vulnerability.
+  - name: Things Voiceour deliberately does not do
+    url: https://github.com/joswha/voiceour/blob/main/docs/non-goals.md
+    about: Read this before requesting live transcripts, model-based rewriting, background listening, or a language picker.

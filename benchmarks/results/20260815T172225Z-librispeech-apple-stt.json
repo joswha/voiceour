@@ -14,8 +14,8 @@
   },
   "generated_at": "2026-08-15T17:22:25.559311+00:00",
   "inputs": {
-    "manifest_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/data/librispeech/manifest.jsonl",
-    "results_jsonl": "/Users/vlad/Desktop/voiceoour/benchmarks/results/20260815T172123Z-librispeech-apple-stt.results.jsonl"
+    "manifest_jsonl": "benchmarks/data/librispeech/manifest.jsonl",
+    "results_jsonl": "benchmarks/results/20260815T172123Z-librispeech-apple-stt.results.jsonl"
   },
   "meta": {
     "backend": "apple",
