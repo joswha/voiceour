@@ -4,6 +4,7 @@
 
 - macOS 14 or newer.
 - A Swift 6 toolchain: Xcode 16 or newer, or just its Command Line Tools. `swift format` ships inside it, so `make format` installs nothing.
+- An Apple Silicon Mac (arm64). Intel Macs are not supported: the vendored parakeet.cpp/ggml drop intentionally omits the x86 architecture sources, and `ggml-metal-embed.c` rejects x86_64 at compile time. This is deliberate, not merely untested.
 - [`uv`](https://docs.astral.sh/uv/) for the Python benchmark package under `bench/`.
 
 ## Run it

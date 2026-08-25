@@ -15,6 +15,10 @@ fail() {
 
 # The whole point of the bundle: a copied .app must carry its own ASR sidecar.
 [ -x "$SIDECAR" ] || fail "missing ASR sidecar $SIDECAR; run scripts/bundle.sh first"
+binary_archs=$(lipo -archs "$BIN")
+[ "$binary_archs" = "arm64" ] || fail "unexpected architectures for $BIN: $binary_archs"
+sidecar_archs=$(lipo -archs "$SIDECAR")
+[ "$sidecar_archs" = "arm64" ] || fail "unexpected architectures for $SIDECAR: $sidecar_archs"
 codesign --verify --strict --verbose=2 "$SIDECAR"
 
 plutil -lint "$ROOT/Resources/Info.plist" "$ROOT/Resources/Voiceour.entitlements"

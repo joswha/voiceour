@@ -8,7 +8,7 @@
 
 <img src="docs/media/dictation-island-still.png" width="720" alt="Voiceour’s recording island while listening, with Cancel on the left, a live waveform in the center, and Finish on the right.">
 
-<sub>macOS 14+ · English only · initial 1.26 GB model download</sub>
+<sub>macOS 14+ · Apple Silicon only · English only · initial 1.26 GB model download</sub>
 
 </div>
 
@@ -20,7 +20,7 @@ No account, no telemetry, no cloud transcription. The only network request fetch
 
 ## Build it
 
-There is no signed release yet, so build from source. You need macOS 14 or newer and a Swift 6 toolchain — Xcode 16 or newer, or just its Command Line Tools.
+There is no signed release yet, so build from source. You need macOS 14 or newer on Apple Silicon and a Swift 6 toolchain — Xcode 16 or newer, or just its Command Line Tools.
 
 ```sh
 git clone https://github.com/joswha/voiceour.git

@@ -22,4 +22,5 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 - **System audio muting.** Optional muting of the recorded device's output for the duration of a session, with durable ownership so a restore survives a launch.
 - **Accessibility adaptations.** VoiceOver labels and actions throughout, plus Reduce Transparency, Reduce Motion, Increase Contrast, and Differentiate Without Color treatments.
 - **No network surface beyond the model.** No account, telemetry, crash reporting, analytics, update check, credential store, or local control socket. Acquiring the pinned weights, digest-verified, is the only request the app makes.
+- **Apple Silicon only.** Published binaries run on Apple Silicon (arm64); release pages and notes identify that requirement.
 - **Repeatable measurement.** An offscreen UI harness with committed accessibility, raster-digest and semantic-flow goldens; a `voiceour-bench` production-path runner; and a non-shipping Python benchmark package with LibriSpeech, FLEURS, technical-term, and noise tiers.

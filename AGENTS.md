@@ -125,6 +125,7 @@ Rules:
 - Mark each local change to an upstream file with `VOICEOUR PATCH` and list it in `Vendor/parakeet/NOTICE.md`.
 - `scripts/vendor_parakeet.sh --check` must reject unexpected files and verify embedded Metal regeneration is byte-reproducible.
 - Never add `-mcpu=native`; the app bundle must run beyond the build host.
+- The vendored parakeet.cpp/ggml drop is arm64-only by design, and `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces that at compile time. The app is Apple Silicon only; do not attempt a universal build. Making it universal would require re-vendoring upstream `ggml/src/ggml-cpu/arch/x86/{quants.c,repack.cpp}`, amending `Vendor/parakeet/NOTICE.md` and `scripts/vendor_parakeet.sh --check`'s expected-file set, and restructuring `Package.swift` into per-architecture targets because SwiftPM has no architecture build condition; that is not a supported build today.
 
 ## Privacy and insertion safety
 
@@ -287,6 +288,7 @@ Rules for both kinds:
 Rules for the binary release only:
 
 - An un-notarized binary is never published. The choice is a source release or a properly notarized one; a bare zip of an ad-hoc `.app` is not a third option. A copy of an ad-hoc or un-notarized `.app` arrives on another Mac carrying a quarantine flag and Gatekeeper refuses to open it, so that download is worse than no download: it looks like a broken app instead of an absent one. `docs/developer-setup.md` carries the hands-on version of this; keep the two consistent.
+- A published binary is Apple Silicon only, and its release page and release notes must say so. Apply the same disclosure rule as the un-notarized-binary rule above.
 - The published artifact is Developer ID signed with the hardened runtime, notarized, and stapled, and it is a zip produced by `ditto -c -k --keepParent`, never a DMG. `notarytool` accepts the zip directly, and a menu-bar app has no drag-to-Applications ritual that would repay a disk image's layout.
 - **The notarization ticket is stapled into the app before the distributed archive is created.** The app is archived twice on purpose: once as a submission envelope, because `notarytool` cannot take a `.app` directory, and again after `stapler staple` has written the returned ticket into the app on disk. The stapled ticket is what lets Gatekeeper verify a first launch offline; an archive zipped before stapling contains an unstapled app and loses the ticket silently, because the build machine's own online lookup still succeeds and hides the defect. Do not collapse the two `ditto` calls into one — the single-archive form is exactly the bug this ordering fixes. The submission envelope is deleted afterwards so it can never be mistaken for the artifact.
 - The archive is named from the extracted version and carries a `.sha256` sidecar beside it, which is the checksum of the stapled archive and never of the submission envelope.
