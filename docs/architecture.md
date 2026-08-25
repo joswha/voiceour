@@ -72,7 +72,7 @@ The selection travels one path. Settings persists it as `asr_model_variant`; the
 
 ## Cleanup and glossary
 
-`CleanupEngine` is the only text stage after ASR, and it is deterministic: configured filler removal plus glossary canonicalization, in one pass over the transcript. Protected terms come from the capture target's vocabulary, and every way of adding a term passes through `VocabularySanitizer`, which rejects an ambiguous alias instead of guessing.
+`CleanupEngine` is the only text stage after ASR, and it is deterministic: configured filler removal plus glossary canonicalization, in one pass over the transcript. Its protected terms are the glossary snapshot compiled at the top of the stop path — the capture target names the label, never the vocabulary — and every way of adding a term passes through `VocabularySanitizer`, which rejects an ambiguous alias instead of guessing.
 
 ## Insertion safety
 

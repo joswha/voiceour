@@ -67,21 +67,6 @@ Reports: `benchmarks/results/20260815T172106Z-librispeech-parakeet-stt.json` and
 
 Corpus baselines, not universal product claims: corpus, size, model pin, hardware, and OS are part of the result.
 
-## Retired Apple recognizer A/B verdict
-
-A row-matched 2026-08-15 experiment settled a product decision; the system recognizer is not a selectable backend.
-
-| tier / metric | Parakeet | retired system recognizer |
-| --- | ---: | ---: |
-| LibriSpeech U-WER | **2.807%** | 3.133% |
-| LibriSpeech CER | **0.882%** | 1.137% |
-| LibriSpeech ASR p95 | **274.3 ms** | 760.0 ms |
-| FLEURS U-WER | **4.416%** | 6.125% |
-| FLEURS CER | **1.929%** | 2.882% |
-| FLEURS case F1 | **0.9218** | 0.8481 |
-| FLEURS punctuation micro F1 | 0.8380 | **0.8701** |
-| FLEURS ASR p95 | **125.3 ms** | 223.9 ms |
-
 ## Noise robustness
 
 `bench/src/voiceour_bench/noise.py` writes additive-Gaussian-noise copies of a 64-utterance LibriSpeech subset at 20, 10, 5, and 0 dB SNR. Seed `20260718` is hashed with each file through SHA-256, so regeneration is stable.
@@ -97,7 +82,7 @@ Digital noise added after capture isolates recognition robustness; it does not m
 
 ## TechTerms tier
 
-Rows carry the canonical term, term id and class, intended use, hard-negative status, and speaker id beside the standard pipeline fields. Term analyses add exact-canonical recall and precision, preservation, no-op behavior, candidate coverage, selector accuracy, and hard-negative false-replacement rate when the report carries that evidence.
+Rows carry the canonical term, its id and class, whether the term is expected in the output, the hard-negative kind, and the synthetic speaker's id, kind and condition beside the standard pipeline fields. Term analyses add exact-canonical recall and precision, preservation, no-op behavior, candidate coverage, selector accuracy, and hard-negative false-replacement rate when the report carries that evidence.
 
 One macOS voice synthesizes every utterance, so the tier is an engineering smoke test. Promoting a vocabulary mechanism needs held-out real speakers, microphones, acoustic conditions, and hard negatives.
 

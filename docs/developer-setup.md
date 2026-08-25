@@ -3,9 +3,8 @@
 ## Prerequisites
 
 - macOS 14 or newer.
-- Xcode Command Line Tools or Xcode with SwiftPM.
+- A Swift 6 toolchain: Xcode 16 or newer, or just its Command Line Tools. `swift format` ships inside it, so `make format` installs nothing.
 - [`uv`](https://docs.astral.sh/uv/) for the Python benchmark package under `bench/`.
-- `git-lfs` for benchmark datasets stored through LFS.
 
 ## Run it
 
@@ -24,6 +23,8 @@ scripts/run_real.sh
 
 This builds `.build/Voiceour.app` and launches the real backend, so macOS attributes permission grants to the bundle. The first launch downloads the selected artifact of the pinned model — `ggml-org/parakeet-GGUF`, revision `35156454d1a39de06863303dd209fd2bed6ee079`, file `ggml-parakeet-tdt-0.6b-v3-f16.bin` unless Settings or the environment asks for Compact — and shows progress in the menu. Dictation works offline once that cache exists.
 
+Nothing built here is notarized. `scripts/bundle.sh` signs with the ad-hoc `-` identity unless `VOICEOUR_CODESIGN_IDENTITY` is set or a local `voiceour-dev` keychain exists, and it says so on stderr. Two consequences follow. TCC keys grants to a code identity, and an ad-hoc identity can change on rebuild, so Microphone and Accessibility may be asked for again; `scripts/setup_local_signing.sh` installs a stable self-signed `voiceour-dev` certificate that `bundle.sh` then picks up on its own, which is worth doing before any repeated permission testing. And a bundle built and launched in place carries no quarantine flag, so it opens normally — but the same `.app` copied off this machine does, and Gatekeeper will refuse an unnotarized copy until it is opened explicitly from Finder's context menu or allowed under Privacy & Security. `scripts/sign_notarize.sh` is the separate Developer ID path.
+
 Relaunch an existing bundle without rebuilding:
 
 ```sh
@@ -38,17 +39,7 @@ swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.w
 
 ## Checks
 
-| command | purpose |
-| --- | --- |
-| `make build` | Compile with warnings as errors. |
-| `make test` | Run the fake-backed suite. |
-| `make format` | Format `Sources` and `Tests`. |
-| `make format-check` | Fail on unformatted Swift. |
-| `make check-docs` | Fail when docs drift from the model contract. |
-| `make lint-python` | Lint the `bench/` package. |
-| `make ui-snap` | Check offscreen scenes against their goldens. |
-| `make ui-flow` | Check journeys against flow goldens. |
-| `make ui-all` | Add the native macOS 26 legs when supported. |
+`make build` compiles with warnings as errors and `make test` runs the fake-backed suite; `make format-check`, `make check-docs` and `make lint-python` are the other portable gates, and `make ui-flow` is the one a UI change always needs. [AGENTS.md](../AGENTS.md#developer-commands) holds the complete command matrix, and [CONTRIBUTING.md](../CONTRIBUTING.md) the order to run them in before a PR.
 
 Bless golden changes with `make ui-update` or `make ui-flow-update` only after reading the generated `.ax.diff` or `.flow.diff`. See [`ui-harness.md`](ui-harness.md).
 

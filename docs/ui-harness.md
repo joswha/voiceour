@@ -82,7 +82,7 @@ Scene rules:
 
 1. Build coordinators through `UIFixtures`, never `DictationCoordinator.live()`.
 2. Derive no artifact value from the current time, randomness, the system accent, local permission grants, home paths, or the developer's locale or time zone.
-3. Pin those values through the existing `RenderOverrides` seams; read that type for the full set. A production read stays `override ?? realValue`, never a harness-only branch in shipping code.
+3. Pin those values through the existing `RenderOverrides` seams; read that type for the full set. Every seam defaults to nil or false, and at those defaults production must behave as if the type did not exist. A set seam substitutes an input or selects a path production already reaches — `override ?? realValue` for a value, `if let` for a wholesale replacement, a boolean branch for `forceLegacyGlass`'s painted pre-macOS-26 path — never a branch that exists only to make a golden pass.
 4. Avoid perpetual animation. Fixed run-loop pumping makes an animating scene time-dependent.
 5. Extend the closest existing scene instead of starting a second fixture convention.
 

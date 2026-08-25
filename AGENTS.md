@@ -143,7 +143,7 @@ This app touches the user's microphone, active workspace, clipboard, and keyboar
 - Never persist audio. Remove temporary files after success, cancellation, error, and stale-file scavenging.
 - History is one local file, newest 500. Settings, history, and lifetime-ledger load failures quarantine the unreadable file as `<name>.corrupt-<ISO8601>` and report the reset.
 - Settings saves, history snapshots, and ledger snapshots share the one ordered persistence tail. Do not suppress write failures.
-- The lifetime ledger is folded at exactly the site the transcript is journaled, so the two durable records cannot disagree: a secure target reaches neither, every delivery disposition reaches both. It keeps aggregate counts per local day and per destination-app bundle id, prunes day buckets past 400 days while preserving totals, active-day count and the longest streak, and removes its file when emptied. App buckets are never capped or pruned: the map is bounded by the apps the reader dictates into, and each keeps sessions, words, seconds, the last non-nil display name seen, and its latest day key. First launch without a ledger seeds it once from the transcripts still on disk; rows with no measured `captureMs` contribute words with zero seconds rather than an invented speaking rate. An existing ledger with no app buckets is seeded once more, app buckets only (`totalSessions > 0 && apps.isEmpty`), because the totals already counted those sessions. The System tab's Clear History erases both.
+- The lifetime ledger is folded at exactly the site the transcript is journaled, so the two durable records cannot disagree: a secure target reaches neither, every delivery disposition reaches both. It keeps aggregate counts per local day and per destination-app bundle id, prunes day buckets past 400 days while preserving totals, active-day count and the longest streak, and removes its file when emptied. App buckets are never capped or pruned: the map is bounded by the apps the reader dictates into, and each keeps sessions, words, seconds, the last non-nil display name seen, and its latest day key. First launch without a ledger seeds it once from the transcripts still on disk; rows with no measured `captureMs` contribute words with zero seconds rather than an invented speaking rate. An existing ledger with no app buckets is seeded once more, app buckets only (`totalSessions > 0 && apps.isEmpty`), because the totals already counted those sessions. The Settings tab's Clear History erases both.
 - Durable mute ownership survives launch when the recorded device UID cannot currently resolve; clear it only after a real restore attempt can be made.
 
 ## Glossary rules
@@ -197,6 +197,7 @@ Use the smallest command that proves the change.
 | Portable scene gate | `make ui-snap` |
 | Native scene gate | `make ui-snap-os26` |
 | Bless intended portable scene change | `make ui-update` |
+| Bless intended native scene change | `make ui-update-os26` |
 | List scenes | `make ui-list` |
 | Portable semantic flow gate | `make ui-flow` |
 | Native semantic flow gate | `make ui-flow-os26` |
@@ -210,6 +211,7 @@ Use the smallest command that proves the change.
 | U-WER comparison gate | `make bench-gate BASELINE=... CANDIDATE=...` |
 | Python benchmark tests | `(cd bench && uv --no-config run pytest)` |
 | Vendor integrity | `scripts/vendor_parakeet.sh --check` |
+| Regenerate the committed audio fixture | `make fixture` |
 
 Benchmark commands must retain `uv --no-config`. Do not run real model or microphone checks unless the task needs them and prerequisites are present.
 
@@ -244,7 +246,7 @@ Load-bearing measured invariants:
 - The harness cannot show either glass path: behind-window `NSVisualEffectView` becomes a flat opaque fill without desktop content, while SwiftUI `.glassEffect` is absent/transparent under `cacheDisplay` (a measured island was 0.0% opaque and 59.3% fully transparent). Use an onscreen material check for glass itself.
 - `cacheDisplay` also omits blur/shadow filters. Do not weaken offscreen/activation guarantees to recover them.
 
-`RenderOverrides` is production-compiled because real views read it. Every field stays nil/false in normal launches and every production read stays `override ?? realValue`. Seams may pin time, locale/calendar/time zone, permissions, paths, accessibility adaptations, comet choice, selection — including History's opening selection, which `historyStartsDeselected` suppresses so the closed-list state can be rendered — History's opening app filter (`historyInitialAppFilter`, because an `NSMenu` popup cannot be driven offscreen), portable glass, and text-role instrumentation; they may not create a harness-only control-flow branch.
+`RenderOverrides` is production-compiled because real views read it. The invariant is about its defaults: every field's declared default is nil or false, and with all of them at that default the app behaves exactly as it would if the type did not exist. How a set seam is read follows what it substitutes — `override ?? realValue` for a value, `if let` for a wholesale replacement such as `installedApps` or the `textRoleRecorder` probe, a plain boolean branch for `forceLegacyGlass`, which selects the painted pre-macOS-26 path every macOS 14/15 host takes anyway. Seams may pin time, locale/calendar/time zone, permissions, paths, accessibility adaptations, comet choice, selection — including History's opening selection, which `historyStartsDeselected` suppresses so the closed-list state can be rendered — History's opening app filter (`historyInitialAppFilter`, because an `NSMenu` popup cannot be driven offscreen), portable glass, and text-role instrumentation. A seam substitutes an input or selects a path production already reaches on some real machine or state; it may never fabricate an outcome the app cannot reach on its own, and no branch may exist solely to make a golden pass.
 
 Read `.ax.diff` or `.flow.diff` before update mode. Error-severity lint findings and red flows cannot be blessed. Filtered runs accelerate iteration but do not prove the full catalog.
 

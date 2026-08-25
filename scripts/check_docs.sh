@@ -78,7 +78,7 @@ done <<EOF
 $variant_shas
 EOF
 
-for doc in README.md AGENTS.md docs/architecture.md docs/developer-setup.md; do
+for doc in README.md NOTICE AGENTS.md docs/architecture.md docs/developer-setup.md; do
   if [ ! -f "$ROOT/$doc" ]; then
     fail "$doc is missing"
     continue
@@ -105,7 +105,20 @@ $artifacts
 EOF
 done
 
-for doc in README.md AGENTS.md; do
+# NOTICE is attribution rather than contract, so it must credit every artifact a reader can
+# actually be served — both conversions of the pinned revision, not just the default. The digests
+# stay out of it: they are the integrity check the two documents above describe, and restating
+# them in a licence notice would only be a fourth copy to drift.
+if [ -f "$ROOT/NOTICE" ]; then
+  while read -r file _sha; do
+    [ -n "$file" ] || continue
+    grep -Fq "$file" "$ROOT/NOTICE" || fail "NOTICE is missing artifact file name $file"
+  done <<EOF
+$artifacts
+EOF
+fi
+
+for doc in README.md NOTICE AGENTS.md; do
   if grep -Fq "$RETIRED_REVISION" "$ROOT/$doc"; then
     fail "$doc contains retired revision $RETIRED_REVISION"
   fi
@@ -115,4 +128,4 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
-printf '%s\n' "check_docs.sh: OK: README.md, AGENTS.md, docs/architecture.md, docs/developer-setup.md match $model_id@$revision; AGENTS.md and docs/architecture.md name and digest $artifact_names; retired revision absent from README.md and AGENTS.md"
+printf '%s\n' "check_docs.sh: OK: README.md, NOTICE, AGENTS.md, docs/architecture.md, docs/developer-setup.md match $model_id@$revision; AGENTS.md and docs/architecture.md name and digest $artifact_names; NOTICE credits $artifact_names; retired revision absent from README.md, NOTICE and AGENTS.md"

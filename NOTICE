@@ -15,10 +15,13 @@ Benchmark-only dependencies (`bench/` only; never shipped in the app):
 
 Model chain:
 
-The ASR sidecar uses `ggml-org/parakeet-GGUF` at revision
-`35156454d1a39de06863303dd209fd2bed6ee079`, file
-`ggml-parakeet-tdt-0.6b-v3-f16.bin`. These weights were converted from
-`nvidia/parakeet-tdt-0.6b-v3` (CC-BY-4.0). They are downloaded and cached at runtime on first use;
-they are not bundled with the app or committed to this repository.
+The ASR sidecar loads one artifact of `ggml-org/parakeet-GGUF` at revision
+`35156454d1a39de06863303dd209fd2bed6ee079`. That revision holds two conversions of the
+same checkpoint, and the app can be pointed at either:
 
-KeyboardShortcuts 2.x was evaluated for v0 but is not linked in this build because the available Command Line Tools cannot compile its SwiftUI preview macros. The app currently uses a small first-party Carbon hotkey binder.
+- `ggml-parakeet-tdt-0.6b-v3-f16.bin` — the default
+- `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` — the Compact selection
+
+Both were converted from `nvidia/parakeet-tdt-0.6b-v3` (CC-BY-4.0). They are downloaded and
+cached at runtime on first use; neither is bundled with the app or committed to this
+repository.
