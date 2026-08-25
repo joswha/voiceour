@@ -86,7 +86,7 @@ struct MenuView: View {
             // The menu is where a first launch waits out a 1.26 GB download, so it
             // asks for health on open and keeps asking while an acquisition runs.
             // Without this the percentage only advanced when the user happened to
-            // open the console's System tab.
+            // open the console's Settings tab.
             coordinator.refreshBackendHealth()
         }
     }

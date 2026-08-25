@@ -10,17 +10,16 @@ import VoiceMac
 // type `UIHarnessSeams` invited exactly the mistake this gate has to avoid:
 // gating or deleting it alongside `UIHarness/`, which does not compile.
 //
-// Every field is nil (or false) in a normal build and every production read is
-// shaped `override ?? <the real value>`, so a shipping launch behaves as if this
-// file did not exist. See docs/ui-harness.md.
 
 /// Render-time overrides consumed by a small number of production views so the
 /// harness can produce byte-stable, machine-portable goldens.
 ///
-/// Every optional field is `nil` outside the harness, every production read is
-/// `override ?? <the real value>`, and `forceLegacyGlass` is false, so shipping
-/// behaviour is unchanged. Read and written on the main thread only, like the
-/// views that consume them.
+/// The invariant is about its defaults: every field's declared default is nil or false,
+/// and with all of them at that default the app behaves exactly as it would if this type
+/// did not exist. How a set seam is read follows what it substitutes — `override ?? realValue`
+/// for a value, `if let` for a wholesale replacement, a plain boolean branch for
+/// `forceLegacyGlass` — never a branch that exists only to make a golden pass.
+/// Read and written on the main thread only, like the views that consume them.
 enum RenderOverrides {
     /// Pins "now" for deterministic fixtures that render date-relative state.
     /// Without it, labels derived from the current day can change at midnight.

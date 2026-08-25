@@ -12,7 +12,7 @@ public enum GeneralPasteboard {
     ///
     /// Three SwiftUI actions copy straight to the pasteboard rather than through the
     /// insertion adapter -- the menu's transcript copy, the History tab's transcript copy
-    /// and the System tab's Copy Diagnostics -- so a UI flow that presses one of them would
+    /// and the Settings tab's Copy Diagnostics -- so a UI flow that presses one of them would
     /// clobber the clipboard of whoever is running the harness. That is not a golden
     /// churning; it is the harness reaching out of its box into the user's workspace,
     /// which the privacy rules forbid outright.

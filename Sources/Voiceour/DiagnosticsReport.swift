@@ -11,7 +11,7 @@ import VoiceMac
 /// action it existed to perform, and the facts are assembled here where they can
 /// be produced without a view.
 ///
-/// Permissions come in as parameters rather than being read here: the System tab
+/// Permissions come in as parameters rather than being read here: the Settings tab
 /// already resolves them through the harness's `RenderOverrides.permissions`
 /// seam, and a second, unseamed read would put whichever privacy grants this Mac
 /// happens to have into a report the harness is supposed to be able to pin.
@@ -97,7 +97,7 @@ enum DiagnosticsReport {
     /// Backends without pinned model metadata fall back to their descriptor's own
     /// label rather than borrowing another backend's model id.
     ///
-    /// Not private: the System tab prints the same string as a row, and two
+    /// Not private: the Settings tab prints the same string as a row, and two
     /// spellings of "which model is this" is exactly the drift this replaces.
     @MainActor
     static func modelIdentifier(_ coordinator: DictationCoordinator) -> String {
