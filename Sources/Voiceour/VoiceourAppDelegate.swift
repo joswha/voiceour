@@ -36,6 +36,20 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `open -a Voiceour`, a click on the Dock icon the open console puts there,
+    /// and a second launch of the bundle all arrive here. A menu-bar app needs an
+    /// answer to "show me this app" that does not depend on a window already
+    /// being visible: while `.accessory` there is no Dock tile and no window to
+    /// click, and the duplicate instance a re-launch spawns terminates itself
+    /// before it can show anything.
+    ///
+    /// The notification is the same one `--show-console` posts, handled by the
+    /// menu bar label, which is hosted for the life of the process.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        NotificationCenter.default.post(name: .voiceourShowConsole, object: nil)
+        return true
+    }
+
     nonisolated static func shouldTerminateAsDuplicate(
         bundleIdentifier: String?,
         runningProcessIdentifiers: [Int32],

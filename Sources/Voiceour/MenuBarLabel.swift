@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct MenuBarLabel: View {
@@ -54,9 +53,12 @@ struct MenuBarLabel: View {
                 }
             }
             .accessibilityLabel(accessibilityText)
+            // The menu bar label is hosted for the life of the process, so it is
+            // where a request to show the console lands whether or not the window
+            // is open: `--show-console` at launch, and a reopen of the running app.
             .onReceive(NotificationCenter.default.publisher(for: .voiceourShowConsole)) { _ in
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: ConsolePresentation.windowID)
+                ConsolePresentation.show()
             }
     }
 }

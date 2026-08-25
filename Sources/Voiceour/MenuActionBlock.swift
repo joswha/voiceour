@@ -95,8 +95,10 @@ struct MenuActionBlock: View {
         }
     }
 
+    /// `openWindow` creates the window on the launch where it does not exist yet;
+    /// ``ConsolePresentation`` is what shows one that already does.
     private func openConsole() {
-        openWindow(id: "main")
-        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: ConsolePresentation.windowID)
+        ConsolePresentation.show()
     }
 }

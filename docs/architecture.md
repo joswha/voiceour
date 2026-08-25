@@ -93,6 +93,10 @@ Transcripts live in one file, `recent-sessions.json`, newest first, capped at th
 
 Preferences lead that last tab and readouts follow it. There is no General tab: a switch and the permission that decides whether the switch can take effect were on two different destinations.
 
+`ConsolePresentation` owns showing that window, and every path goes through it: the menu bar item, the `--show-console` launch notification, `applicationShouldHandleReopen` (a Dock-icon click, `open -a`, a second launch of the bundle), and the window's own `onAppear`. It promotes the process to `.regular` while the console is hosted, drops back to `.accessory` when it closes, and orders the window front and deminiaturizes it on every show.
+
+It also takes two states away from that window, because a menu-bar app cannot recover from either. The window is not miniaturizable: a minimized window is clicked back from a Dock tile, and this app's tile exists only while the console is open, so minimizing and then closing — or changing displays, or quitting — could leave the window parked with nothing left to click. And it is not restorable: AppKit's window restoration carried that parked state across a quit into an `.accessory` launch, which began owning a window that had no surface, no accessibility attributes, and no way to be shown. Frame persistence is unaffected: that is `setFrameAutosaveName`, whose `NSWindow Frame main` entry is written and read independently, so the console still opens where it was left.
+
 [design-bible.md](design-bible.md) owns the visual language.
 
 ## No credentials
