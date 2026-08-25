@@ -196,6 +196,13 @@
                     transcriptSelectionSurface: "offscreen renderer"
                 ),
                 console(
+                    "console.sessions.teach",
+                    "History teach editor opened on the selected surface",
+                    tab: .history,
+                    fixture: .populated,
+                    teachingSurface: "offscreen renderer"
+                ),
+                console(
                     "console.sessions.deselected",
                     "History after the open transcript was closed",
                     tab: .history,
@@ -406,6 +413,7 @@
             transcriptSelectionSurface: String? = nil,
             deselected: Bool = false,
             appFilter: String? = nil,
+            teachingSurface: String? = nil,
             // Optional rather than `= consoleSize`: a default argument expression is
             // evaluated outside this enum's main-actor context, so it may not read a
             // main-actor static. Nil is the first-launch measure, resolved below.
@@ -448,6 +456,18 @@
                 if let transcriptSelectionSurface {
                     return AnyView(
                         UIHarnessTranscriptSelectionScope(surface: transcriptSelectionSurface) {
+                            AnyView(
+                                ConsoleWindowView(
+                                    coordinator: UIFixtures.coordinator(fixture),
+                                    initialTab: tab
+                                )
+                            )
+                        }
+                    )
+                }
+                if let teachingSurface {
+                    return AnyView(
+                        UIHarnessTeachingHistoryScope(surface: teachingSurface) {
                             AnyView(
                                 ConsoleWindowView(
                                     coordinator: UIFixtures.coordinator(fixture),
@@ -617,6 +637,35 @@
             content
                 .onDisappear {
                     RenderOverrides.transcriptSelectionSurface = previousSurface
+                }
+        }
+    }
+
+    /// Process-wide value seam scoped to the one scene that renders History's teach
+    /// editor. Command-T and the transcript's own `Fix / Teach` item are the only
+    /// ways in, and neither can be delivered to a window that never becomes key, so
+    /// the state is pinned rather than performed. One surface sets both seams
+    /// because the gesture leaves both behind it: the selection the footer line
+    /// names, and the form the editor opens holding.
+    private struct UIHarnessTeachingHistoryScope: View {
+        private let content: AnyView
+        private let previousSurface: String?
+        private let previousTeachSurface: String?
+
+        @MainActor
+        init(surface: String, build: @escaping @MainActor () -> AnyView) {
+            content = build()
+            previousSurface = RenderOverrides.transcriptSelectionSurface
+            previousTeachSurface = RenderOverrides.historyTeachSurface
+            RenderOverrides.transcriptSelectionSurface = surface
+            RenderOverrides.historyTeachSurface = surface
+        }
+
+        var body: some View {
+            content
+                .onDisappear {
+                    RenderOverrides.transcriptSelectionSurface = previousSurface
+                    RenderOverrides.historyTeachSurface = previousTeachSurface
                 }
         }
     }

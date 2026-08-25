@@ -74,6 +74,13 @@ enum RenderOverrides {
     /// reads this as nil, which is every app.
     static var historyInitialAppFilter: String?
 
+    /// Pins History's teach editor open, aimed at this surface. Teaching is
+    /// reached by Command-T or the transcript's own `Fix / Teach` item, and
+    /// neither can be delivered to a window that never becomes key, so a scene
+    /// states what the editor holds rather than performing the gesture that
+    /// opens it. Production reads this as nil, which is no editor.
+    static var historyTeachSurface: String?
+
     /// Pins the installed-app catalog so a golden never encodes which apps the
     /// rendering Mac happens to have. Non-nil replaces the catalog wholesale: an
     /// absent key means "not installed", which falls back to the letter monogram

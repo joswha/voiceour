@@ -76,7 +76,7 @@ ffmpeg -y -loglevel error \
 
 ## Scenes
 
-A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, search, filtered, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations; `os26` branches.
+A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations; `os26` branches.
 
 Scene rules:
 

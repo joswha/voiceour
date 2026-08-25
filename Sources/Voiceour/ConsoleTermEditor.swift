@@ -28,6 +28,12 @@ struct ConsoleTermEditor: View {
     /// The case and spacing variants matched without the user typing them. This
     /// readout is the answer to "why don't I have to list every variant".
     var derivedForms: [String]
+    /// Whether this host offers a well for a form beyond the ones already listed.
+    /// Authoring terms is the Glossary's whole job, so it always offers one.
+    /// History's teach arrives with the surface it was aimed at already in the
+    /// set, so the well under that row asked for a form nobody had heard yet and
+    /// stood between the reader and the Teach button.
+    var offersAdditionalForms: Bool
     var failure: String?
     var caption: String
     var submit: Command
@@ -113,9 +119,10 @@ struct ConsoleTermEditor: View {
 
     // MARK: - Heard as
 
-    /// The spoken forms, one row each, plus the field that adds one. With no
-    /// forms there are no rows: the label and the prompt already say what goes
-    /// here, and a term with none is still matched by its spelling.
+    /// The spoken forms, one row each, and — when this host offers one — the well
+    /// that adds another. A set with nothing in it always gets the well: a term
+    /// has to be able to reach its first form, and with no rows the label and the
+    /// prompt are what say where it goes.
     private var heardAsField: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
             Text("Heard as")
@@ -127,16 +134,26 @@ struct ConsoleTermEditor: View {
             ForEach(Array(spokenForms.enumerated()), id: \.element) { entry in
                 formRow(index: entry.offset, form: entry.element)
             }
-            TextField("Heard as", text: $addText, prompt: Text("cube cuddle"))
-                .font(.body.monospaced())
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
-                .autocorrectionDisabled(true)
-                .labelsHidden()
-                .focused($focused, equals: .addForm)
-                .onSubmit { appendForms() }
-                .accessibilityIdentifier("\(identifierPrefix).add-form")
+            if showsAddField {
+                addFormField
+            }
         }
+    }
+
+    private var showsAddField: Bool {
+        offersAdditionalForms || spokenForms.isEmpty
+    }
+
+    private var addFormField: some View {
+        TextField("Heard as", text: $addText, prompt: Text("cube cuddle"))
+            .font(.body.monospaced())
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.regular)
+            .autocorrectionDisabled(true)
+            .labelsHidden()
+            .focused($focused, equals: .addForm)
+            .onSubmit { appendForms() }
+            .accessibilityIdentifier("\(identifierPrefix).add-form")
     }
 
     private func formRow(index: Int, form: String) -> some View {
@@ -229,9 +246,10 @@ struct ConsoleTermEditor: View {
             appendForm(form)
         }
         addText = ""
-        if keepingFocus {
-            focused = .addForm
-        }
+        guard keepingFocus else { return }
+        // A host that offers the well only until the set holds something loses it
+        // right here, and focus cannot stay on a field that is gone.
+        focused = showsAddField ? .addForm : .term
     }
 
     /// Adds a form the set does not already hold. Case-insensitive, because two

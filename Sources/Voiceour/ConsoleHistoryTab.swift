@@ -674,7 +674,7 @@ struct ConsoleHistoryTab: View {
             detailsRow(for: session)
         }
 
-        if isTeaching {
+        if isTeachingOpen {
             ConsoleTeachHost(
                 coordinator: coordinator,
                 session: session,
@@ -774,6 +774,15 @@ struct ConsoleHistoryTab: View {
             pendingFixTeachPrefill = ConsoleTeachPrefill(word: surface)
         }
         isTeaching = true
+    }
+
+    /// Whether the teach editor sits under the open transcript. The harness pins it
+    /// open because Command-T cannot be delivered to a window that never becomes
+    /// key, and seeding the state instead would not survive: opening a transcript
+    /// closes the editor, and History opens its newest one on arrival. Production
+    /// reads the seam as nil and answers with the state the reader put it in.
+    private var isTeachingOpen: Bool {
+        isTeaching || RenderOverrides.historyTeachSurface != nil
     }
 
     /// Whether this record knows anything about where its text went: a destination
@@ -1031,6 +1040,11 @@ struct ConsoleTeachHost: View {
             term: $canonical,
             spokenForms: $spokenForms,
             derivedForms: Glossary.derivedAliases(for: canonical),
+            // The surface this was aimed at IS the form. An empty well for a
+            // second one sat between the transcript and the Teach button asking
+            // for a spelling the reader had not heard; the Glossary tab is where
+            // a term gains forms it was never taught from.
+            offersAdditionalForms: false,
             failure: refusal,
             caption: "Teaches future dictation only — this never edits text already pasted.",
             submit: ConsoleTermEditor.Command(
@@ -1064,21 +1078,24 @@ struct ConsoleTeachHost: View {
     /// this word's record", and preserving the old term would show a spelling
     /// that has nothing to do with the word just clicked.
     private func applyExternalPrefill() {
-        guard let prefill = externalPrefill else { return }
-        if let owner = GlossaryQuery.termOwning(surface: prefill.word, in: coordinator.settings.glossary) {
+        // The keystroke's word, or the surface the harness aimed the editor at —
+        // the seam substitutes exactly the input Command-T carries. Production
+        // reads it as nil, which is the guard below refusing an unaimed editor.
+        guard let word = externalPrefill?.word ?? RenderOverrides.historyTeachSurface else { return }
+        if let owner = GlossaryQuery.termOwning(surface: word, in: coordinator.settings.glossary) {
             matchedTermId = owner.termId
             canonical = owner.canonical
             var forms = Glossary.userAliases(for: owner)
-            let isCanonical = prefill.word.caseInsensitiveCompare(owner.canonical) == .orderedSame
-            let alreadyListed = forms.contains { $0.caseInsensitiveCompare(prefill.word) == .orderedSame }
+            let isCanonical = word.caseInsensitiveCompare(owner.canonical) == .orderedSame
+            let alreadyListed = forms.contains { $0.caseInsensitiveCompare(word) == .orderedSame }
             if !isCanonical, !alreadyListed {
-                forms.append(prefill.word)
+                forms.append(word)
             }
             spokenForms = forms
         } else {
             matchedTermId = nil
             canonical = ""
-            spokenForms = [prefill.word]
+            spokenForms = [word]
         }
         externalPrefill = nil
     }

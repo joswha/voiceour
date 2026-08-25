@@ -394,6 +394,7 @@ struct ConsoleGlossaryTab: View {
             term: $editedTerm,
             spokenForms: $editedForms,
             derivedForms: Glossary.derivedAliases(for: term.canonical),
+            offersAdditionalForms: true,
             failure: refusal,
             caption: Self.editorCaption,
             submit: ConsoleTermEditor.Command(
@@ -580,6 +581,7 @@ struct ConsoleGlossaryTab: View {
             term: $draftTerm,
             spokenForms: $draftForms,
             derivedForms: Glossary.derivedAliases(for: draftTerm),
+            offersAdditionalForms: true,
             failure: refusal,
             caption: Self.editorCaption,
             submit: ConsoleTermEditor.Command(
