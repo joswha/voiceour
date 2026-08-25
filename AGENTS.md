@@ -189,6 +189,12 @@ Use the smallest command that proves the change.
 | Lint Python benchmark package | `make lint-python` |
 | Bundle app | `make bundle` |
 | Verify bundle | `make verify-bundle` |
+| Stable local signing identity | `scripts/setup_local_signing.sh` |
+| Cut a source release | `make release` |
+| Cut a binary release | `scripts/release.sh --binary` |
+| Release preflight only | `scripts/release.sh --dry-run` |
+| Sign, notarize, staple, validate | `make notarize` |
+| Check the Apple notarization environment | `scripts/sign_notarize.sh --check-env` |
 | Fake app self-test | `scripts/run_dev.sh --self-test` |
 | Fake app launch | `scripts/run_dev.sh` |
 | Real app build/launch | `scripts/run_real.sh` |
@@ -258,6 +264,48 @@ Read `.ax.diff` or `.flow.diff` before update mode. Error-severity lint findings
 - Input Monitoring is not requested.
 - Use stable local signing for repeated TCC testing. Ad-hoc identity can change after rebuild.
 - Release verification must include the signed sibling helper, hardened runtime, entitlements, and clean-account permission behavior.
+
+## Release procedure
+
+A release is a tag, the notes that describe it, and whatever assets that tag carries. There are two kinds and the only difference is the assets.
+
+- **Source release.** The default, the normal case, and the kind this project cuts first: preflight, a `v<version>` tag, and a GitHub release whose notes are that version's `CHANGELOG.md` section. GitHub generates the source `.zip` and `.tar.gz` itself. Nothing is signed, no Apple identity exists in the flow, and no Apple environment variable is read — a source release cannot fail for want of a Developer ID because it never asks for one. It is worth cutting on its own: it gives the project a citable version, a permanent anchor for that changelog section, source archives that are not a moving branch, and a `releases/latest` that resolves instead of 404ing.
+- **Binary release.** Opt-in and later. Everything the source release does, plus the signed, notarized and stapled app archive and its checksum attached as release assets. It needs a paid Developer ID, so it happens once there is one and not before.
+
+Releasing at all is optional, and a binary is not what makes a release real. Building from source is a first-class supported path — the one `README.md` documents and the one every contributor uses — and a binary release exists only to spare a user the toolchain.
+
+Rules for both kinds:
+
+- `Resources/Info.plist` is the single source of truth for the version. `CFBundleShortVersionString` is the semver a human reads; `CFBundleVersion` increases monotonically and never repeats a value. No version literal is restated in a script, the Makefile, a workflow, or a document — tooling extracts it from the plist, the same discipline `scripts/check_docs.sh` applies to the model pin.
+- The version, the `CHANGELOG.md` heading, and the git tag agree. The tag is `v<version>`. A version is released exactly once: a re-cut takes a new version rather than moving a tag.
+- That version's `CHANGELOG.md` section *is* the release notes. `scripts/release.sh` extracts it verbatim — from the `## <version>` heading, which may also be written `## [<version>] - <date>`, up to the next `## ` — into `.build/Voiceour-<version>-release-notes.md`, and the printed `gh release create` line passes that file with `--notes-file`. Nothing composes release notes by hand, so a tag cannot disagree with the changelog.
+- Preflight refuses to release from a dirty tree, from a branch other than `main`, from a `main` that is behind — or cannot be compared with — the local `origin/main` ref, on a `CFBundleShortVersionString` that is not `N.N.N`, on a version whose `## <version>` heading is missing or whose section is empty, or on a version whose `v<version>` tag already exists. It then runs `make build`, `make format-check`, `make check-docs`, and `make test`. A release points at a commit and that commit must be green, so the gate runs in both modes — nothing being signed is not a reason to skip verification.
+- Preflight accumulates: every failed check prints its own `release.sh: FAIL: <reason>` line on stderr before the script exits 1, so one run names everything that needs fixing. A usage error exits 64; a binary release with incomplete Apple credentials exits 2.
+- `scripts/release.sh` never bumps the version, tags, pushes, or publishes. It prints the exact `git tag`, `git push`, and `gh release create` commands for the mode it ran, and the maintainer runs them.
+- `make release` is the source release. The binary release is `scripts/release.sh --binary` and has no `make` target on purpose: the default path must be the one that needs no credentials. `--dry-run` composes with either mode in any argument order, runs every check for that mode, and stops before writing the notes file and printing the publish commands — in source mode it is therefore the whole procedure minus its output, and it works with no Apple environment present at all.
+
+Rules for the binary release only:
+
+- An un-notarized binary is never published. The choice is a source release or a properly notarized one; a bare zip of an ad-hoc `.app` is not a third option. A copy of an ad-hoc or un-notarized `.app` arrives on another Mac carrying a quarantine flag and Gatekeeper refuses to open it, so that download is worse than no download: it looks like a broken app instead of an absent one. `docs/developer-setup.md` carries the hands-on version of this; keep the two consistent.
+- The published artifact is Developer ID signed with the hardened runtime, notarized, and stapled, and it is a zip produced by `ditto -c -k --keepParent`, never a DMG. `notarytool` accepts the zip directly, and a menu-bar app has no drag-to-Applications ritual that would repay a disk image's layout.
+- **The notarization ticket is stapled into the app before the distributed archive is created.** The app is archived twice on purpose: once as a submission envelope, because `notarytool` cannot take a `.app` directory, and again after `stapler staple` has written the returned ticket into the app on disk. The stapled ticket is what lets Gatekeeper verify a first launch offline; an archive zipped before stapling contains an unstapled app and loses the ticket silently, because the build machine's own online lookup still succeeds and hides the defect. Do not collapse the two `ditto` calls into one — the single-archive form is exactly the bug this ordering fixes. The submission envelope is deleted afterwards so it can never be mistaken for the artifact.
+- The archive is named from the extracted version and carries a `.sha256` sidecar beside it, which is the checksum of the stapled archive and never of the submission envelope.
+- Required environment is `DEVELOPER_ID_APPLICATION` plus either `NOTARY_KEYCHAIN_PROFILE` or the `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` triple. Prefer the profile: an app-specific password passed on a command line is visible in the process table. Create it once with `xcrun notarytool store-credentials`. Nothing outside the binary path reads any of these, and their absence is not a failure anywhere else.
+- Verification runs inside the flow, not afterwards as a favour. `scripts/verify_bundle.sh` asserts the `voiceour-asr` sibling is present and signed, `CFBundleIdentifier` is `com.voiceour.app`, `LSUIElement` is true, `NSMicrophoneUsageDescription` is non-empty, the `audio-input` entitlement is present, and `app-sandbox` and `input-monitoring` are absent. Never weaken those assertions to make a build pass. Hardened runtime, the stapled ticket, and `spctl --assess` are checked alongside them, and release verification also includes the clean-account permission behavior required above.
+- A binary release is local and manual, never CI, and no release workflow should be added for it. Notarization needs Apple credentials, a public repository's secrets are a risk surface, and fork pull requests widen it — the same measured no-credential-store posture the network policy above describes. `.github/workflows/ci.yml`'s `release` job builds, bundles, and verifies, and uploads nothing: it is a packaging smoke test, not a release pipeline, and must not be mistaken for one.
+- `make notarize` runs `scripts/sign_notarize.sh`: Developer ID signing with hardened runtime, submission, stapling, validation, then the archive, its checksum, and `.build/Voiceour-release-manifest.txt`. `scripts/sign_notarize.sh --check-env` validates the Apple environment and exits without building or submitting anything, so the credential rule lives in exactly one place.
+
+The steps, in order, all maintainer-run. The Git rules below still hold: an agent does not tag, push, or publish.
+
+1. Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`.
+2. Move the `CHANGELOG.md` bullets under `Unreleased` beneath a new `## <version>` heading, leaving `Unreleased` empty above it. Preflight requires that heading and refuses an empty section, because that section is the release notes.
+3. Commit those two files together, so the version and the notes that describe it are one revision.
+4. Run `scripts/release.sh --dry-run` and fix everything it names.
+5. Run `make release`. It re-runs every check, writes the notes file, and prints the publish commands.
+6. Run the printed `git tag -a v<version>` and the two `git push` lines.
+7. Run the printed `gh release create`. GitHub attaches the source `.zip` and `.tar.gz` itself, and the release is complete here.
+
+A binary release replaces steps 4–7 with `scripts/release.sh --binary --dry-run` and then `scripts/release.sh --binary`, which signs, notarizes, staples, archives, and checksums before printing the same publish commands with the archive and its `.sha256` appended as assets. Nothing else about the procedure changes.
 
 ## Git and collaboration
 

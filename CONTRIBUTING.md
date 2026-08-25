@@ -31,5 +31,6 @@ If you changed the UI, also run `make ui-snap`. Read the generated `.ax.diff` or
 - Do not add compatibility shims for internal APIs. Update every caller instead.
 - Update the one document that owns the topic rather than describing it twice.
 - Add a bullet to [CHANGELOG.md](CHANGELOG.md) under `Unreleased` when the change is user-visible.
+- Do not bump the version or add a release heading to the changelog in a PR. Releasing is a local maintainer operation; [AGENTS.md](AGENTS.md#release-procedure) has the procedure.
 - Commit intended UI goldens and flow journals together with the behavior change that requires them.
 - Keep build artifacts and raw per-utterance benchmark output out of the commit.

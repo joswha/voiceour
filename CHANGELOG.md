@@ -4,6 +4,8 @@ Notable user-visible changes are recorded here. The format follows [Keep a Chang
 
 There are no tagged releases yet, so `Unreleased` is the state of `main` and the starting point every later entry is written against.
 
+Cutting a release moves the `Unreleased` bullets beneath a new version heading — `## <version>`, or `## [<version>] - <date>` — and leaves `Unreleased` empty above them. The version is `CFBundleShortVersionString` in `Resources/Info.plist`, the only place a version is written down, and the git tag is `v<version>`. That section is the release notes: `scripts/release.sh` extracts it verbatim and the published release carries it unedited, so it cannot be cut while the heading is missing or the section is empty. [AGENTS.md](AGENTS.md#release-procedure) holds the procedure.
+
 ## Unreleased
 
 ### Added

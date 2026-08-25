@@ -1,4 +1,4 @@
-.PHONY: build test bundle verify-bundle fixture format format-check check-docs lint-python
+.PHONY: build test bundle verify-bundle notarize release fixture format format-check check-docs lint-python
 
 build:
 	swift build -Xswiftc -warnings-as-errors
@@ -28,6 +28,20 @@ bundle:
 
 verify-bundle:
 	scripts/verify_bundle.sh
+
+# Signs with the hardened runtime and submits to Apple notarization, so it needs a
+# Developer ID identity in the keychain, notarytool credentials, and the network. It
+# cannot run in CI: this repository holds no Apple secrets on purpose.
+notarize:
+	scripts/sign_notarize.sh
+
+# Cuts a source release: preflight, the full local gate, release notes read out of
+# CHANGELOG.md, then the exact git tag and gh commands printed for the maintainer to run.
+# It never tags, pushes or publishes, and it needs no Apple identity. The optional binary
+# release is `scripts/release.sh --binary`, which adds `notarize` above and so carries the
+# same Developer ID, network and no-CI conditions.
+release:
+	scripts/release.sh
 
 fixture:
 	scripts/make_fixture.sh
