@@ -34,7 +34,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "asr",
@@ -44,7 +43,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "acronym",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "audio_buffer_size",
@@ -54,7 +52,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "camel_case",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "cplusplus",
@@ -64,7 +61,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "symbols",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "ipv6",
@@ -74,7 +70,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "digits",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "core_audio",
@@ -84,7 +79,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "multiword_name",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "voiceour",
@@ -94,7 +88,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "coinage",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "voiceour",
     },
     {
         "slug": "c_language",
@@ -104,7 +97,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "symbols",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "rust_language",
@@ -114,7 +106,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "go_language",
@@ -124,7 +115,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "metal_framework",
@@ -134,7 +124,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": True,
         "hard_negative_kind": None,
-        "project_scope": "global",
     },
     {
         "slug": "cube_cuddle_negative",
@@ -144,7 +133,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": False,
         "hard_negative_kind": "minimal_pair",
-        "project_scope": "global",
     },
     {
         "slug": "sea_negative",
@@ -154,7 +142,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "symbols",
         "expect_term": False,
         "hard_negative_kind": "homophone",
-        "project_scope": "global",
     },
     {
         "slug": "rust_negative",
@@ -164,7 +151,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": False,
         "hard_negative_kind": "ordinary_language",
-        "project_scope": "global",
     },
     {
         "slug": "go_negative",
@@ -174,7 +160,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "jargon",
         "expect_term": False,
         "hard_negative_kind": "ordinary_language",
-        "project_scope": "global",
     },
     {
         "slug": "metal_negative",
@@ -184,7 +169,6 @@ TECHTERMS_CASES: tuple[dict[str, Any], ...] = (
         "term_class": "multiword_name",
         "expect_term": False,
         "hard_negative_kind": "ordinary_language",
-        "project_scope": "global",
     },
 )
 
@@ -289,7 +273,6 @@ def prepare_techterms(root: Path | None = None) -> Path:
                 "speaker_id": TECHTERMS_SPEAKER_ID,
                 "speaker_kind": "tts",
                 "condition": "clean",
-                "project_scope": case["project_scope"],
             }
         )
     manifest = tier_dir / "manifest.jsonl"

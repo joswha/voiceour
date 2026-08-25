@@ -301,7 +301,7 @@ def case_f1(refs: Iterable[str | None], hyps: Iterable[str | None]) -> dict[str,
 def over_edit_rate(raw_transcripts: Iterable[str | None], final_texts: Iterable[str | None]) -> float:
     """Content edit rate between normalized raw transcripts and final outputs.
 
-    This measures how much cleanup/refinement changed the normalized word stream,
+    This measures how much deterministic cleanup changed the normalized word stream,
     aggregated as total word edit distance divided by total raw word count.
     """
 

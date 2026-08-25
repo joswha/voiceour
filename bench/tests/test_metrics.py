@@ -204,7 +204,6 @@ def test_report_adds_tech_terms_and_omits_unobserved_candidate_evidence(tmp_path
                 "term_class": "jargon",
                 "expect_term": True,
                 "hard_negative_kind": None,
-                "project_scope": "project",
             },
             {
                 "id": "negative",
@@ -214,7 +213,6 @@ def test_report_adds_tech_terms_and_omits_unobserved_candidate_evidence(tmp_path
                 "term_class": "ambiguous",
                 "expect_term": False,
                 "hard_negative_kind": "case_ambiguity",
-                "project_scope": "global",
             },
         ],
     )
@@ -222,7 +220,13 @@ def test_report_adds_tech_terms_and_omits_unobserved_candidate_evidence(tmp_path
         results,
         [
             {"type": "bench_meta"},
-            {"type": "row", "id": "positive", "raw_transcript": "use cube cuddle", "final_text": "use kubectl"},
+            {
+                "type": "row",
+                "id": "positive",
+                "raw_transcript": "use cube cuddle",
+                "final_text": "use kubectl",
+                "candidate_source": "glossary",
+            },
             {"type": "row", "id": "negative", "raw_transcript": "rust is common", "final_text": "Rust is common"},
         ],
     )
@@ -232,6 +236,8 @@ def test_report_adds_tech_terms_and_omits_unobserved_candidate_evidence(tmp_path
     assert tech["hard_negatives"]["per_10k_opportunities"] == 10_000.0
     assert tech["no_op_preservation"]["rate"] == 0.0
     assert set(tech["breakdowns"]) == {"source", "class", "risk"}
+    # The source dimension is the runner's own candidate provenance, never a manifest field.
+    assert set(tech["breakdowns"]["source"]) == {"glossary"}
     assert "candidate_recall" not in tech
     assert "reliability" not in tech
     assert "risk_coverage" not in tech

@@ -36,6 +36,14 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _relative_to_repo(path: Path) -> str:
+    # A report is committed evidence, so it must not name the machine that produced it.
+    # A path outside the checkout keeps its absolute form: truncating it would lie.
+    resolved = path.resolve()
+    root = repo_root()
+    return str(resolved.relative_to(root)) if resolved.is_relative_to(root) else str(resolved)
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
@@ -197,9 +205,9 @@ def _tech_breakdown(rows: list[dict[str, Any]], dimension: str) -> dict[str, Any
         input_row = row["input"]
         result_row = row["result"]
         if dimension == "source":
+            # Candidate provenance is result-row evidence: a report that records none has no
+            # source breakdown at all, rather than one that quietly means something else.
             _, value = _first_value(result_row, ("candidate_source", "term_source", "source"))
-            if not isinstance(value, str):
-                value = input_row.get("project_scope")
         elif dimension == "class":
             value = input_row.get("term_class")
         else:
@@ -367,9 +375,11 @@ def build_report(
         "case_f1": _metric_or_none(case_f1, formatted_refs, formatted_hyps),
         "over_edit_rate": over_edit_rate(raw_sources, final_sources) if raw_sources else None,
         "rtfx": rtfx(audio_seconds, asr_ms),
+        # Stage set mirrors `BenchOutputTimings` in Sources/VoiceourBench/BenchMain.swift.
+        # A stage the runner cannot emit would publish a null percentile in every report.
         "latency_ms": {
             stage: percentiles(_timing_values(successful, stage))
-            for stage in ("asr", "asr_load", "asr_inference", "cleanup", "refine", "total")
+            for stage in ("asr", "asr_load", "asr_inference", "cleanup", "total")
         },
     }
     tech_terms = _tech_terms_metrics(successful)
@@ -418,7 +428,10 @@ def build_report(
         "anchors": {"librispeech_parakeet_tdt_0_6b_v3_nemo": {"test_clean_wer": 1.93, "test_other_wer": 3.59}}
         if tier == "librispeech"
         else {},
-        "inputs": {"results_jsonl": str(results_jsonl), "manifest_jsonl": str(manifest_jsonl)},
+        "inputs": {
+            "results_jsonl": _relative_to_repo(results_jsonl),
+            "manifest_jsonl": _relative_to_repo(manifest_jsonl),
+        },
     }
 
     output_dir = output_dir or repo_root() / "benchmarks" / "results"

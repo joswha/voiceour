@@ -478,14 +478,12 @@ struct PipelineInputRow: Decodable {
     // Non-optional so decoding continues to enforce the pipeline manifest schema.
     var reference: String
     var audioS: Double?
-    var canonicalTerm: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case audioPath = "audio_path"
         case reference
         case audioS = "audio_s"
-        case canonicalTerm = "canonical_term"
     }
 }
 
