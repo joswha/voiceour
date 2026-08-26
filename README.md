@@ -57,11 +57,17 @@ That bundle is ad-hoc signed, not notarized, so its code identity can change whe
 
 ## FAQ
 
-### Why Apple Silicon only?
+<details>
+<summary><strong>Why Apple Silicon only?</strong></summary>
 
-The vendored parakeet.cpp/ggml code is arm64-only, and `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces that at compile time. Supporting Intel would mean vendoring upstream's x86 sources and splitting `Package.swift` into per-architecture targets, since SwiftPM has no architecture build condition. It's a deliberate choice, not something on the roadmap — see [non-goals](docs/non-goals.md).
+The vendored parakeet.cpp/ggml code is arm64-only, and `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces that at compile time. Supporting Intel would mean vendoring upstream's x86 sources and splitting `Package.swift` into per-architecture targets, since SwiftPM has no architecture build condition.
 
-### What network requests does Voiceour make?
+It's a deliberate choice, not something on the roadmap — see [non-goals](docs/non-goals.md).
+
+</details>
+
+<details>
+<summary><strong>What network requests does Voiceour make?</strong></summary>
 
 Exactly one: downloading the recognition model. Transcription itself is entirely local. No telemetry, no account, no analytics, no update checks.
 
@@ -78,16 +84,65 @@ Worth being clear about one thing: like any download, that HTTPS request tells H
 
 You can block Voiceour in a firewall such as Little Snitch if you'd rather it didn't happen. Without the model there's no transcription, but the fake backend still works, since it downloads nothing.
 
-### Known issues and troubleshooting
+</details>
 
-- **Build fails on an older toolchain.** Swift 6 is required: Xcode 16 or newer, or just its Command Line Tools.
-- **macOS keeps asking for Microphone or Accessibility after a rebuild.** macOS ties a permission to the app's code signature, and an ad-hoc development build gets a new one each time. Run `scripts/setup_local_signing.sh` once for a stable local certificate; `scripts/bundle.sh` picks it up automatically.
-- **A permission is stuck.** Quit Voiceour, reset it, and it'll ask again on the next recording.
+<details>
+<summary><strong>Where does Voiceour keep my data?</strong></summary>
 
-  ```sh
-  tccutil reset Microphone com.voiceour.app
-  tccutil reset Accessibility com.voiceour.app
-  ```
+On your Mac, and nowhere else. Audio is never saved — the recording is deleted as soon as it's transcribed. Transcripts stay in a local history file capped at the newest 500, and a secure field like a password box records nothing at all.
+
+Settings has a Clear History button that erases the transcripts and the lifetime counters together. [Permissions and delivery safety](docs/permissions.md) covers the rest.
+
+</details>
+
+<details>
+<summary><strong>Which languages does it support?</strong></summary>
+
+English only. The model is `parakeet-tdt-0.6b-v3` and there's no language picker — see [non-goals](docs/non-goals.md).
+
+</details>
+
+<details>
+<summary><strong>Is there a Homebrew install?</strong></summary>
+
+Not yet. A Homebrew cask has to pass macOS Gatekeeper checks, which needs a notarized build, and notarizing needs a paid Apple Developer account this project doesn't have. Building from source is the supported path for now.
+
+</details>
+
+## Troubleshooting
+
+<details>
+<summary><strong>The build fails on an older toolchain</strong></summary>
+
+Swift 6 is required: Xcode 16 or newer, or just its Command Line Tools.
+
+</details>
+
+<details>
+<summary><strong>macOS keeps asking for Microphone or Accessibility after a rebuild</strong></summary>
+
+macOS ties a permission to the app's code signature, and an ad-hoc development build gets a new one each time. Run `scripts/setup_local_signing.sh` once for a stable local certificate; `scripts/bundle.sh` picks it up automatically.
+
+</details>
+
+<details>
+<summary><strong>A permission is stuck</strong></summary>
+
+Quit Voiceour, reset it, and it'll ask again on the next recording.
+
+```sh
+tccutil reset Microphone com.voiceour.app
+tccutil reset Accessibility com.voiceour.app
+```
+
+</details>
+
+<details>
+<summary><strong>Dictation pastes into some apps but only copies in others</strong></summary>
+
+That's deliberate. Ordinary text fields get the paste; terminals, code editors, password fields, and any target Voiceour couldn't inspect get the transcript on the clipboard instead, and no setting widens it. [Permissions and delivery safety](docs/permissions.md) has the full matrix.
+
+</details>
 
 ## Documentation
 
