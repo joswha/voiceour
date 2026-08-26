@@ -13,6 +13,17 @@ Benchmark-only dependencies (`bench/` only; never shipped in the app):
 - jiwer — Apache-2.0 License — https://github.com/jitsi/jiwer
 - whisper-normalizer — MIT License — https://github.com/kurianbenoy/whisper_normalizer
 
+Benchmark corpora (text only, in the committed reports under `benchmarks/results/`; no corpus
+audio and no full transcript set is committed):
+
+- LibriSpeech — CC BY 4.0 — https://www.openslr.org/12/
+- FLEURS — CC BY 4.0 — https://huggingface.co/datasets/google/fleurs
+
+Those two corpora are licensed by their own creators and are not covered by Voiceour's MIT
+licence. `benchmarks/DATA-LICENSE.md` carries the full attribution: creators, titles, licence
+URI, warranty disclaimer, previous modifications, and exactly which files and JSON keys hold
+corpus text.
+
 Model chain:
 
 The ASR sidecar loads one artifact of `ggml-org/parakeet-GGUF` at revision
@@ -22,6 +33,24 @@ same checkpoint, and the app can be pointed at either:
 - `ggml-parakeet-tdt-0.6b-v3-f16.bin` — the default
 - `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` — the Compact selection
 
-Both were converted from `nvidia/parakeet-tdt-0.6b-v3` (CC-BY-4.0). They are downloaded and
-cached at runtime on first use; neither is bundled with the app or committed to this
-repository.
+Both were converted from `nvidia/parakeet-tdt-0.6b-v3`, which is licensed under Creative
+Commons Attribution 4.0 International (CC BY 4.0),
+https://creativecommons.org/licenses/by/4.0/legalcode.en. They are downloaded and cached at
+runtime on first use; neither is bundled with the app or committed to this repository.
+
+NVIDIA does not endorse, sponsor or certify Voiceour.
+
+Voiceour does not modify the weights. It loads a third-party format conversion of the
+`nvidia/parakeet-tdt-0.6b-v3` checkpoint: `ggml-org/parakeet-GGUF` re-encoded that checkpoint
+from NeMo into ggml, and quantised it for the `q8_0` artifact. Neither artifact is retrained
+or fine-tuned. That conversion repository tags itself `license: mit`; a re-publisher cannot
+relicense the checkpoint it converted, so CC BY 4.0 above is the licence that governs and this
+notice is deliberately not aligned to that tag.
+
+The licensor offers the weights as-is, gives no representations or warranties about them, and
+limits liability; sections 5 and 6 of the licence linked above state the disclaimer of
+warranties and limitation of liability that apply. `nvidia/parakeet-tdt-0.6b-v3` supplies no
+copyright notice, so none is restated here.
+
+These weights are not covered by Voiceour's MIT licence, which covers Voiceour's own source
+code. Their use is governed by CC BY 4.0.
