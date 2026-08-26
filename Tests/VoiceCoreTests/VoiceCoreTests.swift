@@ -683,12 +683,25 @@ struct VoiceCoreTests {
     }
 
     @Test func applicationSupportPathsDeriveFromTheVoiceourBase() {
-        let base = URL.voiceourSupportDirectory
+        let base = URL.voiceourSupportDirectory()
         #expect(base.lastPathComponent == "Voiceour")
         #expect(SettingsStore.defaultURL.deletingLastPathComponent().path == base.path)
         #expect(SettingsStore.defaultURL.lastPathComponent == "settings.json")
         #expect(RecentSessionStore.defaultURL.deletingLastPathComponent().path == base.path)
         #expect(RecentSessionStore.defaultURL.lastPathComponent == "recent-sessions.json")
+    }
+
+    @Test func supportDirectoryOverrideNamesTheDirectoryItIsGiven() {
+        let pinned = URL.voiceourSupportDirectory(
+            environment: ["VOICEOUR_SUPPORT_DIR": "/tmp/voiceour-sample"]
+        )
+        // The override owns the path it names: no `Voiceour` component is appended.
+        #expect(pinned.path == "/tmp/voiceour-sample")
+
+        // An empty value is not a path, so it leaves the real base in place.
+        let blank = URL.voiceourSupportDirectory(environment: ["VOICEOUR_SUPPORT_DIR": ""])
+        #expect(blank.lastPathComponent == "Voiceour")
+        #expect(URL.voiceourSupportDirectory(environment: [:]).path == blank.path)
     }
 
     private func posixPermissions(at url: URL) throws -> Int {

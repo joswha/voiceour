@@ -17,7 +17,7 @@ public struct DictationStatsStore: Sendable {
     }
 
     public static var defaultURL: URL {
-        URL.voiceourSupportDirectory.appendingPathComponent("dictation-activity.json")
+        URL.voiceourSupportDirectory().appendingPathComponent("dictation-activity.json")
     }
 
     /// An absent file is an empty ledger, not a failure: it is exactly the state

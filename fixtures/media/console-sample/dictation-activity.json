@@ -1,0 +1,168 @@
+{
+  "apps": {
+    "com.anthropic.claudefordesktop": {
+      "lastDay": "2025-06-11",
+      "name": "Claude",
+      "seconds": 2600,
+      "sessions": 31,
+      "words": 5850
+    },
+    "com.apple.Safari": {
+      "lastDay": "2025-06-08",
+      "name": "Safari",
+      "seconds": 1500,
+      "sessions": 18,
+      "words": 3377
+    },
+    "com.brave.Browser": {
+      "lastDay": "2025-06-09",
+      "name": "Brave Browser",
+      "seconds": 1900,
+      "sessions": 22,
+      "words": 4100
+    },
+    "com.cmuxterm.app": {
+      "lastDay": "2025-06-13",
+      "name": "cmux",
+      "seconds": 5600,
+      "sessions": 64,
+      "words": 12400
+    },
+    "com.mitchellh.ghostty": {
+      "lastDay": "2025-06-06",
+      "name": "Ghostty",
+      "seconds": 1720,
+      "sessions": 17,
+      "words": 3500
+    },
+    "com.openai.codex": {
+      "lastDay": "2025-06-12",
+      "name": "ChatGPT",
+      "seconds": 3000,
+      "sessions": 38,
+      "words": 6900
+    }
+  },
+  "days": {
+    "2025-04-24": {
+      "seconds": 492,
+      "sessions": 6,
+      "words": 972
+    },
+    "2025-05-01": {
+      "seconds": 304,
+      "sessions": 4,
+      "words": 600
+    },
+    "2025-05-07": {
+      "seconds": 350,
+      "sessions": 5,
+      "words": 1110
+    },
+    "2025-05-08": {
+      "seconds": 752,
+      "sessions": 8,
+      "words": 1680
+    },
+    "2025-05-15": {
+      "seconds": 880,
+      "sessions": 10,
+      "words": 1980
+    },
+    "2025-05-19": {
+      "seconds": 492,
+      "sessions": 6,
+      "words": 1116
+    },
+    "2025-05-20": {
+      "seconds": 532,
+      "sessions": 7,
+      "words": 1218
+    },
+    "2025-05-23": {
+      "seconds": 840,
+      "sessions": 12,
+      "words": 1944
+    },
+    "2025-05-24": {
+      "seconds": 846,
+      "sessions": 9,
+      "words": 1350
+    },
+    "2025-05-25": {
+      "seconds": 440,
+      "sessions": 5,
+      "words": 1110
+    },
+    "2025-05-26": {
+      "seconds": 656,
+      "sessions": 8,
+      "words": 1680
+    },
+    "2025-05-29": {
+      "seconds": 988,
+      "sessions": 13,
+      "words": 2574
+    },
+    "2025-05-30": {
+      "seconds": 280,
+      "sessions": 4,
+      "words": 744
+    },
+    "2025-05-31": {
+      "seconds": 940,
+      "sessions": 10,
+      "words": 1740
+    },
+    "2025-06-01": {
+      "seconds": 528,
+      "sessions": 6,
+      "words": 972
+    },
+    "2025-06-02": {
+      "seconds": 2130,
+      "sessions": 16,
+      "words": 2400
+    },
+    "2025-06-03": {
+      "seconds": 836,
+      "sessions": 11,
+      "words": 2442
+    },
+    "2025-06-06": {
+      "seconds": 210,
+      "sessions": 3,
+      "words": 630
+    },
+    "2025-06-08": {
+      "seconds": 658,
+      "sessions": 7,
+      "words": 1386
+    },
+    "2025-06-09": {
+      "seconds": 1232,
+      "sessions": 14,
+      "words": 4351
+    },
+    "2025-06-11": {
+      "seconds": 410,
+      "sessions": 5,
+      "words": 870
+    },
+    "2025-06-12": {
+      "seconds": 684,
+      "sessions": 9,
+      "words": 1458
+    },
+    "2025-06-13": {
+      "seconds": 840,
+      "sessions": 12,
+      "words": 1800
+    }
+  },
+  "longestStreakDays": 6,
+  "totalActiveDays": 23,
+  "totalSeconds": 16320,
+  "totalSessions": 190,
+  "totalWords": 36127
+}

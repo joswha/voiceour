@@ -18,6 +18,14 @@ Tap Fn once and speak. Tap again and the text lands in the app you were already 
 
 No account, no telemetry, no cloud transcription. The only network request fetches the recognition model, pinned to `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303dd209fd2bed6ee079`. Settings offers a Compact version of that same model — 0.67 GB on disk instead of 1.26 GB, a little slower to transcribe, applied the next time Voiceour starts.
 
+Home keeps the running totals: how long you have spoken, how much typing it saved, and which apps the words went to.
+
+<div align="center">
+
+<img src="docs/media/home-sample.png" width="600" alt="Voiceour’s Home tab, showing total dictation time, words dictated, time saved versus typing, average speaking speed, the apps dictated into most, and an activity grid with the current and longest streaks.">
+
+</div>
+
 ## Contributing
 
 Voiceour is MIT licensed, so you're free to read it, fork it, and build your own version.

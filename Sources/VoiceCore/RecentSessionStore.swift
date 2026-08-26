@@ -203,7 +203,7 @@ public struct RecentSessionStore: Sendable {
     }
 
     public static var defaultURL: URL {
-        URL.voiceourSupportDirectory.appendingPathComponent("recent-sessions.json")
+        URL.voiceourSupportDirectory().appendingPathComponent("recent-sessions.json")
     }
 
     public func normalized(_ sessions: [RecentSession]) -> [RecentSession] {

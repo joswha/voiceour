@@ -21,6 +21,6 @@ public struct SettingsStore: Sendable {
     }
 
     public static var defaultURL: URL {
-        URL.voiceourSupportDirectory.appendingPathComponent("settings.json")
+        URL.voiceourSupportDirectory().appendingPathComponent("settings.json")
     }
 }

@@ -307,6 +307,6 @@ public actor SystemAudioMuter: SystemAudioMuting {
     }
 
     private static var durableOwnershipFlagURL: URL? {
-        URL.voiceourSupportDirectory.appendingPathComponent("mute-owned.flag", isDirectory: false)
+        URL.voiceourSupportDirectory().appendingPathComponent("mute-owned.flag", isDirectory: false)
     }
 }

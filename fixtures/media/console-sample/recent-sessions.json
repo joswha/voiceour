@@ -1,0 +1,179 @@
+[
+  {
+    "createdAt": 771692080,
+    "id": "00000000-0000-4000-8000-000000000001",
+    "leastConfidentWord": {
+      "score": 0.43,
+      "text": "cacheDisplay"
+    },
+    "mutedDuringCapture": false,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Xcode",
+      "targetBundleId": "com.apple.dt.Xcode",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "uh wire the offscreen renderer to NSHostingView and uh capture with cache display",
+    "stages": {
+      "asrMs": 410,
+      "captureMs": 6800,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Wire the offscreen renderer to NSHostingView and capture with cacheDisplay."
+  },
+  {
+    "createdAt": 771687100,
+    "id": "00000000-0000-4000-8000-000000000002",
+    "mutedDuringCapture": false,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Xcode",
+      "targetBundleId": "com.apple.dt.Xcode",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "Accessibility children stay empty until enhanced user interface is switched on.",
+    "stages": {
+      "asrMs": 455,
+      "captureMs": 7400,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Accessibility children stay empty until enhanced user interface is switched on."
+  },
+  {
+    "createdAt": 771677200,
+    "id": "00000000-0000-4000-8000-000000000003",
+    "mutedDuringCapture": true,
+    "outcome": {
+      "disposition": "copied_only",
+      "reason": "target is a secure field",
+      "targetAppName": "Slack",
+      "targetBundleId": "com.tinyspeck.slackmacgap",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "Ship the contact sheet next to the manifest so a reviewer sees every pane at once.",
+    "stages": {
+      "asrMs": 512,
+      "captureMs": 8100,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Ship the contact sheet next to the manifest so a reviewer sees every pane at once."
+  },
+  {
+    "createdAt": 771602800,
+    "id": "00000000-0000-4000-8000-000000000004",
+    "mutedDuringCapture": false,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Visual Studio Code",
+      "targetBundleId": "com.microsoft.VSCode",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "Golden files must never encode the developer's display profile.",
+    "stages": {
+      "asrMs": 380,
+      "captureMs": 5600,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Golden files must never encode the developer's display profile."
+  },
+  {
+    "createdAt": 771589600,
+    "id": "00000000-0000-4000-8000-000000000005",
+    "mutedDuringCapture": false,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Visual Studio Code",
+      "targetBundleId": "com.microsoft.VSCode",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "Pump the run loop a fixed number of iterations, never until it looks settled.",
+    "stages": {
+      "asrMs": 402,
+      "captureMs": 6200,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Pump the run loop a fixed number of iterations, never until it looks settled."
+  },
+  {
+    "createdAt": 771515800,
+    "id": "00000000-0000-4000-8000-000000000006",
+    "mutedDuringCapture": true,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Terminal",
+      "targetBundleId": "com.apple.Terminal",
+      "targetSafety": "terminal"
+    },
+    "rawTranscript": "Post the mouse up before sending the mouse down or AppKit's tracking loop wedges.",
+    "stages": {
+      "asrMs": 468,
+      "captureMs": 7900,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Post the mouse up before sending the mouse down or AppKit's tracking loop wedges."
+  },
+  {
+    "createdAt": 771428800,
+    "id": "00000000-0000-4000-8000-000000000007",
+    "mutedDuringCapture": false,
+    "outcome": {
+      "disposition": "failed",
+      "reason": "no insertion target",
+      "targetAppName": "Safari",
+      "targetBundleId": "com.apple.Safari",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "Behind window vibrancy has no desktop to sample offscreen, so it renders flat.",
+    "stages": {
+      "asrMs": 295,
+      "captureMs": 4300,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Behind window vibrancy has no desktop to sample offscreen, so it renders flat."
+  },
+  {
+    "createdAt": 771254800,
+    "id": "00000000-0000-4000-8000-000000000008",
+    "mutedDuringCapture": false,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Xcode",
+      "targetBundleId": "com.apple.dt.Xcode",
+      "targetSafety": "normalText"
+    },
+    "rawTranscript": "Every accessibility accessor needs its own responds-to guard.",
+    "stages": {
+      "asrMs": 342,
+      "captureMs": 5100,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "Every accessibility accessor needs its own responds-to guard."
+  },
+  {
+    "createdAt": 770996800,
+    "id": "00000000-0000-4000-8000-000000000009",
+    "mutedDuringCapture": true,
+    "outcome": {
+      "disposition": "paste_attempted",
+      "targetAppName": "Terminal",
+      "targetBundleId": "com.apple.Terminal",
+      "targetSafety": "terminal"
+    },
+    "rawTranscript": "An activation policy of prohibited is the only setting that never steals focus.",
+    "stages": {
+      "asrMs": 388,
+      "captureMs": 6050,
+      "insertMs": 24,
+      "startLatencyMs": 18
+    },
+    "text": "An activation policy of prohibited is the only setting that never steals focus."
+  }
+]

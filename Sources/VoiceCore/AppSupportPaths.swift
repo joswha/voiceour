@@ -2,12 +2,26 @@ import Foundation
 
 extension URL {
     /// `~/Library/Application Support/Voiceour/` — the base for persisted
-    /// settings and recent-session history.
+    /// settings, recent-session history and the lifetime ledger.
     ///
     /// Deliberately not named `applicationSupportDirectory`: Foundation already
     /// vends that symbol for the container itself, and shadowing it with this
     /// subdirectory would silently repoint every caller.
-    public static var voiceourSupportDirectory: URL {
+    ///
+    /// `VOICEOUR_SUPPORT_DIR` repoints that base, which is what lets
+    /// `scripts/console_shot.sh` photograph the console holding sample data
+    /// instead of whatever the developer happens to have dictated. It is a
+    /// development seam and nothing in the app writes it: `$HOME` cannot serve
+    /// here, because `NSHomeDirectory()` reads the user record rather than the
+    /// environment and ignores an override outright. Like `VOICEOUR_MODEL_CACHE`
+    /// the override names one explicit directory and gains no `Voiceour`
+    /// subdirectory — a caller who pins the path owns what lands there.
+    public static func voiceourSupportDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let override = environment["VOICEOUR_SUPPORT_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
         let base =
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")

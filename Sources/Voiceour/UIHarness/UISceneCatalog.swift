@@ -132,13 +132,15 @@
                     tab: .home,
                     fixture: .populated
                 ),
+                // The only scene that renders Home's whole page at once: the default
+                // 820 pt window clips the activity grid, so nothing else locks the
+                // heatmap, its month rail and its legend against a layout change.
                 console(
-                    "console.home.readme",
-                    "Home sample analytics for the public README",
+                    "console.home.full-page",
+                    "Home's whole page at documentation height",
                     tab: .home,
                     fixture: .populated,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_080),
-                    tags: ["docs"]
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_080)
                 ),
                 console(
                     "console.home.empty",

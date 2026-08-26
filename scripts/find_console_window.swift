@@ -3,8 +3,20 @@
 // `screencapture -R`. Nothing is printed if the window is not open. Window
 // ids/bounds/owner are available without Screen Recording permission; only pixel
 // capture (screencapture) needs it.
+//
+// `--pid N` narrows the search to one process. Owner name alone is ambiguous the
+// moment a real Voiceour is already running — the developer's own menu-bar copy
+// usually has the larger window, so an unscoped search photographs their live
+// data instead of the instance the script just launched.
 import CoreGraphics
 import Foundation
+
+var wantedPID: Int?
+if let flag = CommandLine.arguments.firstIndex(of: "--pid"),
+    let value = Int(CommandLine.arguments.dropFirst(flag + 1).first ?? "")
+{
+    wantedPID = value
+}
 
 let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
 guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
@@ -14,7 +26,11 @@ guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String:
 struct Candidate { let id: Int; let rect: CGRect }
 
 let best = list.compactMap { info -> Candidate? in
-    guard (info[kCGWindowOwnerName as String] as? String) == "Voiceour" else { return nil }
+    if let wantedPID {
+        guard (info[kCGWindowOwnerPID as String] as? Int) == wantedPID else { return nil }
+    } else {
+        guard (info[kCGWindowOwnerName as String] as? String) == "Voiceour" else { return nil }
+    }
     guard let id = info[kCGWindowNumber as String] as? Int else { return nil }
     // kCGWindowBounds is a toll-free-bridged dictionary of CFNumbers; parse it via
     // CGRect(dictionaryRepresentation:) rather than a fragile [String: CGFloat] cast.
