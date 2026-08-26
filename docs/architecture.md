@@ -74,6 +74,8 @@ The selection travels one path. Settings persists it as `asr_model_variant`; the
 
 `CleanupEngine` is the only text stage after ASR, and it is deterministic: configured filler removal plus glossary canonicalization, in one pass over the transcript. Its protected terms are the glossary snapshot compiled at the top of the stop path — the capture target names the label, never the vocabulary — and every way of adding a term passes through `VocabularySanitizer`, which rejects an ambiguous alias instead of guessing.
 
+`WordListImporter` is the bulk path into that vocabulary. It reads a JSON array of spellings, a JSON array of `{"term": ..., "heard_as": [...]}` rows, or a newline-delimited list, and returns unprotected `manualImport` terms. The row shape carries the surfaces a model actually produces, which is what a spelling cannot: `derivedAliases` recovers `Swift UI` from `SwiftUI` for free, but nothing derives `Qbectal` from `kubectl`. Spellings and heard-as forms pass the same filters — `VocabularySanitizer.isSafe`, the length cap, case-insensitive de-duplication — and the coordinator validates the whole merged glossary for ambiguity before accepting any of it, so a colliding file is refused rather than partially applied.
+
 ## Insertion safety
 
 `InsertionSafetyPolicy` is fail-closed: only a target classified as normal text may receive a synthetic Cmd-V; terminal, code-editor, secure, and unknown targets are clipboard-only. The inserter re-checks target identity before the pasteboard write and again before the keystroke, so a focus race only degrades to copy-only. [permissions.md](permissions.md) owns the target-safety matrix.

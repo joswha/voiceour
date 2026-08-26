@@ -83,6 +83,113 @@ struct WordListImporterTests {
         }
     }
 
+    // MARK: - Heard-as rows
+
+    @Test func jsonRowsCarryHeardAsForms() throws {
+        try withTempDirectory { directory in
+            let file = directory.appendingPathComponent("words.json")
+            try write(
+                """
+                [
+                  {"term": "kubectl", "heard_as": ["Qbectal", "cubectal"]},
+                  {"term": "worktree", "heard_as": ["work tree"]}
+                ]
+                """,
+                to: file
+            )
+
+            let terms = try WordListImporter.importWordList(from: file)
+
+            #expect(terms.map(\.canonical) == ["kubectl", "worktree"])
+            #expect(terms[0].spokenAliases == ["Qbectal", "cubectal"])
+            #expect(terms[1].spokenAliases == ["work tree"])
+            for term in terms {
+                #expect(term.source == .manualImport)
+                #expect(term.protected == false)
+                #expect(term.casePolicy == .exact)
+                #expect(term.termId == term.canonical)
+                #expect(term.labeledAliases.isEmpty)
+            }
+        }
+    }
+
+    @Test func rowWithoutHeardAsImportsAsBareTerm() throws {
+        try withTempDirectory { directory in
+            let file = directory.appendingPathComponent("words.json")
+            try write("[{\"term\": \"SwiftUI\"}, {\"term\": \"ggml\", \"heard_as\": []}]", to: file)
+
+            let terms = try WordListImporter.importWordList(from: file)
+
+            #expect(terms.map(\.canonical) == ["SwiftUI", "ggml"])
+            #expect(terms.allSatisfy { $0.spokenAliases.isEmpty })
+        }
+    }
+
+    /// A term already matches its own surface case-insensitively, so echoing the
+    /// canonical back as a heard-as form would add a rule that can only fire
+    /// where the term already fired.
+    @Test func heardAsFormsDropTheCanonicalAndCaseDuplicates() throws {
+        try withTempDirectory { directory in
+            let file = directory.appendingPathComponent("words.json")
+            try write(
+                "[{\"term\": \"Ghostty\", \"heard_as\": [\"ghostty\", \"Ghosty\", \"GHOSTY\", \" Ghosty \"]}]",
+                to: file
+            )
+
+            let terms = try WordListImporter.importWordList(from: file)
+
+            #expect(terms.map(\.canonical) == ["Ghostty"])
+            #expect(terms[0].spokenAliases == ["Ghosty"])
+        }
+    }
+
+    @Test func unsafeHeardAsFormsAreDroppedWithoutLosingSiblings() throws {
+        try withTempDirectory { directory in
+            let file = directory.appendingPathComponent("words.json")
+            try write(
+                "[{\"term\": \"notarytool\", \"heard_as\": [\"evil`form\", \"<script>\", \"Natera tool\"]}]",
+                to: file
+            )
+
+            let terms = try WordListImporter.importWordList(from: file)
+
+            #expect(terms.map(\.canonical) == ["notarytool"])
+            #expect(terms[0].spokenAliases == ["Natera tool"])
+        }
+    }
+
+    /// One cap covers both, because a heard-as form is as much a surface as the
+    /// spelling is: `maxTermLength` drops `toolong`, then `maxAliasesPerTerm`
+    /// stops after two survivors.
+    @Test func heardAsFormsObeyLengthAndCountCaps() throws {
+        try withTempDirectory { directory in
+            let file = directory.appendingPathComponent("words.json")
+            try write(
+                "[{\"term\": \"f16\", \"heard_as\": [\"toolong\", \"aaa\", \"bbb\", \"ccc\"]}]",
+                to: file
+            )
+
+            let limits = WordListLimits(maxTerms: 100, maxTermLength: 5, maxAliasesPerTerm: 2)
+            let terms = try WordListImporter.importWordList(from: file, limits: limits)
+
+            #expect(terms.map(\.canonical) == ["f16"])
+            #expect(terms[0].spokenAliases == ["aaa", "bbb"])
+        }
+    }
+
+    /// The heard-as forms are what makes an imported term able to repair a real
+    /// mishearing, so the whole path has to hold: import, then canonicalize.
+    @Test func importedHeardAsFormsCanonicalizeDictatedText() throws {
+        try withTempDirectory { directory in
+            let file = directory.appendingPathComponent("words.json")
+            try write("[{\"term\": \"kubectl\", \"heard_as\": [\"Qbectal\"]}]", to: file)
+
+            let terms = try WordListImporter.importWordList(from: file)
+
+            #expect(Glossary.canonicalize("run qbectal apply now", terms: terms) == "run kubectl apply now")
+        }
+    }
+
     // MARK: - Sanitization / caps
 
     @Test func unsafeEntriesAreDropped() throws {
