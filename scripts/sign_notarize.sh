@@ -74,6 +74,25 @@ xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
 spctl --assess --type execute --verbose=4 "$APP"
 
+# Apple's own pre-distribution linter, run here and nowhere else in this script: it is the
+# only point at which the app on disk claims to be distributable, because the ticket is
+# stapled and the signature is a Developer ID one. It reports a fatal "Notary Ticket
+# Missing" finding for anything unstapled and warns on an ad-hoc signature, so a clean
+# result is exactly the property a published archive needs and a nonzero exit is a release
+# that must not ship. scripts/verify_bundle.sh runs the same tool informationally, before
+# signing, where those findings are expected.
+if [ -x /usr/bin/syspolicy_check ]; then
+  if ! syspolicy_findings=$(/usr/bin/syspolicy_check distribution "$APP" 2>&1); then
+    printf '%s\n' "$syspolicy_findings" >&2
+    echo "sign_notarize.sh: syspolicy_check rejected the stapled bundle; not releasing $APP" >&2
+    exit 1
+  fi
+  [ -z "$syspolicy_findings" ] || printf '%s\n' "$syspolicy_findings"
+  printf '%s\n' "sign_notarize.sh: syspolicy_check distribution passed for $APP"
+else
+  echo "sign_notarize.sh: /usr/bin/syspolicy_check is unavailable; the distribution check was not run" >&2
+fi
+
 ditto -c -k --keepParent "$APP" "$ARCHIVE"
 rm -f "$SUBMISSION_ZIP"
 
