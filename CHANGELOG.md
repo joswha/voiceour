@@ -8,6 +8,10 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 
 ## Unreleased
 
+## [0.1.0] - 2026-08-26
+
+First public release.
+
 ### Added
 
 - **First-run guidance.** An install that has never completed a dictation opens the console on Home at launch, where a card states the whole gesture â€” tap Fn or Globe, speak, tap again â€” the speech model's live download or failure, and which permissions matter: microphone required, Accessibility optional and the difference between a paste and a clipboard copy. It retires itself at the first delivered dictation, including one into a secure field, and an install that has already dictated never sees it.
@@ -28,4 +32,4 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 - **Licence notices travel with the binary.** `Contents/Resources/THIRD-PARTY-LICENSES.txt` carries the vendored parakeet.cpp/ggml MIT text verbatim, read from `Vendor/parakeet/LICENSE` at bundle time rather than restated, with every further copyright holder in that tree swept out of the sources that compile, plus the CC BY 4.0 terms of the weights the app downloads. The signature seals it and `make verify-bundle` fails without it.
 - **Corpus attribution.** `benchmarks/DATA-LICENSE.md` names the LibriSpeech and FLEURS creators, titles, licence, warranty disclaimer and prior modifications, and states exactly which committed reports and JSON keys hold CC BY 4.0 transcript text. Repository code stays MIT; that text is not covered by it.
 - **Distribution linting.** `scripts/sign_notarize.sh` refuses to publish a stapled bundle that Apple's own `syspolicy_check distribution` rejects. `make verify-bundle` reports the same findings on a local build without failing it, because an ad-hoc identity and a missing notary ticket are expected there.
-- **Stated project terms.** `LICENSE` names its copyright holder. The README says the app is open source but not open contribution, names the two kinds of change that are welcome, and answers why the build is Apple Silicon only, what the single network request discloses, and how to reset a stuck permission.
+- **Stated project terms.** `LICENSE` names its copyright holder. The README says who maintains the project and which contributions are welcome, and answers why the build is Apple Silicon only, what the single network request discloses, and how to reset a stuck permission.

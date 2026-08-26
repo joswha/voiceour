@@ -18,18 +18,18 @@ Tap Fn once and speak. Tap again and the text lands in the app you were already 
 
 No account, no telemetry, no cloud transcription. The only network request fetches the recognition model, pinned to `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303dd209fd2bed6ee079`. Settings offers a Compact version of that same model — 0.67 GB on disk instead of 1.26 GB, a little slower to transcribe, applied the next time Voiceour starts.
 
-## Open source, not open contribution
+## Contributing
 
-The whole app is here under the MIT license. Read it, learn from it, fork it, ship your own version — that is what the license is for, and you need nobody's permission.
+Voiceour is MIT licensed, so you're free to read it, fork it, and build your own version.
 
-It is not an open-contribution project. One person maintains it, and keeping the design coherent counts for more here than merging every improvement: reviewing someone else's code and then owning it for good usually costs more than writing it. So most pull requests are declined, and that is a decision about maintenance rather than a verdict on the code in them.
+It's maintained by one person, so I keep the scope tight and won't merge every pull request. Please open an issue before starting anything large, so we can agree on the approach first. Bug reports and ideas are always welcome.
 
-Two carve-outs, both genuinely welcome:
+Two things that are especially welcome:
 
-- **Documentation fixes.** A wrong command, a dead link, a paragraph the app has outgrown — send it.
-- **Anything under `Vendor/parakeet/`.** That tree is a vendored drop of [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp), so fixes belong upstream there, where every downstream project gets them and where they survive the next re-vendor instead of being reapplied by hand.
+- **Documentation fixes.** Wrong commands, dead links, anything out of date.
+- **Fixes under `Vendor/parakeet/`.** That directory is a copy of [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp). Send those upstream instead — they'll reach every project using it, and they'll survive the next time Voiceour updates its copy.
 
-Bugs and ideas are welcome as issues. Open one before writing anything large — it costs nothing to hear no first.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the checks to run before opening a PR.
 
 ## Build it
 
@@ -55,27 +55,34 @@ scripts/run_real.sh
 
 That bundle is ad-hoc signed, not notarized, so its code identity can change when you rebuild and macOS may ask for both grants again. Run `scripts/setup_local_signing.sh` once for a stable local identity; [developer setup](docs/developer-setup.md) covers signing, notarization, and the rest of the commands.
 
-## Questions
+## FAQ
 
 ### Why Apple Silicon only?
 
-A stated non-goal, not an omission. The vendored parakeet.cpp/ggml drop is arm64-only by design, and `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces that at compile time. A universal build would mean re-vendoring upstream's x86 quantization and repack sources and splitting `Package.swift` into per-architecture targets, because SwiftPM has no architecture build condition. [Non-goals](docs/non-goals.md) lists the other decisions of this kind.
+The vendored parakeet.cpp/ggml code is arm64-only, and `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces that at compile time. Supporting Intel would mean vendoring upstream's x86 sources and splitting `Package.swift` into per-architecture targets, since SwiftPM has no architecture build condition. It's a deliberate choice, not something on the roadmap — see [non-goals](docs/non-goals.md).
 
 ### What network requests does Voiceour make?
 
-Exactly one, and only to fetch the recognition model. Recognition itself is entirely local: no telemetry, no account, no analytics, no update check.
+Exactly one: downloading the recognition model. Transcription itself is entirely local. No telemetry, no account, no analytics, no update checks.
 
-That one request goes to `huggingface.co`, to the repository `ggml-org/parakeet-GGUF` at the pinned revision `35156454d1a39de06863303dd209fd2bed6ee079`, for one of its two files — `ggml-parakeet-tdt-0.6b-v3-f16.bin`, 1.26 GB, the Balanced default, or `ggml-parakeet-tdt-0.6b-v3-q8_0.bin`, 0.67 GB, if you chose Compact. Publishing the revision is the point of stating it: those coordinates name exact bytes you can fetch and hash yourself, and Voiceour checks the finished download against a SHA-256 compiled into the app before it will load it.
+That request goes to `huggingface.co`, for the repository `ggml-org/parakeet-GGUF` at revision `35156454d1a39de06863303dd209fd2bed6ee079`, and fetches one of two files:
 
-One honest caveat. That HTTPS request discloses your IP address and HTTP User-Agent to Hugging Face and its CDN, the same as any download does. Local inference cannot undo that, and nothing on this side pretends otherwise.
+| file | size | when |
+| --- | --- | --- |
+| `ggml-parakeet-tdt-0.6b-v3-f16.bin` | 1.26 GB | Balanced (default) |
+| `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | 0.67 GB | Compact |
 
-If you would rather it never happened, block Voiceour in a firewall such as Little Snitch. What breaks is exactly one thing, and it is the main one: with no model there is no transcription. The fake backend above still runs, because it needs no download at all.
+The revision is pinned so you can fetch and hash those exact bytes yourself, and Voiceour verifies the download against a SHA-256 built into the app before loading it.
+
+Worth being clear about one thing: like any download, that HTTPS request tells Hugging Face and its CDN your IP address and User-Agent. Local transcription doesn't change that.
+
+You can block Voiceour in a firewall such as Little Snitch if you'd rather it didn't happen. Without the model there's no transcription, but the fake backend still works, since it downloads nothing.
 
 ### Known issues and troubleshooting
 
-- **The build fails on an older toolchain.** Swift 6 is required: Xcode 16 or newer, or just its Command Line Tools.
-- **macOS asks for Microphone or Accessibility again after a rebuild.** Expected: TCC keys a grant to a code identity, and an ad-hoc development identity can change. Run `scripts/setup_local_signing.sh` once for a stable self-signed certificate, which `scripts/bundle.sh` then picks up on its own.
-- **A grant is stuck in a bad state.** Quit Voiceour, reset the two it holds, and it will ask again at the next recording.
+- **Build fails on an older toolchain.** Swift 6 is required: Xcode 16 or newer, or just its Command Line Tools.
+- **macOS keeps asking for Microphone or Accessibility after a rebuild.** macOS ties a permission to the app's code signature, and an ad-hoc development build gets a new one each time. Run `scripts/setup_local_signing.sh` once for a stable local certificate; `scripts/bundle.sh` picks it up automatically.
+- **A permission is stuck.** Quit Voiceour, reset it, and it'll ask again on the next recording.
 
   ```sh
   tccutil reset Microphone com.voiceour.app
@@ -88,6 +95,6 @@ If you would rather it never happened, block Voiceour in a firewall such as Litt
 
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
-MIT licensed, which covers Voiceour's own code; third-party material keeps its own terms. [NOTICE](NOTICE) credits the vendored sources and the recognition model, and [benchmarks/DATA-LICENSE.md](benchmarks/DATA-LICENSE.md) the CC BY 4.0 corpus transcripts quoted in the committed benchmark reports.
+MIT licensed. That covers Voiceour's own code; third-party components keep their own terms. [NOTICE](NOTICE) credits the vendored sources and the speech model, and [benchmarks/DATA-LICENSE.md](benchmarks/DATA-LICENSE.md) covers the CC BY 4.0 corpus transcripts quoted in the committed benchmark reports.
 
 Voiceour is an independent macOS dictation app, not affiliated with, sponsored by, or endorsed by Apple Inc.
