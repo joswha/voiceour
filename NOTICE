@@ -13,6 +13,14 @@ Benchmark-only dependencies (`bench/` only; never shipped in the app):
 - jiwer — Apache-2.0 License — https://github.com/jitsi/jiwer
 - whisper-normalizer — MIT License — https://github.com/kurianbenoy/whisper_normalizer
 
+Repository tooling (`.omp/` only; never shipped in the app):
+
+- oh-my-pi agent commands and skills — MIT License — https://github.com/can1357/oh-my-pi
+
+The slash commands under `.omp/commands/` and the two prompt-authoring skills under
+`.omp/skills/` are adapted from that project's `.omp/` tree. The full licence text sits beside
+each adapted skill as `.omp/skills/<name>/LICENSE`.
+
 Benchmark corpora (text only, in the committed reports under `benchmarks/results/`; no corpus
 audio and no full transcript set is committed):
 

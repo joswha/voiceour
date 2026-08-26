@@ -41,5 +41,16 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
-.omp/
+# A fully-excluded directory can never be re-included, so this excludes the contents
+# rather than the directory itself. Two things under it are this repository's own
+# maintainer tooling and are tracked: the slash commands, which encode the release
+# procedure, the triage taxonomy and the cleanup gates, and the two prompt-authoring
+# skills adapted for this repository. Everything else there — session scratch and the
+# vendored third-party skill packs, which belong to their own upstreams — stays local.
+.omp/*
+!.omp/commands/
+!.omp/skills/
+.omp/skills/*
+!.omp/skills/semantic-compression/
+!.omp/skills/system-prompts/
 omp-session-*.html
