@@ -6,7 +6,7 @@ import Foundation
 ///
 /// The shape mirrors ``CoreAudioOutputDevice``: raw `AudioObjectGetPropertyData`
 /// lives here exactly once and every call site reads as an intent.
-enum CoreAudioInputDevice {
+public enum CoreAudioInputDevice {
     /// A device that can actually record, identified by the UID rather than the
     /// `AudioObjectID`. CoreAudio recycles device IDs across reboots and
     /// re-plugs, so the UID is the only durable handle — and it is also what
@@ -82,12 +82,21 @@ enum CoreAudioInputDevice {
     /// non-zero sample, so the session stays in WARMING until the coordinator's
     /// warm-up deadline ends it.
     ///
+    /// A user selection outranks all of it. The Settings picker stores a durable
+    /// UID, and a device the user pointed at by name is their considered choice
+    /// even when it is the Bluetooth headset this policy would otherwise avoid.
+    /// A selection that does not currently resolve — the device is unplugged —
+    /// falls back to the automatic policy rather than failing the dictation,
+    /// the same stance ``MicrophoneCapture`` takes on a pinned UID that vanished
+    /// between this decision and the session opening.
+    ///
     /// Deliberately narrow. Only a Bluetooth default is redirected, and only to
     /// a built-in microphone that can actually record: a USB interface, an
     /// aggregate device or a virtual microphone is the user's considered choice
     /// and is left alone.
-    static func preferredCaptureUID() -> String? {
+    static func preferredCaptureUID(selectedUID: String?) -> String? {
         preferredCaptureUID(
+            selectedUID: selectedUID,
             systemDefault: systemDefault(),
             available: all(),
             lidIsClosed: LidState.isClosed()
@@ -97,13 +106,37 @@ enum CoreAudioInputDevice {
     /// The policy itself, over values rather than over the HAL, so it is testable
     /// on a machine with no Bluetooth headset attached and with its lid open.
     static func preferredCaptureUID(
+        selectedUID: String?,
         systemDefault: Device?,
         available: [Device],
         lidIsClosed: Bool
     ) -> String? {
+        if let selectedUID, available.contains(where: { $0.uid == selectedUID }) {
+            return selectedUID
+        }
         guard let systemDefault, systemDefault.isBluetooth else { return nil }
         guard !lidIsClosed else { return nil }
         return available.first { $0.isBuiltIn }?.uid
+    }
+
+    /// One choosable input device, as the Settings picker needs it: the durable
+    /// UID the selection is stored under and the human name the menu shows.
+    public struct AvailableMicrophone: Equatable, Sendable {
+        public var uid: String
+        public var name: String
+
+        public init(uid: String, name: String) {
+            self.uid = uid
+            self.name = name
+        }
+    }
+
+    /// Every device currently able to record, for the Settings picker. Sorted by
+    /// name then UID so the menu is stable across HAL enumeration order.
+    public static func availableMicrophones() -> [AvailableMicrophone] {
+        all()
+            .map { AvailableMicrophone(uid: $0.uid, name: $0.name) }
+            .sorted { ($0.name, $0.uid) < ($1.name, $1.uid) }
     }
 
     static func describe(_ deviceID: AudioObjectID) -> Device? {

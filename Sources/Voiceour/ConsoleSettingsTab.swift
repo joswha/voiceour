@@ -16,7 +16,8 @@ import VoiceMac
 ///
 /// Section names stay distinct on purpose. **Dictation** owns the round trip
 /// (trigger, hands-free stop, the cleanup pass before insertion) and **Audio**
-/// owns the one thing capture does to the rest of the Mac, while **Capture**
+/// owns the sound hardware around a capture — which microphone records, and the
+/// one thing capture does to the rest of the Mac — while **Capture**
 /// below owns the OS grants the key tap and synthetic paste depend on. Auto-stop
 /// once sat under a BACKEND heading, which made that heading a lie for half its
 /// rows; two sections both called "Capture" would be the same failure.
@@ -52,6 +53,12 @@ struct ConsoleSettingsTab: View {
     @State private var synthPaste: PermissionState = .notDetermined
     @State private var accessibility: PermissionState = .notDetermined
 
+    /// The input devices the microphone picker offers. Real HAL enumeration in
+    /// production; the offscreen harness pins a fixed list
+    /// (`RenderOverrides.availableMicrophones`) so a golden never encodes which
+    /// microphones this Mac has.
+    @State private var availableMicrophones: [CoreAudioInputDevice.AvailableMicrophone] = []
+
     @State private var isConfirmingHistoryClear = false
     @State private var isConfirmingVocabularyClear = false
     @State private var isClearingHistory = false
@@ -85,6 +92,7 @@ struct ConsoleSettingsTab: View {
             }
 
             Section("Audio") {
+                microphoneRow
                 muteRow
                 cueRow
             }
@@ -157,9 +165,11 @@ struct ConsoleSettingsTab: View {
         .onAppear {
             coordinator.refreshBackendHealth()
             refreshPermissions(animated: false)
+            refreshMicrophones()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissions(animated: true)
+            refreshMicrophones()
         }
         .onDisappear {
             commitSilence()
@@ -183,6 +193,10 @@ struct ConsoleSettingsTab: View {
             synthPaste = permissions.synthPaste()
             accessibility = permissions.accessibility()
         }
+    }
+
+    private func refreshMicrophones() {
+        availableMicrophones = RenderOverrides.availableMicrophones ?? CoreAudioInputDevice.availableMicrophones()
     }
 
     // MARK: Dictation
@@ -256,6 +270,66 @@ struct ConsoleSettingsTab: View {
     }
 
     // MARK: Audio
+
+    /// The picker states what is *saved*: a durable device UID, or nil for
+    /// Automatic. An unplugged selection stays on the menu under its persisted
+    /// name with a NOT CONNECTED mark, because silently snapping the control back
+    /// to Automatic would misreport what the next recording will try first.
+    private var microphoneRow: some View {
+        ConsoleRow(caption: microphoneCaption) {
+            Picker("Microphone", selection: microphoneBinding) {
+                Text("Automatic").tag(String?.none)
+                ForEach(availableMicrophones, id: \.uid) { microphone in
+                    Text(microphone.name).tag(Optional(microphone.uid))
+                }
+                if let uid = coordinator.settings.preferredMicrophoneUID, selectedMicrophoneIsMissing {
+                    Text(coordinator.settings.preferredMicrophoneName ?? "Selected microphone")
+                        .tag(Optional(uid))
+                }
+            }
+            .accessibilityIdentifier("voice.microphone.picker")
+
+            if selectedMicrophoneIsMissing {
+                ConsoleStateMark("NOT CONNECTED", .warn)
+            }
+
+            if coordinator.state.isActive {
+                ConsoleCaption("Applies from the next recording.")
+            }
+        }
+    }
+
+    private var microphoneBinding: Binding<String?> {
+        Binding(
+            get: { coordinator.settings.preferredMicrophoneUID },
+            set: { uid in
+                let name =
+                    uid.flatMap { chosen in
+                        availableMicrophones.first { $0.uid == chosen }?.name
+                    }
+                    ?? (uid == coordinator.settings.preferredMicrophoneUID
+                        ? coordinator.settings.preferredMicrophoneName : nil)
+                coordinator.selectMicrophone(uid: uid, name: name)
+            }
+        )
+    }
+
+    private var selectedMicrophoneIsMissing: Bool {
+        guard let uid = coordinator.settings.preferredMicrophoneUID else { return false }
+        return !availableMicrophones.contains { $0.uid == uid }
+    }
+
+    private var microphoneCaption: String {
+        guard let name = coordinator.settings.preferredMicrophoneName ?? coordinator.settings.preferredMicrophoneUID
+        else {
+            return "Automatic records from the system default input, and sidesteps a Bluetooth headset's "
+                + "mic — it loses over a second to Bluetooth negotiation — whenever the built-in "
+                + "microphone can record instead."
+        }
+        return selectedMicrophoneIsMissing
+            ? "\(name) is not connected, so recordings use Automatic until it returns."
+            : "Recordings use \(name) whenever it is connected; when it is not, Automatic takes over."
+    }
 
     /// What system audio is doing right now, on the three-state ladder the
     /// System pane's mute row carried. It is a readout *of* the switch above it,

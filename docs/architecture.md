@@ -45,6 +45,8 @@ Each utterance takes two target snapshots: the capture target before recording, 
 
 Starting and stopping capture blocks, so it runs off the main actor on a serial queue.
 
+Which device records is decided per recording, in `CoreAudioInputDevice.preferredCaptureUID`. A microphone chosen in Settings — persisted as its durable CoreAudio UID plus the name that can still label it while unplugged — wins whenever it is connected. Without one, or when it is unplugged, the automatic policy applies: the system default input, except that a Bluetooth headset default is redirected to a working built-in microphone, because HFP/SCO negotiation replaces the first second of a headset capture with digital zeros. A selection that stops resolving falls back rather than failing the dictation.
+
 `UserFacingDictationFailure` is the single mapping from mechanism to recovery: each failure gets a title, a plain cause, whether retrying can work, and where to fix it.
 
 ## ASR sidecar protocol

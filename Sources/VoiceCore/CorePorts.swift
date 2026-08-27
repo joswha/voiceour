@@ -9,6 +9,10 @@ public protocol AudioRecording: Sendable {
     /// UI uses this to distinguish "starting the mic" from "listening".
     func captureIsLive() -> Bool
     func discardRecording() async
+    /// Pins future recordings to the capture device with this durable UID, or
+    /// returns to automatic device choice on nil. Applies from the next
+    /// `start()`; a live recording keeps the device it opened.
+    func setPreferredCaptureDevice(uid: String?)
 }
 
 extension AudioRecording {
@@ -25,6 +29,8 @@ extension AudioRecording {
         true
     }
 
+    /// Recorders that do not capture from real hardware have no device to pin.
+    public func setPreferredCaptureDevice(uid: String?) {}
     public func discardRecording() async {
         if let audio = try? await stop() {
             try? FileManager.default.removeItem(at: audio.url)

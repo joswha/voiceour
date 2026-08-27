@@ -11,6 +11,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 ### Added
 
 - **Word lists can carry heard-as forms.** Glossary import accepts a JSON array of `{"term": ..., "heard_as": [...]}` rows alongside the array-of-spellings and newline shapes it already took. A spelling alone repairs only what `derivedAliases` covers — `Swift UI` from `SwiftUI` — and nothing derives `Qbectal` from `kubectl`, so the surfaces a model actually produces now have a way in. Imported forms are filtered, deduplicated case-insensitively against each other and the spelling, and capped per term.
+- **Microphone selection.** Settings' Audio section offers the connected input devices by name, or Automatic. A chosen microphone is used whenever it is connected and applies from the next recording; while it is unplugged the row says NOT CONNECTED and Automatic takes over — the system default input, except that a Bluetooth headset default is redirected to a working built-in microphone, whose first second would otherwise be lost to Bluetooth negotiation.
 
 ### Changed
 

@@ -249,6 +249,9 @@ public final class DictationCoordinator {
             // totals — from ranking apps against zeroed tiles.
             backfillAppStats()
         }
+        // The persisted microphone choice reaches the recorder here, so the very
+        // first recording honors it; `selectMicrophone` keeps it current after.
+        recorder.setPreferredCaptureDevice(uid: settings.preferredMicrophoneUID)
         refreshTarget()
     }
 
@@ -767,6 +770,17 @@ public final class DictationCoordinator {
             guard await next.value == false, let self else { return }
             self.errorMessage = "Settings could not be saved."
         }
+    }
+
+    /// The Settings-tab microphone choice: persists both halves — the durable UID
+    /// and the name that can still label it while unplugged — and pushes the UID
+    /// to the recorder so the next recording opens the chosen device. Nil returns
+    /// to automatic device choice.
+    public func selectMicrophone(uid: String?, name: String?) {
+        settings.preferredMicrophoneUID = uid
+        settings.preferredMicrophoneName = name
+        saveSettings()
+        recorder.setPreferredCaptureDevice(uid: uid)
     }
 
     /// The one write for a term the user authored or edited by hand. The Glossary

@@ -255,14 +255,22 @@
             case .backendReady:
                 return make(
                     sessions: history,
-                    settings: settings(backend: realBackend),
+                    settings: settings(
+                        backend: realBackend,
+                        preferredMicrophoneUID: "harness-usb-yeti",
+                        preferredMicrophoneName: "Yeti Stereo Microphone"
+                    ),
                     backend: realBackend,
                     health: realBackendHealth
                 )
             case .backendUnavailable:
                 return make(
                     sessions: history,
-                    settings: settings(backend: realBackend),
+                    settings: settings(
+                        backend: realBackend,
+                        preferredMicrophoneUID: "harness-unplugged-wave3",
+                        preferredMicrophoneName: "Elgato Wave:3"
+                    ),
                     backend: realBackend,
                     health: nil,
                     permissions: .denied,
@@ -303,6 +311,9 @@
             // Which apps this Mac has installed is machine state, and an app
             // icon is the most machine-dependent pixel a golden could hold.
             RenderOverrides.installedApps = pinnedInstalledApps
+            // Which microphones this Mac has is machine state too. Two pins so
+            // the picker's Automatic default has real alternatives to not name.
+            RenderOverrides.availableMicrophones = pinnedMicrophones
         }
 
         // MARK: Pinned storage paths
@@ -334,6 +345,17 @@
                 name: "Code",
                 icon: pinnedAppIcon(NSColor(srgbRed: 0.13, green: 0.65, blue: 0.95, alpha: 1))
             ),
+        ]
+
+        /// The input devices the Settings microphone picker offers. The Yeti is
+        /// what `backendReady` selects, proving the connected-selection caption;
+        /// `backendUnavailable` selects a UID deliberately absent from this list,
+        /// proving the NOT CONNECTED presentation.
+        static let pinnedMicrophones: [CoreAudioInputDevice.AvailableMicrophone] = [
+            CoreAudioInputDevice.AvailableMicrophone(
+                uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone"),
+            CoreAudioInputDevice.AvailableMicrophone(
+                uid: "harness-usb-yeti", name: "Yeti Stereo Microphone"),
         ]
 
         /// A deterministic stand-in for a real app icon: one flat rounded-rect
@@ -421,6 +443,8 @@
         static func settings(
             backend: String = "fake",
             glossary: [ProtectedTerm] = VoiceCore.Settings.defaultGlossary,
+            preferredMicrophoneUID: String? = nil,
+            preferredMicrophoneName: String? = nil,
             /// Whether this install has already completed a dictation. False on
             /// every fixture but one, because that is what a fresh install holds;
             /// the guidance card is still absent wherever a fixture has sessions.
@@ -432,6 +456,8 @@
                 // Silence would otherwise let the metering task stop a `.recording`
                 // fixture out from under the renderer.
                 autoStopEnabled: false,
+                preferredMicrophoneUID: preferredMicrophoneUID,
+                preferredMicrophoneName: preferredMicrophoneName,
                 hasCompletedFirstRun: hasCompletedFirstRun
             )
         }

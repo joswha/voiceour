@@ -95,6 +95,16 @@ public struct Settings: Codable, Equatable, Sendable {
     public var sessionSoundsEnabled: Bool
     public var autoStopEnabled: Bool
     public var autoStopSilenceMs: Int
+    /// The capture device dictations record from, as its durable CoreAudio UID,
+    /// or nil for automatic choice (the system default input, with the
+    /// Bluetooth-headset redirect the capture policy documents). A UID that no
+    /// longer resolves at recording time falls back to automatic rather than
+    /// failing the dictation.
+    public var preferredMicrophoneUID: String?
+    /// The device's human name at the moment it was chosen, so Settings can
+    /// still name an unplugged selection — a bare UID is hardware plumbing no
+    /// surface should show.
+    public var preferredMicrophoneName: String?
     /// Whether this install has ever completed a dictation.
     ///
     /// Written once, from the stop pipeline, at the point a transcript exists and
@@ -119,6 +129,8 @@ public struct Settings: Codable, Equatable, Sendable {
         case sessionSoundsEnabled = "session_sounds_enabled"
         case autoStopEnabled = "auto_stop_enabled"
         case autoStopSilenceMs = "auto_stop_silence_ms"
+        case preferredMicrophoneUID = "preferred_microphone_uid"
+        case preferredMicrophoneName = "preferred_microphone_name"
         case hasCompletedFirstRun = "has_completed_first_run"
     }
 
@@ -131,6 +143,8 @@ public struct Settings: Codable, Equatable, Sendable {
         sessionSoundsEnabled: Bool = true,
         autoStopEnabled: Bool = false,
         autoStopSilenceMs: Int = 2500,
+        preferredMicrophoneUID: String? = nil,
+        preferredMicrophoneName: String? = nil,
         hasCompletedFirstRun: Bool = false
     ) {
         self.cleanupEnabled = cleanupEnabled
@@ -141,6 +155,8 @@ public struct Settings: Codable, Equatable, Sendable {
         self.sessionSoundsEnabled = sessionSoundsEnabled
         self.autoStopEnabled = autoStopEnabled
         self.autoStopSilenceMs = autoStopSilenceMs
+        self.preferredMicrophoneUID = preferredMicrophoneUID
+        self.preferredMicrophoneName = preferredMicrophoneName
         self.hasCompletedFirstRun = hasCompletedFirstRun
     }
 
@@ -162,6 +178,8 @@ public struct Settings: Codable, Equatable, Sendable {
         autoStopEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoStopEnabled) ?? defaults.autoStopEnabled
         autoStopSilenceMs =
             try container.decodeIfPresent(Int.self, forKey: .autoStopSilenceMs) ?? defaults.autoStopSilenceMs
+        preferredMicrophoneUID = try container.decodeIfPresent(String.self, forKey: .preferredMicrophoneUID)
+        preferredMicrophoneName = try container.decodeIfPresent(String.self, forKey: .preferredMicrophoneName)
         hasCompletedFirstRun =
             try container.decodeIfPresent(Bool.self, forKey: .hasCompletedFirstRun)
             ?? defaults.hasCompletedFirstRun

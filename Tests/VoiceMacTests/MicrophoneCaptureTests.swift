@@ -32,6 +32,7 @@ import Testing
     /// while HFP/SCO negotiates, so capture goes to the built-in mic instead.
     @Test func bluetoothDefaultRedirectsToTheBuiltInMicrophone() {
         let uid = CoreAudioInputDevice.preferredCaptureUID(
+            selectedUID: nil,
             systemDefault: airPods,
             available: [airPods, builtIn],
             lidIsClosed: false
@@ -44,6 +45,7 @@ import Testing
         let headset = device("LE Headset", transport: kAudioDeviceTransportTypeBluetoothLE)
 
         let uid = CoreAudioInputDevice.preferredCaptureUID(
+            selectedUID: nil,
             systemDefault: headset,
             available: [headset, builtIn],
             lidIsClosed: false
@@ -59,6 +61,7 @@ import Testing
     @Test func aClosedLidKeepsTheDictationOnTheBluetoothHeadset() {
         #expect(
             CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: nil,
                 systemDefault: airPods,
                 available: [airPods, builtIn],
                 lidIsClosed: true
@@ -71,6 +74,7 @@ import Testing
     @Test func builtInDefaultIsLeftAlone() {
         #expect(
             CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: nil,
                 systemDefault: builtIn,
                 available: [builtIn],
                 lidIsClosed: false
@@ -91,6 +95,7 @@ import Testing
 
             #expect(
                 CoreAudioInputDevice.preferredCaptureUID(
+                    selectedUID: nil,
                     systemDefault: chosen,
                     available: [chosen, builtIn],
                     lidIsClosed: false
@@ -105,6 +110,7 @@ import Testing
     @Test func bluetoothDefaultWithNoBuiltInStaysOnTheHeadset() {
         #expect(
             CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: nil,
                 systemDefault: airPods,
                 available: [airPods],
                 lidIsClosed: false
@@ -115,11 +121,70 @@ import Testing
     @Test func noDefaultInputMeansNoRedirect() {
         #expect(
             CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: nil,
                 systemDefault: nil,
                 available: [builtIn],
                 lidIsClosed: false
             ) == nil
         )
+    }
+
+    /// The Settings selection outranks the automatic policy in both directions:
+    /// it wins over a Bluetooth redirect that would otherwise fire, and it holds
+    /// a Bluetooth device the redirect would otherwise flee — a device the user
+    /// pointed at by name is a considered choice.
+    @Test func aResolvableUserSelectionAlwaysWins() {
+        let yeti = device("Yeti Stereo Microphone", transport: kAudioDeviceTransportTypeUSB, uid: "usb-yeti")
+
+        #expect(
+            CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: "usb-yeti",
+                systemDefault: airPods,
+                available: [airPods, builtIn, yeti],
+                lidIsClosed: false
+            ) == "usb-yeti"
+        )
+        #expect(
+            CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: airPods.uid,
+                systemDefault: airPods,
+                available: [airPods, builtIn],
+                lidIsClosed: false
+            ) == airPods.uid
+        )
+    }
+
+    /// An unplugged selection falls back to the whole automatic policy — the
+    /// Bluetooth redirect included — rather than failing the dictation or
+    /// pinning to hardware that is not there.
+    @Test func anUnpluggedUserSelectionFallsBackToTheAutomaticPolicy() {
+        #expect(
+            CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: "usb-yeti-unplugged",
+                systemDefault: airPods,
+                available: [airPods, builtIn],
+                lidIsClosed: false
+            ) == "BuiltInMicrophoneDevice"
+        )
+        #expect(
+            CoreAudioInputDevice.preferredCaptureUID(
+                selectedUID: "usb-yeti-unplugged",
+                systemDefault: builtIn,
+                available: [builtIn],
+                lidIsClosed: false
+            ) == nil
+        )
+    }
+
+    /// The Settings picker's live HAL read: every entry carries the durable UID a
+    /// selection would persist, and the order is the stated name-then-UID sort so
+    /// the menu cannot reshuffle with CoreAudio's enumeration order.
+    @Test func availableMicrophonesAreSortedAndDurablyIdentified() {
+        let microphones = CoreAudioInputDevice.availableMicrophones()
+
+        #expect(microphones.allSatisfy { !$0.uid.isEmpty })
+        let keys = microphones.map { ($0.name, $0.uid) }
+        #expect(keys.map { $0.0 + "\u{1F}" + $0.1 } == keys.sorted(by: <).map { $0.0 + "\u{1F}" + $0.1 })
     }
 }
 
@@ -287,7 +352,7 @@ struct MicrophoneCaptureIntegrationTests {
         guard ProcessInfo.processInfo.environment["VOICEOUR_CAPTURE_INTEGRATION"] != nil else { return }
 
         let capture = try MicrophoneCapture(
-            preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
+            preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID(selectedUID: nil))
         capture.start { _ in }
         defer { capture.stop() }
 

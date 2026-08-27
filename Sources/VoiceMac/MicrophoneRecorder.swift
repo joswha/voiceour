@@ -84,10 +84,18 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     private var outputURL: URL?
     private var writtenFrames: AVAudioFramePosition = 0
     private var lastStartLatency: Int?
+    /// The user's Settings selection, pushed by the coordinator. Read at each
+    /// `start()`, so a change applies from the next recording without rebuilding
+    /// the recorder.
+    private var preferredDeviceUID: String?
 
     private static let sampleRate = 16_000
 
     public override init() {}
+
+    public func setPreferredCaptureDevice(uid: String?) {
+        lock.withLock { preferredDeviceUID = uid }
+    }
 
     public func start() throws {
         try lock.withLock {
@@ -99,7 +107,8 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             let converter: CaptureConverter
             do {
                 capture = try MicrophoneCapture(
-                    preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID())
+                    preferredDeviceUID: CoreAudioInputDevice.preferredCaptureUID(
+                        selectedUID: preferredDeviceUID))
                 converter = CaptureConverter(targetFormat: wav.format)
             } catch {
                 // The WAV exists the moment `CaptureWAVTarget` is constructed, so a

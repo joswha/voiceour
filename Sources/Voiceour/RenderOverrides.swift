@@ -85,6 +85,12 @@ enum RenderOverrides {
     /// the live LaunchServices lookup.
     static var installedApps: [String: InstalledApp]?
 
+    /// Pins the input-device list the Settings microphone picker offers, so a
+    /// golden never encodes which microphones the rendering Mac happens to have.
+    /// Non-nil replaces the CoreAudio enumeration wholesale. Production reads
+    /// this as nil, which is the live HAL read.
+    static var availableMicrophones: [CoreAudioInputDevice.AvailableMicrophone]?
+
     /// Forces the painted macOS 14 glass path on a newer runtime. Production
     /// follows availability normally; the harness pins this to true below.
     static var forceLegacyGlass = false
