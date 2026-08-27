@@ -485,6 +485,15 @@ enum VoiceourMetrics {
         static let row: CGFloat = 13
     }
 
+    /// The one determinate meter measure: `MeterBar`.
+    enum Meter {
+        static let barHeight: CGFloat = 4
+        /// The measure a console readiness caption already occupies at this type size, so a
+        /// progress bar spans the sentence it belongs to instead of ruling the whole 704 pt
+        /// plate. It never binds inside the 280 pt menu popover, whose inner width is smaller.
+        static let barWidth: CGFloat = 320
+    }
+
     enum Shadow {
         /// Home's app-drawn stats panes only. The recording island now relies on
         /// Liquid Glass's adaptive elevation on macOS 26 and draws no app shadow

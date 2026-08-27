@@ -134,25 +134,25 @@ struct MenuView: View {
     /// means the promise cannot be kept; a model that has not arrived yet means the
     /// promise cannot be kept either, and saying so is the difference between a
     /// download and a hang.
-    private var headline: (text: String, color: Color?)? {
+    private var headline: (text: String, color: Color?, progress: Double?)? {
         if let failure = coordinator.lastFailure ?? coordinator.acquisitionFailure {
-            return (failure.cause, VoiceourPalette.Signal.crimson)
+            return (failure.cause, VoiceourPalette.Signal.crimson, nil)
         }
         if let error = coordinator.errorMessage {
-            return (error, VoiceourPalette.Signal.crimson)
+            return (error, VoiceourPalette.Signal.crimson, nil)
         }
         if let acquisition = acquisitionHeadline {
-            return (acquisition, VoiceourPalette.Signal.amber)
+            return (acquisition, VoiceourPalette.Signal.amber, coordinator.modelDownloadFraction)
         }
         guard reportedOutcome == nil else { return nil }
-        return (coordinator.targetLabel, nil)
+        return (coordinator.targetLabel, nil, nil)
     }
 
     /// What the model is doing when it is not ready. Downloading reports its own
-    /// percentage; warming has no fraction to report, only a reason to wait.
+    /// bar; warming has no fraction to report, only a reason to wait.
     private var acquisitionHeadline: String? {
-        if let fraction = coordinator.modelDownloadFraction {
-            return "Downloading model — \(Int(min(max(fraction, 0), 1) * 100))%."
+        if coordinator.modelDownloadFraction != nil {
+            return "Downloading the speech model."
         }
         if coordinator.isBackendWarming {
             return "Loading the speech model…"
