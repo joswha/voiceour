@@ -341,6 +341,11 @@ struct ConsoleFirstRunCard: View {
                 }
             }
 
+            if let progress = readout.progress {
+                MeterBar(fraction: progress, style: .download(ground: .painted))
+                    .accessibilityIdentifier("\(identifier).progress")
+            }
+
             Text(readout.detail)
                 .roleStyle(.caption)
                 .foregroundStyle(a11y.textMid)

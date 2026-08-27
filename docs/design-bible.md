@@ -8,7 +8,7 @@ The console window follows macOS. The app's own visual language applies to the m
 - No custom window or navigation chrome, control skins, or forced dark appearance. The window inherits appearance, accent color, focus behavior, control metrics, VoiceOver semantics, and accessibility settings from macOS.
 - The window ground is a system material: `NSGlassEffectView(style: .regular)` on macOS 26, behind-window `NSVisualEffectView(material: .underWindowBackground)` below it, `windowBackgroundColor` under Reduce Transparency. It may clear `NSWindow.isOpaque` and `backgroundColor`, nothing else, and it may not tint, rim, or shadow.
 - Destructive actions use native confirmation dialogs with a visible title and destructive role.
-- App-owned styling stays narrow: monospaced text for code-like values, `ConsoleStateMark`, `ConsoleCaption`, and `ConsoleRow`.
+- App-owned styling stays narrow: monospaced text for code-like values, `ConsoleStateMark`, `ConsoleCaption`, `ConsoleRow`, and `MeterBar`. On a native plate `MeterBar` paints in system semantic colours — the same split `ConsoleStateMark` (system colours) and `StatusChip` (app palette) already make.
 - At idle the app is `.accessory`. While the console is visible it promotes to `.regular`, then returns to `.accessory` when the window closes. `ConsoleWindowView.managesActivationPolicy` stays false when launch passes `--no-activate` or the process is `.prohibited`.
 
 ## Visual vocabulary

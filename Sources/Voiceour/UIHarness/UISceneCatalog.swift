@@ -382,6 +382,11 @@
                 menu("menu.idle", "Menu bar popover at rest", fixture: .populated),
                 menu("menu.error", "Menu bar popover after a failed start", fixture: .micDenied),
                 menu("menu.transcript", "Menu bar popover with the last transcript", fixture: .completedDictation),
+                menu(
+                    "menu.downloading",
+                    "Menu bar popover while the speech model downloads",
+                    fixture: .backendDownloading
+                ),
             ]
         }
 

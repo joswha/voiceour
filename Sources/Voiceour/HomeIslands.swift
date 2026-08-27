@@ -289,7 +289,7 @@ struct HomeAppRow: View {
                 Text(identity.label)
                     .roleStyle(.label)
                     .lineLimit(1)
-                shareBar
+                MeterBar(fraction: figure.share, style: .share)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -307,20 +307,6 @@ struct HomeAppRow: View {
         .accessibilityValue("\(figure.sessions) sessions, \(figure.words) words")
     }
 
-    /// Magnitude encoded by length, so Differentiate Without Color needs no
-    /// branch here: the bar says the same thing with the colour removed.
-    private var shareBar: some View {
-        ZStack(alignment: .leading) {
-            Capsule().fill(VoiceourPalette.Plate.rest)
-            GeometryReader { proxy in
-                Capsule()
-                    .fill(VoiceourPalette.Alien.bloom)
-                    .frame(width: proxy.size.width * figure.share)
-            }
-        }
-        .frame(height: 4)
-        .accessibilityHidden(true)
-    }
 }
 
 /// Decorative dot field behind the islands, so the page reads as a surface

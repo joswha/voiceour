@@ -4,7 +4,7 @@ struct MenuStatusBlock: View {
     let statusLabel: String
     let statusMode: StatusChip.Mode
     let isSystemAudioMuted: Bool
-    let headline: (text: String, color: Color?)?
+    let headline: (text: String, color: Color?, progress: Double?)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
@@ -31,6 +31,10 @@ struct MenuStatusBlock: View {
 
             if let headline {
                 CaptionText(headline.text, color: headline.color)
+                if let progress = headline.progress {
+                    MeterBar(fraction: progress, style: .download(ground: .painted))
+                        .accessibilityIdentifier("menu.acquisition.progress")
+                }
             }
         }
     }

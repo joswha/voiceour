@@ -459,23 +459,30 @@ struct ConsoleSettingsTab: View {
         statusIdentifier: String? = nil
     ) -> some View {
         ConsoleRow(caption: readout.detail) {
-            LabeledContent {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    if let statusIdentifier {
-                        ConsoleStateMark(readout.label, readout.severity)
-                            .accessibilityIdentifier(statusIdentifier)
-                    } else {
-                        ConsoleStateMark(readout.label, readout.severity)
-                    }
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                LabeledContent {
+                    HStack(spacing: VoiceourMetrics.Space.sm) {
+                        if let statusIdentifier {
+                            ConsoleStateMark(readout.label, readout.severity)
+                                .accessibilityIdentifier(statusIdentifier)
+                        } else {
+                            ConsoleStateMark(readout.label, readout.severity)
+                        }
 
-                    if let remediation = readout.remediation {
-                        Button(remediation.title, action: remediation.perform)
-                            .accessibilityLabel(remediation.accessibilityLabel)
-                            .accessibilityIdentifier(remediation.identifier)
+                        if let remediation = readout.remediation {
+                            Button(remediation.title, action: remediation.perform)
+                                .accessibilityLabel(remediation.accessibilityLabel)
+                                .accessibilityIdentifier(remediation.identifier)
+                        }
                     }
+                } label: {
+                    Text(label)
                 }
-            } label: {
-                Text(label)
+
+                if let progress = readout.progress {
+                    MeterBar(fraction: progress, style: .download(ground: .system))
+                        .accessibilityIdentifier("system.backend.progress")
+                }
             }
         }
     }

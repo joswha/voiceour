@@ -14,6 +14,10 @@ struct ConsoleReadout {
     var label: String
     var severity: ConsoleStateMark.Severity
     var detail: String
+    /// The 0...1 fraction this state is measuring, when it measures one. Set only by the
+    /// downloading branch: the surfaces render a `MeterBar` from it instead of each deciding for
+    /// itself what is acquiring, which is the same reason the sentences live here.
+    var progress: Double? = nil
     var remediation: ConsoleRemediation?
 }
 
@@ -130,7 +134,8 @@ enum ConsoleReadiness {
             return ConsoleReadout(
                 label: "DOWNLOADING",
                 severity: .neutral,
-                detail: "\(activeModelLabel(coordinator)) — \(Int(fraction * 100))% of \(sizeText) fetched."
+                detail: "\(activeModelLabel(coordinator)) — \(sizeText).",
+                progress: fraction
             )
         } else if coordinator.isBackendWarming {
             // Ahead of READY on purpose: `ready` is already true while the model is
