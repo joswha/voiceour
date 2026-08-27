@@ -2349,6 +2349,32 @@ struct DictationCoordinatorTests {
         )
     }
 
+    /// The microphone choice reaches the recorder twice: the persisted selection
+    /// at init, so the very first recording honors it, and every later Settings
+    /// change, so no restart is needed. `selectMicrophone` also records both
+    /// halves — the durable UID and the display name — in settings.
+    @Test @MainActor func microphoneSelectionIsPushedToTheRecorderAtInitAndOnChange() {
+        let recorder = FakeRecorder()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            settings: VoiceCore.Settings(
+                preferredMicrophoneUID: "usb-yeti",
+                preferredMicrophoneName: "Yeti Stereo Microphone"
+            ),
+            settingsStore: scratchSettingsStore()
+        )
+        #expect(recorder.pinnedDeviceUIDs == ["usb-yeti"])
+
+        coordinator.selectMicrophone(uid: "built-in", name: "MacBook Pro Microphone")
+        #expect(coordinator.settings.preferredMicrophoneUID == "built-in")
+        #expect(coordinator.settings.preferredMicrophoneName == "MacBook Pro Microphone")
+        #expect(recorder.pinnedDeviceUIDs == ["usb-yeti", "built-in"])
+
+        coordinator.selectMicrophone(uid: nil, name: nil)
+        #expect(coordinator.settings.preferredMicrophoneUID == nil)
+        #expect(recorder.pinnedDeviceUIDs == ["usb-yeti", "built-in", nil])
+    }
+
     // MARK: Helpers
 
     private func makeCoordinator(

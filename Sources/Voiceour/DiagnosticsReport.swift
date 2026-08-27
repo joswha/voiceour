@@ -60,6 +60,11 @@ enum DiagnosticsReport {
         lines.append("  microphone: \(microphone.rawValue)")
         lines.append("  accessibility: \(accessibility.rawValue)")
         lines.append("  synthetic paste: \(synthPaste.rawValue)")
+        lines.append(
+            "  microphone selection: "
+                + (coordinator.settings.preferredMicrophoneName
+                    ?? coordinator.settings.preferredMicrophoneUID
+                    ?? "automatic"))
 
         lines.append("")
         lines.append("STORAGE")

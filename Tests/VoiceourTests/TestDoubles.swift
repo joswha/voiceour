@@ -16,6 +16,7 @@ final class FakeRecorder: AudioRecording, @unchecked Sendable {
     private var _producedURL: URL?
     private var starts = 0
     private var discards = 0
+    private var pins: [String?] = []
 
     /// How many times the coordinator asked this recorder to throw its session
     /// away. Exactly one owner per session is the invariant: a cancel and the
@@ -30,6 +31,12 @@ final class FakeRecorder: AudioRecording, @unchecked Sendable {
 
     var startCount: Int {
         lock.withLock { starts }
+    }
+
+    /// Every capture-device pin pushed at this recorder, in order, nils included:
+    /// the coordinator pushes once at init and once per Settings change.
+    var pinnedDeviceUIDs: [String?] {
+        lock.withLock { pins }
     }
 
     init() {
@@ -66,6 +73,9 @@ final class FakeRecorder: AudioRecording, @unchecked Sendable {
 
     func currentInputLevel() -> Float? { nil }
     func captureIsLive() -> Bool { true }
+    func setPreferredCaptureDevice(uid: String?) {
+        lock.withLock { pins.append(uid) }
+    }
 }
 
 final class FakeASR: ASRClienting, @unchecked Sendable {

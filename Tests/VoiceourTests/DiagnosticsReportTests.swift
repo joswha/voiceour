@@ -48,6 +48,8 @@ struct DiagnosticsReportTests {
         #expect(report.contains("ggml-org/parakeet-GGUF"))
         // No probe has answered in this test, which is itself a named status.
         #expect(report.contains("status: unknown"))
+        // No selection saved means automatic device choice, and the report says so.
+        #expect(report.contains("microphone selection: automatic"))
         #expect(report.contains("settings: /pinned/settings.json"))
         #expect(report.contains("recent sessions: /pinned/recent-sessions.json"))
         #expect(report.contains(DiagnosticsReport.selfTestCommand))

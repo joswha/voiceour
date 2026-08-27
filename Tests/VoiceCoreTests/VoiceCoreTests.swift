@@ -279,6 +279,27 @@ struct VoiceCoreTests {
         #expect(decoded == settings)
     }
 
+    /// The microphone choice persists as the durable device UID plus the name
+    /// that can still label it while unplugged, and a file written before the
+    /// selection existed decodes to automatic device choice.
+    @Test func settingsMicrophoneSelectionRoundTripsAndDefaultsToAutomatic() throws {
+        var settings = Settings()
+        settings.preferredMicrophoneUID = "usb-yeti"
+        settings.preferredMicrophoneName = "Yeti Stereo Microphone"
+
+        let data = try JSONEncoder().encode(settings)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(text.contains(#""preferred_microphone_uid":"usb-yeti""#))
+        #expect(text.contains(#""preferred_microphone_name":"Yeti Stereo Microphone""#))
+
+        let decoded = try JSONDecoder().decode(Settings.self, from: data)
+        #expect(decoded == settings)
+
+        let legacy = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "parakeet"}"#.utf8))
+        #expect(legacy.preferredMicrophoneUID == nil)
+        #expect(legacy.preferredMicrophoneName == nil)
+    }
+
     /// `mute_scope` was a real key until the muter stopped caring which
     /// transport the output device used. Every installed settings file still
     /// carries it, so decoding has to ignore it rather than fail.
