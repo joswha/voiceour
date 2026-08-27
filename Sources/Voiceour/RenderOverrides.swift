@@ -44,9 +44,6 @@ enum RenderOverrides {
     static var recentSessionsPath: String?
     static var dictationStatsPath: String?
 
-    /// Pins the recording overlay's per-mount random comet head.
-    static var cometHead: CometEmoji?
-
     /// Writable harness mirrors for the SDK's get-only accessibility
     /// environment values. They stay nil in production; production views
     /// resolve each one as `override ?? <real environment value>`.

@@ -1,0 +1,11 @@
+flow: overlay.delivery.copy-only
+title: A copy-only delivery leaves one safe, buttonless outcome
+fixture: dictation
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle
+PASS 1 copied | value label="Dictation status" == "The transcript is on the clipboard." | "The transcript is on the clipboard."
+PASS 2 copied | absent label="Cancel recording" | 0 matches
+PASS 3 copied | absent label="Cancel dictation" | 0 matches
+PASS 4 copied | absent label="Finish recording" | 0 matches
+PASS 5 copied | count role=AXButton exactly 0 | 0 matches
+PASS 6 copied | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> copiedOnly -> idle
+PASS 7 copied | model deliveryDisposition == "copy" | "copy"

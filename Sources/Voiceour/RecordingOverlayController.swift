@@ -12,6 +12,8 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     private var panel: RecordingOverlayPanel?
     private var isApplyingPosition = false
     private var visibilityToken = 0
+    private var outcomeDismissal: Task<Void, Never>?
+
     private lazy var focusTracker = RecordingOverlayFocusTracker { [weak self] destinationScreen in
         self?.follow(destinationScreen)
     }
@@ -28,12 +30,39 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
             .sink { [weak self] state in
                 Task { @MainActor in
                     guard let self else { return }
-                    let wasActive = self.model.state.isActive
-                    self.model.update(state)
-                    if !state.isActive {
-                        self.model.reset()
+                    // The coordinator publishes a terminal state and `.idle` on
+                    // adjacent main-actor turns (`resetToIdleWhenInactive`). A
+                    // latched unclean outcome outranks that idle: dismissing
+                    // here would hide the moment before it could be read. The
+                    // dwell is presentation only and must not sit in the
+                    // delivery path — but it also must not be discarded by the
+                    // idle that follows delivery.
+                    if state == .idle, self.outcomeDismissal != nil {
+                        return
                     }
-                    self.setVisible(state.isOverlayVisible)
+                    let wasActive = self.model.state.isActive
+                    if state.isActive {
+                        let preemptingDwell = self.outcomeDismissal != nil
+                        self.cancelOutcomeDismissal()
+                        if preemptingDwell {
+                            self.model.reset()
+                        }
+                        self.model.update(state)
+                        self.setVisible(true)
+                    } else if let outcome = RecordingOverlayOutcome(
+                        state: state,
+                        failure: self.coordinator?.lastFailure
+                            ?? self.coordinator?.acquisitionFailure
+                    ) {
+                        self.model.update(state)
+                        self.model.present(outcome)
+                        self.beginOutcomeDwell()
+                    } else {
+                        self.cancelOutcomeDismissal()
+                        self.model.update(state)
+                        self.model.reset()
+                        self.setVisible(false)
+                    }
                     if state.isActive || wasActive {
                         self.announce(state)
                     }
@@ -62,13 +91,13 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func setVisible(_ isVisible: Bool) {
+    private func setVisible(_ isVisible: Bool, resetAfterOrderOut: Bool = false) {
         visibilityToken &+= 1
         let token = visibilityToken
         if isVisible {
             show()
         } else {
-            hide(token: token)
+            hide(token: token, resetAfterOrderOut: resetAfterOrderOut)
         }
     }
 
@@ -79,9 +108,16 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     /// reverse) a no-op rather than a panel stuck at alpha 0.
     private func show() {
         let panel = panel ?? makePanel()
+        // A dwell makes the panel click-through; the next show must restore
+        // hit-testing or a later session is inert.
+        panel.ignoresMouseEvents = false
         position(panel, on: focusTracker.currentScreen())
+        // `hide()` stops tracking before its fade. A new session can reverse that fade
+        // while the panel is still visible, so starting only inside `!isVisible` strands
+        // the live island on the old display. `start()` is idempotent and must run for
+        // every show, including a hide reversal.
+        focusTracker.start()
         if !panel.isVisible {
-            focusTracker.start()
             panel.alphaValue = prefersReducedMotion ? 1 : 0
         }
         panel.orderFrontRegardless()
@@ -100,12 +136,16 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func hide(token: Int) {
+    private func hide(token: Int, resetAfterOrderOut: Bool = false) {
         focusTracker.stop()
-        guard let panel, panel.isVisible else { return }
+        guard let panel, panel.isVisible else {
+            finishHide(resetAfterOrderOut: resetAfterOrderOut)
+            return
+        }
         guard !prefersReducedMotion else {
             panel.orderOut(nil)
             panel.alphaValue = 1
+            finishHide(resetAfterOrderOut: resetAfterOrderOut)
             return
         }
         NSAnimationContext.runAnimationGroup { context in
@@ -119,7 +159,43 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                 }
                 panel.orderOut(nil)
                 panel.alphaValue = 1
+                self.finishHide(resetAfterOrderOut: resetAfterOrderOut)
             }
+        }
+    }
+
+    /// `reset()` before `orderOut` blanks the dwell's last frame; click-through
+    /// must not survive a cancelled or completed dismissal either.
+    private func finishHide(resetAfterOrderOut: Bool) {
+        panel?.ignoresMouseEvents = false
+        guard resetAfterOrderOut else { return }
+        model.reset()
+        outcomeDismissal = nil
+    }
+
+    /// Drop a pending outcome dwell. Restores hit-testing so cancellation
+    /// cannot leave the panel inert for the next session.
+    private func cancelOutcomeDismissal() {
+        outcomeDismissal?.cancel()
+        outcomeDismissal = nil
+        panel?.ignoresMouseEvents = false
+    }
+
+    /// Unclean deliveries hold the island for `outcomeDwell` so the moment can
+    /// be read. The panel is click-through for that window so it cannot swallow
+    /// a click meant for the app underneath. `visibilityToken` is captured now
+    /// and re-checked after the sleep: a newer session bumps it, and a stale
+    /// dwell must not `orderOut` a live dictation.
+    private func beginOutcomeDwell() {
+        cancelOutcomeDismissal()
+        setVisible(true)
+        panel?.ignoresMouseEvents = true
+        let token = visibilityToken
+        outcomeDismissal = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(RecordingOverlayMetrics.outcomeDwell))
+            guard let self else { return }
+            guard !Task.isCancelled, self.visibilityToken == token else { return }
+            self.setVisible(false, resetAfterOrderOut: true)
         }
     }
 
@@ -227,40 +303,40 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     /// announcement is the one path that does not require focus. A no-op when
     /// VoiceOver is not running.
     private func announce(_ state: SessionState) {
+        guard
+            let announcement = Self.announcement(
+                for: state,
+                failure: coordinator?.lastFailure ?? coordinator?.acquisitionFailure
+            )
+        else { return }
         NSAccessibility.post(
             element: NSApp as Any,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: Self.announcement(
-                    for: state,
-                    failure: coordinator?.lastFailure ?? coordinator?.acquisitionFailure
-                ),
+                .announcement: announcement,
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
     }
 
-    /// What VoiceOver hears, which has to be what the menu shows. Pure so the rule is
-    /// testable without a panel, the same way the coordinator's acquisition rules are.
+    /// What VoiceOver hears, which has to be what the stable island readout and menu
+    /// show. Pure so the rule is testable without a panel, the same way the
+    /// coordinator's acquisition rules are.
     ///
-    /// `SessionState.error` formats itself as `Error: <wire code>`, so announcing the
-    /// state verbatim speaks `Error: backend_unavailable` or `Error: model_not_installed`
-    /// — mechanism names, which is exactly what a user-facing sentence may never be. The
-    /// coordinator publishes the failure the menu renders, so the spoken sentence is
-    /// that one.
-    ///
-    /// The wire code's own row is the floor rather than `displayName`: it is the same
-    /// table the menu resolves, it needs nothing published to be correct, and it leaves
-    /// no ordering between a state change and its failure assignment that could put a
-    /// raw code back into the announcement. Every other state already names itself in
-    /// plain words.
+    /// `SessionState.displayName` interpolates both ASR wire codes and insertion-reason
+    /// tokens. Every unclean terminal routes through the one outcome presentation
+    /// instead, so its announcement and its latched AX value cannot disagree. A clean
+    /// paste stays silent because the text arriving in the target is confirmation, and
+    /// a cancellation stays silent because the user just asked for it. Active states
+    /// still name themselves as they progress.
     nonisolated static func announcement(
         for state: SessionState,
         failure: UserFacingDictationFailure?
-    ) -> String {
-        guard case .error(let code) = state else { return state.displayName }
-        if let failure { return failure.cause }
-        return UserFacingDictationFailure(code: code, detail: nil).cause
+    ) -> String? {
+        if let outcome = RecordingOverlayOutcome(state: state, failure: failure) {
+            return outcome.accessibilityStatus
+        }
+        return state.isActive ? state.displayName : nil
     }
 
     private func screen(containing frame: NSRect) -> NSScreen? {

@@ -12,11 +12,11 @@ final class RecordingOverlayModel: ObservableObject {
     @Published private(set) var state: SessionState = .idle
     @Published private(set) var captureLive = false
 
-    /// Rolled ONCE per session, on the idle -> active edge. Two `@ViewBuilder`
-    /// branches used to own a `@State` head each, so SwiftUI destroyed one and
-    /// constructed the other on the warm-up -> processing transition and a single
-    /// dictation showed two different emoji.
-    private(set) var cometHead: CometEmoji
+    @Published private(set) var isSpeaking = false
+    @Published private(set) var outcome: RecordingOverlayOutcome?
+
+    private var attackRun = 0
+    private var releaseRun = 0
 
     var isRecording: Bool {
         state == .recording
@@ -61,12 +61,24 @@ final class RecordingOverlayModel: ObservableObject {
         "WARMING"
     }
 
-    /// What the centre slot announces. `SessionState.displayName` says "Recording" from
-    /// the instant capture is requested, which on a cold Bluetooth link is untrue for up
-    /// to ~1.5 s, so the readout would tell a VoiceOver user the same thing the flat
-    /// meter told everyone else.
+    /// What the centre slot announces. One stable labelled node's VALUE:
+    /// warm-up, listening, speaking, each processing phase, each outcome.
+    /// Human sentences only — `SessionState.displayName` interpolates wire
+    /// codes on `.error` and insertion-reason tokens on the copy-only paths.
     var accessibilityStatus: String {
-        isWarmingUp ? "Microphone starting" : state.displayName
+        if let outcome {
+            return outcome.accessibilityStatus
+        }
+        if isWarmingUp {
+            return "Microphone starting"
+        }
+        if isListening {
+            return isSpeaking ? "Speaking" : "Listening"
+        }
+        if let derived = RecordingOverlayOutcome(state: state) {
+            return derived.accessibilityStatus
+        }
+        return state.displayName
     }
 
     var showsFinishButton: Bool {
@@ -76,8 +88,10 @@ final class RecordingOverlayModel: ObservableObject {
     /// Identity of what the island's centre and trailing slots hold, so the two
     /// crossfade together on the one value that actually changes them. Warm-up and live
     /// capture hold DIFFERENT things — a word and a meter — so going live is a phase
-    /// change and gets its own token.
+    /// change and gets its own token. An outcome is a fourth thing, so latching and
+    /// clearing it have to move this value or the row's `.animation` never fires.
     var centerPhaseToken: Int {
+        if outcome != nil { return 4 }
         if isWarmingUp { return 1 }
         if isListening { return 2 }
         if isProcessing { return 3 }
@@ -86,32 +100,76 @@ final class RecordingOverlayModel: ObservableObject {
 
     init() {
         samples = Array(repeating: 0, count: Self.sampleCount)
-        cometHead = RenderOverrides.cometHead ?? CometEmoji.random()
     }
 
     func update(_ state: SessionState) {
-        if !self.state.isActive, state.isActive {
-            cometHead = RenderOverrides.cometHead ?? CometEmoji.random()
-        }
         self.state = state
+        if !isListening {
+            clearSpeechActivity()
+        }
     }
 
     func updateCaptureLive(_ live: Bool) {
         captureLive = live
+        if !isListening {
+            clearSpeechActivity()
+        }
     }
 
     func record(_ rawLevel: Float) {
-        guard isListening else { return }
+        guard isListening, outcome == nil else { return }
         let level = Swift.min(Swift.max(rawLevel, 0), 1)
         var next = samples
         next.removeFirst()
         next.append(level)
         samples = next
+        applySpeechHysteresis(level)
+    }
+
+    /// The island shows this instead of the meter or the processing word, so
+    /// the samples, the capture-live flag and the speech run all go with it.
+    /// The controller latches rather than `update`, because `update` also
+    /// runs for states that get no dwell and owns the 1.2s dismissal.
+    func present(_ outcome: RecordingOverlayOutcome) {
+        self.outcome = outcome
+        samples = Array(repeating: 0, count: Self.sampleCount)
+        captureLive = false
+        clearSpeechActivity()
     }
 
     func reset() {
         state = .idle
         samples = Array(repeating: 0, count: Self.sampleCount)
         captureLive = false
+        outcome = nil
+        clearSpeechActivity()
+    }
+
+    /// Attack is 2 samples at 0.10 (80ms at the meter's 25Hz) so speech is
+    /// noticed quickly; release is 7 samples at 0.05 (280ms) so a breath
+    /// does not concede silence. Levels strictly between the thresholds
+    /// hold the current state and do not reset either run.
+    private func applySpeechHysteresis(_ level: Float) {
+        if level >= RecordingOverlayMetrics.Speech.attackLevel {
+            attackRun += 1
+            releaseRun = 0
+            if !isSpeaking, attackRun >= RecordingOverlayMetrics.Speech.attackSamples {
+                isSpeaking = true
+            }
+        } else if level <= RecordingOverlayMetrics.Speech.releaseLevel {
+            releaseRun += 1
+            attackRun = 0
+            if isSpeaking, releaseRun >= RecordingOverlayMetrics.Speech.releaseSamples {
+                isSpeaking = false
+            }
+        }
+    }
+
+    private func clearSpeechActivity() {
+        attackRun = 0
+        releaseRun = 0
+        if isSpeaking {
+            isSpeaking = false
+        }
     }
 }

@@ -11,6 +11,7 @@
 #if UI_HARNESS
 
     import Foundation
+    import VoiceCore
     import SwiftUI
 
     /// Registry metadata for one deterministic harness scene. The descriptor owns
@@ -76,8 +77,9 @@
     //     (see `RenderOverrides` for the pins that already exist);
     //   * avoid states dominated by a `.repeatForever` animation or a
     //     `TimelineView(.animation)` — once the run loop turns, those hash
-    //     differently on every run. The recording overlay's comet is the one such
-    //     view in this app, and no scene here renders it.
+    //     differently on every run. The recording work mark is the one such
+    //     view in this app; it is capturable only under pinned Reduce Motion,
+    //     where its three dots are completely static.
     //
     // See docs/ui-harness.md.
 
@@ -309,13 +311,20 @@
                 ),
                 systemOverlay(
                     "overlay.panel.recording.os26",
-                    "Recording overlay panel, listening on the native branch",
+                    "Recording overlay panel, speaking on the native branch",
                     size: CGSize(width: 260, height: 80)
                 ),
                 systemOverlay(
                     "overlay.island.recording.os26",
-                    "Recording overlay island, listening on the native branch",
+                    "Recording overlay island, speaking on the native branch",
                     size: CGSize(width: 180, height: 34),
+                    islandOnly: true
+                ),
+                systemOverlay(
+                    "overlay.island.copied.os26",
+                    "Recording overlay copy-only outcome on the native branch",
+                    size: CGSize(width: 180, height: 34),
+                    model: copiedOverlayModel,
                     islandOnly: true
                 ),
             ]
@@ -396,13 +405,43 @@
                 },
                 UISceneDescriptor(
                     id: "overlay.island.recording",
-                    title: "Recording overlay island, listening",
+                    title: "Recording overlay island, speaking",
                     size: RecordingOverlayMetrics.islandSize,
                     tags: ["overlay"]
                 ) {
                     AnyView(
                         RecordingOverlayView(
                             model: listeningOverlayModel(),
+                            onCancel: {},
+                            onFinish: {},
+                            islandOnly: true
+                        )
+                    )
+                },
+                UISceneDescriptor(
+                    id: "overlay.island.listening",
+                    title: "Recording overlay island, live microphone hearing nothing",
+                    size: RecordingOverlayMetrics.islandSize,
+                    tags: ["overlay"]
+                ) {
+                    AnyView(
+                        RecordingOverlayView(
+                            model: quietOverlayModel(),
+                            onCancel: {},
+                            onFinish: {},
+                            islandOnly: true
+                        )
+                    )
+                },
+                UISceneDescriptor(
+                    id: "overlay.island.copied",
+                    title: "Recording overlay island, copy-only outcome",
+                    size: RecordingOverlayMetrics.islandSize,
+                    tags: ["overlay"]
+                ) {
+                    AnyView(
+                        RecordingOverlayView(
+                            model: copiedOverlayModel(),
                             onCancel: {},
                             onFinish: {},
                             islandOnly: true
@@ -578,6 +617,7 @@
             _ identifier: String,
             _ title: String,
             size: CGSize,
+            model: @escaping @MainActor () -> RecordingOverlayModel = listeningOverlayModel,
             islandOnly: Bool = false
         ) -> UISceneDescriptor {
             UISceneDescriptor(
@@ -590,7 +630,7 @@
                     UIHarnessSystemGlassScope {
                         AnyView(
                             RecordingOverlayView(
-                                model: listeningOverlayModel(),
+                                model: model(),
                                 onCancel: {},
                                 onFinish: {},
                                 islandOnly: islandOnly
@@ -616,16 +656,51 @@
             0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46,
         ]
 
-        /// A capture that is live and receiving buffers, which is the overlay state
-        /// that draws the waveform. The processing states draw `FrostedCometIndicator`
-        /// instead — a `TimelineView(.animation)` whose orbit phase comes from the
-        /// wall clock, so it can never hash the same twice and is left uncovered.
+        /// A capture that is live and receiving buffers, which is the overlay state that
+        /// draws the meter. These levels also carry it past the voice-activity hysteresis
+        /// — two consecutive samples at or above 0.10 — so the golden records a speaking
+        /// meter rather than its resting row. The processing states draw
+        /// `RecordingWorkMark` instead, whose emphasis phase still comes from the wall
+        /// clock, so it cannot hash the same twice and stays uncovered here; under a
+        /// pinned Reduce Motion that mark is static and would be capturable.
         private static func listeningOverlayModel() -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
             model.update(.recording)
             model.updateCaptureLive(true)
             for level in waveformLevels {
                 model.record(level)
+            }
+            return model
+        }
+
+        /// A live microphone in a quiet room. Every level sits at or below the release
+        /// threshold, so the voice-activity hysteresis never starts and the island draws
+        /// its resting row: eleven bars at 8pt, the mark that says the capture path is
+        /// open. This is the state a user looks at before every utterance and the one the
+        /// redesign exists for — it used to render as eleven 4pt dots, which is why it
+        /// gets a golden of its own rather than sharing one with the speaking meter.
+        private static func quietOverlayModel() -> RecordingOverlayModel {
+            let model = RecordingOverlayModel()
+            model.update(.recording)
+            model.updateCaptureLive(true)
+            for level in [0.0, 0.02, 0.01, 0.03, 0.0, 0.04, 0.02, 0.0, 0.01, 0.05, 0.02]
+                as [Float]
+            {
+                model.record(level)
+            }
+            return model
+        }
+
+        /// One unclean delivery at its stable endpoint: both controls withdrawn and
+        /// one safe status value. The native companion scene is what catches an
+        /// on-glass role colour being accidentally shadowed by `Text.low`; this
+        /// portable one keeps the painted fallback in the same contract.
+        private static func copiedOverlayModel() -> RecordingOverlayModel {
+            let model = RecordingOverlayModel()
+            let state = SessionState.copiedOnly(reason: "target_terminal")
+            model.update(state)
+            if let outcome = RecordingOverlayOutcome(state: state) {
+                model.present(outcome)
             }
             return model
         }

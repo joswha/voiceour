@@ -6,7 +6,7 @@
 
 <p><strong>Tap <code>fn</code> to dictate where your cursor is.</strong></p>
 
-<img src="docs/media/dictation-island-still.png" width="720" alt="Voiceour’s recording island while listening, with Cancel on the left, a live waveform in the center, and Finish on the right.">
+<img src="docs/media/dictation-island-still.png" width="720" alt="Voiceour’s recording island while hearing speech, with Cancel on the left, a live waveform in the center, and Finish on the right.">
 
 <sub>macOS 14+ · Apple Silicon only · English only · initial 1.26 GB model download</sub>
 

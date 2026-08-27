@@ -300,10 +300,6 @@
             // `#available` follows the runtime OS. Committed goldens intentionally
             // exercise the painted path even when the harness runs on macOS 26.
             RenderOverrides.forceLegacyGlass = true
-            // Fixed glyph AND fixed hue/saturation: `CometEmoji.random()` also
-            // rasterises the glyph to sample its colour, which the harness skips
-            // entirely by supplying the sampled values directly.
-            RenderOverrides.cometHead = CometEmoji(glyph: "☄️", hue: 0.08, saturation: 0.85)
             // Which apps this Mac has installed is machine state, and an app
             // icon is the most machine-dependent pixel a golden could hold.
             RenderOverrides.installedApps = pinnedInstalledApps

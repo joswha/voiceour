@@ -37,8 +37,8 @@ struct RecordingOverlayAnnouncementTests {
         }
     }
 
-    /// Every other state already names itself in plain words, and a stale failure from
-    /// the previous session must not be spoken over one that is going fine.
+    /// A live state still names itself, and a stale failure from the previous
+    /// session must not be spoken over one that is going fine.
     @Test func aLiveSessionSpeaksItsOwnState() {
         let spoken = RecordingOverlayController.announcement(
             for: .recording,
@@ -46,5 +46,53 @@ struct RecordingOverlayAnnouncementTests {
         )
 
         #expect(spoken == "Recording")
+    }
+
+    /// The associated value is an insertion mechanism token. The island's
+    /// stable value and the announcement use one presentation, so neither can
+    /// leak it.
+    @Test func copyOnlyAnnouncementsNameTheClipboardRatherThanTheirReason() {
+        #expect(
+            RecordingOverlayController.announcement(
+                for: .copiedOnly(reason: "target_terminal"),
+                failure: nil
+            ) == "The transcript is on the clipboard."
+        )
+        #expect(
+            RecordingOverlayController.announcement(
+                for: .insertFailed(reason: "kAXErrorNoValue"),
+                failure: nil
+            ) == "Paste failed. The transcript is on the clipboard."
+        )
+    }
+
+    /// A normal paste is already confirmed by the arriving text, and a
+    /// cancellation was just requested by the user. Neither earns a second
+    /// spoken interruption.
+    @Test func cleanPasteAndCancelAreSilent() {
+        #expect(
+            RecordingOverlayController.announcement(for: .pasteAttempted, failure: nil)
+                == nil
+        )
+        #expect(
+            RecordingOverlayController.announcement(for: .cancelled, failure: nil)
+                == nil
+        )
+        #expect(
+            RecordingOverlayController.announcement(for: .idle, failure: nil)
+                == nil
+        )
+    }
+
+    /// The code is only the failure family. The coordinator's published cause
+    /// preserves the actual remedy — here, microphone permission rather than a
+    /// generic engine outage.
+    @Test func aPermissionFailureKeepsItsPublishedCause() {
+        #expect(
+            RecordingOverlayController.announcement(
+                for: .error(.backendUnavailable),
+                failure: .microphoneDenied
+            ) == UserFacingDictationFailure.microphoneDenied.cause
+        )
     }
 }

@@ -116,9 +116,19 @@
                 .label("Dictation status"),
                 .value("Microphone starting"),
             ])
+            /// Live capture, hearing nothing yet: the meter's resting row.
             static let listeningStatus = UIQuery.all([
                 .label("Dictation status"),
-                .value("Recording"),
+                .value("Listening"),
+            ])
+            /// Live capture with real speech, past the voice-activity hysteresis.
+            static let speakingStatus = UIQuery.all([
+                .label("Dictation status"),
+                .value("Speaking"),
+            ])
+            static let copiedOutcome = UIQuery.all([
+                .label("Dictation status"),
+                .value("The transcript is on the clipboard."),
             ])
 
             /// The Dictation trigger row: the preference half of the merged
@@ -914,7 +924,69 @@
                         )
                     ]),
                 warmupFlow,
+                overlayCopyOnlyFlow,
             ]
+        }
+
+        /// The overlay bridge holds the terminal presentation stable after the
+        /// coordinator's adjacent `.idle`, so the journal can inspect the outcome
+        /// without making a wall-clock dwell part of a semantic gate.
+        private static var overlayCopyOnlyFlow: UIFlow {
+            UIFlow(
+                id: "overlay.delivery.copy-only",
+                title: "A copy-only delivery leaves one safe, buttonless outcome",
+                tags: ["overlay", "dictation", "delivery", "terminal"],
+                host: .overlay,
+                fixture: .dictation(
+                    transcript: dictatedText,
+                    outcome: .copiedOnly(reason: "Terminal targets are copy-only."),
+                    targetBundleID: terminalBundleID,
+                    targetSafety: .terminal
+                ),
+                steps: [
+                    .act(.dictate(.start)),
+                    .wait(.state(.checkingPermissions)),
+                    .release(.permission),
+                    .wait(.state(.recording)),
+                    .act(.dictate(.stopAndProcess)),
+                    .wait(.state(.finalizingAudio)),
+                    .release(.recorderStop),
+                    .wait(.state(.transcribing)),
+                    .release(.transcription),
+                    .wait(.state(.readyToInsert)),
+                    .release(.insertion),
+                    .wait(.state(.idle)),
+                    .wait(.element(Selector.copiedOutcome)),
+                    .check(
+                        "copied",
+                        [
+                            .value(
+                                Selector.dictationStatus,
+                                .equals("The transcript is on the clipboard.")
+                            ),
+                            .absent(Selector.cancelRecording),
+                            .absent(Selector.cancelDictation),
+                            .absent(Selector.finishRecording),
+                            .count(.role("AXButton"), .exactly(0)),
+                            .transitions(
+                                [
+                                    .idle,
+                                    .checkingPermissions,
+                                    .recording,
+                                    .finalizingAudio,
+                                    .transcribing,
+                                    .cleaning,
+                                    .readyToInsert,
+                                    .copiedOnly,
+                                    .idle,
+                                ],
+                                .exact
+                            ),
+                            .model(.deliveryDisposition, .equals("copy")),
+                        ]
+                    ),
+                ]
+            )
         }
 
         /// The window this whole surface was blind to.
@@ -963,19 +1035,26 @@
                             .state(.recording),
                             .value(Selector.dictationStatus, .equals("Microphone starting")),
                             .absent(Selector.listeningStatus),
+                            .absent(Selector.speakingStatus),
                             .enabled(Selector.finishRecording, true),
                         ]
                     ),
                     .release(.captureLive),
-                    .wait(.element(Selector.listeningStatus)),
+                    .wait(.element(Selector.speakingStatus)),
                     // Same element, same label, same state: only the value moved, which is
                     // exactly the regression this flow exists to catch. Anything that
                     // reports liveness off "the capture was requested" again fails here.
+                    //
+                    // The value is "Speaking" rather than "Listening" because the fixture's
+                    // metering loop feeds real levels, so this leg also proves the readout
+                    // crosses the voice-activity hysteresis from actual samples. The
+                    // resting row a quiet microphone draws is pinned by
+                    // `overlay.island.listening` instead, which can hold it still.
                     .check(
                         "listening",
                         [
                             .state(.recording),
-                            .value(Selector.dictationStatus, .equals("Recording")),
+                            .value(Selector.dictationStatus, .equals("Speaking")),
                             .absent(Selector.warmingStatus),
                             .transitions([.idle, .checkingPermissions, .recording], .exact),
                         ]

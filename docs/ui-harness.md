@@ -115,4 +115,4 @@ A flow hosts a real menu, overlay, or console view with an inert fixture, then d
 - Settling is a fixed count of run-loop pumps, never an adaptive wait for stability.
 - Enhanced accessibility must be enabled before the dump, or `NSHostingView` exposes a near-empty tree.
 - Capture uses `cacheDisplay(in:to:)` into an owned interleaved RGBA8 `NSBitmapImageRep` with `.deviceRGB`, alpha kept; alpha disables subpixel font smoothing and its raster drift.
-- Neither glass path survives `cacheDisplay`, which also drops Core Animation blur and shadow. Verify glass onscreen with `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh <tab>`.
+- Neither glass path survives `cacheDisplay`, which also drops Core Animation blur and shadow. Verify glass onscreen with `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh <tab>`. Because `cacheDisplay` drops both `.glassEffect` and `.shadow`, no golden can prove the recording island's halo is absent or show the material itself, so that surface is verified on-screen in the signed app over light, dark and text-dense backdrops. Goldens still cover the AX tree, layout, and the app-drawn signal.

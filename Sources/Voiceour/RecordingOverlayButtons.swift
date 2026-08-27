@@ -1,12 +1,17 @@
 import SwiftUI
 
-/// The overlay's two controls are painted overlays on the island's glass on every
-/// OS path. Unlike RowIconButton they keep a PERMANENT rest fill and stroke
-/// (spec §5.16, bible §21.3 ¶4): the pill floats over arbitrary desktop content
-/// with no window chrome to lean on, and the shared ghost ladder would make a
-/// destructive control disappear against some backdrops. A second glass effect
-/// here would be glass-on-glass. The interaction ladder is layered ON TOP of
-/// that rest treatment, never instead of it.
+/// The overlay's two controls are painted overlays on the island's surface on every OS
+/// path. Unlike RowIconButton they keep a PERMANENT rest fill and stroke: the pill floats
+/// over arbitrary desktop content with no window chrome to lean on, and the shared ghost
+/// ladder would make a destructive control disappear against some backdrops. A second
+/// glass effect here would be glass-on-glass, which cannot sample the capsule's own
+/// material. The interaction ladder is layered ON TOP of that rest treatment, never
+/// instead of it.
+///
+/// Every colour resolves through ``RecordingOverlaySurface``. The values these controls
+/// used to name directly were all light-on-dark, and the contrast that justified them was
+/// measured against the near-black painted pill; macOS 26's material is adaptive, so on a
+/// light desktop those same values land on near-white.
 struct RecordingOverlayButton: View {
     enum Kind {
         case cancel
@@ -14,6 +19,7 @@ struct RecordingOverlayButton: View {
     }
 
     let kind: Kind
+    let surface: RecordingOverlaySurface
     let accessibilityLabel: String
     let help: String
     let action: () -> Void
@@ -23,7 +29,7 @@ struct RecordingOverlayButton: View {
             Image(systemName: kind.glyph)
                 .accessibilityHidden(true)
         }
-        .buttonStyle(RecordingOverlayButtonStyle(kind: kind))
+        .buttonStyle(RecordingOverlayButtonStyle(kind: kind, surface: surface))
         .accessibilityLabel(accessibilityLabel)
         .help(help)
     }
@@ -37,31 +43,31 @@ extension RecordingOverlayButton.Kind {
         }
     }
 
-    /// The disc's own hue.
-    fileprivate var tint: Color {
+    /// The rest plate's hue. Cancel's plate carries no meaning, so on glass it follows the
+    /// appearance; finish's does, so it keeps its hue on both grounds.
+    fileprivate func plate(_ surface: RecordingOverlaySurface) -> Color {
         switch self {
-        case .cancel: VoiceourPalette.Text.monoStrong
-        case .finish: VoiceourPalette.Signal.mint
+        case .cancel: surface.neutral
+        case .finish: surface.affirm
         }
     }
 
     /// Discarding and committing used to be given identical weight, with the discard
-    /// marginally the brighter of the two. Cancel is now the quiet escape at
-    /// Text.mid (6.71:1 on the pill's glass) and finish stays mint (10.98:1), so the
-    /// affirmative path out-ranks the destructive one.
-    fileprivate var restForeground: Color {
+    /// marginally the brighter of the two. Cancel is now the quiet escape and finish the
+    /// affirmative one, so the constructive path out-ranks the destructive one.
+    fileprivate func restForeground(_ surface: RecordingOverlaySurface) -> Color {
         switch self {
-        case .cancel: VoiceourPalette.Text.mid
-        case .finish: VoiceourPalette.Signal.mint
+        case .cancel: surface.quietLabel
+        case .finish: surface.affirm
         }
     }
 
     /// Where hover and press take the control: crimson names the discard before the
     /// pointer commits to it.
-    fileprivate var activeForeground: Color {
+    fileprivate func activeForeground(_ surface: RecordingOverlaySurface) -> Color {
         switch self {
-        case .cancel: VoiceourPalette.Signal.crimson
-        case .finish: VoiceourPalette.Signal.mint
+        case .cancel: surface.destroy
+        case .finish: surface.affirm
         }
     }
 
@@ -82,19 +88,26 @@ extension RecordingOverlayButton.Kind {
 
 private struct RecordingOverlayButtonStyle: ButtonStyle {
     let kind: RecordingOverlayButton.Kind
+    let surface: RecordingOverlaySurface
 
     func makeBody(configuration: Configuration) -> some View {
-        RecordingOverlayButtonBody(configuration: configuration, kind: kind)
+        RecordingOverlayButtonBody(configuration: configuration, kind: kind, surface: surface)
     }
 }
 
 private struct RecordingOverlayButtonBody: View {
     let configuration: ButtonStyle.Configuration
     let kind: RecordingOverlayButton.Kind
+    let surface: RecordingOverlaySurface
 
-    init(configuration: ButtonStyle.Configuration, kind: RecordingOverlayButton.Kind) {
+    init(
+        configuration: ButtonStyle.Configuration,
+        kind: RecordingOverlayButton.Kind,
+        surface: RecordingOverlaySurface
+    ) {
         self.configuration = configuration
         self.kind = kind
+        self.surface = surface
     }
 
     @Environment(\.isEnabled) private var isEnabled
@@ -121,7 +134,7 @@ private struct RecordingOverlayButtonBody: View {
             )
             .background {
                 ZStack {
-                    Circle().fill(kind.tint.opacity(restFillOpacity))
+                    Circle().fill(kind.plate(surface).opacity(restFillOpacity))
                     Circle().fill(interactionWash)
                 }
             }
@@ -132,7 +145,7 @@ private struct RecordingOverlayButtonBody: View {
                 if state == .focused {
                     Circle()
                         .strokeBorder(
-                            VoiceourPalette.Signal.focusHalo,
+                            surface.focusHalo,
                             lineWidth: VoiceourMetrics.Space.hair
                         )
                         .padding(-VoiceourMetrics.Space.hair)
@@ -174,45 +187,45 @@ private struct RecordingOverlayButtonBody: View {
         case .rest, .disabled, .inFlight:
             Color.clear
         case .hover, .selected:
-            VoiceourPalette.Plate.hover
+            surface.wash
         case .pressed:
-            VoiceourPalette.Plate.pressed
+            surface.washPressed
         case .focused:
             configuration.isPressed
-                ? VoiceourPalette.Plate.pressed
-                : (isHovering ? VoiceourPalette.Plate.hover : Color.clear)
+                ? surface.washPressed
+                : (isHovering ? surface.wash : Color.clear)
         }
     }
 
     private var foreground: Color {
         switch state {
         case .disabled:
-            a11y.textLow
+            surface.isDarkGround ? a11y.textLow : Color.secondary.opacity(0.5)
         case .hover, .pressed:
-            kind.activeForeground
+            kind.activeForeground(surface)
         case .rest, .focused, .selected, .inFlight:
-            kind.restForeground
+            kind.restForeground(surface)
         }
     }
 
     private var stroke: Color {
         switch state {
         case .rest, .disabled, .inFlight:
-            kind.tint.opacity(restStrokeOpacity)
+            kind.plate(surface).opacity(restStrokeOpacity)
         case .hover:
             kind == .cancel
-                ? VoiceourPalette.Signal.crimson
+                ? surface.destroy
                     .opacity(RecordingOverlayMetrics.Disc.activeStrokeOpacity)
-                : VoiceourPalette.Line.controlHover
+                : surface.controlHover
         case .pressed:
             kind == .cancel
-                ? VoiceourPalette.Signal.crimson
+                ? surface.destroy
                     .opacity(RecordingOverlayMetrics.Disc.pressedStrokeOpacity)
-                : VoiceourPalette.Line.controlHover
+                : surface.controlHover
         case .focused:
-            VoiceourPalette.Line.focus
+            surface.focusRing
         case .selected:
-            VoiceourPalette.Signal.cyan
+            surface.live
                 .opacity(RecordingOverlayMetrics.Disc.activeStrokeOpacity)
         }
     }

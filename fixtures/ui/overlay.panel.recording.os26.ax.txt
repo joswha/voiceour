@@ -1,4 +1,4 @@
 AXGroup subrole=AXHostingView [0,0 260x80]
   AXButton "Cancel recording" help="Discard this dictation" [43,19 28x28]
-  AXStaticText "Dictation status" value="Recording" [88,24 84x18]
+  AXStaticText "Dictation status" value="Speaking" [88,23 84x20]
   AXButton "Finish recording" help="Stop recording and transcribe" [189,19 28x28]

@@ -556,10 +556,28 @@
 
         init(coordinator: DictationCoordinator) {
             cancellables.append(
-                coordinator.statePublisher.sink { [weak model] state in
+                coordinator.statePublisher.sink { [weak model, weak coordinator] state in
                     guard let model else { return }
-                    model.update(state)
-                    if !state.isActive { model.reset() }
+                    // The bridge keeps terminal presentation stable for semantic
+                    // inspection instead of reproducing the controller's wall-clock
+                    // dwell. It still has to mirror the production reduction: the idle
+                    // published immediately after an unclean terminal cannot erase the
+                    // outcome, and a new active session must preempt it.
+                    if state.isActive {
+                        if model.outcome != nil { model.reset() }
+                        model.update(state)
+                    } else if state == .idle, model.outcome != nil {
+                        return
+                    } else if let outcome = RecordingOverlayOutcome(
+                        state: state,
+                        failure: coordinator?.lastFailure ?? coordinator?.acquisitionFailure
+                    ) {
+                        model.update(state)
+                        model.present(outcome)
+                    } else {
+                        model.update(state)
+                        model.reset()
+                    }
                 }
             )
             cancellables.append(

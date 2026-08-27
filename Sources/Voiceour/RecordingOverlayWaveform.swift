@@ -6,36 +6,25 @@ import SwiftUI
 /// sits, and quiet speech read as a dead mic.
 struct RecordingWaveform: View {
     let samples: [Float]
+    let isSpeaking: Bool
+    let surface: RecordingOverlaySurface
 
     private var a11y = A11y()
 
-    init(samples: [Float]) {
+    init(samples: [Float], isSpeaking: Bool, surface: RecordingOverlaySurface) {
         self.samples = samples
+        self.isSpeaking = isSpeaking
+        self.surface = surface
     }
 
     var body: some View {
-        ZStack {
-            // Ambient bloom — a soft luminous undertone so the bars read as
-            // living light on the frost rather than flat ticks.
-            bars
-                .blur(radius: RecordingOverlayMetrics.Waveform.bloomBlur)
-                .opacity(RecordingOverlayMetrics.Waveform.bloomOpacity)
-                .blendMode(.plusLighter)
-            bars
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Flatten the base bars + blurred/blended bloom into a single Metal
-        // render target per frame; without this, the blur+plusLighter overlay
-        // chains offscreen passes on every 25Hz level update.
-        .drawingGroup()
-    }
-
-    private var bars: some View {
         HStack(alignment: .center, spacing: RecordingOverlayMetrics.Waveform.barSpacing) {
             ForEach(samples.indices, id: \.self) { index in
-                let level = samples[index]
+                // Silence holds every bar at rest so a room's noise floor cannot
+                // twitch the row; the rest height still reads as an open microphone.
+                let level: Float = isSpeaking ? samples[index] : 0
                 Capsule(style: .continuous)
-                    .fill(VoiceourPalette.Meter.accent.opacity(opacity(for: level, at: index)))
+                    .fill(barFill.opacity(opacity(for: level)))
                     .frame(
                         width: RecordingOverlayMetrics.Waveform.barWidth,
                         height: height(for: level)
@@ -43,6 +32,17 @@ struct RecordingWaveform: View {
                     .animation(meterAnimation, value: level)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Meter.accent is Signal.cyan (0.62, 0.86, 1.00), a pastel authored for the
+    /// near-black painted pill, and it lands on near-white when the adaptive
+    /// material renders light. OnGlass.cyan is the mid-tone that stays readable
+    /// on either adaptation.
+    private var barFill: Color {
+        surface == .systemGlass
+            ? VoiceourPalette.OnGlass.cyan
+            : VoiceourPalette.Meter.accent
     }
 
     /// Reduce Motion damps the meter; it does not un-smooth it. Dropping the
@@ -63,20 +63,16 @@ struct RecordingWaveform: View {
     private func height(for rawLevel: Float) -> CGFloat {
         let level = Double(Swift.min(Swift.max(rawLevel, 0), 1))
         let eased = CGFloat(pow(level, RecordingOverlayMetrics.Waveform.levelExponent))
-        let minimum = RecordingOverlayMetrics.Waveform.minimumHeight
-        return minimum + eased * (maximumHeight - minimum)
+        let rest = RecordingOverlayMetrics.Waveform.restingHeight
+        return rest + eased * (maximumHeight - rest)
     }
 
-    /// Floor plus a small recency term: history dims, it does not disappear. The old
-    /// ramp bottomed out at 0.34 — 3.74:1, the weakest mark on the surface.
-    private func opacity(for rawLevel: Float, at index: Int) -> Double {
+    private func opacity(for rawLevel: Float) -> Double {
         let level = Double(Swift.min(Swift.max(rawLevel, 0), 1))
-        let recency = samples.count > 1 ? Double(index) / Double(samples.count - 1) : 1
         let floorOpacity =
             a11y.contrast == .increased
             ? RecordingOverlayMetrics.Waveform.opacityFloorIncreased
             : RecordingOverlayMetrics.Waveform.opacityFloor
-        let recencyTerm = RecordingOverlayMetrics.Waveform.opacityRecency
-        return floorOpacity + recency * recencyTerm + level * (1 - floorOpacity - recencyTerm)
+        return floorOpacity + level * (1 - floorOpacity)
     }
 }

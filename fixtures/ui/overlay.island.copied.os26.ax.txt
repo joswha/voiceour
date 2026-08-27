@@ -1,0 +1,2 @@
+AXGroup subrole=AXHostingView [0,0 180x34]
+  AXStaticText "Dictation status" value="The transcript is on the clipboard." [62,11 58x14]

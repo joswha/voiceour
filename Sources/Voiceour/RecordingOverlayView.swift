@@ -43,96 +43,80 @@ struct RecordingOverlayView: View {
         }
     }
 
-    /// One row, three positions: the discard at the leading cap, the readout in the
-    /// centre, and the affirmative action — or, while it is unavailable, the comet —
-    /// at the trailing cap. Both caps are placed from
-    /// RecordingOverlayMetrics.controlInboardOffset, the same value the panel's mouse
-    /// routing reads, so the discs are concentric with their caps and the clickable
-    /// rects land on the discs the user can see.
+    /// Which ground this island is painting on, decided once and threaded down, because
+    /// every colour on the surface is a function of it. Reduce Transparency outranks both
+    /// glass paths on every OS: this is the app's only surface over unpredictable
+    /// backdrops and the last place to ignore the setting.
+    private var surface: RecordingOverlaySurface {
+        if a11y.reduceTransparency {
+            return .opaque
+        }
+        if #available(macOS 26, *), !RenderOverrides.forceLegacyGlass {
+            return .systemGlass
+        }
+        return .painted
+    }
+
+    /// One capsule, one material, nothing drawn on top of it.
+    ///
+    /// The island casts no app-drawn shadow on any path. On macOS 26 that is because
+    /// Liquid Glass already casts its own, and it is adaptive — it gains opacity over text
+    /// and loses it over a solid light background, which is exactly the judgement an app
+    /// cannot make for itself. Two static black blurs were previously stacked on top of
+    /// the material, and because `.shadow` cannot recover a capsule's alpha out of a glass
+    /// effect, Core Animation cast them from the view's rectangular layer bounds: a 216x76
+    /// smudge around a 180x34 pill. On the painted and opaque grounds there is no shadow
+    /// either, because the frost, the tint and the two rims already give the silhouette
+    /// its separation and a black blur was never what made those readable.
+    ///
+    /// The effect is applied to the assembled row rather than to the readout alone, so the
+    /// two controls are content ON the material and receive its automatic vibrancy
+    /// treatment instead of being composited above it as unrelated siblings.
     @ViewBuilder
     private var island: some View {
-        if #available(macOS 26, *) {
-            if RenderOverrides.forceLegacyGlass {
-                legacyIsland
-            } else {
-                islandControls(
-                    islandShadow(
-                        centerSlot
-                            .padding(.horizontal, RecordingOverlayMetrics.controlSlot)
-                            .frame(
-                                width: RecordingOverlayMetrics.islandSize.width,
-                                height: RecordingOverlayMetrics.islandSize.height
-                            )
-                            // Plain `.regular`, measured rather than assumed:
-                            // `.interactive()` is inert on this surface. Every press
-                            // outside the two control rects leaves
-                            // `RecordingOverlayHostingView.mouseDown` for
-                            // `window.performDrag` without calling super, so SwiftUI
-                            // never sees the press the modifier animates, and the two
-                            // discs are `.overlay` siblings above this glass rather
-                            // than descendants of it. Holding a real mouse-down on the
-                            // live pill over a bright backdrop (one host, dark
-                            // appearance, 2x) left the surface pixel-identical to
-                            // `.regular` everywhere but the animating waveform row,
-                            // and the drag still landed to the pixel. It does not
-                            // fight the drag; it just buys nothing.
-                            .glassEffect(.regular, in: .capsule)
-                    )
-                )
-            }
+        if #available(macOS 26, *), surface == .systemGlass {
+            // Plain `.regular`, measured rather than assumed: `.interactive()` is inert on
+            // this surface. Every press outside the two control rects leaves
+            // `RecordingOverlayHostingView.mouseDown` for `window.performDrag` without
+            // calling super, so SwiftUI never sees the press the modifier animates.
+            // Holding a real mouse-down on the live pill over a bright backdrop left the
+            // surface pixel-identical to `.regular` everywhere but the animating waveform
+            // row, and the drag still landed to the pixel. It does not fight the drag; it
+            // just buys nothing. `.regular` is also the documented choice over content the
+            // app cannot predict, and it is left untinted because nothing about the
+            // island's whole surface carries meaning — the marks inside it do.
+            islandRow.glassEffect(.regular, in: .capsule)
         } else {
-            legacyIsland
+            islandRow.background { capsuleSurface }
         }
     }
 
-    /// Bible §6.4 — the island is the only thing in the app that casts a shadow — and
-    /// §21.3 rule 2 keeps that shadow two-layer. The system glass brings none of its own
-    /// and the panel is `hasShadow = false` (RecordingOverlayController.makePanel), so
-    /// the macOS 26 branch has to spend the same two tokens `capsuleSurface` spends,
-    /// and drop the tight inner one under Reduce Transparency for the same reason it
-    /// does there. Applied to the capsule, inside the controls: the two discs are
-    /// overlaid on top of this and cast nothing, exactly as on the legacy path.
-    @ViewBuilder
-    private func islandShadow<Surface: View>(_ surface: Surface) -> some View {
-        let outer = surface.shadow(
-            color: VoiceourMetrics.Shadow.overlayOuter.color,
-            radius: VoiceourMetrics.Shadow.overlayOuter.radius,
-            y: VoiceourMetrics.Shadow.overlayOuter.y
-        )
-        if a11y.reduceTransparency {
-            outer
-        } else {
-            outer.shadow(
-                color: VoiceourMetrics.Shadow.overlayInner.color,
-                radius: VoiceourMetrics.Shadow.overlayInner.radius,
-                y: VoiceourMetrics.Shadow.overlayInner.y
-            )
-        }
-    }
-
-    private var legacyIsland: some View {
-        islandControls(
-            ZStack {
-                capsuleSurface
-                centerSlot
-                    .padding(.horizontal, RecordingOverlayMetrics.controlSlot)
-            }
+    /// The island's contents at its own measure. Both caps are placed from
+    /// `RecordingOverlayMetrics.controlInboardOffset`, the same value the panel's mouse
+    /// routing reads, so the discs are concentric with their caps and the clickable rects
+    /// land on the discs the user can see.
+    ///
+    /// While an outcome is showing there are no controls at all: the moment is a report,
+    /// not a prompt, and the controller makes the panel click-through for its duration so
+    /// it cannot swallow a click meant for the app underneath.
+    private var islandRow: some View {
+        centerSlot
+            .padding(.horizontal, model.outcome == nil ? RecordingOverlayMetrics.controlSlot : 0)
             .frame(
                 width: RecordingOverlayMetrics.islandSize.width,
                 height: RecordingOverlayMetrics.islandSize.height
             )
-        )
-    }
-
-    private func islandControls<Surface: View>(_ surface: Surface) -> some View {
-        surface
             .overlay(alignment: .leading) {
-                cancelButton
-                    .padding(.leading, RecordingOverlayMetrics.controlInboardOffset)
+                if model.outcome == nil {
+                    cancelButton
+                        .padding(.leading, RecordingOverlayMetrics.controlInboardOffset)
+                }
             }
             .overlay(alignment: .trailing) {
-                trailingSlot
-                    .padding(.trailing, RecordingOverlayMetrics.controlInboardOffset)
+                if model.outcome == nil {
+                    trailingSlot
+                        .padding(.trailing, RecordingOverlayMetrics.controlInboardOffset)
+                }
             }
             .animation(
                 a11y.reduceMotion ? nil : VoiceourMotion.deliberate,
@@ -140,68 +124,54 @@ struct RecordingOverlayView: View {
             )
     }
 
-    /// Bible §21.3's four layers. Under Reduce Transparency the two glass layers
-    /// collapse to one opaque capsule and the .plusLighter specular goes (spec §7.1):
-    /// this is the app's only surface over unpredictable backdrops and the last place
-    /// to ignore the setting. Line.edge replaces the specular there so the silhouette
-    /// survives on a dark desktop, exactly as §1.5 defines an opaque surface —
-    /// Ink.rimDark alone would be a black line on a black pill.
+    /// The macOS 14/15 and Reduce Transparency grounds.
+    ///
+    /// Under Reduce Transparency the two translucent layers collapse to one opaque capsule
+    /// and the `.plusLighter` specular goes: `Line.edge` replaces it so the silhouette
+    /// survives on a dark desktop, since `Ink.rimDark` alone would be a black line on a
+    /// black pill.
     @ViewBuilder
     private var capsuleSurface: some View {
-        if a11y.reduceTransparency {
-            Capsule(style: .continuous)
-                .fill(VoiceourPalette.Ink.void)
-                .shadow(
-                    color: VoiceourMetrics.Shadow.overlayOuter.color,
-                    radius: VoiceourMetrics.Shadow.overlayOuter.radius,
-                    y: VoiceourMetrics.Shadow.overlayOuter.y
-                )
-                .allowsHitTesting(false)
+        if surface == .opaque {
+            ZStack {
+                Capsule(style: .continuous)
+                    .fill(VoiceourPalette.Ink.void)
 
-            Capsule(style: .continuous)
-                .strokeBorder(
-                    a11y.lineEdge,
-                    lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
-                )
-                .allowsHitTesting(false)
-        } else {
-            // (1) Behind-window frost — the real liquid glass. The CALayer corner
-            //     radius masks it; a second .clipShape would be a second mask with a
-            //     second curve model over the same layer.
-            FrostedGlassBackground(
-                cornerRadius: RecordingOverlayMetrics.islandSize.height / 2
-            )
-            .allowsHitTesting(false)
-
-            // (2) Arctic tint — a cold blue-white gradient with a darkened floor so
-            //     white glyphs and the comet always sit on a clean, legible field.
-            Capsule(style: .continuous)
-                .fill(VoiceourPalette.glassTint)
-                .shadow(
-                    color: VoiceourMetrics.Shadow.overlayOuter.color,
-                    radius: VoiceourMetrics.Shadow.overlayOuter.radius,
-                    y: VoiceourMetrics.Shadow.overlayOuter.y
-                )
-                .shadow(
-                    color: VoiceourMetrics.Shadow.overlayInner.color,
-                    radius: VoiceourMetrics.Shadow.overlayInner.radius,
-                    y: VoiceourMetrics.Shadow.overlayInner.y
-                )
-                .allowsHitTesting(false)
-
-            // (3) Specular rim — a hairline highlight, brightest at the top lip.
-            Capsule(style: .continuous)
-                .strokeBorder(
-                    VoiceourPalette.specularRim,
-                    lineWidth: max(
-                        VoiceourMetrics.Stroke.specular,
-                        VoiceourMetrics.Stroke.hairline(a11y.contrast)
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        a11y.lineEdge,
+                        lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
                     )
+            }
+            .allowsHitTesting(false)
+        } else {
+            ZStack {
+                // (1) Behind-window frost — the real material on this path. The CALayer
+                //     corner radius masks it; a second .clipShape would be a second mask
+                //     with a second curve model over the same layer.
+                FrostedGlassBackground(
+                    cornerRadius: RecordingOverlayMetrics.islandSize.height / 2
                 )
-                .blendMode(.plusLighter)
-                .allowsHitTesting(false)
 
-            definitionRim
+                // (2) Arctic tint — a cold blue-white gradient with a darkened floor so
+                //     white glyphs and the meter always sit on a clean, legible field.
+                Capsule(style: .continuous)
+                    .fill(VoiceourPalette.glassTint)
+
+                // (3) Specular rim — a hairline highlight, brightest at the top lip.
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        VoiceourPalette.specularRim,
+                        lineWidth: max(
+                            VoiceourMetrics.Stroke.specular,
+                            VoiceourMetrics.Stroke.hairline(a11y.contrast)
+                        )
+                    )
+                    .blendMode(.plusLighter)
+
+                definitionRim
+            }
+            .allowsHitTesting(false)
         }
     }
 
@@ -216,7 +186,6 @@ struct RecordingOverlayView: View {
                 VoiceourPalette.Ink.rimDark,
                 lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
             )
-            .allowsHitTesting(false)
     }
 
     /// One accessibility element for the whole readout, so a state change is a VALUE
@@ -242,7 +211,10 @@ struct RecordingOverlayView: View {
 
     @ViewBuilder
     private var centerContent: some View {
-        if model.isWarmingUp {
+        if let outcome = model.outcome {
+            outcomeReadout(outcome)
+                .transition(.opacity)
+        } else if model.isWarmingUp {
             // Warm-up and live capture used to share ONE view identity, on the reasoning
             // that the meter was already on screen and simply came alive as buffers
             // arrived. That was decided while warm-up was believed to be sub-100ms,
@@ -251,13 +223,16 @@ struct RecordingOverlayView: View {
             // link reaches real audio at 1422 ms (AirPods Max) against 99 ms on the
             // built-in microphone, and a flat meter held for a second and a half is
             // pixel-indistinguishable from a live meter listening to silence — so the
-            // user speaks into the hole. A word says which one it is. The comet still
-            // means exactly one thing: the session is being processed.
+            // user speaks into the hole. A word says which one it is.
             stateLabel(model.warmingLabel)
                 .transition(.opacity)
         } else if model.isRecording {
-            RecordingWaveform(samples: model.samples)
-                .transition(.opacity)
+            RecordingWaveform(
+                samples: model.samples,
+                isSpeaking: model.isSpeaking,
+                surface: surface
+            )
+            .transition(.opacity)
         } else if model.isProcessing {
             stateLabel(model.processingLabel ?? "")
                 .transition(.opacity)
@@ -267,9 +242,34 @@ struct RecordingOverlayView: View {
         }
     }
 
-    /// Inside the capsule, where it composites against the pill's own glass at
-    /// Text.high instead of against an arbitrary wallpaper at Text.low — which
-    /// measured 1.21:1 on a mid-grey desktop.
+    /// An unclean delivery, held long enough to read. A symbol and a word, never a hue
+    /// alone: Differentiate Without Color has to be able to tell these apart, and so does
+    /// anyone glancing at a 34pt pill from across a display.
+    private func outcomeReadout(_ outcome: RecordingOverlayOutcome) -> some View {
+        let color = outcome.isFailure ? surface.destroy : surface.caution
+        return HStack(spacing: VoiceourMetrics.Space.xs) {
+            Image(systemName: outcome.symbol)
+                .font(.system(size: VoiceourMetrics.Icon.mark, weight: .semibold))
+                .foregroundStyle(color)
+                .accessibilityHidden(true)
+            Text(outcome.word)
+                .roleStyle(.micro)
+                // The symbol carries the semantic hue; the 10pt word uses the
+                // ground's neutral label so it gets system vibrancy on adaptive
+                // glass and Text.high on the two near-black fallbacks. A fixed
+                // amber or crimson cannot clear AA against both near-black and
+                // pure white after text antialiasing, and hue is never the only
+                // carrier here anyway.
+                .foregroundStyle(surface.label)
+                .lineLimit(1)
+        }
+    }
+
+    /// Inside the capsule, where it composites against the island's own ground rather than
+    /// against an arbitrary wallpaper — which measured 1.21:1 on a mid-grey desktop.
+    /// `surface.label` is what keeps that true on all three grounds: the near-white
+    /// `Text.high` this used to name is correct on the two dark ones and invisible on
+    /// macOS 26's material over a light desktop.
     ///
     /// Static by construction: the only animation is the crossfade between two texts.
     /// Nothing here may breathe on a repeating or wall-clock-driven curve, because the
@@ -277,7 +277,7 @@ struct RecordingOverlayView: View {
     private func stateLabel(_ text: String) -> some View {
         Text(text)
             .roleStyle(.micro)
-            .foregroundStyle(VoiceourPalette.Text.high)
+            .foregroundStyle(surface.label)
             .lineLimit(1)
             .contentTransition(.opacity)
             .animation(
@@ -289,6 +289,7 @@ struct RecordingOverlayView: View {
     private var cancelButton: some View {
         RecordingOverlayButton(
             kind: .cancel,
+            surface: surface,
             accessibilityLabel: model.isRecording ? "Cancel recording" : "Cancel dictation",
             help: "Discard this dictation",
             action: onCancel
@@ -301,6 +302,7 @@ struct RecordingOverlayView: View {
         if model.showsFinishButton {
             RecordingOverlayButton(
                 kind: .finish,
+                surface: surface,
                 accessibilityLabel: "Finish recording",
                 help: "Stop recording and transcribe",
                 action: onFinish
@@ -308,12 +310,12 @@ struct RecordingOverlayView: View {
             .accessibilitySortPriority(1)
             .transition(.opacity)
         } else if model.isProcessing {
-            // The comet takes the finish action's own slot while that action is
-            // unavailable, so the pill keeps one silhouette in every state and the
-            // work reads as happening where the confirm used to be. The slot used to
-            // hold a 28pt Color.clear, which left 52pt of bare gradient against 16pt
-            // on the other side for the whole of every processing phase.
-            FrostedCometIndicator(head: model.cometHead)
+            // The working mark takes the finish action's own slot while that action is
+            // unavailable, so the pill keeps one silhouette in every state and the work
+            // reads as happening where the confirm used to be. The slot used to hold a
+            // 28pt Color.clear, which left 52pt of bare surface against 16pt on the other
+            // side for the whole of every processing phase.
+            RecordingWorkMark(surface: surface)
                 .transition(.opacity)
         } else {
             Color.clear

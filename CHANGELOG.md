@@ -12,6 +12,17 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 
 - **Word lists can carry heard-as forms.** Glossary import accepts a JSON array of `{"term": ..., "heard_as": [...]}` rows alongside the array-of-spellings and newline shapes it already took. A spelling alone repairs only what `derivedAliases` covers — `Swift UI` from `SwiftUI` — and nothing derives `Qbectal` from `kubectl`, so the surfaces a model actually produces now have a way in. Imported forms are filtered, deduplicated case-insensitively against each other and the spelling, and capped per term.
 
+### Changed
+
+- **Listening meter.** The recording island's eleven bars rest at 8 pt so an open microphone is a visible row, and they rise only after voice activity holds — two samples to start, seven to stop — instead of twitching on room noise.
+- **Working mark.** While the island is processing, three dots hand emphasis right to left. The random-emoji comet is gone.
+- **Unclean delivery.** Copy-only, a failed paste, and an error hold for a moment with a symbol and a word; a clean paste and a cancel still dismiss at once.
+
+### Fixed
+
+- **Rectangular halo around the recording island.** The island no longer stacks app-drawn black drop shadows on top of system glass. Those shadows cannot follow a capsule glass effect, so Core Animation was casting them from the rectangular layer bounds. Liquid Glass already supplies its own adaptive shadow.
+- **Washed-out island on a light desktop.** On macOS 26 system glass, labels and glyphs use `.primary`/`.secondary` and meaning-bearing hues use a mid-tone `OnGlass` palette measured to stay readable on both light and dark glass. The pastel `Signal` and `Text` colours remain on the near-black grounds.
+
 ## [0.1.0] - 2026-08-26
 
 First public release.

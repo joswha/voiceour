@@ -95,14 +95,14 @@ struct HomeIsland<Content: View>: View {
                 .padding(VoiceourMetrics.Stroke.hairline(a11y.contrast))
             }
             .shadow(
-                color: VoiceourMetrics.Shadow.overlayOuter.color,
-                radius: VoiceourMetrics.Shadow.overlayOuter.radius,
-                y: VoiceourMetrics.Shadow.overlayOuter.y
+                color: VoiceourMetrics.Shadow.homeOuter.color,
+                radius: VoiceourMetrics.Shadow.homeOuter.radius,
+                y: VoiceourMetrics.Shadow.homeOuter.y
             )
             .shadow(
-                color: VoiceourMetrics.Shadow.overlayInner.color,
-                radius: VoiceourMetrics.Shadow.overlayInner.radius,
-                y: VoiceourMetrics.Shadow.overlayInner.y
+                color: VoiceourMetrics.Shadow.homeInner.color,
+                radius: VoiceourMetrics.Shadow.homeInner.radius,
+                y: VoiceourMetrics.Shadow.homeInner.y
             )
         }
     }

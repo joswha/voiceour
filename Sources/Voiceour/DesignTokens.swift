@@ -111,6 +111,32 @@ enum VoiceourPalette {
         startPoint: .top,
         endPoint: .bottom
     )
+
+    /// Signal hues for the macOS 26 system-glass ground.
+    ///
+    /// `Signal`'s values are pastels — cyan (0.62, 0.86, 1.00), mint (0.66, 0.96, 0.82)
+    /// — because they were authored for the island's near-black painted pill, and the
+    /// contrast that justified them was measured against that pill. Liquid Glass is
+    /// adaptive: over a light desktop the same surface renders light, so those pastels
+    /// land on near-white and the meter reads as faint dots. That is the wash-out, and
+    /// it is a palette bug rather than a material one.
+    ///
+    /// Neutral text and glyphs on glass do not appear here at all: they use `.primary`
+    /// and `.secondary`, because SwiftUI's documented vibrancy treatment applies to the
+    /// system semantic colours and an explicit literal is exactly what defeats it. These
+    /// four exist only for hues that must survive because they carry meaning. Their
+    /// relative luminance sits in the narrow band that clears WCAG AA at 10pt against
+    /// BOTH white and black, so one value remains legible either way the material adapts.
+    enum OnGlass {
+        /// 4.56:1 on white, 4.61:1 on black.
+        static let cyan = Color(.sRGB, red: 0.03, green: 0.49, blue: 0.71, opacity: 1)
+        /// 4.52:1 on white, 4.64:1 on black.
+        static let mint = Color(.sRGB, red: 0.05, green: 0.53, blue: 0.36, opacity: 1)
+        /// 4.59:1 on white, 4.57:1 on black.
+        static let amber = Color(.sRGB, red: 0.66, green: 0.40, blue: 0.02, opacity: 1)
+        /// 4.58:1 on white, 4.59:1 on black.
+        static let crimson = Color(.sRGB, red: 0.90, green: 0.12, blue: 0.20, opacity: 1)
+    }
 }
 
 enum VoiceourTypography {
@@ -460,13 +486,12 @@ enum VoiceourMetrics {
     }
 
     enum Shadow {
-        /// The two app-drawn islands ONLY: the recording overlay, and Home's
-        /// stats panes. Native console content casts no shadow — those surfaces
-        /// are AppKit's plates, and painting a shadow under one would be the app
-        /// drawing chrome the system already draws.
-        static let overlayOuter: (color: Color, radius: CGFloat, y: CGFloat) =
+        /// Home's app-drawn stats panes only. The recording island now relies on
+        /// Liquid Glass's adaptive elevation on macOS 26 and draws no app shadow
+        /// on any path; native console content is AppKit's own plate chrome.
+        static let homeOuter: (color: Color, radius: CGFloat, y: CGFloat) =
             (Color.black.opacity(0.26), 18, 6)
-        static let overlayInner: (color: Color, radius: CGFloat, y: CGFloat) =
+        static let homeInner: (color: Color, radius: CGFloat, y: CGFloat) =
             (Color.black.opacity(0.18), 4, 1)
     }
 
