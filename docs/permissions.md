@@ -31,7 +31,7 @@ Voiceour takes a capture snapshot before recording and a delivery snapshot immed
 `make test` covers these outcomes without posting keystrokes into a live app. Qualify the rest by hand on a clean macOS account with the notarized bundle.
 
 ```sh
-scripts/run_real.sh
+make run
 ```
 
 1. Tap Fn/Globe in TextEdit, grant Microphone when prompted, speak once, and stop.

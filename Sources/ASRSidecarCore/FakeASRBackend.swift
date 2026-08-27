@@ -5,7 +5,7 @@ import VoiceCore
 ///
 /// It needs no model, no microphone and no network, which is why it is the registry default.
 /// Its transcript text is asserted verbatim by Swift tests, the bench harness and
-/// `scripts/run_dev.sh --self-test`, so the strings below are a contract, not a placeholder.
+/// `make self-test`, so the strings below are a contract, not a placeholder.
 public final class FakeASRBackend: SidecarBackend {
     public let backendId = "fake"
 

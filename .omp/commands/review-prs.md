@@ -95,10 +95,10 @@ make check-docs        # only when the diff touches the model pin or a documente
 
 Run targeted suites, never the full suite from a subagent. `make format` over the union of edited files, then `make format-check`.
 
-Some classes cannot be verified in a worktree at all: microphone capture, TCC prompts, the Fn/Globe hotkey, synthetic Cmd-V, real glass materials, signing, and notarization. Those need the real bundle from `scripts/run_real.sh`.
+Some classes cannot be verified in a worktree at all: microphone capture, TCC prompts, the Fn/Globe hotkey, synthetic Cmd-V, real glass materials, signing, and notarization. Those need the real bundle from `make run`.
 
 <critical>
-A second app instance terminates at launch. NEVER run `scripts/run_real.sh` or `scripts/restart_real.sh` concurrently with another agent. Announce it on `hub`, take the turn, verify the intended PID and bundle, and release it. Two agents launching the real app produce one silent loser and two worthless results.
+A second app instance terminates at launch. NEVER run `make run` or `make stop` concurrently with another agent. `make run` stops every running Voiceour first, so a concurrent launch kills the peer's app rather than quietly losing to it. `make status` reports whether the app is already someone else's. Announce the turn on `hub`, take it, verify the intended PID and bundle, and release it. Two agents launching the real app produce one silent loser and two worthless results.
 </critical>
 
 #### Fix

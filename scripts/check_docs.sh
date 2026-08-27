@@ -124,6 +124,131 @@ for doc in README.md NOTICE AGENTS.md; do
   fi
 done
 
+# Every command a live doc tells a reader to type must exist. Extraction looks
+# only at inline backtick spans and fenced code blocks, so prose like "make sure"
+# cannot be read as a target. CHANGELOG.md, docs/archive/**, docs/superpowers/**
+# and everything under .omp/ are historical records that legitimately name
+# retired commands, so they are not scanned.
+makefile_targets=
+if [ -f "$ROOT/Makefile" ]; then
+  makefile_targets=$(sed -n 's/^\([a-z0-9][a-z0-9-]*\):.*/\1/p' "$ROOT/Makefile")
+fi
+target_pad=" "
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  target_pad="$target_pad$t "
+done <<EOF
+$makefile_targets
+EOF
+
+command_docs="README.md
+CONTRIBUTING.md
+AGENTS.md
+"
+for path in "$ROOT"/docs/*.md; do
+  [ -f "$path" ] || continue
+  command_docs="${command_docs}docs/${path##*/}
+"
+done
+command_docs="${command_docs}.github/PULL_REQUEST_TEMPLATE.md
+"
+
+named_commands=$(
+  while IFS= read -r doc; do
+    [ -n "$doc" ] || continue
+    [ -f "$ROOT/$doc" ] || continue
+    awk -v doc="$doc" '
+      BEGIN { OFS = " " }
+      function scan(text,    s, c, m, path) {
+        s = text
+        while (match(s, /make[ \t]+[a-z0-9][a-z0-9-]*/)) {
+          if (RSTART > 1) {
+            c = substr(s, RSTART - 1, 1)
+            if (c ~ /[A-Za-z0-9_]/) {
+              s = substr(s, RSTART + 4)
+              continue
+            }
+          }
+          m = substr(s, RSTART, RLENGTH)
+          sub(/^make[ \t]+/, "", m)
+          print "MAKE", doc, m
+          s = substr(s, RSTART + RLENGTH)
+        }
+        s = text
+        while (match(s, /scripts\/[A-Za-z0-9_.\/-]+/)) {
+          if (RSTART > 1) {
+            c = substr(s, RSTART - 1, 1)
+            if (c ~ /[A-Za-z0-9_]/) {
+              s = substr(s, RSTART + 1)
+              continue
+            }
+          }
+          path = substr(s, RSTART, RLENGTH)
+          gsub(/[.,;:!?)]+$/, "", path)
+          if (path ~ /^scripts\//) print "SCRIPT", doc, path
+          s = substr(s, RSTART + RLENGTH)
+        }
+      }
+      {
+        if (fence) {
+          if ((fence == 1 && $0 ~ /^```/) || (fence == 2 && $0 ~ /^~~~/)) {
+            fence = 0
+            next
+          }
+          scan($0)
+          next
+        }
+        if ($0 ~ /^```/) { fence = 1; next }
+        if ($0 ~ /^~~~/) { fence = 2; next }
+        s = $0
+        while (match(s, /`[^`]+`/)) {
+          code = substr(s, RSTART + 1, RLENGTH - 2)
+          nexts = substr(s, RSTART + RLENGTH)
+          scan(code)
+          s = nexts
+        }
+      }
+    ' "$ROOT/$doc"
+  done <<EOF
+$command_docs
+EOF
+)
+
+seen_commands="
+"
+while read -r kind doc token; do
+  [ -n "$kind" ] && [ -n "$doc" ] && [ -n "$token" ] || continue
+  key="$kind $doc $token"
+  case "$seen_commands" in
+    *"
+$key
+"*) continue ;;
+  esac
+  seen_commands="$seen_commands$key
+"
+  if [ "$kind" = MAKE ]; then
+    case "$target_pad" in
+      *" $token "*) ;;
+      *) fail "$doc names make target $token which is not a Makefile rule" ;;
+    esac
+  elif [ "$kind" = SCRIPT ]; then
+    if [ ! -f "$ROOT/$token" ]; then
+      fail "$doc names $token which does not exist"
+    else
+      # A .sh path in a doc is something the reader types, so it has to be
+      # runnable. A .swift helper is compiler input — scripts/console_shot.sh
+      # builds scripts/find_console_window.swift — and is never executable.
+      case "$token" in
+        *.sh)
+          [ -x "$ROOT/$token" ] || fail "$doc names $token which is not executable"
+          ;;
+      esac
+    fi
+  fi
+done <<EOF
+$named_commands
+EOF
+
 if [ "$failures" -ne 0 ]; then
   exit 1
 fi

@@ -18,7 +18,7 @@ if [ -n "$SIGN_IDENTITY" ]; then
   SIGN_FLAG=$SIGN_IDENTITY
 else
   SIGN_FLAG=-
-  printf '%s\n' "warning: ad-hoc signing; run scripts/setup_local_signing.sh once to preserve Accessibility permission across rebuilds" >&2
+  printf '%s\n' "warning: ad-hoc signing; run make signing once to preserve Accessibility permission across rebuilds" >&2
 fi
 swift build -c release --package-path "$ROOT"
 rm -rf "$APP"

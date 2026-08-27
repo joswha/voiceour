@@ -76,7 +76,7 @@ Three exits:
 - Not reproducible as a test, but the issue is a real-surface class — microphone capture, a TCC prompt, the Fn/Globe gesture, synthetic Cmd-V into a named app, real glass material, signing, notarization, model download — then the repro is the app itself. Build and launch the real bundle, exercise the path, and record what happened.
 
   <critical>
-  A second app instance terminates at launch. NEVER run `scripts/run_real.sh` or `scripts/restart_real.sh` concurrently with another agent. Announce it on `hub`, take the turn, verify the intended PID and bundle, release it. Two agents launching the real app produce one silent loser and two worthless results.
+  A second app instance terminates at launch. NEVER run `make run` or `make stop` concurrently with another agent. `make run` stops every running Voiceour first, so a concurrent launch kills the peer's app rather than quietly losing to it. `make status` reports whether the app is already someone else's. Announce the turn on `hub`, take it, verify the intended PID and bundle, and release it. Two agents launching the real app produce one silent loser and two worthless results.
   </critical>
 
   Reproduced in the real app → **c**, with the manual procedure written down as the repro and status `repro-manual`; the fix still lands with whatever unit-level test its root cause admits.

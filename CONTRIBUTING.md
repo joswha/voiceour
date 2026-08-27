@@ -1,26 +1,18 @@
 # Contributing
 
-Development is fake-first: you can build, test, and run the app without downloading the model or granting system permissions.
+Development is fake-first: you can build, test, and run the app without downloading the model or granting system permissions. `make dev` runs the fake backend in this terminal; `make self-test` is the launch-path check on that same path.
 
 Setup instructions are in [docs/developer-setup.md](docs/developer-setup.md). [AGENTS.md](AGENTS.md) holds the full engineering rules, including the [complete command matrix](AGENTS.md#developer-commands).
 
 ## Before you open a PR
 
-Run these portable checks, in this order:
+Run `make check`. It is the portable gate, in this order: build, format-check, check-docs, lint-python, test, ui-flow, test-python, self-test, bench-smoke. Any of those can be run alone.
 
 ```sh
-make build
-make format-check
-make check-docs
-make lint-python
-make test
-make ui-flow
-(cd bench && uv --no-config run pytest)
-scripts/run_dev.sh --self-test
-make bench-smoke
+make check
 ```
 
-Everyone runs that block. The real-model and real-microphone suites need a downloaded model or a physical input device, so run them only when your change touches those paths; [docs/developer-setup.md](docs/developer-setup.md) names their flags.
+Everyone runs `make check`. The real-model and real-microphone suites need a downloaded model or a physical input device, so run them only when your change touches those paths; [docs/developer-setup.md](docs/developer-setup.md) names their flags.
 
 If you changed the UI, also run `make ui-snap`. Read the generated `.ax.diff` or `.flow.diff` before you bless a golden with `make ui-update` or `make ui-flow-update`. A scene with an error-severity lint finding cannot be blessed; [docs/ui-harness.md](docs/ui-harness.md) explains the artifacts.
 

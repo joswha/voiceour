@@ -65,10 +65,10 @@ jobs:
         run: make ui-flow
 
       - name: Benchmark tests
-        run: cd bench && uv --no-config run pytest
+        run: make test-python
 
       - name: Fake app self-test
-        run: scripts/run_dev.sh --self-test
+        run: make self-test
 
       - name: Offline benchmark smoke
         run: make bench-smoke
@@ -99,10 +99,10 @@ jobs:
         run: swift build -c release
 
       - name: Bundle release app
-        run: scripts/bundle.sh
+        run: make bundle
 
       - name: Verify release bundle
-        run: scripts/verify_bundle.sh
+        run: make verify-bundle
 
   # Not a required gate yet. The scene PNG digests and accessibility dumps were
   # generated on the maintainer's Apple Silicon Mac, and an offscreen AppKit render

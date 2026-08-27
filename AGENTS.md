@@ -183,25 +183,29 @@ Use the smallest command that proves the change.
 
 | task | command |
 | --- | --- |
+| Print the target catalogue | `make` |
 | Build with warnings as errors | `make build` |
 | Swift tests including harness suites | `make test` |
+| Whole portable gate | `make check` |
 | Format sources/tests | `make format` |
 | Check formatting | `make format-check` |
 | Check model-doc consistency | `make check-docs` |
 | Lint Python benchmark package | `make lint-python` |
 | Bundle app | `make bundle` |
 | Verify bundle | `make verify-bundle` |
-| Stable local signing identity | `scripts/setup_local_signing.sh` |
+| Stable local signing identity | `make signing` |
 | Cut a source release | `make release` |
 | Cut a binary release | `scripts/release.sh --binary` |
 | Release preflight only | `scripts/release.sh --dry-run` |
 | Sign, notarize, staple, validate | `make notarize` |
 | Check the Apple notarization environment | `scripts/sign_notarize.sh --check-env` |
-| Fake app self-test | `scripts/run_dev.sh --self-test` |
-| Fake app launch | `scripts/run_dev.sh` |
-| Real app build/launch | `scripts/run_real.sh` |
-| Relaunch existing real bundle | `scripts/restart_real.sh` |
-| Real model proof | `swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
+| Fake app self-test | `make self-test` |
+| Fake app launch | `make dev` |
+| Real app build/launch | `make run` |
+| Stop every running Voiceour | `make stop` |
+| Process, bundle, and signature | `make status` |
+| Stream Voiceour logs | `make logs` |
+| Real model proof | `make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
 | Portable scene gate | `make ui-snap` |
 | Native scene gate | `make ui-snap-os26` |
 | Bless intended portable scene change | `make ui-update` |
@@ -217,19 +221,22 @@ Use the smallest command that proves the change.
 | FLEURS end-to-end report | `make bench-e2e N=64` |
 | Technical-term smoke | `make bench-techterms` |
 | U-WER comparison gate | `make bench-gate BASELINE=... CANDIDATE=...` |
-| Python benchmark tests | `(cd bench && uv --no-config run pytest)` |
+| Python benchmark tests | `make test-python` |
 | Vendor integrity | `scripts/vendor_parakeet.sh --check` |
 | Regenerate the committed audio fixture | `make fixture` |
+| Delete `.build` | `make clean` |
 
 Benchmark commands must retain `uv --no-config`. Do not run real model or microphone checks unless the task needs them and prerequisites are present.
 
 ## Fast iteration runtime
 
-- Source edits are not a runtime proof. Rebuild/restart the surface the user will exercise when app behavior or bundled resources changed.
+- Source edits are not a runtime proof. Rebuild and relaunch the surface the user will exercise when app behavior or bundled resources changed; the process still running is the previous binary until `make run` or `make dev` replaces it.
 - Use the fake path for deterministic coordinator/menu/window behavior.
 - Use the real bundle for microphone, model acquisition, hotkey, insertion, entitlement, signature, helper-placement, or material behavior.
-- `scripts/restart_real.sh` reuses an existing bundle. Use `scripts/run_real.sh` after source or bundle changes.
-- A second app instance terminates, so verify the intended PID/bundle rather than assuming another launch won.
+- `make run` re-bundles only when `Package.swift`, `scripts/bundle.sh`, `Sources/`, `Resources/` or `Vendor/` moved, and it stops the running instance before launching. The app terminates a second instance of itself, so a launch over a live instance makes the newly built process quit and leaves the old one running. An agent that launches without stopping first verifies the previous build.
+- Verify the intended PID/bundle with `make status` rather than assuming another launch won.
+- A root `.env` is sourced by `make run` and `make dev`; `make run` forwards `VOICEOUR_ASR_BACKEND`, `VOICEOUR_MODEL_VARIANT` and `VOICEOUR_SUPPORT_DIR` explicitly with `open --env`. macOS 26 does propagate the shell's environment through a LaunchServices launch, but that is not a documented contract, so a name the app reads is forwarded rather than assumed. Add the forward when the app learns to read another one.
+- Launch flags go through `ARGS`: `make run ARGS="--debug --show-console"`, `make dev ARGS=...`.
 
 ## Offscreen UI harness
 

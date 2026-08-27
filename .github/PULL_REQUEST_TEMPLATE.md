@@ -8,8 +8,8 @@
 
 ## Checklist
 
-- [ ] `make build` `make format-check` `make check-docs` `make lint-python` `make test` pass
-- [ ] `make ui-flow` passes; if the UI changed, `make ui-snap` too, and I read the `.ax.diff` / `.flow.diff` before blessing any golden
+- [ ] `make check` passes
+- [ ] If the UI changed, `make ui-snap` too, and I read the `.ax.diff` / `.flow.diff` before blessing any golden
 - [ ] Intended UI goldens and flow journals are committed with the behavior change that requires them
 - [ ] Every caller is migrated — no compatibility shim, alias, or deprecated path left behind
 - [ ] The one document that owns this topic is updated (`README.md`, `docs/architecture.md`, `docs/permissions.md`, `docs/benchmarks.md`, `docs/ui-harness.md`, or `docs/developer-setup.md`)

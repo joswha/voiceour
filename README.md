@@ -49,19 +49,21 @@ cd voiceour
 make build
 ```
 
+`make` on its own prints every target.
+
 Start on the fake backend. It needs no model download and no permission grant: synthetic audio through the real pipeline, real UI.
 
 ```sh
-scripts/run_dev.sh
+make dev
 ```
 
 Then run the real app. This assembles `.build/Voiceour.app`, downloads the pinned model on first launch — 1.26 GB, with progress in the menu bar — and asks for Microphone at the first recording, plus Accessibility if you want the paste rather than a clipboard copy. The first launch opens the console on Home, where a first-run card states the tap gesture, the download's progress, and which of those two permissions is required — it retires itself once you have dictated once.
 
 ```sh
-scripts/run_real.sh
+make run
 ```
 
-That bundle is ad-hoc signed, not notarized, so its code identity can change when you rebuild and macOS may ask for both grants again. Run `scripts/setup_local_signing.sh` once for a stable local identity; [developer setup](docs/developer-setup.md) covers signing, notarization, and the rest of the commands.
+That bundle is ad-hoc signed, not notarized, so its code identity can change when you rebuild and macOS may ask for both grants again. Run `make signing` once for a stable local identity; [developer setup](docs/developer-setup.md) covers signing, notarization, and the rest of the commands.
 
 ## FAQ
 

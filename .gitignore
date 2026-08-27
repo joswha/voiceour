@@ -33,7 +33,7 @@ __pycache__/
 .pytest_cache/
 .cache/
 
-# Local launch environment sourced by scripts/run_real.sh; the app itself holds no credential
+# Local launch environment sourced by the Makefile's `run` and `dev` targets; the app itself holds no credential
 .env
 .env.*
 
