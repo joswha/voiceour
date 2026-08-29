@@ -309,7 +309,7 @@ Rules for the binary release only:
 - A binary release is local and manual, never CI, and no release workflow should be added for it. Notarization needs Apple credentials, a public repository's secrets are a risk surface, and fork pull requests widen it — the same measured no-credential-store posture the network policy above describes. `.github/workflows/ci.yml`'s `release` job builds, bundles, and verifies, and uploads nothing: it is a packaging smoke test, not a release pipeline, and must not be mistaken for one.
 - `make notarize` runs `scripts/sign_notarize.sh`: Developer ID signing with hardened runtime, submission, stapling, validation, then the archive, its checksum, and `.build/Voiceour-release-manifest.txt`. `scripts/sign_notarize.sh --check-env` validates the Apple environment and exits without building or submitting anything, so the credential rule lives in exactly one place.
 
-The steps, in order, all maintainer-run. The Git rules below still hold: an agent does not tag, push, or publish.
+Release publication is maintainer-run by default. An agent MAY run the printed tag, push, and publication commands only after explicit user authorization in the current conversation.
 
 1. Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`.
 2. Move the `CHANGELOG.md` bullets under `Unreleased` beneath a new `## <version>` heading, leaving `Unreleased` empty above it. Preflight requires that heading and refuses an empty section, because that section is the release notes.
