@@ -197,6 +197,40 @@ captured under `patches/`.
     differences in the same direction and within 13 ms of each other. Raw transcripts are
     byte-identical on all 96 corpus rows and on both frozen promotion corpora, with U-WER and CER
     deltas of exactly zero.
+- `patches/0010-poll-command-buffer-before-blocking.patch` polls `cmd_buf_last` for a bounded
+  number of iterations in `ggml_metal_synchronize` before calling `waitUntilCompleted`.
+  `waitUntilCompleted` parks the calling thread, so returning from it costs a scheduler wake-up on
+  top of the GPU's own completion. That is invisible against a 50 ms encoder graph but not against
+  the TDT decode loop, which submits one graph per emitted token and waits on each. The budget is
+  bounded, so the cost when polling does not pay off is capped at roughly 200 us per call instead
+  of scaling with the wait, and `waitUntilCompleted` still runs afterwards.
+  - Upstream status: not reported upstream. The trade is specific to a workload whose graphs are
+    small and strictly sequential; a batched LLM would not benefit and would pay the poll.
+  - Test status: measured. Decode is 772 ms over ~4,825 steps, about 160 us per step, of which the
+    wake-up is ~2.2 us; a budget sweep put the recoverable share at 0.9% of summed warm inference.
+    Value-preserving by construction: only the manner of waiting changes, never a computed value.
+- `patches/0011-merge-conv-module-right-pads.patch` replaces the convolution module's
+  `pad(dw_pad)` / `roll(dw_pad)` / `pad(dw_pad)` with one `pad(2*dw_pad)` followed by the same
+  roll. `ggml_pad` right-pads and `ggml_roll(+n)` is a forward circular shift, so upstream builds
+  `[0 x dw_pad, values, 0 x dw_pad]` by parking zeros at the end and rotating half of them to the
+  front; padding to the final width first and then rotating lands the identical tensor.
+  - Upstream status: not reported upstream. Upstream's three-op form is equivalent, just wider.
+  - Test status: measured. Saves one node and one `[n_time + dw_pad, n_state]` f32 write-and-reread
+    per layer across 24 layers. Value-preserving by construction: the same elements end up in the
+    same positions.
+- `patches/0012-three-encode-threads.patch` raises `ggml_backend_metal_set_n_cb` from 1 to 3 at
+  both backend init sites. `ggml_metal_graph_compute` keeps the first `MAX(64, 0.1*n)` nodes on the
+  calling thread and splits the rest across `n_cb` threads, so this affects only the encoder's
+  ~1300-node graph; the decode loop's per-step graph is under 64 nodes and stays entirely on the
+  calling thread. Upstream's comment cites 1 or 2 as optimal for LLaMA on M1 Pro and M2 Ultra,
+  which is a different shape of workload from one large fixed graph on an M4 Pro.
+  - Upstream status: not reported upstream. The value is host- and graph-dependent, so it is a
+    local tuning choice rather than a defect.
+  - Test status: measured. Summed warm inference across the sweep: 2368/2365 at `n_cb` 1,
+    2355/2353 at 2, 2344/2354 at 3, 2345/2349 at 4, 2346/2346 at 6. This one changes encode
+    ranges, and ggml-metal cannot fuse a run spanning two command buffers, so it is the one
+    change of the three whose value preservation is tested rather than proven — the frozen gate
+    reports 0 raw-transcript drift on all 500 rows with U-WER and CER deltas of exactly zero.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

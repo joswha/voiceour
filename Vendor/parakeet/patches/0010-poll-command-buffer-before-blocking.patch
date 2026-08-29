@@ -1,0 +1,30 @@
+diff --git a/ggml/src/ggml-metal/ggml-metal-context.m b/ggml/src/ggml-metal/ggml-metal-context.m
+index 39e60b7..4acf556 100644
+--- a/ggml/src/ggml-metal/ggml-metal-context.m
++++ b/ggml/src/ggml-metal/ggml-metal-context.m
+@@ -239,6 +239,25 @@ void ggml_metal_free(ggml_metal_t ctx) {
+ void ggml_metal_synchronize(ggml_metal_t ctx) {
+     // wait for any backend operations to finish
+     if (ctx->cmd_buf_last) {
++        // VOICEOUR PATCH: poll the command buffer briefly before blocking on it.
++        //
++        // `waitUntilCompleted` parks the thread, so returning from it costs a scheduler wake-up
++        // on top of the GPU's own completion. That is invisible against a 50 ms encoder graph but
++        // not against the TDT decode loop, which submits one graph per emitted token and waits on
++        // each: measured 772 ms of decode over ~4,825 steps is ~160 us per step, and the wake-up
++        // is ~2.2 us of it. Polling first collects that back.
++        //
++        // The budget is bounded, so the cost when polling does not pay off is capped at roughly
++        // 200 us per call rather than scaling with the wait. `waitUntilCompleted` still runs
++        // afterwards and returns immediately for a buffer that already finished, so this changes
++        // only how the CPU waits — never what the GPU computed, and never any value.
++        for (int i = 0; i < 50000; ++i) {
++            const MTLCommandBufferStatus status = [ctx->cmd_buf_last status];
++            if (status == MTLCommandBufferStatusCompleted || status == MTLCommandBufferStatusError) {
++                break;
++            }
++        }
++
+         [ctx->cmd_buf_last waitUntilCompleted];
+         ctx->cmd_buf_last = nil;
+     }

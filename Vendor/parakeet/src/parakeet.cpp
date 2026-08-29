@@ -2036,9 +2036,18 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
 
             // use ggml_ssm_conv for f32 precision
             const int dw_pad = (hparams.n_conv_kernel - 1) / 2;
-            cur = ggml_pad(ctx0, cur, dw_pad, 0, 0, 0);
+            // VOICEOUR PATCH: one right-pad of `2*dw_pad` where upstream used two of `dw_pad`
+            // either side of the roll.
+            //
+            // `ggml_pad` right-pads and `ggml_roll(+n)` is a forward circular shift, so upstream's
+            // pad/roll/pad produces `[0 x dw_pad, values, 0 x dw_pad]` by parking zeros at the end
+            // and rotating half of them to the front. Padding to the final width first and then
+            // rotating lands the identical tensor: the roll moves the last `dw_pad` of the
+            // `2*dw_pad` trailing zeros to the front and shifts everything else right by
+            // `dw_pad`. Same elements in the same places, one fewer node and one fewer
+            // [n_time + dw_pad, n_state] f32 write-and-reread per layer.
+            cur = ggml_pad(ctx0, cur, 2 * dw_pad, 0, 0, 0);
             cur = ggml_roll(ctx0, cur, dw_pad, 0, 0, 0);
-            cur = ggml_pad(ctx0, cur, dw_pad, 0, 0, 0);
             ggml_format_name(cur, "enc_%d_conv_dw_pad", il);
 
             cur = ggml_ssm_conv(ctx0, cur, layer.conv_dw_w);

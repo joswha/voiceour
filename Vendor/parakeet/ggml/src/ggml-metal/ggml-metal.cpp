@@ -608,7 +608,18 @@ ggml_backend_t ggml_backend_metal_init(void) {
         /* .context   = */ ctx,
     };
 
-    ggml_backend_metal_set_n_cb(backend, 1);
+    // VOICEOUR PATCH: three encode threads rather than one.
+    //
+    // `ggml_metal_graph_compute` keeps the first `MAX(64, 0.1*n)` nodes on the calling thread and
+    // splits the rest across `n_cb` threads, so this only affects graphs above that threshold —
+    // the encoder's ~1300-node graph. The TDT decode loop's per-step graph is under 64 nodes and
+    // stays entirely on the calling thread, unaffected.
+    //
+    // Upstream's comment cites 1 or 2 as optimal for LLaMA on M1 Pro / M2 Ultra. This workload is
+    // one large fixed graph on an M4 Pro rather than token-by-token attention, and it measures
+    // faster with more encode threads: summed warm inference 2368/2365 at 1, 2355/2353 at 2,
+    // 2344/2354 at 3, 2345/2349 at 4, 2346/2346 at 6.
+    ggml_backend_metal_set_n_cb(backend, 3);
 
     return backend;
 }
@@ -702,7 +713,18 @@ static ggml_backend_t ggml_backend_metal_device_init_backend(ggml_backend_dev_t 
         /* .context   = */ ctx,
     };
 
-    ggml_backend_metal_set_n_cb(backend, 1);
+    // VOICEOUR PATCH: three encode threads rather than one.
+    //
+    // `ggml_metal_graph_compute` keeps the first `MAX(64, 0.1*n)` nodes on the calling thread and
+    // splits the rest across `n_cb` threads, so this only affects graphs above that threshold —
+    // the encoder's ~1300-node graph. The TDT decode loop's per-step graph is under 64 nodes and
+    // stays entirely on the calling thread, unaffected.
+    //
+    // Upstream's comment cites 1 or 2 as optimal for LLaMA on M1 Pro / M2 Ultra. This workload is
+    // one large fixed graph on an M4 Pro rather than token-by-token attention, and it measures
+    // faster with more encode threads: summed warm inference 2368/2365 at 1, 2355/2353 at 2,
+    // 2344/2354 at 3, 2345/2349 at 4, 2346/2346 at 6.
+    ggml_backend_metal_set_n_cb(backend, 3);
 
     return backend;
 
