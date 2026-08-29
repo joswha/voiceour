@@ -1,0 +1,81 @@
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 5a3f56a..83de8e9 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -1527,6 +1527,43 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
+     return true;
+ }
+ 
++// VOICEOUR PATCH: a 2-D convolution that stops before the copy `ggml_conv_2d` ends with, and
++// lets the bias add every one of this encoder's convolutions performs next materialise the
++// layout instead.
++//
++// `ggml_conv_2d` finishes with `ggml_cont(ggml_permute(result, 0, 1, 3, 2))`. That permutation
++// leaves dim 0 in place, so the view is row-contiguous, and ggml-metal's binary ops require only
++// row contiguity — while the bias add writes a dense tensor of the same shape regardless. The
++// copy therefore wrote the whole convolution result an extra time for nothing. Measured by
++// per-op-class skipping restricted to the subsampling encode context: its copies cost 8.91 ms of
++// a 155 ms encode.
++//
++// Composed from the same public ggml ops in the same order as `ggml_conv_2d`, so the arithmetic
++// is unchanged; `ggml_conv_2d` itself keeps its contract for any other caller.
++static struct ggml_tensor * parakeet_conv_2d_bias(
++        struct ggml_context * ctx0,
++         struct ggml_tensor * w,
++         struct ggml_tensor * x,
++         struct ggml_tensor * bias,
++                        int   s0,
++                        int   s1,
++                        int   p0,
++                        int   p1,
++                        int   d0,
++                        int   d1) {
++    struct ggml_tensor * im2col = ggml_im2col(ctx0, w, x, s0, s1, p0, p1, d0, d1, true,
++            w->type == GGML_TYPE_BF16 ? GGML_TYPE_F32 : GGML_TYPE_F16);
++
++    struct ggml_tensor * result = ggml_mul_mat(ctx0,
++            ggml_reshape_2d(ctx0, im2col, im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1]),
++            ggml_reshape_2d(ctx0, w, w->ne[0] * w->ne[1] * w->ne[2], w->ne[3]));
++
++    result = ggml_reshape_4d(ctx0, result, im2col->ne[1], im2col->ne[2], im2col->ne[3], w->ne[3]);
++    result = ggml_permute(ctx0, result, 0, 1, 3, 2);
++
++    return ggml_add(ctx0, result, bias);
++}
++
+ // conv subsampling + conformer encoder
+ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx, parakeet_state & pstate) {
+     const auto & model    = pctx.model;
+@@ -1554,8 +1591,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+     ggml_set_input(mel);
+ 
+     // [freq, time, channels, batch]
+-    struct ggml_tensor * cur = ggml_conv_2d(ctx0, model.enc_pre_conv_0_w, mel, 2, 2, 1, 1, 1, 1);
+-    cur = ggml_add(ctx0, cur, model.enc_pre_conv_0_b);
++    struct ggml_tensor * cur = parakeet_conv_2d_bias(ctx0, model.enc_pre_conv_0_w, mel,
++            model.enc_pre_conv_0_b, 2, 2, 1, 1, 1, 1);
+     ggml_set_name(cur, "pre_conv_0");
+ 
+     cur = ggml_relu(ctx0, cur);
+@@ -1567,8 +1604,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+     ggml_set_name(cur, "pre_conv_2");
+ 
+     // [freq, time, channels, batch]
+-    cur = ggml_conv_2d(ctx0, model.enc_pre_conv_3_w, cur, 1, 1, 0, 0, 1, 1);
+-    cur = ggml_add(ctx0, cur, model.enc_pre_conv_3_b);
++    cur = parakeet_conv_2d_bias(ctx0, model.enc_pre_conv_3_w, cur,
++            model.enc_pre_conv_3_b, 1, 1, 0, 0, 1, 1);
+     ggml_set_name(cur, "pre_conv_3");
+ 
+     cur = ggml_relu(ctx0, cur);
+@@ -1581,8 +1618,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+     ggml_set_name(cur, "pre_conv_5");
+ 
+     // [freq, time, channels, batch]
+-    cur = ggml_conv_2d(ctx0, model.enc_pre_conv_6_w, cur, 1, 1, 0, 0, 1, 1);
+-    cur = ggml_add(ctx0, cur, model.enc_pre_conv_6_b);
++    cur = parakeet_conv_2d_bias(ctx0, model.enc_pre_conv_6_w, cur,
++            model.enc_pre_conv_6_b, 1, 1, 0, 0, 1, 1);
+     ggml_set_name(cur, "pre_conv_6");
+ 
+     cur = ggml_relu(ctx0, cur);

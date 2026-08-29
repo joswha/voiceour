@@ -161,6 +161,22 @@ captured under `patches/`.
     deltas of exactly zero, and the per-token confidences are unchanged. The merged graph is 38
     nodes, still inside the 64 the calling thread encodes into one command buffer, so it gains no
     command-buffer boundary either.
+- `patches/0008-conv-subsampling-bias-add-materialises-layout.patch` adds
+  `parakeet_conv_2d_bias` to `src/parakeet.cpp` and routes the three convolutions of the
+  subsampling front-end through it. `ggml_conv_2d` ends with
+  `ggml_cont(ggml_permute(result, 0, 1, 3, 2))`; that permutation leaves dim 0 in place, so the
+  view is row-contiguous, ggml-metal's binary ops need only row contiguity, and the bias add that
+  follows every one of these convolutions writes a dense tensor of the same shape regardless — so
+  the copy wrote the whole convolution result an extra time for nothing. The helper composes the
+  same public ggml ops in the same order and then adds the bias, leaving `ggml_conv_2d` itself
+  and its contiguity contract untouched for any other caller.
+  - Upstream status: not reported upstream. The removable copy is inside upstream's
+    `ggml_conv_2d`, so this is expressed at the call site rather than by changing that function.
+  - Test status: measured. Per-op-class skipping restricted to the subsampling encode context put
+    its copies at 8.91 ms of a 155 ms encode. Five-pair interleaved A/B of summed warm inference
+    is -3.24%, all five paired differences in the same direction. Raw transcripts are
+    byte-identical on all 96 corpus rows and on both frozen promotion corpora, with U-WER and CER
+    deltas of exactly zero — expected, since removing a copy cannot change a value.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to
