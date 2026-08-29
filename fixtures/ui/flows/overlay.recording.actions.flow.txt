@@ -1,0 +1,8 @@
+flow: overlay.recording.actions
+title: The recording island publishes both labelled actions and no controls
+fixture: static
+transitions: recording
+PASS 1 actions | exists label="Dictation status" | 1 match
+PASS 2 actions | value label="Dictation status" == "Speaking" | "Speaking"
+PASS 3 actions | count role=AXButton exactly 0 | 0 matches
+PASS 4 actions | actions label="Dictation status" == [Finish recording, Cancel recording] | [Finish recording, Cancel recording]

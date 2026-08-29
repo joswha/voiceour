@@ -286,7 +286,9 @@
 
         /// Representative native-material scenes for each surviving surface with
         /// a macOS 26 availability branch. The console itself is now a native
-        /// `TabView`/`Form` hierarchy and has no separate branch.
+        /// `TabView`/`Form` hierarchy and has no separate branch, and the recording
+        /// island has no branch at all: it is one CPU-rasterized mercury body on
+        /// every OS, with no capsule, no material and no glass to exercise.
         ///
         /// What these verify is the app's own painted content, geometry, control
         /// boundaries and accessibility tree on that branch -- NOT the system material.
@@ -308,24 +310,6 @@
                     "menu.transcript.os26",
                     "Menu bar popover with the last transcript on the native branch",
                     fixture: .completedDictation
-                ),
-                systemOverlay(
-                    "overlay.panel.recording.os26",
-                    "Recording overlay panel, speaking on the native branch",
-                    size: CGSize(width: 260, height: 80)
-                ),
-                systemOverlay(
-                    "overlay.island.recording.os26",
-                    "Recording overlay island, speaking on the native branch",
-                    size: CGSize(width: 180, height: 34),
-                    islandOnly: true
-                ),
-                systemOverlay(
-                    "overlay.island.copied.os26",
-                    "Recording overlay copy-only outcome on the native branch",
-                    size: CGSize(width: 180, height: 34),
-                    model: copiedOverlayModel,
-                    islandOnly: true
                 ),
             ]
         }
@@ -466,6 +450,56 @@
                             onFinish: {},
                             islandOnly: true
                         )
+                    )
+                },
+                UISceneDescriptor(
+                    id: "overlay.island.processing",
+                    title: "Recording overlay island, transcribing",
+                    size: RecordingOverlayMetrics.islandSize,
+                    tags: ["overlay"]
+                ) {
+                    AnyView(
+                        RecordingOverlayView(
+                            model: processingOverlayModel(),
+                            onCancel: {},
+                            onFinish: {},
+                            islandOnly: true
+                        )
+                    )
+                },
+                UISceneDescriptor(
+                    id: "overlay.island.reduced-motion",
+                    title: "Recording overlay island with Reduce Motion enabled",
+                    size: RecordingOverlayMetrics.islandSize,
+                    tags: ["overlay", "a11y"],
+                    accessibilityAdaptation: .reduceMotion
+                ) {
+                    AnyView(
+                        RecordingOverlayView(
+                            model: listeningOverlayModel(),
+                            onCancel: {},
+                            onFinish: {},
+                            islandOnly: true
+                        )
+                    )
+                },
+                UISceneDescriptor(
+                    id: "overlay.island.weather",
+                    title: "Recording overlay island reflecting the debug Spectral Weather world",
+                    size: RecordingOverlayMetrics.islandSize,
+                    tags: ["overlay"]
+                ) {
+                    AnyView(
+                        UIHarnessMercuryWorldScope(world: .spectralWeather) {
+                            AnyView(
+                                RecordingOverlayView(
+                                    model: listeningOverlayModel(),
+                                    onCancel: {},
+                                    onFinish: {},
+                                    islandOnly: true
+                                )
+                            )
+                        }
                     )
                 },
             ]
@@ -615,37 +649,6 @@
             }
         }
 
-        /// Native-material overlay scenes at both production measures. The model
-        /// is built while the process is pinned, then the seam is released exactly
-        /// as it is for the system console and menu scenes.
-        private static func systemOverlay(
-            _ identifier: String,
-            _ title: String,
-            size: CGSize,
-            model: @escaping @MainActor () -> RecordingOverlayModel = listeningOverlayModel,
-            islandOnly: Bool = false
-        ) -> UISceneDescriptor {
-            UISceneDescriptor(
-                id: identifier,
-                title: title,
-                size: size,
-                tags: ["overlay", "os26"]
-            ) {
-                AnyView(
-                    UIHarnessSystemGlassScope {
-                        AnyView(
-                            RecordingOverlayView(
-                                model: model(),
-                                onCancel: {},
-                                onFinish: {},
-                                islandOnly: islandOnly
-                            )
-                        )
-                    }
-                )
-            }
-        }
-
         /// Literal fills, not `NSColor` system colours: a dynamic system colour
         /// resolves against this Mac's accent and appearance settings and would not
         /// port between machines.
@@ -655,35 +658,31 @@
 
         // MARK: - Overlay state
 
-        /// Eleven fixed meter samples, oldest first — the same shape the live meter
-        /// produces, minus the microphone.
-        private static let waveformLevels: [Float] = [
+        /// Eleven fixed drive levels, oldest first — the same shape the live meter
+        /// produces, minus the microphone. They are the mercury body's forcing now, not
+        /// bar heights: the body reads them as a travelling crest train.
+        private static let driveLevels: [Float] = [
             0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46,
         ]
 
-        /// A capture that is live and receiving buffers, which is the overlay state that
-        /// draws the meter. These levels also carry it past the voice-activity hysteresis
-        /// — two consecutive samples at or above 0.10 — so the golden records a speaking
-        /// meter rather than its resting row. The processing states draw
-        /// `RecordingWorkMark` instead, whose emphasis phase still comes from the wall
-        /// clock, so it cannot hash the same twice and stays uncovered here; under a
-        /// pinned Reduce Motion that mark is static and would be capturable.
+        /// A capture that is live and receiving buffers. These levels also carry it past
+        /// the voice-activity hysteresis — two consecutive samples at or above 0.10 — so
+        /// the golden records the speaking pose rather than the listening one.
         private static func listeningOverlayModel() -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
             model.update(.recording)
             model.updateCaptureLive(true)
-            for level in waveformLevels {
+            for level in driveLevels {
                 model.record(level)
             }
             return model
         }
 
         /// A live microphone in a quiet room. Every level sits at or below the release
-        /// threshold, so the voice-activity hysteresis never starts and the island draws
-        /// its resting row: eleven bars at 8pt, the mark that says the capture path is
-        /// open. This is the state a user looks at before every utterance and the one the
-        /// redesign exists for — it used to render as eleven 4pt dots, which is why it
-        /// gets a golden of its own rather than sharing one with the speaking meter.
+        /// threshold, so the voice-activity hysteresis never starts and the body holds
+        /// the narrower listening pose. This is the state a user looks at before every
+        /// utterance, so it gets a golden of its own rather than sharing one with the
+        /// speaking body.
         private static func quietOverlayModel() -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
             model.update(.recording)
@@ -696,10 +695,8 @@
             return model
         }
 
-        /// One unclean delivery at its stable endpoint: both controls withdrawn and
-        /// one safe status value. The native companion scene is what catches an
-        /// on-glass role colour being accidentally shadowed by `Text.low`; this
-        /// portable one keeps the painted fallback in the same contract.
+        /// One unclean delivery at its stable endpoint: the gathered gesture, no control
+        /// of any kind, and one safe status value.
         private static func copiedOverlayModel() -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
             let state = SessionState.copiedOnly(reason: "target_terminal")
@@ -712,16 +709,25 @@
 
         /// A capture that has been started and is not delivering audio yet: the state the
         /// island holds for 1422 ms on a cold AirPods Max link against 99 ms on the
-        /// built-in microphone. The meter samples below are fed in deliberately —
+        /// built-in microphone. The drive levels below are fed in deliberately —
         /// `record(_:)` drops every one of them while capture is not live, so this scene
-        /// pins both halves of the fix at once: the waveform cannot draw from a warm-up
-        /// buffer, and the slot reads WARMING instead of a flat meter.
+        /// pins both halves of the fix at once: the body cannot be driven from a warm-up
+        /// buffer, and it holds the small calm warming lens instead of the listening pose.
         private static func warmingOverlayModel() -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
             model.update(.recording)
-            for level in waveformLevels {
+            for level in driveLevels {
                 model.record(level)
             }
+            return model
+        }
+
+        /// The working droplet: short, tall, and disconnected from the voice. Capturable
+        /// now that the retired three-dot mark's wall-clock phase is gone — the body is
+        /// pinned to one substep index like every other overlay scene.
+        private static func processingOverlayModel() -> RecordingOverlayModel {
+            let model = RecordingOverlayModel()
+            model.update(.transcribing)
             return model
         }
     }
@@ -841,6 +847,28 @@
             content
                 .onDisappear {
                     RenderOverrides.forceLegacyGlass = previousForceLegacyGlass
+                }
+        }
+    }
+
+    /// Process-wide value seam scoped to the one scene that renders the debug world.
+    /// Switching it in the running app is a Settings picker behind `--debug`, which the
+    /// harness never passes, so the state is pinned rather than performed.
+    private struct UIHarnessMercuryWorldScope: View {
+        private let content: AnyView
+        private let previous: MercuryWorld?
+
+        @MainActor
+        init(world: MercuryWorld, build: @escaping @MainActor () -> AnyView) {
+            content = build()
+            previous = RenderOverrides.mercuryWorld
+            RenderOverrides.mercuryWorld = world
+        }
+
+        var body: some View {
+            content
+                .onDisappear {
+                    RenderOverrides.mercuryWorld = previous
                 }
         }
     }

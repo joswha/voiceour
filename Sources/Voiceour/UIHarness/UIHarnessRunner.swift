@@ -39,6 +39,12 @@
             switch request.mode {
             case .flowList:
                 return emitFlowCatalog(request)
+            case .mercury:
+                // Pure CoreGraphics: the mercury bench rasterizes straight into a bitmap
+                // and never hosts a view, so it needs no NSApplication and no window.
+                return MercurySheet.run(request)
+            case .mercuryBenchmark:
+                return MercuryChromeBenchmark.run(request)
             case .list, .check, .update, .flowCheck, .flowUpdate:
                 break
             }
@@ -56,7 +62,7 @@
                 return runScenes(request)
             case .flowCheck, .flowUpdate:
                 return runFlows(request)
-            case .flowList:
+            case .flowList, .mercury, .mercuryBenchmark:
                 preconditionFailure("pure-data harness mode reached the hosting dispatch")
             }
         }

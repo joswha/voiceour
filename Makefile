@@ -138,7 +138,7 @@ clean:
 .PHONY: check test self-test format format-check check-docs lint-python test-python
 
 ## check: the whole portable gate, in order
-check: build format-check check-docs lint-python test ui-flow test-python self-test bench-smoke
+check: build format-check check-docs lint-python test ui-flow ui-mercury-bench test-python self-test bench-smoke
 	@printf 'check: gate passed\n'
 
 # The UI harness test suites are compiled out unless UI_HARNESS is defined, so
@@ -215,7 +215,7 @@ fixture:
 	scripts/make_fixture.sh
 
 #> UI goldens
-.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-update ui-flow-list ui-all
+.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-update ui-flow-list ui-all ui-mercury ui-mercury-bench
 
 # The portable gate. Runs on any host: every scene is pinned to the painted
 # path by `RenderOverrides.forceLegacyGlass`, so these goldens are the ones CI
@@ -241,6 +241,22 @@ ui-update-os26:
 ## ui-list: list the scene catalogue
 ui-list:
 	scripts/ui_harness.sh --list
+
+# Not a gate. The recording island's body is a live simulation, so a scene golden can
+# only ever pin one frame of one state; this renders every state, ground, world and a
+# strip of consecutive frames into contact sheets under .build/ui-harness/mercury, and
+# prints what the body's pixels actually span. It is how the look is judged.
+## ui-mercury: render the mercury body's every state to contact sheets
+ui-mercury:
+	scripts/ui_harness.sh --mode mercury
+
+# Release build so the 4,096-seed distribution corpus and 64-seed raster corpus measure
+# the material rather than debug-code overhead. Writes benchmark.json beside the sheets
+# and exits nonzero on a hard-gate failure.
+## ui-mercury-bench: benchmark chrome stability, motion and output bounds
+ui-mercury-bench:
+	swift build -c release -Xswiftc -DUI_HARNESS >/dev/null
+	.build/release/Voiceour --ui-harness --repo-root . --mode mercury-benchmark
 
 # The required semantic flow gate checks deterministic journals and named expectations.
 ## ui-flow: portable semantic flow journals

@@ -36,32 +36,7 @@ final class RecordingOverlayModel: ObservableObject {
         state.isOverlayProcessing
     }
 
-    /// The pill's own label vocabulary. `SessionState.displayName` is written for the
-    /// console and the menu; inside the capsule the centre slot measures 118pt and the
-    /// label may use 110 of it. Measured at `micro` (SF Mono 10, tracking 0.8),
-    /// "CHECKING PERMISSIONS" is 139.6pt and "FINALIZING AUDIO" 111.7pt — neither fits
-    /// beside a 28pt control at any layout a 180pt pill can hold, so those two drop to
-    /// the single present-participle word every other processing state already uses.
-    /// Widest survivor: "READY TO INSERT" at 104.7pt.
-    var processingLabel: String? {
-        switch state {
-        case .checkingPermissions: "CHECKING"
-        case .finalizingAudio: "FINALIZING"
-        case .transcribing, .cleaning, .readyToInsert: state.displayName.uppercased()
-        default: nil
-        }
-    }
-
-    /// The same vocabulary as `processingLabel`, for the window between "capture
-    /// requested" and "audio actually flowing". Seven characters, measured on the same
-    /// `micro` metric as the labels above — SF Mono 10 medium, tracking 0.8 — at 48.9pt
-    /// against the 111.7pt that comment records for "FINALIZING AUDIO", so it clears the
-    /// centre slot's 110pt budget with more than half of it to spare.
-    var warmingLabel: String {
-        "WARMING"
-    }
-
-    /// What the centre slot announces. One stable labelled node's VALUE:
+    /// What the island announces. One stable labelled node's VALUE:
     /// warm-up, listening, speaking, each processing phase, each outcome.
     /// Human sentences only — `SessionState.displayName` interpolates wire
     /// codes on `.error` and insertion-reason tokens on the copy-only paths.
@@ -79,23 +54,6 @@ final class RecordingOverlayModel: ObservableObject {
             return derived.accessibilityStatus
         }
         return state.displayName
-    }
-
-    var showsFinishButton: Bool {
-        isRecording
-    }
-
-    /// Identity of what the island's centre and trailing slots hold, so the two
-    /// crossfade together on the one value that actually changes them. Warm-up and live
-    /// capture hold DIFFERENT things — a word and a meter — so going live is a phase
-    /// change and gets its own token. An outcome is a fourth thing, so latching and
-    /// clearing it have to move this value or the row's `.animation` never fires.
-    var centerPhaseToken: Int {
-        if outcome != nil { return 4 }
-        if isWarmingUp { return 1 }
-        if isListening { return 2 }
-        if isProcessing { return 3 }
-        return 0
     }
 
     init() {
@@ -116,13 +74,15 @@ final class RecordingOverlayModel: ObservableObject {
         }
     }
 
+    /// The mercury drive. The eleven newest levels, oldest first, shifted in place: a
+    /// 25 Hz tick must not allocate, and the previous copy-and-append did twice.
     func record(_ rawLevel: Float) {
         guard isListening, outcome == nil else { return }
         let level = Swift.min(Swift.max(rawLevel, 0), 1)
-        var next = samples
-        next.removeFirst()
-        next.append(level)
-        samples = next
+        for index in 0..<(Self.sampleCount - 1) {
+            samples[index] = samples[index + 1]
+        }
+        samples[Self.sampleCount - 1] = level
         applySpeechHysteresis(level)
     }
 

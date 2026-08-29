@@ -43,29 +43,49 @@ Type uses the tokenized 10–17 pt ladder in `DesignTokens.swift` plus the 20/32
 
 ## Recording overlay
 
-The panel is 260×80 pt; only the centered 180×34 pt capsule is visible. The transparent remainder is 40 pt each side, 16 pt above and 30 pt below — bleed for Liquid Glass's own adaptive shadow, which draws outside the capsule and would clip at the window edge. Place the visible pill 44 pt below the display's visible top edge with a 16 pt screen margin. Both discs are a 22 pt circle in a 28 pt hit target.
+The panel is a clear, borderless 260×80 pt window; only one procedural mercury body is
+visible inside the centered 180×34 pt envelope. Place that envelope 44 pt below the
+display's visible top edge with a 16 pt screen margin. The transparent remainder is
+window bleed, not another surface.
 
-The island has three grounds, and none of them draws an app shadow:
+There is no capsule, glass material, app shadow, control disc, waveform, working mark,
+painted word, symbol, authored highlight, rim or tint. A CPU rasterizer draws a generated
+polished-mercury material into one `CGImage` on every supported macOS version:
 
-- macOS 26 uses `.glassEffect(.regular, in: .capsule)`. The material's own adaptive shadow is the elevation.
-- macOS 14/15 uses behind-window frost plus the app's tint and two rims.
-- Reduce Transparency, on every OS, replaces either with opaque `Ink.void`.
+- `MercurySimulation` emits the top and bottom contact lines. Listening, speaking,
+  processing and the three unclean outcomes are distinct size/shape poses.
+- `MercuryField` is the sole silhouette. Pixels, drag hit-testing and the open-hand cursor
+  all ask that same signed field, so invisible panel area cannot swallow a click.
+- A fixed-aspect half-elliptic crown lifts that field into a surface. Its total gradient
+  includes the changing local radius, so a crest changes the reflection as well as the
+  outline; the broad mirror-flat plateau is unrepresentable.
+- Every session draws one static generated room: bounded, stratified area sources over a
+  neutral bounce, with low-saturation luminance-neutral source colour. The room never
+  rotates or changes intensity. All visible motion belongs to the body.
+- Exact liquid-mercury conductor Fresnel colours the reflected room. A two-anchor bounded
+  response maps the room's median to 0.32 and its p98 highlight to 0.87 in linear light;
+  no finite radiance can reach the 0.94 ceiling, so sustained speech cannot turn the body
+  plain white.
 
-On the painted and opaque grounds the frost, tint and two rims already give the silhouette its separation. The `NSPanel` stays clear, non-opaque, and shadowless; the visible surface owns its own shape.
+Autonomous mode noise keeps the visible body alive while listening. The eleven audio
+levels drive a right-to-left crest train during speech. Physics stays at 120 Hz; the
+engine presents a cached raster at 30 Hz. Reduce Motion removes autonomous noise but
+keeps voice and pose motion because those carry information. The body is already opaque
+and its room is already static, so Reduce Transparency requires no overlay-specific
+branch and changes no pixels. Increase Contrast re-solves the same bounded scene anchors
+and never clips against the ceiling.
 
-On system glass, the material is adaptive and can render light over a light desktop. Neutral text and glyphs therefore use `.primary`/`.secondary` so SwiftUI's vibrancy keeps them legible; an explicit sRGB literal defeats that treatment. Hues that carry meaning use `VoiceourPalette.OnGlass`, whose four mid-tones are each measured to clear 4.5:1 against both white and black. `Signal`'s pastels stay correct on the two near-black grounds and are used there unchanged.
-
-The meter is eleven 4 pt bars 4 pt apart, resting at 8 pt and rising to 20 pt (12 pt under Reduce Motion). Opacity floors at 0.78, and at 0.92 under Increase Contrast. There is no bloom and no glow. Voice activity is hysteretic: two samples at or above 0.10 start speaking, seven at or below 0.05 stop it, so "open" and "hearing you" are two stable states rather than a twitch.
-
-The working mark is three 3 pt dots handing emphasis right to left over 0.72 s, static under Reduce Motion.
-
-Only an unclean delivery gets a moment: `copiedOnly`, `insertFailed` and `error` hold 1.2 s with a symbol and a word, click-through, both controls withdrawn. A clean paste and a cancel dismiss at once.
+Idle draws and publishes nothing. Active states expose one fixed-frame accessibility
+element labelled `Dictation status`; Finish and Cancel survive as named actions on it.
+Unclean outcomes hold for 1.2 seconds and use three deterministic silhouette gestures
+(`gathered`, `lurch`, `collapse`), click-through, with no glyph, word or hue carrying the
+state. A clean paste and a cancel dismiss at once.
 
 ## Motion
 
 - Respect Reduce Motion at every animation boundary, and use the shared quick, standard, and deliberate timing vocabulary.
 - The menu animates report and state changes so resizing does not jump under the pointer.
-- The overlay waveform and working mark are the only continuous visual signals. Under Reduce Motion the waveform's maximum travel drops to 12 pt and the working mark is static.
+- The overlay's room is static. Autonomous and voice-driven surface modes are its only continuous visual motion; Reduce Motion removes the autonomous part while preserving the information-bearing voice and pose response.
 - Native console controls keep system motion and focus behavior.
 - Resting settings do not animate. A static state stays understandable with all motion disabled.
 

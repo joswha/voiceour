@@ -1,9 +1,0 @@
-flow: overlay.recording.controls
-title: The recording overlay exposes both labelled controls
-fixture: static
-transitions: recording
-PASS 1 controls | exists label="Dictation status" | 1 match
-PASS 2 controls | enabled(true) label="Cancel recording" | true
-PASS 3 controls | label label="Cancel recording" == "Cancel recording" | "Cancel recording"
-PASS 4 controls | enabled(true) label="Finish recording" | true
-PASS 5 controls | label label="Finish recording" == "Finish recording" | "Finish recording"

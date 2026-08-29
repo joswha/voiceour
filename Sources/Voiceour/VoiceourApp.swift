@@ -36,6 +36,10 @@ struct VoiceourApp: App {
             let ok = VoiceourSelfTest.run()
             Darwin.exit(ok ? 0 : 1)
         }
+        // The mercury mode gains are process constants solved against the production
+        // geometry. Warm them during launch so the first Fn tap pays only its room draw
+        // and two-anchor response, never the ~150 ms calibration tournament.
+        _ = MercuryCalibration.shared
         // Home's heatmap is this app's only tooltip, and it is a data surface:
         // hovering a square *is* the reading gesture, so AppKit's two-second
         // arming delay is the whole latency of the feature. The delay is a

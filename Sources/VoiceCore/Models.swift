@@ -90,6 +90,12 @@ public struct Settings: Codable, Equatable, Sendable {
     /// written by a future build degrades to the default instead of throwing — a decode failure
     /// here would quarantine the whole settings file over one unknown word.
     public var asrModelVariant: ASRModelVariant
+    /// Which generated room the recording island's mercury reflects.
+    ///
+    /// Stored as its raw tag and resolved through ``MercuryWorld/resolved(_:)``, for the
+    /// same reason `asrModelVariant` above is: a value written by a future build must
+    /// degrade to the default rather than quarantine the whole settings file.
+    public var mercuryWorld: MercuryWorld
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
     public var sessionSoundsEnabled: Bool
@@ -124,6 +130,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case cleanupEnabled = "cleanup_enabled"
         case asrBackend = "asr_backend"
         case asrModelVariant = "asr_model_variant"
+        case mercuryWorld = "mercury_world"
         case glossary
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
         case sessionSoundsEnabled = "session_sounds_enabled"
@@ -138,6 +145,7 @@ public struct Settings: Codable, Equatable, Sendable {
         cleanupEnabled: Bool = true,
         asrBackend: String = "parakeet",
         asrModelVariant: ASRModelVariant = .default,
+        mercuryWorld: MercuryWorld = .default,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
         sessionSoundsEnabled: Bool = true,
@@ -150,6 +158,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
         self.asrModelVariant = asrModelVariant
+        self.mercuryWorld = mercuryWorld
         self.glossary = glossary
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
         self.sessionSoundsEnabled = sessionSoundsEnabled
@@ -167,6 +176,9 @@ public struct Settings: Codable, Equatable, Sendable {
         asrBackend = try container.decodeIfPresent(String.self, forKey: .asrBackend) ?? defaults.asrBackend
         asrModelVariant = ASRModelVariant.resolved(
             try container.decodeIfPresent(String.self, forKey: .asrModelVariant)
+        )
+        mercuryWorld = MercuryWorld.resolved(
+            try container.decodeIfPresent(String.self, forKey: .mercuryWorld)
         )
         glossary = try container.decodeIfPresent([ProtectedTerm].self, forKey: .glossary) ?? defaults.glossary
         muteSystemAudioDuringCapture =

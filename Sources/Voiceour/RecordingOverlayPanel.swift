@@ -5,16 +5,22 @@ final class RecordingOverlayPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
+
+/// Routes the mouse against the mercury body's own silhouette.
+///
+/// There are no child controls left, so there is nothing to forward a press to and
+/// `super.hitTest` is never called: a press either lands on the body and starts a window
+/// drag, or it is not this window's press at all and falls through to whatever is
+/// underneath. The predicate is the same scalar field the rasterizer drew, so a click ten
+/// points outside the visible mercury reaches the app below rather than a transparent
+/// rectangle the user cannot see.
 @MainActor
 final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
-    private let showsFinishButton: () -> Bool
+    private let hitRegion: MercuryHitRegion
     private var dragCursorArea: NSTrackingArea?
 
-    init(
-        rootView: Content,
-        showsFinishButton: @escaping () -> Bool
-    ) {
-        self.showsFinishButton = showsFinishButton
+    init(rootView: Content, hitRegion: MercuryHitRegion) {
+        self.hitRegion = hitRegion
         super.init(rootView: rootView)
     }
 
@@ -33,32 +39,31 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // `point` arrives in the SUPERVIEW's space, which is not flipped; every rect
-        // below is written in this view's own flipped space. Convert before testing.
+        // `point` arrives in the SUPERVIEW's space, which is not flipped; the hit region
+        // is written in this view's own flipped space. Convert before testing.
         let local = superview.map { convert(point, from: $0) } ?? point
-        guard RecordingOverlayMetrics.islandHitRect(in: bounds).contains(local) else {
+        guard hitRegion.contains(local, in: bounds, slop: MercuryMetrics.dragSlop) else {
             return nil
         }
-        return super.hitTest(point)
+        return self
     }
 
     override func mouseDown(with event: NSEvent) {
-        if isOverControl(event) {
-            super.mouseDown(with: event)
-            return
-        }
-
         guard let window else {
             super.mouseDown(with: event)
             return
         }
-
         window.performDrag(with: event)
     }
 
-    /// The pill is repositionable and its position is remembered, which is
-    /// undiscoverable without a cursor contract: everywhere but the two controls,
-    /// the pointer says "you can pick this up".
+    /// The island is repositionable and its position is remembered, which is
+    /// undiscoverable without a cursor contract: on the body, the pointer says "you can
+    /// pick this up".
+    ///
+    /// One tracking area over the island rect rather than over the body, because the body
+    /// changes shape every frame and rebuilding a tracking area at 60 Hz is churn AppKit
+    /// does not need. The rect decides where the cursor is *asked*; the field decides what
+    /// the answer is.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let dragCursorArea {
@@ -75,25 +80,13 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if isOverControl(event) {
-            super.cursorUpdate(with: event)
-        } else {
-            NSCursor.openHand.set()
-        }
-    }
-
-    private func isOverControl(_ event: NSEvent) -> Bool {
-        // `locationInWindow` converts into this view's own flipped space, which is
-        // the space `controlRects` is written in. Reading the rects bottom-up while
-        // testing a top-down point sent 64% of every control press to
-        // `window.performDrag`, so the pill crept across the screen on every finish.
+        // `locationInWindow` converts into this view's own flipped space, which is the
+        // space the hit region is written in.
         let point = convert(event.locationInWindow, from: nil)
-        return
-            RecordingOverlayMetrics
-            .controlRects(
-                in: RecordingOverlayMetrics.islandRect(in: bounds),
-                includeFinish: showsFinishButton()
-            )
-            .contains { $0.contains(point) }
+        if hitRegion.contains(point, in: bounds, slop: MercuryMetrics.dragSlop) {
+            NSCursor.openHand.set()
+        } else {
+            super.cursorUpdate(with: event)
+        }
     }
 }

@@ -26,6 +26,7 @@
     /// restores the prior process-wide seams when the hierarchy disappears.
     enum UIHarnessAccessibilityAdaptation {
         case reduceTransparency
+        case reduceMotion
         case increaseContrast
         case differentiateWithoutColor
     }
@@ -138,6 +139,8 @@
             switch self {
             case .reduceTransparency:
                 RenderOverrides.reduceTransparency = true
+            case .reduceMotion:
+                RenderOverrides.reduceMotion = true
             case .increaseContrast:
                 RenderOverrides.increasedContrast = true
             case .differentiateWithoutColor:
@@ -187,6 +190,16 @@
         /// rasterisation gap read as "the accessibility tree stayed byte-identical".
         /// Flows can assert it; no golden moves.
         var selected: Bool?
+        /// Named accessibility actions, from `accessibilityCustomActions`.
+        ///
+        /// Deliberately NOT printed by `AXDump.text`, for the same reason `selected` is
+        /// not: it is a flow-only contract, and printing it would churn every console
+        /// golden that already publishes a named action without any behaviour changing.
+        /// The recording island's Finish and Cancel are the reason it exists -- when a
+        /// surface stops being made of controls, the actions it published are the whole
+        /// of what an assistive technology could lose, so a flow has to be able to assert
+        /// they are still there.
+        var actions: [String]
         var frame: CGRect
         var children: [AXNode]
     }
@@ -260,6 +273,12 @@
             case flowCheck = "flow-check"
             /// Same as `flowCheck`, but rewrite the journal goldens instead of failing.
             case flowUpdate = "flow-update"
+            /// Render the mercury body's every state to contact sheets. A debugging
+            /// instrument: it writes no goldens and gates nothing.
+            case mercury = "mercury"
+            /// Run the selected chrome candidate over deterministic distribution and
+            /// raster corpora, writing a JSON report and failing hard-gate violations.
+            case mercuryBenchmark = "mercury-benchmark"
 
             /// Whether this mode blesses goldens instead of failing on a difference.
             ///
@@ -268,7 +287,8 @@
             var writesGoldens: Bool {
                 switch self {
                 case .update, .flowUpdate: return true
-                case .list, .check, .flowList, .flowCheck: return false
+                case .list, .check, .flowList, .flowCheck, .mercury, .mercuryBenchmark:
+                    return false
                 }
             }
         }
@@ -386,8 +406,7 @@
               --update           rewrite scene goldens instead of failing on a difference
               --flow-list        print the flow catalog as JSON and exit
               --flow-check       run flows and compare semantic journals against goldens
-              --flow-update      run flows and rewrite semantic journal goldens
-              --mode MODE        list|check|update|flow-list|flow-check|flow-update (default check)
+              --mode MODE        list|check|update|flow-list|flow-check|flow-update|mercury|mercury-benchmark (default check)
               --only a,b         only scenes or flows whose id contains, or whose tags include, a or b
               --except a,b       exclude scenes or flows whose id contains, or whose tags include, a or b; applied after --only
               --out DIR          artifact directory (default <repo>/.build/ui-harness)

@@ -91,6 +91,16 @@ enum RenderOverrides {
     /// this as nil, which is the live HAL read.
     static var availableMicrophones: [CoreAudioInputDevice.AvailableMicrophone]?
 
+    /// Pins the recording island's generated world and the exact substep its body is
+    /// rendered at. The body is a live simulation driven by wall-clock time, which no
+    /// golden could ever hash twice; with a step pinned the view produces exactly one
+    /// frame, advanced from rest by that many fixed substeps, and no `TimelineView` is
+    /// instantiated at all. Production reads all three as nil, which is a fresh random
+    /// world per session and real time.
+    static var mercurySeed: UInt64?
+    static var mercuryStep: Int?
+    static var mercuryWorld: MercuryWorld?
+
     /// Forces the painted macOS 14 glass path on a newer runtime. Production
     /// follows availability normally; the harness pins this to true below.
     static var forceLegacyGlass = false

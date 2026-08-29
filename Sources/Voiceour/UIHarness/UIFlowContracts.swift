@@ -261,6 +261,13 @@
         case value(UIQuery, UIText)
         /// The single matching node's label satisfies the text rule.
         case label(UIQuery, UIText)
+        /// The single matching node publishes exactly these named accessibility actions,
+        /// in this order.
+        ///
+        /// The recording island is the reason this exists: it has no controls at all, so
+        /// Finish and Cancel are named actions on its status element and nothing else in
+        /// the tree can witness them.
+        case actions(UIQuery, [String])
         /// The single matching node's role equals this role.
         case role(UIQuery, String)
         /// Visible static text anywhere in the tree satisfies the text rule, this many times.
@@ -284,6 +291,8 @@
             case .selected(let query, let flag): return "selected(\(flag)) \(query)"
             case .value(let query, let text): return "value \(query) \(text)"
             case .label(let query, let text): return "label \(query) \(text)"
+            case .actions(let query, let names):
+                return "actions \(query) == [\(names.joined(separator: ", "))]"
             case .role(let query, let role): return "role \(query) == \(role)"
             case .text(let text, let count): return "text \(text) \(count)"
             case .state(let pattern): return "state == \(pattern)"
@@ -301,6 +310,7 @@
             case .exists(let query), .absent(let query): return query
             case .count(let query, _), .enabled(let query, _), .selected(let query, _): return query
             case .value(let query, _), .label(let query, _), .role(let query, _): return query
+            case .actions(let query, _): return query
             case .text, .state, .transitions, .model, .lintClean: return nil
             }
         }

@@ -49,6 +49,52 @@ Which device records is decided per recording, in `CoreAudioInputDevice.preferre
 
 `UserFacingDictationFailure` is the single mapping from mechanism to recovery: each failure gets a title, a plain cause, whether retrying can work, and where to fix it.
 
+## Recording overlay renderer
+
+`RecordingOverlayController` owns one transparent nonactivating panel, one
+`MercuryHitRegion`, and one random session seed. `MercuryRibbon` turns state and the
+eleven input levels into `MercurySimulation.Drive`; `MercuryEngine` advances the fixed
+120 Hz simulation, static generated room and reused CPU rasterizer, then publishes the
+same field to AppKit mouse routing.
+
+The geometry pipeline has one representation:
+
+1. `MercurySimulation.Geometry` supplies 97 top and bottom contact-line samples.
+2. `MercuryField` linearly evaluates their center/radius signed field for pixels and hit
+   testing.
+3. `MercuryCrown` lifts that field with
+   `z = β√(2rφ̃ − φ̃²)`, `β = 0.78`, using a quarter-pixel smooth-positive `φ̃` only to
+   regularize the analytic limb. The normal is the total derivative
+   `(∂z/∂φ)∇φ + (∂z/∂r)∇r`; omitting the second term lets the outline wiggle while the
+   reflection remains mechanically straight.
+
+`MercuryEnvironment` builds three 96×48 x-polar linear-RGB tables. Room of Ten uses 32
+bounded, equal-area-stratified spherical-Gaussian area sources (log-uniform sharpness
+20–600) over 30% neutral bounce. Per-source log intensity is bounded to ±0.55 and a
+seed-random Rec.709-luminance-null opponent supplies at most 7% local chroma; source
+coefficients are power-centered, so the sphere mean remains neutral. The room is fixed
+after construction. Spectral Weather remains a debug-only alternate draw and is fixed
+too; environment motion never competes with the organism.
+
+`MercuryRasterizer` samples the static room in the exact mirror direction and multiplies
+by exact unpolarized liquid-mercury conductor Fresnel. `MercuryCalibration` meters linear
+`room × Fresnel` samples pooled over listening and speaking and solves
+`MercuryDisplayResponse` from two anchors: p50→0.32 and p98→0.87. The monotone
+Naka–Rushton response has a compiled 0.94 linear-light ceiling that finite radiance
+cannot reach; RGB gamut handling preserves mapped Rec.709 luminance while desaturating
+only when a channel would leave that ceiling.
+
+The permanent material gate is `make ui-mercury-bench`: 4,096 generated-room seeds, 64
+production rasters, reflected-direction coverage, output bounds and 30 seconds of live
+surface motion. `make ui-mercury` is the non-gating visual bench for states, grounds,
+worlds, motion, parameter sweeps and shipping/prototype comparisons.
+
+Physics advances at 120 Hz while `MercuryEngine` reuses each raster for intervening
+Timeline ticks and presents at 30 Hz. The process warms the geometry-mode calibration
+during launch; the material gate holds launch calibration below 200 ms, first-room plus
+first-raster latency below 25 ms, and steady raster work below 5.5% of one core at the
+presented rate.
+
 ## ASR sidecar protocol
 
 Newline-delimited JSON over the sidecar's stdin and stdout. Stdout carries protocol frames only; logs go to stderr. Every frame carries `protocol_version: 1`, and the client rejects any mismatch.

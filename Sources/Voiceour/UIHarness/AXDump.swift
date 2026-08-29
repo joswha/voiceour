@@ -141,6 +141,7 @@
                 help: reader.help(),
                 enabled: reader.enabled(role: role),
                 selected: reader.selected(),
+                actions: reader.actionNames(),
                 frame: converter.windowLocal(reader.screenFrame()),
                 children: childNodes(of: reader, converter: converter, depth: depth, budget: budget)
             )
@@ -184,6 +185,7 @@
                     help: nil,
                     enabled: nil,
                     selected: nil,
+                    actions: [],
                     frame: .zero,
                     children: []
                 )
@@ -203,6 +205,7 @@
                 help: nil,
                 enabled: nil,
                 selected: nil,
+                actions: [],
                 frame: .zero,
                 children: []
             )
@@ -282,6 +285,7 @@
         func isAccessibilitySelected() -> Bool
         func accessibilityFrame() -> NSRect
         func accessibilityChildren() -> [Any]?
+        func accessibilityCustomActions() -> [Any]?
     }
 
     /// The pre-10.10 attribute API, still the only one some AppKit elements answer.
@@ -406,6 +410,18 @@
         func selected() -> Bool? {
             guard answers(AXSelectors.selected) else { return nil }
             return modern.isAccessibilitySelected()
+        }
+
+        /// The names SwiftUI's `accessibilityAction(named:)` publishes, modern accessor
+        /// only: they arrive as `NSAccessibilityCustomAction`, which the pre-10.10
+        /// attribute API has no representation for at all.
+        func actionNames() -> [String] {
+            guard answers(AXSelectors.customActions),
+                let actions = modern.accessibilityCustomActions()
+            else { return [] }
+            return actions.compactMap { action in
+                axNonEmpty((action as? NSAccessibilityCustomAction)?.name)
+            }
         }
 
         /// Screen coordinates, bottom-left origin. `AXFrameConverter` makes them window-local.
@@ -536,6 +552,7 @@
         static let selected = NSSelectorFromString("isAccessibilitySelected")
         static let frame = NSSelectorFromString("accessibilityFrame")
         static let children = NSSelectorFromString("accessibilityChildren")
+        static let customActions = NSSelectorFromString("accessibilityCustomActions")
         static let legacyAttributeValue = NSSelectorFromString("accessibilityAttributeValue:")
     }
 

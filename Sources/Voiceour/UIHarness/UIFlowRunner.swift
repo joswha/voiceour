@@ -211,6 +211,9 @@
 
             case .overlay:
                 let bridge = OverlayBridge(coordinator: context.coordinator)
+                // One region, so the hosted view and anything routing the mouse against
+                // it read the same silhouette rather than two descriptions of it.
+                let hitRegion = MercuryHitRegion()
                 return Host(
                     size: RecordingOverlayMetrics.windowSize,
                     colorScheme: .dark,
@@ -220,7 +223,8 @@
                         RecordingOverlayView(
                             model: bridge.model,
                             onCancel: { context.coordinator.cancel() },
-                            onFinish: { context.coordinator.stopAndProcess() }
+                            onFinish: { context.coordinator.stopAndProcess() },
+                            hitRegion: hitRegion
                         )
                     )
                 }

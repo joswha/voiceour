@@ -126,17 +126,20 @@ struct RecordingOverlayOutcomeTests {
         #expect(RecordingOverlayOutcome(state: state) == nil)
     }
 
+    /// Three unclean deliveries, three distinct silhouette gestures and one spoken
+    /// sentence each. The island paints no word and no symbol, so the gesture and the
+    /// accessibility value are the whole of what it reports.
     @Test(arguments: [
-        SessionState.copiedOnly(reason: "terminal"),
-        .insertFailed(reason: "no focused element"),
-        .error(.backendUnavailable),
+        (SessionState.copiedOnly(reason: "terminal"), MercuryOutcomeGesture.gathered),
+        (.insertFailed(reason: "no focused element"), .lurch),
+        (.error(.backendUnavailable), .collapse),
     ])
-    func anUncleanDeliveryGetsAMoment(state: SessionState) {
+    func anUncleanDeliveryGetsAMoment(state: SessionState, gesture: MercuryOutcomeGesture) {
         let outcome = RecordingOverlayOutcome(state: state)
 
         #expect(outcome != nil)
-        #expect(outcome?.word.isEmpty == false)
-        #expect(outcome?.symbol.isEmpty == false)
+        #expect(outcome?.gesture == gesture)
+        #expect(outcome?.accessibilityStatus.isEmpty == false)
     }
 
     /// The island is the surface a VoiceOver reader hears, and `displayName` interpolates
@@ -152,7 +155,7 @@ struct RecordingOverlayOutcomeTests {
         for code in ASRErrorCode.allCases {
             let outcome = RecordingOverlayOutcome(state: .error(code))
 
-            #expect(outcome?.word == "FAILED")
+            #expect(outcome?.gesture == .collapse)
             #expect(outcome?.isFailure == true)
             if code.rawValue.contains("_") {
                 #expect(outcome?.accessibilityStatus.contains(code.rawValue) == false)
@@ -199,13 +202,13 @@ struct RecordingOverlayOutcomeTests {
         #expect(RecordingOverlayOutcome(state: .error(.inferenceFailed))?.isFailure == true)
     }
 
-    /// The island's row crossfades on `centerPhaseToken`, so latching an outcome has to
-    /// move it or the report swaps in without a transition.
-    @Test func latchingAnOutcomeMovesTheAnimationToken() {
+    /// Latching an outcome is what the island reports, and the only channel it reports
+    /// through is the status element's value.
+    @Test func latchingAnOutcomeChangesTheSpokenStatus() {
         let model = RecordingOverlayModel()
         model.update(.recording)
         model.updateCaptureLive(true)
-        let listening = model.centerPhaseToken
+        let listening = model.accessibilityStatus
 
         guard let outcome = RecordingOverlayOutcome(state: .error(.backendUnavailable)) else {
             Issue.record("an error state must produce an outcome")
@@ -213,12 +216,12 @@ struct RecordingOverlayOutcomeTests {
         }
         model.present(outcome)
 
-        #expect(model.centerPhaseToken != listening)
+        #expect(model.accessibilityStatus != listening)
         #expect(model.accessibilityStatus == outcome.accessibilityStatus)
 
         model.reset()
         #expect(model.outcome == nil)
-        #expect(model.centerPhaseToken != 4)
+        #expect(model.accessibilityStatus != outcome.accessibilityStatus)
     }
 
     /// The meter is gone while a report is showing, so a late buffer from the session that

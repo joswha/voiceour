@@ -1,0 +1,2 @@
+AXGroup subrole=AXHostingView [0,0 180x34]
+  AXStaticText "Dictation status" value="Transcribing" id=overlay.status help="Use the named action to cancel this dictation." [0,0 180x34]

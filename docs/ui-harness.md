@@ -12,12 +12,14 @@ Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI 
 | `make ui-flow-update` | Rewrite intended portable flow journals. |
 | `make ui-list`, `make ui-flow-list` | Print the scene or flow catalog as JSON. |
 | `make ui-all` | Portable scenes and flows, then the supported `os26` legs. |
+| `make ui-mercury` | Render isolated shipping/prototype material contact sheets. Not a gate. |
+| `make ui-mercury-bench` | Run the selected chrome material through 4,096 room seeds, 64 production rasters and 30 seconds of motion. |
 
 `scripts/ui_harness.sh` builds with `-DUI_HARNESS` and forwards these flags:
 
 | flag | meaning |
 | --- | --- |
-| `--mode MODE` | `list`, `check`, `update`, `flow-list`, `flow-check`, or `flow-update`; default `check`. All but `check` also work as bare flags (`--update`). |
+| `--mode MODE` | `list`, `check`, `update`, `flow-list`, `flow-check`, `flow-update`, `mercury`, or `mercury-benchmark`; default `check`. |
 | `--only a,b`, `--except a,b` | Include, then exclude, ids containing or tagged `a` or `b`. |
 | `--out DIR`, `--golden DIR` | Artifact and golden directories; default `.build/ui-harness` and `fixtures/ui`. |
 | `--repo-root DIR` | Root for both defaults, or set `VOICEOUR_REPO_ROOT`. |
@@ -39,6 +41,19 @@ An unfiltered run excludes `os26`. Exit status is 0 when clean or updated, 1 for
     <flow>.flow.txt
     <flow>.flow.diff              # present only while the journal differs
     manifest.jsonl
+  mercury/                        # isolated material tools; no goldens
+    states.png                    # every shipping state on four grounds
+    motion.png                    # consecutive shipping speaking frames
+    outcome-motion.png            # lurch/collapse impulse transition frames
+    worlds.png                    # four rooms of each generated world
+    adaptations.png               # standard and bounded Increase Contrast
+    comparison.png                # shipping and candidate, same body and room
+    candidate-motion.png          # shipping/candidate temporal strips
+    candidate-worlds.png          # shipping/candidate seed comparison
+    room-sweep.png                # source-count/scale/bounce search
+    selected-room-worlds.png      # accepted scalar/chromatic room over eight seeds
+    chroma-sweep.png              # accepted room at four chroma strengths
+    benchmark.json                # hard-gate distribution/raster/motion report
 
 fixtures/ui/
   <scene>.png.sha256
@@ -115,4 +130,4 @@ A flow hosts a real menu, overlay, or console view with an inert fixture, then d
 - Settling is a fixed count of run-loop pumps, never an adaptive wait for stability.
 - Enhanced accessibility must be enabled before the dump, or `NSHostingView` exposes a near-empty tree.
 - Capture uses `cacheDisplay(in:to:)` into an owned interleaved RGBA8 `NSBitmapImageRep` with `.deviceRGB`, alpha kept; alpha disables subpixel font smoothing and its raster drift.
-- Neither glass path survives `cacheDisplay`, which also drops Core Animation blur and shadow. Verify glass onscreen with `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh <tab>`. Because `cacheDisplay` drops both `.glassEffect` and `.shadow`, no golden can prove the recording island's halo is absent or show the material itself, so that surface is verified on-screen in the signed app over light, dark and text-dense backdrops. Goldens still cover the AX tree, layout, and the app-drawn signal.
+- `cacheDisplay` drops system glass, Core Animation blur and shadow. Verify the console/menu glass onscreen with `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh <tab>`. The recording island is an ordinary `CGImage` and is captured completely offscreen; its scene goldens and `make ui-mercury` artifacts are the material proof.

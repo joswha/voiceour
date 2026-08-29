@@ -15,15 +15,14 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 
 ### Changed
 
-- **Listening meter.** The recording island's eleven bars rest at 8 pt so an open microphone is a visible row, and they rise only after voice activity holds — two samples to start, seven to stop — instead of twitching on room noise.
-- **Working mark.** While the island is processing, three dots hand emphasis right to left. The random-emoji comet is gone.
-- **Unclean delivery.** Copy-only, a failed paste, and an error hold for a moment with a symbol and a word; a clean paste and a cancel still dismiss at once.
+- **Mercury recording island.** The capsule, control discs, waveform, working dots and painted outcome words are replaced by one borderless procedural mercury body. Listening, speaking, processing and unclean outcomes are distinct organic poses; Finish and Cancel remain available as named VoiceOver actions on the stable status element.
+- **Polished chrome material.** A full half-elliptic crown makes the whole body reflective instead of a flat lozenge with a bevel. Each session reflects one fixed generated RGB room through exact liquid-mercury Fresnel, with bounded source intensity and subtle neutral-mean room colour. A two-anchor response preserves real black and bright chrome bands while making plain-white collapse mathematically unreachable.
 - **One way to build and run.** `make` prints the target catalogue; `make run` builds and launches the real app, `make dev` runs the fake backend in the terminal, `make check` is the whole portable gate, and `make stop`, `make status`, `make logs` and `make signing` cover the rest of a development session. `scripts/run_real.sh`, `scripts/restart_real.sh` and `scripts/run_dev.sh` are gone. `make run` stops the running instance before it launches, which is a fix rather than a courtesy: the app terminates a second instance of itself, so launching a freshly built bundle over a live one made the *new* process quit and left the previous build running. It also re-bundles only when `Package.swift`, `scripts/bundle.sh`, `Sources/`, `Resources/` or `Vendor/` moved, so relaunching an unchanged bundle is the same command at about a quarter of a second, and it forwards `VOICEOUR_ASR_BACKEND`, `VOICEOUR_MODEL_VARIANT` and `VOICEOUR_SUPPORT_DIR` out of a root `.env` explicitly with `open --env`, instead of relying on whether a given macOS propagates the shell's environment through LaunchServices. `make check-docs` now also asserts that every command the live docs name is a real make target or an existing script.
 
 ### Fixed
 
-- **Rectangular halo around the recording island.** The island no longer stacks app-drawn black drop shadows on top of system glass. Those shadows cannot follow a capsule glass effect, so Core Animation was casting them from the rectangular layer bounds. Liquid Glass already supplies its own adaptive shadow.
-- **Washed-out island on a light desktop.** On macOS 26 system glass, labels and glyphs use `.primary`/`.secondary` and meaning-bearing hues use a mid-tone `OnGlass` palette measured to stay readable on both light and dark glass. The pastel `Signal` and `Text` colours remain on the near-black grounds.
+- **Mechanical highlight sweep.** Generated rooms no longer rotate or change intensity under the body. All visible motion now comes from the autonomous and voice-driven surface modes, so highlights deform and travel with the organism.
+- **Seed-dependent white-out.** The room distribution is bounded and benchmarked over 4,096 deterministic seeds. Its display response maps median and highlight anchors independently and has a strict 0.94 linear-light ceiling; sustained speech cannot saturate the island.
 
 ## [0.1.0] - 2026-08-26
 

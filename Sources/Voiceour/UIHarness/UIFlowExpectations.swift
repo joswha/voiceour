@@ -84,6 +84,14 @@
                     return Evaluation(passed: rule.accepts(actual), observed: UIQuery.quote(actual))
                 }
 
+            case .actions(let query, let expected):
+                result = evaluateUnique(query, in: tree) { node in
+                    Evaluation(
+                        passed: node.actions == expected,
+                        observed: "[\(node.actions.joined(separator: ", "))]"
+                    )
+                }
+
             case .role(let query, let expected):
                 result = evaluateUnique(query, in: tree) { node in
                     Evaluation(passed: node.role == expected, observed: node.role)

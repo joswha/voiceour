@@ -906,20 +906,25 @@
         private static var overlayFlows: [UIFlow] {
             [
                 UIFlow(
-                    id: "overlay.recording.controls",
-                    title: "The recording overlay exposes both labelled controls",
+                    id: "overlay.recording.actions",
+                    title: "The recording island publishes both labelled actions and no controls",
                     tags: ["overlay", "dictation"],
                     host: .overlay,
                     fixture: .static(.recording),
                     steps: [
                         .check(
-                            "controls",
+                            "actions",
                             [
                                 .exists(Selector.dictationStatus),
-                                .enabled(Selector.cancelRecording, true),
-                                .label(Selector.cancelRecording, .equals("Cancel recording")),
-                                .enabled(Selector.finishRecording, true),
-                                .label(Selector.finishRecording, .equals("Finish recording")),
+                                .value(Selector.dictationStatus, .equals("Speaking")),
+                                // The island is one procedural body: nothing in it is a
+                                // control, so the two actions the discs used to carry
+                                // live on the status element itself.
+                                .count(.role("AXButton"), .exactly(0)),
+                                .actions(
+                                    Selector.dictationStatus,
+                                    ["Finish recording", "Cancel recording"]
+                                ),
                             ]
                         )
                     ]),
@@ -952,6 +957,16 @@
                     .wait(.state(.finalizingAudio)),
                     .release(.recorderStop),
                     .wait(.state(.transcribing)),
+                    .check(
+                        "processing-action",
+                        [
+                            .actions(
+                                Selector.dictationStatus,
+                                ["Cancel dictation"]
+                            ),
+                            .count(.role("AXButton"), .exactly(0)),
+                        ]
+                    ),
                     .release(.transcription),
                     .wait(.state(.readyToInsert)),
                     .release(.insertion),
@@ -964,9 +979,7 @@
                                 Selector.dictationStatus,
                                 .equals("The transcript is on the clipboard.")
                             ),
-                            .absent(Selector.cancelRecording),
-                            .absent(Selector.cancelDictation),
-                            .absent(Selector.finishRecording),
+                            .actions(Selector.dictationStatus, []),
                             .count(.role("AXButton"), .exactly(0)),
                             .transitions(
                                 [
@@ -989,36 +1002,30 @@
             )
         }
 
-        /// The window this whole surface was blind to.
+        /// The capture-live boundary the surface used to hide.
         ///
-        /// `AudioRecording.captureIsLive()` used to be answered by the protocol default --
-        /// `true`, always -- or, on the streaming path, by the arrival of the first tap
-        /// callback, which on AirPods Max fires at 151 ms holding a buffer of pure zeros.
-        /// The island therefore drew a flat meter for the 1.4 s before real audio arrived,
-        /// which looks exactly like a live meter in a quiet room, and the user spoke into
-        /// the hole. This journey stands inside that window: one element, one stable
-        /// label, and a value that changes at the moment the capture actually wakes up.
-        ///
-        /// The centre slot crossfades on `centerPhaseToken` with a wall-clock curve.
-        /// `overlay.island.warmup` and `overlay.island.recording` pin the stable endpoints;
-        /// this journey verifies their order.
+        /// `AudioRecording.captureIsLive()` used to be answered by the protocol default
+        /// `true`, or by the first tap callback even when it held zeros. A cold Bluetooth
+        /// link can therefore spend 1.4 seconds in `.recording` before real audio arrives.
+        /// This journey holds that boundary: one stable status element moves from
+        /// "Microphone starting" to "Speaking", while the distinct warming and speaking
+        /// mercury poses are pinned by their scene goldens.
         private static var warmupFlow: UIFlow {
             UIFlow(
                 id: "overlay.capture.warmup",
-                title: "The island says WARMING until the microphone is really delivering audio",
+                title: "The island reports microphone warm-up until audio is really live",
                 tags: ["overlay", "dictation", "warmup"],
                 host: .overlay,
                 fixture: .captureWarmup(),
                 steps: [
-                    // Before anything starts: the trailing cap holds no action at all, so
-                    // the island publishes exactly one control, the discard.
+                    // Before anything starts there is no body and no element at all: the
+                    // panel is a hole, so a click reaches the app underneath.
                     .check(
                         "idle",
                         [
                             .state(.idle),
-                            .absent(Selector.finishRecording),
-                            .enabled(Selector.cancelDictation, true),
-                            .count(.role("AXButton"), .exactly(1)),
+                            .absent(Selector.dictationStatus),
+                            .count(.role("AXButton"), .exactly(0)),
                         ]
                     ),
                     .act(.dictate(.start)),
@@ -1036,7 +1043,10 @@
                             .value(Selector.dictationStatus, .equals("Microphone starting")),
                             .absent(Selector.listeningStatus),
                             .absent(Selector.speakingStatus),
-                            .enabled(Selector.finishRecording, true),
+                            .actions(
+                                Selector.dictationStatus,
+                                ["Finish recording", "Cancel recording"]
+                            ),
                         ]
                     ),
                     .release(.captureLive),

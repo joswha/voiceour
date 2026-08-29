@@ -35,6 +35,7 @@
                 help: nil,
                 enabled: true,
                 selected: nil,
+                actions: [],
                 frame: frame,
                 children: children
             )

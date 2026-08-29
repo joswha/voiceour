@@ -13,6 +13,12 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     private var isApplyingPosition = false
     private var visibilityToken = 0
     private var outcomeDismissal: Task<Void, Never>?
+    private let hitRegion = MercuryHitRegion()
+    /// The world this session's body reflects. A fresh one is installed on every
+    /// transition from hidden to visible — a state change inside one session must not
+    /// re-seed, or the room would change under the reader mid-utterance.
+    private var mercurySeed = RenderOverrides.mercurySeed ?? MercuryMetrics.defaultSeed
+    private var mercuryWorld = MercuryWorld.default
 
     private lazy var focusTracker = RecordingOverlayFocusTracker { [weak self] destinationScreen in
         self?.follow(destinationScreen)
@@ -82,7 +88,11 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                 .receive(on: RunLoop.main)
                 .sink { [weak self] live in
                     Task { @MainActor in
-                        self?.model.updateCaptureLive(live)
+                        guard let self else { return }
+                        self.model.updateCaptureLive(live)
+                        if live, self.model.isRecording {
+                            self.postAnnouncement(self.model.accessibilityStatus)
+                        }
                     }
                 }
         } else {
@@ -101,12 +111,21 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// The pill is a `.screenSaver`-level surface that sits above every window and
-    /// every fullscreen Space, so it fades in and out instead of popping on at full
-    /// opacity the moment `checkingPermissions` fires. Reduce Motion keeps the
-    /// instant behaviour; `visibilityToken` makes a hide that lands mid-show (or the
-    /// reverse) a no-op rather than a panel stuck at alpha 0.
+    /// The body is a `.screenSaver`-level surface above every window and fullscreen
+    /// Space, so it fades in and out instead of popping on when permission checking
+    /// starts. Reduce Motion keeps the instant behaviour; `visibilityToken` makes a hide
+    /// that lands mid-show (or the reverse) a no-op.
     private func show() {
+        let beginsSession = panel?.isVisible != true
+        if beginsSession {
+            // Install both world inputs before `makePanel()` constructs the StateObject.
+            // A Settings change applies to the next dictation, never mid-utterance.
+            mercurySeed = RenderOverrides.mercurySeed ?? UInt64.random(in: .min ... .max)
+            mercuryWorld =
+                RenderOverrides.mercuryWorld
+                ?? coordinator?.settings.mercuryWorld
+                ?? .default
+        }
         let panel = panel ?? makePanel()
         // A dwell makes the panel click-through; the next show must restore
         // hit-testing or a later session is inert.
@@ -210,9 +229,8 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        // Behind-window liquid glass (FrostedGlassBackground / NSVisualEffectView)
-        // only samples the desktop while the panel stays transparent and shadowless:
-        // keep backgroundColor = .clear, isOpaque = false, and hasShadow = false below.
+        // The rasterized body carries its own alpha and no app shadow. Keep the panel
+        // transparent, non-opaque and shadowless so only those pixels exist onscreen.
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.hasShadow = false
@@ -229,10 +247,9 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         panel.titlebarAppearsTransparent = true
         panel.delegate = self
 
-        let overlayModel = model
         let hostingView = RecordingOverlayHostingView(
             rootView: RecordingOverlayView(
-                model: overlayModel,
+                model: model,
                 onCancel: { [weak self] in
                     Task { @MainActor in
                         self?.cancel()
@@ -242,11 +259,14 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                     Task { @MainActor in
                         self?.finish()
                     }
-                }
+                },
+                hitRegion: hitRegion,
+                // Session-latched closures: Settings remains the persisted authority, but
+                // changing the debug picker cannot replace lighting mid-utterance.
+                world: { [weak self] in self?.mercuryWorld ?? .default },
+                seed: { [weak self] in self?.mercurySeed ?? MercuryMetrics.defaultSeed }
             ),
-            showsFinishButton: { [weak overlayModel] in
-                overlayModel?.showsFinishButton ?? false
-            }
+            hitRegion: hitRegion
         )
         hostingView.frame = NSRect(origin: .zero, size: RecordingOverlayMetrics.windowSize)
         hostingView.autoresizingMask = [.width, .height]
@@ -309,6 +329,10 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                 failure: coordinator?.lastFailure ?? coordinator?.acquisitionFailure
             )
         else { return }
+        postAnnouncement(announcement)
+    }
+
+    private func postAnnouncement(_ announcement: String) {
         NSAccessibility.post(
             element: NSApp as Any,
             notification: .announcementRequested,

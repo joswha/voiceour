@@ -113,6 +113,10 @@ struct ConsoleSettingsTab: View {
                 Section("Backend") {
                     backendRow
                 }
+
+                Section("Overlay") {
+                    mercuryWorldRow
+                }
             }
 
             Section("Readiness") {
@@ -487,6 +491,29 @@ struct ConsoleSettingsTab: View {
                         .accessibilityIdentifier("voice.backend.restart")
                 }
             }
+        }
+    }
+
+    // MARK: Overlay
+
+    /// Debug comparison only. Both worlds ship and write into the same prefiltered RGB
+    /// tables and bounded conductor path, but only the default is reachable without
+    /// `--debug`, exactly like the backend picker above.
+    ///
+    /// No restart mark: `RecordingOverlayController` latches the persisted choice when a
+    /// session begins, so the next dictation gets a newly seeded room with no mid-session
+    /// lighting replacement.
+    private var mercuryWorldRow: some View {
+        ConsoleRow(
+            caption: "Which generated room the recording island's mercury reflects. "
+                + "Debug comparison only; the next dictation picks it up."
+        ) {
+            Picker("Reflection world", selection: settingBinding(coordinator, \.mercuryWorld)) {
+                ForEach(MercuryWorld.allCases, id: \.self) { world in
+                    Text(world.displayName).tag(world)
+                }
+            }
+            .accessibilityIdentifier("overlay.world")
         }
     }
 

@@ -75,10 +75,9 @@
         /// so a half-point overhang is arithmetic, not a layout bug.
         private static let epsilon: CGFloat = 0.5
 
-        /// Minimum comfortable control edge, in points. Not invented: the recording
-        /// overlay's control discs are the smallest affordance this project ships on
-        /// purpose — `RecordingOverlayLayout.Disc.visualSize` is 22 inside a 28pt hit
-        /// frame. Anything below it is smaller than our own floor.
+        /// Minimum comfortable control edge, in points. `VoiceourMetrics.Control.mini`
+        /// is 24; the two-point tolerance covers native AppKit/AX frame contraction
+        /// without allowing a new app-authored control below the compact floor.
         private static let minimumHitTarget: CGFloat = 22
 
         /// Share of the smaller control that must be covered before an overlap is reported.
