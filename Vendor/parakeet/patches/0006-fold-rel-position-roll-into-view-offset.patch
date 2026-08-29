@@ -1,0 +1,39 @@
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 77153a0..77aaaa3 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -1855,13 +1855,31 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+                     const auto n_head_cur = rel_pos_scores->ne[2];
+ 
+                     rel_pos_scores = ggml_pad(ctx0, rel_pos_scores, 1, 0, 0, 0);
+-                    rel_pos_scores = ggml_roll(ctx0, rel_pos_scores, 1, 0, 0, 0);
+ 
+                     rel_pos_scores = ggml_reshape_3d(ctx0, rel_pos_scores, n_frame, pos_window + 1, n_head_cur);
+                     ggml_format_name(rel_pos_scores, "enc_%d_attn_rel_pos_reshaped", il);
+ 
+-                    int center = pos_window / 2;
+-                    size_t offset = rel_pos_scores->nb[0] * (center+1);
++                    const int center = pos_window / 2;
++
++                    // VOICEOUR PATCH: fold the shift's `ggml_roll` into this view's offset.
++                    //
++                    // `ggml_pad` appends one zero to each row, making the row pitch
++                    // `pos_window + 1` while the payload stays `pos_window` long; the view below
++                    // then walks rows with the shorter `pos_window` stride, which is what
++                    // advances one position per query and produces the relative-position shift.
++                    // Upstream additionally rolled dim 0 by one so the appended zero moved to the
++                    // front, and then started the view one element later to skip it.
++                    //
++                    // Rolling the payload forward by one and then reading one element later is
++                    // the identity. Reading from `center` instead of `center + 1` against the
++                    // unrolled buffer selects, for output element (key k, query q), relative
++                    // position `center + k - q` — the same index the rolled form selected, as the
++                    // flat arithmetic shows: `center + q*pos_window + k = q*(pos_window + 1) + j`
++                    // gives `j = center + k - q` either way. With `k, q` in `[0, n_frame)` and
++                    // `n_frame - 1 == center`, `j` stays inside `[0, pos_window)`, so neither
++                    // form ever reads the appended zero — it exists only to set the row pitch.
++                    // Value-preserving: the same elements are read, so no arithmetic changes.
++                    const size_t offset = rel_pos_scores->nb[0] * center;
+ 
+                     rel_pos_scores = ggml_view_3d(ctx0, rel_pos_scores,
+                                                   n_frame, pos_window, n_head_cur,

@@ -124,6 +124,20 @@ captured under `patches/`.
     paired differences in the same direction. Raw transcripts are byte-identical on all 96 corpus
     rows and on both frozen promotion corpora, with U-WER and CER deltas of exactly zero, so
     ggml-metal did not reselect a matmul kernel with a different accumulation order.
+- `patches/0006-fold-rel-position-roll-into-view-offset.patch` changes `src/parakeet.cpp` so the
+  relative-position shift drops its `ggml_roll` and starts its view one element earlier instead.
+  `ggml_pad` appends one zero per row so the row pitch exceeds the payload by one, and the view
+  then walks rows with the shorter stride — that stride mismatch is what produces the shift.
+  Upstream additionally rolled dim 0 forward by one and started the view one element later to
+  skip the zero that the roll moved to the front; rolling forward and then reading later is the
+  identity. For output element (key k, query q) both forms select relative position
+  `center + k - q`, and since `k, q` stay inside `[0, n_frame)` with `n_frame - 1 == center`,
+  neither form ever reads the appended zero.
+  - Upstream status: not reported upstream; local optimisation, re-check on every re-vendor.
+  - Test status: measured. Five-pair interleaved A/B of summed warm inference is -0.83%, all five
+    paired differences in the same direction. Raw transcripts are byte-identical on all 96 corpus
+    rows and on both frozen promotion corpora, with U-WER and CER deltas of exactly zero — a
+    mis-derived offset would not drift one row, it would garble every transcript.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

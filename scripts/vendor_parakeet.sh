@@ -84,6 +84,7 @@ LOCAL_FILES=(
     'patches/0003-skip-graph-reorder-for-single-command-buffer-graphs.patch'
     'patches/0004-consume-rel-position-shift-as-strided-view.patch'
     'patches/0005-relative-position-matmul-operands-as-views.patch'
+    'patches/0006-fold-rel-position-roll-into-view-offset.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'
