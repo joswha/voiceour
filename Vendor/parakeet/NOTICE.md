@@ -74,11 +74,27 @@ captured under `patches/`.
   dictation app, is every decode. `parakeet_init_state` already reserves at the full
   `hparams.n_audio_ctx`, so the reservation now happens once per process.
   - Upstream status: not reported upstream; local behaviour fix, re-check on every re-vendor.
-  - Test status: measured. On the frozen latency corpus (Apple M4 Pro, f16) warm inference p95
-    fell from 282.0 ms to 270.5 ms and peak sidecar RSS fell 19 MB, with byte-identical raw
-    transcripts on all 96 corpus rows and on both frozen promotion corpora (400 LibriSpeech +
-    100 FLEURS rows). The graph that runs is still built from the exact `pstate.n_audio_ctx`,
-    so only the reservation changed.
+  - Test status: measured. On the frozen latency corpus (Apple M4 Pro, f16), a five-pair
+    interleaved A/B of summed warm inference is -2.11%, with all five paired differences in the
+    same direction, and peak sidecar RSS falls 15-19 MB. Raw transcripts are byte-identical on
+    all 96 corpus rows and on both frozen promotion corpora (400 LibriSpeech + 100 FLEURS).
+    The graph that runs is still built from the exact `pstate.n_audio_ctx`, so only the
+    reservation changed.
+- `patches/0003-skip-graph-reorder-for-single-command-buffer-graphs.patch` changes
+  `ggml/src/ggml-metal/ggml-metal-context.m` so `ggml_metal_graph_optimize` skips the reordering
+  pass on graphs of 64 nodes or fewer. Upstream runs a pack/reorder/unfuse pass over every graph;
+  Parakeet's TDT decode submits an 8-node prediction graph and a 30-node joint graph per emitted
+  token, thousands of times per utterance, and the pass costs more there than the concurrency it
+  can find. 64 mirrors `n_main` in `ggml_metal_graph_compute`, so the threshold is exactly the
+  set of graphs the calling thread encodes into one command buffer.
+  - Upstream status: not reported upstream; local tuning, re-check on every re-vendor.
+  - Test status: measured. Five-pair interleaved A/B of summed warm inference is -1.67%, four of
+    five paired differences in the same direction. Raw transcripts are byte-identical on all 96
+    corpus rows and on both frozen promotion corpora, with U-WER and CER deltas of exactly zero.
+    Disabling the pass outright is **not** equivalent and must not be done: it also skips the
+    encoder's ~1300-node graph, which straddles the `n_nodes_0` command-buffer split, and
+    ggml-metal cannot fuse a run across two encoders — that measured -2.39% but flipped
+    `the Count's` to `the count's` on `librispeech-test.other-000140`.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

@@ -614,14 +614,31 @@ enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph *
     return GGML_STATUS_SUCCESS;
 }
 
-void ggml_metal_graph_optimize(ggml_metal_t ctx, struct ggml_cgraph * gf) {
-    //const int64_t t_start = ggml_time_us();
+// VOICEOUR PATCH: skip the reordering pass on graphs small enough that the calling thread
+// encodes them by itself.
+//
+// `ggml_graph_optimize` packs fusable runs and then reorders them to widen the Metal encoder's
+// concurrency window. That is worth its cost on the encoder's ~1300-node graph and not on a
+// small one. Parakeet's TDT decode submits an 8-node prediction graph and a 30-node joint graph
+// per emitted token, thousands of times per utterance, and each one paid a full pack/reorder/
+// unfuse pass over `std::vector<node_info>`.
+//
+// Measured on the frozen latency corpus (Apple M4 Pro, f16, 20-row warm subset, 4 repetitions,
+// summed inference): 3152 ms with reordering everywhere, 3085 ms with it skipped below this
+// threshold, and 3075 ms with it disabled outright — so the decode loop's graphs account for
+// essentially all of the cost and the encoder's own reorder is worth keeping.
+//
+// `GGML_METAL_MAX_NODES_PER_MAIN_THREAD` mirrors `n_main` in `ggml_metal_graph_compute`: a graph
+// at or below it is encoded entirely into the calling thread's command buffer, so it has no
+// command-buffer boundary that a reorder could move a fusable run across. Disabling the pass
+// for the encoder instead does change arithmetic, because its graph does straddle that boundary
+// and ggml-metal cannot fuse across two encoders.
+#define GGML_METAL_MAX_NODES_PER_MAIN_THREAD 64
 
-    if (ctx->use_graph_optimize) {
+void ggml_metal_graph_optimize(ggml_metal_t ctx, struct ggml_cgraph * gf) {
+    if (ctx->use_graph_optimize && gf->n_nodes > GGML_METAL_MAX_NODES_PER_MAIN_THREAD) {
         ggml_graph_optimize(gf);
     }
-
-    //printf("%s: graph optimize took %.3f ms\n", __func__, (ggml_time_us() - t_start) / 1000.0);
 }
 
 void ggml_metal_event_record(ggml_metal_t ctx, ggml_metal_event_t ev) {
