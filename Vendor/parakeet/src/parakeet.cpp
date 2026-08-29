@@ -1870,7 +1870,22 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
                                                   rel_pos_scores->nb[1],
                                                   rel_pos_scores->nb[2],
                                                   0);
-                    rel_pos_scores = ggml_cont(ctx0, rel_pos_scores);
+                    // VOICEOUR PATCH: consume the relative-position shift as a strided view
+                    // instead of materialising it.
+                    //
+                    // The two views above implement the rel-shift by deliberately reading the
+                    // [2T-1, T] score block with a row stride of `pos_window` while using only
+                    // the first `T` values of each row. Upstream then copies that into a fresh
+                    // contiguous tensor purely so the following `ggml_add` sees a dense operand.
+                    // ggml-metal's binary ops only require `ggml_is_contiguous_rows`, and this
+                    // view satisfies it — `nb[0]` is one element; only the row stride has a gap.
+                    // So the copy is pure overhead: at 24 layers x [n_time, n_time, n_head] f32
+                    // it writes and re-reads ~290 MB per utterance, and `CONT` is the single
+                    // most expensive op class in the encoder (27.8 ms of 171.9 ms measured by
+                    // per-op-class skipping).
+                    //
+                    // Value-preserving by construction: a copy is removed, and the add reads
+                    // exactly the elements the copy would have handed it.
                     ggml_format_name(rel_pos_scores, "enc_%d_attn_rel_pos_shifted_view", il);
                 }
 

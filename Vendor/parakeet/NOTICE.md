@@ -95,6 +95,22 @@ captured under `patches/`.
     encoder's ~1300-node graph, which straddles the `n_nodes_0` command-buffer split, and
     ggml-metal cannot fuse a run across two encoders — that measured -2.39% but flipped
     `the Count's` to `the count's` on `librispeech-test.other-000140`.
+- `patches/0004-consume-rel-position-shift-as-strided-view.patch` changes `src/parakeet.cpp` so
+  the dense attention path consumes the relative-position shift as the strided view it already
+  is, instead of copying it into a fresh contiguous tensor first. The two `ggml_view_3d` calls
+  above the copy implement the shift by reading the `[2T-1, T]` score block with a row stride of
+  `pos_window` while using only the leading `T` values of each row; ggml-metal's binary ops
+  require only `ggml_is_contiguous_rows`, which that view satisfies, so the copy fed the
+  following `ggml_add` an operand it never needed. At 24 layers by `[n_time, n_time, n_head]`
+  f32 the copy wrote and re-read roughly 290 MB per utterance.
+  - Upstream status: not reported upstream; local optimisation, re-check on every re-vendor. If a
+    re-vendor tightens ggml-metal's binary-op support to full contiguity, restore the copy.
+  - Test status: measured. Five-pair interleaved A/B of summed warm inference is -1.98%, all five
+    paired differences in the same direction. Raw transcripts are byte-identical on all 96 corpus
+    rows and on both frozen promotion corpora, with U-WER and CER deltas of exactly zero —
+    expected, since removing a copy cannot change a value. `CONT` was the most expensive op class
+    in the encoder, 27.8 ms of 171.9 ms by per-op-class skipping, and this was its largest single
+    contributor.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

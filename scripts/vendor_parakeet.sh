@@ -82,6 +82,7 @@ LOCAL_FILES=(
     'patches/0001-tdt-duration-argmax-raw-logits.patch'
     'patches/0002-encoder-sched-reservation-high-water-mark.patch'
     'patches/0003-skip-graph-reorder-for-single-command-buffer-graphs.patch'
+    'patches/0004-consume-rel-position-shift-as-strided-view.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'
