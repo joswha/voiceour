@@ -111,6 +111,19 @@ captured under `patches/`.
     expected, since removing a copy cannot change a value. `CONT` was the most expensive op class
     in the encoder, 27.8 ms of 171.9 ms by per-op-class skipping, and this was its largest single
     contributor.
+- `patches/0005-relative-position-matmul-operands-as-views.patch` changes `src/parakeet.cpp` so
+  the dense attention path hands the relative-position matmul its two operands as permuted views
+  rather than materialising both. Twelve lines earlier the same builder already feeds the content
+  -score matmul the un-materialised `K_prep`/`Q_prep` views of the same shape and permutation, so
+  upstream copied these two operands for no reason the graph itself observes. The
+  local-attention branch keeps its copy, applied at its own use site, so that branch — which no
+  input this app can produce reaches, since it needs more than 8192 encoder frames — is
+  unchanged.
+  - Upstream status: not reported upstream; local optimisation, re-check on every re-vendor.
+  - Test status: measured. Five-pair interleaved A/B of summed warm inference is -2.48%, all five
+    paired differences in the same direction. Raw transcripts are byte-identical on all 96 corpus
+    rows and on both frozen promotion corpora, with U-WER and CER deltas of exactly zero, so
+    ggml-metal did not reselect a matmul kernel with a different accumulation order.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to
