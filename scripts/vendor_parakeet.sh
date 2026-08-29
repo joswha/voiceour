@@ -87,6 +87,7 @@ LOCAL_FILES=(
     'patches/0006-fold-rel-position-roll-into-view-offset.patch'
     'patches/0007-one-graph-per-decode-step.patch'
     'patches/0008-conv-subsampling-bias-add-materialises-layout.patch'
+    'patches/0009-pointwise-conv-needs-no-im2col.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'

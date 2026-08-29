@@ -1551,14 +1551,48 @@ static struct ggml_tensor * parakeet_conv_2d_bias(
                         int   p1,
                         int   d0,
                         int   d1) {
-    struct ggml_tensor * im2col = ggml_im2col(ctx0, w, x, s0, s1, p0, p1, d0, d1, true,
-            w->type == GGML_TYPE_BF16 ? GGML_TYPE_F32 : GGML_TYPE_F16);
+    const enum ggml_type itype = w->type == GGML_TYPE_BF16 ? GGML_TYPE_F32 : GGML_TYPE_F16;
 
-    struct ggml_tensor * result = ggml_mul_mat(ctx0,
-            ggml_reshape_2d(ctx0, im2col, im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1]),
+    struct ggml_tensor * lhs;
+    int64_t OW;
+    int64_t OH;
+
+    // VOICEOUR PATCH: a 1x1 kernel at unit stride and dilation with no padding needs no
+    // `ggml_im2col` — that call reduces to a transpose and a cast, which is what this branch
+    // does instead.
+    //
+    // im2col writes `dst[c, oh*OW + ow] = x[c*IW*IH + oh*IW + ow]`, and with `OW == IW` and
+    // `OH == IH` that is exactly `transpose(x)` over the [IW*IH, IC] view, converted to the
+    // matmul's input type. Identical values: both paths round the same f32 elements to f16 with
+    // Metal's round-to-nearest-even.
+    //
+    // The reason to care is the dispatch. `ggml_metal_op_im2col` sizes its threadgroup as
+    // `(min(max_threads/(KH*KW), N), KH, KW)` and its grid as `(IC, OH, OW)`. Single-utterance
+    // inference has N == 1, so a pointwise kernel gets threadgroups of exactly one thread over a
+    // grid of IC*OH*OW — 7.2 million one-thread threadgroups for the first of these two
+    // convolutions, at roughly 3% SIMD occupancy. Measured: im2col cost 23.66 ms of a 147 ms
+    // encode, essentially all of it here, while moving only ~56 MB.
+    if (w->ne[0] == 1 && w->ne[1] == 1 &&
+        s0 == 1 && s1 == 1 && p0 == 0 && p1 == 0 && d0 == 1 && d1 == 1 && x->ne[3] == 1) {
+        OW = x->ne[0];
+        OH = x->ne[1];
+
+        struct ggml_tensor * planes = ggml_reshape_2d(ctx0, x, x->ne[0] * x->ne[1], x->ne[2]);
+        lhs = ggml_cast(ctx0, ggml_transpose(ctx0, planes), itype);
+    } else {
+        struct ggml_tensor * im2col = ggml_im2col(ctx0, w, x, s0, s1, p0, p1, d0, d1, true, itype);
+
+        OW = im2col->ne[1];
+        OH = im2col->ne[2];
+
+        lhs = ggml_reshape_2d(ctx0, im2col, im2col->ne[0],
+                im2col->ne[3] * im2col->ne[2] * im2col->ne[1]);
+    }
+
+    struct ggml_tensor * result = ggml_mul_mat(ctx0, lhs,
             ggml_reshape_2d(ctx0, w, w->ne[0] * w->ne[1] * w->ne[2], w->ne[3]));
 
-    result = ggml_reshape_4d(ctx0, result, im2col->ne[1], im2col->ne[2], im2col->ne[3], w->ne[3]);
+    result = ggml_reshape_4d(ctx0, result, OW, OH, x->ne[3], w->ne[3]);
     result = ggml_permute(ctx0, result, 0, 1, 3, 2);
 
     return ggml_add(ctx0, result, bias);

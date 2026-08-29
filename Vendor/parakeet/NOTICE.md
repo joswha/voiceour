@@ -177,6 +177,26 @@ captured under `patches/`.
     is -3.24%, all five paired differences in the same direction. Raw transcripts are
     byte-identical on all 96 corpus rows and on both frozen promotion corpora, with U-WER and CER
     deltas of exactly zero — expected, since removing a copy cannot change a value.
+- `patches/0009-pointwise-conv-needs-no-im2col.patch` gives `parakeet_conv_2d_bias` a branch for
+  a 1x1 kernel at unit stride and dilation with no padding, which the subsampling front-end's
+  second and third convolutions are. For that case `ggml_im2col` reduces to a transpose and a
+  cast: it writes `dst[c, oh*OW + ow] = x[c*IW*IH + oh*IW + ow]`, and with `OW == IW` and
+  `OH == IH` that is exactly `transpose` of the `[IW*IH, IC]` view converted to the matmul's
+  input type. Both paths round the same f32 elements to f16 with Metal's round-to-nearest-even,
+  so the values are identical.
+  The reason to care is the dispatch, not the arithmetic. `ggml_metal_op_im2col` sizes its
+  threadgroup `(min(max_threads/(KH*KW), N), KH, KW)` and its grid `(IC, OH, OW)`, so it
+  parallelises over the batch — and single-utterance inference has `N == 1`. A pointwise kernel
+  therefore ran as 7.2 million one-thread threadgroups for the first of these two convolutions,
+  around 3% SIMD occupancy.
+  - Upstream status: not reported upstream. The batch-only threadgroup sizing is an upstream
+    ggml-metal weakness for `N == 1` convolutions and is worth reporting; both
+    `kernel_im2col` and `kernel_im2col_ext` share it.
+  - Test status: measured. im2col cost 23.66 ms of a 147 ms encode while moving only ~56 MB,
+    about 2.4 GB/s. Five-pair interleaved A/B of summed warm inference is -9.23%, all five paired
+    differences in the same direction and within 13 ms of each other. Raw transcripts are
+    byte-identical on all 96 corpus rows and on both frozen promotion corpora, with U-WER and CER
+    deltas of exactly zero.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to
