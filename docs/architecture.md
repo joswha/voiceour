@@ -50,6 +50,8 @@ Which device records is decided per recording, in `CoreAudioInputDevice.preferre
 `UserFacingDictationFailure` is the single mapping from mechanism to recovery: each failure gets a title, a plain cause, whether retrying can work, and where to fix it.
 
 ## Recording overlay renderer
+The full derivation, research record, rejected alternatives and measured gates live in
+[Procedural mercury renderer](mercury-renderer.md).
 
 `RecordingOverlayController` owns one transparent nonactivating panel, one
 `MercuryHitRegion`, and one random session seed. `MercuryRibbon` turns state and the

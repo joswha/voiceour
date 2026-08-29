@@ -6,8 +6,6 @@
 
 <p><strong>Tap <code>fn</code> to dictate where your cursor is.</strong></p>
 
-<img src="docs/media/dictation-island-still.png" width="720" alt="Voiceour’s recording island while hearing speech: one polished mercury body with organic traveling crests and structured chrome reflections.">
-
 <sub>macOS 14+ · Apple Silicon only · English only · initial 1.26 GB model download</sub>
 
 </div>

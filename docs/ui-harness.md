@@ -71,7 +71,6 @@ Read the generated `.ax.diff` or `.flow.diff` before any update; update mode wri
 
 | file | source |
 | --- | --- |
-| `docs/media/dictation-island-still.png` | portable `overlay.island.recording` at 2×, centered pixel-for-pixel on a transparent 720×216 canvas |
 | `docs/media/home-sample.png` | onscreen `scripts/console_shot.sh`, sample data, 800×1185 pt |
 | `docs/media/history-sample.png` | `console.sessions.selection` |
 | `docs/media/glossary-sample.png` | `console.glossary.populated` |
@@ -91,17 +90,6 @@ All three variables are load-bearing. `CONSOLE_SHOT_SAMPLE_DATA=1` points the ap
 The seeded directory is not the fixture copied verbatim. `scripts/seed_console_data.swift` rebases every day key, every app's `lastDay` and every transcript stamp by one offset, so the newest day lands today: the ledger prunes day buckets past 400 days, and a fixture frozen at its authored dates would eventually photograph an empty grid and a zero streak. `console.home.full-page` remains the harness golden for the same page's layout — the offscreen render is what gates a layout change; this capture only illustrates it.
 
 Because the window is real, the Top-apps rows resolve icons through LaunchServices and show whichever of the sample bundle ids are installed on the capturing Mac. That is a property of an onscreen capture, not a seam: `RenderOverrides.installedApps` pins those only for the offscreen goldens.
-
-Build the island still with:
-
-```sh
-scripts/ui_harness.sh --update --only overlay.island.recording --except os26 \
-  --scale 2 --out .build/ui-harness/docs --golden .build/ui-harness/docs-golden
-ffmpeg -y -loglevel error \
-  -i .build/ui-harness/docs/overlay.island.recording@2x.png \
-  -vf 'pad=720:216:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba' \
-  -frames:v 1 docs/media/dictation-island-still.png
-```
 
 `docs/media/app-icon.png` is `sips`-exported from `Resources/AppIcon.icns` at 256×256.
 
