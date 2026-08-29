@@ -66,6 +66,19 @@ captured under `patches/`.
   - Upstream status: ggml-org/whisper.cpp#3932 open as of 2026-08-15; re-check on every re-vendor.
   - Test status: untested-by-construction. No committed input reaches the numeric underflow it
     fixes, and the benchmark corpus decoded identically with and without it.
+- `patches/0002-encoder-sched-reservation-high-water-mark.patch` changes `src/parakeet.cpp` so
+  `parakeet_ensure_encode_sched` treats its reserved encoder context as a high-water mark
+  instead of requiring an exact match. Upstream's equality test frees the encoder scheduler,
+  reallocates its metadata, rebuilds a ~1300-node measurement graph and allocates fresh Metal
+  compute buffers whenever the mel length differs from the previous call — which, for a
+  dictation app, is every decode. `parakeet_init_state` already reserves at the full
+  `hparams.n_audio_ctx`, so the reservation now happens once per process.
+  - Upstream status: not reported upstream; local behaviour fix, re-check on every re-vendor.
+  - Test status: measured. On the frozen latency corpus (Apple M4 Pro, f16) warm inference p95
+    fell from 282.0 ms to 270.5 ms and peak sidecar RSS fell 19 MB, with byte-identical raw
+    transcripts on all 96 corpus rows and on both frozen promotion corpora (400 LibriSpeech +
+    100 FLEURS rows). The graph that runs is still built from the exact `pstate.n_audio_ctx`,
+    so only the reservation changed.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

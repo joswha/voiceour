@@ -1,0 +1,46 @@
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 735dba0..4c86bbf 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -2109,7 +2109,31 @@ static bool parakeet_ensure_encode_sched(
+         parakeet_context & pctx,
+           parakeet_state & pstate,
+                     int    n_audio_ctx) {
+-    if (pstate.sched_encode.sched && pstate.sched_encode_n_audio_ctx == n_audio_ctx) {
++    const int subsampl_factor = pctx.model.hparams.subsampling_factor;
++    const int n_frames_max = (n_audio_ctx + subsampl_factor - 1) / subsampl_factor;
++
++    // VOICEOUR PATCH: the encoder reservation is a high-water mark, not an exact fit.
++    //
++    // Upstream compares the reserved context for equality, so an utterance whose mel length
++    // differs from the one before it frees the encoder scheduler, reallocates its metadata,
++    // rebuilds a ~1300-node measurement graph and allocates fresh Metal compute buffers.
++    // Two dictations are never the same length, so that teardown ran on every single decode.
++    //
++    // A reservation measured at a longer context strictly dominates a shorter graph: every
++    // encoder tensor's size grows monotonically with the mel length. `parakeet_init_state`
++    // already reserves at the full `hparams.n_audio_ctx` — `parakeet_build_graph_encode`
++    // falls back to it while `pstate.n_audio_ctx` is still zero — so for any utterance the
++    // single-chunk path accepts, this now reserves once per process instead of once per
++    // decode. `sched_encode_n_audio_ctx` only ever grows, and a failed rebuild resets it to
++    // zero, so the next call reserves again.
++    //
++    // The graph that actually runs is still built from the exact `pstate.n_audio_ctx` set
++    // here, so its nodes, shapes, kernels and fusion decisions are untouched.
++    if (pstate.sched_encode.sched
++            && pstate.sched_encode_n_audio_ctx >= n_audio_ctx
++            && pstate.enc_out
++            && n_frames_max <= pstate.enc_out->ne[1]) {
++        pstate.n_audio_ctx = n_audio_ctx;
+         return true;
+     }
+ 
+@@ -2118,8 +2142,6 @@ static bool parakeet_ensure_encode_sched(
+     const int32_t prev_n_audio_ctx = pstate.n_audio_ctx;
+     pstate.n_audio_ctx = n_audio_ctx;
+ 
+-    const int subsampl_factor = pctx.model.hparams.subsampling_factor;
+-    const int n_frames_max = (n_audio_ctx + subsampl_factor - 1) / subsampl_factor;
+     if (n_frames_max > pstate.enc_out->ne[1]) {
+         ggml_backend_buffer_free(pstate.enc_out_buffer);
+         pstate.enc_out_buffer = nullptr;

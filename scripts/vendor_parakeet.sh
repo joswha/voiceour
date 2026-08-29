@@ -80,6 +80,7 @@ MANIFEST=(
 LOCAL_FILES=(
     'NOTICE.md'
     'patches/0001-tdt-duration-argmax-raw-logits.patch'
+    'patches/0002-encoder-sched-reservation-high-water-mark.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'
