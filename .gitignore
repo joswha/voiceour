@@ -41,6 +41,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+.superpowers/
 # A fully-excluded directory can never be re-included, so this excludes the contents
 # rather than the directory itself. Two things under it are this repository's own
 # maintainer tooling and are tracked: the slash commands, which encode the release
