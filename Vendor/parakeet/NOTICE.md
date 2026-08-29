@@ -138,6 +138,29 @@ captured under `patches/`.
     paired differences in the same direction. Raw transcripts are byte-identical on all 96 corpus
     rows and on both frozen promotion corpora, with U-WER and CER deltas of exactly zero — a
     mis-derived offset would not drift one row, it would garble every transcript.
+- `patches/0007-one-graph-per-decode-step.patch` changes `src/parakeet.cpp` so the TDT decode
+  loop computes one graph per step instead of two, holding the joint network and — when the
+  previous step emitted a token — the prediction network that feeds it. `parakeet_predict` and
+  `parakeet_joint` become `parakeet_step` over a shared `parakeet_expand_prediction`.
+  Nothing reads the predictor's output on the host: it lands in `pstate.pred_out` and the LSTM
+  state, so the host argmax always sat between a joint network and the *following* prediction,
+  never between a prediction and the joint that consumes it. Those two therefore always ran back
+  to back with no host work between them, as two separate graph computes. A graph compute costs
+  about 170 us end to end on this hardware regardless of size — measured by skipping every
+  MUL_MAT in these graphs, after which the 8-node joint still took 167 us per call and the
+  30-node prediction 180 us — so at thousands of emitted tokens per utterance that fixed cost,
+  not the arithmetic, dominated the decode loop.
+  When the merged graph consumes the prediction it reads the `ggml_cpy` node rather than
+  `pstate.pred_out`, because only that expresses the dependency to ggml. The loop can exit with
+  a prediction still deferred, and it is applied after the loop so a `parakeet_chunk` caller
+  carrying state across chunks still sees the LSTM state one token ahead.
+  - Upstream status: not reported upstream; local restructuring, re-check on every re-vendor.
+  - Test status: measured. Five-pair interleaved A/B of summed warm inference is -6.59%, all five
+    paired differences in the same direction and none smaller than -178 ms. Raw transcripts are
+    byte-identical on all 96 corpus rows and on both frozen promotion corpora, with U-WER and CER
+    deltas of exactly zero, and the per-token confidences are unchanged. The merged graph is 38
+    nodes, still inside the 64 the calling thread encodes into one command buffer, so it gains no
+    command-buffer boundary either.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

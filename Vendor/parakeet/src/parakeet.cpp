@@ -2278,26 +2278,22 @@ static struct ggml_tensor * parakeet_build_graph_lstm_layer(
     return h_new;
 }
 
-static struct ggml_cgraph * parakeet_build_graph_prediction(
-         parakeet_context & pctx,
-           parakeet_state & pstate,
-     const parakeet_batch & batch,
-                    bool   worst_case) {
-    GGML_UNUSED(worst_case);
+// VOICEOUR PATCH: the prediction network as a reusable subgraph.
+//
+// Returns the `ggml_cpy` node that lands the projected output in `pstate.pred_out`. A caller
+// that consumes the prediction in the same graph must read *that node* rather than
+// `pstate.pred_out` itself, or ggml sees no dependency between the write and the read and is
+// free to order the joint network's load before this store.
+static struct ggml_tensor * parakeet_expand_prediction(
+        struct ggml_context * ctx0,
+         struct ggml_cgraph * gf,
+           parakeet_context & pctx,
+             parakeet_state & pstate,
+       const parakeet_batch & batch) {
     const auto & model   = pctx.model;
     const auto & hparams = model.hparams;
     const int n_tokens   = batch.n_tokens;
 
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ pstate.sched_decode.meta.size(),
-        /*.mem_buffer =*/ pstate.sched_decode.meta.data(),
-        /*.no_alloc   =*/ true,
-    };
-
-    struct ggml_context * ctx0 = ggml_init(params);
-    ggml_cgraph * gf = ggml_new_graph_custom(ctx0, PARAKEET_MAX_NODES, false);
-
-    // Prediction Network
     struct ggml_tensor * token = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
     ggml_set_name(token, "token_inp");
     ggml_set_input(token);
@@ -2324,19 +2320,52 @@ static struct ggml_cgraph * parakeet_build_graph_prediction(
     pred = ggml_add(ctx0, pred, model.joint.pred_b);
     ggml_set_name(pred, "h_pred");
 
-    ggml_build_forward_expand(gf, ggml_cpy(ctx0, pred, pstate.pred_out));
+    return ggml_cpy(ctx0, pred, pstate.pred_out);
+}
+
+static struct ggml_cgraph * parakeet_build_graph_prediction(
+         parakeet_context & pctx,
+           parakeet_state & pstate,
+     const parakeet_batch & batch,
+                    bool   worst_case) {
+    GGML_UNUSED(worst_case);
+
+    struct ggml_init_params params = {
+        /*.mem_size   =*/ pstate.sched_decode.meta.size(),
+        /*.mem_buffer =*/ pstate.sched_decode.meta.data(),
+        /*.no_alloc   =*/ true,
+    };
+
+    struct ggml_context * ctx0 = ggml_init(params);
+    ggml_cgraph * gf = ggml_new_graph_custom(ctx0, PARAKEET_MAX_NODES, false);
+
+    ggml_build_forward_expand(gf, parakeet_expand_prediction(ctx0, gf, pctx, pstate, batch));
 
     ggml_free(ctx0);
 
     return gf;
 }
 
-static struct ggml_cgraph * parakeet_build_graph_joint(
+// VOICEOUR PATCH: one graph per decode step, holding the joint network and — when the previous
+// step emitted a token — the prediction network that feeds it.
+//
+// The TDT loop alternates prediction and joint, and only the joint's output is read back: the
+// CPU argmax sits between a joint and the *following* prediction, never between a prediction and
+// the joint that consumes it. So those two always ran back to back with nothing in between, as
+// two separate graph computes, and a graph compute costs about 170 us end to end here regardless
+// of its size — measured by skipping every MUL_MAT in these graphs, after which the 8-node joint
+// still took 167 us per call and the 30-node prediction 180 us. At thousands of emitted tokens
+// per utterance that fixed cost, not the arithmetic, dominated the decode loop.
+//
+// Merging them halves the graph computes per emitted token. The ops, their order, their kernels
+// and their inputs are identical, so results are bit-identical; the merged graph is 38 nodes,
+// still inside the 64 the calling thread encodes into a single command buffer, so it also gains
+// no command-buffer boundary.
+static struct ggml_cgraph * parakeet_build_graph_step(
          parakeet_context & pctx,
            parakeet_state & pstate,
      const parakeet_batch & batch,
-                     bool   worst_case) {
-    GGML_UNUSED(worst_case);
+                     bool   with_prediction) {
     const auto & model   = pctx.model;
     const auto & hparams = model.hparams;
 
@@ -2349,7 +2378,12 @@ static struct ggml_cgraph * parakeet_build_graph_joint(
     struct ggml_context * ctx0 = ggml_init(params);
     ggml_cgraph * gf = ggml_new_graph_custom(ctx0, PARAKEET_MAX_NODES, false);
 
-    struct ggml_tensor * pred = pstate.pred_out;
+    // Reading the copy node rather than `pstate.pred_out` is what orders this step's prediction
+    // before its joint network. Without a prediction this step reuses the value the previous one
+    // left there, which is the same tensor the unmerged code read.
+    struct ggml_tensor * pred = with_prediction
+        ? parakeet_expand_prediction(ctx0, gf, pctx, pstate, batch)
+        : pstate.pred_out;
     ggml_format_name(pred, "pred");
 
     const int t_idx = batch.i_time[0];
@@ -2428,11 +2462,14 @@ static bool parakeet_predict(
     return !(abort_callback && abort_callback(abort_callback_data));
 }
 
-static bool parakeet_joint(
+// VOICEOUR PATCH: computes one decode step — the joint network, preceded in the same graph by
+// the prediction network when `with_prediction` — and reads its logits back.
+static bool parakeet_step(
          parakeet_context & pctx,
            parakeet_state & pstate,
      const parakeet_batch & batch,
                 const int   n_threads,
+                     bool   with_prediction,
       ggml_abort_callback   abort_callback,
                      void * abort_callback_data) {
     const int64_t t_start_us = ggml_time_us();
@@ -2452,7 +2489,7 @@ static bool parakeet_joint(
     {
         auto & sched = pstate.sched_decode.sched;
 
-        ggml_cgraph * gf = parakeet_build_graph_joint(pctx, pstate, batch, false);
+        ggml_cgraph * gf = parakeet_build_graph_step(pctx, pstate, batch, with_prediction);
 
         if (!ggml_backend_sched_alloc_graph(sched, gf)) {
             // should never happen as we pre-allocate the memory
@@ -2461,6 +2498,11 @@ static bool parakeet_joint(
 
         logits     = ggml_graph_node(gf, -1);
         logits_raw = ggml_graph_get_tensor(gf, "logits");
+
+        if (with_prediction) {
+            struct ggml_tensor * token_inp = ggml_graph_get_tensor(gf, "token_inp");
+            ggml_backend_tensor_set(token_inp, batch.token, 0, n_tokens * ggml_element_size(token_inp));
+        }
 
         if (!ggml_graph_compute_helper(sched, gf, n_threads)) {
             return false;
@@ -2498,6 +2540,9 @@ static bool parakeet_joint(
     if (batch.n_tokens == 1) {
         pstate.t_decode_us += ggml_time_us() - t_start_us;
         pstate.n_decode++;
+        if (with_prediction) {
+            pstate.n_predict++;
+        }
     }
 
     return !(abort_callback && abort_callback(abort_callback_data));
@@ -2615,14 +2660,19 @@ static bool parakeet_decode(
     batch.logits[0] = 1;
     batch.i_time[0] = 0;
 
-    // run the prediction network for the initial blank token. This will
-    // initialize the LSTM state and produce an initial hidden state that can
-    // be used in the joint network below.
-    if (!parakeet_predict(pctx, pstate, batch, n_threads,
-            params ? params->abort_callback           : nullptr,
-            params ? params->abort_callback_user_data : nullptr)) {
-        return false;
-    }
+    // VOICEOUR PATCH: the prediction network runs in the same graph as the joint network that
+    // consumes it, so it is scheduled here rather than executed on its own.
+    //
+    // Upstream primed the predictor with the initial blank token before the loop and then ran a
+    // prediction at the end of every iteration that emitted one. Nothing reads the predictor's
+    // output on the CPU — it lands in `pstate.pred_out` and the LSTM state — so each of those
+    // predictions was immediately followed by the joint network that consumes it, with no host
+    // work in between, yet paid for its own graph compute. `pending_prediction` defers it to the
+    // start of the next iteration, where it is merged into that iteration's single graph.
+    //
+    // The order in which ops execute is unchanged: prediction for the token emitted at step k-1,
+    // then the joint network at step k.
+    bool pending_prediction = true;
 
     // process all time frames of the encoder output
     while (t < n_frames) {
@@ -2636,11 +2686,12 @@ static bool parakeet_decode(
         // The joint network outputs logits for all the tokens in the vocabulary
         // plus the blank token, and also n_duration logits for the duration
         // tokens which contain information about how many frames to skip/advance forward.
-        if (!parakeet_joint(pctx, pstate, batch, n_threads,
+        if (!parakeet_step(pctx, pstate, batch, n_threads, pending_prediction,
                 params ? params->abort_callback           : nullptr,
                 params ? params->abort_callback_user_data : nullptr)) {
             return false;
         }
+        pending_prediction = false;
 
         const int64_t t_start_sample_us = ggml_time_us();
 
@@ -2708,13 +2759,10 @@ static bool parakeet_decode(
 
         last_token = best_token;
 
-        // advance predictor for the non-blank token.
+        // VOICEOUR PATCH: schedule the predictor advance into the next iteration's graph rather
+        // than running it as a graph of its own. See `pending_prediction` above.
         batch.token[0] = last_token;
-        if (!parakeet_predict(pctx, pstate, batch, n_threads,
-                params ? params->abort_callback           : nullptr,
-                params ? params->abort_callback_user_data : nullptr)) {
-            return false;
-        }
+        pending_prediction = true;
 
         // if duration greater than 0, continue looping over the encoder frames
         // and skip to the updated time frame (t).
@@ -2729,6 +2777,23 @@ static bool parakeet_decode(
         if (tokens_emitted >= max_tokens_per_timestep) {
             t += 1; // forced blank/time advance behavior
             tokens_emitted = 0;
+        }
+    }
+
+    // VOICEOUR PATCH: the loop can exit with the last emitted token's predictor advance still
+    // deferred. Upstream had already applied it, leaving the LSTM state and `pstate.pred_out`
+    // one token ahead, so run it here to keep that observable.
+    //
+    // Nothing in this repository can see the difference — `parakeet_full` defaults `no_context`
+    // to true, so `parakeet_reset_state` zeroes the LSTM state before the next utterance and the
+    // next decode primes `pred_out` before reading it — but `parakeet_chunk` exists for callers
+    // that carry state across chunks, and one graph per utterance is not worth a behaviour
+    // change there.
+    if (pending_prediction) {
+        if (!parakeet_predict(pctx, pstate, batch, n_threads,
+                params ? params->abort_callback           : nullptr,
+                params ? params->abort_callback_user_data : nullptr)) {
+            return false;
         }
     }
 
