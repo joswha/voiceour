@@ -18,6 +18,7 @@ The product/repository names are `Voiceour` and `voiceour`. Do not rename either
 - **Console** — the native `Window("Voiceour", id: "main")` containing Home, Glossary, History, and Settings tabs.
 - **Lifetime ledger** — `dictation-activity.json`: aggregate counts per local day and per destination app, read by Home. Never the retired `dictation-stats.json`, which is still swept off disk at launch.
 - **Secure delivery** — concealed pasteboard copy, never Cmd-V and never a History row.
+- **Syncour** — a separate sibling package at `../syncour`, not part of this repository. It imports DJI Mic recordings into an iCloud Drive library and transcribes them through this project's sidecar, consuming the `VoiceCore` and `VoiceMac` library products by path dependency. It is the one external consumer of those two products, so their public API is not private to this repository.
 
 ## Repository structure
 
