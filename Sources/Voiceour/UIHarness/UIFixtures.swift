@@ -314,10 +314,9 @@
             // Which microphones this Mac has is machine state too. Two pins so
             // the picker's Automatic default has real alternatives to not name.
             RenderOverrides.availableMicrophones = pinnedMicrophones
-            // The recording island is a live simulation driven by wall-clock time, which
-            // no golden could hash twice. Pinning the world and the substep index makes
-            // it one deterministic frame: 600 substeps is five seconds of settled body at
-            // the fixed 120 Hz step.
+            // Production follows a view-bound display link. Pinning the world and exact
+            // substep makes the representable write one deterministic frame without
+            // starting that link: 600 substeps is five seconds at the fixed 120 Hz step.
             RenderOverrides.mercurySeed = MercuryMetrics.defaultSeed
             RenderOverrides.mercuryStep = 600
             RenderOverrides.mercuryWorld = .roomOfTen

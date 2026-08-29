@@ -87,10 +87,6 @@ enum MercuryMetrics {
     static let substep: Double = 1.0 / 120.0
     /// A stalled frame must not fast-forward the body.
     static let maxSubstepsPerFrame = 4
-    /// Presentation is deliberately 30 Hz. Physics remains 120 Hz; a cached `CGImage`
-    /// is returned on the intervening Timeline ticks. Measured 60 Hz raster cost was
-    /// 9.5% of one M-series core; 30 Hz is 4.8% and visually smooth at this scale.
-    static let presentationInterval: Double = 1.0 / 30.0
 
     /// One-shot velocity impulses, in inverse seconds, applied exactly once when an
     /// outcome gesture latches. Both are inside the containment gauge.
@@ -102,22 +98,16 @@ enum MercuryMetrics {
 
     // MARK: Environment
 
-    /// Equirectangular radiance tables, one per roughness level.
-    ///
-    /// The parameterization is deliberately *x-polar*: `v` is the angle from the body's
-    /// own long axis and `u` wraps around it. An ordinary z-polar table puts its pole
-    /// exactly where a near-flat crest's reflected direction lives, and that pole prints
-    /// a pinwheel crease through the broadest, calmest part of the body.
-    static let environmentWidth = 96
-    static let environmentHeight = 48
-    /// Roughness the three tables are prefiltered at, ascending.
+    /// Interior resolution of each square octahedral radiance level. The baker adds a
+    /// one-texel analytic border on every side; production sampling then needs no
+    /// trigonometry, seam branch or modulo. At 96² the widest corner footprint remains
+    /// finer than the fixed room band limit.
+    static let environmentResolution = 96
+    /// Roughness the three prefiltered tables represent, ascending.
     static let environmentRoughness: [Float] = [0.03, 0.09, 0.25]
-    /// Substeps between table rebuilds: 20 Hz.
-    static let environmentRebuildInterval = 6
-    /// The table's own band limit, as a roughness. A texel subtends 2*pi/96 radians;
-    /// a box filter that wide has standard deviation `w / sqrt(12)`, and a spherical
-    /// Gaussian of that width is `alpha = 1 / sqrt(lambda)`. Every bake adds this in
-    /// quadrature, so no lobe is ever sharper than the grid can carry.
+    /// The table's fixed pixel-footprint band limit, as a roughness. It remains the same
+    /// 0.019 used by the accepted material: changing coordinates accelerates lookup, not
+    /// the room's resolved highlight bandwidth.
     static let environmentGridRoughness: Double = 0.019
 
     // MARK: Room of Ten

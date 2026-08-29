@@ -53,9 +53,10 @@ Which device records is decided per recording, in `CoreAudioInputDevice.preferre
 
 `RecordingOverlayController` owns one transparent nonactivating panel, one
 `MercuryHitRegion`, and one random session seed. `MercuryRibbon` turns state and the
-eleven input levels into `MercurySimulation.Drive`; `MercuryEngine` advances the fixed
-120 Hz simulation, static generated room and reused CPU rasterizer, then publishes the
-same field to AppKit mouse routing.
+eleven input levels into `MercurySimulation.Drive`. `MercurySurfaceView` binds one
+`CADisplayLink` to the display containing the panel; `MercuryEngine` advances the fixed
+120 Hz simulation and writes the resulting `CGImage` directly to its layer. The same
+field is published to AppKit mouse routing.
 
 The geometry pipeline has one representation:
 
@@ -68,32 +69,39 @@ The geometry pipeline has one representation:
    `(∂z/∂φ)∇φ + (∂z/∂r)∇r`; omitting the second term lets the outline wiggle while the
    reflection remains mechanically straight.
 
-`MercuryEnvironment` builds three 96×48 x-polar linear-RGB tables. Room of Ten uses 32
-bounded, equal-area-stratified spherical-Gaussian area sources (log-uniform sharpness
-20–600) over 30% neutral bounce. Per-source log intensity is bounded to ±0.55 and a
-seed-random Rec.709-luminance-null opponent supplies at most 7% local chroma; source
-coefficients are power-centered, so the sphere mean remains neutral. The room is fixed
-after construction. Spectral Weather remains a debug-only alternate draw and is fixed
-too; environment motion never competes with the organism.
+`MercuryEnvironment` builds three 96² octahedral linear-RGB tables with one analytic
+border texel on every edge. Runtime reflection lookup is four taps with no trigonometry,
+modulo or seam branch. Room of Ten uses 32 bounded, equal-area-stratified
+spherical-Gaussian area sources (log-uniform sharpness 20–600) over 30% neutral bounce.
+Per-source log intensity is bounded to ±0.55 and a seed-random
+Rec.709-luminance-null opponent supplies at most 7% local chroma; source coefficients
+are power-centered, so the sphere mean remains neutral. The room is fixed after
+construction. Spectral Weather remains a debug-only alternate draw and is fixed too;
+environment motion never competes with the organism.
 
-`MercuryRasterizer` samples the static room in the exact mirror direction and multiplies
-by exact unpolarized liquid-mercury conductor Fresnel. `MercuryCalibration` meters linear
-`room × Fresnel` samples pooled over listening and speaking and solves
-`MercuryDisplayResponse` from two anchors: p50→0.32 and p98→0.87. The monotone
-Naka–Rushton response has a compiled 0.94 linear-light ceiling that finite radiance
-cannot reach; RGB gamut handling preserves mapped Rec.709 luminance while desaturating
-only when a channel would leave that ceiling.
+`MercuryRasterizer` samples the static room in the exact mirror direction. Process-built
+tables interpolate the exact unpolarized liquid-mercury conductor Fresnel, bounded
+Naka–Rushton response and IEC sRGB transfer; dense oracle tests hold the optical error
+below one 8-bit code value. `MercuryCalibration` meters linear `room × Fresnel` samples
+pooled over listening and speaking and solves `MercuryDisplayResponse` from two anchors:
+p50→0.32 and p98→0.87. Its compiled 0.94 linear-light ceiling is unreachable by finite
+radiance; RGB gamut handling preserves mapped Rec.709 luminance while desaturating only
+when a channel would leave that ceiling.
 
-The permanent material gate is `make ui-mercury-bench`: 4,096 generated-room seeds, 64
-production rasters, reflected-direction coverage, output bounds and 30 seconds of live
-surface motion. `make ui-mercury` is the non-gating visual bench for states, grounds,
-worlds, motion, parameter sweeps and shipping/prototype comparisons.
+The permanent material and speed gate is `make ui-mercury-bench`: 4,096 generated-room
+seeds, 64 production rasters, reflected-direction coverage, output bounds, 30 seconds of
+surface motion, 1,200 production rasters and 1,200 complete engine-plus-layer
+presentations representing ten seconds at 120 Hz. Raster p50/p99 must stay below
+0.55/0.70 ms and 6.6% of one core; engine plus layer must stay below 0.65/0.85 ms and
+8%. `make ui-mercury` is the non-gating visual bench for states, grounds, worlds,
+motion, parameter sweeps and shipping/prototype comparisons.
 
-Physics advances at 120 Hz while `MercuryEngine` reuses each raster for intervening
-Timeline ticks and presents at 30 Hz. The process warms the geometry-mode calibration
-during launch; the material gate holds launch calibration below 200 ms, first-room plus
-first-raster latency below 25 ms, and steady raster work below 5.5% of one core at the
-presented rate.
+Physics always advances in exact 1/120-second substeps. Presentation follows the panel's
+screen, capped at 120 fps: one substep per ProMotion frame, two per 60 Hz frame, with a
+fractional carry for other fixed rates. The view-bound display link stops while hidden or
+off-display and is recreated when the panel changes screens. No per-frame value is
+published through SwiftUI. Geometry-mode calibration warms during launch; the gate holds
+it below 200 ms and first-room plus first-raster latency below 25 ms.
 
 ## ASR sidecar protocol
 

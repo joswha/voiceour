@@ -75,11 +75,9 @@
     //   * never let a scene derive anything from `Date()`, `UUID()`, `.random`,
     //     `NSColor.controlAccentColor` or the user's TCC state
     //     (see `RenderOverrides` for the pins that already exist);
-    //   * avoid states dominated by a `.repeatForever` animation or a
-    //     `TimelineView(.animation)` — once the run loop turns, those hash
-    //     differently on every run. The recording work mark is the one such
-    //     view in this app; it is capturable only under pinned Reduce Motion,
-    //     where its three dots are completely static.
+    //   * never leave a `.repeatForever`, `TimelineView(.animation)` or view-bound
+    //     display link live in a scene. A continuous renderer needs an exact pinned
+    //     frame seam; the recording island uses `RenderOverrides.mercuryStep`.
     //
     // See docs/ui-harness.md.
 

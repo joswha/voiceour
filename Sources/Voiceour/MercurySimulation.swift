@@ -14,9 +14,9 @@ struct MercuryGains: Equatable {
 /// One mercury body: two mode families, eight modes each, integrated with the exact
 /// propagator at a fixed substep.
 ///
-/// Not an `ObservableObject`. The view advances it inside a `TimelineView` tick, which
-/// is already re-rendering, so anything published here would invalidate the overlay
-/// twice per frame.
+/// Not an `ObservableObject`. `MercurySurfaceView` advances it from a view-bound display
+/// link and writes the returned image directly to a layer; publishing a frame index would
+/// route 120 Hz work back through SwiftUI for no new information.
 ///
 /// The law, in the body's own island-local points — origin at the island centre, +y up:
 ///
@@ -52,7 +52,7 @@ final class MercurySimulation {
     }
 
     /// What the rasterizer and the hit test read. Points, island-local, +y up.
-    struct Geometry {
+    struct Geometry: Equatable {
         var length: CGFloat
         var halfHeight: CGFloat
         /// `columns + 1` samples of the top edge.

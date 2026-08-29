@@ -3,6 +3,7 @@
     import CoreGraphics
     import Darwin
     import Foundation
+    import QuartzCore
 
     /// Distribution and temporal benchmark for the selected isolated chrome candidate.
     ///
@@ -55,7 +56,10 @@
             var rasterP50Milliseconds: Double
             var rasterP95Milliseconds: Double
             var rasterP99Milliseconds: Double
-            var rasterCoreFractionAt30Hz: Double
+            var rasterCoreFractionAt120Hz: Double
+            var engineLayerP50Milliseconds: Double
+            var engineLayerP99Milliseconds: Double
+            var engineLayerCoreFractionAt120Hz: Double
         }
         struct Report: Codable {
             var candidate: String
@@ -126,16 +130,34 @@
                     "cold first frame \(format(performance.coldFirstFrameMilliseconds))ms > 25ms"
                 )
             }
-            if performance.rasterCoreFractionAt30Hz > 0.055 {
+            if performance.rasterP50Milliseconds > 0.55 {
                 failures.append(
-                    "raster CPU \(format(performance.rasterCoreFractionAt30Hz)) > 0.055 core"
+                    "raster p50 \(format(performance.rasterP50Milliseconds))ms > 0.55ms"
                 )
             }
-            if performance.rasterP99Milliseconds
-                > 3 * performance.rasterP50Milliseconds
-            {
+            if performance.rasterP99Milliseconds > 0.70 {
                 failures.append(
-                    "raster p99 \(format(performance.rasterP99Milliseconds))ms > 3× p50"
+                    "raster p99 \(format(performance.rasterP99Milliseconds))ms > 0.70ms"
+                )
+            }
+            if performance.rasterCoreFractionAt120Hz > 0.066 {
+                failures.append(
+                    "120 Hz raster CPU \(format(performance.rasterCoreFractionAt120Hz)) > 0.066 core"
+                )
+            }
+            if performance.engineLayerP50Milliseconds > 0.65 {
+                failures.append(
+                    "engine+layer p50 \(format(performance.engineLayerP50Milliseconds))ms > 0.65ms"
+                )
+            }
+            if performance.engineLayerP99Milliseconds > 0.85 {
+                failures.append(
+                    "engine+layer p99 \(format(performance.engineLayerP99Milliseconds))ms > 0.85ms"
+                )
+            }
+            if performance.engineLayerCoreFractionAt120Hz > 0.08 {
+                failures.append(
+                    "engine+layer CPU \(format(performance.engineLayerCoreFractionAt120Hz)) > 0.08 core"
                 )
             }
             let report = Report(
@@ -167,7 +189,10 @@
                     + " cold=\(format(performance.coldFirstFrameMilliseconds))ms"
                     + " raster=\(format(performance.rasterP50Milliseconds))/"
                     + "\(format(performance.rasterP99Milliseconds))ms"
-                    + " cpu=\(format(performance.rasterCoreFractionAt30Hz))core"
+                    + " cpu@120=\(format(performance.rasterCoreFractionAt120Hz))core"
+                    + " frame=\(format(performance.engineLayerP50Milliseconds))/"
+                    + "\(format(performance.engineLayerP99Milliseconds))ms"
+                    + " engineLayerCPU@120=\(format(performance.engineLayerCoreFractionAt120Hz))core"
                     + " time=\(format(raster.milliseconds / 1000))s"
             )
             for failure in failures { fputs("mercury-benchmark: FAIL: \(failure)\n", stderr) }
@@ -469,7 +494,7 @@
             let representedSeconds = 10.0
             let cpuStarted = processCPUSeconds()
             var sink = 0
-            for _ in 0..<300 {
+            for _ in 0..<1_200 {
                 sink &+=
                     rasterizer.image(
                         field: field,
@@ -479,8 +504,57 @@
                         scale: scale
                     )?.width ?? 0
             }
-            let coreFraction =
+            let rasterCoreFraction =
                 (processCPUSeconds() - cpuStarted) / representedSeconds
+            _ = sink
+
+            let drive = drive(speaking: true)
+            let engine = MercuryEngine(
+                seed: seed,
+                world: .roomOfTen,
+                hitRegion: MercuryHitRegion()
+            )
+            let presentationLayer = CALayer()
+            let initialImage = engine.frame(
+                advancing: 0,
+                seed: seed,
+                world: .roomOfTen,
+                drive: drive,
+                appearance: .standard
+            )
+            MercuryLayerPresenter.present(initialImage, on: presentationLayer)
+            var engineLayerDurations: [Double] = []
+            engineLayerDurations.reserveCapacity(240)
+            for _ in 0..<240 {
+                let frameStarted = ContinuousClock().now
+                let image = engine.frame(
+                    advancing: 1,
+                    seed: seed,
+                    world: .roomOfTen,
+                    drive: drive,
+                    appearance: .standard
+                )
+                MercuryLayerPresenter.present(image, on: presentationLayer)
+                engineLayerDurations.append(
+                    frameStarted.duration(to: ContinuousClock().now).milliseconds
+                )
+            }
+            engineLayerDurations.sort()
+
+            let engineLayerCPUStarted = processCPUSeconds()
+            for _ in 0..<1_200 {
+                let image = engine.frame(
+                    advancing: 1,
+                    seed: seed,
+                    world: .roomOfTen,
+                    drive: drive,
+                    appearance: .standard
+                )
+                MercuryLayerPresenter.present(image, on: presentationLayer)
+                sink &+= image?.width ?? 0
+            }
+            let engineLayerCoreFraction =
+                (processCPUSeconds() - engineLayerCPUStarted) / representedSeconds
             _ = sink
             return PerformanceSummary(
                 launchCalibrationMilliseconds: calibrationMilliseconds,
@@ -488,7 +562,12 @@
                 rasterP50Milliseconds: durations[durations.count / 2],
                 rasterP95Milliseconds: durations[durations.count * 95 / 100],
                 rasterP99Milliseconds: durations[durations.count * 99 / 100],
-                rasterCoreFractionAt30Hz: coreFraction
+                rasterCoreFractionAt120Hz: rasterCoreFraction,
+                engineLayerP50Milliseconds:
+                    engineLayerDurations[engineLayerDurations.count / 2],
+                engineLayerP99Milliseconds:
+                    engineLayerDurations[engineLayerDurations.count * 99 / 100],
+                engineLayerCoreFractionAt120Hz: engineLayerCoreFraction
             )
         }
 

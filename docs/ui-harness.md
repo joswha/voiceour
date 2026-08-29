@@ -13,7 +13,7 @@ Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI 
 | `make ui-list`, `make ui-flow-list` | Print the scene or flow catalog as JSON. |
 | `make ui-all` | Portable scenes and flows, then the supported `os26` legs. |
 | `make ui-mercury` | Render isolated shipping/prototype material contact sheets. Not a gate. |
-| `make ui-mercury-bench` | Run the selected chrome material through 4,096 room seeds, 64 production rasters and 30 seconds of motion. |
+| `make ui-mercury-bench` | Gate 4,096 room seeds, 64 production rasters, 30 seconds of motion, and 1,200 raster plus engine-and-layer frames at represented 120 Hz. |
 
 `scripts/ui_harness.sh` builds with `-DUI_HARNESS` and forwards these flags:
 
@@ -53,7 +53,7 @@ An unfiltered run excludes `os26`. Exit status is 0 when clean or updated, 1 for
     room-sweep.png                # source-count/scale/bounce search
     selected-room-worlds.png      # accepted scalar/chromatic room over eight seeds
     chroma-sweep.png              # accepted room at four chroma strengths
-    benchmark.json                # hard-gate distribution/raster/motion report
+    benchmark.json                # hard-gate material/motion/120 Hz performance report
 
 fixtures/ui/
   <scene>.png.sha256
@@ -131,3 +131,4 @@ A flow hosts a real menu, overlay, or console view with an inert fixture, then d
 - Enhanced accessibility must be enabled before the dump, or `NSHostingView` exposes a near-empty tree.
 - Capture uses `cacheDisplay(in:to:)` into an owned interleaved RGBA8 `NSBitmapImageRep` with `.deviceRGB`, alpha kept; alpha disables subpixel font smoothing and its raster drift.
 - `cacheDisplay` drops system glass, Core Animation blur and shadow. Verify the console/menu glass onscreen with `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh <tab>`. The recording island is an ordinary `CGImage` and is captured completely offscreen; its scene goldens and `make ui-mercury` artifacts are the material proof.
+- Overlay scenes pin `RenderOverrides.mercuryStep`, so the `NSViewRepresentable` writes one exact `CGImage` immediately and never starts its live display link. The harness therefore remains off-display while exercising the same engine, room and rasterizer as production.

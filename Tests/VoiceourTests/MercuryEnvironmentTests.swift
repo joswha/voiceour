@@ -92,6 +92,34 @@ struct MercuryEnvironmentTests {
         #expect(cast <= 0.01)
     }
 
+    @Test func octahedralBorderIsContinuousAroundNegativeZ() {
+        let environment = MercuryEnvironment(world: .roomOfTen, seed: 17)
+        var minimum = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+        var maximum = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
+        let epsilon: Float = 1e-5
+        for index in 0..<512 {
+            let angle = Float(index) / 512 * 2 * .pi
+            let direction = SIMD3(
+                epsilon * cos(angle),
+                epsilon * sin(angle),
+                -1
+            )
+            let value = environment.radiance(direction)
+            minimum = SIMD3(
+                Swift.min(minimum.x, value.x),
+                Swift.min(minimum.y, value.y),
+                Swift.min(minimum.z, value.z)
+            )
+            maximum = SIMD3(
+                Swift.max(maximum.x, value.x),
+                Swift.max(maximum.y, value.y),
+                Swift.max(maximum.z, value.z)
+            )
+        }
+
+        #expect((maximum - minimum).max() < 0.01)
+    }
+
     /// The same world and seed is the same room, and a different seed is a different one.
     @Test(arguments: MercuryWorld.allCases)
     func roomsReplayAndDifferBySeed(world: MercuryWorld) {

@@ -13,8 +13,7 @@ struct MercuryEngineTests {
             world: .roomOfTen,
             hitRegion: MercuryHitRegion()
         )
-        _ = reused.frame(
-            at: .distantPast,
+        _ = reused.pinnedFrame(
             step: 600,
             seed: 1,
             world: .roomOfTen,
@@ -22,8 +21,7 @@ struct MercuryEngineTests {
             appearance: .standard
         )
         let reseeded = try #require(
-            reused.frame(
-                at: .distantPast,
+            reused.pinnedFrame(
                 step: 600,
                 seed: 2,
                 world: .roomOfTen,
@@ -38,8 +36,7 @@ struct MercuryEngineTests {
             hitRegion: MercuryHitRegion()
         )
         let expected = try #require(
-            fresh.frame(
-                at: .distantPast,
+            fresh.pinnedFrame(
                 step: 600,
                 seed: 2,
                 world: .roomOfTen,
@@ -51,28 +48,25 @@ struct MercuryEngineTests {
         #expect(Self.bytes(reseeded) == Self.bytes(expected))
     }
 
-    @Test func presentationReusesIntermediateTimelineTicks() throws {
+    @Test func livePresentationRendersEveryCommittedStepAndCachesDuplicates() throws {
         let drive = Self.speakingDrive()
         let engine = MercuryEngine(
             seed: 7,
             world: .roomOfTen,
             hitRegion: MercuryHitRegion()
         )
-        let start = Date(timeIntervalSinceReferenceDate: 10)
         let first = try #require(
             engine.frame(
-                at: start,
-                step: nil,
+                advancing: 0,
                 seed: 7,
                 world: .roomOfTen,
                 drive: drive,
                 appearance: .standard
             )
         )
-        let cached = try #require(
+        let duplicate = try #require(
             engine.frame(
-                at: start.addingTimeInterval(1.0 / 120.0),
-                step: nil,
+                advancing: 0,
                 seed: 7,
                 world: .roomOfTen,
                 drive: drive,
@@ -81,8 +75,7 @@ struct MercuryEngineTests {
         )
         let next = try #require(
             engine.frame(
-                at: start.addingTimeInterval(MercuryMetrics.presentationInterval + 0.001),
-                step: nil,
+                advancing: 1,
                 seed: 7,
                 world: .roomOfTen,
                 drive: drive,
@@ -90,8 +83,37 @@ struct MercuryEngineTests {
             )
         )
 
-        #expect(first === cached)
+        #expect(first === duplicate)
         #expect(first !== next)
+    }
+
+    @Test func appearanceChangesAlwaysRerasterTheCurrentGeometry() throws {
+        let drive = Self.speakingDrive()
+        let engine = MercuryEngine(
+            seed: 9,
+            world: .roomOfTen,
+            hitRegion: MercuryHitRegion()
+        )
+        let standard = try #require(
+            engine.frame(
+                advancing: 0,
+                seed: 9,
+                world: .roomOfTen,
+                drive: drive,
+                appearance: .standard
+            )
+        )
+        let increased = try #require(
+            engine.frame(
+                advancing: 0,
+                seed: 9,
+                world: .roomOfTen,
+                drive: drive,
+                appearance: MercuryAppearance(increasedContrast: true)
+            )
+        )
+
+        #expect(standard !== increased)
     }
 
     private static func speakingDrive() -> MercurySimulation.Drive {

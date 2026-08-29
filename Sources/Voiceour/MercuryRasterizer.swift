@@ -20,6 +20,8 @@ final class MercuryRasterizer {
     private var columns: UnsafeMutablePointer<MercuryField.Column>?
     private var columnCapacity = 0
     private var scale: CGFloat = 0
+    private var responseKey: MercuryDisplayResponse?
+    private var responseLookup: MercuryDisplayLookup?
 
     deinit {
         columns?.deallocate()
@@ -112,6 +114,8 @@ final class MercuryRasterizer {
         let box = field.boundingBox
         guard box.width > 0, box.height > 0 else { return }
         let bounds = MercuryField.islandBounds
+        let boundsMinX = Double(bounds.minX)
+        let boundsMaxY = Double(bounds.maxY)
         let pixelSize = 1 / Double(scale)
         let epsilon = MercuryMetrics.crownFilterFraction * pixelSize
         let firstColumn = Swift.max(
@@ -134,27 +138,32 @@ final class MercuryRasterizer {
 
         let horizontalOffset = field.lateralOffset
         for column in firstColumn...lastColumn {
-            let position = Double(bounds.minX) + (Double(column) + 0.5) * pixelSize
+            let position = boundsMinX + (Double(column) + 0.5) * pixelSize
             columns[column] = field.column(atX: position - horizontalOffset)
         }
 
         let length = Swift.max(field.length, 1)
         let collecting = samples != nil
-        let displayResponse = response.map { response in
-            guard appearance.increasedContrast else { return response }
-            return response.remapped(
-                medianTarget: MercuryMetrics.increasedContrastMedian,
-                highlightTarget: MercuryMetrics.increasedContrastHighlight
-            ) ?? response
+        let selectedResponse: MercuryDisplayResponse?
+        if let response {
+            selectedResponse =
+                appearance.increasedContrast
+                ? response.remapped(
+                    medianTarget: MercuryMetrics.increasedContrastMedian,
+                    highlightTarget: MercuryMetrics.increasedContrastHighlight
+                ) ?? response
+                : response
+        } else {
+            selectedResponse = nil
         }
+        let displayLookup = selectedResponse.map { lookup(for: $0) }
         for row in firstRow...lastRow {
-            let vertical = Double(bounds.maxY) - (Double(row) + 0.5) * pixelSize
+            let vertical = boundsMaxY - (Double(row) + 0.5) * pixelSize
             for columnIndex in firstColumn...lastColumn {
                 let column = columns[columnIndex]
                 guard column.radius > 0 else { continue }
                 let horizontal =
-                    Double(bounds.minX)
-                    + (Double(columnIndex) + 0.5) * pixelSize
+                    boundsMinX + (Double(columnIndex) + 0.5) * pixelSize
                 let offset = vertical - column.center
                 let distance =
                     column.inSpan
@@ -193,12 +202,10 @@ final class MercuryRasterizer {
                 let normal = Self.normalize(
                     SIMD3(-crownGradient.x, -crownGradient.y, 1)
                 )
-                let view = Self.normalize(
-                    SIMD3(
-                        -horizontal,
-                        -vertical,
-                        MercuryMetrics.eyeDistance - crown.height
-                    )
+                let view = MercuryOptics.viewDirection(
+                    horizontal: horizontal,
+                    vertical: vertical,
+                    crownHeight: crown.height
                 )
                 let incidence = Swift.max((normal * view).sum(), 1e-4)
                 let reflected = 2 * incidence * normal - view
@@ -207,13 +214,12 @@ final class MercuryRasterizer {
                         Float(reflected.x),
                         Float(reflected.y),
                         Float(reflected.z)
-                    ),
-                    roughness: Float(MercuryMetrics.baseRoughness)
+                    )
                 )
                 let scene =
                     SIMD3<Double>(
                         Double(room.x), Double(room.y), Double(room.z)
-                    ) * Self.fresnel(cosine: incidence)
+                    ) * MercuryOptics.fresnel(cosine: incidence)
 
                 if collecting {
                     samples?.append(
@@ -221,77 +227,35 @@ final class MercuryRasterizer {
                     )
                     continue
                 }
-                guard let displayResponse else { continue }
-                let display = displayResponse.map(scene)
+                guard let displayLookup else { continue }
+                let display = displayLookup.map(scene)
                 let index = (row * width + columnIndex) * 4
-                bytes[index] = Self.byte(Self.encodeSRGB(display.x) * coverage)
-                bytes[index + 1] = Self.byte(Self.encodeSRGB(display.y) * coverage)
-                bytes[index + 2] = Self.byte(Self.encodeSRGB(display.z) * coverage)
+                bytes[index] = MercuryOptics.encodedByte(display.x, coverage: coverage)
+                bytes[index + 1] = MercuryOptics.encodedByte(display.y, coverage: coverage)
+                bytes[index + 2] = MercuryOptics.encodedByte(display.z, coverage: coverage)
                 bytes[index + 3] = Self.byte(coverage)
             }
         }
     }
 
-    // MARK: - Optics and display
-
-    @inline(__always)
-    private static func fresnel(cosine: Double) -> SIMD3<Double> {
-        let cosineSquared = cosine * cosine
-        let sineSquared = Swift.max(0, 1 - cosineSquared)
-        let refraction = SIMD3(
-            MercuryMetrics.mercuryN.r,
-            MercuryMetrics.mercuryN.g,
-            MercuryMetrics.mercuryN.b
-        )
-        let extinction = SIMD3(
-            MercuryMetrics.mercuryK.r,
-            MercuryMetrics.mercuryK.g,
-            MercuryMetrics.mercuryK.b
-        )
-        let base =
-            refraction * refraction
-            - extinction * extinction
-            - SIMD3<Double>(repeating: sineSquared)
-        let squares = SIMD3(
-            (base.x * base.x + 4 * refraction.x * refraction.x * extinction.x * extinction.x)
-                .squareRoot(),
-            (base.y * base.y + 4 * refraction.y * refraction.y * extinction.y * extinction.y)
-                .squareRoot(),
-            (base.z * base.z + 4 * refraction.z * refraction.z * extinction.z * extinction.z)
-                .squareRoot()
-        )
-        let real = SIMD3(
-            Swift.max(0, (squares.x + base.x) / 2).squareRoot(),
-            Swift.max(0, (squares.y + base.y) / 2).squareRoot(),
-            Swift.max(0, (squares.z + base.z) / 2).squareRoot()
-        )
-        let first = squares + SIMD3<Double>(repeating: cosineSquared)
-        let second = 2 * real * cosine
-        let perpendicular = (first - second) / (first + second)
-        let third =
-            cosineSquared * squares
-            + SIMD3<Double>(repeating: sineSquared * sineSquared)
-        let fourth = second * sineSquared
-        let parallel = perpendicular * (third - fourth) / (third + fourth)
-        return (perpendicular + parallel) / 2
+    private func lookup(for response: MercuryDisplayResponse) -> MercuryDisplayLookup {
+        if responseKey != response || responseLookup == nil {
+            responseKey = response
+            responseLookup = MercuryDisplayLookup(response: response)
+        }
+        return responseLookup!
     }
 
     @inline(__always)
     private static func normalize(_ value: SIMD3<Double>) -> SIMD3<Double> {
-        let length = (value * value).sum().squareRoot()
-        return length > 1e-12 ? value / length : SIMD3(0, 0, 1)
-    }
-
-    @inline(__always)
-    private static func encodeSRGB(_ value: Double) -> Double {
-        let clamped = Swift.min(Swift.max(value, 0), 1)
-        return clamped <= 0.003_130_8
-            ? 12.92 * clamped
-            : 1.055 * pow(clamped, 1 / 2.4) - 0.055
+        let squaredLength = (value * value).sum()
+        guard squaredLength > 1e-24 else { return SIMD3(0, 0, 1) }
+        return value * (1 / squaredLength.squareRoot())
     }
 
     @inline(__always)
     private static func byte(_ value: Double) -> UInt8 {
-        UInt8(Swift.min(255, Swift.max(0, (value * 255).rounded())))
+        UInt8(Swift.min(255, Swift.max(0, Int(value * 255 + 0.5))))
     }
+
 }

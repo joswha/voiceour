@@ -1,19 +1,52 @@
 import Foundation
 import VoiceCore
 
+/// Octahedral sphere chart with no per-sample trigonometry.
+///
+/// The map is continuous across its internal folds. `MercuryEnvironment` bakes one
+/// analytic texel beyond every edge, supplying the square's spherical identification
+/// while the runtime remains one ordinary bilinear lookup.
+enum MercuryOctahedralMap {
+    @inline(__always)
+    static func encode(_ direction: SIMD3<Float>) -> SIMD2<Float> {
+        let denominator =
+            abs(direction.x) + abs(direction.y) + abs(direction.z)
+        guard denominator > 1e-12 else { return .zero }
+        let projected = direction / denominator
+        guard projected.z < 0 else { return SIMD2(projected.x, projected.y) }
+        return SIMD2(
+            (1 - abs(projected.y)) * signNotZero(projected.x),
+            (1 - abs(projected.x)) * signNotZero(projected.y)
+        )
+    }
+
+    @inline(__always)
+    static func decode(_ point: SIMD2<Float>) -> SIMD3<Float> {
+        var direction = SIMD3(
+            point.x,
+            point.y,
+            1 - abs(point.x) - abs(point.y)
+        )
+        let fold = Swift.max(-direction.z, 0)
+        direction.x += direction.x >= 0 ? -fold : fold
+        direction.y += direction.y >= 0 ? -fold : fold
+        let length = (direction * direction).sum().squareRoot()
+        return length > 1e-12 ? direction / length : SIMD3(0, 0, 1)
+    }
+
+    @inline(__always)
+    private static func signNotZero(_ value: Float) -> Float {
+        value < 0 ? -1 : 1
+    }
+}
+
 /// The generated room the mercury reflects.
 ///
-/// Both worlds write into the same three prefiltered linear-RGB tables, so everything
-/// downstream — interpolation, conductor Fresnel and display response — is one code
-/// path. Both rooms are static after their seed draw; the mercury surface owns all
-/// visible motion. Spectral Weather is the debug-only alternate room structure.
-///
-/// The tables are *x-polar* equirectangular on purpose. An ordinary z-polar
-/// parameterization puts its pole exactly where a near-flat crest's reflected direction
-/// lives. Rotating the poles onto the body's own long axis moves them to the two caps.
-///
-/// Neither world reads the desktop or contains an authored highlight path. Room colour is
-/// low-saturation, seed-derived, luminance-neutral source variation.
+/// Both worlds write into the same prefiltered linear-RGB octahedral tables, so
+/// interpolation, conductor Fresnel and display response remain one code path. Both
+/// rooms are static after their seed draw; the mercury surface owns all visible motion.
+/// Neither world reads the desktop or contains an authored highlight path. Room colour
+/// is low-saturation, seed-derived, luminance-neutral source variation.
 @MainActor
 final class MercuryEnvironment {
     private enum Core {
@@ -24,22 +57,20 @@ final class MercuryEnvironment {
     private(set) var world: MercuryWorld
 
     private var core: Core
-    /// Three levels of `width * height` linear-RGB texels, contiguous. Raw storage avoids
-    /// array bounds and retain traffic in the eight-tap per-pixel sampling path.
+    /// Three bordered octahedral linear-RGB levels. Raw storage avoids array bounds and
+    /// retain traffic in the four-tap per-pixel sampling path.
     private let tables: UnsafeMutablePointer<SIMD3<Float>>
     private let levelStride: Int
-    /// Stored rather than recomputed: `deinit` is not main-actor isolated and may not
-    /// read the isolated statics below.
     private let capacity: Int
     private var normalization: Float?
 
-    private static let width = MercuryMetrics.environmentWidth
-    private static let height = MercuryMetrics.environmentHeight
+    private static let resolution = MercuryMetrics.environmentResolution
+    private static let storageResolution = resolution + 2
     private static let levels = MercuryMetrics.environmentRoughness.count
 
     init(world: MercuryWorld, seed: UInt64) {
         self.world = world
-        levelStride = Self.width * Self.height
+        levelStride = Self.storageResolution * Self.storageResolution
         capacity = levelStride * Self.levels
         tables = UnsafeMutablePointer<SIMD3<Float>>.allocate(capacity: capacity)
         tables.initialize(repeating: .zero, count: capacity)
@@ -66,63 +97,39 @@ final class MercuryEnvironment {
         _ = frozen
     }
 
-    /// Prefiltered linear-RGB radiance for a reflected direction and roughness.
+    /// Production's fixed smooth-mercury level. Separate so the raster hot path never
+    /// performs a roughness search that can only return level zero.
+    @inline(__always)
+    func radiance(_ direction: SIMD3<Float>) -> SIMD3<Float> {
+        sample(level: 0, direction: direction)
+    }
+
+    /// Prefiltered linear-RGB radiance for tests and the debug roughness levels.
     func radiance(_ direction: SIMD3<Float>, roughness: Float) -> SIMD3<Float> {
-        let axial = Swift.min(Swift.max(direction.x, -1), 1)
-        let polar = Foundation.acos(axial)
-        let azimuth = Foundation.atan2(direction.z, direction.y)
-
-        var column = (azimuth + .pi) / (2 * .pi) * Float(Self.width) - 0.5
-        column = column.truncatingRemainder(dividingBy: Float(Self.width))
-        if column < 0 { column += Float(Self.width) }
-        let columnIndex = Int(column)
-        let columnFraction = column - Float(columnIndex)
-        let columnNext = (columnIndex + 1) % Self.width
-
-        let rowRaw = polar / .pi * Float(Self.height) - 0.5
-        let rowClamped = Swift.min(Swift.max(rowRaw, 0), Float(Self.height - 1))
-        let rowIndex = Swift.min(Int(rowClamped), Self.height - 1)
-        let rowFraction = rowClamped - Float(rowIndex)
-        let rowNext = Swift.min(rowIndex + 1, Self.height - 1)
-
         let (lower, upper, blend) = Self.levelBlend(for: roughness)
-        let first = sample(
-            level: lower,
-            columnIndex: columnIndex,
-            columnNext: columnNext,
-            columnFraction: columnFraction,
-            rowIndex: rowIndex,
-            rowNext: rowNext,
-            rowFraction: rowFraction
-        )
+        let first = sample(level: lower, direction: direction)
         guard blend > 0 else { return first }
-        let second = sample(
-            level: upper,
-            columnIndex: columnIndex,
-            columnNext: columnNext,
-            columnFraction: columnFraction,
-            rowIndex: rowIndex,
-            rowNext: rowNext,
-            rowFraction: rowFraction
-        )
+        let second = sample(level: upper, direction: direction)
         return first + (second - first) * blend
     }
 
     @inline(__always)
-    private func sample(
-        level: Int,
-        columnIndex: Int,
-        columnNext: Int,
-        columnFraction: Float,
-        rowIndex: Int,
-        rowNext: Int,
-        rowFraction: Float
-    ) -> SIMD3<Float> {
-        let base = level * levelStride
-        let topLeft = tables[base + rowIndex * Self.width + columnIndex]
-        let topRight = tables[base + rowIndex * Self.width + columnNext]
-        let bottomLeft = tables[base + rowNext * Self.width + columnIndex]
-        let bottomRight = tables[base + rowNext * Self.width + columnNext]
+    private func sample(level: Int, direction: SIMD3<Float>) -> SIMD3<Float> {
+        let point = MercuryOctahedralMap.encode(direction)
+        let coordinate =
+            (point + SIMD2<Float>(repeating: 1))
+            * (0.5 * Float(Self.resolution))
+            + SIMD2<Float>(repeating: 0.5)
+        let column = Swift.min(Swift.max(Int(coordinate.x), 0), Self.resolution)
+        let row = Swift.min(Swift.max(Int(coordinate.y), 0), Self.resolution)
+        let columnFraction = coordinate.x - Float(column)
+        let rowFraction = coordinate.y - Float(row)
+        let stride = Self.storageResolution
+        let base = level * levelStride + row * stride + column
+        let topLeft = tables[base]
+        let topRight = tables[base + 1]
+        let bottomLeft = tables[base + stride]
+        let bottomRight = tables[base + stride + 1]
         let top = topLeft + (topRight - topLeft) * columnFraction
         let bottom = bottomLeft + (bottomRight - bottomLeft) * columnFraction
         return top + (bottom - top) * rowFraction
@@ -145,10 +152,9 @@ final class MercuryEnvironment {
     private func bake() {
         for (level, roughness) in MercuryMetrics.environmentRoughness.enumerated() {
             let destination = tables + level * levelStride
-            // Band-limited to the table's own grid as well as to the roughness. A texel
-            // subtends 3.75 degrees; without this a lambda-4000 lobe lands inside one of
-            // them and the "prefiltered radiance table" contract is simply false — the
-            // stored value is an alias of wherever the lobe centre happened to fall.
+            // The octahedral grid is finer than the fixed 0.019 band limit even at its
+            // widest corner footprint. Adding that footprint in quadrature keeps every
+            // generated lobe band-limited before any bilinear sampling occurs.
             let grid = MercuryMetrics.environmentGridRoughness
             let effective = (Double(roughness) * Double(roughness) + grid * grid).squareRoot()
             switch core {
@@ -184,22 +190,15 @@ final class MercuryEnvironment {
     }
 
     private func weightedMean(level: Int) -> Double {
-        let base = level * levelStride
         var total = 0.0
-        var weight = 0.0
-        for row in 0..<Self.height {
-            let polar = (Double(row) + 0.5) / Double(Self.height) * Double.pi
-            let solidAngle = sin(polar)
-            for column in 0..<Self.width {
-                let value = tables[base + row * Self.width + column]
-                total +=
-                    (0.2126 * Double(value.x)
-                        + 0.7152 * Double(value.y)
-                        + 0.0722 * Double(value.z)) * solidAngle
-                weight += solidAngle
-            }
+        for direction in Self.integrationDirections {
+            let value = sample(level: level, direction: direction)
+            total +=
+                0.2126 * Double(value.x)
+                + 0.7152 * Double(value.y)
+                + 0.0722 * Double(value.z)
         }
-        return weight > 0 ? total / weight : 0
+        return total / Double(Self.integrationDirections.count)
     }
     /// One fixed scalar places the room in a sane numeric range. It is not exposure:
     /// `MercuryDisplayResponse` meters the body's own reflected samples with two anchors.
@@ -216,30 +215,41 @@ final class MercuryEnvironment {
         }
     }
 
-    /// Unit direction of every texel centre, x-polar. Depends only on constants.
+    /// Unit direction of every bordered octahedral texel. The outer ring evaluates the
+    /// analytic room just across the square's identified edge, eliminating runtime wrap.
     private static let directions: [SIMD3<Float>] = {
         var result = [SIMD3<Float>]()
-        result.reserveCapacity(width * height)
-        for row in 0..<height {
-            let polar = (Double(row) + 0.5) / Double(height) * Double.pi
-            let axial = cos(polar)
-            let radius = sin(polar)
-            for column in 0..<width {
-                let azimuth = (Double(column) + 0.5) / Double(width) * 2 * Double.pi - Double.pi
-                result.append(
-                    SIMD3<Float>(
-                        Float(axial),
-                        Float(radius * cos(azimuth)),
-                        Float(radius * sin(azimuth))
-                    )
-                )
+        result.reserveCapacity(storageResolution * storageResolution)
+        let scale = 2 / Float(resolution)
+        for row in 0..<storageResolution {
+            let vertical = (Float(row) - 0.5) * scale - 1
+            for column in 0..<storageResolution {
+                let horizontal = (Float(column) - 0.5) * scale - 1
+                result.append(MercuryOctahedralMap.decode(SIMD2(horizontal, vertical)))
             }
         }
         return result
     }()
 
-    /// The real spherical-harmonic basis at every texel, `l = 1...12`, row-major by
-    /// texel. Roughly 3.1 MB, built once and only when Spectral Weather is selected.
+    /// Fixed uniform integration lattice for table normalization. Unlike a chart-space
+    /// average, this assigns equal solid angle to every sample.
+    private static let integrationDirections: [SIMD3<Float>] = {
+        let count = 4_096
+        let golden = Double.pi * (3 - 5.0.squareRoot())
+        return (0..<count).map { index in
+            let height = 1 - 2 * (Double(index) + 0.5) / Double(count)
+            let radius = Swift.max(0, 1 - height * height).squareRoot()
+            let angle = golden * Double(index)
+            return SIMD3(
+                Float(radius * cos(angle)),
+                Float(radius * sin(angle)),
+                Float(height)
+            )
+        }
+    }()
+
+    /// The real spherical-harmonic basis at every bordered texel, `l = 1...12`.
+    /// Built once and only when Spectral Weather is selected.
     private static let harmonicBasis: [Float] = {
         let count = SpectralWeatherWorld.coefficientCount
         var result = [Float](repeating: 0, count: directions.count * count)

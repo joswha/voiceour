@@ -71,6 +71,7 @@ Required invariants:
 - With Accessibility trust, consume the Globe assigned-action event and an unmodified Escape during an active session. Without trust, use the passive monitor and degrade insertion to copy-only.
 - Recreate `HotkeyEventRouter` whenever the tap is torn down or rebuilt. Passive routing ignores Globe keycode 179.
 - Keep the overlay on the focused target's display. Store manual placement relative to a display, never as an absolute pin to one monitor.
+- Drive the mercury surface with `NSView.displayLink(target:selector:)` bound to the panel's current screen, capped at 120 fps. Physics remains fixed at 120 Hz: one substep per 120 Hz frame, two per 60 Hz frame, fractional carry at other rates. Never put the frame clock back through `TimelineView`, a timer, or published SwiftUI state.
 - Stop always finalizes one WAV and performs one final decode. There is no in-progress ASR request path.
 - Ignore stale asynchronous work through generation/cancellation checks. An old recording or decode cannot update a newer session.
 - Capture startup failure removes its WAV. Once finalization begins, the processing pipeline owns discard; cancellation must not race a second owner.

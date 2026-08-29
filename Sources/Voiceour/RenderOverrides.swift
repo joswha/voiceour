@@ -92,11 +92,10 @@ enum RenderOverrides {
     static var availableMicrophones: [CoreAudioInputDevice.AvailableMicrophone]?
 
     /// Pins the recording island's generated world and the exact substep its body is
-    /// rendered at. The body is a live simulation driven by wall-clock time, which no
-    /// golden could ever hash twice; with a step pinned the view produces exactly one
-    /// frame, advanced from rest by that many fixed substeps, and no `TimelineView` is
-    /// instantiated at all. Production reads all three as nil, which is a fresh random
-    /// world per session and real time.
+    /// rendered at. With a step pinned, the representable produces one frame advanced
+    /// from rest by that many fixed substeps and never starts its live display link.
+    /// Production reads all three as nil: a fresh random world per session and the
+    /// attached display's native cadence, capped at 120 fps.
     static var mercurySeed: UInt64?
     static var mercuryStep: Int?
     static var mercuryWorld: MercuryWorld?

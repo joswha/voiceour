@@ -68,12 +68,13 @@ polished-mercury material into one `CGImage` on every supported macOS version:
   plain white.
 
 Autonomous mode noise keeps the visible body alive while listening. The eleven audio
-levels drive a right-to-left crest train during speech. Physics stays at 120 Hz; the
-engine presents a cached raster at 30 Hz. Reduce Motion removes autonomous noise but
-keeps voice and pose motion because those carry information. The body is already opaque
-and its room is already static, so Reduce Transparency requires no overlay-specific
-branch and changes no pixels. Increase Contrast re-solves the same bounded scene anchors
-and never clips against the ceiling.
+levels drive a right-to-left crest train during speech. Physics stays at 120 Hz and a
+view-bound display link presents at the screen's native rate, capped at 120: 120 fps on
+ProMotion, 60 fps on a 60 Hz display. Reduce Motion removes autonomous noise but keeps
+voice and pose motion because those carry information. The body is already opaque and
+its room is already static, so Reduce Transparency requires no overlay-specific branch
+and changes no pixels. Increase Contrast re-solves the same bounded scene anchors and
+never clips against the ceiling.
 
 Idle draws and publishes nothing. Active states expose one fixed-frame accessibility
 element labelled `Dictation status`; Finish and Cancel survive as named actions on it.

@@ -20,8 +20,6 @@ struct MercuryField {
         /// Derivatives with respect to the material coordinate `a`.
         var radiusSlope: Double
         var centerSlope: Double
-        var radiusCurvature: Double
-        var centerCurvature: Double
     }
 
     private let top: [Float]
@@ -106,19 +104,6 @@ struct MercuryField {
         return ((column.radiusSlope + sign * column.centerSlope) / length, -sign)
     }
 
-    /// Second derivative of the field along x, for the specular's antialiasing.
-    @inline(__always)
-    static func curvature(column: Column, vertical: Double, length: Double) -> Double {
-        guard column.inSpan else {
-            let offset = column.capOffset
-            let distance = (offset * offset + vertical * vertical).squareRoot()
-            guard distance > 1e-9 else { return 0 }
-            return -(vertical * vertical) / (distance * distance * distance)
-        }
-        let sign: Double = vertical >= 0 ? 1 : -1
-        return (column.radiusCurvature + sign * column.centerCurvature) / (length * length)
-    }
-
     /// Resolves one pixel column. `x` is already relative to the body's own centre, so
     /// the lateral offset is applied exactly once, by the caller.
     func column(atX horizontal: Double) -> Column {
@@ -140,9 +125,7 @@ struct MercuryField {
             radius: radius,
             center: center,
             radiusSlope: mix(radiusSlope(index), radiusSlope(next), fraction) * scale,
-            centerSlope: mix(centerSlope(index), centerSlope(next), fraction) * scale,
-            radiusCurvature: mix(radiusCurvature(index), radiusCurvature(next), fraction) * scale * scale,
-            centerCurvature: mix(centerCurvature(index), centerCurvature(next), fraction) * scale * scale
+            centerSlope: mix(centerSlope(index), centerSlope(next), fraction) * scale
         )
     }
 
@@ -173,20 +156,6 @@ struct MercuryField {
         let low = Swift.max(index - 1, 0)
         let high = Swift.min(index + 1, top.count - 1)
         return (center(high) - center(low)) / Double(high - low)
-    }
-
-    /// Zero at the two end stations: a one-sided second difference there would report a
-    /// curvature the sampled edge does not have, and this only feeds specular antialiasing.
-    @inline(__always)
-    private func radiusCurvature(_ index: Int) -> Double {
-        guard index > 0, index < top.count - 1 else { return 0 }
-        return radius(index + 1) - 2 * radius(index) + radius(index - 1)
-    }
-
-    @inline(__always)
-    private func centerCurvature(_ index: Int) -> Double {
-        guard index > 0, index < top.count - 1 else { return 0 }
-        return center(index + 1) - 2 * center(index) + center(index - 1)
     }
 
     @inline(__always)

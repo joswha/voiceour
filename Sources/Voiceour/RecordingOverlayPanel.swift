@@ -61,9 +61,9 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     /// pick this up".
     ///
     /// One tracking area over the island rect rather than over the body, because the body
-    /// changes shape every frame and rebuilding a tracking area at 60 Hz is churn AppKit
-    /// does not need. The rect decides where the cursor is *asked*; the field decides what
-    /// the answer is.
+    /// changes shape every display frame and rebuilding a tracking area at up to 120 Hz is
+    /// churn AppKit does not need. The rect decides where the cursor is *asked*; the
+    /// field decides what the answer is.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let dragCursorArea {
