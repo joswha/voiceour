@@ -1,4 +1,4 @@
-"""Score one `autoresearch.sh` run of the frozen latency corpus.
+"""Score one `autoresearch.sh` run of the frozen corpus.
 
 Reads the `voiceour-bench pipeline` results for a run shaped as
 `warmup_passes + timed_passes` sequential passes over
@@ -20,7 +20,12 @@ Metric definitions:
   seconds, matching `docs/benchmarks.md`. Warmup rows are excluded, so the
   one-off model load never enters this ratio.
 - `load_ms` — the sidecar's own model-load time, constant across a process.
-- `peak_rss_bytes` — supplied by the harness, which samples the sidecar.
+- `peak_phys_footprint_mb` — the primary metric for the memory segment, from the
+  harness's sampler reading `ri_phys_footprint`: the accounting jetsam enforces
+  and Activity Monitor shows, counting compressed and swapped dirty pages and
+  excluding clean file-backed ones.
+- `peak_rss_mb` — `ri_resident_size` from the same sample, reported alongside so
+  a footprint-only reduction cannot pass as a real one.
 - `uwer` — U-WER of `final_text` against `reference`, the quantity the
   keep-time 0.0035 gate compares.
 - `error_rows` — rows the runner could not transcribe.
@@ -224,8 +229,20 @@ def main() -> int:
         fail(f"asr_load is not constant across the process: {sorted(loads)}")
     load_ms = float(sorted(loads)[0])
 
-    if args.peak_rss_bytes <= 0:
-        fail(f"peak_rss_bytes {args.peak_rss_bytes} is not a positive sample")
+    if args.peak_footprint_bytes <= 0:
+        fail(f"peak_footprint_bytes {args.peak_footprint_bytes} is not a positive sample")
+    if args.peak_resident_bytes <= 0:
+        fail(f"peak_resident_bytes {args.peak_resident_bytes} is not a positive sample")
+    # A footprint below resident size would mean the sampler read the fields in
+    # the wrong order, which is the one way this metric could silently flatter a
+    # change. `ri_phys_footprint` counts compressed dirty pages that resident
+    # size does not, and on this workload the weights are dirty and anonymous,
+    # so footprint is expected to sit at or above resident size.
+    if args.peak_footprint_bytes < args.peak_resident_bytes:
+        fail(
+            f"peak footprint {args.peak_footprint_bytes} is below peak resident "
+            f"{args.peak_resident_bytes}; the sampler is misreading rusage_info"
+        )
 
     corpus_references = {row["id"]: row["reference"] for row in corpus}
     references = [corpus_references[row_id] for row_id, _ in observed_pairs]
