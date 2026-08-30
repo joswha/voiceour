@@ -2,11 +2,22 @@
 
 Notable user-visible changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-There are no tagged releases yet, so `Unreleased` is the state of `main` and the starting point every later entry is written against.
+Released versions are immutable; Unreleased is the state of main since the latest tag.
 
 Cutting a release moves the `Unreleased` bullets beneath a new version heading — `## <version>`, or `## [<version>] - <date>` — and leaves `Unreleased` empty above them. The version is `CFBundleShortVersionString` in `Resources/Info.plist`, the only place a version is written down, and the git tag is `v<version>`. That section is the release notes: `scripts/release.sh` extracts it verbatim and the published release carries it unedited, so it cannot be cut while the heading is missing or the section is empty. [AGENTS.md](AGENTS.md#release-procedure) holds the procedure.
 
 ## Unreleased
+
+## [0.2.1] - 2026-08-30
+
+### Changed
+
+- **Faster local transcription.** The native Parakeet path reuses encoder scheduler reservations, removes redundant Metal copies and transforms, avoids pathological pointwise-convolution dispatch, and merges prediction with the following joint step. On the frozen M4 Pro corpus, ASR p95 moved from about 282 ms to 206–209 ms and p50 from about 171 ms to 125–128 ms, with byte-identical transcripts on all 500 promotion rows.
+- **Far lower runtime memory.** Verified model weights now warm from a read-only file-backed arena. Peak physical footprint moved from about 1.46 GB to 178 MB and RSS from about 1.39 GB to 113 MB. First load creates a second, model-sized local acceleration file, so total cache use is about 2.51 GB for Balanced or 1.34 GB for Compact.
+
+### Fixed
+
+- **Safe acceleration-cache creation.** Arena creation is locked, atomic and fsynced, validates the exact source pin and tensor layout, physically reserves its bytes before mapping, and falls back to ordinary model buffers on stale state, disk pressure or any cache failure instead of risking a sparse-file `SIGBUS`.
 
 ## [0.2.0] - 2026-08-29
 
