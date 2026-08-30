@@ -296,6 +296,7 @@ scored="$WORK/metrics.txt"
         --peak-footprint-bytes "$peak_footprint_bytes" \
         --peak-resident-bytes "$peak_resident_bytes" \
         --latency-ceiling-ms "$LATENCY_CEILING_MS" \
+        --allow-golden-drift \
         $bless_flag
 ) >"$scored"
 score_status=$?

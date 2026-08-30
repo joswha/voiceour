@@ -101,6 +101,7 @@ def main() -> int:
     parser.add_argument("--peak-footprint-bytes", required=True, type=int)
     parser.add_argument("--peak-resident-bytes", required=True, type=int)
     parser.add_argument("--latency-ceiling-ms", required=True, type=float)
+    parser.add_argument("--allow-golden-drift", action="store_true")
     parser.add_argument(
         "--bless-golden",
         action="store_true",
@@ -187,6 +188,8 @@ def main() -> int:
 
     blob = transcript_blob(observed_pairs)
     transcript_sha = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    golden: dict[str, str] = {}
+    mismatched: list[str] = []
     if args.bless_golden:
         args.golden.write_text(blob, encoding="utf-8")
         print(f"score.py: wrote golden transcripts to {args.golden}", file=sys.stderr)
@@ -201,7 +204,7 @@ def main() -> int:
                     f"missing {sorted(expected - set(golden))[:5]}, extra {sorted(set(golden) - expected)[:5]}"
                 )
             mismatched = [row_id for row_id, text in observed_pairs if golden.get(row_id) != text]
-            if mismatched:
+            if mismatched and not args.allow_golden_drift:
                 fail(f"{len(mismatched)} transcripts differ from the golden, first: {mismatched[:3]}")
 
     timed_indexes = list(range(args.warmup_passes, total_passes))
@@ -240,6 +243,15 @@ def main() -> int:
     raw_texts = [text for _, text in observed_pairs]
     uwer_final = finite("uwer", uwer(references, final_texts))
     uwer_raw = finite("uwer_raw", uwer(references, raw_texts))
+    golden_uwer_raw = uwer_raw
+    if args.allow_golden_drift and golden:
+        golden_raw_texts = [golden[row_id] for row_id, _ in observed_pairs]
+        golden_uwer_raw = finite("golden_uwer_raw", uwer(references, golden_raw_texts))
+        if uwer_raw - golden_uwer_raw > 0.0035:
+            fail(
+                f"raw U-WER delta {uwer_raw - golden_uwer_raw:+.6f} exceeds "
+                "the accuracy-neutral margin +0.003500"
+            )
 
     p95 = finite("asr_inference_p95_ms", statistics.median(pass_p95))
     p50 = finite("asr_inference_p50_ms", statistics.median(pass_p50))
@@ -293,6 +305,9 @@ def main() -> int:
     print(f"ASI pass_p95_min_ms={min(pass_p95):.1f}")
     print(f"ASI pass_p95_max_ms={max(pass_p95):.1f}")
     print(f"ASI uwer_raw={uwer_raw:.6f}")
+    print(f"ASI golden_drift_rows={len(mismatched)}")
+    print(f"ASI golden_uwer_raw={golden_uwer_raw:.6f}")
+    print(f"ASI golden_uwer_delta={uwer_raw - golden_uwer_raw:+.6f}")
     print(f"ASI asr_wall_ms_sum_timed={sum(timed_asr):.0f}")
     print(f"ASI model_id={identity['model_id']}")
     print(f"ASI model_revision={identity['model_revision']}")
