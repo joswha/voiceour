@@ -162,6 +162,27 @@ readonly SIDECAR_BIN=".build/release/voiceour-asr"
 [ -x "$BENCH_BIN" ] || die "missing $BENCH_BIN"
 [ -x "$SIDECAR_BIN" ] || die "missing $SIDECAR_BIN"
 
+# A derived weight arena is persistent product state. Prepare it before memory
+# sampling so every measured run is the same warm-launch workload; the baseline
+# performs the same proof load even though it has no derived cache to prepare.
+readonly PREPARE_LOG="$WORK/prepare.log"
+log 'preparing deterministic runtime cache state'
+if ! env -i \
+    PATH=/usr/bin:/bin \
+    HOME="$HOME" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    VOICEOUR_MODEL_VARIANT="$MODEL_VARIANT" \
+    "$SIDECAR_BIN" --prove fixtures/audio/hello_16k_mono.wav \
+    >"$PREPARE_LOG" 2>&1
+then
+    tail -40 "$PREPARE_LOG" >&2
+    die 'sidecar runtime-cache preparation failed'
+fi
+
+# The proof load exercises Metal. Let it leave the thermal state before the
+# timed process starts; otherwise cache preparation itself raises measured p95.
+sleep 60
+
 # --- run manifest ----------------------------------------------------------
 #
 # A pure function of the corpus and the pass counts: the corpus order is the
