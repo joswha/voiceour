@@ -33,7 +33,7 @@ index d35aa87..0c329e6 100644
      PARAKEET_API struct parakeet_context * parakeet_init_with_params            (struct parakeet_model_loader * loader, struct parakeet_context_params params);
  
 diff --git a/src/parakeet.cpp b/src/parakeet.cpp
-index df9f7ef..e187ec6 100644
+index df9f7ef..5961c3b 100644
 --- a/src/parakeet.cpp
 +++ b/src/parakeet.cpp
 @@ -9,6 +9,7 @@
@@ -80,7 +80,7 @@ index df9f7ef..e187ec6 100644
      int n_loaded = 0;
      std::map<std::string, struct ggml_tensor *> tensors;
  };
-@@ -1008,13 +1024,542 @@ static ggml_backend_buffer_type_t select_weight_buft(const parakeet_hparams & hp
+@@ -1008,13 +1024,571 @@ static ggml_backend_buffer_type_t select_weight_buft(const parakeet_hparams & hp
      return nullptr;
  }
  
@@ -418,6 +418,34 @@ index df9f7ef..e187ec6 100644
 +    return true;
 +}
 +
++static bool parakeet_preallocate_weight_arena(int fd, size_t size) {
++    if (size > static_cast<uint64_t>(std::numeric_limits<off_t>::max())) {
++        errno = EFBIG;
++        return false;
++    }
++    const off_t length = static_cast<off_t>(size);
++#if defined(__APPLE__)
++    fstore_t store = {};
++    store.fst_flags = F_ALLOCATECONTIG;
++    store.fst_posmode = F_PEOFPOSMODE;
++    store.fst_offset = 0;
++    store.fst_length = length;
++    if (fcntl(fd, F_PREALLOCATE, &store) != 0) {
++        store.fst_flags = F_ALLOCATEALL;
++        if (fcntl(fd, F_PREALLOCATE, &store) != 0) {
++            return false;
++        }
++    }
++#else
++    const int result = posix_fallocate(fd, 0, length);
++    if (result != 0) {
++        errno = result;
++        return false;
++    }
++#endif
++    return ftruncate(fd, length) == 0;
++}
++
 +static bool parakeet_create_weight_arena(
 +        const std::string & path,
 +        const parakeet_weight_arena_plan & plan,
@@ -427,8 +455,9 @@ index df9f7ef..e187ec6 100644
 +    if (fd < 0) {
 +        return false;
 +    }
-+    if (plan.size > static_cast<uint64_t>(std::numeric_limits<off_t>::max()) ||
-+            ftruncate(fd, static_cast<off_t>(plan.size)) != 0) {
++    // Reserve physical blocks before mmap: a sparse ftruncate can SIGBUS later on ENOSPC,
++    // outside the error-return path that guarantees ordinary-buffer fallback.
++    if (!parakeet_preallocate_weight_arena(fd, plan.size)) {
 +        close(fd);
 +        unlink(path.c_str());
 +        return false;
@@ -624,7 +653,7 @@ index df9f7ef..e187ec6 100644
      PARAKEET_LOG_INFO("%s: loading model\n", __func__);
  
      const int64_t t_start_us = ggml_time_us();
-@@ -1408,34 +1953,100 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
+@@ -1408,34 +1982,100 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
  
      ggml_free(ctx);
  
@@ -743,7 +772,7 @@ index df9f7ef..e187ec6 100644
  
              read_safe(loader, n_dims);
              read_safe(loader, length);
-@@ -1444,77 +2055,155 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
+@@ -1444,77 +2084,155 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
              if (loader->eof(loader->context)) {
                  break;
              }
@@ -895,8 +924,8 @@ index df9f7ef..e187ec6 100644
 +        } else if (n_loaded != static_cast<int>(tensors_map.size())) {
 +            PARAKEET_LOG_ERROR("%s: ERROR not all tensors loaded from model file - expected %zu, got %d\n",
 +                __func__, tensors_map.size(), n_loaded);
-+            return false;
-+        }
+             return false;
+         }
 +        return true;
 +    };
 +
@@ -928,8 +957,8 @@ index df9f7ef..e187ec6 100644
 +        if (!parakeet_allocate_regular_weight_buffers(ctx_map, model) ||
 +                weight_records_offset < 0 ||
 +                !loader->seek(loader->context, weight_records_offset, SEEK_SET)) {
-             return false;
-         }
++            return false;
++        }
 +        arena_cold = false;
 +        arena_cache_failed = false;
 +        weights_loaded = load_weight_records();
@@ -941,7 +970,7 @@ index df9f7ef..e187ec6 100644
      }
  
      auto & buffers = wctx.model.buffers;
-@@ -3291,48 +3980,116 @@ struct parakeet_context_params parakeet_context_default_params() {
+@@ -3291,48 +4009,116 @@ struct parakeet_context_params parakeet_context_default_params() {
      return result;
  }
  
@@ -1082,7 +1111,7 @@ index df9f7ef..e187ec6 100644
  }
  
  struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void * buffer, size_t buffer_size, struct parakeet_context_params params) {
-@@ -3352,15 +4109,49 @@ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void *
+@@ -3352,15 +4138,49 @@ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void *
  
      loader.read = [](void * ctx, void * output, size_t read_size) {
          buf_context * buf = reinterpret_cast<buf_context *>(ctx);
@@ -1136,7 +1165,7 @@ index df9f7ef..e187ec6 100644
      loader.eof = [](void * ctx) {
          buf_context * buf = reinterpret_cast<buf_context *>(ctx);
  
-@@ -3369,10 +4160,13 @@ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void *
+@@ -3369,10 +4189,13 @@ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void *
  
      loader.close = [](void * /*ctx*/) { };
  
@@ -1152,7 +1181,7 @@ index df9f7ef..e187ec6 100644
      ggml_time_init();
  
      PARAKEET_LOG_INFO("%s: use gpu    = %d\n", __func__, params.use_gpu);
-@@ -3385,7 +4179,7 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
+@@ -3385,7 +4208,7 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
  
      bool model_loaded = false;
      try {
@@ -1161,7 +1190,7 @@ index df9f7ef..e187ec6 100644
      } catch (const std::exception & e) {
          PARAKEET_LOG_ERROR("%s: exception during model load: %s\n", __func__, e.what());
      } catch (...) {
-@@ -3395,7 +4189,7 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
+@@ -3395,7 +4218,7 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
      if (!model_loaded) {
          loader->close(loader->context);
          PARAKEET_LOG_ERROR("%s: failed to load model\n", __func__);
@@ -1170,7 +1199,7 @@ index df9f7ef..e187ec6 100644
          return nullptr;
      }
  
-@@ -3408,6 +4202,12 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
+@@ -3408,6 +4231,12 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
      return ctx;
  }
  
@@ -1183,7 +1212,7 @@ index df9f7ef..e187ec6 100644
  struct parakeet_context * parakeet_init_from_file_with_params(const char * path_model, struct parakeet_context_params params) {
      parakeet_context * ctx = parakeet_init_from_file_with_params_no_state(path_model, params);
      if (!ctx) {
-@@ -3423,6 +4223,37 @@ struct parakeet_context * parakeet_init_from_file_with_params(const char * path_
+@@ -3423,6 +4252,37 @@ struct parakeet_context * parakeet_init_from_file_with_params(const char * path_
      return ctx;
  }
  
@@ -1221,7 +1250,7 @@ index df9f7ef..e187ec6 100644
  struct parakeet_context * parakeet_init_from_buffer_with_params(void * buffer, size_t buffer_size, struct parakeet_context_params params) {
      parakeet_context * ctx = parakeet_init_from_buffer_with_params_no_state(buffer, buffer_size, params);
      if (!ctx) {
-@@ -3481,6 +4312,10 @@ void parakeet_free(struct parakeet_context * ctx) {
+@@ -3481,6 +4341,10 @@ void parakeet_free(struct parakeet_context * ctx) {
          for (ggml_backend_buffer_t buf : ctx->model.buffers) {
              ggml_backend_buffer_free(buf);
          }

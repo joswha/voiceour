@@ -237,8 +237,9 @@ captured under `patches/`.
   `ggml_tallocr_alloc`, then backs the immutable weights with a page-aligned `MAP_SHARED` file.
   Warm loads still parse and validate every source tensor header but seek over payloads already in
   the arena. Arena reuse requires the exact v1 layout manifest and payload size under a
-  cross-process lock; creation uses locked temp data/manifest files, per-tensor `MS_SYNC`, file
-  `fsync`, atomic renames, and directory `fsync`. Unsafe, stale, partial, or otherwise unusable
+  cross-process lock; creation physically reserves the data file (`F_PREALLOCATE`) before mapping,
+  then uses locked temp data/manifest files, per-tensor `MS_SYNC`, file `fsync`, atomic renames,
+  and directory `fsync`. Unsafe, stale, partial, full-volume, or otherwise unusable
   derived state falls back to ordinary ggml buffers. Mapped backend wrappers are freed before
   `munmap` and `close`.
   - Upstream status: not reported upstream. parakeet.cpp's legacy stream format interleaves tensor

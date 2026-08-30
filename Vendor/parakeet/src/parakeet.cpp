@@ -1358,6 +1358,34 @@ static bool parakeet_map_existing_weight_arena(
     return true;
 }
 
+static bool parakeet_preallocate_weight_arena(int fd, size_t size) {
+    if (size > static_cast<uint64_t>(std::numeric_limits<off_t>::max())) {
+        errno = EFBIG;
+        return false;
+    }
+    const off_t length = static_cast<off_t>(size);
+#if defined(__APPLE__)
+    fstore_t store = {};
+    store.fst_flags = F_ALLOCATECONTIG;
+    store.fst_posmode = F_PEOFPOSMODE;
+    store.fst_offset = 0;
+    store.fst_length = length;
+    if (fcntl(fd, F_PREALLOCATE, &store) != 0) {
+        store.fst_flags = F_ALLOCATEALL;
+        if (fcntl(fd, F_PREALLOCATE, &store) != 0) {
+            return false;
+        }
+    }
+#else
+    const int result = posix_fallocate(fd, 0, length);
+    if (result != 0) {
+        errno = result;
+        return false;
+    }
+#endif
+    return ftruncate(fd, length) == 0;
+}
+
 static bool parakeet_create_weight_arena(
         const std::string & path,
         const parakeet_weight_arena_plan & plan,
@@ -1367,8 +1395,9 @@ static bool parakeet_create_weight_arena(
     if (fd < 0) {
         return false;
     }
-    if (plan.size > static_cast<uint64_t>(std::numeric_limits<off_t>::max()) ||
-            ftruncate(fd, static_cast<off_t>(plan.size)) != 0) {
+    // Reserve physical blocks before mmap: a sparse ftruncate can SIGBUS later on ENOSPC,
+    // outside the error-return path that guarantees ordinary-buffer fallback.
+    if (!parakeet_preallocate_weight_arena(fd, plan.size)) {
         close(fd);
         unlink(path.c_str());
         return false;
