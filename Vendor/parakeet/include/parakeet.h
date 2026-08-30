@@ -69,9 +69,12 @@ extern "C" {
     typedef struct parakeet_model_loader {
         void * context;
 
-        size_t (*read)(void * ctx, void * output, size_t read_size);
+        // VOICEOUR PATCH: checked seeking supports warm arena payload reuse.
+        size_t  (*read)(void * ctx, void * output, size_t read_size);
+        bool    (*seek)(void * ctx, int64_t offset, int whence);
+        int64_t (*tell)(void * ctx);
         bool    (*eof)(void * ctx);
-        void  (*close)(void * ctx);
+        void   (*close)(void * ctx);
     } parakeet_model_loader;
 
     PARAKEET_API const char * parakeet_version(void);
@@ -80,6 +83,14 @@ extern "C" {
     // Allocate (almost) all memory needed for the model.
     // Return NULL on failure
     PARAKEET_API struct parakeet_context * parakeet_init_from_file_with_params  (const char * path_model,              struct parakeet_context_params params);
+    // VOICEOUR PATCH: opt-in, versioned file-backed weight arena. Failure to use the arena
+    // falls back to the ordinary allocation path; the model remains the source of truth.
+    PARAKEET_API struct parakeet_context * parakeet_init_from_file_with_params_and_weight_arena(
+            const char * path_model,
+            const char * path_weight_arena,
+            struct parakeet_context_params params);
+    // Removes one derived arena under the same stable cross-process lock used by creation.
+    PARAKEET_API bool parakeet_remove_weight_arena(const char * path_weight_arena);
     PARAKEET_API struct parakeet_context * parakeet_init_from_buffer_with_params(void * buffer, size_t buffer_size,    struct parakeet_context_params params);
     PARAKEET_API struct parakeet_context * parakeet_init_with_params            (struct parakeet_model_loader * loader, struct parakeet_context_params params);
 

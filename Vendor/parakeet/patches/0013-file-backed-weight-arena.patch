@@ -1,0 +1,1234 @@
+diff --git a/include/parakeet.h b/include/parakeet.h
+index d35aa87..0c329e6 100644
+--- a/include/parakeet.h
++++ b/include/parakeet.h
+@@ -69,9 +69,12 @@ extern "C" {
+     typedef struct parakeet_model_loader {
+         void * context;
+ 
+-        size_t (*read)(void * ctx, void * output, size_t read_size);
++        // VOICEOUR PATCH: checked seeking supports warm arena payload reuse.
++        size_t  (*read)(void * ctx, void * output, size_t read_size);
++        bool    (*seek)(void * ctx, int64_t offset, int whence);
++        int64_t (*tell)(void * ctx);
+         bool    (*eof)(void * ctx);
+-        void  (*close)(void * ctx);
++        void   (*close)(void * ctx);
+     } parakeet_model_loader;
+ 
+     PARAKEET_API const char * parakeet_version(void);
+@@ -80,6 +83,14 @@ extern "C" {
+     // Allocate (almost) all memory needed for the model.
+     // Return NULL on failure
+     PARAKEET_API struct parakeet_context * parakeet_init_from_file_with_params  (const char * path_model,              struct parakeet_context_params params);
++    // VOICEOUR PATCH: opt-in, versioned file-backed weight arena. Failure to use the arena
++    // falls back to the ordinary allocation path; the model remains the source of truth.
++    PARAKEET_API struct parakeet_context * parakeet_init_from_file_with_params_and_weight_arena(
++            const char * path_model,
++            const char * path_weight_arena,
++            struct parakeet_context_params params);
++    // Removes one derived arena under the same stable cross-process lock used by creation.
++    PARAKEET_API bool parakeet_remove_weight_arena(const char * path_weight_arena);
+     PARAKEET_API struct parakeet_context * parakeet_init_from_buffer_with_params(void * buffer, size_t buffer_size,    struct parakeet_context_params params);
+     PARAKEET_API struct parakeet_context * parakeet_init_with_params            (struct parakeet_model_loader * loader, struct parakeet_context_params params);
+ 
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index df9f7ef..e187ec6 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -9,6 +9,7 @@
+ #include <atomic>
+ #include <algorithm>
+ #include <cassert>
++#include <cerrno>
+ #include <cfloat>
+ #define _USE_MATH_DEFINES
+ #include <cmath>
+@@ -19,6 +20,7 @@
+ #include <fstream>
+ #include <functional>
+ #include <cctype>
++#include <limits>
+ #include <map>
+ #include <random>
+ #include <set>
+@@ -26,6 +28,14 @@
+ #include <thread>
+ #include <vector>
+ 
++#ifndef _WIN32
++#include <fcntl.h>
++#include <sys/file.h>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#endif
++
+ #ifdef _MSC_VER
+ #include <codecvt>
+ #endif
+@@ -385,6 +395,12 @@ struct parakeet_model {
+ 
+     std::vector<ggml_backend_buffer_t> buffers;
+ 
++    // VOICEOUR PATCH: the backend wrappers in `buffers` refer into this mapped arena.
++    // They must be freed before the mapping and descriptor are released.
++    void * weight_arena_addr = nullptr;
++    size_t weight_arena_size = 0;
++    int weight_arena_fd = -1;
++
+     int n_loaded = 0;
+     std::map<std::string, struct ggml_tensor *> tensors;
+ };
+@@ -1008,13 +1024,542 @@ static ggml_backend_buffer_type_t select_weight_buft(const parakeet_hparams & hp
+     return nullptr;
+ }
+ 
++// VOICEOUR PATCH: file-backed weight arena.
++//
++// ggml's ordinary Metal buffers are anonymous VM even though the weights are immutable after
++// load. On macOS that charges the entire model to every sidecar's physical footprint. The arena
++// below preserves ggml's proven allocation order, but backs it with one versioned MAP_SHARED
++// file. The source model is still parsed on every load; a warm arena only replaces each payload
++// read with a checked seek. Any cache/locking/mapping/durability failure returns to the ordinary
++// allocator, so derived state can never make the model unavailable.
++#ifndef _WIN32
++
++static constexpr uint32_t PARAKEET_WEIGHT_ARENA_VERSION = 1;
++static constexpr uint64_t PARAKEET_FNV64_OFFSET = 1469598103934665603ULL;
++static constexpr uint64_t PARAKEET_FNV64_PRIME  = 1099511628211ULL;
++
++using parakeet_weight_ctx_map = std::map<ggml_backend_buffer_type_t, ggml_context *>;
++
++struct parakeet_weight_arena_slice {
++    ggml_backend_buffer_type_t buft = nullptr;
++    ggml_context * ctx = nullptr;
++    size_t offset = 0;
++    size_t size = 0;
++    size_t max_tensor_size = 0;
++};
++
++struct parakeet_weight_arena_plan {
++    std::vector<parakeet_weight_arena_slice> slices;
++    size_t size = 0;
++    uint64_t layout = PARAKEET_FNV64_OFFSET;
++};
++
++struct parakeet_weight_arena_lock {
++    int fd = -1;
++
++    ~parakeet_weight_arena_lock() {
++        if (fd >= 0) {
++            flock(fd, LOCK_UN);
++            close(fd);
++        }
++    }
++
++    bool acquire(const std::string & path) {
++        fd = open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
++        if (fd < 0) {
++            PARAKEET_LOG_WARN("%s: cannot open arena lock '%s': %s\n", __func__, path.c_str(), strerror(errno));
++            return false;
++        }
++
++        struct stat st = {};
++        if (fstat(fd, &st) != 0 ||
++                !S_ISREG(st.st_mode) ||
++                st.st_uid != geteuid() ||
++                st.st_nlink != 1 ||
++                (st.st_mode & 0022) != 0) {
++            PARAKEET_LOG_WARN("%s: refusing unsafe arena lock '%s'\n", __func__, path.c_str());
++            close(fd);
++            fd = -1;
++            return false;
++        }
++        if (flock(fd, LOCK_EX) != 0) {
++            PARAKEET_LOG_WARN("%s: cannot lock arena '%s': %s\n", __func__, path.c_str(), strerror(errno));
++            close(fd);
++            fd = -1;
++            return false;
++        }
++        return true;
++    }
++};
++
++struct parakeet_weight_arena_transaction {
++    std::string data_temp;
++    std::string manifest_temp;
++    bool committed = false;
++
++    ~parakeet_weight_arena_transaction() {
++        if (!committed) {
++            if (!data_temp.empty()) {
++                unlink(data_temp.c_str());
++            }
++            if (!manifest_temp.empty()) {
++                unlink(manifest_temp.c_str());
++            }
++        }
++    }
++};
++
++static bool parakeet_checked_add(size_t lhs, size_t rhs, size_t & result) {
++    if (rhs > std::numeric_limits<size_t>::max() - lhs) {
++        return false;
++    }
++    result = lhs + rhs;
++    return true;
++}
++
++static bool parakeet_align_up(size_t value, size_t alignment, size_t & result) {
++    if (alignment == 0) {
++        return false;
++    }
++    const size_t remainder = value % alignment;
++    return remainder == 0 ? (result = value, true) : parakeet_checked_add(value, alignment - remainder, result);
++}
++
++static void parakeet_hash_bytes(uint64_t & hash, const void * bytes, size_t size) {
++    const uint8_t * cursor = static_cast<const uint8_t *>(bytes);
++    for (size_t i = 0; i < size; ++i) {
++        hash ^= cursor[i];
++        hash *= PARAKEET_FNV64_PRIME;
++    }
++}
++
++template<typename T>
++static void parakeet_hash_value(uint64_t & hash, const T & value) {
++    parakeet_hash_bytes(hash, &value, sizeof(value));
++}
++
++static bool parakeet_make_weight_arena_plan(
++        const parakeet_weight_ctx_map & ctx_map,
++        parakeet_weight_arena_plan & plan) {
++    const long page_size_long = sysconf(_SC_PAGESIZE);
++    if (page_size_long <= 0) {
++        return false;
++    }
++    const size_t page_size = static_cast<size_t>(page_size_long);
++
++    size_t cursor = 0;
++    size_t slice_index = 0;
++    for (const auto & entry : ctx_map) {
++        ggml_backend_buffer_type_t buft = entry.first;
++        ggml_context * ctx = entry.second;
++        const size_t size = ggml_backend_alloc_ctx_tensors_from_buft_size(ctx, buft);
++        if (size == 0) {
++            continue;
++        }
++
++        ggml_backend_dev_t device = ggml_backend_buft_get_device(buft);
++        if (!device) {
++            return false;
++        }
++        ggml_backend_dev_props props = {};
++        ggml_backend_dev_get_props(device, &props);
++        if (!props.caps.buffer_from_host_ptr) {
++            return false;
++        }
++
++        size_t offset = 0;
++        if (!parakeet_align_up(cursor, page_size, offset)) {
++            return false;
++        }
++
++        size_t max_tensor_size = 0;
++        const char * buft_name = ggml_backend_buft_name(buft);
++        parakeet_hash_value(plan.layout, slice_index);
++        parakeet_hash_bytes(plan.layout, buft_name, strlen(buft_name));
++        parakeet_hash_value(plan.layout, offset);
++        parakeet_hash_value(plan.layout, size);
++
++        size_t tensor_index = 0;
++        for (ggml_tensor * tensor = ggml_get_first_tensor(ctx);
++                tensor != nullptr;
++                tensor = ggml_get_next_tensor(ctx, tensor)) {
++            const size_t alloc_size = ggml_backend_buft_get_alloc_size(buft, tensor);
++            max_tensor_size = std::max(max_tensor_size, alloc_size);
++            parakeet_hash_value(plan.layout, tensor_index);
++            parakeet_hash_bytes(plan.layout, tensor->name, strnlen(tensor->name, GGML_MAX_NAME));
++            parakeet_hash_value(plan.layout, tensor->type);
++            parakeet_hash_bytes(plan.layout, tensor->ne, sizeof(tensor->ne));
++            parakeet_hash_value(plan.layout, alloc_size);
++            ++tensor_index;
++        }
++
++        size_t end = 0;
++        if (!parakeet_checked_add(offset, size, end)) {
++            return false;
++        }
++        plan.slices.push_back({ buft, ctx, offset, size, max_tensor_size });
++        cursor = end;
++        ++slice_index;
++    }
++
++    plan.size = cursor;
++    return !plan.slices.empty() && plan.size > 0;
++}
++
++static std::string parakeet_weight_arena_manifest(const parakeet_weight_arena_plan & plan) {
++    char layout[17] = {};
++    snprintf(layout, sizeof(layout), "%016llx", static_cast<unsigned long long>(plan.layout));
++    return
++        "VOICEOUR_PARAKEET_WEIGHT_ARENA\n"
++        "version=" + std::to_string(PARAKEET_WEIGHT_ARENA_VERSION) + "\n"
++        "arena_size=" + std::to_string(plan.size) + "\n"
++        "layout=" + layout + "\n";
++}
++
++static bool parakeet_safe_regular_file(const struct stat & st, size_t expected_size) {
++    return
++        S_ISREG(st.st_mode) &&
++        st.st_uid == geteuid() &&
++        st.st_nlink == 1 &&
++        (st.st_mode & 0022) == 0 &&
++        st.st_size >= 0 &&
++        static_cast<uint64_t>(st.st_size) == static_cast<uint64_t>(expected_size);
++}
++
++static bool parakeet_read_exact_file(const std::string & path, const std::string & expected) {
++    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
++    if (fd < 0) {
++        return false;
++    }
++
++    struct stat st = {};
++    bool ok =
++        fstat(fd, &st) == 0 &&
++        parakeet_safe_regular_file(st, expected.size());
++    std::string observed(expected.size(), '\0');
++    size_t done = 0;
++    while (ok && done < observed.size()) {
++        const ssize_t count = read(fd, observed.data() + done, observed.size() - done);
++        if (count <= 0) {
++            ok = false;
++            break;
++        }
++        done += static_cast<size_t>(count);
++    }
++    close(fd);
++    return ok && done == observed.size() && observed == expected;
++}
++
++static void parakeet_reset_weight_tensors(const parakeet_weight_arena_plan & plan) {
++    for (const auto & slice : plan.slices) {
++        for (ggml_tensor * tensor = ggml_get_first_tensor(slice.ctx);
++                tensor != nullptr;
++                tensor = ggml_get_next_tensor(slice.ctx, tensor)) {
++            tensor->buffer = nullptr;
++            tensor->data = nullptr;
++        }
++    }
++}
++
++static void parakeet_release_weight_arena_storage(parakeet_model & model) {
++    if (model.weight_arena_addr) {
++        munmap(model.weight_arena_addr, model.weight_arena_size);
++        model.weight_arena_addr = nullptr;
++        model.weight_arena_size = 0;
++    }
++    if (model.weight_arena_fd >= 0) {
++        close(model.weight_arena_fd);
++        model.weight_arena_fd = -1;
++    }
++}
++
++static void parakeet_discard_mapped_weight_buffers(
++        parakeet_model & model,
++        const parakeet_weight_arena_plan & plan) {
++    for (ggml_backend_buffer_t buffer : model.buffers) {
++        ggml_backend_buffer_free(buffer);
++    }
++    model.buffers.clear();
++    parakeet_reset_weight_tensors(plan);
++    parakeet_release_weight_arena_storage(model);
++}
++
++static bool parakeet_allocate_weight_arena_buffers(
++        parakeet_model & model,
++        const parakeet_weight_arena_plan & plan) {
++    uint8_t * base = static_cast<uint8_t *>(model.weight_arena_addr);
++    for (const auto & slice : plan.slices) {
++        ggml_backend_dev_t device = ggml_backend_buft_get_device(slice.buft);
++        ggml_backend_buffer_t buffer = ggml_backend_dev_buffer_from_host_ptr(
++            device,
++            base + slice.offset,
++            slice.size,
++            slice.max_tensor_size
++        );
++        if (!buffer) {
++            return false;
++        }
++        model.buffers.push_back(buffer);
++
++        ggml_tallocr tallocr = ggml_tallocr_new(buffer);
++        for (ggml_tensor * tensor = ggml_get_first_tensor(slice.ctx);
++                tensor != nullptr;
++                tensor = ggml_get_next_tensor(slice.ctx, tensor)) {
++            ggml_status status = GGML_STATUS_SUCCESS;
++            if (tensor->data == nullptr) {
++                if (tensor->view_src == nullptr) {
++                    status = ggml_tallocr_alloc(&tallocr, tensor);
++                } else if (tensor->buffer == nullptr) {
++                    status = ggml_backend_view_init(tensor);
++                }
++            } else if (tensor->view_src != nullptr && tensor->buffer == nullptr) {
++                status = ggml_backend_view_init(tensor);
++            }
++            if (status != GGML_STATUS_SUCCESS) {
++                PARAKEET_LOG_WARN("%s: failed to map tensor '%s'\n", __func__, tensor->name);
++                return false;
++            }
++        }
++
++        PARAKEET_LOG_INFO("%s: %12s arena size = %8.2f MB\n",
++            __func__, ggml_backend_buffer_name(buffer), slice.size / 1e6);
++    }
++    return true;
++}
++
++static bool parakeet_map_existing_weight_arena(
++        const std::string & path,
++        const parakeet_weight_arena_plan & plan,
++        parakeet_model & model) {
++    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
++    if (fd < 0) {
++        return false;
++    }
++
++    struct stat st = {};
++    if (fstat(fd, &st) != 0 || !parakeet_safe_regular_file(st, plan.size)) {
++        close(fd);
++        return false;
++    }
++
++    void * address = mmap(nullptr, plan.size, PROT_READ, MAP_SHARED, fd, 0);
++    if (address == MAP_FAILED) {
++        close(fd);
++        return false;
++    }
++
++    model.weight_arena_addr = address;
++    model.weight_arena_size = plan.size;
++    model.weight_arena_fd = fd;
++    if (!parakeet_allocate_weight_arena_buffers(model, plan)) {
++        parakeet_discard_mapped_weight_buffers(model, plan);
++        return false;
++    }
++    return true;
++}
++
++static bool parakeet_create_weight_arena(
++        const std::string & path,
++        const parakeet_weight_arena_plan & plan,
++        parakeet_model & model) {
++    unlink(path.c_str());
++    const int fd = open(path.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
++    if (fd < 0) {
++        return false;
++    }
++    if (plan.size > static_cast<uint64_t>(std::numeric_limits<off_t>::max()) ||
++            ftruncate(fd, static_cast<off_t>(plan.size)) != 0) {
++        close(fd);
++        unlink(path.c_str());
++        return false;
++    }
++
++    void * address = mmap(nullptr, plan.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++    if (address == MAP_FAILED) {
++        close(fd);
++        unlink(path.c_str());
++        return false;
++    }
++
++    model.weight_arena_addr = address;
++    model.weight_arena_size = plan.size;
++    model.weight_arena_fd = fd;
++    if (!parakeet_allocate_weight_arena_buffers(model, plan)) {
++        parakeet_discard_mapped_weight_buffers(model, plan);
++        unlink(path.c_str());
++        return false;
++    }
++    return true;
++}
++
++static bool parakeet_allocate_regular_weight_buffers(
++        const parakeet_weight_ctx_map & ctx_map,
++        parakeet_model & model) {
++    for (const auto & entry : ctx_map) {
++        ggml_backend_buffer_t buffer =
++            ggml_backend_alloc_ctx_tensors_from_buft(entry.second, entry.first);
++        if (!buffer) {
++            for (ggml_backend_buffer_t allocated : model.buffers) {
++                ggml_backend_buffer_free(allocated);
++            }
++            model.buffers.clear();
++            for (const auto & reset_entry : ctx_map) {
++                for (ggml_tensor * tensor = ggml_get_first_tensor(reset_entry.second);
++                        tensor != nullptr;
++                        tensor = ggml_get_next_tensor(reset_entry.second, tensor)) {
++                    tensor->buffer = nullptr;
++                    tensor->data = nullptr;
++                }
++            }
++            return false;
++        }
++        model.buffers.push_back(buffer);
++        PARAKEET_LOG_INFO("%s: %12s total size = %8.2f MB\n",
++            __func__, ggml_backend_buffer_name(buffer), ggml_backend_buffer_get_size(buffer) / 1e6);
++    }
++    return true;
++}
++
++static bool parakeet_sync_weight_tensor(const parakeet_model & model, const ggml_tensor * tensor) {
++    const long page_size_long = sysconf(_SC_PAGESIZE);
++    if (page_size_long <= 0 || !tensor->data) {
++        return false;
++    }
++    const uintptr_t page_size = static_cast<uintptr_t>(page_size_long);
++    const uintptr_t arena_begin = reinterpret_cast<uintptr_t>(model.weight_arena_addr);
++    if (model.weight_arena_size > std::numeric_limits<uintptr_t>::max() - arena_begin) {
++        return false;
++    }
++    const uintptr_t arena_end = arena_begin + model.weight_arena_size;
++    const uintptr_t tensor_begin = reinterpret_cast<uintptr_t>(tensor->data);
++    if (tensor_begin < arena_begin ||
++            tensor_begin > arena_end ||
++            ggml_nbytes(tensor) > arena_end - tensor_begin) {
++        return false;
++    }
++
++    const uintptr_t begin = tensor_begin - (tensor_begin % page_size);
++    size_t tensor_end_size = 0;
++    if (!parakeet_checked_add(static_cast<size_t>(tensor_begin), ggml_nbytes(tensor), tensor_end_size)) {
++        return false;
++    }
++    size_t end_size = 0;
++    if (!parakeet_align_up(tensor_end_size, page_size, end_size)) {
++        return false;
++    }
++    const uintptr_t end = std::min(static_cast<uintptr_t>(end_size), arena_end);
++    return begin < end && msync(reinterpret_cast<void *>(begin), end - begin, MS_SYNC) == 0;
++}
++
++static bool parakeet_write_all(int fd, const char * data, size_t size) {
++    size_t done = 0;
++    while (done < size) {
++        const ssize_t count = write(fd, data + done, size - done);
++        if (count <= 0) {
++            return false;
++        }
++        done += static_cast<size_t>(count);
++    }
++    return true;
++}
++
++static std::string parakeet_parent_directory(const std::string & path) {
++    const size_t slash = path.find_last_of('/');
++    if (slash == std::string::npos) {
++        return ".";
++    }
++    return slash == 0 ? "/" : path.substr(0, slash);
++}
++
++static bool parakeet_sync_directory(const std::string & path) {
++    const std::string directory = parakeet_parent_directory(path);
++    const int fd = open(directory.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
++    if (fd < 0) {
++        return false;
++    }
++    const bool ok = fsync(fd) == 0;
++    close(fd);
++    return ok;
++}
++
++static bool parakeet_commit_weight_arena(
++        const std::string & arena_path,
++        const std::string & manifest_path,
++        parakeet_weight_arena_transaction & transaction,
++        const std::string & manifest,
++        parakeet_model & model) {
++    if (fsync(model.weight_arena_fd) != 0 || fchmod(model.weight_arena_fd, 0400) != 0) {
++        return false;
++    }
++
++    unlink(transaction.manifest_temp.c_str());
++    const int manifest_fd = open(
++        transaction.manifest_temp.c_str(),
++        O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC | O_NOFOLLOW,
++        0600
++    );
++    if (manifest_fd < 0) {
++        return false;
++    }
++    const bool manifest_ok =
++        parakeet_write_all(manifest_fd, manifest.data(), manifest.size()) &&
++        fsync(manifest_fd) == 0 &&
++        fchmod(manifest_fd, 0400) == 0;
++    close(manifest_fd);
++    if (!manifest_ok) {
++        return false;
++    }
++
++    if (rename(transaction.data_temp.c_str(), arena_path.c_str()) != 0) {
++        return false;
++    }
++    if (rename(transaction.manifest_temp.c_str(), manifest_path.c_str()) != 0) {
++        unlink(arena_path.c_str());
++        return false;
++    }
++    if (!parakeet_sync_directory(arena_path)) {
++        unlink(arena_path.c_str());
++        unlink(manifest_path.c_str());
++        parakeet_sync_directory(arena_path);
++        return false;
++    }
++
++    transaction.committed = true;
++    return true;
++}
++
++static bool parakeet_remove_weight_arena_files(const std::string & arena_path) {
++    parakeet_weight_arena_lock lock;
++    if (!lock.acquire(arena_path + ".lock")) {
++        return false;
++    }
++
++    bool ok = true;
++    for (const std::string & path : {
++            arena_path,
++            arena_path + ".manifest",
++            arena_path + ".tmp",
++            arena_path + ".manifest.tmp",
++        }) {
++        if (unlink(path.c_str()) != 0 && errno != ENOENT) {
++            ok = false;
++        }
++    }
++    return parakeet_sync_directory(arena_path) && ok;
++}
++
++#endif // _WIN32
++
+ 
+ // load the model from a ggml file
+ //
+ 
+ // see the convert-parakeet-to-ggml.py script for details
+ //
+-static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_context & wctx) {
++static bool parakeet_model_load(
++        struct parakeet_model_loader * loader,
++        parakeet_context & wctx,
++        const char * path_weight_arena) {
+     PARAKEET_LOG_INFO("%s: loading model\n", __func__);
+ 
+     const int64_t t_start_us = ggml_time_us();
+@@ -1408,34 +1953,100 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
+ 
+     ggml_free(ctx);
+ 
+-    // allocate tensors in the backend buffers
+-    for (auto & p : ctx_map) {
+-        ggml_backend_buffer_type_t buft = p.first;
+-        ggml_context * ctx = p.second;
+-        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
+-        if (buf) {
+-            wctx.model.buffers.emplace_back(buf);
++    bool arena_warm = false;
++    bool arena_cold = false;
++    bool arena_cache_failed = false;
++
++#ifndef _WIN32
++    parakeet_weight_arena_plan arena_plan;
++    parakeet_weight_arena_lock arena_lock;
++    parakeet_weight_arena_transaction arena_transaction;
++    std::string arena_path;
++    std::string arena_manifest_path;
++    std::string arena_manifest;
++    int64_t weight_records_offset = -1;
++
++    const bool arena_requested =
++        path_weight_arena &&
++        path_weight_arena[0] != '\0' &&
++        loader->seek &&
++        loader->tell;
++    if (arena_requested && parakeet_make_weight_arena_plan(ctx_map, arena_plan)) {
++        arena_path = path_weight_arena;
++        arena_manifest_path = arena_path + ".manifest";
++        arena_manifest = parakeet_weight_arena_manifest(arena_plan);
++        arena_transaction.data_temp = arena_path + ".tmp";
++        arena_transaction.manifest_temp = arena_manifest_path + ".tmp";
++
++        if (arena_lock.acquire(arena_path + ".lock")) {
++            // Fixed temporary names are safe under the cross-process lock. Removing them rejects
++            // a writer that died before the manifest commit marker was renamed.
++            unlink(arena_transaction.data_temp.c_str());
++            unlink(arena_transaction.manifest_temp.c_str());
++
++            const bool manifest_ok =
++                parakeet_read_exact_file(arena_manifest_path, arena_manifest);
++            if (manifest_ok) {
++                arena_warm = parakeet_map_existing_weight_arena(arena_path, arena_plan, model);
++            }
+ 
+-            size_t size_main = ggml_backend_buffer_get_size(buf);
+-            PARAKEET_LOG_INFO("%s: %12s total size = %8.2f MB\n", __func__, ggml_backend_buffer_name(buf), size_main / 1e6);
++            if (!arena_warm) {
++                // A manifest without an exact-size matching arena, or an arena without its exact
++                // manifest, is partial/stale derived state and is never reused.
++                unlink(arena_path.c_str());
++                unlink(arena_manifest_path.c_str());
++                arena_cold = parakeet_create_weight_arena(
++                    arena_transaction.data_temp,
++                    arena_plan,
++                    model
++                );
++            }
+         }
+     }
+ 
+-    // load weights
+-    {
+-        size_t total_size = 0;
++    if (!arena_warm && !arena_cold) {
++        if (!parakeet_allocate_regular_weight_buffers(ctx_map, model)) {
++            return false;
++        }
++    }
++#else
++    for (auto & entry : ctx_map) {
++        ggml_backend_buffer_t buffer =
++            ggml_backend_alloc_ctx_tensors_from_buft(entry.second, entry.first);
++        if (buffer) {
++            model.buffers.emplace_back(buffer);
++            PARAKEET_LOG_INFO("%s: %12s total size = %8.2f MB\n",
++                __func__, ggml_backend_buffer_name(buffer), ggml_backend_buffer_get_size(buffer) / 1e6);
++        }
++    }
++#endif
+ 
+-        auto & tensors_map = wctx.model.tensors;
+-        int & n_loaded = wctx.model.n_loaded;
++#ifndef _WIN32
++    if (arena_cold) {
++        weight_records_offset = loader->tell(loader->context);
++        if (weight_records_offset < 0) {
++            PARAKEET_LOG_WARN("%s: loader cannot checkpoint arena payload; using ordinary buffers\n", __func__);
++            parakeet_discard_mapped_weight_buffers(model, arena_plan);
++            unlink(arena_transaction.data_temp.c_str());
++            if (!parakeet_allocate_regular_weight_buffers(ctx_map, model)) {
++                return false;
++            }
++            arena_cold = false;
++        }
++    }
++#endif
+ 
++    auto load_weight_records = [&]() -> bool {
++        size_t total_size = 0;
++        auto & tensors_map = model.tensors;
++        int & n_loaded = model.n_loaded;
+         n_loaded = 0;
+-
+         std::vector<char> read_buf;
+ 
+         while (true) {
+-            int32_t n_dims;
+-            int32_t length;
+-            int32_t ttype;
++            int32_t n_dims = 0;
++            int32_t length = 0;
++            int32_t ttype = 0;
+ 
+             read_safe(loader, n_dims);
+             read_safe(loader, length);
+@@ -1444,77 +2055,155 @@ static bool parakeet_model_load(struct parakeet_model_loader * loader, parakeet_
+             if (loader->eof(loader->context)) {
+                 break;
+             }
+-
+-            if (n_dims < 0 || n_dims > 4) {
+-                  PARAKEET_LOG_ERROR("%s: invalid n_dims %d in model file (expected 0 <= n_dims <= 4)\n", __func__, n_dims);
+-                  return false;
++            if (n_dims < 0 || n_dims > 4 || length < 0 || length > (1 << 20)) {
++                PARAKEET_LOG_ERROR("%s: invalid tensor header in model file\n", __func__);
++                return false;
++            }
++            if (ttype < 0 || ttype >= GGML_TYPE_COUNT) {
++                PARAKEET_LOG_ERROR("%s: invalid tensor type %d in model file\n", __func__, ttype);
++                return false;
+             }
+ 
+-            int32_t nelements = 1;
++            int64_t nelements = 1;
+             int32_t ne[4] = { 1, 1, 1, 1 };
+             for (int i = 0; i < n_dims; ++i) {
+                 read_safe(loader, ne[i]);
++                if (ne[i] <= 0 || nelements > std::numeric_limits<int64_t>::max() / ne[i]) {
++                    PARAKEET_LOG_ERROR("%s: invalid tensor dimensions in model file\n", __func__);
++                    return false;
++                }
+                 nelements *= ne[i];
+             }
+ 
+-            std::string name;
+-            std::vector<char> tmp(length); // create a buffer
+-            loader->read(loader->context, &tmp[0], tmp.size()); // read to buffer
+-            name.assign(&tmp[0], tmp.size());
+-
+-            if (tensors_map.find(name) == tensors_map.end()) {
+-                PARAKEET_LOG_ERROR("%s: unknown tensor '%s' in model file\n", __func__, name.data());
++            std::string name(static_cast<size_t>(length), '\0');
++            if (length > 0 &&
++                    loader->read(loader->context, name.data(), name.size()) != name.size()) {
++                PARAKEET_LOG_ERROR("%s: truncated tensor name in model file\n", __func__);
+                 return false;
+             }
+ 
+-            auto tensor = tensors_map[name.data()];
+-
+-            if (ggml_nelements(tensor) != nelements) {
+-                PARAKEET_LOG_ERROR("%s: tensor '%s' has wrong size in model file\n", __func__, name.data());
+-                PARAKEET_LOG_ERROR("%s: shape: [%d, %d, %d], expected: [%d, %d, %d]\n",
+-                        __func__, ne[0], ne[1], ne[2], (int) tensor->ne[0], (int) tensor->ne[1], (int) tensor->ne[2]);
++            const auto found = tensors_map.find(name);
++            if (found == tensors_map.end()) {
++                PARAKEET_LOG_ERROR("%s: unknown tensor '%s' in model file\n", __func__, name.c_str());
+                 return false;
+             }
+-
+-            if (tensor->ne[0] != ne[0] || tensor->ne[1] != ne[1] || tensor->ne[2] != ne[2] || tensor->ne[3] != ne[3]) {
+-                PARAKEET_LOG_ERROR("%s: tensor '%s' has wrong shape in model file: got [%d, %d, %d, %d], expected [%d, %d, %d, %d]\n",
+-                        __func__, name.data(), (int) tensor->ne[0], (int) tensor->ne[1], (int) tensor->ne[2], (int) tensor->ne[3], ne[0], ne[1], ne[2], ne[3]);
++            ggml_tensor * tensor = found->second;
++
++            if (ggml_nelements(tensor) != nelements ||
++                    tensor->ne[0] != ne[0] ||
++                    tensor->ne[1] != ne[1] ||
++                    tensor->ne[2] != ne[2] ||
++                    tensor->ne[3] != ne[3]) {
++                PARAKEET_LOG_ERROR("%s: tensor '%s' has the wrong shape in model file\n",
++                    __func__, name.c_str());
+                 return false;
+             }
+ 
+-            const size_t bpe = ggml_type_size(ggml_type(ttype));
+-
+-            if ((nelements*bpe)/ggml_blck_size(tensor->type) != ggml_nbytes(tensor)) {
+-                PARAKEET_LOG_ERROR("%s: tensor '%s' has wrong size in model file: got %zu, expected %zu\n",
+-                        __func__, name.data(), ggml_nbytes(tensor), nelements*bpe);
++            const size_t bpe = ggml_type_size(static_cast<ggml_type>(ttype));
++            if (bpe == 0 ||
++                    static_cast<uint64_t>(nelements) >
++                        std::numeric_limits<size_t>::max() / bpe) {
++                PARAKEET_LOG_ERROR("%s: tensor '%s' byte count overflows\n", __func__, name.c_str());
++                return false;
++            }
++            const size_t source_bytes = static_cast<size_t>(nelements) * bpe;
++            if (source_bytes / ggml_blck_size(tensor->type) != ggml_nbytes(tensor)) {
++                PARAKEET_LOG_ERROR("%s: tensor '%s' has wrong byte size in model file\n",
++                    __func__, name.c_str());
+                 return false;
+             }
+ 
+-            if (ggml_backend_buffer_is_host(tensor->buffer)) {
+-                // for the CPU and Metal backend, we can read directly into the tensor
+-                loader->read(loader->context, tensor->data, ggml_nbytes(tensor));
++            const size_t tensor_bytes = ggml_nbytes(tensor);
++            if (arena_warm) {
++                // The source model remains authoritative: its tensor metadata was just parsed
++                // and checked. Only the already-materialised payload read is skipped.
++                if (!loader->seek ||
++                        tensor_bytes > static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
++                        !loader->seek(loader->context, static_cast<int64_t>(tensor_bytes), SEEK_CUR)) {
++                    PARAKEET_LOG_ERROR("%s: tensor '%s' payload seek exceeds model bounds\n",
++                        __func__, name.c_str());
++                    return false;
++                }
++            } else if (ggml_backend_buffer_is_host(tensor->buffer)) {
++                if (loader->read(loader->context, tensor->data, tensor_bytes) != tensor_bytes) {
++                    PARAKEET_LOG_ERROR("%s: truncated tensor '%s' payload\n", __func__, name.c_str());
++                    return false;
++                }
+                 BYTESWAP_TENSOR(tensor);
++#ifndef _WIN32
++                if (arena_cold && !parakeet_sync_weight_tensor(model, tensor)) {
++                    PARAKEET_LOG_WARN("%s: cannot synchronise arena tensor '%s': %s\n",
++                        __func__, name.c_str(), strerror(errno));
++                    arena_cache_failed = true;
++                    return false;
++                }
++#endif
+             } else {
+-                // read into a temporary buffer first, then copy to device memory
+-                read_buf.resize(ggml_nbytes(tensor));
+-
+-                loader->read(loader->context, read_buf.data(), read_buf.size());
+-
+-                ggml_backend_tensor_set(tensor, read_buf.data(), 0, ggml_nbytes(tensor));
++                read_buf.resize(tensor_bytes);
++                if (loader->read(loader->context, read_buf.data(), read_buf.size()) != read_buf.size()) {
++                    PARAKEET_LOG_ERROR("%s: truncated tensor '%s' payload\n", __func__, name.c_str());
++                    return false;
++                }
++                ggml_backend_tensor_set(tensor, read_buf.data(), 0, tensor_bytes);
+             }
+ 
+-            total_size += ggml_nbytes(tensor);
+-            n_loaded++;
++            if (tensor_bytes > std::numeric_limits<size_t>::max() - total_size) {
++                PARAKEET_LOG_ERROR("%s: total model byte count overflows\n", __func__);
++                return false;
++            }
++            total_size += tensor_bytes;
++            ++n_loaded;
+         }
+ 
+-        PARAKEET_LOG_INFO("%s: model size    = %7.2f MB\n", __func__, total_size/1e6);
+-
++        PARAKEET_LOG_INFO("%s: model size    = %7.2f MB\n", __func__, total_size / 1e6);
+         if (n_loaded == 0) {
+             PARAKEET_LOG_WARN("%s: WARN no tensors loaded from model file - assuming empty model for testing\n", __func__);
+-        } else if (n_loaded != (int) tensors_map.size()) {
+-            PARAKEET_LOG_ERROR("%s: ERROR not all tensors loaded from model file - expected %zu, got %d\n", __func__, tensors_map.size(), n_loaded);
++        } else if (n_loaded != static_cast<int>(tensors_map.size())) {
++            PARAKEET_LOG_ERROR("%s: ERROR not all tensors loaded from model file - expected %zu, got %d\n",
++                __func__, tensors_map.size(), n_loaded);
++            return false;
++        }
++        return true;
++    };
++
++    bool weights_loaded = !arena_cache_failed && load_weight_records();
++
++#ifndef _WIN32
++    if (weights_loaded && arena_cold) {
++        if (!parakeet_commit_weight_arena(
++                arena_path,
++                arena_manifest_path,
++                arena_transaction,
++                arena_manifest,
++                model)) {
++            PARAKEET_LOG_WARN("%s: arena commit failed; reloading into ordinary buffers\n", __func__);
++            arena_cache_failed = true;
++            weights_loaded = false;
++        }
++    }
++
++    if (!weights_loaded && arena_cold && arena_cache_failed) {
++        // This is a derived-cache failure, not a model failure. Discard every mapped wrapper
++        // before munmap/close, rewind to the first tensor record, then exercise the unchanged
++        // ordinary allocation/load path.
++        parakeet_discard_mapped_weight_buffers(model, arena_plan);
++        unlink(arena_transaction.data_temp.c_str());
++        unlink(arena_transaction.manifest_temp.c_str());
++        unlink(arena_path.c_str());
++        unlink(arena_manifest_path.c_str());
++        if (!parakeet_allocate_regular_weight_buffers(ctx_map, model) ||
++                weight_records_offset < 0 ||
++                !loader->seek(loader->context, weight_records_offset, SEEK_SET)) {
+             return false;
+         }
++        arena_cold = false;
++        arena_cache_failed = false;
++        weights_loaded = load_weight_records();
++    }
++#endif
++
++    if (!weights_loaded) {
++        return false;
+     }
+ 
+     auto & buffers = wctx.model.buffers;
+@@ -3291,48 +3980,116 @@ struct parakeet_context_params parakeet_context_default_params() {
+     return result;
+ }
+ 
+-struct parakeet_context * parakeet_init_from_file_with_params_no_state(const char * path_model, struct parakeet_context_params params) {
++// VOICEOUR PATCH: file loaders expose checked seek/tell so a validated warm arena can skip
++// immutable tensor payloads while still parsing every model record.
++
++static parakeet_context * parakeet_init_with_params_no_state_internal(
++        parakeet_model_loader * loader,
++        parakeet_context_params params,
++        const char * path_weight_arena);
++
++struct parakeet_file_loader_context {
++    std::ifstream stream;
++    int64_t size = -1;
++};
++
++static parakeet_context * parakeet_init_from_file_with_params_no_state_internal(
++        const char * path_model,
++        const char * path_weight_arena,
++        parakeet_context_params params) {
+     PARAKEET_LOG_INFO("%s: loading model from '%s'\n", __func__, path_model);
++    parakeet_file_loader_context file;
+ #ifdef _MSC_VER
+     // Convert UTF-8 path to wide string (UTF-16) for Windows, resolving character encoding issues.
+     std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+     std::wstring path_model_wide = converter.from_bytes(path_model);
+-    auto fin = std::ifstream(path_model_wide, std::ios::binary);
++    file.stream.open(path_model_wide, std::ios::binary);
+ #else
+-    auto fin = std::ifstream(path_model, std::ios::binary);
++    file.stream.open(path_model, std::ios::binary);
+ #endif
+-    if (!fin) {
++    if (!file.stream) {
+         PARAKEET_LOG_ERROR("%s: failed to open '%s'\n", __func__, path_model);
+         return nullptr;
+     }
++    file.stream.seekg(0, std::ios::end);
++    const std::streamoff file_size = file.stream.tellg();
++    if (file_size < 0 ||
++            static_cast<uint64_t>(file_size) >
++                static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
++        PARAKEET_LOG_ERROR("%s: cannot determine model size for '%s'\n", __func__, path_model);
++        return nullptr;
++    }
++    file.size = static_cast<int64_t>(file_size);
++    file.stream.seekg(0, std::ios::beg);
+ 
+     parakeet_model_loader loader = {};
+-
+-    loader.context = &fin;
+-
+-    loader.read = [](void * ctx, void * output, size_t read_size) {
+-        std::ifstream * fin = (std::ifstream*)ctx;
+-        fin->read((char *)output, read_size);
+-        return read_size;
++    loader.context = &file;
++    loader.read = [](void * opaque, void * output, size_t read_size) {
++        auto * context = static_cast<parakeet_file_loader_context *>(opaque);
++        if (read_size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) {
++            return size_t(0);
++        }
++        context->stream.read(static_cast<char *>(output), static_cast<std::streamsize>(read_size));
++        return static_cast<size_t>(context->stream.gcount());
+     };
+-
+-    loader.eof = [](void * ctx) {
+-        std::ifstream * fin = (std::ifstream*)ctx;
+-        return fin->eof();
++    loader.seek = [](void * opaque, int64_t offset, int whence) {
++        auto * context = static_cast<parakeet_file_loader_context *>(opaque);
++        int64_t base = 0;
++        if (whence == SEEK_CUR) {
++            const std::streamoff current = context->stream.tellg();
++            if (current < 0 ||
++                    static_cast<uint64_t>(current) >
++                        static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
++                return false;
++            }
++            base = static_cast<int64_t>(current);
++        } else if (whence == SEEK_END) {
++            base = context->size;
++        } else if (whence != SEEK_SET) {
++            return false;
++        }
++        if ((offset > 0 && base > std::numeric_limits<int64_t>::max() - offset) ||
++                (offset < 0 &&
++                    (offset == std::numeric_limits<int64_t>::min() || base < -offset))) {
++            return false;
++        }
++        const int64_t target = base + offset;
++        if (target < 0 || target > context->size) {
++            return false;
++        }
++        context->stream.clear();
++        context->stream.seekg(static_cast<std::streamoff>(target), std::ios::beg);
++        return static_cast<bool>(context->stream);
+     };
+-
+-    loader.close = [](void * ctx) {
+-        std::ifstream * fin = (std::ifstream*)ctx;
+-        fin->close();
++    loader.tell = [](void * opaque) {
++        auto * context = static_cast<parakeet_file_loader_context *>(opaque);
++        const std::streamoff current = context->stream.tellg();
++        if (current < 0 ||
++                static_cast<uint64_t>(current) >
++                    static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
++            return int64_t(-1);
++        }
++        return static_cast<int64_t>(current);
++    };
++    loader.eof = [](void * opaque) {
++        return static_cast<parakeet_file_loader_context *>(opaque)->stream.eof();
++    };
++    loader.close = [](void * opaque) {
++        static_cast<parakeet_file_loader_context *>(opaque)->stream.close();
+     };
+ 
+-    auto ctx = parakeet_init_with_params_no_state(&loader, params);
+-
+-    if (ctx) {
+-        ctx->path_model = path_model;
++    parakeet_context * context =
++        parakeet_init_with_params_no_state_internal(&loader, params, path_weight_arena);
++    if (context) {
++        context->path_model = path_model;
+     }
++    return context;
++}
+ 
+-    return ctx;
++parakeet_context * parakeet_init_from_file_with_params_no_state(
++        const char * path_model,
++        parakeet_context_params params) {
++    return parakeet_init_from_file_with_params_no_state_internal(path_model, nullptr, params);
+ }
+ 
+ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void * buffer, size_t buffer_size, struct parakeet_context_params params) {
+@@ -3352,15 +4109,49 @@ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void *
+ 
+     loader.read = [](void * ctx, void * output, size_t read_size) {
+         buf_context * buf = reinterpret_cast<buf_context *>(ctx);
+-
+-        size_t size_to_copy = buf->current_offset + read_size < buf->size ? read_size : buf->size - buf->current_offset;
+-
++        const size_t remaining =
++            buf->current_offset <= buf->size ? buf->size - buf->current_offset : 0;
++        const size_t size_to_copy = std::min(read_size, remaining);
+         memcpy(output, buf->buffer + buf->current_offset, size_to_copy);
+         buf->current_offset += size_to_copy;
+-
+         return size_to_copy;
+     };
+ 
++    loader.seek = [](void * ctx, int64_t offset, int whence) {
++        buf_context * buf = reinterpret_cast<buf_context *>(ctx);
++        int64_t base = 0;
++        if (whence == SEEK_CUR) {
++            if (buf->current_offset > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
++                return false;
++            }
++            base = static_cast<int64_t>(buf->current_offset);
++        } else if (whence == SEEK_END) {
++            if (buf->size > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
++                return false;
++            }
++            base = static_cast<int64_t>(buf->size);
++        } else if (whence != SEEK_SET) {
++            return false;
++        }
++        if ((offset > 0 && base > std::numeric_limits<int64_t>::max() - offset) ||
++                (offset < 0 &&
++                    (offset == std::numeric_limits<int64_t>::min() || base < -offset))) {
++            return false;
++        }
++        const int64_t target = base + offset;
++        if (target < 0 || static_cast<uint64_t>(target) > static_cast<uint64_t>(buf->size)) {
++            return false;
++        }
++        buf->current_offset = static_cast<size_t>(target);
++        return true;
++    };
++    loader.tell = [](void * ctx) {
++        const buf_context * buf = reinterpret_cast<const buf_context *>(ctx);
++        return buf->current_offset <= static_cast<size_t>(std::numeric_limits<int64_t>::max())
++            ? static_cast<int64_t>(buf->current_offset)
++            : int64_t(-1);
++    };
++
+     loader.eof = [](void * ctx) {
+         buf_context * buf = reinterpret_cast<buf_context *>(ctx);
+ 
+@@ -3369,10 +4160,13 @@ struct parakeet_context * parakeet_init_from_buffer_with_params_no_state(void *
+ 
+     loader.close = [](void * /*ctx*/) { };
+ 
+-    return parakeet_init_with_params_no_state(&loader, params);
++    return parakeet_init_with_params_no_state_internal(&loader, params, nullptr);
+ }
+ 
+-struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_model_loader * loader, struct parakeet_context_params params) {
++static parakeet_context * parakeet_init_with_params_no_state_internal(
++        parakeet_model_loader * loader,
++        parakeet_context_params params,
++        const char * path_weight_arena) {
+     ggml_time_init();
+ 
+     PARAKEET_LOG_INFO("%s: use gpu    = %d\n", __func__, params.use_gpu);
+@@ -3385,7 +4179,7 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
+ 
+     bool model_loaded = false;
+     try {
+-        model_loaded = parakeet_model_load(loader, *ctx);
++        model_loaded = parakeet_model_load(loader, *ctx, path_weight_arena);
+     } catch (const std::exception & e) {
+         PARAKEET_LOG_ERROR("%s: exception during model load: %s\n", __func__, e.what());
+     } catch (...) {
+@@ -3395,7 +4189,7 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
+     if (!model_loaded) {
+         loader->close(loader->context);
+         PARAKEET_LOG_ERROR("%s: failed to load model\n", __func__);
+-        delete ctx;
++        parakeet_free(ctx);
+         return nullptr;
+     }
+ 
+@@ -3408,6 +4202,12 @@ struct parakeet_context * parakeet_init_with_params_no_state(struct parakeet_mod
+     return ctx;
+ }
+ 
++parakeet_context * parakeet_init_with_params_no_state(
++        parakeet_model_loader * loader,
++        parakeet_context_params params) {
++    return parakeet_init_with_params_no_state_internal(loader, params, nullptr);
++}
++
+ struct parakeet_context * parakeet_init_from_file_with_params(const char * path_model, struct parakeet_context_params params) {
+     parakeet_context * ctx = parakeet_init_from_file_with_params_no_state(path_model, params);
+     if (!ctx) {
+@@ -3423,6 +4223,37 @@ struct parakeet_context * parakeet_init_from_file_with_params(const char * path_
+     return ctx;
+ }
+ 
++// VOICEOUR PATCH: explicit production entry point for the derived weight arena.
++parakeet_context * parakeet_init_from_file_with_params_and_weight_arena(
++        const char * path_model,
++        const char * path_weight_arena,
++        parakeet_context_params params) {
++    parakeet_context * ctx =
++        parakeet_init_from_file_with_params_no_state_internal(path_model, path_weight_arena, params);
++    if (!ctx) {
++        return nullptr;
++    }
++
++    ctx->state = parakeet_init_state(ctx);
++    if (!ctx->state) {
++        parakeet_free(ctx);
++        return nullptr;
++    }
++    return ctx;
++}
++
++bool parakeet_remove_weight_arena(const char * path_weight_arena) {
++#ifndef _WIN32
++    return
++        path_weight_arena != nullptr &&
++        path_weight_arena[0] != '\0' &&
++        parakeet_remove_weight_arena_files(path_weight_arena);
++#else
++    GGML_UNUSED(path_weight_arena);
++    return false;
++#endif
++}
++
+ struct parakeet_context * parakeet_init_from_buffer_with_params(void * buffer, size_t buffer_size, struct parakeet_context_params params) {
+     parakeet_context * ctx = parakeet_init_from_buffer_with_params_no_state(buffer, buffer_size, params);
+     if (!ctx) {
+@@ -3481,6 +4312,10 @@ void parakeet_free(struct parakeet_context * ctx) {
+         for (ggml_backend_buffer_t buf : ctx->model.buffers) {
+             ggml_backend_buffer_free(buf);
+         }
++#ifndef _WIN32
++        // VOICEOUR PATCH: mapped buffer wrappers above own=false; release them before the map.
++        parakeet_release_weight_arena_storage(ctx->model);
++#endif
+ 
+         parakeet_free_state(ctx->state);
+ 

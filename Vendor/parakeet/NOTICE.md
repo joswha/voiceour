@@ -231,8 +231,25 @@ captured under `patches/`.
     ranges, and ggml-metal cannot fuse a run spanning two command buffers, so it is the one
     change of the three whose value preservation is tested rather than proven — the frozen gate
     reports 0 raw-transcript drift on all 500 rows with U-WER and CER deltas of exactly zero.
+- `patches/0013-file-backed-weight-arena.patch` adds an opt-in C API that receives the model
+  and a derived-arena path. It reproduces ggml's tensor offsets with
+  `ggml_backend_alloc_ctx_tensors_from_buft_size`, `ggml_backend_dev_buffer_from_host_ptr`, and
+  `ggml_tallocr_alloc`, then backs the immutable weights with a page-aligned `MAP_SHARED` file.
+  Warm loads still parse and validate every source tensor header but seek over payloads already in
+  the arena. Arena reuse requires the exact v1 layout manifest and payload size under a
+  cross-process lock; creation uses locked temp data/manifest files, per-tensor `MS_SYNC`, file
+  `fsync`, atomic renames, and directory `fsync`. Unsafe, stale, partial, or otherwise unusable
+  derived state falls back to ordinary ggml buffers. Mapped backend wrappers are freed before
+  `munmap` and `close`.
+  - Upstream status: not reported upstream. parakeet.cpp's legacy stream format interleaves tensor
+    metadata and payload and has no mmap layout; this is a Voiceour cache over the existing
+    loader, not a file-format change.
+  - Test status: measured before production hardening on Apple M4 Pro. Cold `MAP_SHARED` plus
+    per-tensor `MS_SYNC` reached 181.209 MB physical footprint. Deterministic warm offset reuse
+    reached 178.537 MB physical footprint / 112.525 MB RSS, with byte-identical transcripts and
+    warm p95 at or below 207 ms on the frozen harness.
 
-Upstream already defaults both loggers to stderr (`src/parakeet.cpp:3893-3906` routes through
+Upstream already defaults both loggers to stderr (`src/parakeet.cpp:4894-4931` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to
 stderr). The sidecar installs its own `parakeet_log_set` callback at startup because stdout carries
 the NDJSON protocol and must never receive anything else; no logging patch is required.

@@ -1,3 +1,4 @@
+import CParakeet
 import CryptoKit
 import Foundation
 import VoiceCore
@@ -195,6 +196,44 @@ public struct ParakeetModelCache: @unchecked Sendable {
 
     public var modelURL: URL { directory.appendingPathComponent(artifact.file) }
     public var manifestURL: URL { directory.appendingPathComponent("manifest.json") }
+
+    /// Persistent file-backed ggml weights derived from this exact pinned artifact.
+    ///
+    /// The complete digest and byte count are both part of the name. The C++ manifest versions
+    /// the in-file tensor layout; this path identity prevents two source artifacts from ever
+    /// sharing writable derived bytes before that manifest is consulted.
+    public var weightArenaURL: URL {
+        directory.appendingPathComponent(
+            "weights-\(artifact.sha256.lowercased())-\(artifact.sizeBytes).arena"
+        )
+    }
+
+    public var weightArenaManifestURL: URL {
+        URL(fileURLWithPath: weightArenaURL.path + ".manifest")
+    }
+
+    public var weightArenaLockURL: URL {
+        URL(fileURLWithPath: weightArenaURL.path + ".lock")
+    }
+
+    public var weightArenaTemporaryURL: URL {
+        URL(fileURLWithPath: weightArenaURL.path + ".tmp")
+    }
+
+    public var weightArenaManifestTemporaryURL: URL {
+        URL(fileURLWithPath: weightArenaManifestURL.path + ".tmp")
+    }
+
+    /// Removes a corrupt source artifact and all derived bytes carrying its identity.
+    ///
+    /// The lock file deliberately remains. Unlinking a lock inode while another process holds
+    /// it permits a new opener to lock a different inode and creates two simultaneous writers.
+    public func removeCorruptModelAndDerivedCache() {
+        for url in [modelURL, manifestURL] {
+            try? FileManager.default.removeItem(at: url)
+        }
+        _ = parakeet_remove_weight_arena(weightArenaURL.path)
+    }
 
     public func manifest() -> ParakeetModelManifest? {
         guard let data = try? Data(contentsOf: manifestURL) else { return nil }

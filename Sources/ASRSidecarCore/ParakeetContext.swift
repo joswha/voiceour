@@ -64,11 +64,27 @@ public final class ParakeetContext {
     private let context: OpaquePointer
     private let threadCount: Int32
 
-    /// Loads the model. Expensive (multi-second, ~1.3 GB resident); called once.
-    public init(modelPath: String, useGPU: Bool = true, threadCount: Int32 = 4) throws {
+    /// Loads the model and uses `weightArenaPath` for the versioned file-backed weight cache.
+    /// Cache creation or validation failures fall back to ordinary ggml buffers in C++.
+    public init(
+        modelPath: String,
+        weightArenaPath: String? = nil,
+        useGPU: Bool = true,
+        threadCount: Int32 = 4
+    ) throws {
         var params = parakeet_context_default_params()
         params.use_gpu = useGPU
-        guard let context = parakeet_init_from_file_with_params(modelPath, params) else {
+        let loaded: OpaquePointer?
+        if let weightArenaPath {
+            loaded = parakeet_init_from_file_with_params_and_weight_arena(
+                modelPath,
+                weightArenaPath,
+                params
+            )
+        } else {
+            loaded = parakeet_init_from_file_with_params(modelPath, params)
+        }
+        guard let context = loaded else {
             throw ParakeetContextError.loadFailed(modelPath)
         }
         self.context = context

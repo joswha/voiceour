@@ -71,7 +71,9 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             cache: cache,
             log: log,
             idleUnloadMs: idleUnloadMs,
-            contextFactory: { try ParakeetContext(modelPath: $0) }
+            contextFactory: {
+                try ParakeetContext(modelPath: $0, weightArenaPath: cache.weightArenaURL.path)
+            }
         )
     }
 
@@ -315,9 +317,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         guard !cache.verifyModelDigestOnDisk() else {
             return .failure(code: .modelLoadFailed, detail: detail)
         }
-        log("cached model failed digest re-verification after a load failure; removing it")
-        try? FileManager.default.removeItem(at: cache.modelURL)
-        try? FileManager.default.removeItem(at: cache.manifestURL)
+        log("cached model failed digest re-verification after a load failure; removing it and its weight arena")
+        cache.removeCorruptModelAndDerivedCache()
         reacquireOnce()
         return .failure(
             code: .modelNotInstalled,

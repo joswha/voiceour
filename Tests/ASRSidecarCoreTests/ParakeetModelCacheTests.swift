@@ -68,6 +68,32 @@ struct ParakeetModelCacheTests {
         #expect(cache.directory.lastPathComponent == ASRModelVariant.default.cacheDirectoryName)
     }
 
+    /// The arena is derived data, so its identity is exactly the source bytes' complete pin.
+    /// A shortened digest would make distinct model artifacts share writable cached weights.
+    @Test func weightArenaPathUsesTheFullArtifactDigestAndSize() {
+        let digest = String(repeating: "a", count: 63) + "b"
+        let pinned = ParakeetModelManifest(
+            modelId: "model",
+            revision: "revision",
+            file: "weights.bin",
+            sha256: digest.uppercased(),
+            sizeBytes: 1_234_567
+        )
+        let cache = ParakeetModelCache(directory: temporaryDirectory(), artifact: pinned)
+
+        #expect(cache.weightArenaURL.lastPathComponent == "weights-\(digest)-1234567.arena")
+
+        var changedDigest = pinned
+        changedDigest.sha256 = String(repeating: "a", count: 64)
+        let digestCache = ParakeetModelCache(directory: cache.directory, artifact: changedDigest)
+        #expect(digestCache.weightArenaURL != cache.weightArenaURL)
+
+        var changedSize = pinned
+        changedSize.sizeBytes += 1
+        let sizeCache = ParakeetModelCache(directory: cache.directory, artifact: changedSize)
+        #expect(sizeCache.weightArenaURL != cache.weightArenaURL)
+    }
+
     @Test func cacheIsNotOkWithoutAManifest() {
         let cache = ParakeetModelCache(directory: temporaryDirectory())
 
@@ -323,6 +349,39 @@ struct ParakeetModelCacheTests {
 
         #expect(cache.cacheOK())
         #expect(try Data(contentsOf: cache.modelURL) == bytes)
+    }
+
+    /// A failed digest check deletes the source and every derived byte that could otherwise be
+    /// reused when the same pin is downloaded again. The stable lock inode stays: unlinking a
+    /// lock file while another process holds it creates two independent lock domains.
+    @Test func corruptModelCleanupRemovesItsArenaButPreservesTheLockAndUnrelatedFiles() throws {
+        let directory = temporaryDirectory()
+        let cache = ParakeetModelCache(
+            directory: directory,
+            artifact: artifact(for: Data("weights".utf8))
+        )
+        let unrelated = directory.appendingPathComponent("keep-me")
+        let removed = [
+            cache.modelURL,
+            cache.manifestURL,
+            cache.weightArenaURL,
+            cache.weightArenaManifestURL,
+            cache.weightArenaTemporaryURL,
+            cache.weightArenaManifestTemporaryURL,
+        ]
+        for url in removed {
+            try Data("bytes".utf8).write(to: url)
+        }
+        try Data().write(to: cache.weightArenaLockURL)
+        try Data().write(to: unrelated)
+
+        cache.removeCorruptModelAndDerivedCache()
+
+        for url in removed {
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+        }
+        #expect(FileManager.default.fileExists(atPath: cache.weightArenaLockURL.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
     }
 
     /// The shipped probe answers about the volume, not about the path, so it has to survive a
