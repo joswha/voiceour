@@ -1,8 +1,8 @@
 """Peak memory sampler for the `voiceour-asr` sidecar.
 
-Writes `<peak_phys_footprint_bytes> <peak_resident_bytes> <n_samples>` to the
-output path, rewritten after every sample so the harness can read it even if the
-sampler is killed.
+Writes `<peak_phys_footprint_bytes> <peak_resident_bytes> <n_samples>
+<resident_layout_validated>` to the output path, rewritten after every sample so
+the harness can read it even if the sampler is killed.
 
 Both figures come from one `proc_pid_rusage(2)` call, not from `ps`. Two reasons:
 
@@ -82,6 +82,20 @@ def _discover() -> list[int]:
     return [int(line) for line in out.split() if line.isdigit()]
 
 
+def _resident_from_ps(pid: int) -> int | None:
+    """Cross-check the rusage resident field against the OS process table."""
+    try:
+        out = subprocess.run(
+            ["/bin/ps", "-o", "rss=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+    except OSError:
+        return None
+    return int(out) * 1024 if out.isdigit() else None
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: mem_sampler.py <output-path>", file=sys.stderr)
@@ -94,10 +108,13 @@ def main() -> int:
     peak_footprint = 0
     peak_resident = 0
     n_samples = 0
+    resident_layout_validated = False
 
     def flush() -> None:
-        out_path.write_text(f"{peak_footprint} {peak_resident} {n_samples}\n")
-
+        out_path.write_text(
+            f"{peak_footprint} {peak_resident} {n_samples} "
+            f"{int(resident_layout_validated)}\n"
+        )
     flush()
 
     pids: list[int] = []
@@ -119,6 +136,15 @@ def main() -> int:
             peak_resident = max(peak_resident, resident)
             peak_footprint = max(peak_footprint, footprint)
             n_samples += 1
+
+            # `ri_phys_footprint` can legitimately sit far below RSS once model
+            # weights become clean file-backed pages. Validate field order
+            # against `ps` directly instead of inferring it from their values.
+            if not resident_layout_validated and n_samples % 50 == 0:
+                ps_resident = _resident_from_ps(pid)
+                if ps_resident:
+                    ratio = resident / ps_resident
+                    resident_layout_validated = 0.75 <= ratio <= 1.25
 
         # A pid that stopped answering is dropped, which sends the next
         # iteration back to discovery rather than sampling a dead process.

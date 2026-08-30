@@ -204,7 +204,7 @@ PY
 # loaded or where it is read from.
 
 rm -f "$RUN_RESULTS" "$MEM_PEAK_FILE"
-printf '0 0 0\n' >"$MEM_PEAK_FILE"
+printf '0 0 0 0\n' >"$MEM_PEAK_FILE"
 
 # `bench/autoresearch/mem_sampler.py` reads `ri_phys_footprint` and
 # `ri_resident_size` from one `proc_pid_rusage` call per sample, at 20 ms rather
@@ -238,10 +238,11 @@ run_elapsed=$(($(date +%s) - run_started))
 cleanup
 trap - EXIT
 
-read -r peak_footprint_bytes peak_resident_bytes mem_samples <"$MEM_PEAK_FILE"
+read -r peak_footprint_bytes peak_resident_bytes mem_samples resident_layout_validated <"$MEM_PEAK_FILE"
 peak_footprint_bytes="${peak_footprint_bytes:-0}"
 peak_resident_bytes="${peak_resident_bytes:-0}"
 mem_samples="${mem_samples:-0}"
+resident_layout_validated="${resident_layout_validated:-0}"
 
 # An unsampled run has no primary metric. Fail rather than report a zero that
 # would look like a spectacular improvement.
@@ -249,6 +250,8 @@ mem_samples="${mem_samples:-0}"
     die "memory sampler collected only $mem_samples samples; expected >= 200"
 [ "$peak_footprint_bytes" -gt 0 ] || die 'memory sampler observed no footprint'
 [ "$peak_resident_bytes" -gt 0 ] || die 'memory sampler observed no resident size'
+[ "$resident_layout_validated" -eq 1 ] ||
+    die 'memory sampler resident field did not agree with ps'
 
 if [ "$bench_status" -ne 0 ]; then
     tail -20 "$WORK/run.log" >&2
