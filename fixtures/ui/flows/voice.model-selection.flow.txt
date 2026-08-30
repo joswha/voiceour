@@ -6,3 +6,4 @@ PASS 1 balanced-in-use | model selectedModelVariant == "f16" | "f16"
 PASS 2 balanced-in-use | absent id=voice.model.restart | 0 matches
 PASS 3 compact-pending-restart | model selectedModelVariant == "q8_0" | "q8_0"
 PASS 4 compact-pending-restart | exists id=voice.model.restart | 1 match
+PASS 5 compact-pending-restart | exists value="Downloads 0.67 GB; uses about 1.34 GB after first load. Same measured accuracy, slightly slower." | 1 match

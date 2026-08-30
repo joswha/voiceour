@@ -15,7 +15,7 @@
 Tap Fn once and speak. Tap again and the text lands in the app you were already using — recorded, recognized, and cleaned up entirely on your Mac. Ordinary text fields get the paste; a terminal, a code editor, a password field, or a target Voiceour could not read gets the transcript on the clipboard instead, and no setting widens that. [Permissions and delivery safety](docs/permissions.md) has the matrix.
 The mercury recording island is synchronized to the display it occupies: 120 fps on a ProMotion screen, the native rate on lower-refresh displays, capped at 120.
 
-No account, no telemetry, no cloud transcription. The only network request fetches the recognition model, pinned to `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303dd209fd2bed6ee079`. Settings offers a Compact version of that same model — 0.67 GB on disk instead of 1.26 GB, a little slower to transcribe, applied the next time Voiceour starts.
+No account, no telemetry, no cloud transcription. The only network request fetches the recognition model, pinned to `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303dd209fd2bed6ee079`. Settings offers a Compact version of that same model — a 0.67 GB download and about 1.34 GB cached after first load, instead of Balanced’s 1.26 GB download and about 2.51 GB cache. It is a little slower to transcribe and applies the next time Voiceour starts.
 
 Home keeps the running totals: how long you have spoken, how much typing it saved, and which apps the words went to.
 
@@ -56,7 +56,7 @@ Start on the fake backend. It needs no model download and no permission grant: s
 make dev
 ```
 
-Then run the real app. This assembles `.build/Voiceour.app`, downloads the pinned model on first launch — 1.26 GB, with progress in the menu bar — and asks for Microphone at the first recording, plus Accessibility if you want the paste rather than a clipboard copy. The first launch opens the console on Home, where a first-run card states the tap gesture, the download's progress, and which of those two permissions is required — it retires itself once you have dictated once.
+Then run the real app. This assembles `.build/Voiceour.app`, downloads the pinned model on first launch — 1.26 GB, with progress in the menu bar — and asks for Microphone at the first recording, plus Accessibility if you want the paste rather than a clipboard copy. The first launch opens the console on Home, where a first-run card states the tap gesture, the download's progress, and which of those two permissions is required — it retires itself once you have dictated once. After verification, first load also builds a model-sized acceleration file locally; it is not a second download.
 
 ```sh
 make run
@@ -82,10 +82,12 @@ Exactly one: downloading the recognition model. Transcription itself is entirely
 
 That request goes to `huggingface.co`, for the repository `ggml-org/parakeet-GGUF` at revision `35156454d1a39de06863303dd209fd2bed6ee079`, and fetches one of two files:
 
-| file | size | when |
+| file | download | when |
 | --- | --- | --- |
 | `ggml-parakeet-tdt-0.6b-v3-f16.bin` | 1.26 GB | Balanced (default) |
 | `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | 0.67 GB | Compact |
+
+On first load Voiceour creates a second, model-sized local acceleration file from the verified weights. It is generated locally, never downloaded. Total cache use is about 2.51 GB for Balanced or 1.34 GB for Compact; switching variants removes the other variant’s cache directory.
 
 The revision is pinned so you can fetch and hash those exact bytes yourself, and Voiceour verifies the download against a SHA-256 built into the app before loading it.
 

@@ -98,8 +98,8 @@ struct ConsoleSettingsTab: View {
             }
 
             // Not debug-gated, unlike Backend below: two artifacts actually ship
-            // and the difference between them is 0.6 GB of this Mac's disk, which
-            // is a trade only the reader can make.
+            // and the difference between them is about 1.17 GB of combined cache
+            // after first load, which is a trade only the reader can make.
             Section("Model") {
                 modelVariantRow
             }
@@ -453,13 +453,14 @@ struct ConsoleSettingsTab: View {
     /// the only honest reason to pick it.
     private var modelVariantSummary: String {
         let variant = coordinator.settings.asrModelVariant
-        let sizeText = String(format: "%.2f GB", Double(variant.sizeBytes) / 1_000_000_000)
+        let downloadText = String(format: "%.2f GB", Double(variant.sizeBytes) / 1_000_000_000)
+        let cacheText = String(format: "%.2f GB", Double(variant.sizeBytes) * 2 / 1_000_000_000)
         switch variant {
         case .f16:
-            return "\(sizeText) on disk. The default, and the faster of the two."
+            return "Downloads \(downloadText); uses about \(cacheText) after first load. Default and faster."
         case .q8:
-            return "\(sizeText) on disk, roughly half of Balanced. Transcripts match Balanced to "
-                + "within what the committed corpus can resolve, at slightly lower throughput."
+            return "Downloads \(downloadText); uses about \(cacheText) after first load. "
+                + "Same measured accuracy, slightly slower."
         }
     }
 

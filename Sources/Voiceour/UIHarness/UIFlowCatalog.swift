@@ -98,6 +98,10 @@
 
             static let modelPickerCompact = UIQuery.label("Compact")
             static let modelRestart = UIQuery.id("voice.model.restart")
+            static let modelSummaryCompact = UIQuery.value(
+                "Downloads 0.67 GB; uses about 1.34 GB after first load. "
+                    + "Same measured accuracy, slightly slower."
+            )
 
             static let backendRecheck = UIQuery.id("system.backend.recheck")
             static let backendStatus = UIQuery.id("system.backend.status")
@@ -421,6 +425,7 @@
                             [
                                 .model(.selectedModelVariant, .equals("q8_0")),
                                 .exists(Selector.modelRestart),
+                                .exists(Selector.modelSummaryCompact),
                             ]
                         ),
                     ]),
