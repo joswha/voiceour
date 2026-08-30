@@ -94,6 +94,8 @@ def main() -> None:
                 {
                     "audio_path": row["audio_path"],
                     "audio_s": audio_s,
+                    "audio_bytes": row["audio_bytes"],
+                    "audio_sha256": row["audio_sha256"],
                     "duration_bucket": bucket_of(audio_s),
                     "id": row["id"],
                     "reference": row["reference"],

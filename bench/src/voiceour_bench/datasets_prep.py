@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -197,6 +198,12 @@ def _audio_seconds(path: Path) -> float:
     return float(info.frames) / float(info.samplerate)
 
 
+def _audio_identity(path: Path) -> dict[str, int | str]:
+    with path.open("rb") as handle:
+        sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
+    return {"audio_bytes": path.stat().st_size, "audio_sha256": sha256}
+
+
 def _run_checked(args: list[str]) -> None:
     subprocess.run(args, check=True, capture_output=True, text=True)
 
@@ -224,6 +231,7 @@ def prepare_smoke(root: Path | None = None) -> Path:
                 "reference": text,
                 "formatted_reference": text,
                 "audio_s": _audio_seconds(wav_path),
+                **_audio_identity(wav_path),
             }
         )
     manifest = tier_dir / "manifest.jsonl"
@@ -265,6 +273,7 @@ def prepare_techterms(root: Path | None = None) -> Path:
                 "reference": case["reference"],
                 "formatted_reference": case["reference"],
                 "audio_s": _audio_seconds(wav_path),
+                **_audio_identity(wav_path),
                 "canonical_term": case["canonical_term"],
                 "term_id": case["term_id"],
                 "term_class": case["term_class"],
@@ -377,6 +386,7 @@ def prepare_librispeech(n: int = 200, root: Path | None = None) -> Path:
                         "reference": item["text"],
                         "formatted_reference": None,
                         "audio_s": float(item.get("audio_length_s") or audio_s),
+                        **_audio_identity(wav_path),
                     }
                 )
     manifest = tier_dir / "manifest.jsonl"
@@ -407,6 +417,7 @@ def prepare_fleurs(n: int = 100, root: Path | None = None) -> Path:
                     "reference": item["transcription"],
                     "formatted_reference": item.get("raw_transcription"),
                     "audio_s": audio_s,
+                    **_audio_identity(wav_path),
                 }
             )
     manifest = tier_dir / "manifest.jsonl"

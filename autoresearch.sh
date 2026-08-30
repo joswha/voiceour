@@ -66,7 +66,7 @@ readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
 readonly MODEL_SHA256="833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f"
 readonly MODEL_BYTES=1255897319
 readonly MODEL_DIR="$HOME/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml"
-readonly CORPUS_SHA256="54eeda28e6463a698cd8df2177d87388f1404528b49dfba4834357d9399e3412"
+readonly CORPUS_SHA256="885331c29340aca170ae3a061747986bcf91f960b2fec192aefd09e4d72c3749"
 
 die() {
     printf 'autoresearch.sh: FAIL: %s\n' "$1" >&2
@@ -209,6 +209,8 @@ with open(out, "w", encoding="utf-8") as handle:
                         "id": f"{row['id']}#p{index}",
                         "audio_path": row["audio_path"],
                         "audio_s": row["audio_s"],
+                        "audio_bytes": row["audio_bytes"],
+                        "audio_sha256": row["audio_sha256"],
                         "reference": row["reference"],
                     },
                     ensure_ascii=False,

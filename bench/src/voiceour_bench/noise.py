@@ -161,6 +161,9 @@ def generate(
             add_gaussian_noise(source, destination, row["id"], snr_db, seed)
             output_row = dict(row)
             output_row["audio_path"] = str(destination.relative_to(root))
+            output_row["audio_bytes"] = destination.stat().st_size
+            with destination.open("rb") as handle:
+                output_row["audio_sha256"] = hashlib.file_digest(handle, "sha256").hexdigest()
             output_rows.append(output_row)
         manifest = snr_dir / "manifest.jsonl"
         _write_jsonl(manifest, output_rows)

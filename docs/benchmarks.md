@@ -38,7 +38,17 @@ uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --
 
 ## Row identity
 
-Every manifest row needs a unique string `id` and an `audio_path`; `reference`, `formatted_reference`, and `audio_s` are scored when present. `report.py` rejects missing, duplicate, or unknown ids and publishes `successful_row_ids` and `error_row_ids`. `compare.py` refuses a comparison unless tier, backend, model id, model revision, model file, and both id sets match. The model file is part of that tuple because every artifact of the pinned repository shares its id and revision, so `f16` and `q8_0` reports would otherwise compare as one model; a report written before that field existed reads as `unknown` and never matches a named artifact.
+Every manifest row needs a unique string `id`, an `audio_path`, the exact `audio_bytes`, and the
+lowercase `audio_sha256`; `reference`, `formatted_reference`, and `audio_s` are scored when present.
+The native runner verifies size and digest immediately before ASR, then pins both the exact manifest
+SHA-256 and a canonical ordered audio-manifest SHA-256 in `bench_meta`. The latter hashes a domain
+separator followed by each row's length-prefixed id, byte length, raw digest, and the final row count.
+`report.py` rejects missing, duplicate, or unknown ids and publishes `successful_row_ids` and
+`error_row_ids`. `compare.py` refuses a comparison unless tier, backend, model id, model revision,
+model file, and both id sets match. The model file is part of that tuple because every artifact of the
+pinned repository shares its id and revision, so `f16` and `q8_0` reports would otherwise compare as
+one model; a report written before that field existed reads as `unknown` and never matches a named
+artifact.
 
 ## Metrics
 
@@ -53,6 +63,33 @@ Let $N(\cdot)$ be the published English text normalizer and $d$ Levenshtein dist
 Content metrics use `reference`; formatting metrics use only rows with a non-null `formatted_reference`. Error rows are reported, never scored as empty hypotheses.
 
 The regression gate is candidate minus baseline U-WER <= `0.0035` (+0.35 percentage points), passed to `voiceour_bench.compare` as `--gate uwer_final:0.0035`. Read the printed provenance before trusting the delta.
+
+### Paired fixed-corpus promotion gate
+
+Aggregate reports are insufficient for promotion. Run the row-level paired gate on one frozen
+manifest and two `voiceour-bench pipeline` result files:
+
+```sh
+cd bench
+uv --no-config run voiceour-bench-paired-gate \
+  ../path/manifest.jsonl ../path/incumbent.results.jsonl ../path/candidate.results.jsonl \
+  --frozen-row-conditional --cluster-field speaker_id --stratum-field split \
+  --seed 20260830 -B 100000 --permutation-samples 100000 \
+  --ni-margin 0.0035 --benefit-margin 0.005 --format-margin 0.02 \
+  --output ../path/paired-gate.json
+```
+
+Omit cluster and stratum fields only when the manifest has no honest grouping metadata. The gate
+requires identical row sets, zero runtime/error rows, matching execution modes, and matching exact
+manifest and audio-manifest pins. It hard-rejects a newly introduced contiguous multiword deletion.
+A pass also needs at least a 0.5-point U-WER benefit at the point estimate, the less favorable of
+BCa and bootstrap-t bounds to establish benefit and +0.35-point non-inferiority, the fixed-seed
+whole-cluster sign-swap diagnostic, and case/punctuation lower bounds no worse than two points where
+formatted references exist. Formatting F1 is recomputed from aggregate counts in every resample.
+
+The gate deliberately refuses population claims. `--frozen-row-conditional` is a required
+acknowledgement: `pass` applies only to those byte-pinned rows. Generalization requires a separately
+sealed speaker/session-clustered design and a calibrated population analysis.
 
 ## Current Parakeet baselines — 2026-08-15
 
@@ -89,7 +126,8 @@ One macOS voice synthesizes every utterance, so the tier is an engineering smoke
 ## Adding a tier
 
 1. Add preparation in `bench/src/voiceour_bench/datasets_prep.py`, then register the tier in `prepare_tier()` and `run.py`.
-2. Emit 16 kHz mono WAVs with stable, unique manifest ids.
+2. Emit 16 kHz mono WAVs with stable, unique manifest ids; preparation records each file's byte
+   length and SHA-256.
 3. State source, license, split, selection order, and default size.
 4. Add scorer behavior only when the manifest carries its evidence.
 5. Test malformed ids, missing references, and new metric boundaries.

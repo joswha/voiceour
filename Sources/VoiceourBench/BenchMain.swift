@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Dispatch
 import Foundation
@@ -237,8 +238,16 @@ struct BenchRunner {
     }
 
     private func runPipeline() async throws {
+        let manifestSHA256 = try Self.sha256(of: options.input)
+        let audioManifestSHA256 = try Self.audioManifestSHA256(of: options.input)
         let writer = try JSONLWriter(url: options.output)
-        try writer.write(meta(mode: .pipeline))
+        try writer.write(
+            meta(
+                mode: .pipeline,
+                manifestSHA256: manifestSHA256,
+                audioManifestSHA256: audioManifestSHA256
+            )
+        )
         let reader = try JSONLLineReader(url: options.input)
         let asr = Self.makeASRClient(backend: options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id)
         let decoder = JSONDecoder()
@@ -265,7 +274,11 @@ struct BenchRunner {
         print("wrote \(rowCount) pipeline rows to \(options.output.path)")
     }
 
-    private func meta(mode: BenchCommand) -> BenchMeta {
+    private func meta(
+        mode: BenchCommand,
+        manifestSHA256: String,
+        audioManifestSHA256: String
+    ) -> BenchMeta {
         let model = Self.modelIdentity(for: options.backend)
         return BenchMeta(
             mode: mode.rawValue,
@@ -273,6 +286,8 @@ struct BenchRunner {
             modelId: model.id,
             modelRevision: model.revision,
             modelFile: model.file,
+            manifestSHA256: manifestSHA256,
+            audioManifestSHA256: audioManifestSHA256,
             startedAt: ISO8601DateFormatter().string(from: Date())
         )
     }
@@ -301,6 +316,72 @@ struct BenchRunner {
             descriptor.modelRevision ?? ProcessInfo.processInfo.operatingSystemVersionString,
             modelVariant.fileName
         )
+    }
+
+    private static func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1 << 20), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func audioManifestSHA256(of url: URL) throws -> String {
+        let reader = try JSONLLineReader(url: url)
+        let decoder = JSONDecoder()
+        var hasher = SHA256()
+        hasher.update(data: Data("voiceour-audio-manifest-v1\u{0}".utf8))
+        var lineNumber = 0
+        var rowCount: UInt64 = 0
+        while let line = try reader.nextLine() {
+            lineNumber += 1
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw BenchError.malformedInput(line: lineNumber, detail: "empty line")
+            }
+            let row: PipelineInputRow
+            do {
+                row = try decoder.decode(PipelineInputRow.self, from: Data(line.utf8))
+            } catch {
+                throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
+            }
+            guard !row.id.isEmpty, row.audioBytes >= 0, let audioDigest = data(fromHex: row.audioSHA256) else {
+                throw BenchError.malformedInput(
+                    line: lineNumber,
+                    detail: "id, audio_bytes, or audio_sha256 is invalid"
+                )
+            }
+            let id = Data(row.id.utf8)
+            update(UInt64(id.count), in: &hasher)
+            hasher.update(data: id)
+            update(UInt64(row.audioBytes), in: &hasher)
+            hasher.update(data: audioDigest)
+            rowCount += 1
+        }
+        update(rowCount, in: &hasher)
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func update(_ value: UInt64, in hasher: inout SHA256) {
+        var bigEndian = value.bigEndian
+        withUnsafeBytes(of: &bigEndian) { bytes in
+            hasher.update(data: Data(bytes))
+        }
+    }
+
+    private static func data(fromHex hex: String) -> Data? {
+        guard hex.utf8.count == 64 else { return nil }
+        var data = Data()
+        data.reserveCapacity(32)
+        var index = hex.startIndex
+        for _ in 0..<32 {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+        return data
     }
 
     private func processPipelineRow(
@@ -360,6 +441,17 @@ struct BenchRunner {
         let audioURL = BenchCLI.fileURL(input.audioPath)
         let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path)
         let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard byteCount == input.audioBytes else {
+            throw BenchError.io(
+                "audio size mismatch for \(input.id): got \(byteCount), expected \(input.audioBytes)"
+            )
+        }
+        let digest = try Self.sha256(of: audioURL)
+        guard digest == input.audioSHA256.lowercased() else {
+            throw BenchError.io(
+                "audio SHA-256 mismatch for \(input.id): got \(digest), expected \(input.audioSHA256)"
+            )
+        }
         let durationMs = input.audioS.map { max(0, Int(($0 * 1000.0).rounded())) } ?? 0
         let meta = ASRAudioMeta(
             path: audioURL.path,
@@ -478,12 +570,16 @@ struct PipelineInputRow: Decodable {
     // Non-optional so decoding continues to enforce the pipeline manifest schema.
     var reference: String
     var audioS: Double?
+    var audioBytes: Int
+    var audioSHA256: String
 
     enum CodingKeys: String, CodingKey {
         case id
         case audioPath = "audio_path"
         case reference
         case audioS = "audio_s"
+        case audioBytes = "audio_bytes"
+        case audioSHA256 = "audio_sha256"
     }
 }
 
@@ -497,6 +593,8 @@ struct BenchMeta: Encodable {
     /// `model_revision` are shared by every variant of the pinned repository, so this is the
     /// only field that tells two artifacts' runs apart.
     var modelFile: String?
+    var manifestSHA256: String
+    var audioManifestSHA256: String
     var startedAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -506,6 +604,8 @@ struct BenchMeta: Encodable {
         case modelId = "model_id"
         case modelRevision = "model_revision"
         case modelFile = "model_file"
+        case manifestSHA256 = "manifest_sha256"
+        case audioManifestSHA256 = "audio_manifest_sha256"
         case startedAt = "started_at"
     }
 
@@ -525,6 +625,8 @@ struct BenchMeta: Encodable {
         } else {
             try container.encodeNil(forKey: .modelFile)
         }
+        try container.encode(manifestSHA256, forKey: .manifestSHA256)
+        try container.encode(audioManifestSHA256, forKey: .audioManifestSHA256)
         try container.encode(startedAt, forKey: .startedAt)
     }
 }

@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 voiceour-bench-python = "voiceour_bench.run:main"
 voiceour-bench-compare = "voiceour_bench.compare:main"
+voiceour-bench-paired-gate = "voiceour_bench.paired_gate:main"
 
 [build-system]
 requires = ["uv_build>=0.9.2,<0.10.0"]
