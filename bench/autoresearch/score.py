@@ -93,7 +93,9 @@ def main() -> int:
     parser.add_argument("--golden", required=True, type=Path)
     parser.add_argument("--warmup-passes", required=True, type=int)
     parser.add_argument("--timed-passes", required=True, type=int)
-    parser.add_argument("--peak-rss-bytes", required=True, type=int)
+    parser.add_argument("--peak-footprint-bytes", required=True, type=int)
+    parser.add_argument("--peak-resident-bytes", required=True, type=int)
+    parser.add_argument("--latency-ceiling-ms", required=True, type=float)
     parser.add_argument(
         "--bless-golden",
         action="store_true",
@@ -244,18 +246,32 @@ def main() -> int:
     for row in corpus:
         buckets[row["duration_bucket"]] = buckets.get(row["duration_bucket"], 0) + 1
 
+    # Latency is a hard gate for this segment, not something memory may be
+    # traded against. It is checked alongside the correctness failures so one
+    # run names everything wrong with it.
+    if p95 > args.latency_ceiling_ms:
+        FAILURES.append(
+            f"inference p95 {p95:.2f} ms exceeds the latency ceiling "
+            f"{args.latency_ceiling_ms:.2f} ms; memory must not be bought with latency"
+        )
+
     if FAILURES:
         for reason in FAILURES:
             print(f"score.py: FAIL: {reason}", file=sys.stderr)
         return 1
 
+    print(f"METRIC peak_phys_footprint_mb={args.peak_footprint_bytes / 1e6:.3f}")
+    print(f"METRIC peak_rss_mb={args.peak_resident_bytes / 1e6:.3f}")
     print(f"METRIC asr_inference_p95_ms={p95:.4f}")
     print(f"METRIC asr_inference_p50_ms={p50:.4f}")
     print(f"METRIC rtfx={throughput:.4f}")
     print(f"METRIC load_ms={load_ms:.0f}")
-    print(f"METRIC peak_rss_bytes={args.peak_rss_bytes}")
     print(f"METRIC uwer={uwer_final:.6f}")
     print(f"METRIC error_rows={error_rows}")
+
+    print(f"ASI peak_phys_footprint_bytes={args.peak_footprint_bytes}")
+    print(f"ASI peak_rss_bytes={args.peak_resident_bytes}")
+    print(f"ASI latency_ceiling_ms={args.latency_ceiling_ms:.1f}")
 
     print(f"ASI transcript_sha256={transcript_sha}")
     print(f"ASI corpus_rows={len(corpus_ids)}")

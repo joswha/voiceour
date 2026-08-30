@@ -11,8 +11,18 @@
 # a subset warmup would leave some encoder shapes cold. The remaining passes are
 # the timed repetitions.
 #
-# The primary metric is the median of the repetition-level inference p95 values,
-# so one contaminated pass cannot be averaged into the answer.
+# The primary metric is the sidecar's peak physical footprint over the whole run,
+# warmup included — a peak is a peak, and the model load is exactly the moment a
+# transient copy of a 1.26 GB artifact would show up. `ri_phys_footprint` is used
+# rather than resident size because it is the accounting macOS actually manages a
+# process by: jetsam enforces it and Activity Monitor displays it. It counts
+# compressed and swapped dirty pages, and does not count clean file-backed pages.
+#
+# Latency is a hard gate, not a trade. Memory must not be bought by making the
+# app slower, so the run is rejected outright if inference p95 exceeds
+# `LATENCY_CEILING_MS`, which sits about 6% above the 203.0 ms this machine
+# reached at the end of the latency segment — above thermal drift, below any real
+# sacrifice. Latency is still reported as a secondary metric so drift is visible.
 #
 # Everything expensive that is not inference — building, hashing the 1.26 GB
 # artifact, scoring — happens outside the timed region.
@@ -21,7 +31,8 @@
 # prerequisite; a competing Voiceour/ASR process; a model artifact that is not
 # the pinned f16 revision by SHA-256; a corpus manifest that is not the frozen
 # one; any error row; any transcript that differs from the committed golden or
-# across passes; a malformed metric.
+# across passes; an unsampled or zero memory peak; an inference p95 above the
+# latency ceiling; a malformed metric.
 #
 # The script performs no network access. Model acquisition is refused rather
 # than attempted: a cache miss is a missing prerequisite, not something a
@@ -42,12 +53,13 @@ cd "$REPO_ROOT"
 readonly WARMUP_PASSES=1
 readonly TIMED_PASSES=5
 readonly ROW_TIMEOUT_MS=120000
-readonly RSS_SAMPLE_SECONDS=0.2
+readonly LATENCY_CEILING_MS=215
 
 readonly CORPUS="bench/autoresearch/corpus.manifest.jsonl"
 readonly GOLDEN="bench/autoresearch/corpus.golden.jsonl"
 readonly SCORER="bench/autoresearch/score.py"
 readonly WORK=".build/autoresearch"
+readonly MEM_SAMPLER="bench/autoresearch/mem_sampler.py"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -158,7 +170,7 @@ readonly SIDECAR_BIN=".build/release/voiceour-asr"
 
 readonly RUN_MANIFEST="$WORK/run.manifest.jsonl"
 readonly RUN_RESULTS="$WORK/run.results.jsonl"
-readonly RSS_PEAK_FILE="$WORK/peak-rss-kb"
+readonly MEM_PEAK_FILE="$WORK/peak-memory"
 
 python3 - "$CORPUS" "$RUN_MANIFEST" "$WARMUP_PASSES" "$TIMED_PASSES" <<'PY' || die 'run manifest expansion failed'
 import json
@@ -191,23 +203,15 @@ PY
 # inherited VOICEOUR_* value must not be able to change which artifact is
 # loaded or where it is read from.
 
-rm -f "$RUN_RESULTS" "$RSS_PEAK_FILE"
-printf '0\n' >"$RSS_PEAK_FILE"
+rm -f "$RUN_RESULTS" "$MEM_PEAK_FILE"
+printf '0 0 0\n' >"$MEM_PEAK_FILE"
 
-sample_peak_rss() {
-    local peak=0 pid rss
-    while :; do
-        for pid in $(pgrep -x voiceour-asr 2>/dev/null); do
-            rss="$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')"
-            [ -n "$rss" ] || continue
-            [ "$rss" -gt "$peak" ] && peak="$rss"
-        done
-        printf '%s\n' "$peak" >"$RSS_PEAK_FILE"
-        sleep "$RSS_SAMPLE_SECONDS"
-    done
-}
-
-sample_peak_rss &
+# `bench/autoresearch/mem_sampler.py` reads `ri_phys_footprint` and
+# `ri_resident_size` from one `proc_pid_rusage` call per sample, at 20 ms rather
+# than the 200 ms two-`fork` `pgrep`/`ps` pair it replaces. Its own cost is a
+# syscall per sample on an efficiency core, and it is measured: see the
+# `sampler_overhead` note in the segment's playbook.
+python3 "$MEM_SAMPLER" "$MEM_PEAK_FILE" &
 readonly SAMPLER_PID=$!
 
 cleanup() {
@@ -234,8 +238,17 @@ run_elapsed=$(($(date +%s) - run_started))
 cleanup
 trap - EXIT
 
-peak_rss_kb="$(cat "$RSS_PEAK_FILE" 2>/dev/null || printf '0')"
-peak_rss_bytes=$((peak_rss_kb * 1024))
+read -r peak_footprint_bytes peak_resident_bytes mem_samples <"$MEM_PEAK_FILE"
+peak_footprint_bytes="${peak_footprint_bytes:-0}"
+peak_resident_bytes="${peak_resident_bytes:-0}"
+mem_samples="${mem_samples:-0}"
+
+# An unsampled run has no primary metric. Fail rather than report a zero that
+# would look like a spectacular improvement.
+[ "$mem_samples" -ge 200 ] ||
+    die "memory sampler collected only $mem_samples samples; expected >= 200"
+[ "$peak_footprint_bytes" -gt 0 ] || die 'memory sampler observed no footprint'
+[ "$peak_resident_bytes" -gt 0 ] || die 'memory sampler observed no resident size'
 
 if [ "$bench_status" -ne 0 ]; then
     tail -20 "$WORK/run.log" >&2
@@ -256,7 +269,9 @@ scored="$WORK/metrics.txt"
         --golden "../$GOLDEN" \
         --warmup-passes "$WARMUP_PASSES" \
         --timed-passes "$TIMED_PASSES" \
-        --peak-rss-bytes "$peak_rss_bytes" \
+        --peak-footprint-bytes "$peak_footprint_bytes" \
+        --peak-resident-bytes "$peak_resident_bytes" \
+        --latency-ceiling-ms "$LATENCY_CEILING_MS" \
         $bless_flag
 ) >"$scored"
 score_status=$?
@@ -267,8 +282,8 @@ if [ "$score_status" -ne 0 ]; then
 fi
 
 metric_count="$(grep -c '^METRIC ' "$scored" || true)"
-[ "$metric_count" -eq 7 ] || die "expected 7 METRIC lines, found $metric_count"
-grep -Eq '^METRIC asr_inference_p95_ms=[0-9]+(\.[0-9]+)?$' "$scored" ||
+[ "$metric_count" -eq 8 ] || die "expected 8 METRIC lines, found $metric_count"
+grep -Eq '^METRIC peak_phys_footprint_mb=[0-9]+(\.[0-9]+)?$' "$scored" ||
     die 'malformed primary metric line'
 
 cat "$scored"
