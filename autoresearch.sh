@@ -1,49 +1,35 @@
 #!/usr/bin/env bash
 #
 # Deterministic, offline, exclusive-hardware benchmark of the shipping Parakeet
-# f16 sidecar on this Mac.
+# f16 sidecar on this Mac, for the three-bets research session (contextual
+# decoding, heterogeneous execution, quantization).
 #
 # Regime: one `voiceour-bench pipeline` process, therefore one persistent
 # `voiceour-asr` child, walks `WARMUP_PASSES + TIMED_PASSES` sequential passes
-# over the frozen 96-row corpus. Pass 0 is warmup and is discarded: the model
-# load, the embedded Metal shader library and the per-shape Metal pipelines are
-# all materialised on first use, and the corpus spans five duration buckets, so
-# a subset warmup would leave some encoder shapes cold. The remaining passes are
-# the timed repetitions.
+# over the frozen 96-row general corpus (latency + regression guard), then one
+# pass over the frozen 456-row jargon corpus (term-binding headroom). Pass 0 is
+# warmup and is discarded from latency: the model load, the embedded Metal
+# shader library, and the per-shape Metal pipelines all materialise on first
+# use, and the general corpus spans five duration buckets.
 #
-# The primary metric is the sidecar's peak physical footprint over the whole run,
-# warmup included — a peak is a peak, and the model load is exactly the moment a
-# transient copy of a 1.26 GB artifact would show up. `ri_phys_footprint` is used
-# rather than resident size because it is the accounting macOS actually manages a
-# process by: jetsam enforces it and Activity Monitor displays it. It counts
-# compressed and swapped dirty pages, and does not count clean file-backed pages.
-#
-# Latency is a hard gate, not a trade. Memory must not be bought by making the
-# app slower, so the run is rejected outright if inference p95 exceeds
-# `LATENCY_CEILING_MS`, which sits about 6% above the 203.0 ms this machine
-# reached at the end of the latency segment — above thermal drift, below any real
-# sacrifice. Latency is still reported as a secondary metric so drift is visible.
-#
-# Everything expensive that is not inference — building, hashing the 1.26 GB
-# artifact, scoring — happens outside the timed region.
+# The primary metric is `uwer_mix`: pooled final-text U-WER over the union of
+# both corpora. General rows make regressions visible; jargon rows carry the
+# improvement headroom. Latency, throughput, and memory are hard guards, not
+# trades: the run is rejected if general inference p95, RTFx, or the sidecar's
+# peak physical footprint cross their ceilings. Term binding is reported by
+# case-sensitive metrics (`jargon_term_recall`, `jargon_false_terms`,
+# `fwer_negative`) because U-WER is case-folded and cannot see orthography.
 #
 # Gates. The script exits nonzero, before timing where it can, on: a missing
 # prerequisite; a competing Voiceour/ASR process; a model artifact that is not
-# the pinned f16 revision by SHA-256; a corpus manifest that is not the frozen
-# one; any error row; any transcript that differs from the committed golden or
-# across passes; an unsampled or zero memory peak; an inference p95 above the
-# latency ceiling; a malformed metric.
+# the pinned f16 revision by SHA-256; corpus manifests or term annotations that
+# are not the frozen ones; any error row; any transcript that differs across
+# general passes; an unsampled or zero memory peak; a guard ceiling breach; a
+# malformed metric.
 #
 # The script performs no network access. Model acquisition is refused rather
 # than attempted: a cache miss is a missing prerequisite, not something a
 # benchmark may go and fix.
-#
-# Environment:
-#   AUTORESEARCH_BLESS_GOLDEN=1  rewrite the golden transcripts from this run.
-#                                Harness maintenance only. It is not part of a
-#                                measurement, and it is refused once a segment
-#                                is under way by the fact that a kept run must
-#                                reproduce the committed golden.
 
 set -uo pipefail
 
@@ -51,12 +37,15 @@ REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 readonly WARMUP_PASSES=1
-readonly TIMED_PASSES=5
+readonly TIMED_PASSES=3
 readonly ROW_TIMEOUT_MS=120000
-readonly LATENCY_CEILING_MS=215
+readonly LATENCY_CEILING_MS=300
+readonly RTFX_FLOOR=40
+readonly FOOTPRINT_CEILING_MB=2500
 
-readonly CORPUS="bench/autoresearch/corpus.manifest.jsonl"
-readonly GOLDEN="bench/autoresearch/corpus.golden.jsonl"
+readonly GENERAL_CORPUS="bench/autoresearch/corpus.manifest.jsonl"
+readonly JARGON_CORPUS="benchmarks/data/jargon/manifest.jsonl"
+readonly JARGON_TERMS="bench/autoresearch/jargon.terms.json"
 readonly SCORER="bench/autoresearch/score.py"
 readonly WORK=".build/autoresearch"
 readonly MEM_SAMPLER="bench/autoresearch/mem_sampler.py"
@@ -66,7 +55,10 @@ readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
 readonly MODEL_SHA256="833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f"
 readonly MODEL_BYTES=1255897319
 readonly MODEL_DIR="$HOME/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml"
-readonly CORPUS_SHA256="885331c29340aca170ae3a061747986bcf91f960b2fec192aefd09e4d72c3749"
+readonly GENERAL_CORPUS_SHA256="885331c29340aca170ae3a061747986bcf91f960b2fec192aefd09e4d72c3749"
+readonly JARGON_CORPUS_SHA256="576efc9f9e6f11e3e14048258e023d0695bb56f8403482e953c061c03a17e2bf"
+readonly JARGON_TERMS_SHA256="2c3dfd1bf8250c97172ef1af16c74de01d30e8376c58474b61aee513fa47d4b5"
+readonly EXPECTED_METRIC_COUNT=13
 
 die() {
     printf 'autoresearch.sh: FAIL: %s\n' "$1" >&2
@@ -83,33 +75,36 @@ for tool in swift shasum sysctl sw_vers pgrep ps uv python3; do
     command -v "$tool" >/dev/null 2>&1 || die "missing prerequisite: $tool"
 done
 
-[ -f "$CORPUS" ] || die "missing corpus manifest: $CORPUS"
-[ -f "$SCORER" ] || die "missing scorer: $SCORER"
+for file in "$GENERAL_CORPUS" "$JARGON_CORPUS" "$JARGON_TERMS" "$SCORER"; do
+    [ -f "$file" ] || die "missing prerequisite file: $file"
+done
 [ -d bench/.venv ] || die "missing bench/.venv; run 'cd bench && uv --no-config sync --all-groups' once, with network"
 
-observed_corpus_sha="$(shasum -a 256 "$CORPUS" | cut -d' ' -f1)"
-[ "$observed_corpus_sha" = "$CORPUS_SHA256" ] ||
-    die "corpus manifest sha256 $observed_corpus_sha != frozen $CORPUS_SHA256"
+pin() {
+    local path="$1" expected="$2"
+    local observed
+    observed="$(shasum -a 256 "$path" | cut -d' ' -f1)"
+    [ "$observed" = "$expected" ] || die "$path sha256 $observed != frozen $expected"
+}
+pin "$GENERAL_CORPUS" "$GENERAL_CORPUS_SHA256"
+pin "$JARGON_CORPUS" "$JARGON_CORPUS_SHA256"
+pin "$JARGON_TERMS" "$JARGON_TERMS_SHA256"
 
-if [ "${AUTORESEARCH_BLESS_GOLDEN:-0}" != "1" ]; then
-    [ -f "$GOLDEN" ] || die "missing golden transcripts: $GOLDEN"
-fi
-
-# The corpus audio is a gitignored local dataset — in this worktree, a symlink
-# into the primary checkout. Name a broken dataset here rather than letting it
-# arrive later as 480 error rows.
-python3 - "$CORPUS" <<'PY' || die 'corpus audio is not fully present'
+# The corpus audio is a gitignored local dataset. Name a broken dataset here
+# rather than letting it arrive later as hundreds of error rows.
+python3 - "$GENERAL_CORPUS" "$JARGON_CORPUS" <<'PY' || die 'corpus audio is not fully present'
 import json
 import sys
 from pathlib import Path
 
 missing = []
-with open(sys.argv[1], encoding="utf-8") as handle:
-    for line in handle:
-        if line.strip():
-            path = json.loads(line)["audio_path"]
-            if not Path(path).is_file():
-                missing.append(path)
+for manifest in sys.argv[1:]:
+    with open(manifest, encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                path = json.loads(line)["audio_path"]
+                if not Path(path).is_file():
+                    missing.append(path)
 if missing:
     print(f"{len(missing)} corpus audio files are missing, first: {missing[:3]}", file=sys.stderr)
     raise SystemExit(1)
@@ -126,8 +121,8 @@ for name in Voiceour voiceour-asr voiceour-bench; do
     pids="$(pgrep -x "$name" 2>/dev/null | tr '\n' ' ')"
     [ -n "$pids" ] && competing="$competing $name($pids)"
 done
-pids="$(pgrep -f 'granite_probe|granite_punctuator_probe' 2>/dev/null | tr '\n' ' ')"
-[ -n "$pids" ] && competing="$competing granite-probe($pids)"
+pids="$(pgrep -f 'granite_probe|granite_punctuator_probe|coreml.*probe' 2>/dev/null | tr '\n' ' ')"
+[ -n "$pids" ] && competing="$competing research-probe($pids)"
 [ -z "$competing" ] || die "competing ASR/GPU process(es) still running:$competing
 stop them first (e.g. 'make stop')"
 
@@ -163,8 +158,7 @@ readonly SIDECAR_BIN=".build/release/voiceour-asr"
 [ -x "$SIDECAR_BIN" ] || die "missing $SIDECAR_BIN"
 
 # A derived weight arena is persistent product state. Prepare it before memory
-# sampling so every measured run is the same warm-launch workload; the baseline
-# performs the same proof load even though it has no derived cache to prepare.
+# sampling so every measured run is the same warm-launch workload.
 readonly PREPARE_LOG="$WORK/prepare.log"
 log 'preparing deterministic runtime cache state'
 if ! env -i \
@@ -179,45 +173,47 @@ then
     die 'sidecar runtime-cache preparation failed'
 fi
 
-# The proof load exercises Metal. Let it leave the thermal state before the
-# timed process starts; otherwise cache preparation itself raises measured p95.
-sleep 60
+# Let the proof load's Metal work leave the thermal state before timing. The
+# latency ceiling here is a guard with real headroom, not a +6% tripwire, so a
+# short settle suffices.
+sleep 10
 
 # --- run manifest ----------------------------------------------------------
 #
-# A pure function of the corpus and the pass counts: the corpus order is the
-# file's order, and every pass repeats it unchanged. Ids carry a `#p<n>` suffix
-# so the scorer can attribute a row to its pass.
+# A pure function of the corpora and the pass counts: general rows repeat in
+# corpus order once per pass with a `#p<n>` suffix, then jargon rows appear
+# once with a `#j0` suffix.
 
 readonly RUN_MANIFEST="$WORK/run.manifest.jsonl"
 readonly RUN_RESULTS="$WORK/run.results.jsonl"
 readonly MEM_PEAK_FILE="$WORK/peak-memory"
 
-python3 - "$CORPUS" "$RUN_MANIFEST" "$WARMUP_PASSES" "$TIMED_PASSES" <<'PY' || die 'run manifest expansion failed'
+python3 - "$GENERAL_CORPUS" "$JARGON_CORPUS" "$RUN_MANIFEST" "$WARMUP_PASSES" "$TIMED_PASSES" <<'PY' || die 'run manifest expansion failed'
 import json
 import sys
 
-corpus, out, warmup, timed = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
-with open(corpus, encoding="utf-8") as handle:
-    rows = [json.loads(line) for line in handle if line.strip()]
-with open(out, "w", encoding="utf-8") as handle:
-    for index in range(warmup + timed):
-        for row in rows:
-            handle.write(
-                json.dumps(
-                    {
-                        "id": f"{row['id']}#p{index}",
-                        "audio_path": row["audio_path"],
-                        "audio_s": row["audio_s"],
-                        "audio_bytes": row["audio_bytes"],
-                        "audio_sha256": row["audio_sha256"],
-                        "reference": row["reference"],
-                    },
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                + "\n"
-            )
+general_path, jargon_path, output_path = sys.argv[1], sys.argv[2], sys.argv[3]
+total_passes = int(sys.argv[4]) + int(sys.argv[5])
+
+
+def read_rows(path):
+    with open(path, encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+general = read_rows(general_path)
+jargon = read_rows(jargon_path)
+
+with open(output_path, "w", encoding="utf-8") as out:
+    for index in range(total_passes):
+        for row in general:
+            expanded = dict(row)
+            expanded["id"] = f"{row['id']}#p{index}"
+            out.write(json.dumps(expanded, sort_keys=True) + "\n")
+    for row in jargon:
+        expanded = dict(row)
+        expanded["id"] = f"{row['id']}#j0"
+        out.write(json.dumps(expanded, sort_keys=True) + "\n")
 PY
 
 # --- timed region ----------------------------------------------------------
@@ -229,11 +225,6 @@ PY
 rm -f "$RUN_RESULTS" "$MEM_PEAK_FILE"
 printf '0 0 0 0\n' >"$MEM_PEAK_FILE"
 
-# `bench/autoresearch/mem_sampler.py` reads `ri_phys_footprint` and
-# `ri_resident_size` from one `proc_pid_rusage` call per sample, at 20 ms rather
-# than the 200 ms two-`fork` `pgrep`/`ps` pair it replaces. Its own cost is a
-# syscall per sample on an efficiency core, and it is measured: see the
-# `sampler_overhead` note in the segment's playbook.
 python3 "$MEM_SAMPLER" "$MEM_PEAK_FILE" &
 readonly SAMPLER_PID=$!
 
@@ -243,7 +234,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-log "running $((WARMUP_PASSES + TIMED_PASSES)) passes over $(wc -l <"$CORPUS" | tr -d ' ') rows"
+total_rows=$((($(wc -l <"$GENERAL_CORPUS") * (WARMUP_PASSES + TIMED_PASSES)) + $(wc -l <"$JARGON_CORPUS")))
+log "running $((WARMUP_PASSES + TIMED_PASSES)) general passes + 1 jargon pass ($total_rows rows)"
 run_started="$(date +%s)"
 env -i \
     PATH=/usr/bin:/bin \
@@ -267,7 +259,7 @@ peak_resident_bytes="${peak_resident_bytes:-0}"
 mem_samples="${mem_samples:-0}"
 resident_layout_validated="${resident_layout_validated:-0}"
 
-# An unsampled run has no primary metric. Fail rather than report a zero that
+# An unsampled run has no memory guard. Fail rather than report a zero that
 # would look like a spectacular improvement.
 [ "$mem_samples" -ge 200 ] ||
     die "memory sampler collected only $mem_samples samples; expected >= 200"
@@ -283,23 +275,21 @@ fi
 
 # --- scoring, outside the timed region -------------------------------------
 
-bless_flag=""
-[ "${AUTORESEARCH_BLESS_GOLDEN:-0}" = "1" ] && bless_flag="--bless-golden"
-
 scored="$WORK/metrics.txt"
 (
     cd bench || exit 1
     PYTHONWARNINGS=ignore uv --no-config run --offline python autoresearch/score.py \
         --results "../$RUN_RESULTS" \
-        --corpus "../$CORPUS" \
-        --golden "../$GOLDEN" \
+        --general-corpus "../$GENERAL_CORPUS" \
+        --jargon-corpus "../$JARGON_CORPUS" \
+        --jargon-terms "../$JARGON_TERMS" \
         --warmup-passes "$WARMUP_PASSES" \
         --timed-passes "$TIMED_PASSES" \
         --peak-footprint-bytes "$peak_footprint_bytes" \
         --peak-resident-bytes "$peak_resident_bytes" \
         --latency-ceiling-ms "$LATENCY_CEILING_MS" \
-        --allow-golden-drift \
-        $bless_flag
+        --rtfx-floor "$RTFX_FLOOR" \
+        --footprint-ceiling-mb "$FOOTPRINT_CEILING_MB"
 ) >"$scored"
 score_status=$?
 
@@ -309,15 +299,18 @@ if [ "$score_status" -ne 0 ]; then
 fi
 
 metric_count="$(grep -c '^METRIC ' "$scored" || true)"
-[ "$metric_count" -eq 8 ] || die "expected 8 METRIC lines, found $metric_count"
-grep -Eq '^METRIC peak_phys_footprint_mb=[0-9]+(\.[0-9]+)?$' "$scored" ||
+[ "$metric_count" -eq "$EXPECTED_METRIC_COUNT" ] ||
+    die "expected $EXPECTED_METRIC_COUNT METRIC lines, found $metric_count"
+grep -Eq '^METRIC uwer_mix=[0-9]+(\.[0-9]+)?$' "$scored" ||
     die 'malformed primary metric line'
 
 cat "$scored"
 
 # --- environment identity --------------------------------------------------
 
-printf 'ASI corpus_manifest_sha256=%s\n' "$observed_corpus_sha"
+printf 'ASI general_corpus_sha256=%s\n' "$GENERAL_CORPUS_SHA256"
+printf 'ASI jargon_corpus_sha256=%s\n' "$JARGON_CORPUS_SHA256"
+printf 'ASI jargon_terms_sha256=%s\n' "$JARGON_TERMS_SHA256"
 printf 'ASI model_sha256=%s\n' "$observed_model_sha"
 printf 'ASI model_bytes=%s\n' "$observed_bytes"
 printf 'ASI sidecar_sha256=%s\n' "$(shasum -a 256 "$SIDECAR_BIN" | cut -d' ' -f1)"

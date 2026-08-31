@@ -1,0 +1,1716 @@
+{
+ "jg_0000_cloud_kubectl": {
+  "canonical": "kubectl",
+  "domain": "cloud"
+ },
+ "jg_0001_cloud_kubectl": {
+  "canonical": "kubectl",
+  "domain": "cloud"
+ },
+ "jg_0002_cloud_kubeadm": {
+  "canonical": "kubeadm",
+  "domain": "cloud"
+ },
+ "jg_0003_cloud_kubeadm": {
+  "canonical": "kubeadm",
+  "domain": "cloud"
+ },
+ "jg_0004_cloud_runc": {
+  "canonical": "runc",
+  "domain": "cloud"
+ },
+ "jg_0005_cloud_runc": {
+  "canonical": "runc",
+  "domain": "cloud"
+ },
+ "jg_0006_cloud_eksctl": {
+  "canonical": "eksctl",
+  "domain": "cloud"
+ },
+ "jg_0007_cloud_eksctl": {
+  "canonical": "eksctl",
+  "domain": "cloud"
+ },
+ "jg_0008_cloud_containerd": {
+  "canonical": "containerd",
+  "domain": "cloud"
+ },
+ "jg_0009_cloud_containerd": {
+  "canonical": "containerd",
+  "domain": "cloud"
+ },
+ "jg_0010_cloud_podman": {
+  "canonical": "Podman",
+  "domain": "cloud"
+ },
+ "jg_0011_cloud_podman": {
+  "canonical": "Podman",
+  "domain": "cloud"
+ },
+ "jg_0012_cloud_kubernetes": {
+  "canonical": "Kubernetes",
+  "domain": "cloud"
+ },
+ "jg_0013_cloud_kubernetes": {
+  "canonical": "Kubernetes",
+  "domain": "cloud"
+ },
+ "jg_0014_cloud_helm": {
+  "canonical": "Helm",
+  "domain": "cloud"
+ },
+ "jg_0015_cloud_helm": {
+  "canonical": "Helm",
+  "domain": "cloud"
+ },
+ "jg_0016_cloud_istio": {
+  "canonical": "Istio",
+  "domain": "cloud"
+ },
+ "jg_0017_cloud_istio": {
+  "canonical": "Istio",
+  "domain": "cloud"
+ },
+ "jg_0018_cloud_envoy": {
+  "canonical": "Envoy",
+  "domain": "cloud"
+ },
+ "jg_0019_cloud_envoy": {
+  "canonical": "Envoy",
+  "domain": "cloud"
+ },
+ "jg_0020_cloud_nginx": {
+  "canonical": "nginx",
+  "domain": "cloud"
+ },
+ "jg_0021_cloud_nginx": {
+  "canonical": "nginx",
+  "domain": "cloud"
+ },
+ "jg_0022_cloud_terraform": {
+  "canonical": "Terraform",
+  "domain": "cloud"
+ },
+ "jg_0023_cloud_terraform": {
+  "canonical": "Terraform",
+  "domain": "cloud"
+ },
+ "jg_0024_cloud_ansible": {
+  "canonical": "Ansible",
+  "domain": "cloud"
+ },
+ "jg_0025_cloud_ansible": {
+  "canonical": "Ansible",
+  "domain": "cloud"
+ },
+ "jg_0026_cloud_prometheus": {
+  "canonical": "Prometheus",
+  "domain": "cloud"
+ },
+ "jg_0027_cloud_prometheus": {
+  "canonical": "Prometheus",
+  "domain": "cloud"
+ },
+ "jg_0028_cloud_grafana": {
+  "canonical": "Grafana",
+  "domain": "cloud"
+ },
+ "jg_0029_cloud_grafana": {
+  "canonical": "Grafana",
+  "domain": "cloud"
+ },
+ "jg_0030_cloud_opentelemetry": {
+  "canonical": "OpenTelemetry",
+  "domain": "cloud"
+ },
+ "jg_0031_cloud_opentelemetry": {
+  "canonical": "OpenTelemetry",
+  "domain": "cloud"
+ },
+ "jg_0032_cloud_datadog": {
+  "canonical": "Datadog",
+  "domain": "cloud"
+ },
+ "jg_0033_cloud_datadog": {
+  "canonical": "Datadog",
+  "domain": "cloud"
+ },
+ "jg_0034_cloud_jenkins": {
+  "canonical": "Jenkins",
+  "domain": "cloud"
+ },
+ "jg_0035_cloud_jenkins": {
+  "canonical": "Jenkins",
+  "domain": "cloud"
+ },
+ "jg_0036_cloud_gitlab": {
+  "canonical": "GitLab",
+  "domain": "cloud"
+ },
+ "jg_0037_cloud_gitlab": {
+  "canonical": "GitLab",
+  "domain": "cloud"
+ },
+ "jg_0038_cloud_eks": {
+  "canonical": "EKS",
+  "domain": "cloud"
+ },
+ "jg_0039_cloud_eks": {
+  "canonical": "EKS",
+  "domain": "cloud"
+ },
+ "jg_0040_cloud_iam": {
+  "canonical": "IAM",
+  "domain": "cloud"
+ },
+ "jg_0041_cloud_iam": {
+  "canonical": "IAM",
+  "domain": "cloud"
+ },
+ "jg_0042_cloud_vpc": {
+  "canonical": "VPC",
+  "domain": "cloud"
+ },
+ "jg_0043_cloud_vpc": {
+  "canonical": "VPC",
+  "domain": "cloud"
+ },
+ "jg_0044_cloud_cidr": {
+  "canonical": "CIDR",
+  "domain": "cloud"
+ },
+ "jg_0045_cloud_cidr": {
+  "canonical": "CIDR",
+  "domain": "cloud"
+ },
+ "jg_0046_cloud_cname": {
+  "canonical": "CNAME",
+  "domain": "cloud"
+ },
+ "jg_0047_cloud_cname": {
+  "canonical": "CNAME",
+  "domain": "cloud"
+ },
+ "jg_0048_cloud_dockerfile": {
+  "canonical": "Dockerfile",
+  "domain": "cloud"
+ },
+ "jg_0049_cloud_dockerfile": {
+  "canonical": "Dockerfile",
+  "domain": "cloud"
+ },
+ "jg_0050_cloud_argo_cd": {
+  "canonical": "Argo CD",
+  "domain": "cloud"
+ },
+ "jg_0051_cloud_argo_cd": {
+  "canonical": "Argo CD",
+  "domain": "cloud"
+ },
+ "jg_0052_cloud_cloudformation": {
+  "canonical": "CloudFormation",
+  "domain": "cloud"
+ },
+ "jg_0053_cloud_cloudformation": {
+  "canonical": "CloudFormation",
+  "domain": "cloud"
+ },
+ "jg_0054_cloud_control_plane": {
+  "canonical": "Control Plane",
+  "domain": "cloud"
+ },
+ "jg_0055_cloud_control_plane": {
+  "canonical": "Control Plane",
+  "domain": "cloud"
+ },
+ "jg_0056_cloud_route_53": {
+  "canonical": "Route 53",
+  "domain": "cloud"
+ },
+ "jg_0057_cloud_route_53": {
+  "canonical": "Route 53",
+  "domain": "cloud"
+ },
+ "jg_0058_cloud_http_2": {
+  "canonical": "HTTP/2",
+  "domain": "cloud"
+ },
+ "jg_0059_cloud_http_2": {
+  "canonical": "HTTP/2",
+  "domain": "cloud"
+ },
+ "jg_0060_cloud_ipv6": {
+  "canonical": "IPv6",
+  "domain": "cloud"
+ },
+ "jg_0061_cloud_ipv6": {
+  "canonical": "IPv6",
+  "domain": "cloud"
+ },
+ "jg_0062_cloud_horizontalpodautoscaler": {
+  "canonical": "HorizontalPodAutoscaler",
+  "domain": "cloud"
+ },
+ "jg_0063_cloud_horizontalpodautoscaler": {
+  "canonical": "HorizontalPodAutoscaler",
+  "domain": "cloud"
+ },
+ "jg_0064_cloud_podsecuritycontext": {
+  "canonical": "PodSecurityContext",
+  "domain": "cloud"
+ },
+ "jg_0065_cloud_podsecuritycontext": {
+  "canonical": "PodSecurityContext",
+  "domain": "cloud"
+ },
+ "jg_0066_cloud_serviceaccount": {
+  "canonical": "serviceAccount",
+  "domain": "cloud"
+ },
+ "jg_0067_cloud_serviceaccount": {
+  "canonical": "serviceAccount",
+  "domain": "cloud"
+ },
+ "jg_0068_cloud_nomad": {
+  "canonical": "Nomad",
+  "domain": "cloud"
+ },
+ "jg_0069_cloud_nomad": {
+  "canonical": "Nomad",
+  "domain": "cloud"
+ },
+ "jg_0070_cloud_consul": {
+  "canonical": "Consul",
+  "domain": "cloud"
+ },
+ "jg_0071_cloud_consul": {
+  "canonical": "Consul",
+  "domain": "cloud"
+ },
+ "jg_0072_security_xss": {
+  "canonical": "XSS",
+  "domain": "security"
+ },
+ "jg_0073_security_xss": {
+  "canonical": "XSS",
+  "domain": "security"
+ },
+ "jg_0074_security_csrf": {
+  "canonical": "CSRF",
+  "domain": "security"
+ },
+ "jg_0075_security_csrf": {
+  "canonical": "CSRF",
+  "domain": "security"
+ },
+ "jg_0076_security_ssrf": {
+  "canonical": "SSRF",
+  "domain": "security"
+ },
+ "jg_0077_security_ssrf": {
+  "canonical": "SSRF",
+  "domain": "security"
+ },
+ "jg_0078_security_mtls": {
+  "canonical": "mTLS",
+  "domain": "security"
+ },
+ "jg_0079_security_mtls": {
+  "canonical": "mTLS",
+  "domain": "security"
+ },
+ "jg_0080_security_oidc": {
+  "canonical": "OIDC",
+  "domain": "security"
+ },
+ "jg_0081_security_oidc": {
+  "canonical": "OIDC",
+  "domain": "security"
+ },
+ "jg_0082_security_saml": {
+  "canonical": "SAML",
+  "domain": "security"
+ },
+ "jg_0083_security_saml": {
+  "canonical": "SAML",
+  "domain": "security"
+ },
+ "jg_0084_security_jwt": {
+  "canonical": "JWT",
+  "domain": "security"
+ },
+ "jg_0085_security_jwt": {
+  "canonical": "JWT",
+  "domain": "security"
+ },
+ "jg_0086_security_oauth_2_0": {
+  "canonical": "OAuth 2.0",
+  "domain": "security"
+ },
+ "jg_0087_security_oauth_2_0": {
+  "canonical": "OAuth 2.0",
+  "domain": "security"
+ },
+ "jg_0088_security_ldap": {
+  "canonical": "LDAP",
+  "domain": "security"
+ },
+ "jg_0089_security_ldap": {
+  "canonical": "LDAP",
+  "domain": "security"
+ },
+ "jg_0090_security_sha_256": {
+  "canonical": "SHA-256",
+  "domain": "security"
+ },
+ "jg_0091_security_sha_256": {
+  "canonical": "SHA-256",
+  "domain": "security"
+ },
+ "jg_0092_security_hmac": {
+  "canonical": "HMAC",
+  "domain": "security"
+ },
+ "jg_0093_security_hmac": {
+  "canonical": "HMAC",
+  "domain": "security"
+ },
+ "jg_0094_security_argon2": {
+  "canonical": "Argon2",
+  "domain": "security"
+ },
+ "jg_0095_security_argon2": {
+  "canonical": "Argon2",
+  "domain": "security"
+ },
+ "jg_0096_security_aes_gcm": {
+  "canonical": "AES-GCM",
+  "domain": "security"
+ },
+ "jg_0097_security_aes_gcm": {
+  "canonical": "AES-GCM",
+  "domain": "security"
+ },
+ "jg_0098_security_chacha20": {
+  "canonical": "ChaCha20",
+  "domain": "security"
+ },
+ "jg_0099_security_chacha20": {
+  "canonical": "ChaCha20",
+  "domain": "security"
+ },
+ "jg_0100_security_ed25519": {
+  "canonical": "Ed25519",
+  "domain": "security"
+ },
+ "jg_0101_security_ed25519": {
+  "canonical": "Ed25519",
+  "domain": "security"
+ },
+ "jg_0102_security_x_509": {
+  "canonical": "X.509",
+  "domain": "security"
+ },
+ "jg_0103_security_x_509": {
+  "canonical": "X.509",
+  "domain": "security"
+ },
+ "jg_0104_security_nmap": {
+  "canonical": "nmap",
+  "domain": "security"
+ },
+ "jg_0105_security_nmap": {
+  "canonical": "nmap",
+  "domain": "security"
+ },
+ "jg_0106_security_nessus": {
+  "canonical": "Nessus",
+  "domain": "security"
+ },
+ "jg_0107_security_nessus": {
+  "canonical": "Nessus",
+  "domain": "security"
+ },
+ "jg_0108_security_metasploit": {
+  "canonical": "Metasploit",
+  "domain": "security"
+ },
+ "jg_0109_security_metasploit": {
+  "canonical": "Metasploit",
+  "domain": "security"
+ },
+ "jg_0110_security_wireshark": {
+  "canonical": "Wireshark",
+  "domain": "security"
+ },
+ "jg_0111_security_wireshark": {
+  "canonical": "Wireshark",
+  "domain": "security"
+ },
+ "jg_0112_security_tcpdump": {
+  "canonical": "tcpdump",
+  "domain": "security"
+ },
+ "jg_0113_security_tcpdump": {
+  "canonical": "tcpdump",
+  "domain": "security"
+ },
+ "jg_0114_security_burp_suite": {
+  "canonical": "Burp Suite",
+  "domain": "security"
+ },
+ "jg_0115_security_burp_suite": {
+  "canonical": "Burp Suite",
+  "domain": "security"
+ },
+ "jg_0116_security_sqlmap": {
+  "canonical": "sqlmap",
+  "domain": "security"
+ },
+ "jg_0117_security_sqlmap": {
+  "canonical": "sqlmap",
+  "domain": "security"
+ },
+ "jg_0118_security_hashcat": {
+  "canonical": "Hashcat",
+  "domain": "security"
+ },
+ "jg_0119_security_hashcat": {
+  "canonical": "Hashcat",
+  "domain": "security"
+ },
+ "jg_0120_security_selinux": {
+  "canonical": "SELinux",
+  "domain": "security"
+ },
+ "jg_0121_security_selinux": {
+  "canonical": "SELinux",
+  "domain": "security"
+ },
+ "jg_0122_security_apparmor": {
+  "canonical": "AppArmor",
+  "domain": "security"
+ },
+ "jg_0123_security_apparmor": {
+  "canonical": "AppArmor",
+  "domain": "security"
+ },
+ "jg_0124_security_iptables": {
+  "canonical": "iptables",
+  "domain": "security"
+ },
+ "jg_0125_security_iptables": {
+  "canonical": "iptables",
+  "domain": "security"
+ },
+ "jg_0126_security_fail2ban": {
+  "canonical": "Fail2ban",
+  "domain": "security"
+ },
+ "jg_0127_security_fail2ban": {
+  "canonical": "Fail2ban",
+  "domain": "security"
+ },
+ "jg_0128_security_cve": {
+  "canonical": "CVE",
+  "domain": "security"
+ },
+ "jg_0129_security_cve": {
+  "canonical": "CVE",
+  "domain": "security"
+ },
+ "jg_0130_security_cvss": {
+  "canonical": "CVSS",
+  "domain": "security"
+ },
+ "jg_0131_security_cvss": {
+  "canonical": "CVSS",
+  "domain": "security"
+ },
+ "jg_0132_security_owasp": {
+  "canonical": "OWASP",
+  "domain": "security"
+ },
+ "jg_0133_security_owasp": {
+  "canonical": "OWASP",
+  "domain": "security"
+ },
+ "jg_0134_security_sast": {
+  "canonical": "SAST",
+  "domain": "security"
+ },
+ "jg_0135_security_sast": {
+  "canonical": "SAST",
+  "domain": "security"
+ },
+ "jg_0136_security_dast": {
+  "canonical": "DAST",
+  "domain": "security"
+ },
+ "jg_0137_security_dast": {
+  "canonical": "DAST",
+  "domain": "security"
+ },
+ "jg_0138_security_aslr": {
+  "canonical": "ASLR",
+  "domain": "security"
+ },
+ "jg_0139_security_aslr": {
+  "canonical": "ASLR",
+  "domain": "security"
+ },
+ "jg_0140_langs_go": {
+  "canonical": "Go",
+  "domain": "langs"
+ },
+ "jg_0141_langs_go": {
+  "canonical": "Go",
+  "domain": "langs"
+ },
+ "jg_0142_langs_rust": {
+  "canonical": "Rust",
+  "domain": "langs"
+ },
+ "jg_0143_langs_rust": {
+  "canonical": "Rust",
+  "domain": "langs"
+ },
+ "jg_0144_langs_swift": {
+  "canonical": "Swift",
+  "domain": "langs"
+ },
+ "jg_0145_langs_swift": {
+  "canonical": "Swift",
+  "domain": "langs"
+ },
+ "jg_0146_langs_cargo": {
+  "canonical": "Cargo",
+  "domain": "langs"
+ },
+ "jg_0147_langs_cargo": {
+  "canonical": "Cargo",
+  "domain": "langs"
+ },
+ "jg_0148_langs_bun": {
+  "canonical": "Bun",
+  "domain": "langs"
+ },
+ "jg_0149_langs_bun": {
+  "canonical": "Bun",
+  "domain": "langs"
+ },
+ "jg_0150_langs_deno": {
+  "canonical": "Deno",
+  "domain": "langs"
+ },
+ "jg_0151_langs_deno": {
+  "canonical": "Deno",
+  "domain": "langs"
+ },
+ "jg_0152_langs_crystal": {
+  "canonical": "Crystal",
+  "domain": "langs"
+ },
+ "jg_0153_langs_crystal": {
+  "canonical": "Crystal",
+  "domain": "langs"
+ },
+ "jg_0154_langs_nim": {
+  "canonical": "Nim",
+  "domain": "langs"
+ },
+ "jg_0155_langs_nim": {
+  "canonical": "Nim",
+  "domain": "langs"
+ },
+ "jg_0156_langs_elm": {
+  "canonical": "Elm",
+  "domain": "langs"
+ },
+ "jg_0157_langs_elm": {
+  "canonical": "Elm",
+  "domain": "langs"
+ },
+ "jg_0158_langs_dart": {
+  "canonical": "Dart",
+  "domain": "langs"
+ },
+ "jg_0159_langs_dart": {
+  "canonical": "Dart",
+  "domain": "langs"
+ },
+ "jg_0160_langs_julia": {
+  "canonical": "Julia",
+  "domain": "langs"
+ },
+ "jg_0161_langs_julia": {
+  "canonical": "Julia",
+  "domain": "langs"
+ },
+ "jg_0162_langs_ruby": {
+  "canonical": "Ruby",
+  "domain": "langs"
+ },
+ "jg_0163_langs_ruby": {
+  "canonical": "Ruby",
+  "domain": "langs"
+ },
+ "jg_0164_langs_python": {
+  "canonical": "Python",
+  "domain": "langs"
+ },
+ "jg_0165_langs_python": {
+  "canonical": "Python",
+  "domain": "langs"
+ },
+ "jg_0166_langs_kotlin": {
+  "canonical": "Kotlin",
+  "domain": "langs"
+ },
+ "jg_0167_langs_kotlin": {
+  "canonical": "Kotlin",
+  "domain": "langs"
+ },
+ "jg_0168_langs_haskell": {
+  "canonical": "Haskell",
+  "domain": "langs"
+ },
+ "jg_0169_langs_haskell": {
+  "canonical": "Haskell",
+  "domain": "langs"
+ },
+ "jg_0170_langs_ocaml": {
+  "canonical": "OCaml",
+  "domain": "langs"
+ },
+ "jg_0171_langs_ocaml": {
+  "canonical": "OCaml",
+  "domain": "langs"
+ },
+ "jg_0172_langs_erlang": {
+  "canonical": "Erlang",
+  "domain": "langs"
+ },
+ "jg_0173_langs_erlang": {
+  "canonical": "Erlang",
+  "domain": "langs"
+ },
+ "jg_0174_langs_elixir": {
+  "canonical": "Elixir",
+  "domain": "langs"
+ },
+ "jg_0175_langs_elixir": {
+  "canonical": "Elixir",
+  "domain": "langs"
+ },
+ "jg_0176_langs_clojure": {
+  "canonical": "Clojure",
+  "domain": "langs"
+ },
+ "jg_0177_langs_clojure": {
+  "canonical": "Clojure",
+  "domain": "langs"
+ },
+ "jg_0178_langs_c": {
+  "canonical": "C++",
+  "domain": "langs"
+ },
+ "jg_0179_langs_c": {
+  "canonical": "C++",
+  "domain": "langs"
+ },
+ "jg_0180_langs_c": {
+  "canonical": "C#",
+  "domain": "langs"
+ },
+ "jg_0181_langs_c": {
+  "canonical": "C#",
+  "domain": "langs"
+ },
+ "jg_0182_langs_llvm": {
+  "canonical": "LLVM",
+  "domain": "langs"
+ },
+ "jg_0183_langs_llvm": {
+  "canonical": "LLVM",
+  "domain": "langs"
+ },
+ "jg_0184_langs_clang": {
+  "canonical": "Clang",
+  "domain": "langs"
+ },
+ "jg_0185_langs_clang": {
+  "canonical": "Clang",
+  "domain": "langs"
+ },
+ "jg_0186_langs_rustc": {
+  "canonical": "rustc",
+  "domain": "langs"
+ },
+ "jg_0187_langs_rustc": {
+  "canonical": "rustc",
+  "domain": "langs"
+ },
+ "jg_0188_langs_npm": {
+  "canonical": "npm",
+  "domain": "langs"
+ },
+ "jg_0189_langs_npm": {
+  "canonical": "npm",
+  "domain": "langs"
+ },
+ "jg_0190_langs_pnpm": {
+  "canonical": "pnpm",
+  "domain": "langs"
+ },
+ "jg_0191_langs_pnpm": {
+  "canonical": "pnpm",
+  "domain": "langs"
+ },
+ "jg_0192_langs_pip": {
+  "canonical": "pip",
+  "domain": "langs"
+ },
+ "jg_0193_langs_pip": {
+  "canonical": "pip",
+  "domain": "langs"
+ },
+ "jg_0194_langs_uv": {
+  "canonical": "uv",
+  "domain": "langs"
+ },
+ "jg_0195_langs_uv": {
+  "canonical": "uv",
+  "domain": "langs"
+ },
+ "jg_0196_langs_maven": {
+  "canonical": "Maven",
+  "domain": "langs"
+ },
+ "jg_0197_langs_maven": {
+  "canonical": "Maven",
+  "domain": "langs"
+ },
+ "jg_0198_langs_gradle": {
+  "canonical": "Gradle",
+  "domain": "langs"
+ },
+ "jg_0199_langs_gradle": {
+  "canonical": "Gradle",
+  "domain": "langs"
+ },
+ "jg_0200_langs_bazel": {
+  "canonical": "Bazel",
+  "domain": "langs"
+ },
+ "jg_0201_langs_bazel": {
+  "canonical": "Bazel",
+  "domain": "langs"
+ },
+ "jg_0202_langs_cmake": {
+  "canonical": "CMake",
+  "domain": "langs"
+ },
+ "jg_0203_langs_cmake": {
+  "canonical": "CMake",
+  "domain": "langs"
+ },
+ "jg_0204_langs_rebase": {
+  "canonical": "Rebase",
+  "domain": "langs"
+ },
+ "jg_0205_langs_rebase": {
+  "canonical": "Rebase",
+  "domain": "langs"
+ },
+ "jg_0206_langs_monorepo": {
+  "canonical": "monorepo",
+  "domain": "langs"
+ },
+ "jg_0207_langs_monorepo": {
+  "canonical": "monorepo",
+  "domain": "langs"
+ },
+ "jg_0208_langs_gitignore": {
+  "canonical": "gitignore",
+  "domain": "langs"
+ },
+ "jg_0209_langs_gitignore": {
+  "canonical": "gitignore",
+  "domain": "langs"
+ },
+ "jg_0210_langs_submodule": {
+  "canonical": "submodule",
+  "domain": "langs"
+ },
+ "jg_0211_langs_submodule": {
+  "canonical": "submodule",
+  "domain": "langs"
+ },
+ "jg_0212_apple_metal": {
+  "canonical": "Metal",
+  "domain": "apple"
+ },
+ "jg_0213_apple_metal": {
+  "canonical": "Metal",
+  "domain": "apple"
+ },
+ "jg_0214_apple_core_audio": {
+  "canonical": "Core Audio",
+  "domain": "apple"
+ },
+ "jg_0215_apple_core_audio": {
+  "canonical": "Core Audio",
+  "domain": "apple"
+ },
+ "jg_0216_apple_core_data": {
+  "canonical": "Core Data",
+  "domain": "apple"
+ },
+ "jg_0217_apple_core_data": {
+  "canonical": "Core Data",
+  "domain": "apple"
+ },
+ "jg_0218_apple_grand_central_dispatch": {
+  "canonical": "Grand Central Dispatch",
+  "domain": "apple"
+ },
+ "jg_0219_apple_grand_central_dispatch": {
+  "canonical": "Grand Central Dispatch",
+  "domain": "apple"
+ },
+ "jg_0220_apple_swiftui": {
+  "canonical": "SwiftUI",
+  "domain": "apple"
+ },
+ "jg_0221_apple_swiftui": {
+  "canonical": "SwiftUI",
+  "domain": "apple"
+ },
+ "jg_0222_apple_appkit": {
+  "canonical": "AppKit",
+  "domain": "apple"
+ },
+ "jg_0223_apple_appkit": {
+  "canonical": "AppKit",
+  "domain": "apple"
+ },
+ "jg_0224_apple_xcode": {
+  "canonical": "Xcode",
+  "domain": "apple"
+ },
+ "jg_0225_apple_xcode": {
+  "canonical": "Xcode",
+  "domain": "apple"
+ },
+ "jg_0226_apple_testflight": {
+  "canonical": "TestFlight",
+  "domain": "apple"
+ },
+ "jg_0227_apple_testflight": {
+  "canonical": "TestFlight",
+  "domain": "apple"
+ },
+ "jg_0228_apple_instruments": {
+  "canonical": "Instruments",
+  "domain": "apple"
+ },
+ "jg_0229_apple_instruments": {
+  "canonical": "Instruments",
+  "domain": "apple"
+ },
+ "jg_0230_apple_dyld": {
+  "canonical": "dyld",
+  "domain": "apple"
+ },
+ "jg_0231_apple_dyld": {
+  "canonical": "dyld",
+  "domain": "apple"
+ },
+ "jg_0232_apple_launchd": {
+  "canonical": "launchd",
+  "domain": "apple"
+ },
+ "jg_0233_apple_launchd": {
+  "canonical": "launchd",
+  "domain": "apple"
+ },
+ "jg_0234_apple_mmap": {
+  "canonical": "mmap",
+  "domain": "apple"
+ },
+ "jg_0235_apple_mmap": {
+  "canonical": "mmap",
+  "domain": "apple"
+ },
+ "jg_0236_apple_malloc": {
+  "canonical": "malloc",
+  "domain": "apple"
+ },
+ "jg_0237_apple_malloc": {
+  "canonical": "malloc",
+  "domain": "apple"
+ },
+ "jg_0238_apple_mutex": {
+  "canonical": "mutex",
+  "domain": "apple"
+ },
+ "jg_0239_apple_mutex": {
+  "canonical": "mutex",
+  "domain": "apple"
+ },
+ "jg_0240_apple_semaphore": {
+  "canonical": "semaphore",
+  "domain": "apple"
+ },
+ "jg_0241_apple_semaphore": {
+  "canonical": "semaphore",
+  "domain": "apple"
+ },
+ "jg_0242_apple_epoll": {
+  "canonical": "epoll",
+  "domain": "apple"
+ },
+ "jg_0243_apple_epoll": {
+  "canonical": "epoll",
+  "domain": "apple"
+ },
+ "jg_0244_apple_kqueue": {
+  "canonical": "kqueue",
+  "domain": "apple"
+ },
+ "jg_0245_apple_kqueue": {
+  "canonical": "kqueue",
+  "domain": "apple"
+ },
+ "jg_0246_apple_io_uring": {
+  "canonical": "io_uring",
+  "domain": "apple"
+ },
+ "jg_0247_apple_io_uring": {
+  "canonical": "io_uring",
+  "domain": "apple"
+ },
+ "jg_0248_apple_numa": {
+  "canonical": "NUMA",
+  "domain": "apple"
+ },
+ "jg_0249_apple_numa": {
+  "canonical": "NUMA",
+  "domain": "apple"
+ },
+ "jg_0250_apple_tlb": {
+  "canonical": "TLB",
+  "domain": "apple"
+ },
+ "jg_0251_apple_tlb": {
+  "canonical": "TLB",
+  "domain": "apple"
+ },
+ "jg_0252_apple_avaudioengine": {
+  "canonical": "AVAudioEngine",
+  "domain": "apple"
+ },
+ "jg_0253_apple_avaudioengine": {
+  "canonical": "AVAudioEngine",
+  "domain": "apple"
+ },
+ "jg_0254_apple_cvpixelbuffer": {
+  "canonical": "CVPixelBuffer",
+  "domain": "apple"
+ },
+ "jg_0255_apple_cvpixelbuffer": {
+  "canonical": "CVPixelBuffer",
+  "domain": "apple"
+ },
+ "jg_0256_apple_nsattributedstring": {
+  "canonical": "NSAttributedString",
+  "domain": "apple"
+ },
+ "jg_0257_apple_nsattributedstring": {
+  "canonical": "NSAttributedString",
+  "domain": "apple"
+ },
+ "jg_0258_apple_wkwebview": {
+  "canonical": "WKWebView",
+  "domain": "apple"
+ },
+ "jg_0259_apple_wkwebview": {
+  "canonical": "WKWebView",
+  "domain": "apple"
+ },
+ "jg_0260_apple_urlsession": {
+  "canonical": "URLSession",
+  "domain": "apple"
+ },
+ "jg_0261_apple_urlsession": {
+  "canonical": "URLSession",
+  "domain": "apple"
+ },
+ "jg_0262_apple_calayer": {
+  "canonical": "CALayer",
+  "domain": "apple"
+ },
+ "jg_0263_apple_calayer": {
+  "canonical": "CALayer",
+  "domain": "apple"
+ },
+ "jg_0264_apple_axuielement": {
+  "canonical": "AXUIElement",
+  "domain": "apple"
+ },
+ "jg_0265_apple_axuielement": {
+  "canonical": "AXUIElement",
+  "domain": "apple"
+ },
+ "jg_0266_apple_nspasteboard": {
+  "canonical": "NSPasteboard",
+  "domain": "apple"
+ },
+ "jg_0267_apple_nspasteboard": {
+  "canonical": "NSPasteboard",
+  "domain": "apple"
+ },
+ "jg_0268_apple_xctassertequal": {
+  "canonical": "XCTAssertEqual",
+  "domain": "apple"
+ },
+ "jg_0269_apple_xctassertequal": {
+  "canonical": "XCTAssertEqual",
+  "domain": "apple"
+ },
+ "jg_0270_apple_viewdidload": {
+  "canonical": "viewDidLoad",
+  "domain": "apple"
+ },
+ "jg_0271_apple_viewdidload": {
+  "canonical": "viewDidLoad",
+  "domain": "apple"
+ },
+ "jg_0272_apple_didfinishlaunching": {
+  "canonical": "didFinishLaunching",
+  "domain": "apple"
+ },
+ "jg_0273_apple_didfinishlaunching": {
+  "canonical": "didFinishLaunching",
+  "domain": "apple"
+ },
+ "jg_0274_apple_dispatchqueue": {
+  "canonical": "dispatchQueue",
+  "domain": "apple"
+ },
+ "jg_0275_apple_dispatchqueue": {
+  "canonical": "dispatchQueue",
+  "domain": "apple"
+ },
+ "jg_0276_apple_mtldevice": {
+  "canonical": "MTLDevice",
+  "domain": "apple"
+ },
+ "jg_0277_apple_mtldevice": {
+  "canonical": "MTLDevice",
+  "domain": "apple"
+ },
+ "jg_0278_apple_cfrunloop": {
+  "canonical": "CFRunLoop",
+  "domain": "apple"
+ },
+ "jg_0279_apple_cfrunloop": {
+  "canonical": "CFRunLoop",
+  "domain": "apple"
+ },
+ "jg_0280_dataweb_postgresql": {
+  "canonical": "PostgreSQL",
+  "domain": "dataweb"
+ },
+ "jg_0281_dataweb_postgresql": {
+  "canonical": "PostgreSQL",
+  "domain": "dataweb"
+ },
+ "jg_0282_dataweb_sqlite": {
+  "canonical": "SQLite",
+  "domain": "dataweb"
+ },
+ "jg_0283_dataweb_sqlite": {
+  "canonical": "SQLite",
+  "domain": "dataweb"
+ },
+ "jg_0284_dataweb_mongodb": {
+  "canonical": "MongoDB",
+  "domain": "dataweb"
+ },
+ "jg_0285_dataweb_mongodb": {
+  "canonical": "MongoDB",
+  "domain": "dataweb"
+ },
+ "jg_0286_dataweb_redis": {
+  "canonical": "Redis",
+  "domain": "dataweb"
+ },
+ "jg_0287_dataweb_redis": {
+  "canonical": "Redis",
+  "domain": "dataweb"
+ },
+ "jg_0288_dataweb_cassandra": {
+  "canonical": "Cassandra",
+  "domain": "dataweb"
+ },
+ "jg_0289_dataweb_cassandra": {
+  "canonical": "Cassandra",
+  "domain": "dataweb"
+ },
+ "jg_0290_dataweb_clickhouse": {
+  "canonical": "ClickHouse",
+  "domain": "dataweb"
+ },
+ "jg_0291_dataweb_clickhouse": {
+  "canonical": "ClickHouse",
+  "domain": "dataweb"
+ },
+ "jg_0292_dataweb_duckdb": {
+  "canonical": "DuckDB",
+  "domain": "dataweb"
+ },
+ "jg_0293_dataweb_duckdb": {
+  "canonical": "DuckDB",
+  "domain": "dataweb"
+ },
+ "jg_0294_dataweb_elasticsearch": {
+  "canonical": "Elasticsearch",
+  "domain": "dataweb"
+ },
+ "jg_0295_dataweb_elasticsearch": {
+  "canonical": "Elasticsearch",
+  "domain": "dataweb"
+ },
+ "jg_0296_dataweb_snowflake": {
+  "canonical": "Snowflake",
+  "domain": "dataweb"
+ },
+ "jg_0297_dataweb_snowflake": {
+  "canonical": "Snowflake",
+  "domain": "dataweb"
+ },
+ "jg_0298_dataweb_databricks": {
+  "canonical": "Databricks",
+  "domain": "dataweb"
+ },
+ "jg_0299_dataweb_databricks": {
+  "canonical": "Databricks",
+  "domain": "dataweb"
+ },
+ "jg_0300_dataweb_airflow": {
+  "canonical": "Airflow",
+  "domain": "dataweb"
+ },
+ "jg_0301_dataweb_airflow": {
+  "canonical": "Airflow",
+  "domain": "dataweb"
+ },
+ "jg_0302_dataweb_dbt": {
+  "canonical": "dbt",
+  "domain": "dataweb"
+ },
+ "jg_0303_dataweb_dbt": {
+  "canonical": "dbt",
+  "domain": "dataweb"
+ },
+ "jg_0304_dataweb_parquet": {
+  "canonical": "Parquet",
+  "domain": "dataweb"
+ },
+ "jg_0305_dataweb_parquet": {
+  "canonical": "Parquet",
+  "domain": "dataweb"
+ },
+ "jg_0306_dataweb_avro": {
+  "canonical": "Avro",
+  "domain": "dataweb"
+ },
+ "jg_0307_dataweb_avro": {
+  "canonical": "Avro",
+  "domain": "dataweb"
+ },
+ "jg_0308_dataweb_graphql": {
+  "canonical": "GraphQL",
+  "domain": "dataweb"
+ },
+ "jg_0309_dataweb_graphql": {
+  "canonical": "GraphQL",
+  "domain": "dataweb"
+ },
+ "jg_0310_dataweb_websocket": {
+  "canonical": "WebSocket",
+  "domain": "dataweb"
+ },
+ "jg_0311_dataweb_websocket": {
+  "canonical": "WebSocket",
+  "domain": "dataweb"
+ },
+ "jg_0312_dataweb_webrtc": {
+  "canonical": "WebRTC",
+  "domain": "dataweb"
+ },
+ "jg_0313_dataweb_webrtc": {
+  "canonical": "WebRTC",
+  "domain": "dataweb"
+ },
+ "jg_0314_dataweb_quic": {
+  "canonical": "QUIC",
+  "domain": "dataweb"
+ },
+ "jg_0315_dataweb_quic": {
+  "canonical": "QUIC",
+  "domain": "dataweb"
+ },
+ "jg_0316_dataweb_protobuf": {
+  "canonical": "Protobuf",
+  "domain": "dataweb"
+ },
+ "jg_0317_dataweb_protobuf": {
+  "canonical": "Protobuf",
+  "domain": "dataweb"
+ },
+ "jg_0318_dataweb_thrift": {
+  "canonical": "Thrift",
+  "domain": "dataweb"
+ },
+ "jg_0319_dataweb_thrift": {
+  "canonical": "Thrift",
+  "domain": "dataweb"
+ },
+ "jg_0320_dataweb_pytorch": {
+  "canonical": "PyTorch",
+  "domain": "dataweb"
+ },
+ "jg_0321_dataweb_pytorch": {
+  "canonical": "PyTorch",
+  "domain": "dataweb"
+ },
+ "jg_0322_dataweb_tensorflow": {
+  "canonical": "TensorFlow",
+  "domain": "dataweb"
+ },
+ "jg_0323_dataweb_tensorflow": {
+  "canonical": "TensorFlow",
+  "domain": "dataweb"
+ },
+ "jg_0324_dataweb_numpy": {
+  "canonical": "NumPy",
+  "domain": "dataweb"
+ },
+ "jg_0325_dataweb_numpy": {
+  "canonical": "NumPy",
+  "domain": "dataweb"
+ },
+ "jg_0326_dataweb_pandas": {
+  "canonical": "pandas",
+  "domain": "dataweb"
+ },
+ "jg_0327_dataweb_pandas": {
+  "canonical": "pandas",
+  "domain": "dataweb"
+ },
+ "jg_0328_dataweb_scikit_learn": {
+  "canonical": "scikit-learn",
+  "domain": "dataweb"
+ },
+ "jg_0329_dataweb_scikit_learn": {
+  "canonical": "scikit-learn",
+  "domain": "dataweb"
+ },
+ "jg_0330_dataweb_hugging_face": {
+  "canonical": "Hugging Face",
+  "domain": "dataweb"
+ },
+ "jg_0331_dataweb_hugging_face": {
+  "canonical": "Hugging Face",
+  "domain": "dataweb"
+ },
+ "jg_0332_dataweb_cuda": {
+  "canonical": "CUDA",
+  "domain": "dataweb"
+ },
+ "jg_0333_dataweb_cuda": {
+  "canonical": "CUDA",
+  "domain": "dataweb"
+ },
+ "jg_0334_dataweb_cudnn": {
+  "canonical": "cuDNN",
+  "domain": "dataweb"
+ },
+ "jg_0335_dataweb_cudnn": {
+  "canonical": "cuDNN",
+  "domain": "dataweb"
+ },
+ "jg_0336_dataweb_onnx": {
+  "canonical": "ONNX",
+  "domain": "dataweb"
+ },
+ "jg_0337_dataweb_onnx": {
+  "canonical": "ONNX",
+  "domain": "dataweb"
+ },
+ "jg_0338_dataweb_jupyter": {
+  "canonical": "Jupyter",
+  "domain": "dataweb"
+ },
+ "jg_0339_dataweb_jupyter": {
+  "canonical": "Jupyter",
+  "domain": "dataweb"
+ },
+ "jg_0340_dataweb_react": {
+  "canonical": "React",
+  "domain": "dataweb"
+ },
+ "jg_0341_dataweb_react": {
+  "canonical": "React",
+  "domain": "dataweb"
+ },
+ "jg_0342_dataweb_node": {
+  "canonical": "Node",
+  "domain": "dataweb"
+ },
+ "jg_0343_dataweb_node": {
+  "canonical": "Node",
+  "domain": "dataweb"
+ },
+ "jg_0344_dataweb_vue": {
+  "canonical": "Vue",
+  "domain": "dataweb"
+ },
+ "jg_0345_dataweb_vue": {
+  "canonical": "Vue",
+  "domain": "dataweb"
+ },
+ "jg_0346_negative_please_go_outside_and_bring_the_": {
+  "domain": "negative"
+ },
+ "jg_0347_negative_the_old_gate_had_rust_all_along_": {
+  "domain": "negative"
+ },
+ "jg_0348_negative_a_swift_bird_crossed_the_garden_": {
+  "domain": "negative"
+ },
+ "jg_0349_negative_the_metal_spoon_felt_cold_agains": {
+  "domain": "negative"
+ },
+ "jg_0350_negative_the_cargo_was_unloaded_at_the_ha": {
+  "domain": "negative"
+ },
+ "jg_0351_negative_she_ordered_a_warm_bun_with_butt": {
+  "domain": "negative"
+ },
+ "jg_0352_negative_the_crystal_vase_caught_sunlight": {
+  "domain": "negative"
+ },
+ "jg_0353_negative_the_bakery_on_the_corner_sells_w": {
+  "domain": "negative"
+ },
+ "jg_0354_negative_an_elm_tree_shaded_the_bench_whe": {
+  "domain": "negative"
+ },
+ "jg_0355_negative_he_threw_the_dart_carefully_towa": {
+  "domain": "negative"
+ },
+ "jg_0356_negative_she_practised_the_same_piano_pie": {
+  "domain": "negative"
+ },
+ "jg_0357_negative_the_ruby_pendant_belonged_to_her": {
+  "domain": "negative"
+ },
+ "jg_0358_negative_the_python_rested_quietly_beneat": {
+  "domain": "negative"
+ },
+ "jg_0359_negative_please_react_calmly_when_the_chi": {
+  "domain": "negative"
+ },
+ "jg_0360_negative_a_small_node_on_the_wooden_branc": {
+  "domain": "negative"
+ },
+ "jg_0361_negative_the_museum_vault_held_paintings_": {
+  "domain": "negative"
+ },
+ "jg_0362_negative_the_consul_welcomed_travelers_at": {
+  "domain": "negative"
+ },
+ "jg_0363_negative_the_popcorn_kernel_stuck_between": {
+  "domain": "negative"
+ },
+ "jg_0364_negative_a_smooth_shell_washed_onto_the_b": {
+  "domain": "negative"
+ },
+ "jg_0365_negative_the_heavy_branch_fell_across_the": {
+  "domain": "negative"
+ },
+ "jg_0366_negative_i_cannot_commit_to_dinner_until_": {
+  "domain": "negative"
+ },
+ "jg_0367_negative_the_two_streams_merge_beneath_th": {
+  "domain": "negative"
+ },
+ "jg_0368_negative_please_push_the_bicycle_gently_u": {
+  "domain": "negative"
+ },
+ "jg_0369_negative_pull_the_curtain_closed_before_t": {
+  "domain": "negative"
+ },
+ "jg_0370_negative_that_jacket_is_a_convincing_clon": {
+  "domain": "negative"
+ },
+ "jg_0371_negative_the_needle_needs_stronger_thread": {
+  "domain": "negative"
+ },
+ "jg_0372_negative_the_hikers_found_a_hidden_cache_": {
+  "domain": "negative"
+ },
+ "jg_0373_negative_the_old_story_featured_a_demon_g": {
+  "domain": "negative"
+ },
+ "jg_0374_negative_i_saved_one_chocolate_cookie_for": {
+  "domain": "negative"
+ },
+ "jg_0375_negative_a_dark_cloud_covered_the_sun_jus": {
+  "domain": "negative"
+ },
+ "jg_0376_negative_the_pool_s_depth_surprised_every": {
+  "domain": "negative"
+ },
+ "jg_0377_negative_the_plumber_replaced_a_leaking_p": {
+  "domain": "negative"
+ },
+ "jg_0378_negative_the_lamp_would_not_work_because_": {
+  "domain": "negative"
+ },
+ "jg_0379_negative_our_ferry_reached_the_port_short": {
+  "domain": "negative"
+ },
+ "jg_0380_negative_she_attended_the_meeting_as_her_": {
+  "domain": "negative"
+ },
+ "jg_0381_negative_we_crossed_the_wooden_bridge_whi": {
+  "domain": "negative"
+ },
+ "jg_0382_negative_the_child_wore_a_colorful_mask_d": {
+  "domain": "negative"
+ },
+ "jg_0383_negative_our_driver_chose_a_scenic_route_": {
+  "domain": "negative"
+ },
+ "jg_0384_negative_she_baked_a_fresh_batch_of_cooki": {
+  "domain": "negative"
+ },
+ "jg_0385_negative_we_waited_in_the_queue_outside_t": {
+  "domain": "negative"
+ },
+ "jg_0386_negative_a_stack_of_clean_towels_waited_b": {
+  "domain": "negative"
+ },
+ "jg_0387_negative_leaves_formed_a_heap_beside_the_": {
+  "domain": "negative"
+ },
+ "jg_0388_negative_the_silver_frame_made_her_weddin": {
+  "domain": "negative"
+ },
+ "jg_0389_negative_the_hedge_formed_a_soft_buffer_b": {
+  "domain": "negative"
+ },
+ "jg_0390_negative_kafka_wrote_stories_that_made_or": {
+  "domain": "negative"
+ },
+ "jg_0391_negative_read_this_note_before_you_leave_": {
+  "domain": "negative"
+ },
+ "jg_0392_negative_the_traveler_lived_as_a_nomad_an": {
+  "domain": "negative"
+ },
+ "jg_0393_negative_loki_was_the_playful_name_of_our": {
+  "domain": "negative"
+ },
+ "jg_0394_negative_argon_was_the_name_of_our_neighb": {
+  "domain": "negative"
+ },
+ "jg_0395_negative_she_tackled_the_long_hike_with_s": {
+  "domain": "negative"
+ },
+ "jg_0396_negative_nano_was_our_smallest_kitten_and": {
+  "domain": "negative"
+ },
+ "jg_0397_negative_her_hair_began_to_curl_whenever_": {
+  "domain": "negative"
+ },
+ "jg_0398_negative_he_sliced_a_ripe_grape_and_share": {
+  "domain": "negative"
+ },
+ "jg_0399_negative_she_said_goodbye_softly_before_c": {
+  "domain": "negative"
+ },
+ "jg_0400_negative_the_silence_felt_awkward_after_d": {
+  "domain": "negative"
+ },
+ "jg_0401_negative_please_make_enough_sandwiches_fo": {
+  "domain": "negative"
+ },
+ "jg_0402_negative_grandmother_chose_soft_yarn_befo": {
+  "domain": "negative"
+ },
+ "jg_0403_negative_we_rested_beneath_the_garden_bow": {
+  "domain": "negative"
+ },
+ "jg_0404_negative_he_made_the_remark_in_jest_and_q": {
+  "domain": "negative"
+ },
+ "jg_0405_negative_she_ordered_a_warm_mocha_before_": {
+  "domain": "negative"
+ },
+ "jg_0406_negative_the_cafe_served_spicy_chai_with_": {
+  "domain": "negative"
+ },
+ "jg_0407_negative_one_glowing_ember_remained_after": {
+  "domain": "negative"
+ },
+ "jg_0408_negative_meteor_was_the_name_painted_on_o": {
+  "domain": "negative"
+ },
+ "jg_0409_negative_phoenix_is_where_my_cousin_moved": {
+  "domain": "negative"
+ },
+ "jg_0410_negative_django_was_the_gentle_cat_who_sl": {
+  "domain": "negative"
+ },
+ "jg_0411_negative_the_glass_flask_held_lemonade_fo": {
+  "domain": "negative"
+ },
+ "jg_0412_negative_the_train_rattled_loudly_as_its_": {
+  "domain": "negative"
+ },
+ "jg_0413_negative_we_watched_the_children_go_chasi": {
+  "domain": "negative"
+ },
+ "jg_0414_negative_a_ruby_glow_appeared_above_the_h": {
+  "domain": "negative"
+ },
+ "jg_0415_negative_fresh_paint_covered_the_rust_ben": {
+  "domain": "negative"
+ },
+ "jg_0416_negative_the_train_arrived_late_but_every": {
+  "domain": "negative"
+ },
+ "jg_0417_negative_we_packed_sandwiches_and_apples_": {
+  "domain": "negative"
+ },
+ "jg_0418_negative_a_gentle_breeze_cooled_the_porch": {
+  "domain": "negative"
+ },
+ "jg_0419_negative_my_sister_brought_fresh_flowers_": {
+  "domain": "negative"
+ },
+ "jg_0420_negative_the_children_practiced_passing_t": {
+  "domain": "negative"
+ },
+ "jg_0421_negative_our_hotel_overlooked_a_quiet_str": {
+  "domain": "negative"
+ },
+ "jg_0422_negative_i_bought_a_wool_sweater_because_": {
+  "domain": "negative"
+ },
+ "jg_0423_negative_the_doctor_suggested_resting_wel": {
+  "domain": "negative"
+ },
+ "jg_0424_negative_we_listened_to_old_songs_while_p": {
+  "domain": "negative"
+ },
+ "jg_0425_negative_the_mountain_road_opened_after_t": {
+  "domain": "negative"
+ },
+ "jg_0426_negative_she_chose_a_bright_scarf_to_matc": {
+  "domain": "negative"
+ },
+ "jg_0427_negative_my_uncle_tells_funny_stories_whe": {
+  "domain": "negative"
+ },
+ "jg_0428_negative_the_referee_stopped_play_when_ra": {
+  "domain": "negative"
+ },
+ "jg_0429_negative_fresh_bread_smelled_wonderful_as": {
+  "domain": "negative"
+ },
+ "jg_0430_negative_a_clear_sky_promised_excellent_v": {
+  "domain": "negative"
+ },
+ "jg_0431_negative_i_mailed_postcards_to_friends_af": {
+  "domain": "negative"
+ },
+ "jg_0432_negative_the_baby_laughed_when_her_father": {
+  "domain": "negative"
+ },
+ "jg_0433_negative_we_shared_a_bowl_of_soup_beside_": {
+  "domain": "negative"
+ },
+ "jg_0434_negative_the_runner_slowed_down_when_the_": {
+  "domain": "negative"
+ },
+ "jg_0435_negative_heavy_rain_delayed_our_picnic_bu": {
+  "domain": "negative"
+ },
+ "jg_0436_negative_my_brother_found_comfortable_sho": {
+  "domain": "negative"
+ },
+ "jg_0437_negative_the_orchestra_played_softly_whil": {
+  "domain": "negative"
+ },
+ "jg_0438_negative_we_visited_a_small_museum_before": {
+  "domain": "negative"
+ },
+ "jg_0439_negative_the_doctor_called_yesterday_and_": {
+  "domain": "negative"
+ },
+ "jg_0440_negative_our_favorite_restaurant_serves_g": {
+  "domain": "negative"
+ },
+ "jg_0441_negative_the_goalkeeper_made_a_brilliant_": {
+  "domain": "negative"
+ },
+ "jg_0442_negative_a_warm_blanket_made_the_overnigh": {
+  "domain": "negative"
+ },
+ "jg_0443_negative_we_bought_peaches_and_tomatoes_f": {
+  "domain": "negative"
+ },
+ "jg_0444_negative_the_wind_became_stronger_before_": {
+  "domain": "negative"
+ },
+ "jg_0445_negative_my_parents_danced_together_while": {
+  "domain": "negative"
+ },
+ "jg_0446_negative_she_felt_better_after_breakfast_": {
+  "domain": "negative"
+ },
+ "jg_0447_negative_the_bus_driver_waited_patiently_": {
+  "domain": "negative"
+ },
+ "jg_0448_negative_we_watched_fireworks_from_the_be": {
+  "domain": "negative"
+ },
+ "jg_0449_negative_the_children_shared_their_desser": {
+  "domain": "negative"
+ },
+ "jg_0450_negative_i_found_a_lovely_jacket_on_sale_": {
+  "domain": "negative"
+ },
+ "jg_0451_negative_a_light_mist_covered_the_fields_": {
+  "domain": "negative"
+ },
+ "jg_0452_negative_the_singer_thanked_everyone_befo": {
+  "domain": "negative"
+ },
+ "jg_0453_negative_my_aunt_prepared_fruit_salad_for": {
+  "domain": "negative"
+ },
+ "jg_0454_negative_the_seaside_market_sold_warm_pas": {
+  "domain": "negative"
+ },
+ "jg_0455_negative_our_family_enjoyed_quiet_music_d": {
+  "domain": "negative"
+ }
+}
