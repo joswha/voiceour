@@ -228,6 +228,21 @@ extern "C" {
           const parakeet_token_data * token_data,
                                void * user_data);
 
+    // VOICEOUR PATCH: Optional research hook for every greedy TDT step, including blanks.
+    // Pointers remain valid only for the duration of the callback.
+    typedef void (*parakeet_decode_step_callback)(
+            struct parakeet_context * ctx,
+              struct parakeet_state * state,
+                                int   frame_index,
+                     parakeet_token   chosen_token,
+                               bool   is_blank,
+                                int   chosen_duration_idx,
+                      const float   * token_logits,
+                                int   n_token_logits,
+                      const float   * duration_logits,
+                                int   n_duration_logits,
+                               void * user_data);
+
     // Text segment callback
     // Called on every newly generated text segment
     // Use the parakeet_full_...() functions to obtain the text segments
@@ -262,6 +277,10 @@ extern "C" {
         // called for every newly generated token
         parakeet_new_token_callback new_token_callback;
         void * new_token_callback_user_data;
+
+        // VOICEOUR PATCH: called for every greedy TDT step when non-NULL.
+        parakeet_decode_step_callback decode_step_callback;
+        void * decode_step_callback_user_data;
 
         // called on each progress update
         parakeet_progress_callback progress_callback;

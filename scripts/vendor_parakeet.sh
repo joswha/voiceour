@@ -92,6 +92,7 @@ LOCAL_FILES=(
     'patches/0011-merge-conv-module-right-pads.patch'
     'patches/0012-three-encode-threads.patch'
     'patches/0013-file-backed-weight-arena.patch'
+    'patches/0014-greedy-decode-step-callback.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'

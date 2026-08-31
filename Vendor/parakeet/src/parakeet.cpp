@@ -463,6 +463,9 @@ struct parakeet_state {
 
     std::vector<float> logits;
 
+    // VOICEOUR PATCH: populated only while the optional decode-step observer is installed.
+    std::vector<float> token_logits_raw;
+
     // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): raw, pre-log-softmax duration
     // slots for the current joint step. `logits` above holds log-softmax output, whose
     // duration slots underflow to -inf whenever the winning vocab logit leads by more than
@@ -3268,6 +3271,7 @@ static bool parakeet_step(
      const parakeet_batch & batch,
                 const int   n_threads,
                      bool   with_prediction,
+                     bool   capture_raw_token_logits,
       ggml_abort_callback   abort_callback,
                      void * abort_callback_data) {
     const int64_t t_start_us = ggml_time_us();
@@ -3315,6 +3319,22 @@ static bool parakeet_step(
             continue;
         }
         ggml_backend_tensor_get(logits, logits_out.data() + (n_logits*i), sizeof(float)*(n_logits*i), sizeof(float)*n_logits);
+    }
+
+    // VOICEOUR PATCH: the research callback needs finite pre-softmax token logits. Avoid the
+    // extra device-to-host copy entirely when no observer is installed.
+    if (capture_raw_token_logits && logits_raw) {
+        const int n_token_logits = hparams.n_vocab + 1;
+        pstate.token_logits_raw.resize(n_tokens * n_token_logits);
+        for (int i = 0; i < n_tokens; i++) {
+            if (batch.logits[i] == 0) {
+                continue;
+            }
+            ggml_backend_tensor_get(logits_raw,
+                    pstate.token_logits_raw.data() + (n_token_logits * i),
+                    sizeof(float) * (size_t) (n_logits * i),
+                    sizeof(float) * (size_t) n_token_logits);
+        }
     }
 
     // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): keep the raw duration slots so
@@ -3485,6 +3505,7 @@ static bool parakeet_decode(
         // plus the blank token, and also n_duration logits for the duration
         // tokens which contain information about how many frames to skip/advance forward.
         if (!parakeet_step(pctx, pstate, batch, n_threads, pending_prediction,
+                params && params->decode_step_callback,
                 params ? params->abort_callback           : nullptr,
                 params ? params->abort_callback_user_data : nullptr)) {
             return false;
@@ -3526,6 +3547,26 @@ static bool parakeet_decode(
         // look up that max duration index value in the tdt_durations array to
         // get the actual duration value.
         int duration = tdt_durations[best_duration_idx];
+
+        const float * token_slots = pstate.token_logits_raw.empty()
+            ? pstate.logits.data()
+            : pstate.token_logits_raw.data();
+        // VOICEOUR PATCH: expose every greedy step for bounded research harvesting. The hook is
+        // opt-in and observes the already-selected path without changing decoder state.
+        if (params && params->decode_step_callback) {
+            params->decode_step_callback(
+                &pctx,
+                &pstate,
+                t,
+                best_token,
+                best_token == blank_id,
+                best_duration_idx,
+                token_slots,
+                n_vocab_logits,
+                duration_slots,
+                n_tdt_durations,
+                params->decode_step_callback_user_data);
+        }
 
         if (best_token == blank_id) {
             if (duration == 0) {
@@ -4646,6 +4687,8 @@ struct parakeet_full_params parakeet_full_default_params(enum parakeet_sampling_
         /*.audio_ctx                        =*/ 0,
         /*.new_token_callback               =*/ nullptr,
         /*.new_token_callback_user_data     =*/ nullptr,
+        /*.decode_step_callback             =*/ nullptr,
+        /*.decode_step_callback_user_data   =*/ nullptr,
         /*.new_segment_callback             =*/ nullptr,
         /*.new_segment_callback_user_data   =*/ nullptr,
         /*.progress_callback                =*/ nullptr,

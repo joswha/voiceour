@@ -50,6 +50,33 @@ public struct ParakeetSegmentRaw: Equatable, Sendable {
     }
 }
 
+/// One ranked token logit from a greedy TDT decode step.
+public struct ParakeetLatticeTokenLogit: Equatable, Sendable {
+    public var id: Int32
+    public var logit: Float
+}
+
+/// The bounded information needed to study one greedy TDT decision.
+public struct ParakeetLatticeStep: Equatable, Sendable {
+    public var frameIndex: Int32
+    public var isBlank: Bool
+    public var chosenTokenID: Int32
+    public var chosenTokenPiece: String
+    public var chosenTokenLogit: Float
+    public var chosenDurationSlot: Int32
+    public var chosenDurationLogit: Float
+    public var topTokens: [ParakeetLatticeTokenLogit]
+    public var durationLogits: [Float]
+    public var tokenMargin: Float
+    public var durationMargin: Float
+}
+
+/// A normal transcription plus the greedy decisions that produced it.
+public struct ParakeetLatticeResult: Equatable, Sendable {
+    public var segments: [ParakeetSegmentRaw]
+    public var steps: [ParakeetLatticeStep]
+}
+
 /// Owns one `parakeet_context` and its default state.
 ///
 /// `parakeet_full` is documented as not thread safe for the same context, so exactly one
@@ -102,11 +129,61 @@ public final class ParakeetContext {
     /// between graph computations, so the client's hard timeout still depends on killing the
     /// process — unchanged from the Python sidecar.
     public func transcribe(samples: [Float], isCancelled: @escaping () -> Bool) throws -> [ParakeetSegmentRaw] {
+        try decode(samples: samples, isCancelled: isCancelled, latticeBridge: nil)
+        return collectSegments()
+    }
+
+    /// Runs the production greedy decode while retaining only top-8 token logits and all five
+    /// duration logits per step. This is a research seam; the ordinary transcription path does
+    /// not install the callback and therefore performs no lattice work.
+    public func transcribeWithLattice(
+        samples: [Float],
+        isCancelled: @escaping () -> Bool
+    ) throws -> ParakeetLatticeResult {
+        let bridge = LatticeBridge(reserveCapacity: max(16, samples.count / 2_000))
+        try decode(samples: samples, isCancelled: isCancelled, latticeBridge: bridge)
+        return ParakeetLatticeResult(segments: collectSegments(), steps: bridge.steps)
+    }
+
+    private func decode(
+        samples: [Float],
+        isCancelled: @escaping () -> Bool,
+        latticeBridge: LatticeBridge?
+    ) throws {
         var params = parakeet_full_default_params(PARAKEET_SAMPLING_GREEDY)
         params.n_threads = threadCount
 
+        if let latticeBridge {
+            params.decode_step_callback_user_data = Unmanaged.passUnretained(latticeBridge).toOpaque()
+            params.decode_step_callback = {
+                context,
+                _,
+                frameIndex,
+                chosenToken,
+                isBlank,
+                chosenDurationSlot,
+                tokenLogits,
+                tokenLogitCount,
+                durationLogits,
+                durationLogitCount,
+                userData in
+                guard let context, let userData else { return }
+                Unmanaged<LatticeBridge>.fromOpaque(userData).takeUnretainedValue().append(
+                    context: context,
+                    frameIndex: frameIndex,
+                    chosenToken: chosenToken,
+                    isBlank: isBlank,
+                    chosenDurationSlot: chosenDurationSlot,
+                    tokenLogits: tokenLogits,
+                    tokenLogitCount: tokenLogitCount,
+                    durationLogits: durationLogits,
+                    durationLogitCount: durationLogitCount
+                )
+            }
+        }
+
         var cancellation = CancellationBridge(isCancelled: isCancelled)
-        return try withUnsafeMutablePointer(to: &cancellation) { bridge in
+        let status = withUnsafeMutablePointer(to: &cancellation) { bridge in
             params.encoder_begin_callback_user_data = UnsafeMutableRawPointer(bridge)
             params.encoder_begin_callback = { _, _, userData in
                 guard let userData else { return true }
@@ -118,12 +195,13 @@ public final class ParakeetContext {
                 return userData.assumingMemoryBound(to: CancellationBridge.self).pointee.isCancelled()
             }
 
-            let status = samples.withUnsafeBufferPointer { buffer in
-                parakeet_full(context, params, buffer.baseAddress, Int32(buffer.count))
+            return withExtendedLifetime(latticeBridge) {
+                samples.withUnsafeBufferPointer { buffer in
+                    parakeet_full(context, params, buffer.baseAddress, Int32(buffer.count))
+                }
             }
-            guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
-            return collectSegments()
         }
+        guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
     }
 
     private func collectSegments() -> [ParakeetSegmentRaw] {
@@ -188,4 +266,107 @@ public final class ParakeetContext {
 /// Holds the cancellation closure at a stable address for the C callbacks.
 private struct CancellationBridge {
     let isCancelled: () -> Bool
+}
+
+/// Mutable callback state. `parakeet_full` invokes it synchronously on the decode thread.
+private final class LatticeBridge {
+    private static let tokenLimit = 8
+
+    var steps: [ParakeetLatticeStep] = []
+
+    init(reserveCapacity: Int) {
+        steps.reserveCapacity(reserveCapacity)
+    }
+
+    func append(
+        context: OpaquePointer,
+        frameIndex: Int32,
+        chosenToken: Int32,
+        isBlank: Bool,
+        chosenDurationSlot: Int32,
+        tokenLogits: UnsafePointer<Float>?,
+        tokenLogitCount: Int32,
+        durationLogits: UnsafePointer<Float>?,
+        durationLogitCount: Int32
+    ) {
+        guard
+            let tokenLogits,
+            let durationLogits,
+            tokenLogitCount >= 2,
+            durationLogitCount >= 2,
+            chosenToken >= 0,
+            chosenToken < tokenLogitCount,
+            chosenDurationSlot >= 0,
+            chosenDurationSlot < durationLogitCount
+        else {
+            return
+        }
+
+        let tokenBuffer = UnsafeBufferPointer(start: tokenLogits, count: Int(tokenLogitCount))
+        let durationBuffer = UnsafeBufferPointer(start: durationLogits, count: Int(durationLogitCount))
+        let topTokens = Self.topTokens(in: tokenBuffer)
+        guard topTokens.count >= 2 else { return }
+
+        let piecePointer = parakeet_token_to_str(context, chosenToken)
+        let piece = piecePointer.map(String.init(cString:)) ?? ""
+        let copiedDurationLogits = Array(durationBuffer)
+        steps.append(
+            ParakeetLatticeStep(
+                frameIndex: frameIndex,
+                isBlank: isBlank,
+                chosenTokenID: chosenToken,
+                chosenTokenPiece: piece,
+                chosenTokenLogit: tokenBuffer[Int(chosenToken)],
+                chosenDurationSlot: chosenDurationSlot,
+                chosenDurationLogit: durationBuffer[Int(chosenDurationSlot)],
+                topTokens: topTokens,
+                durationLogits: copiedDurationLogits,
+                tokenMargin: topTokens[0].logit - topTokens[1].logit,
+                durationMargin: Self.topTwoMargin(in: durationBuffer)
+            )
+        )
+    }
+
+    private static func topTokens(
+        in logits: UnsafeBufferPointer<Float>
+    ) -> [ParakeetLatticeTokenLogit] {
+        var top: [ParakeetLatticeTokenLogit] = []
+        top.reserveCapacity(tokenLimit)
+        for (index, logit) in logits.enumerated() {
+            let candidate = ParakeetLatticeTokenLogit(id: Int32(index), logit: logit)
+            var position = 0
+            while position < top.count {
+                let ranked = top[position]
+                if logit > ranked.logit || (logit == ranked.logit && candidate.id < ranked.id) {
+                    break
+                }
+                position += 1
+            }
+            guard position < tokenLimit else { continue }
+            top.insert(candidate, at: position)
+            if top.count > tokenLimit {
+                top.removeLast()
+            }
+        }
+        return top
+    }
+
+    private static func topTwoMargin(in logits: UnsafeBufferPointer<Float>) -> Float {
+        var bestIndex = -1
+        var secondIndex = -1
+        var best = -Float.infinity
+        var second = -Float.infinity
+        for (index, logit) in logits.enumerated() {
+            if logit > best || (logit == best && index < bestIndex) {
+                second = best
+                secondIndex = bestIndex
+                best = logit
+                bestIndex = index
+            } else if logit > second || (logit == second && index < secondIndex) {
+                second = logit
+                secondIndex = index
+            }
+        }
+        return best - second
+    }
 }

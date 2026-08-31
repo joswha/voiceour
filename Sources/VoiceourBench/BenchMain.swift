@@ -96,6 +96,7 @@ enum BenchError: Error, CustomStringConvertible {
 
 enum BenchCommand: String {
     case pipeline
+    case tdtLattice = "tdt-lattice"
 }
 
 struct BenchOptions {
@@ -113,13 +114,14 @@ enum BenchCLI {
         Usage:
           voiceour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
               [--backend \(backendChoices)] [--timeout-ms 120000]
+          voiceour-bench tdt-lattice --input <manifest.jsonl> --output <lattice.jsonl>
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
 
     static func parse(_ arguments: [String]) throws -> BenchOptions {
         guard let commandValue = arguments.first, let command = BenchCommand(rawValue: commandValue) else {
-            throw BenchError.usage("expected subcommand: pipeline")
+            throw BenchError.usage("expected subcommand: pipeline or tdt-lattice")
         }
 
         var input: URL?
@@ -215,6 +217,8 @@ struct BenchRunner {
         switch options.command {
         case .pipeline:
             try await runPipeline()
+        case .tdtLattice:
+            try TDTLatticeCommand(options: options).run()
         }
     }
 
@@ -318,7 +322,7 @@ struct BenchRunner {
         )
     }
 
-    private static func sha256(of url: URL) throws -> String {
+    static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()

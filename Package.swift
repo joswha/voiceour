@@ -125,7 +125,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "VoiceourBench",
-            dependencies: ["VoiceCore", "VoiceMac"]
+            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"]
         ),
         .testTarget(
             name: "VoiceCoreTests",

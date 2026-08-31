@@ -249,6 +249,19 @@ captured under `patches/`.
     per-tensor `MS_SYNC` reached 181.209 MB physical footprint. Deterministic warm offset reuse
     reached 178.537 MB physical footprint / 112.525 MB RSS, with byte-identical transcripts and
     warm p95 at or below 207 ms on the frozen harness.
+- `patches/0014-greedy-decode-step-callback.patch` adds an opt-in C callback after each greedy
+  TDT token/duration argmax, before blank handling, and passes the frame, selected path, raw
+  token logits, and five raw duration logits. Unlike the existing emitted-token callback it
+  observes blank steps, so a caller can harvest the complete lattice path without retaining the
+  8,193-wide vocabulary tensor. The callback and user data default to null; the extra
+  device-to-host token-logit copy is callback-guarded and ordinary state transitions are
+  byte-identical.
+  - Upstream status: not reported upstream. This is a bounded Voiceour research seam, not a
+    shipping decode feature.
+  - Test status: the Swift research caller copies only top-8 token logits and all duration slots;
+    vendor reproduction and full-corpus harvest are recorded in
+    `research/bet1-contextual-decoding.md` and `research/bet3-quantization.md`.
+
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:4894-4931` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to
