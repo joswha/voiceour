@@ -62,6 +62,9 @@ readonly COREML_MAX_S="15.0"
 readonly COREML_ENCODER_SHORT="$PWD/.build/asr-research/three-bets/bucket8/parakeet_encoder_8s.mlmodelc"
 readonly COREML_ENCODER_SHORT_DIGEST="9352b55bd0f0da4113831eda276a75bdcbb004c686655406bdab1451d5b26481"
 readonly COREML_SHORT_MAX_S="8.0"
+readonly COREML_ENCODER_TINY="$PWD/.build/asr-research/three-bets/bucket6/parakeet_encoder_6s.mlmodelc"
+readonly COREML_ENCODER_TINY_DIGEST="6ee06a3171532a0ce3ee9b3aa93659c464b8ad934e0acb0dada416f5e331741a"
+readonly COREML_TINY_MAX_S="6.0"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -172,6 +175,14 @@ if [ -n "$COREML_ENCODER" ]; then
         [ "$observed_short_digest" = "$COREML_ENCODER_SHORT_DIGEST" ] ||
             die "coreml short encoder digest $observed_short_digest != pinned $COREML_ENCODER_SHORT_DIGEST"
         coreml_env_args="$coreml_env_args VOICEOUR_COREML_ENCODER_SHORT=$COREML_ENCODER_SHORT VOICEOUR_COREML_SHORT_MAX_S=$COREML_SHORT_MAX_S"
+    fi
+    if [ -n "$COREML_ENCODER_TINY" ]; then
+        [ -e "$COREML_ENCODER_TINY" ] || die "coreml tiny encoder artifact missing: $COREML_ENCODER_TINY"
+        [ -n "$COREML_ENCODER_TINY_DIGEST" ] || die 'coreml tiny encoder digest pin is empty'
+        observed_tiny_digest="$(cd "$COREML_ENCODER_TINY" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)"
+        [ "$observed_tiny_digest" = "$COREML_ENCODER_TINY_DIGEST" ] ||
+            die "coreml tiny encoder digest $observed_tiny_digest != pinned $COREML_ENCODER_TINY_DIGEST"
+        coreml_env_args="$coreml_env_args VOICEOUR_COREML_ENCODER_TINY=$COREML_ENCODER_TINY VOICEOUR_COREML_TINY_MAX_S=$COREML_TINY_MAX_S"
     fi
 fi
 

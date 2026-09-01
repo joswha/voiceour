@@ -111,6 +111,11 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                     "VOICEOUR_COREML_ENCODER_SHORT mode=hybrid compute_units=CPU_AND_NE model=\(short.modelURL.path) max_s=\(short.maximumDurationSeconds)"
                 )
             }
+            if let tiny = configurations.tiny {
+                log(
+                    "VOICEOUR_COREML_ENCODER_TINY mode=hybrid compute_units=CPU_AND_NE model=\(tiny.modelURL.path) max_s=\(tiny.maximumDurationSeconds)"
+                )
+            }
         } else {
             self.init(
                 cache: cache,

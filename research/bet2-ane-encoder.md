@@ -176,3 +176,22 @@ and ~39.5 in the scratch runner — ~10–15 ms/request integration overhead (CP
 Promotion caveats unchanged: one M4 Pro, TTS corpora, system-wide rail attribution
 under exclusive-hardware discipline; product adoption needs cross-SoC + real speakers
 + an explicit product decision on the second inference runtime (CoreML) in the sidecar.
+
+### Runs 56–57 — tail dial + 6 s bucket (2026-09-01)
+
+**Run 56 (discard, evidence kept):** CPU tail (patch 0017, VOICEOUR_TAIL_BACKEND=cpu)
+inverted the trade: GPU 177→27 J but CPU 314→617 J → energy_j +22.5%. Yet transcripts
+stayed byte-identical on all 552 rows and latency improved sharply (p95 210→187.5,
+p50 129.5→113.5, RTFx +14%). It is a pure latency/energy dial; re-landable diff at
+.build/asr-research/three-bets/tail-cpu/relard/. Product option: per-power-source
+tail policy (mains→CPU tail, battery→Metal tail).
+
+**Run 57 (keep):** 6 s tiny bucket (mel 1×128×601 → 76 frames, digest 6ee06a31…,
+450/456 jargon rows ≤6 s): energy_j 204.2→**187.5 (−8.2%; −57.8% vs native)**.
+Rails ANE 122→91, GPU 177→129, CPU 314→342, DRAM →33. Transcripts byte-identical
+again (SHAs equal runs 53–56 across all 552 rows) — three window sizes, one output.
+Wrinkle: per-row inference +2.5 ms on the tiny graph (ANE tiling), yet power drops
+more than time grows. Startup load now 707 ms (three MLModels) — cold-start cost
+climbing with each tier; product wants lazy/async model loads.
+
+Four-tier routing: ≤6 s tiny / ≤8 s short / ≤15 s standard / native.

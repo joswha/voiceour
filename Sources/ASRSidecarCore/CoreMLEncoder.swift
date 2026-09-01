@@ -4,12 +4,15 @@ import Foundation
 struct CoreMLEncoderConfiguration: Equatable {
     enum Bucket: Equatable {
         case short
+        case tiny
         case standard
 
         var modelEnvironmentKey: String {
             switch self {
             case .short:
                 return "VOICEOUR_COREML_ENCODER_SHORT"
+            case .tiny:
+                return "VOICEOUR_COREML_ENCODER_TINY"
             case .standard:
                 return "VOICEOUR_COREML_ENCODER"
             }
@@ -19,6 +22,8 @@ struct CoreMLEncoderConfiguration: Equatable {
             switch self {
             case .short:
                 return "VOICEOUR_COREML_SHORT_MAX_S"
+            case .tiny:
+                return "VOICEOUR_COREML_TINY_MAX_S"
             case .standard:
                 return "VOICEOUR_COREML_MAX_S"
             }
@@ -28,6 +33,8 @@ struct CoreMLEncoderConfiguration: Equatable {
             switch self {
             case .short:
                 return 8.0
+            case .tiny:
+                return 6.0
             case .standard:
                 return 15.0
             }
@@ -41,6 +48,8 @@ struct CoreMLEncoderConfiguration: Equatable {
             switch self {
             case .short:
                 return 801
+            case .tiny:
+                return 601
             case .standard:
                 return 1_501
             }
@@ -50,6 +59,8 @@ struct CoreMLEncoderConfiguration: Equatable {
             switch self {
             case .short:
                 return 101
+            case .tiny:
+                return 76
             case .standard:
                 return 188
             }
@@ -108,6 +119,7 @@ struct CoreMLEncoderConfiguration: Equatable {
 struct CoreMLEncoderConfigurationSet: Equatable {
     let standard: CoreMLEncoderConfiguration?
     let short: CoreMLEncoderConfiguration?
+    let tiny: CoreMLEncoderConfiguration?
 
     static func resolve(environment: [String: String]) throws -> CoreMLEncoderConfigurationSet {
         CoreMLEncoderConfigurationSet(
@@ -118,11 +130,18 @@ struct CoreMLEncoderConfigurationSet: Equatable {
             short: try CoreMLEncoderConfiguration.resolve(
                 environment: environment,
                 bucket: .short
+            ),
+            tiny: try CoreMLEncoderConfiguration.resolve(
+                environment: environment,
+                bucket: .tiny
             )
         )
     }
 
     func selectedConfiguration(sampleCount: Int) -> CoreMLEncoderConfiguration? {
+        if let tiny, tiny.routesThroughCoreML(sampleCount: sampleCount) {
+            return tiny
+        }
         if let short, short.routesThroughCoreML(sampleCount: sampleCount) {
             return short
         }
@@ -389,19 +408,23 @@ final class CoreMLEncoderSet {
     private let configurations: CoreMLEncoderConfigurationSet
     private let standard: CoreMLEncoder?
     private let short: CoreMLEncoder?
+    private let tiny: CoreMLEncoder?
 
     var isEmpty: Bool {
-        standard == nil && short == nil
+        standard == nil && short == nil && tiny == nil
     }
 
     init(configurations: CoreMLEncoderConfigurationSet) throws {
         self.configurations = configurations
+        tiny = try configurations.tiny.map(CoreMLEncoder.init(configuration:))
         short = try configurations.short.map(CoreMLEncoder.init(configuration:))
         standard = try configurations.standard.map(CoreMLEncoder.init(configuration:))
     }
 
     func encoder(sampleCount: Int) -> CoreMLEncoder? {
         switch configurations.selectedConfiguration(sampleCount: sampleCount)?.bucket {
+        case .tiny:
+            return tiny
         case .short:
             return short
         case .standard:
