@@ -150,6 +150,21 @@ public final class ParakeetContext {
         return collectSegments()
     }
 
+    /// Preload warms the native Parakeet/Metal path without claiming a lazy CoreML tier before
+    /// the first real request routed to it.
+    func transcribeForWarmUp(
+        samples: [Float],
+        isCancelled: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        try decode(
+            samples: samples,
+            isCancelled: isCancelled,
+            latticeBridge: nil,
+            routesThroughCoreML: false
+        )
+        return collectSegments()
+    }
+
     /// Runs the production greedy decode while retaining only top-8 token logits and all five
     /// duration logits per step. This is a research seam; the ordinary transcription path does
     /// not install the callback and therefore performs no lattice work.
@@ -165,7 +180,8 @@ public final class ParakeetContext {
     private func decode(
         samples: [Float],
         isCancelled: @escaping () -> Bool,
-        latticeBridge: LatticeBridge?
+        latticeBridge: LatticeBridge?,
+        routesThroughCoreML: Bool = true
     ) throws {
         var params = parakeet_full_default_params(PARAKEET_SAMPLING_GREEDY)
         params.n_threads = threadCount
@@ -213,7 +229,9 @@ public final class ParakeetContext {
             }
 
             return try withExtendedLifetime(latticeBridge) {
-                if let coreMLEncoder = coreMLEncoders?.encoder(sampleCount: samples.count) {
+                if routesThroughCoreML,
+                   let coreMLEncoder = try coreMLEncoders?.encoder(sampleCount: samples.count)
+                {
                     return try decodeWithCoreMLEncoder(
                         coreMLEncoder,
                         samples: samples,

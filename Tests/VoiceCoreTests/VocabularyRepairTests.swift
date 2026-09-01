@@ -4,6 +4,38 @@ import Testing
 
 @Suite("Vocabulary repair")
 struct VocabularyRepairTests {
+    @Test func activeTermsUseTheFrozenRiskPartition() {
+        let activeTerms = [
+            ProtectedTerm(canonical: "Rust", spokenAliases: []),
+            ProtectedTerm(canonical: "Go", spokenAliases: []),
+            ProtectedTerm(canonical: "semaphore", spokenAliases: []),
+            ProtectedTerm(canonical: "kubectl", spokenAliases: []),
+            ProtectedTerm(canonical: "SwiftUI", spokenAliases: []),
+            ProtectedTerm(canonical: "a", spokenAliases: []),
+            ProtectedTerm(canonical: "i", spokenAliases: []),
+        ]
+        let ordinaryWords: Set<String> = ["rust", "semaphore"]
+
+        let vocabulary = RepairVocabulary.fromActiveTerms(
+            activeTerms,
+            ordinaryWords: ordinaryWords
+        )
+
+        #expect(vocabulary.surfaces == ["kubectl", "SwiftUI"])
+        #expect(vocabulary.protectedSurfaces == ["Rust", "Go", "semaphore", "a", "i"])
+        #expect(vocabulary.phoneticThreshold == 0.95)
+        #expect(Set(vocabulary.ordinaryWords) == ordinaryWords)
+        #expect(vocabulary.singleLetterWords == ["a", "i"])
+    }
+
+    @Test func bundledOrdinaryWordsComeFromTheFrozenVocabulary() {
+        #expect(
+            RepairVocabulary.bundledOrdinaryWords.isSuperset(
+                of: ["rust", "semaphore", "a", "i"]
+            )
+        )
+    }
+
     @Test func ordinaryIAMSpanIsRejected() {
         let engine = VocabularyRepairEngine(
             vocabulary: vocabulary(

@@ -255,6 +255,60 @@ struct DictationCoordinatorTests {
         #expect(coordinator.lastOutcome == .pasteAttempted)
     }
 
+    @Test func eligibleTaughtTermRepairsBeforePersistenceAndInsertion() async throws {
+        let result = try await processTranscript(
+            "run cubectl now",
+            glossary: [
+                ProtectedTerm(
+                    canonical: "kubectl",
+                    spokenAliases: [],
+                    source: .explicitCorrection
+                )
+            ]
+        )
+
+        #expect(result.text == "run kubectl now")
+        #expect(result.insertedText == "run kubectl now")
+        #expect(result.session.text == "run kubectl now")
+        #expect(result.session.rawTranscript == "run cubectl now")
+    }
+
+    @Test func taughtKubectlHeardAsFormStillCanonicalizes() async throws {
+        let result = try await processTranscript(
+            "run quebecal now",
+            glossary: [
+                ProtectedTerm(
+                    canonical: "kubectl",
+                    spokenAliases: ["quebecal"],
+                    source: .explicitCorrection
+                )
+            ]
+        )
+
+        #expect(result.text == "run kubectl now")
+    }
+
+    @Test func untaughtQuebecalIsUnchanged() async throws {
+        let result = try await processTranscript("run quebecal now", glossary: [])
+
+        #expect(result.text == "run quebecal now")
+    }
+
+    @Test func riskyTaughtTermDoesNotPhoneticallyFire() async throws {
+        let result = try await processTranscript(
+            "the semaphorre stood beside the railway",
+            glossary: [
+                ProtectedTerm(
+                    canonical: "semaphore",
+                    spokenAliases: [],
+                    source: .explicitCorrection
+                )
+            ]
+        )
+
+        #expect(result.text == "the semaphorre stood beside the railway")
+    }
+
     @Test func suggestionAppearsAfterCompletionWithoutBlockingCompletion() async {
         var settings = VoiceCore.Settings()
         settings.glossary = [
@@ -2377,6 +2431,33 @@ struct DictationCoordinatorTests {
 
     // MARK: Helpers
 
+    private func processTranscript(
+        _ rawTranscript: String,
+        glossary: [ProtectedTerm]
+    ) async throws -> (text: String, insertedText: String?, session: RecentSession) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-repair-pipeline-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var settings = VoiceCore.Settings()
+        settings.glossary = glossary
+        settings.hasCompletedFirstRun = true
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text(rawTranscript)),
+            inserter: inserter,
+            settings: settings,
+            settingsStore: temporarySettingsStore(),
+            recentSessionStore: RecentSessionStore(
+                url: directory.appendingPathComponent("recent-sessions.json")
+            )
+        )
+
+        await driveUtterance(coordinator)
+        let session = try #require(coordinator.recentSessions.first)
+        return (coordinator.lastTranscript, inserter.insertedText, session)
+    }
+
     private func makeCoordinator(
         recorder: AudioRecording = FakeRecorder(),
         asr: ASRClienting = FakeASR(behavior: .text("unused")),
@@ -2839,10 +2920,15 @@ private final class MutableTracker: TargetTracking, @unchecked Sendable {
 private final class CapturingInserter: TextInserting, @unchecked Sendable {
     private let lock = NSLock()
     private var target: TargetSnapshot?
+    private var inserted: String?
     private var count = 0
 
     var insertedTarget: TargetSnapshot? {
         lock.withLock { target }
+    }
+
+    var insertedText: String? {
+        lock.withLock { inserted }
     }
 
     var insertionCount: Int {
@@ -2852,6 +2938,7 @@ private final class CapturingInserter: TextInserting, @unchecked Sendable {
     func insert(_ text: String, into target: TargetSnapshot) async -> InsertionOutcome {
         lock.withLock {
             self.target = target
+            inserted = text
             count += 1
         }
         return .pasteAttempted

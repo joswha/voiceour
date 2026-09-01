@@ -206,11 +206,19 @@ final class CoreMLEncoder {
     private let encoderFrameCapacity: Int
     private var frameMajorStates: [Float]
 
-    init(configuration: CoreMLEncoderConfiguration) throws {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: configuration.modelURL.path) else {
+    static func validateArtifact(configuration: CoreMLEncoderConfiguration) throws {
+        guard FileManager.default.fileExists(atPath: configuration.modelURL.path) else {
             throw CoreMLEncoderError.modelMissing(configuration.modelURL.path)
         }
+        guard ["mlmodelc", "mlpackage"].contains(
+            configuration.modelURL.pathExtension.lowercased()
+        ) else {
+            throw CoreMLEncoderError.unsupportedModelPath(configuration.modelURL.path)
+        }
+    }
+
+    init(configuration: CoreMLEncoderConfiguration) throws {
+        try Self.validateArtifact(configuration: configuration)
 
         let loaded: (MLModel, MLMultiArray, MLMultiArray, MLDictionaryFeatureProvider, Int, Int)
         do {
@@ -403,32 +411,87 @@ final class CoreMLEncoder {
 
 }
 
-/// Owns one persistent CoreML client per configured fixed-shape artifact.
+/// A lock-free process-lifetime cache. The sidecar's decode queue serializes requests, while
+/// the preload thread's warm decode shares `ParakeetSidecarBackend.decodeLock` with that queue.
+final class LazyCoreMLResource<Value> {
+    private enum State {
+        case unloaded
+        case loaded(Value)
+    }
+
+    private let load: () throws -> Value
+    private var state = State.unloaded
+
+    init(load: @escaping () throws -> Value) {
+        self.load = load
+    }
+
+    func value() throws -> Value {
+        switch state {
+        case .unloaded:
+            let value = try load()
+            state = .loaded(value)
+            return value
+        case .loaded(let value):
+            return value
+        }
+    }
+}
+
+/// Validates every configured artifact at startup, then owns one lazily loaded CoreML client per
+/// fixed-shape tier. Successful clients remain cached for the lifetime of the sidecar process.
 final class CoreMLEncoderSet {
     private let configurations: CoreMLEncoderConfigurationSet
-    private let standard: CoreMLEncoder?
-    private let short: CoreMLEncoder?
-    private let tiny: CoreMLEncoder?
+    private let standard: LazyCoreMLResource<CoreMLEncoder>?
+    private let short: LazyCoreMLResource<CoreMLEncoder>?
+    private let tiny: LazyCoreMLResource<CoreMLEncoder>?
 
     var isEmpty: Bool {
         standard == nil && short == nil && tiny == nil
     }
 
-    init(configurations: CoreMLEncoderConfigurationSet) throws {
+    init(
+        configurations: CoreMLEncoderConfigurationSet,
+        log: @escaping (String) -> Void = { _ in }
+    ) throws {
         self.configurations = configurations
-        tiny = try configurations.tiny.map(CoreMLEncoder.init(configuration:))
-        short = try configurations.short.map(CoreMLEncoder.init(configuration:))
-        standard = try configurations.standard.map(CoreMLEncoder.init(configuration:))
+
+        for configuration in [
+            configurations.tiny,
+            configurations.short,
+            configurations.standard,
+        ].compactMap({ $0 }) {
+            try CoreMLEncoder.validateArtifact(configuration: configuration)
+        }
+
+        func lazyResource(
+            for configuration: CoreMLEncoderConfiguration
+        ) -> LazyCoreMLResource<CoreMLEncoder> {
+            LazyCoreMLResource {
+                do {
+                    return try CoreMLEncoder(configuration: configuration)
+                } catch {
+                    log(
+                        "\(configuration.bucket.modelEnvironmentKey) lazy load failed: \(error)"
+                    )
+                    throw error
+                }
+            }
+        }
+
+        tiny = configurations.tiny.map(lazyResource(for:))
+        short = configurations.short.map(lazyResource(for:))
+        standard = configurations.standard.map(lazyResource(for:))
     }
 
-    func encoder(sampleCount: Int) -> CoreMLEncoder? {
+    func encoder(sampleCount: Int) throws -> CoreMLEncoder? {
         switch configurations.selectedConfiguration(sampleCount: sampleCount)?.bucket {
         case .tiny:
-            return tiny
+            return try tiny?.value()
         case .short:
-            return short
+            return try short?.value()
         case .standard:
-            return standard
+            return try standard?.value()
         case nil:
             return nil
         }

@@ -48,6 +48,37 @@ struct SidecarLifecycleTests {
         #expect(backend.health().lastAcquisitionError == nil)
     }
 
+    @Test func preloadWarmDecodeStaysNativeSoCoreMLTiersRemainLazy() throws {
+        let bytes = Data("model".utf8)
+        let artifact = ParakeetModelManifest(
+            modelId: "test/model",
+            revision: "test-revision",
+            file: "model.bin",
+            sha256: "test-digest",
+            sizeBytes: Int64(bytes.count)
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecar-native-warmup-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let cache = ParakeetModelCache(directory: directory, artifact: artifact, ownsVariantRoot: false)
+        try bytes.write(to: cache.modelURL)
+        try JSONEncoder().encode(artifact).write(to: cache.manifestURL)
+        let context = WarmUpRecordingContext()
+        let backend = ParakeetSidecarBackend(
+            cache: cache,
+            log: { _ in },
+            idleUnloadMs: 0,
+            contextFactory: { _ in context }
+        )
+
+        try backend.warmUp()
+
+        #expect(context.warmUpDecodeCount == 1)
+        #expect(context.requestDecodeCount == 0)
+    }
+
     /// A refusal the volume raises before a byte is fetched has to reach the wire.
     ///
     /// This is the shape inference can never see. `warmUp` fails in microseconds, so the health
@@ -371,6 +402,27 @@ private final class FailThenSucceedContextFactory: @unchecked Sendable {
 private final class EmptyParakeetRuntimeContext: ParakeetRuntimeContext {
     func transcribe(samples _: [Float], isCancelled _: @escaping () -> Bool) throws -> [ParakeetSegmentRaw] {
         []
+    }
+}
+
+private final class WarmUpRecordingContext: ParakeetRuntimeContext {
+    private(set) var requestDecodeCount = 0
+    private(set) var warmUpDecodeCount = 0
+
+    func transcribe(
+        samples _: [Float],
+        isCancelled _: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        requestDecodeCount += 1
+        return []
+    }
+
+    func transcribeForWarmUp(
+        samples _: [Float],
+        isCancelled _: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        warmUpDecodeCount += 1
+        return []
     }
 }
 

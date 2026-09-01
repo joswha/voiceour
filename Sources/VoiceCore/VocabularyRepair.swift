@@ -3,6 +3,73 @@ import Foundation
 public struct RepairVocabulary: Codable {
     public static let currentSchema = "voiceour-repair-vocabulary-v1"
 
+    /// The segment-2 phonetic threshold. Frozen: changing it requires new safety evidence.
+    public static let frozenPhoneticThreshold = 0.95
+
+    /// Lowercase ordinary words bundled from the segment-2 repair vocabulary.
+    ///
+    /// `static let` initialization loads and parses the resource once per process.
+    /// A packaged macOS app keeps SwiftPM's bundle in `Contents/Resources`; command-line
+    /// products and tests use `Bundle.module`.
+    public static let bundledOrdinaryWords: Set<String> = {
+        let packagedURL = Bundle.main.resourceURL?
+            .appendingPathComponent("voiceour_VoiceCore.bundle", isDirectory: true)
+            .appendingPathComponent("ordinary-words.txt")
+        let resourceURL: URL?
+        if let packagedURL, FileManager.default.fileExists(atPath: packagedURL.path) {
+            resourceURL = packagedURL
+        } else {
+            resourceURL = Bundle.module.url(
+                forResource: "ordinary-words",
+                withExtension: "txt"
+            )
+        }
+        guard let resourceURL else {
+            preconditionFailure("VoiceCore ordinary-words.txt resource is missing")
+        }
+        do {
+            let contents = try String(contentsOf: resourceURL, encoding: .utf8)
+            return Set(contents.split(whereSeparator: \.isNewline).map(String.init))
+        } catch {
+            preconditionFailure("VoiceCore ordinary-words.txt resource is unreadable: \(error)")
+        }
+    }()
+
+    /// Builds the frozen repair policy from one active glossary snapshot.
+    ///
+    /// `ordinaryWords` must contain lowercase entries. Dictionary words and
+    /// canonicals of at most two graphemes are protected from phonetic repair;
+    /// every other canonical is eligible. The same ordinary-word set is retained
+    /// for the engine's ordinary-span guard.
+    public static func fromActiveTerms(
+        _ activeTerms: [ProtectedTerm],
+        ordinaryWords: Set<String>
+    ) -> RepairVocabulary {
+        var eligible: [String] = []
+        var protected: [String] = []
+        eligible.reserveCapacity(activeTerms.count)
+        protected.reserveCapacity(activeTerms.count)
+
+        for term in activeTerms {
+            let canonical = term.canonical
+            if ordinaryWords.contains(canonical.lowercased()) || canonical.count <= 2 {
+                protected.append(canonical)
+            } else {
+                eligible.append(canonical)
+            }
+        }
+
+        var vocabulary = RepairVocabulary(
+            surfaces: eligible,
+            protectedSurfaces: protected,
+            phoneticThreshold: frozenPhoneticThreshold,
+            ordinaryWords: Array(ordinaryWords),
+            singleLetterWords: ["a", "i"]
+        )
+        vocabulary.preparedOrdinaryWords = ordinaryWords
+        return vocabulary
+    }
+
     public var ordinaryWords: [String]
     public var ordinaryWordsSHA256: String
     public var phoneticThreshold: Double
@@ -12,10 +79,14 @@ public struct RepairVocabulary: Codable {
     public var singleLetterWords: [String]
     public var surfaces: [String]
 
+    /// The lowercase set supplied by the app factory, avoiding a second
+    /// 234k-word allocation when the engine compiles the same snapshot.
+    fileprivate var preparedOrdinaryWords: Set<String>?
+
     public init(
         surfaces: [String],
         protectedSurfaces: [String] = [],
-        phoneticThreshold: Double = 0.95,
+        phoneticThreshold: Double = RepairVocabulary.frozenPhoneticThreshold,
         ordinaryWords: [String] = [],
         ordinaryWordsSHA256: String = "",
         singleLetterWords: [String] = ["a", "i"],
@@ -160,7 +231,9 @@ public struct VocabularyRepairEngine {
         }
         self.surfaces = compiledSurfaces
         self.lexicalPatterns = compiledLexicalPatterns
-        self.ordinaryWords = Set(vocabulary.ordinaryWords.lazy.map(Self.casefold))
+        self.ordinaryWords =
+            vocabulary.preparedOrdinaryWords
+            ?? Set(vocabulary.ordinaryWords.lazy.map(Self.casefold))
         self.singleLetterWords = Set(vocabulary.singleLetterWords.lazy.map(Self.casefold))
         self.phoneticThreshold = vocabulary.phoneticThreshold
         self.tokenPattern = try! NSRegularExpression(

@@ -14,6 +14,12 @@ zero errors, determinism, term safety.
 uwer_mix .045995 · general .031135 · jargon .060861 · term recall .4653 (161/346) ·
 false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms · 184 MB.
 
+## Segment 4 (ABBA ratio) — ladder certified drift-immune
+energy_ratio **0.5679** (run 61): ANE ladder = 56.8% of native compute-rail energy,
+self-referenced 8-block ABBA with contamination gate; R-median 435.8 J cross-validates
+era-1 native 444.6 J. Run 60 caught a real foreign-burst contamination (instrument
+hardened to median+gate before baselining).
+
 ## Segment 3 (energy-primary) — ANE encoder ladder landed
 | run | config | energy_j | verdict |
 |---|---|---:|---|

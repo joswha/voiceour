@@ -16,6 +16,7 @@ fail() {
 
 # The whole point of the bundle: a copied .app must carry its own ASR sidecar.
 [ -x "$SIDECAR" ] || fail "missing ASR sidecar $SIDECAR; run scripts/bundle.sh first"
+[ -s "$APP/Contents/Resources/voiceour_VoiceCore.bundle/ordinary-words.txt" ] || fail "missing VoiceCore ordinary-word resource"
 binary_archs=$(lipo -archs "$BIN")
 [ "$binary_archs" = "arm64" ] || fail "unexpected architectures for $BIN: $binary_archs"
 sidecar_archs=$(lipo -archs "$SIDECAR")

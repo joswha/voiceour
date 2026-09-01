@@ -195,3 +195,26 @@ more than time grows. Startup load now 707 ms (three MLModels) — cold-start co
 climbing with each tier; product wants lazy/async model loads.
 
 Four-tier routing: ≤6 s tiny / ≤8 s short / ≤15 s standard / native.
+
+## Segment 4 — drift-immune ABBA certification (2026-09-01)
+
+Segment 3's plateau ended in measurement-validity failure: identical configs drifted
+187→229→261 J (CPU/GPU rails climb with workstation activity; ANE rock-stable 86-91 J).
+Harness v4 makes every run self-referenced: 8 balanced jargon blocks R C C R C R R C
+(R = native reference, C = candidate ladder), each in its own IOReport window; primary
+**energy_ratio = median(C)/median(R)**; wall-time contamination gate (>1.5× family
+median window ⇒ run rejected — wall is a pure interference signal at fixed workload).
+
+- Run 60 (discard): first ABBA flight caught a real contamination event — one C block's
+  window stretched 19→61 s under a foreign CPU burst; sum-ratio had no outlier
+  tolerance. Instrument hardened to median + gate before any baseline was logged.
+- Run 61 (keep, baseline): **energy_ratio 0.5679** — the ANE ladder consumes 56.8% of
+  native compute-rail energy (−43.2%), certified drift-immune on a live workstation.
+  Cross-validation: R-family median 435.8 J ≈ era-1 quiet-machine native 444.6 J;
+  C blocks uniform (16.1–16.6 s windows, ANE 28–29 J); zero gate trips.
+
+The certification closes the segment-3 era ambiguity: the ladder's honest aggregate
+effect is **−43% energy at NI accuracy**, with the 8 s/6 s rung fine-structure absorbed
+into one robust self-referenced number. The v4 instrument remains available for any
+future energy candidate; no candidate with a predicted effect above its gate remains
+on this Mac.

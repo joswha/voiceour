@@ -58,6 +58,27 @@ extension DictationCoordinator {
         )
     }
 
+    func repairEngine(for activeTerms: [ProtectedTerm]) -> VocabularyRepairEngine? {
+        guard !activeTerms.isEmpty else { return nil }
+        let canonicals = activeTerms.map(\.canonical)
+        if let cachedVocabularyRepairEngine,
+            cachedVocabularyRepairEngine.canonicals == canonicals
+        {
+            return cachedVocabularyRepairEngine.engine
+        }
+
+        let vocabulary = RepairVocabulary.fromActiveTerms(
+            activeTerms,
+            ordinaryWords: RepairVocabulary.bundledOrdinaryWords
+        )
+        let engine = VocabularyRepairEngine(vocabulary: vocabulary)
+        cachedVocabularyRepairEngine = CachedVocabularyRepairEngine(
+            canonicals: canonicals,
+            engine: engine
+        )
+        return engine
+    }
+
     func removeTemporaryAudio(_ audioURL: inout URL?) {
         guard let url = audioURL else { return }
         do {
@@ -167,8 +188,14 @@ extension DictationCoordinator {
             let rawTranscript = result.transcript.text
             let activeTerms = vocabulary.terms
             let composed = LiteralComposition.apply(rawTranscript)
-            let deterministic =
+            let cleaned =
                 settings.cleanupEnabled ? CleanupEngine.clean(composed, glossary: activeTerms) : composed
+            let deterministic: String
+            if settings.cleanupEnabled, let engine = repairEngine(for: activeTerms) {
+                deterministic = engine.repair(cleaned).text
+            } else {
+                deterministic = cleaned
+            }
             lastTranscript = deterministic
             StopPath.signposter.endInterval(StopPath.Stage.cleanup, cleanupSpan)
             try ensureCurrentProcessing(generation)

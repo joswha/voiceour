@@ -3,6 +3,19 @@ import VoiceCore
 
 protocol ParakeetRuntimeContext: AnyObject {
     func transcribe(samples: [Float], isCancelled: @escaping () -> Bool) throws -> [ParakeetSegmentRaw]
+    func transcribeForWarmUp(
+        samples: [Float],
+        isCancelled: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw]
+}
+
+extension ParakeetRuntimeContext {
+    func transcribeForWarmUp(
+        samples: [Float],
+        isCancelled: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        try transcribe(samples: samples, isCancelled: isCancelled)
+    }
 }
 
 extension ParakeetContext: ParakeetRuntimeContext {}
@@ -77,8 +90,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         )
     }
 
-    /// Resolves the optional CoreML encoder once, at process startup. A configured encoder is
-    /// compiled and loaded here so a bad instrument exits before it can answer any protocol work.
+    /// Resolves and validates every optional CoreML encoder path at process startup. Model loading
+    /// stays lazy so each fixed-shape tier pays its CoreML setup cost only when first routed.
     public convenience init(
         cache: ParakeetModelCache,
         environment: [String: String],
@@ -86,7 +99,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         idleUnloadMs: Int = 1_800_000
     ) throws {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: environment)
-        let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations)
+        let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations, log: log)
 
         if !coreMLEncoders.isEmpty {
             self.init(
@@ -100,6 +113,14 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                         coreMLEncoders: coreMLEncoders
                     )
                 }
+            )
+            let configuredTiers = [
+                configurations.tiny == nil ? nil : "tiny",
+                configurations.short == nil ? nil : "short",
+                configurations.standard == nil ? nil : "standard",
+            ].compactMap({ $0 }).joined(separator: ",")
+            log(
+                "VOICEOUR_COREML_ENCODER mode=hybrid loading=lazy configured_tiers=\(configuredTiers)"
             )
             if let standard = configurations.standard {
                 log(
@@ -206,7 +227,12 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         // Outside the latch on purpose: the throwaway decode is an optimization, not
         // acquisition. The artifact is on disk and loaded, and a decode that cannot run
         // belongs to the request that hits it, with its own request id and terminal.
-        _ = try decode(loaded, samples: [Float](repeating: 0, count: 8000), isCancelled: { false })
+        _ = try decode(
+            loaded,
+            samples: [Float](repeating: 0, count: 8000),
+            isCancelled: { false },
+            isWarmUp: true
+        )
     }
 
     /// Fetches the artifact if needed and builds the context. Nil when shutdown cut it short.
@@ -526,12 +552,19 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     private func decode(
         _ context: any ParakeetRuntimeContext,
         samples: [Float],
-        isCancelled: @escaping () -> Bool
+        isCancelled: @escaping () -> Bool,
+        isWarmUp: Bool = false
     ) throws -> [ParakeetSegmentRaw] {
         decodeLock.lock()
         defer {
             withState { $0.lastDecodeEndedAt = DispatchTime.now() }
             decodeLock.unlock()
+        }
+        if isWarmUp {
+            return try context.transcribeForWarmUp(
+                samples: samples,
+                isCancelled: isCancelled
+            )
         }
         return try context.transcribe(samples: samples, isCancelled: isCancelled)
     }

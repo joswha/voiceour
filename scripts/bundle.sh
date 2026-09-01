@@ -27,6 +27,15 @@ cp "$BIN" "$APP/Contents/MacOS/Voiceour"
 # The ASR sidecar ships inside the bundle, beside the app binary: the app resolves it as a
 # sibling of its own executable, which is what makes a copied .app able to transcribe.
 cp "$ROOT/.build/release/voiceour-asr" "$APP/Contents/MacOS/voiceour-asr"
+# VoiceCore checks the standard macOS Resources directory before Bundle.module's
+# command-line fallback. Copy the complete SwiftPM bundle so the packaged app is
+# independent of this checkout's absolute .build path.
+VOICECORE_RESOURCES="$ROOT/.build/release/voiceour_VoiceCore.bundle"
+[ -d "$VOICECORE_RESOURCES" ] || {
+  printf '%s\n' "bundle.sh: missing $VOICECORE_RESOURCES" >&2
+  exit 1
+}
+cp -R "$VOICECORE_RESOURCES" "$APP/Contents/Resources/voiceour_VoiceCore.bundle"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 

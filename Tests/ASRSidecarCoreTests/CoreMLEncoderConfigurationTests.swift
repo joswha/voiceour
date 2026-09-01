@@ -171,6 +171,87 @@ struct CoreMLEncoderConfigurationTests {
         }
     }
 
+    @Test func configuredArtifactPathIsValidatedWithoutLoadingTheModel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-coreml-lazy-\(UUID().uuidString)", isDirectory: true)
+        let model = root.appendingPathComponent("parakeet_encoder.mlmodelc", isDirectory: true)
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configurations = try CoreMLEncoderConfigurationSet.resolve(
+            environment: ["VOICEOUR_COREML_ENCODER": model.path]
+        )
+
+        let encoders = try CoreMLEncoderSet(configurations: configurations)
+        #expect(!encoders.isEmpty)
+    }
+
+    @Test func configuredUnsupportedArtifactFailsClosedBeforeLoading() throws {
+        let model = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-coreml-\(UUID().uuidString).bin")
+        try Data().write(to: model)
+        defer { try? FileManager.default.removeItem(at: model) }
+
+        let configurations = try CoreMLEncoderConfigurationSet.resolve(
+            environment: ["VOICEOUR_COREML_ENCODER": model.path]
+        )
+
+        #expect(throws: CoreMLEncoderError.self) {
+            try CoreMLEncoderSet(configurations: configurations)
+        }
+    }
+
+    @Test func lazyCoreMLResourceLoadsOnlyOnce() throws {
+        let expected = NSObject()
+        var loadCount = 0
+        let resource = LazyCoreMLResource {
+            loadCount += 1
+            return expected
+        }
+
+        #expect(loadCount == 0)
+        #expect(try resource.value() === expected)
+        #expect(try resource.value() === expected)
+        #expect(loadCount == 1)
+    }
+
+    @Test func routedLazyLoadFailureIsLogged() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-coreml-failure-\(UUID().uuidString)", isDirectory: true)
+        let model = root.appendingPathComponent("parakeet_encoder.mlmodelc", isDirectory: true)
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configurations = try CoreMLEncoderConfigurationSet.resolve(
+            environment: ["VOICEOUR_COREML_ENCODER": model.path]
+        )
+        var messages: [String] = []
+        let encoders = try CoreMLEncoderSet(
+            configurations: configurations,
+            log: { messages.append($0) }
+        )
+
+        #expect(messages.isEmpty)
+        #expect(throws: CoreMLEncoderError.self) {
+            try encoders.encoder(sampleCount: 1)
+        }
+        #expect(messages.count == 1)
+        #expect(messages[0].hasPrefix("VOICEOUR_COREML_ENCODER lazy load failed:"))
+    }
+
+    @Test func configuredMissingStandardArtifactFailsClosed() throws {
+        let configurations = try CoreMLEncoderConfigurationSet.resolve(
+            environment: [
+                "VOICEOUR_COREML_ENCODER":
+                    "/definitely/missing/parakeet_encoder.mlmodelc",
+            ]
+        )
+
+        #expect(throws: CoreMLEncoderError.self) {
+            try CoreMLEncoderSet(configurations: configurations)
+        }
+    }
+
     @Test func configuredMissingShortArtifactFailsClosed() throws {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(
             environment: [

@@ -114,7 +114,10 @@ let package = Package(
             name: "Voiceour",
             dependencies: ["VoiceCore", "VoiceMac"]
         ),
-        .target(name: "VoiceCore"),
+        .target(
+            name: "VoiceCore",
+            resources: [.process("Resources/ordinary-words.txt")]
+        ),
         .target(
             name: "VoiceMac",
             dependencies: ["VoiceCore"]

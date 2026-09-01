@@ -31,6 +31,11 @@ public final class AudioLevelMeter: ObservableObject {
     }
 }
 
+struct CachedVocabularyRepairEngine {
+    let canonicals: [String]
+    let engine: VocabularyRepairEngine
+}
+
 @Observable @MainActor
 public final class DictationCoordinator {
     public internal(set) var state: SessionState = .idle {
@@ -100,6 +105,9 @@ public final class DictationCoordinator {
     private var processingTask: Task<Void, Never>?
     private var processingTaskIdentity: UUID?
     var suggestionTask: Task<Void, Never>?
+    /// The vocabulary-dependent engine reused while snapshot canonicals stay unchanged.
+    @ObservationIgnored
+    var cachedVocabularyRepairEngine: CachedVocabularyRepairEngine?
     private var backendHealthTask: Task<Void, Never>?
     /// Repoll chain that runs only while the backend is downloading or warming.
     private var backendAcquisitionPollTask: Task<Void, Never>?
