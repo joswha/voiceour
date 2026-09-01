@@ -268,3 +268,16 @@ Deployment menu this leaves the product:
 | native only | 0 | 1.0 | today's default |
 | single 6-bit tier | 459 MB | ~0.5–0.77 | one artifact, one ~20 s first compile |
 | 6-bit ladder | 1.36 GB | **0.31–0.37** | the certified optimum |
+
+### Closing negatives — thread re-tune (2026-09-01)
+
+Thread count under the standing config (ANE ladder + CPU tail): **threadCount=6
+stands.** Position-balanced 20-run flight (the naive ordered sweep's apparent 11.95%
+t12 win was a position/cold-cache artifact the sweep itself caught and discarded):
+jargon wall is a flat 4/6/8 plateau (between-config spread 1.3% < replicate sd
+1.8-7.0%); general96 p95 degrades monotonically above 8 threads; 6 owns the best
+general and >15 s-row p95. 30/30 passes byte-identical to the pinned SHAs.
+
+Adoption-checklist gap (user-owned Makefile): `make run` does not forward
+`VOICEOUR_COREML_*`/`VOICEOUR_TAIL_BACKEND`; one forward line + `.env` entries are
+needed before real-app ANE testing.
