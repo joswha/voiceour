@@ -313,6 +313,23 @@ captured under `patches/`.
     3x fresh-process determinism (`.build/asr-research/three-bets/tail-cpu/`); under the
     palettized CoreML encoder ladder the candidate GPU rail drops to 0.4-2.6 J per block with
     energy ratio 0.3371/0.3377 across two ABBA runs and general-corpus inference p95 183-185 ms.
+- `patches/0018-persistent-cpu-threadpool.patch` adds an opt-in `persistent_cpu_pool_threads`
+  context parameter (default 0). When positive, `parakeet_init_state` creates one paused
+  `ggml_threadpool` of that many threads and attaches it to the CPU backend, so the hundreds
+  of tiny per-step tail graph computes in one utterance reuse resident workers instead of
+  paying five pthread create/join cycles each; a scope guard at the top of
+  `parakeet_full_with_state`, `parakeet_full_with_external_encoder`, and `parakeet_chunk`
+  pauses the pool on every return path, returning workers to condvar sleep between
+  utterances (ggml's kickoff resumes a paused pool automatically). Teardown detaches the
+  pool from the backend and joins it before the backends are freed. Default-off behavior is
+  byte-identical: the parameter only changes worker-thread lifetime, never partitioning or
+  arithmetic.
+  - Upstream status: not reported upstream. ggml ships the persistent-pool API; upstream
+    parakeet.cpp simply never uses it.
+  - Test status: under the f16 tail it measured energy-neutral with p95 −7% / p50 −9%
+    (run 77); the q8-tail re-test is recorded under
+    `.build/asr-research/three-bets/cpu-pool-q8/`. Transcripts must remain byte-identical
+    to the pinned per-family SHAs (same thread count, same static partitioning).
 - `patches/0019-tail-q8-load-repack.patch` adds an opt-in `tail_quant_q8` context parameter
   (default false, requires `tail_backend_cpu`). When set, the seven 2-D f16 matmul weight
   records of the prediction/joint tail (LSTM input/hidden matrices and the three joint

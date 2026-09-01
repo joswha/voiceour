@@ -105,6 +105,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     ) throws {
         let tailBackend = try ParakeetTailBackend.resolve(environment: environment)
         let tailQuant = try ParakeetTailQuant.resolve(environment: environment)
+        let cpuPool = try ParakeetCPUPool.resolve(environment: environment)
         if tailQuant.isQ8 && !tailBackend.usesCPU {
             throw ParakeetTailQuantError.requiresCPUTail
         }
@@ -128,6 +129,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                         weightArenaPath: weightArenaPath,
                         tailBackendCPU: tailBackend.usesCPU,
                         tailQuantQ8: tailQuant.isQ8,
+                        persistentCPUPool: cpuPool.isPersistent,
                         coreMLEncoders: coreMLEncoders
                     )
                 }
@@ -168,7 +170,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                         modelPath: $0,
                         weightArenaPath: weightArenaPath,
                         tailBackendCPU: tailBackend.usesCPU,
-                        tailQuantQ8: tailQuant.isQ8
+                        tailQuantQ8: tailQuant.isQ8,
+                        persistentCPUPool: cpuPool.isPersistent
                     )
                 }
             )
@@ -179,6 +182,9 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         }
         if tailQuant.isQ8 {
             log("VOICEOUR_TAIL_QUANT mode=q8_0")
+        }
+        if cpuPool.isPersistent {
+            log("VOICEOUR_CPU_POOL mode=persistent")
         }
     }
 

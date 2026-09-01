@@ -100,6 +100,39 @@ enum CoreMLWarmModeError: Error, CustomStringConvertible {
     }
 }
 
+/// Opt-in persistent ggml CPU threadpool. `default` keeps the disposable per-compute pool;
+/// `persistent` attaches one pool sized to the decode thread count, removing the thread
+/// create/join churn the TDT tail pays on every one of its per-step graph computes. Any
+/// other value refuses startup, mirroring `VOICEOUR_TAIL_BACKEND`.
+enum ParakeetCPUPool: Equatable {
+    case `default`
+    case persistent
+
+    static let environmentKey = "VOICEOUR_CPU_POOL"
+
+    static func resolve(environment: [String: String]) throws -> ParakeetCPUPool {
+        guard let value = environment[environmentKey] else { return .default }
+        switch value {
+        case "default": return .default
+        case "persistent": return .persistent
+        default: throw ParakeetCPUPoolError.invalidValue(value)
+        }
+    }
+
+    var isPersistent: Bool { self == .persistent }
+}
+
+enum ParakeetCPUPoolError: Error, CustomStringConvertible {
+    case invalidValue(String)
+
+    var description: String {
+        switch self {
+        case .invalidValue(let value):
+            return "invalid \(ParakeetCPUPool.environmentKey) value '\(value)'; expected 'default' or 'persistent'"
+        }
+    }
+}
+
 public enum ParakeetContextError: Error, CustomStringConvertible {
     case loadFailed(String)
     case decodeFailed(Int32)
@@ -205,12 +238,14 @@ public final class ParakeetContext {
         useGPU: Bool = true,
         tailBackendCPU: Bool = false,
         tailQuantQ8: Bool = false,
+        persistentCPUPool: Bool = false,
         threadCount: Int32 = 6
     ) throws {
         var params = parakeet_context_default_params()
         params.use_gpu = useGPU
         params.tail_backend_cpu = tailBackendCPU
         params.tail_quant_q8 = tailQuantQ8
+        params.persistent_cpu_pool_threads = persistentCPUPool ? threadCount : 0
         let loaded: OpaquePointer?
         if let weightArenaPath {
             loaded = parakeet_init_from_file_with_params_and_weight_arena(
@@ -234,6 +269,7 @@ public final class ParakeetContext {
         useGPU: Bool = true,
         tailBackendCPU: Bool = false,
         tailQuantQ8: Bool = false,
+        persistentCPUPool: Bool = false,
         threadCount: Int32 = 6,
         coreMLEncoders: CoreMLEncoderSet
     ) throws {
@@ -243,6 +279,7 @@ public final class ParakeetContext {
             useGPU: useGPU,
             tailBackendCPU: tailBackendCPU,
             tailQuantQ8: tailQuantQ8,
+            persistentCPUPool: persistentCPUPool,
             threadCount: threadCount
         )
         self.coreMLEncoders = coreMLEncoders

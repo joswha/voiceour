@@ -170,6 +170,14 @@ static std::string format(const char * fmt, ...) {
 // ggml helpers
 //
 
+// VOICEOUR PATCH: pauses the persistent CPU pool on every exit path of a full decode,
+// returning its workers to condvar sleep between utterances. Kickoff resumes a paused
+// pool on the next compute, so pausing here costs the next utterance nothing.
+struct parakeet_cpu_pool_quiescer {
+    struct ggml_threadpool * pool;
+    ~parakeet_cpu_pool_quiescer() { if (pool) { ggml_threadpool_pause(pool); } }
+};
+
 static bool ggml_graph_compute_helper(
           struct ggml_cgraph * graph,
                          int   n_threads,
@@ -446,6 +454,8 @@ struct parakeet_state {
 
     // VOICEOUR PATCH: persistent decode inputs live with the CPU tail when it is selected.
     ggml_backend_t backend_decode_state = nullptr;
+    // VOICEOUR PATCH: opt-in persistent CPU threadpool; nullptr keeps disposable pools.
+    struct ggml_threadpool * cpu_pool = nullptr;
 
     parakeet_sched sched_encode;
     parakeet_sched sched_decode;
@@ -4902,6 +4912,25 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
         }
     }
 
+    // VOICEOUR PATCH: opt-in persistent CPU threadpool. The TDT tail issues hundreds of
+    // tiny graph computes per utterance and the disposable per-compute pool pays thread
+    // create/join for each. One paused pool per state removes that churn; every kickoff
+    // resumes it and the full-decode exit paths pause it again.
+    if (ctx->params.persistent_cpu_pool_threads > 0) {
+        struct ggml_threadpool_params tpp =
+            ggml_threadpool_params_default(ctx->params.persistent_cpu_pool_threads);
+        tpp.paused = true;
+        state->cpu_pool = ggml_threadpool_new(&tpp);
+        if (!state->cpu_pool) {
+            PARAKEET_LOG_ERROR("%s: failed to create persistent CPU threadpool\n", __func__);
+            parakeet_free_state(state);
+            return nullptr;
+        }
+        ggml_backend_cpu_set_threadpool(state->backends.back(), state->cpu_pool);
+        PARAKEET_LOG_INFO("%s: persistent CPU threadpool attached: %d threads\n", __func__,
+                ctx->params.persistent_cpu_pool_threads);
+    }
+
     const int batch_size = ctx->model.hparams.n_audio_ctx;
 
     state->logits.reserve(ctx->vocab.n_vocab * batch_size);
@@ -5004,6 +5033,7 @@ struct parakeet_context_params parakeet_context_default_params() {
         /*.gpu_device           =*/ 0,
         /*.tail_backend_cpu     =*/ false, // VOICEOUR PATCH: default remains the full backend list.
         /*.tail_quant_q8        =*/ false, // VOICEOUR PATCH: f16 tail by default.
+        /*.persistent_cpu_pool_threads =*/ 0, // VOICEOUR PATCH: disposable pools by default.
     };
     return result;
 }
@@ -5314,6 +5344,13 @@ struct parakeet_context * parakeet_init_with_params(struct parakeet_model_loader
 
 void parakeet_free_state(struct parakeet_state * state) {
     if (state) {
+        // VOICEOUR PATCH: detach and join the persistent CPU pool before its backend dies.
+        if (state->cpu_pool) {
+            if (!state->backends.empty()) {
+                ggml_backend_cpu_set_threadpool(state->backends.back(), nullptr);
+            }
+            ggml_threadpool_free(state->cpu_pool);
+        }
         ggml_backend_buffer_free(state->lstm_state.buffer);
         ggml_backend_buffer_free(state->pred_out_buffer);
         ggml_backend_buffer_free(state->enc_out_buffer);
@@ -5694,6 +5731,9 @@ int parakeet_full_with_state(
                            int    n_samples) {
     state->result_all.clear();
 
+    // VOICEOUR PATCH: quiesce the persistent CPU pool on every return path.
+    parakeet_cpu_pool_quiescer cpu_pool_quiescer { state->cpu_pool };
+
     if (params.no_context) {
         parakeet_reset_state(state);
     }
@@ -5807,6 +5847,9 @@ int parakeet_full_with_external_encoder(
 
     struct parakeet_state * state = ctx->state;
     state->result_all.clear();
+
+    // VOICEOUR PATCH: quiesce the persistent CPU pool on every return path.
+    parakeet_cpu_pool_quiescer cpu_pool_quiescer { state->cpu_pool };
 
     if (params.no_context) {
         parakeet_reset_state(state);
@@ -5923,6 +5966,9 @@ int parakeet_chunk(
     struct parakeet_full_params   params,
                     const float * samples,
                             int   n_samples) {
+
+    // VOICEOUR PATCH: quiesce the persistent CPU pool on every return path.
+    parakeet_cpu_pool_quiescer cpu_pool_quiescer { state->cpu_pool };
 
     if (params.no_context) {
         parakeet_reset_state(state);

@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
 #
 # Deterministic, offline, exclusive-hardware benchmark of the shipping Parakeet
-# f16 sidecar on this Mac, for the three-bets research session (contextual
-# decoding, heterogeneous execution, quantization).
+# f16 sidecar on this Mac — segment 5, maximum power: the machine is assumed
+# plugged in, energy is not measured, and the primary metric is
+# `jargon_term_recall` over the frozen 456-row jargon corpus.
 #
-# Regime: one `voiceour-bench pipeline` process, therefore one persistent
-# `voiceour-asr` child, walks `WARMUP_PASSES + TIMED_PASSES` sequential passes
-# over the frozen 96-row general corpus (latency + regression guard), then one
-# pass over the frozen 456-row jargon corpus (term-binding headroom). Pass 0 is
-# warmup and is discarded from latency: the model load, the embedded Metal
-# shader library, and the per-shape Metal pipelines all materialise on first
-# use, and the general corpus spans five duration buckets.
+# Regime: one `voiceour-bench pipeline` process (persistent `voiceour-asr`
+# child) walks WARMUP_PASSES + TIMED_PASSES sequential passes over the frozen
+# 96-row general corpus (latency + regression guard), then TWO identical
+# invocations over the frozen jargon corpus (recall + cross-process
+# determinism: pass 1 must be byte-identical to pass 2 in raw and final text).
 #
-# The primary metric is `uwer_mix`: pooled final-text U-WER over the union of
-# both corpora. General rows make regressions visible; jargon rows carry the
-# improvement headroom. Latency, throughput, and memory are hard guards, not
-# trades: the run is rejected if general inference p95, RTFx, or the sidecar's
-# peak physical footprint cross their ceilings. Term binding is reported by
-# case-sensitive metrics (`jargon_term_recall`, `jargon_false_terms`,
-# `fwer_negative`) because U-WER is case-folded and cannot see orthography.
-#
-# Gates. The script exits nonzero, before timing where it can, on: a missing
+# Hard gates, each a nonzero exit before a metric is reported: a missing
 # prerequisite; a competing Voiceour/ASR process; a model artifact that is not
 # the pinned f16 revision by SHA-256; corpus manifests or term annotations that
-# are not the frozen ones; any error row; any transcript that differs across
-# general passes; an unsampled or zero memory peak; a guard ceiling breach; a
-# malformed metric.
+# are not the frozen ones; any error row; any transcript differing across
+# timed general passes; a jargon determinism mismatch; any false jargon term;
+# `uwer_mix` above its frozen ceiling; general inference p95 above its
+# ceiling; RTFx below its floor; an unsampled memory peak or one above its
+# ceiling; a malformed metric.
 #
 # The script performs no network access. Model acquisition is refused rather
 # than attempted: a cache miss is a missing prerequisite, not something a
@@ -38,24 +31,23 @@ cd "$REPO_ROOT"
 
 readonly WARMUP_PASSES=1
 readonly TIMED_PASSES=3
+readonly JARGON_PASSES=2
 readonly ROW_TIMEOUT_MS=120000
 readonly LATENCY_CEILING_MS=230
 readonly RTFX_FLOOR=100
 readonly FOOTPRINT_CEILING_MB=2500
-readonly BLOCK_SEQUENCE="R C C R C R R C"
 readonly UWER_MIX_CEILING=0.037509
 
 readonly GENERAL_CORPUS="bench/autoresearch/corpus.manifest.jsonl"
 readonly JARGON_CORPUS="benchmarks/data/jargon/manifest.jsonl"
 readonly JARGON_TERMS="bench/autoresearch/jargon.terms.json"
 readonly REPAIR_VOCABULARY="bench/autoresearch/repair.vocabulary.json"
-readonly SCORER="bench/autoresearch/score.py"
+readonly SCORER="bench/autoresearch/score_v5.py"
 readonly WORK=".build/autoresearch"
 readonly MEM_SAMPLER="bench/autoresearch/mem_sampler.py"
-readonly ENERGY_SAMPLER="bench/autoresearch/energy_sampler.py"
 
-# CoreML encoder candidate plumbing. Empty COREML_ENCODER = native baseline.
-# A non-empty path requires the pinned directory digest to match.
+# Candidate configuration. Empty COREML_ENCODER = native. A non-empty path
+# requires the pinned directory digest to match.
 readonly COREML_ENCODER="$PWD/.build/asr-research/three-bets/palettize6/standard/parakeet_encoder_6bit.mlmodelc"
 readonly COREML_ENCODER_DIGEST="adffa42216599bdb01611a6e06cb8f26448cb3a66078b8fbed66dbe8b6cb544d"
 readonly COREML_MAX_S="15.0"
@@ -75,7 +67,7 @@ readonly GENERAL_CORPUS_SHA256="885331c29340aca170ae3a061747986bcf91f960b2fec192
 readonly JARGON_CORPUS_SHA256="576efc9f9e6f11e3e14048258e023d0695bb56f8403482e953c061c03a17e2bf"
 readonly JARGON_TERMS_SHA256="2c3dfd1bf8250c97172ef1af16c74de01d30e8376c58474b61aee513fa47d4b5"
 readonly REPAIR_VOCABULARY_SHA256="650dfc3fa02ebc7e2e8754066f0f9d4336d5113444154e1a27975139812fd1c8"
-readonly EXPECTED_METRIC_COUNT=16
+readonly EXPECTED_METRIC_COUNT=13
 
 die() {
     printf 'autoresearch.sh: FAIL: %s\n' "$1" >&2
@@ -95,7 +87,6 @@ done
 for file in "$GENERAL_CORPUS" "$JARGON_CORPUS" "$JARGON_TERMS" "$REPAIR_VOCABULARY" "$SCORER"; do
     [ -f "$file" ] || die "missing prerequisite file: $file"
 done
-[ -f "$ENERGY_SAMPLER" ] || die "missing energy sampler: $ENERGY_SAMPLER"
 [ -d bench/.venv ] || die "missing bench/.venv; run 'cd bench && uv --no-config sync --all-groups' once, with network"
 
 pin() {
@@ -130,10 +121,6 @@ if missing:
 PY
 
 # --- exclusive hardware ----------------------------------------------------
-#
-# Only the workloads this repository can start are detectable by name. An
-# unrelated GPU consumer is not, which is why the timing protocol also requires
-# the operator to keep the machine otherwise idle.
 
 competing=""
 for name in Voiceour voiceour-asr voiceour-bench; do
@@ -184,7 +171,7 @@ if [ -n "$COREML_ENCODER" ]; then
             die "coreml tiny encoder digest $observed_tiny_digest != pinned $COREML_ENCODER_TINY_DIGEST"
         coreml_env_args="$coreml_env_args VOICEOUR_COREML_ENCODER_TINY=$COREML_ENCODER_TINY VOICEOUR_COREML_TINY_MAX_S=$COREML_TINY_MAX_S"
     fi
-    coreml_env_args="$coreml_env_args VOICEOUR_TAIL_BACKEND=cpu VOICEOUR_TAIL_QUANT=q8_0"
+    coreml_env_args="$coreml_env_args VOICEOUR_TAIL_BACKEND=cpu VOICEOUR_TAIL_QUANT=q8_0 VOICEOUR_CPU_POOL=persistent"
 fi
 
 # --- build, outside the timed region ---------------------------------------
@@ -222,17 +209,10 @@ then
     die 'sidecar runtime-cache preparation failed'
 fi
 
-# Let the proof load's Metal work leave the thermal state before timing. The
-# latency ceiling here is a guard with real headroom, not a +6% tripwire, so a
-# short settle suffices.
-sleep 10
+# Let the proof load's Metal work leave the thermal state before timing.
+sleep 5
 
 # --- run manifests ---------------------------------------------------------
-#
-# Pure functions of the corpora and the repetition counts: general rows repeat
-# in corpus order once per pass with a `#p<n>` suffix; jargon rows repeat
-# JARGON_REPS times with `#j<r>` suffixes in a separate manifest so the energy
-# window covers exactly the jargon workload.
 
 readonly GENERAL_MANIFEST="$WORK/general.manifest.jsonl"
 readonly JARGON_MANIFEST="$WORK/jargon.manifest.jsonl"
@@ -310,43 +290,32 @@ if [ "$bench_status" -ne 0 ]; then
     die "general voiceour-bench exited $bench_status"
 fi
 
-log "running jargon ABBA blocks: $BLOCK_SEQUENCE ($(wc -l <"$JARGON_CORPUS" | tr -d ' ') rows each)"
-block_index=0
-jargon_block_args=""
-for family in $BLOCK_SEQUENCE; do
-    block_results="$WORK/jargon.$block_index.$family.results.jsonl"
-    block_energy="$WORK/energy.$block_index.$family.json"
-    rm -f "$block_results" "$block_energy"
-    if [ "$family" = "C" ]; then
-        block_env="$coreml_env_args"
-    else
-        block_env=""
-    fi
-    python3 "$ENERGY_SAMPLER" --output "$block_energy" -- \
-        env -i \
+log "running $JARGON_PASSES jargon passes ($(wc -l <"$JARGON_CORPUS" | tr -d ' ') rows each)"
+jargon_pass=1
+while [ "$jargon_pass" -le "$JARGON_PASSES" ]; do
+    pass_results="$WORK/jargon.$jargon_pass.results.jsonl"
+    rm -f "$pass_results"
+    env -i \
         PATH=/usr/bin:/bin \
         HOME="$HOME" \
         TMPDIR="${TMPDIR:-/tmp}" \
         VOICEOUR_MODEL_VARIANT="$MODEL_VARIANT" \
-        $block_env \
+        $coreml_env_args \
         "$BENCH_BIN" pipeline \
         --input "$JARGON_MANIFEST" \
-        --output "$block_results" \
+        --output "$pass_results" \
         --timeout-ms "$ROW_TIMEOUT_MS" \
         --vocabulary "$REPAIR_VOCABULARY" \
-        >"$WORK/jargon.$block_index.$family.log" 2>&1
-    block_status=$?
-    if [ "$block_status" -ne 0 ]; then
+        >"$WORK/jargon.$jargon_pass.log" 2>&1
+    pass_status=$?
+    if [ "$pass_status" -ne 0 ]; then
         cleanup
         trap - EXIT
-        tail -20 "$WORK/jargon.$block_index.$family.log" >&2
-        die "jargon block $block_index ($family) voiceour-bench exited $block_status"
+        tail -20 "$WORK/jargon.$jargon_pass.log" >&2
+        die "jargon pass $jargon_pass voiceour-bench exited $pass_status"
     fi
-    jargon_block_args="$jargon_block_args --jargon-block $family:../$block_results:../$block_energy"
-    block_index=$((block_index + 1))
+    jargon_pass=$((jargon_pass + 1))
 done
-bench_status=0
-bench_status=$?
 run_elapsed=$(($(date +%s) - run_started))
 
 cleanup
@@ -358,8 +327,6 @@ peak_resident_bytes="${peak_resident_bytes:-0}"
 mem_samples="${mem_samples:-0}"
 resident_layout_validated="${resident_layout_validated:-0}"
 
-# An unsampled run has no memory guard. Fail rather than report a zero that
-# would look like a spectacular improvement.
 [ "$mem_samples" -ge 200 ] ||
     die "memory sampler collected only $mem_samples samples; expected >= 200"
 [ "$peak_footprint_bytes" -gt 0 ] || die 'memory sampler observed no footprint'
@@ -367,16 +334,15 @@ resident_layout_validated="${resident_layout_validated:-0}"
 [ "$resident_layout_validated" -eq 1 ] ||
     die 'memory sampler resident field did not agree with ps'
 
-
-
 # --- scoring, outside the timed region -------------------------------------
 
 scored="$WORK/metrics.txt"
 (
     cd bench || exit 1
-    PYTHONWARNINGS=ignore uv --no-config run --offline python autoresearch/score.py \
+    PYTHONWARNINGS=ignore uv --no-config run --offline python autoresearch/score_v5.py \
         --general-results "../$RUN_RESULTS_GENERAL" \
-        $jargon_block_args \
+        --jargon-results-1 "../$WORK/jargon.1.results.jsonl" \
+        --jargon-results-2 "../$WORK/jargon.2.results.jsonl" \
         --general-corpus "../$GENERAL_CORPUS" \
         --jargon-corpus "../$JARGON_CORPUS" \
         --jargon-terms "../$JARGON_TERMS" \
@@ -399,7 +365,7 @@ fi
 metric_count="$(grep -c '^METRIC ' "$scored" || true)"
 [ "$metric_count" -eq "$EXPECTED_METRIC_COUNT" ] ||
     die "expected $EXPECTED_METRIC_COUNT METRIC lines, found $metric_count"
-grep -Eq '^METRIC energy_ratio=[0-9]+(\.[0-9]+)?$' "$scored" ||
+grep -Eq '^METRIC jargon_term_recall=[0-9]+(\.[0-9]+)?$' "$scored" ||
     die 'malformed primary metric line'
 
 cat "$scored"
@@ -415,7 +381,6 @@ printf 'ASI coreml_encoder_digest=%s\n' "${COREML_ENCODER_DIGEST:-none}"
 printf 'ASI coreml_max_s=%s\n' "$COREML_MAX_S"
 printf 'ASI coreml_encoder_short=%s\n' "${COREML_ENCODER_SHORT:-none}"
 printf 'ASI coreml_short_digest=%s\n' "${COREML_ENCODER_SHORT_DIGEST:-none}"
-printf 'ASI block_sequence_config=%s\n' "$BLOCK_SEQUENCE"
 printf 'ASI model_sha256=%s\n' "$observed_model_sha"
 printf 'ASI model_bytes=%s\n' "$observed_bytes"
 printf 'ASI sidecar_sha256=%s\n' "$(shasum -a 256 "$SIDECAR_BIN" | cut -d' ' -f1)"

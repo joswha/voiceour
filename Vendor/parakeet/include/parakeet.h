@@ -53,6 +53,9 @@ extern "C" {
         // VOICEOUR PATCH: opt-in load-time q8_0 repack of the CPU tail's 2-D f16 matmul
         // weights; requires tail_backend_cpu. The model artifact on disk is untouched.
         bool  tail_quant_q8;
+        // VOICEOUR PATCH: 0 keeps ggml's per-compute disposable CPU pool; N attaches one
+        // persistent N-thread pool to the CPU backend for the state's lifetime.
+        int   persistent_cpu_pool_threads;
     };
 
     typedef struct parakeet_token_data {
