@@ -384,3 +384,27 @@ time is 323 ms per 456-row block (p50 1 ms/row) — under 1 J, so a vDSP mel rew
 has no energy headroom. With these, every rail of the candidate's energy is
 decomposed and verdicted: ANE (palettization, shapes, routing), CPU (q8 tail, pool,
 QoS, threads, mel), GPU (asleep), DRAM (secondary, −67%).
+
+### Adoption gap narrowed in-scope (2026-09-01): background tier warm + q8-variant fix
+
+Two committed-code changes close the reachable half of the ANE adoption checklist:
+
+1. **`VOICEOUR_COREML_WARM=tiers`** — during backend warm-up, the preload thread now
+   loads every configured tier under the decode lock (fail-soft per tier; lazy
+   behavior untouched by default; fail-closed values). Measured: three tiers warm in
+   193/162/166 ms against a hot specialization cache, versus ~20 s each cold — the
+   disk-pressure-volatile first-use stall (runs 78–80's root cause) is paid at
+   preload instead of inside the first dictation. Instrument-neutral: the harness
+   never sets it, so the run-62 lazy-loading keep still describes measured behavior.
+2. **q8_0-variant repack guard fix** — `VOICEOUR_MODEL_VARIANT=q8_0` +
+   `VOICEOUR_TAIL_QUANT=q8_0` used to fail the load by design (the anti-sham guard
+   saw zero conversions because the Compact GGUF's tail records already ship
+   quantized). The guard now recognizes and logs the legitimate no-op; verified
+   end-to-end against the real 668 MB pinned artifact ("7 tail records already
+   quantized in model file; no-op", correct transcript), with the f16 cold path
+   regression-checked (still converts 7 records).
+
+Remaining adoption items are the user-owned pair: artifact hosting/manifest and the
+one Makefile env-forward line (now four names: `VOICEOUR_COREML_*`,
+`VOICEOUR_TAIL_BACKEND`, `VOICEOUR_TAIL_QUANT`, `VOICEOUR_COREML_WARM`), plus
+cross-SoC replication for any default flip.

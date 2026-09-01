@@ -496,4 +496,24 @@ final class CoreMLEncoderSet {
             return nil
         }
     }
+
+    /// Loads every configured tier now, in routing order. Callers hold the decode lock: the
+    /// lazy resources are serialized by it, and a tier that fails to load logs and stays
+    /// unloaded so the first real utterance routed to it retries with request-owned errors.
+    func warmAll(log: (String) -> Void) {
+        let tiers: [(String, LazyCoreMLResource<CoreMLEncoder>?)] = [
+            ("tiny", tiny), ("short", short), ("standard", standard),
+        ]
+        for (name, resource) in tiers {
+            guard let resource else { continue }
+            let started = DispatchTime.now().uptimeNanoseconds
+            do {
+                _ = try resource.value()
+                let elapsed = (DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+                log("VOICEOUR_COREML_WARM tier=\(name) loaded_ms=\(elapsed)")
+            } catch {
+                log("VOICEOUR_COREML_WARM tier=\(name) failed: \(error)")
+            }
+        }
+    }
 }

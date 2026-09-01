@@ -151,6 +151,14 @@ trade: development evidence, including a 5,159-row held-out real-speech
 non-inferiority and determinism evaluation, is recorded in
 `research/bet3-quantization.md`.
 
+`VOICEOUR_COREML_WARM=tiers` loads every configured tier during backend warm-up, on the
+preload thread and under the decode lock, instead of lazily on each tier's first routed
+utterance. A cold ANE tier specialization costs roughly twenty seconds per tier and the
+system's specialization cache is purgeable under disk pressure, so without warm that
+stall can land inside the user's first dictation; with it, the cost is paid before the
+first request, and a tier that fails to warm simply stays lazy. Unset or `default`
+keeps lazy loading; any other value fails sidecar startup closed.
+
 Startup is fail-closed. Every configured path is resolved and validated while the backend is constructed, so a missing artifact, a path that is neither `.mlmodelc` nor `.mlpackage`, or an out-of-range bound fails the sidecar's start rather than quietly reverting to Metal. Loading is separately lazy: each tier's `MLModel` is built on the first utterance that routes to it, so a configured tier that never matches costs nothing at startup, and a load or prediction failure fails that request instead of being retried on another engine.
 
 The path is not byte-identical to the native encoder. It is deterministic — the same audio through the same artifacts produces the same bytes across passes and across processes — but its encoder numerics differ from the Metal kernels on a small number of rows, so it is a measured non-inferiority trade, not a drop-in equivalence. Everything known about it is development evidence from one M4 Pro over synthetic corpora, recorded in `research/bet2-ane-encoder.md`. The compiled encoder artifacts are large and are not distributed with the app, which is why the path stays behind environment variables and why the app itself never sets them.

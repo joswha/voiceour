@@ -2378,7 +2378,10 @@ static bool parakeet_model_load(
 
     std::set<std::string_view, std::less<>> record_authoritative_names;
     // VOICEOUR PATCH: tail records repacked f16 -> q8_0 at load; the copy loop converts.
+    // A model that already ships quantized tail records (the q8_0 GGUF variant) makes the
+    // repack a legitimate no-op, counted separately so the sham guard can tell the two apart.
     std::set<std::string_view, std::less<>> q8_converted_names;
+    int n_tail_already_quantized = 0;
     auto create_tensor = [&](
             parakeet_tensor type,
             ggml_type legacy_type,
@@ -2445,16 +2448,19 @@ static bool parakeet_model_load(
         // matmul weights with whole q8_0 blocks per row convert; the record stays f16
         // on disk and the payload copy below quantizes. The embedding stays f16: its
         // per-token row lookup carries no meaningful traffic.
-        bool convert_to_q8 = false;
-        if (source_record != nullptr &&
+        const bool tail_matmul_2d = source_record != nullptr &&
                 wctx.params.tail_backend_cpu && wctx.params.tail_quant_q8 &&
                 type >= PARAKEET_TENSOR_PRED_EMBED_WEIGHT &&
-                n_dims == 2 && selected_type == GGML_TYPE_F16 &&
-                PARAKEET_TENSOR_INFO.at(type) == GGML_OP_MUL_MAT &&
+                n_dims == 2 &&
+                PARAKEET_TENSOR_INFO.at(type) == GGML_OP_MUL_MAT;
+        bool convert_to_q8 = false;
+        if (tail_matmul_2d && selected_type == GGML_TYPE_F16 &&
                 selected_ne[0] % ggml_blck_size(GGML_TYPE_Q8_0) == 0) {
             selected_type = GGML_TYPE_Q8_0;
             convert_to_q8 = true;
             q8_converted_names.emplace(*source_record->name);
+        } else if (tail_matmul_2d && ggml_is_quantized(selected_type)) {
+            n_tail_already_quantized += 1;
         }
 
         ggml_tensor * selected_meta =
@@ -3082,12 +3088,18 @@ static bool parakeet_model_load(
 
         PARAKEET_LOG_INFO("%s: model size    = %7.2f MB\n", __func__, total_size / 1e6);
         // VOICEOUR PATCH: a requested repack that converted nothing would silently
-        // measure the f16 tail; fail loudly instead. Warm arena loads legitimately
-        // convert nothing because the arena image is already quantized.
+        // measure the f16 tail; fail loudly instead. Two convert-nothing cases are
+        // legitimate: a warm arena (image already quantized) and a model whose tail
+        // records ship quantized (the q8_0 GGUF variant).
         if (wctx.params.tail_backend_cpu && wctx.params.tail_quant_q8 && n_loaded > 0) {
             if (arena_warm) {
                 PARAKEET_LOG_INFO(
                     "%s: tail q8_0 repack: warm arena already quantized\n", __func__);
+            } else if (n_q8_converted == 0 && n_tail_already_quantized > 0) {
+                PARAKEET_LOG_INFO(
+                    "%s: tail q8_0 repack: %d tail records already quantized in model file; no-op\n",
+                    __func__,
+                    n_tail_already_quantized);
             } else if (n_q8_converted == 0) {
                 PARAKEET_LOG_ERROR(
                     "%s: tail q8_0 repack requested but no record converted\n", __func__);

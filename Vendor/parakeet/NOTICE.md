@@ -323,7 +323,9 @@ captured under `patches/`.
   traffic (25.73 MB to 13.67 MB, which also fits the shared cache the f16 tail overflowed).
   A cold weight arena caches the quantized image under a distinct `.tail-q8` suffix and warm
   loads skip the conversion; a requested repack that converts zero records fails the load
-  loudly rather than silently measuring the f16 tail.
+  loudly rather than silently measuring the f16 tail — except when the model's tail
+  records already ship quantized (the q8_0 GGUF variant), which is recognized and logged
+  as a legitimate no-op instead of failing the load.
   - Upstream status: not reported upstream. Load-time repack exists in the llama.cpp lineage;
     this is the minimal record-level version for the tail-only case.
   - Test status: `--prove` transcript identical to the f16 tail; gated by the ABBA energy

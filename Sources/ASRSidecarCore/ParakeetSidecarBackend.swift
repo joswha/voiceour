@@ -7,6 +7,7 @@ protocol ParakeetRuntimeContext: AnyObject {
         samples: [Float],
         isCancelled: @escaping () -> Bool
     ) throws -> [ParakeetSegmentRaw]
+    func warmCoreMLTiers(log: (String) -> Void)
 }
 
 extension ParakeetRuntimeContext {
@@ -16,6 +17,8 @@ extension ParakeetRuntimeContext {
     ) throws -> [ParakeetSegmentRaw] {
         try transcribe(samples: samples, isCancelled: isCancelled)
     }
+
+    func warmCoreMLTiers(log: (String) -> Void) {}
 }
 
 extension ParakeetContext: ParakeetRuntimeContext {}
@@ -32,6 +35,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     private let log: (String) -> Void
 
     private let contextFactory: (String) throws -> any ParakeetRuntimeContext
+    /// Whether warm-up additionally loads every configured CoreML tier. See `CoreMLWarmMode`.
+    private let coreMLWarm: CoreMLWarmMode
     private let stateLock = NSLock()
     /// Held for the whole duration of a model load so exactly one context is ever constructed.
     ///
@@ -103,6 +108,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         if tailQuant.isQ8 && !tailBackend.usesCPU {
             throw ParakeetTailQuantError.requiresCPUTail
         }
+        let coreMLWarm = try CoreMLWarmMode.resolve(environment: environment)
         let weightArenaPath = cache.weightArenaURL.path
             + (tailBackend.usesCPU ? ".tail-cpu" : "")
             + (tailQuant.isQ8 ? ".tail-q8" : "")
@@ -114,6 +120,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 cache: cache,
                 log: log,
                 idleUnloadMs: idleUnloadMs,
+                coreMLWarm: coreMLWarm,
                 contextFactory: {
                     try ParakeetContext(
                         modelPath: $0,
@@ -147,6 +154,9 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                     "VOICEOUR_COREML_ENCODER_TINY mode=hybrid compute_units=CPU_AND_NE model=\(tiny.modelURL.path) max_s=\(tiny.maximumDurationSeconds)"
                 )
             }
+            if coreMLWarm.warmsAllTiers {
+                log("VOICEOUR_COREML_WARM mode=tiers")
+            }
         } else {
             self.init(
                 cache: cache,
@@ -175,11 +185,13 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         cache: ParakeetModelCache,
         log: @escaping (String) -> Void,
         idleUnloadMs: Int,
+        coreMLWarm: CoreMLWarmMode = .default,
         contextFactory: @escaping (String) throws -> any ParakeetRuntimeContext
     ) {
         self.cache = cache
         self.log = log
         self.idleUnloadMs = idleUnloadMs
+        self.coreMLWarm = coreMLWarm
         self.contextFactory = contextFactory
     }
 
@@ -254,6 +266,15 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             isCancelled: { false },
             isWarmUp: true
         )
+        // Tier warm belongs after the throwaway decode and outside the acquisition latch for
+        // the same reason the decode does: the artifact is loaded, and a tier that cannot warm
+        // logs and leaves its lazy path to the first request routed to it. The decode lock
+        // serializes against a real dictation racing the preload thread.
+        if coreMLWarm.warmsAllTiers, !isShuttingDown() {
+            decodeLock.lock()
+            defer { decodeLock.unlock() }
+            loaded.warmCoreMLTiers(log: log)
+        }
     }
 
     /// Fetches the artifact if needed and builds the context. Nil when shutdown cut it short.

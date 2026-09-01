@@ -13,19 +13,22 @@ index c6ab873..775459c 100644
  
      typedef struct parakeet_token_data {
 diff --git a/src/parakeet.cpp b/src/parakeet.cpp
-index 5cdfc64..c1c23be 100644
+index 5cdfc64..a96d7fa 100644
 --- a/src/parakeet.cpp
 +++ b/src/parakeet.cpp
-@@ -2377,6 +2377,8 @@ static bool parakeet_model_load(
+@@ -2377,6 +2377,11 @@ static bool parakeet_model_load(
      }
  
      std::set<std::string_view, std::less<>> record_authoritative_names;
 +    // VOICEOUR PATCH: tail records repacked f16 -> q8_0 at load; the copy loop converts.
++    // A model that already ships quantized tail records (the q8_0 GGUF variant) makes the
++    // repack a legitimate no-op, counted separately so the sham guard can tell the two apart.
 +    std::set<std::string_view, std::less<>> q8_converted_names;
++    int n_tail_already_quantized = 0;
      auto create_tensor = [&](
              parakeet_tensor type,
              ggml_type legacy_type,
-@@ -2439,15 +2441,39 @@ static bool parakeet_model_load(
+@@ -2439,15 +2444,42 @@ static bool parakeet_model_load(
              }
          }
  
@@ -33,16 +36,19 @@ index 5cdfc64..c1c23be 100644
 +        // matmul weights with whole q8_0 blocks per row convert; the record stays f16
 +        // on disk and the payload copy below quantizes. The embedding stays f16: its
 +        // per-token row lookup carries no meaningful traffic.
-+        bool convert_to_q8 = false;
-+        if (source_record != nullptr &&
++        const bool tail_matmul_2d = source_record != nullptr &&
 +                wctx.params.tail_backend_cpu && wctx.params.tail_quant_q8 &&
 +                type >= PARAKEET_TENSOR_PRED_EMBED_WEIGHT &&
-+                n_dims == 2 && selected_type == GGML_TYPE_F16 &&
-+                PARAKEET_TENSOR_INFO.at(type) == GGML_OP_MUL_MAT &&
++                n_dims == 2 &&
++                PARAKEET_TENSOR_INFO.at(type) == GGML_OP_MUL_MAT;
++        bool convert_to_q8 = false;
++        if (tail_matmul_2d && selected_type == GGML_TYPE_F16 &&
 +                selected_ne[0] % ggml_blck_size(GGML_TYPE_Q8_0) == 0) {
 +            selected_type = GGML_TYPE_Q8_0;
 +            convert_to_q8 = true;
 +            q8_converted_names.emplace(*source_record->name);
++        } else if (tail_matmul_2d && ggml_is_quantized(selected_type)) {
++            n_tail_already_quantized += 1;
 +        }
 +
          ggml_tensor * selected_meta =
@@ -66,7 +72,7 @@ index 5cdfc64..c1c23be 100644
  
          ggml_op op = PARAKEET_TENSOR_INFO.at(type);
          // VOICEOUR PATCH: a CPU tail must keep its immutable prediction/joint weights in the
-@@ -2745,6 +2771,12 @@ static bool parakeet_model_load(
+@@ -2745,6 +2777,12 @@ static bool parakeet_model_load(
          int & n_loaded = model.n_loaded;
          n_loaded = 0;
          std::vector<char> read_buf;
@@ -79,7 +85,7 @@ index 5cdfc64..c1c23be 100644
          size_t record_index = 0;
  
          while (true) {
-@@ -2856,9 +2888,15 @@ static bool parakeet_model_load(
+@@ -2856,9 +2894,15 @@ static bool parakeet_model_load(
  
              const size_t tensor_bytes = ggml_nbytes(tensor);
              size_t source_bytes = 0;
@@ -96,7 +102,7 @@ index 5cdfc64..c1c23be 100644
                              record_authoritative_names.end() &&
                          source_record.type != tensor->type) {
                      PARAKEET_LOG_ERROR(
-@@ -2868,6 +2906,14 @@ static bool parakeet_model_load(
+@@ -2868,6 +2912,14 @@ static bool parakeet_model_load(
                      );
                      return false;
                  }
@@ -111,7 +117,7 @@ index 5cdfc64..c1c23be 100644
              } else {
                  const size_t type_size = ggml_type_size(source_record.type);
                  if (type_size == 0 ||
-@@ -2884,7 +2930,10 @@ static bool parakeet_model_load(
+@@ -2884,7 +2936,10 @@ static bool parakeet_model_load(
                      static_cast<size_t>(nelements) * type_size;
                  source_bytes = unblocked_bytes / ggml_blck_size(tensor->type);
              }
@@ -123,7 +129,7 @@ index 5cdfc64..c1c23be 100644
                  PARAKEET_LOG_ERROR(
                      "%s: tensor '%s' has wrong byte size in model file\n",
                      __func__,
-@@ -2910,6 +2959,63 @@ static bool parakeet_model_load(
+@@ -2910,6 +2965,63 @@ static bool parakeet_model_load(
                      );
                      return false;
                  }
@@ -187,17 +193,23 @@ index 5cdfc64..c1c23be 100644
              } else if (ggml_backend_buffer_is_host(tensor->buffer)) {
                  if (loader->read(loader->context, tensor->data, source_bytes) != source_bytes) {
                      PARAKEET_LOG_ERROR(
-@@ -2975,6 +3081,26 @@ static bool parakeet_model_load(
+@@ -2975,6 +3087,32 @@ static bool parakeet_model_load(
          }
  
          PARAKEET_LOG_INFO("%s: model size    = %7.2f MB\n", __func__, total_size / 1e6);
 +        // VOICEOUR PATCH: a requested repack that converted nothing would silently
-+        // measure the f16 tail; fail loudly instead. Warm arena loads legitimately
-+        // convert nothing because the arena image is already quantized.
++        // measure the f16 tail; fail loudly instead. Two convert-nothing cases are
++        // legitimate: a warm arena (image already quantized) and a model whose tail
++        // records ship quantized (the q8_0 GGUF variant).
 +        if (wctx.params.tail_backend_cpu && wctx.params.tail_quant_q8 && n_loaded > 0) {
 +            if (arena_warm) {
 +                PARAKEET_LOG_INFO(
 +                    "%s: tail q8_0 repack: warm arena already quantized\n", __func__);
++            } else if (n_q8_converted == 0 && n_tail_already_quantized > 0) {
++                PARAKEET_LOG_INFO(
++                    "%s: tail q8_0 repack: %d tail records already quantized in model file; no-op\n",
++                    __func__,
++                    n_tail_already_quantized);
 +            } else if (n_q8_converted == 0) {
 +                PARAKEET_LOG_ERROR(
 +                    "%s: tail q8_0 repack requested but no record converted\n", __func__);
@@ -214,7 +226,7 @@ index 5cdfc64..c1c23be 100644
          if (n_loaded == 0) {
              PARAKEET_LOG_WARN(
                  "%s: WARN no tensors loaded from model file - assuming empty model for testing\n",
-@@ -4865,6 +4991,7 @@ struct parakeet_context_params parakeet_context_default_params() {
+@@ -4865,6 +5003,7 @@ struct parakeet_context_params parakeet_context_default_params() {
          /*.use_gpu              =*/ true,
          /*.gpu_device           =*/ 0,
          /*.tail_backend_cpu     =*/ false, // VOICEOUR PATCH: default remains the full backend list.

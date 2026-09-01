@@ -66,6 +66,40 @@ enum ParakeetTailQuantError: Error, CustomStringConvertible {
     }
 }
 
+/// Opt-in CoreML tier warm during backend warm-up. `default` keeps tiers lazy — each loads on
+/// the first utterance routed to it. `tiers` loads every configured tier on the preload thread,
+/// under the decode lock, so a cold ANE specialization (~20 s per tier, and disk-pressure
+/// volatile) is paid before the first dictation instead of inside it. Any other value refuses
+/// startup, mirroring the other experimental dials.
+enum CoreMLWarmMode: Equatable {
+    case `default`
+    case tiers
+
+    static let environmentKey = "VOICEOUR_COREML_WARM"
+
+    static func resolve(environment: [String: String]) throws -> CoreMLWarmMode {
+        guard let value = environment[environmentKey] else { return .default }
+        switch value {
+        case "default": return .default
+        case "tiers": return .tiers
+        default: throw CoreMLWarmModeError.invalidValue(value)
+        }
+    }
+
+    var warmsAllTiers: Bool { self == .tiers }
+}
+
+enum CoreMLWarmModeError: Error, CustomStringConvertible {
+    case invalidValue(String)
+
+    var description: String {
+        switch self {
+        case .invalidValue(let value):
+            return "invalid \(CoreMLWarmMode.environmentKey) value '\(value)'; expected 'default' or 'tiers'"
+        }
+    }
+}
+
 public enum ParakeetContextError: Error, CustomStringConvertible {
     case loadFailed(String)
     case decodeFailed(Int32)
@@ -156,6 +190,12 @@ public final class ParakeetContext {
     private let context: OpaquePointer
     private let threadCount: Int32
     private var coreMLEncoders: CoreMLEncoderSet?
+
+    /// Loads every configured CoreML tier now. Callers hold the decode lock; see
+    /// `CoreMLEncoderSet.warmAll`. A context without CoreML tiers does nothing.
+    func warmCoreMLTiers(log: (String) -> Void) {
+        coreMLEncoders?.warmAll(log: log)
+    }
 
     /// Loads the model and uses `weightArenaPath` for the versioned file-backed weight cache.
     /// Cache creation or validation failures fall back to ordinary ggml buffers in C++.
