@@ -241,7 +241,12 @@ enum BenchCLI {
 
 struct LoadedRepairEngine {
     var engine: VocabularyRepairEngine
-    /// Eligible (non-ordinary) canonical surfaces, retained for assist arbitration.
+    /// Every taught canonical surface — eligible and protected alike — retained for
+    /// assist arbitration. Protected surfaces are excluded from phonetic repair
+    /// because they collide with ordinary words, but arbitration only ever fires on
+    /// an exact cased surface one whole transcript contains and the other lacks, and
+    /// it adopts a complete real transcript rather than splicing a term, so the
+    /// ordinary-word hazard that reserves them from repair does not apply here.
     var surfaces: [String]
     var sha256: String
 
@@ -261,7 +266,7 @@ struct LoadedRepairEngine {
         }
         return LoadedRepairEngine(
             engine: VocabularyRepairEngine(vocabulary: vocabulary),
-            surfaces: vocabulary.surfaces,
+            surfaces: vocabulary.surfaces + vocabulary.protectedSurfaces,
             sha256: try BenchRunner.sha256(of: url)
         )
     }
