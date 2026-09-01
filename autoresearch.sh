@@ -42,7 +42,7 @@ readonly ROW_TIMEOUT_MS=120000
 readonly LATENCY_CEILING_MS=230
 readonly RTFX_FLOOR=100
 readonly FOOTPRINT_CEILING_MB=2500
-readonly JARGON_REPS=3
+readonly BLOCK_SEQUENCE="R C C R"
 readonly UWER_MIX_CEILING=0.037509
 
 readonly GENERAL_CORPUS="bench/autoresearch/corpus.manifest.jsonl"
@@ -75,7 +75,7 @@ readonly GENERAL_CORPUS_SHA256="885331c29340aca170ae3a061747986bcf91f960b2fec192
 readonly JARGON_CORPUS_SHA256="576efc9f9e6f11e3e14048258e023d0695bb56f8403482e953c061c03a17e2bf"
 readonly JARGON_TERMS_SHA256="2c3dfd1bf8250c97172ef1af16c74de01d30e8376c58474b61aee513fa47d4b5"
 readonly REPAIR_VOCABULARY_SHA256="650dfc3fa02ebc7e2e8754066f0f9d4336d5113444154e1a27975139812fd1c8"
-readonly EXPECTED_METRIC_COUNT=15
+readonly EXPECTED_METRIC_COUNT=16
 
 die() {
     printf 'autoresearch.sh: FAIL: %s\n' "$1" >&2
@@ -236,18 +236,15 @@ sleep 10
 readonly GENERAL_MANIFEST="$WORK/general.manifest.jsonl"
 readonly JARGON_MANIFEST="$WORK/jargon.manifest.jsonl"
 readonly RUN_RESULTS_GENERAL="$WORK/general.results.jsonl"
-readonly RUN_RESULTS_JARGON="$WORK/jargon.results.jsonl"
-readonly ENERGY_JSON="$WORK/energy.json"
 readonly MEM_PEAK_FILE="$WORK/peak-memory"
 
-python3 - "$GENERAL_CORPUS" "$JARGON_CORPUS" "$GENERAL_MANIFEST" "$JARGON_MANIFEST" "$WARMUP_PASSES" "$TIMED_PASSES" "$JARGON_REPS" <<'PY' || die 'run manifest expansion failed'
+python3 - "$GENERAL_CORPUS" "$JARGON_CORPUS" "$GENERAL_MANIFEST" "$JARGON_MANIFEST" "$WARMUP_PASSES" "$TIMED_PASSES" <<'PY' || die 'run manifest expansion failed'
 import json
 import sys
 
 general_path, jargon_path = sys.argv[1], sys.argv[2]
 general_out, jargon_out = sys.argv[3], sys.argv[4]
 total_passes = int(sys.argv[5]) + int(sys.argv[6])
-jargon_reps = int(sys.argv[7])
 
 
 def read_rows(path):
@@ -266,11 +263,10 @@ with open(general_out, "w", encoding="utf-8") as out:
             out.write(json.dumps(expanded, sort_keys=True) + "\n")
 
 with open(jargon_out, "w", encoding="utf-8") as out:
-    for rep in range(jargon_reps):
-        for row in jargon:
-            expanded = dict(row)
-            expanded["id"] = f"{row['id']}#j{rep}"
-            out.write(json.dumps(expanded, sort_keys=True) + "\n")
+    for row in jargon:
+        expanded = dict(row)
+        expanded["id"] = f"{row['id']}#j0"
+        out.write(json.dumps(expanded, sort_keys=True) + "\n")
 PY
 
 # --- timed region ----------------------------------------------------------
@@ -279,7 +275,7 @@ PY
 # inherited VOICEOUR_* value must not be able to change which artifact is
 # loaded or where it is read from.
 
-rm -f "$RUN_RESULTS_GENERAL" "$RUN_RESULTS_JARGON" "$ENERGY_JSON" "$MEM_PEAK_FILE"
+rm -f "$RUN_RESULTS_GENERAL" "$MEM_PEAK_FILE"
 printf '0 0 0 0\n' >"$MEM_PEAK_FILE"
 
 python3 "$MEM_SAMPLER" "$MEM_PEAK_FILE" &
@@ -313,20 +309,42 @@ if [ "$bench_status" -ne 0 ]; then
     die "general voiceour-bench exited $bench_status"
 fi
 
-log "running $JARGON_REPS jargon reps under the energy window ($(wc -l <"$JARGON_CORPUS" | tr -d ' ') rows each)"
-python3 "$ENERGY_SAMPLER" --output "$ENERGY_JSON" -- \
-    env -i \
-    PATH=/usr/bin:/bin \
-    HOME="$HOME" \
-    TMPDIR="${TMPDIR:-/tmp}" \
-    VOICEOUR_MODEL_VARIANT="$MODEL_VARIANT" \
-    $coreml_env_args \
-    "$BENCH_BIN" pipeline \
-    --input "$JARGON_MANIFEST" \
-    --output "$RUN_RESULTS_JARGON" \
-    --timeout-ms "$ROW_TIMEOUT_MS" \
-    --vocabulary "$REPAIR_VOCABULARY" \
-    >"$WORK/jargon.log" 2>&1
+log "running jargon ABBA blocks: $BLOCK_SEQUENCE ($(wc -l <"$JARGON_CORPUS" | tr -d ' ') rows each)"
+block_index=0
+jargon_block_args=""
+for family in $BLOCK_SEQUENCE; do
+    block_results="$WORK/jargon.$block_index.$family.results.jsonl"
+    block_energy="$WORK/energy.$block_index.$family.json"
+    rm -f "$block_results" "$block_energy"
+    if [ "$family" = "C" ]; then
+        block_env="$coreml_env_args"
+    else
+        block_env=""
+    fi
+    python3 "$ENERGY_SAMPLER" --output "$block_energy" -- \
+        env -i \
+        PATH=/usr/bin:/bin \
+        HOME="$HOME" \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        VOICEOUR_MODEL_VARIANT="$MODEL_VARIANT" \
+        $block_env \
+        "$BENCH_BIN" pipeline \
+        --input "$JARGON_MANIFEST" \
+        --output "$block_results" \
+        --timeout-ms "$ROW_TIMEOUT_MS" \
+        --vocabulary "$REPAIR_VOCABULARY" \
+        >"$WORK/jargon.$block_index.$family.log" 2>&1
+    block_status=$?
+    if [ "$block_status" -ne 0 ]; then
+        cleanup
+        trap - EXIT
+        tail -20 "$WORK/jargon.$block_index.$family.log" >&2
+        die "jargon block $block_index ($family) voiceour-bench exited $block_status"
+    fi
+    jargon_block_args="$jargon_block_args --jargon-block $family:../$block_results:../$block_energy"
+    block_index=$((block_index + 1))
+done
+bench_status=0
 bench_status=$?
 run_elapsed=$(($(date +%s) - run_started))
 
@@ -348,10 +366,7 @@ resident_layout_validated="${resident_layout_validated:-0}"
 [ "$resident_layout_validated" -eq 1 ] ||
     die 'memory sampler resident field did not agree with ps'
 
-if [ "$bench_status" -ne 0 ]; then
-    tail -20 "$WORK/jargon.log" >&2
-    die "jargon voiceour-bench exited $bench_status"
-fi
+
 
 # --- scoring, outside the timed region -------------------------------------
 
@@ -360,14 +375,12 @@ scored="$WORK/metrics.txt"
     cd bench || exit 1
     PYTHONWARNINGS=ignore uv --no-config run --offline python autoresearch/score.py \
         --general-results "../$RUN_RESULTS_GENERAL" \
-        --jargon-results "../$RUN_RESULTS_JARGON" \
-        --energy-json "../$ENERGY_JSON" \
+        $jargon_block_args \
         --general-corpus "../$GENERAL_CORPUS" \
         --jargon-corpus "../$JARGON_CORPUS" \
         --jargon-terms "../$JARGON_TERMS" \
         --warmup-passes "$WARMUP_PASSES" \
         --timed-passes "$TIMED_PASSES" \
-        --jargon-reps "$JARGON_REPS" \
         --peak-footprint-bytes "$peak_footprint_bytes" \
         --peak-resident-bytes "$peak_resident_bytes" \
         --latency-ceiling-ms "$LATENCY_CEILING_MS" \
@@ -385,7 +398,7 @@ fi
 metric_count="$(grep -c '^METRIC ' "$scored" || true)"
 [ "$metric_count" -eq "$EXPECTED_METRIC_COUNT" ] ||
     die "expected $EXPECTED_METRIC_COUNT METRIC lines, found $metric_count"
-grep -Eq '^METRIC energy_j=[0-9]+(\.[0-9]+)?$' "$scored" ||
+grep -Eq '^METRIC energy_ratio=[0-9]+(\.[0-9]+)?$' "$scored" ||
     die 'malformed primary metric line'
 
 cat "$scored"
@@ -401,7 +414,7 @@ printf 'ASI coreml_encoder_digest=%s\n' "${COREML_ENCODER_DIGEST:-none}"
 printf 'ASI coreml_max_s=%s\n' "$COREML_MAX_S"
 printf 'ASI coreml_encoder_short=%s\n' "${COREML_ENCODER_SHORT:-none}"
 printf 'ASI coreml_short_digest=%s\n' "${COREML_ENCODER_SHORT_DIGEST:-none}"
-printf 'ASI jargon_reps=%s\n' "$JARGON_REPS"
+printf 'ASI block_sequence_config=%s\n' "$BLOCK_SEQUENCE"
 printf 'ASI model_sha256=%s\n' "$observed_model_sha"
 printf 'ASI model_bytes=%s\n' "$observed_bytes"
 printf 'ASI sidecar_sha256=%s\n' "$(shasum -a 256 "$SIDECAR_BIN" | cut -d' ' -f1)"

@@ -1,17 +1,27 @@
-"""Score one segment-3 `autoresearch.sh` run: energy primary, accuracy as guards.
+"""Score one segment-4 `autoresearch.sh` run: drift-immune ABBA energy ratio.
 
-Segment 3 splits the run into two `voiceour-bench pipeline` invocations:
-- general96 with `#p<n>` pass suffixes (1 warmup + timed passes): latency metrics,
-  general accuracy, cross-pass determinism — unchanged from segment 2.
-- jargon456 with `#j<r>` rep suffixes (JARGON_REPS identical repetitions in one
-  process), wrapped by `energy_sampler.py`: the energy window. `energy_j` is the
-  primary metric: system compute-rail joules (CPU+GPU+ANE) over the window divided
-  by the rep count. Attribution rests on the harness's exclusive-hardware gates.
+Segment 3 established that system-wide IOReport rails carry slow environmental
+drift on a live workstation (identical configs measured 187→229→261 J while the
+ANE rail stayed flat). Segment 4 makes every run self-referenced: the jargon
+corpus runs four times in an A/B/B/A block sequence — R (native reference,
+CoreML env absent) and C (candidate, current harness config) — each block in its
+own energy window. The primary metric is
 
-Accuracy is a hard guard, not a trade: `uwer_mix` above the ceiling
-(segment-2 baseline .034009 + .0035 NI margin) rejects the run, as do the
-existing latency/throughput/memory/error/determinism/term-safety gates. Energy
-must never be bought with accuracy or latency.
+    energy_ratio = sum(C compute_j) / sum(R compute_j)
+
+which cancels drift that is slow relative to the block period, exactly the
+failure mode observed. `energy_j` (mean candidate compute joules per pass) is
+retained as a secondary for continuity with segment 3.
+
+The general96 block runs once under the CANDIDATE configuration and supplies
+the latency/accuracy guards. Accuracy metrics come from candidate jargon block
+C1; all C blocks must be mutually byte-identical, as must all R blocks — the
+two families may differ from each other (that difference is the NI-gated
+candidate delta).
+
+Hard gates: model pins, complete row sets, zero errors, C-family and R-family
+transcript identity, general cross-pass identity, positive per-block energy,
+uwer_mix NI ceiling, latency ceiling, RTFx floor, footprint ceiling.
 """
 
 from __future__ import annotations
@@ -86,17 +96,31 @@ def check_meta(meta: list[dict], label: str) -> dict:
     return identity
 
 
+class JargonBlock:
+    def __init__(self, spec: str):
+        parts = spec.split(":", 2)
+        if len(parts) != 3 or parts[0] not in ("R", "C"):
+            raise SystemExit(f"score.py: FAIL: malformed --jargon-block spec {spec!r}")
+        self.family = parts[0]
+        self.results_path = Path(parts[1])
+        self.energy_path = Path(parts[2])
+        self.rows: dict[str, dict] = {}
+        self.energy: dict = {}
+        self.compute_j = 0.0
+        self.dram_j = 0.0
+        self.sha = ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--general-results", required=True, type=Path)
-    parser.add_argument("--jargon-results", required=True, type=Path)
-    parser.add_argument("--energy-json", required=True, type=Path)
+    parser.add_argument("--jargon-block", action="append", required=True,
+                        help="FAMILY:results.jsonl:energy.json, FAMILY in {R,C}, in run order")
     parser.add_argument("--general-corpus", required=True, type=Path)
     parser.add_argument("--jargon-corpus", required=True, type=Path)
     parser.add_argument("--jargon-terms", required=True, type=Path)
     parser.add_argument("--warmup-passes", required=True, type=int)
     parser.add_argument("--timed-passes", required=True, type=int)
-    parser.add_argument("--jargon-reps", required=True, type=int)
     parser.add_argument("--peak-footprint-bytes", required=True, type=int)
     parser.add_argument("--peak-resident-bytes", required=True, type=int)
     parser.add_argument("--latency-ceiling-ms", required=True, type=float)
@@ -117,28 +141,25 @@ def main() -> int:
     if set(terms) != set(jargon_ids):
         raise SystemExit("score.py: FAIL: jargon term annotations do not cover the corpus")
 
+    blocks = [JargonBlock(spec) for spec in args.jargon_block]
+    r_blocks = [b for b in blocks if b.family == "R"]
+    c_blocks = [b for b in blocks if b.family == "C"]
+    if len(r_blocks) < 2 or len(c_blocks) < 2:
+        fail(f"need >=2 blocks per family, got R={len(r_blocks)} C={len(c_blocks)}")
+
+    # --- general block (candidate config) -----------------------------------
+
     general_lines = read_jsonl(args.general_results)
-    jargon_lines = read_jsonl(args.jargon_results)
     g_identity = check_meta(
         [l for l in general_lines if l.get("type") == "bench_meta"], "general"
     )
-    j_identity = check_meta(
-        [l for l in jargon_lines if l.get("type") == "bench_meta"], "jargon"
-    )
-    for key in ("model_id", "model_revision", "model_file", "backend", "vocabulary_sha256"):
-        if g_identity.get(key) != j_identity.get(key):
-            fail(f"bench_meta {key} differs between invocations")
 
     total_passes = args.warmup_passes + args.timed_passes
     if args.timed_passes < 3:
         fail(f"timed_passes {args.timed_passes} is below the required three repetitions")
-    if args.jargon_reps < 3:
-        fail(f"jargon_reps {args.jargon_reps} is below the required three repetitions")
 
     by_pass: dict[int, dict[str, dict]] = {index: {} for index in range(total_passes)}
-    by_rep: dict[int, dict[str, dict]] = {index: {} for index in range(args.jargon_reps)}
     error_rows = 0
-
     for row in (l for l in general_lines if l.get("type") == "row"):
         raw_id = str(row.get("id", ""))
         if row.get("error") is not None:
@@ -156,34 +177,10 @@ def main() -> int:
             continue
         by_pass[index][row_id] = row
 
-    for row in (l for l in jargon_lines if l.get("type") == "row"):
-        raw_id = str(row.get("id", ""))
-        if row.get("error") is not None:
-            error_rows += 1
-        row_id, separator, suffix = raw_id.rpartition("#")
-        if not separator or len(suffix) < 2 or suffix[0] != "j" or not suffix[1:].isdigit():
-            fail(f"jargon row id {raw_id!r} carries no #j<r> suffix")
-            continue
-        index = int(suffix[1:])
-        if index not in by_rep:
-            fail(f"jargon row {raw_id!r} names rep {index}, outside 0..{args.jargon_reps - 1}")
-            continue
-        if row_id in by_rep[index]:
-            fail(f"jargon row {row_id!r} appears twice in rep {index}")
-            continue
-        by_rep[index][row_id] = row
-
-    if error_rows:
-        fail(f"{error_rows} error rows")
-
     expected_general = set(general_ids)
     for index in range(total_passes):
         if set(by_pass[index]) != expected_general:
             fail(f"general pass {index} row set differs from the corpus")
-    expected_jargon = set(jargon_ids)
-    for index in range(args.jargon_reps):
-        if set(by_rep[index]) != expected_jargon:
-            fail(f"jargon rep {index} row set differs from the corpus")
 
     reference_pass = by_pass[0]
     for index in range(1, total_passes):
@@ -196,17 +193,56 @@ def main() -> int:
         ]
         if drifted:
             fail(f"general pass {index} transcripts differ from pass 0 on {len(drifted)} rows")
-    reference_rep = by_rep[0]
-    for index in range(1, args.jargon_reps):
-        drifted = [
-            row_id
-            for row_id in jargon_ids
-            if row_id in by_rep[index]
-            and row_id in reference_rep
-            and by_rep[index][row_id]["raw_transcript"] != reference_rep[row_id]["raw_transcript"]
-        ]
-        if drifted:
-            fail(f"jargon rep {index} transcripts differ from rep 0 on {len(drifted)} rows")
+
+    # --- jargon blocks ------------------------------------------------------
+
+    expected_jargon = set(jargon_ids)
+    for position, block in enumerate(blocks):
+        lines = read_jsonl(block.results_path)
+        identity = check_meta(
+            [l for l in lines if l.get("type") == "bench_meta"],
+            f"block{position}({block.family})",
+        )
+        if block.family == "C":
+            for key in ("model_file", "vocabulary_sha256"):
+                if identity.get(key) != g_identity.get(key):
+                    fail(f"block{position}: bench_meta {key} differs from general invocation")
+        for row in (l for l in lines if l.get("type") == "row"):
+            raw_id = str(row.get("id", ""))
+            if row.get("error") is not None:
+                error_rows += 1
+            row_id, separator, suffix = raw_id.rpartition("#")
+            if not separator or suffix != "j0":
+                fail(f"block{position} row id {raw_id!r} carries no #j0 suffix")
+                continue
+            if row_id in block.rows:
+                fail(f"block{position} row {row_id!r} appears twice")
+                continue
+            block.rows[row_id] = row
+        if set(block.rows) != expected_jargon:
+            fail(f"block{position}({block.family}) row set differs from the corpus")
+            continue
+        block.sha = transcript_sha(
+            [(rid, block.rows[rid]["raw_transcript"]) for rid in jargon_ids]
+        )
+        block.energy = json.loads(block.energy_path.read_text(encoding="utf-8"))
+        if block.energy.get("command_exit") != 0:
+            fail(f"block{position} energy window command exited {block.energy.get('command_exit')}")
+        rails = block.energy.get("rails", {})
+        block.compute_j = float(rails.get("compute_j", 0.0))
+        block.dram_j = float(rails.get("dram_j", 0.0))
+        if block.compute_j <= 0.0:
+            fail(f"block{position} observed non-positive compute_j {block.compute_j}")
+
+    for family, group in (("R", r_blocks), ("C", c_blocks)):
+        shas = {b.sha for b in group if b.sha}
+        if len(shas) > 1:
+            fail(f"{family}-family jargon transcripts are not mutually identical")
+
+    if error_rows:
+        fail(f"{error_rows} error rows")
+
+    # --- latency / throughput ----------------------------------------------
 
     timed_indexes = list(range(args.warmup_passes, total_passes))
     pass_p95: list[float] = []
@@ -241,29 +277,26 @@ def main() -> int:
     if args.peak_resident_bytes <= 0:
         fail("peak_resident_bytes is not a positive sample")
 
-    # --- energy ------------------------------------------------------------
+    # --- energy ratio -------------------------------------------------------
 
-    energy = json.loads(args.energy_json.read_text(encoding="utf-8"))
-    if energy.get("command_exit") != 0:
-        fail(f"energy window command exited {energy.get('command_exit')}")
-    rails = energy.get("rails", {})
-    compute_j = float(rails.get("compute_j", 0.0))
-    dram_j = float(rails.get("dram_j", 0.0))
-    if compute_j <= 0.0:
-        fail(f"energy window observed non-positive compute_j {compute_j}")
-    energy_j = finite("energy_j", compute_j / args.jargon_reps)
-    energy_dram_j = finite("energy_dram_j", dram_j / args.jargon_reps)
+    c_sum = sum(b.compute_j for b in c_blocks)
+    r_sum = sum(b.compute_j for b in r_blocks)
+    energy_ratio = finite("energy_ratio", c_sum / r_sum if r_sum > 0 else float("inf"))
+    energy_j = finite("energy_j", c_sum / max(len(c_blocks), 1))
+    energy_dram_j = finite(
+        "energy_dram_j", sum(b.dram_j for b in c_blocks) / max(len(c_blocks), 1)
+    )
 
-    # --- accuracy ----------------------------------------------------------
+    # --- accuracy (candidate block C1) --------------------------------------
 
     general_refs = {row["id"]: row["reference"] for row in general}
     jargon_refs = {row["id"]: row["reference"] for row in jargon}
+    candidate = c_blocks[0].rows
+
     general_pairs = [
         (row_id, reference_pass[row_id]) for row_id in general_ids if row_id in reference_pass
     ]
-    jargon_pairs = [
-        (row_id, reference_rep[row_id]) for row_id in jargon_ids if row_id in reference_rep
-    ]
+    jargon_pairs = [(row_id, candidate[row_id]) for row_id in jargon_ids if row_id in candidate]
 
     g_refs = [general_refs[row_id] for row_id, _ in general_pairs]
     g_finals = [row["final_text"] for _, row in general_pairs]
@@ -291,7 +324,7 @@ def main() -> int:
     for row_id, canonical in positives:
         domain = terms[row_id]["domain"]
         domain_totals[domain] = domain_totals.get(domain, 0) + 1
-        if patterns[canonical].search(reference_rep[row_id]["final_text"]):
+        if patterns[canonical].search(candidate[row_id]["final_text"]):
             term_hits += 1
             domain_hits[domain] = domain_hits.get(domain, 0) + 1
         else:
@@ -302,7 +335,7 @@ def main() -> int:
     false_terms = 0
     false_examples: list[str] = []
     for row_id in negatives:
-        final_text = reference_rep[row_id]["final_text"]
+        final_text = candidate[row_id]["final_text"]
         reference = jargon_refs[row_id]
         for surface in surfaces:
             pattern = patterns[surface]
@@ -311,10 +344,10 @@ def main() -> int:
                 if len(false_examples) < 5:
                     false_examples.append(f"{row_id}:{surface}")
     neg_refs = [jargon_refs[row_id] for row_id in negatives]
-    neg_finals = [reference_rep[row_id]["final_text"] for row_id in negatives]
+    neg_finals = [candidate[row_id]["final_text"] for row_id in negatives]
     fwer_negative = finite("fwer_negative", fwer(neg_refs, neg_finals))
 
-    # --- latency / throughput / guards -------------------------------------
+    # --- guards -------------------------------------------------------------
 
     p95 = finite("asr_inference_p95_ms", statistics.median(pass_p95))
     p50 = finite("asr_inference_p50_ms", statistics.median(pass_p50))
@@ -345,6 +378,7 @@ def main() -> int:
             print(f"score.py: FAIL: {reason}", file=sys.stderr)
         return 1
 
+    print(f"METRIC energy_ratio={energy_ratio:.4f}")
     print(f"METRIC energy_j={energy_j:.3f}")
     print(f"METRIC energy_dram_j={energy_dram_j:.3f}")
     print(f"METRIC uwer_mix={uwer_mix:.6f}")
@@ -362,25 +396,27 @@ def main() -> int:
     print(f"METRIC error_rows={error_rows}")
 
     print(f"ASI uwer_mix_raw={uwer_mix_raw:.6f}")
-    print(f"ASI energy_compute_j_total={compute_j:.3f}")
-    print(f"ASI energy_cpu_j={float(rails.get('cpu_j', 0.0)):.3f}")
-    print(f"ASI energy_gpu_j={float(rails.get('gpu_j', 0.0)):.3f}")
-    print(f"ASI energy_ane_j={float(rails.get('ane_j', 0.0)):.3f}")
-    print(f"ASI energy_dram_j_total={dram_j:.3f}")
-    print(f"ASI energy_window_ms={float(energy.get('window_elapsed_ms', 0.0)):.0f}")
-    print(f"ASI energy_command_ms={float(energy.get('command_elapsed_ms', 0.0)):.0f}")
-    print(f"ASI uwer_mix_ceiling={args.uwer_mix_ceiling:.6f}")
+    print("ASI block_sequence=" + ",".join(b.family for b in blocks))
+    print("ASI block_compute_j=" + ",".join(f"{b.compute_j:.1f}" for b in blocks))
+    print("ASI block_cpu_j=" + ",".join(
+        f"{float(b.energy.get('rails', {}).get('cpu_j', 0.0)):.1f}" for b in blocks))
+    print("ASI block_gpu_j=" + ",".join(
+        f"{float(b.energy.get('rails', {}).get('gpu_j', 0.0)):.1f}" for b in blocks))
+    print("ASI block_ane_j=" + ",".join(
+        f"{float(b.energy.get('rails', {}).get('ane_j', 0.0)):.1f}" for b in blocks))
+    print("ASI block_window_ms=" + ",".join(
+        f"{float(b.energy.get('window_elapsed_ms', 0.0)):.0f}" for b in blocks))
+    print(f"ASI r_sum_compute_j={r_sum:.1f}")
+    print(f"ASI c_sum_compute_j={c_sum:.1f}")
+    print(f"ASI r_transcript_sha256={r_blocks[0].sha}")
+    print(f"ASI c_transcript_sha256={c_blocks[0].sha}")
     print(
         "ASI general_transcript_sha256="
         + transcript_sha([(i, r["raw_transcript"]) for i, r in general_pairs])
     )
-    print(
-        "ASI jargon_transcript_sha256="
-        + transcript_sha([(i, r["raw_transcript"]) for i, r in jargon_pairs])
-    )
+    print(f"ASI uwer_mix_ceiling={args.uwer_mix_ceiling:.6f}")
     print(f"ASI general_rows={len(general_ids)}")
     print(f"ASI jargon_rows={len(jargon_ids)}")
-    print(f"ASI jargon_reps={args.jargon_reps}")
     for domain in sorted(domain_totals):
         print(f"ASI term_recall_{domain}={domain_hits.get(domain, 0)}/{domain_totals[domain]}")
     print(f"ASI term_misses={len(missed_terms)}")
