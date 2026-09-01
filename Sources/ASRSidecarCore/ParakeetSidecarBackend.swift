@@ -63,8 +63,16 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     /// a construction race runs `parakeet_free`, tears the device down under the survivor, and
     /// every later encode fails with "command buffer failed with status 1".
     private let loadLock = NSLock()
-    /// Held for the duration of one `parakeet_full`. See `decode(_:samples:isCancelled:)`.
+    /// Held for the duration of one primary-context `parakeet_full`.
+    /// See `decode(_:samples:isCancelled:)`.
     private let decodeLock = NSLock()
+    /// Held for the duration of one assist-context `parakeet_full`. A separate lock on
+    /// purpose: `parakeet_full` is unsafe for the SAME context, not across contexts —
+    /// parakeet.cpp keeps all decode state per-context (its one mutable global is the
+    /// write-once log callback), the persistent CPU pool is a per-context parameter, and
+    /// the primary's ≤15 s path runs ANE + CPU while the assist runs its own Metal
+    /// backend, so the two decodes are substrate-disjoint and may overlap.
+    private let assistDecodeLock = NSLock()
     private var context: (any ParakeetRuntimeContext)?
     /// Optional second-opinion model: decoded serially after the primary for audio at or
     /// under `assistMaxSamples`, its raw transcript returned as `assistText` for the
@@ -410,6 +418,29 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         }
 
         let started = DispatchTime.now().uptimeNanoseconds
+
+        // The assist decode runs concurrently with the primary: distinct contexts on
+        // disjoint substrates (primary ANE + CPU tail, assist Metal). Each context's own
+        // decode stays serialized by its own lock, so neither model's output can depend
+        // on the overlap; the assist result is joined before the response is assembled.
+        let runAssist = assistModelPath != nil && samples.count <= assistMaxSamples
+        var assistOutcome: Result<[ParakeetSegmentRaw], Error>?
+        let assistJoin = DispatchSemaphore(value: 0)
+        if runAssist {
+            let assistSamples = samples
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                defer { assistJoin.signal() }
+                guard let self else {
+                    assistOutcome = .failure(ParakeetAssistError.emptyModelPath)
+                    return
+                }
+                assistOutcome = Result {
+                    let assist = try self.loadAssistContext()
+                    return try self.decode(assist, samples: assistSamples, isCancelled: isCancelled)
+                }
+            }
+        }
+
         let segments: [ParakeetSegmentRaw]
         do {
             segments = try decode(context, samples: samples, isCancelled: isCancelled)
@@ -417,23 +448,30 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             // A client `cancel` trips parakeet.cpp's abort callback, and `parakeet_full` reports
             // that as a plain -6 rather than a distinct status. Answer the cancel that was asked
             // for instead of inventing an inference failure.
+            if runAssist { assistJoin.wait() }
             if isCancelled() { return .cancelled }
             return .failure(code: .inferenceFailed, detail: String(describing: error), fatal: true)
         }
 
         var assistText: String?
-        if assistModelPath != nil, samples.count <= assistMaxSamples {
-            do {
-                let assist = try loadAssistContext()
-                let assistSegments = try decode(assist, samples: samples, isCancelled: isCancelled)
+        if runAssist {
+            assistJoin.wait()
+            switch assistOutcome {
+            case .success(let assistSegments):
                 assistText = TokenMapping.transcript(from: assistSegments).text
-            } catch {
+            case .failure(let error):
                 // Assist is configured on purpose; a silent fallback to the primary-only
                 // transcript would report a run that never exercised the candidate.
                 if isCancelled() { return .cancelled }
                 return .failure(
                     code: .inferenceFailed,
                     detail: "assist decode failed: \(String(describing: error))",
+                    fatal: true
+                )
+            case .none:
+                return .failure(
+                    code: .inferenceFailed,
+                    detail: "assist decode returned no outcome",
                     fatal: true
                 )
             }
@@ -691,10 +729,13 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
 
     private func unloadIfIdle() {
         guard shouldUnloadNow(now: .now()) else { return }
-        // A decode owns the context for its whole duration. Skip this tick rather than make the
-        // user wait behind a timer that only ever needs to be approximately right.
+        // A decode owns its context for its whole duration, so dropping either context
+        // needs its lock. Skip this tick rather than make the user wait behind a timer
+        // that only ever needs to be approximately right.
         guard decodeLock.try() else { return }
         defer { decodeLock.unlock() }
+        guard assistDecodeLock.try() else { return }
+        defer { assistDecodeLock.unlock() }
 
         stateLock.lock()
         let idleMs = Self.elapsedMs(from: lastDecodeEndedAt, to: .now())
@@ -715,21 +756,26 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         return context
     }
 
-    /// Runs one decode with the context held exclusively.
+    /// Runs one decode with the context held exclusively under its own lock.
     ///
     /// The server already serializes real transcribes on one queue, but the preload thread's
     /// throwaway decode does not run there, and `parakeet_full` is documented as not thread safe
-    /// for the same context.
+    /// for the same context. Distinct contexts decode concurrently on purpose: the assist
+    /// overlap in `transcribe` relies on the primary and assist locks being separate.
     private func decode(
         _ context: any ParakeetRuntimeContext,
         samples: [Float],
         isCancelled: @escaping () -> Bool,
         isWarmUp: Bool = false
     ) throws -> [ParakeetSegmentRaw] {
-        decodeLock.lock()
+        stateLock.lock()
+        let isAssist = context === assistContext
+        stateLock.unlock()
+        let lock = isAssist ? assistDecodeLock : decodeLock
+        lock.lock()
         defer {
             withState { $0.lastDecodeEndedAt = DispatchTime.now() }
-            decodeLock.unlock()
+            lock.unlock()
         }
         if isWarmUp {
             return try context.transcribeForWarmUp(
