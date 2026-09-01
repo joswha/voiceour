@@ -62,6 +62,11 @@ readonly ASSIST_MODEL_SHA256="1af0aed998520343d0f9b9b96b3b351accccb2d87a53c98f08
 readonly ASSIST_MAX_S="15.0"
 readonly ASSIST_MODEL_2="$PWD/.build/asr-research/models-1p1b/ggml-parakeet-tdt-1.1b-f16.bin"
 readonly ASSIST_MODEL_2_SHA256="0f74197dca8668af13dbfdb251edc487dc7156c7acd35292451ecd4814f7c15c"
+readonly ASSIST_MODEL_3="$PWD/.build/asr-research/models-tdt-ctc-1p1b/ggml-parakeet-tdt-ctc-1p1b-f16.bin"
+readonly ASSIST_MODEL_3_SHA256="9c17942848d8a3e510a686664aa7bc81ad5ca3880df1828c4032f716e10e8c03"
+# At <=8 s the hybrid checkpoint has <=101 encoder frames, so its configured
+# +/-128 local-attention window is exactly equivalent to full attention.
+readonly ASSIST_MODEL_3_MAX_S="8.0"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -193,6 +198,14 @@ if [ -n "$ASSIST_MODEL_2" ]; then
     [ "$observed_assist2_sha" = "$ASSIST_MODEL_2_SHA256" ] ||
         die "assist model 2 sha $observed_assist2_sha != pinned $ASSIST_MODEL_2_SHA256"
     coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL_2=$ASSIST_MODEL_2"
+fi
+if [ -n "$ASSIST_MODEL_3" ]; then
+    [ -e "$ASSIST_MODEL_3" ] || die "assist model 3 artifact missing: $ASSIST_MODEL_3"
+    [ -n "$ASSIST_MODEL_3_SHA256" ] || die 'assist model 3 sha pin is empty'
+    observed_assist3_sha="$(shasum -a 256 "$ASSIST_MODEL_3" | cut -d' ' -f1)"
+    [ "$observed_assist3_sha" = "$ASSIST_MODEL_3_SHA256" ] ||
+        die "assist model 3 sha $observed_assist3_sha != pinned $ASSIST_MODEL_3_SHA256"
+    coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL_3=$ASSIST_MODEL_3 VOICEOUR_ASSIST_MODEL_3_MAX_S=$ASSIST_MODEL_3_MAX_S"
 fi
 
 # --- build, outside the timed region ---------------------------------------

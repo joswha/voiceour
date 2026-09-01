@@ -74,11 +74,12 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     /// backend, so the two decodes are substrate-disjoint and may overlap.
     private let assistDecodeLock = NSLock()
     private var context: (any ParakeetRuntimeContext)?
-    /// Optional second-opinion models: decoded in order on the assist thread for audio
-    /// at or under `assistMaxSamples`, their raw transcripts returned as `assistTexts`
-    /// for the client-side text stage to arbitrate. Empty disables the feature.
+    /// Optional second-opinion models: decoded in order on the assist thread when
+    /// audio is at or under that model's matching sample cap, their raw transcripts
+    /// returned as `assistTexts` for the client-side text stage to arbitrate.
+    /// Empty disables the feature.
     private let assistModelPaths: [String]
-    private let assistMaxSamples: Int
+    private let assistMaxSampleCounts: [Int]
     private var assistContexts: [any ParakeetRuntimeContext] = []
     private let assistContextFactory: (String) throws -> any ParakeetRuntimeContext
     private var loadMs = 0
@@ -150,28 +151,43 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations, log: log)
 
         var assistModelPaths: [String] = []
-        var assistMaxSamples = 0
-        for key in ["VOICEOUR_ASSIST_MODEL", "VOICEOUR_ASSIST_MODEL_2"] {
-            guard let assistPath = environment[key] else { continue }
+        var assistMaxSampleCounts: [Int] = []
+        var assistMaximumSeconds: [Double] = []
+        var defaultAssistMaximumSeconds = 15.0
+        if let rawMax = environment["VOICEOUR_ASSIST_MAX_S"] {
+            guard let parsed = Double(rawMax), parsed.isFinite, parsed > 0 else {
+                throw ParakeetAssistError.invalidMaximumDuration(rawMax)
+            }
+            defaultAssistMaximumSeconds = parsed
+        }
+        let assistKeys: [(model: String, maximum: String?)] = [
+            ("VOICEOUR_ASSIST_MODEL", nil),
+            ("VOICEOUR_ASSIST_MODEL_2", nil),
+            ("VOICEOUR_ASSIST_MODEL_3", "VOICEOUR_ASSIST_MODEL_3_MAX_S"),
+        ]
+        for key in assistKeys {
+            guard let assistPath = environment[key.model] else { continue }
             guard !assistPath.isEmpty else {
                 throw ParakeetAssistError.emptyModelPath
             }
             guard FileManager.default.fileExists(atPath: assistPath) else {
                 throw ParakeetAssistError.modelMissing(assistPath)
             }
-            assistModelPaths.append(assistPath)
-        }
-        if !assistModelPaths.isEmpty {
-            var maxSeconds = 15.0
-            if let rawMax = environment["VOICEOUR_ASSIST_MAX_S"] {
+            var maxSeconds = defaultAssistMaximumSeconds
+            if let maximumKey = key.maximum, let rawMax = environment[maximumKey] {
                 guard let parsed = Double(rawMax), parsed.isFinite, parsed > 0 else {
                     throw ParakeetAssistError.invalidMaximumDuration(rawMax)
                 }
                 maxSeconds = parsed
             }
-            assistMaxSamples = Int(maxSeconds * 16_000)
+            assistModelPaths.append(assistPath)
+            assistMaxSampleCounts.append(Int(maxSeconds * 16_000))
+            assistMaximumSeconds.append(maxSeconds)
+        }
+        if !assistModelPaths.isEmpty {
+            let maxima = assistMaximumSeconds.map { String($0) }.joined(separator: ",")
             log(
-                "VOICEOUR_ASSIST_MODEL mode=chain models=\(assistModelPaths.joined(separator: ",")) max_s=\(maxSeconds)"
+                "VOICEOUR_ASSIST_MODEL mode=chain models=\(assistModelPaths.joined(separator: ",")) max_s=\(maxima)"
             )
         }
 
@@ -182,7 +198,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 idleUnloadMs: idleUnloadMs,
                 coreMLWarm: coreMLWarm,
                 assistModelPaths: assistModelPaths,
-                assistMaxSamples: assistMaxSamples,
+                assistMaxSampleCounts: assistMaxSampleCounts,
                 contextFactory: {
                     try ParakeetContext(
                         modelPath: $0,
@@ -226,7 +242,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 log: log,
                 idleUnloadMs: idleUnloadMs,
                 assistModelPaths: assistModelPaths,
-                assistMaxSamples: assistMaxSamples,
+                assistMaxSampleCounts: assistMaxSampleCounts,
                 contextFactory: {
                     try ParakeetContext(
                         modelPath: $0,
@@ -256,7 +272,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         idleUnloadMs: Int,
         coreMLWarm: CoreMLWarmMode = .default,
         assistModelPaths: [String] = [],
-        assistMaxSamples: Int = 0,
+        assistMaxSampleCounts: [Int] = [],
         contextFactory: @escaping (String) throws -> any ParakeetRuntimeContext,
         assistContextFactory: ((String) throws -> any ParakeetRuntimeContext)? = nil
     ) {
@@ -265,7 +281,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         self.idleUnloadMs = idleUnloadMs
         self.coreMLWarm = coreMLWarm
         self.assistModelPaths = assistModelPaths
-        self.assistMaxSamples = assistMaxSamples
+        self.assistMaxSampleCounts = assistMaxSampleCounts
         self.contextFactory = contextFactory
         // Assist contexts use their own per-model weight arenas so their weights stay
         // file-backed mmap rather than wired Metal buffers (the footprint mechanism).
@@ -430,11 +446,11 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         let started = DispatchTime.now().uptimeNanoseconds
 
         // The assist decodes run concurrently with the primary: distinct contexts, and
-        // the primary's ≤15 s path is ANE + CPU while the assists run their own Metal
-        // backends (chained serially on one thread — they share the GPU anyway). Each
-        // context's own decode stays serialized by its lock, so no model's output can
-        // depend on the overlap; the results are joined before the response is built.
-        let runAssist = !assistModelPaths.isEmpty && samples.count <= assistMaxSamples
+        // the primary's short-audio path is ANE + CPU while the assists run their own
+        // Metal backends (chained serially on one thread — they share the GPU). Each
+        // context's own decode stays serialized by its lock. A per-model cap may omit
+        // a costly assist while preserving the configured ordering of those that run.
+        let runAssist = assistMaxSampleCounts.contains { samples.count <= $0 }
         var assistOutcome: Result<[[ParakeetSegmentRaw]], Error>?
         let assistJoin = DispatchSemaphore(value: 0)
         if runAssist {
@@ -447,8 +463,14 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 }
                 assistOutcome = Result {
                     let assists = try self.loadAssistContexts()
-                    return try assists.map {
-                        try self.decode($0, samples: assistSamples, isCancelled: isCancelled)
+                    return try zip(assists, self.assistMaxSampleCounts).compactMap {
+                        context, maximumSamples in
+                        guard assistSamples.count <= maximumSamples else { return nil }
+                        return try self.decode(
+                            context,
+                            samples: assistSamples,
+                            isCancelled: isCancelled
+                        )
                     }
                 }
             }

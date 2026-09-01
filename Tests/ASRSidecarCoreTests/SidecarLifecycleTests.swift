@@ -332,6 +332,82 @@ struct SidecarLifecycleTests {
         #expect(runCompleted.wait(timeout: .now() + 2) == .success)
         #expect(run.value == 0)
     }
+    @Test func aThirdAssistCanCarryItsOwnDurationCap() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecar-assist-chain-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let paths = (1...3).map { directory.appendingPathComponent("assist-\($0).bin").path }
+        for path in paths {
+            try Data("assist".utf8).write(to: URL(fileURLWithPath: path))
+        }
+        var logs: [String] = []
+
+        _ = try ParakeetSidecarBackend(
+            cache: ParakeetModelCache(directory: directory),
+            environment: [
+                "VOICEOUR_ASSIST_MODEL": paths[0],
+                "VOICEOUR_ASSIST_MODEL_2": paths[1],
+                "VOICEOUR_ASSIST_MODEL_3": paths[2],
+                "VOICEOUR_ASSIST_MAX_S": "15",
+                "VOICEOUR_ASSIST_MODEL_3_MAX_S": "8",
+            ],
+            log: { logs.append($0) },
+            idleUnloadMs: 0
+        )
+
+        let assistLog = try #require(logs.first { $0.contains("VOICEOUR_ASSIST_MODEL mode=chain") })
+        #expect(assistLog.contains(paths.joined(separator: ",")))
+        #expect(assistLog.contains("max_s=15.0,15.0,8.0"))
+    }
+    @Test func anAssistBeyondItsOwnSampleCapIsNotDecoded() throws {
+        let bytes = Data("model".utf8)
+        let artifact = ParakeetModelManifest(
+            modelId: "test/model",
+            revision: "test-revision",
+            file: "model.bin",
+            sha256: "test-digest",
+            sizeBytes: Int64(bytes.count)
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecar-assist-cap-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = ParakeetModelCache(
+            directory: directory,
+            artifact: artifact,
+            ownsVariantRoot: false
+        )
+        try bytes.write(to: cache.modelURL)
+        try JSONEncoder().encode(artifact).write(to: cache.manifestURL)
+
+        let included = AssistRecordingContext(text: "included")
+        let excluded = AssistRecordingContext(text: "excluded")
+        let contexts = ["included": included, "excluded": excluded]
+        let backend = ParakeetSidecarBackend(
+            cache: cache,
+            log: { _ in },
+            idleUnloadMs: 0,
+            assistModelPaths: ["included", "excluded"],
+            assistMaxSampleCounts: [32, 8],
+            contextFactory: { _ in EmptyParakeetRuntimeContext() },
+            assistContextFactory: { contexts[$0]! }
+        )
+
+        let terminal = backend.transcribe(
+            transcribeRequest(audio: try writeSilentWAV(in: directory)),
+            isCancelled: { false }
+        )
+        guard case .result(let transcript, _, _, _, _) = terminal else {
+            Issue.record("the scripted decode must produce a transcript")
+            return
+        }
+        #expect(transcript.assistTexts?.count == 1)
+        #expect(included.decodeCount == 1)
+        #expect(excluded.decodeCount == 0)
+    }
+
 }
 
 private enum ScriptedLoadError: Error {
@@ -396,6 +472,28 @@ private final class FailThenSucceedContextFactory: @unchecked Sendable {
         }
         if attempt == 1 { throw ScriptedLoadError.firstAttempt }
         return EmptyParakeetRuntimeContext()
+    }
+}
+
+private final class AssistRecordingContext: ParakeetRuntimeContext, @unchecked Sendable {
+    private let lock = NSLock()
+    private let text: String
+    private var recordedDecodeCount = 0
+
+    init(text: String) {
+        self.text = text
+    }
+
+    var decodeCount: Int {
+        lock.withLock { recordedDecodeCount }
+    }
+
+    func transcribe(
+        samples _: [Float],
+        isCancelled _: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        lock.withLock { recordedDecodeCount += 1 }
+        return [ParakeetSegmentRaw(startMs: 0, endMs: 1, text: text, tokens: [])]
     }
 }
 
