@@ -15,7 +15,9 @@
 Tap Fn once and speak. Tap again and the text lands in the app you were already using — recorded, recognized, and cleaned up entirely on your Mac. Ordinary text fields get the paste; a terminal, a code editor, a password field, or a target Voiceour could not read gets the transcript on the clipboard instead, and no setting widens that. [Permissions and delivery safety](docs/permissions.md) has the matrix.
 The mercury recording island is synchronized to the display it occupies: 120 fps on a ProMotion screen, the native rate on lower-refresh displays, capped at 120.
 
-No account, no telemetry, no cloud transcription. The only network request fetches the recognition model, pinned to `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303dd209fd2bed6ee079`. Settings offers a Compact version of that same model — a 0.67 GB download and about 1.34 GB cached after first load, instead of Balanced’s 1.26 GB download and about 2.51 GB cache. It is a little slower to transcribe and applies the next time Voiceour starts.
+Terms you teach in the Glossary do more than fix spelling: Voiceour also repairs close phonetic mishearings of them, by deterministic matching against your own terms rather than a model rewriting your words. Terms that are ordinary English words are held out of that phonetic step, so a word you actually said is never traded for one that merely sounds like something you taught.
+
+No account, no telemetry, no cloud transcription. The only network request fetches the recognition model, pinned to `ggml-org/parakeet-GGUF` revision `35156454d1a39de06863303dd209fd2bed6ee079`. Settings offers a Compact version of that same model — a 0.67 GB download and about 1.34 GB cached after first load, instead of Balanced’s 1.26 GB download and about 2.51 GB cache. Their accuracy matches to within what the benchmarks can resolve, and which of them decodes faster has changed with the macOS version, so treat it as a footprint choice; it applies the next time Voiceour starts.
 
 Home keeps the running totals: how long you have spoken, how much typing it saved, and which apps the words went to.
 

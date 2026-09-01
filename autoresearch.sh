@@ -184,6 +184,7 @@ if [ -n "$COREML_ENCODER" ]; then
             die "coreml tiny encoder digest $observed_tiny_digest != pinned $COREML_ENCODER_TINY_DIGEST"
         coreml_env_args="$coreml_env_args VOICEOUR_COREML_ENCODER_TINY=$COREML_ENCODER_TINY VOICEOUR_COREML_TINY_MAX_S=$COREML_TINY_MAX_S"
     fi
+    coreml_env_args="$coreml_env_args VOICEOUR_TAIL_BACKEND=cpu"
 fi
 
 # --- build, outside the timed region ---------------------------------------

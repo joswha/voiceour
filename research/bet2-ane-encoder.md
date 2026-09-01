@@ -244,3 +244,27 @@ remains the quiet-anchored 0.568; live-conditions band 0.43–0.47.
 **ANE artifact-shipping constraint measured:** each tier's .mlmodelc is 1.1 GB
 (3.3 GB for the ladder) — product distribution needs palettization/weight-sharing
 research or a single-tier compromise before this leaves env-gated status.
+
+### Runs 67–69 — frontier bounds + deployment decision evidence (2026-09-01)
+
+- **4-bit palettization: KILLED on NI** (run 68). Size passed spectacularly (917 MB =
+  25.9% of FP16, faster loads/predictions) but uwer_mix .037800 > .037509 — the 24-row
+  probe's warning (13/24 changed, +1.43 pp) scaled corpus-wide. Frontier conclusion:
+  **6-bit grouped-32 is the operating point** — 38.4% size at +.0002 U-WER; 25.9% costs
+  +.0035. One config, no rescue, exactly as preregistered.
+- **Single-tier decision probe** (run 69, evidence discard): standard-tier-only
+  (459 MB) measured ratio 0.7726 vs the ladder's 0.31–0.37. Caveat recorded: two C
+  blocks carried ambient CPU interference; the cleanest block implies ~0.50. Honest
+  ladder-vs-single-tier factor: **1.5–2.5×** — the 1.36 GB ladder earns its bytes
+  when energy matters; single-tier remains an acceptable floor (still ≥23% better
+  than native) where download size dominates.
+- Run 67 (checks_failed): my own contamination gate correctly rejected a probe whose
+  window was poisoned by concurrent k-means conversions — lock protocol extended to
+  cover ALL heavy work, not just model execution.
+
+Deployment menu this leaves the product:
+| option | bytes | energy vs native | note |
+|---|---:|---|---|
+| native only | 0 | 1.0 | today's default |
+| single 6-bit tier | 459 MB | ~0.5–0.77 | one artifact, one ~20 s first compile |
+| 6-bit ladder | 1.36 GB | **0.31–0.37** | the certified optimum |

@@ -444,6 +444,9 @@ struct parakeet_state {
 
     std::vector<ggml_backend_t> backends;
 
+    // VOICEOUR PATCH: persistent decode inputs live with the CPU tail when it is selected.
+    ggml_backend_t backend_decode_state = nullptr;
+
     parakeet_sched sched_encode;
     parakeet_sched sched_decode;
 
@@ -1374,6 +1377,36 @@ static std::vector<ggml_backend_t> parakeet_backend_init(const parakeet_context_
     return result;
 }
 
+// VOICEOUR PATCH: keep the encoder's full heterogeneous list while restricting the scalar TDT
+// tail to Accelerate (when registered) plus the mandatory CPU fallback. Backend ownership stays
+// with parakeet_state::backends; this vector is only the scheduler's ordered view.
+static std::vector<ggml_backend_t> parakeet_backend_decode_list(
+        const parakeet_context_params & params,
+        const std::vector<ggml_backend_t> & backends) {
+    if (!params.tail_backend_cpu) {
+        return backends;
+    }
+
+    std::vector<ggml_backend_t> result;
+    ggml_backend_t backend_cpu = nullptr;
+    result.reserve(backends.size());
+
+    for (ggml_backend_t backend : backends) {
+        const enum ggml_backend_dev_type type = ggml_backend_dev_type(ggml_backend_get_device(backend));
+        if (type == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+            result.push_back(backend);
+        } else if (type == GGML_BACKEND_DEVICE_TYPE_CPU) {
+            backend_cpu = backend;
+        }
+    }
+
+    if (!backend_cpu) {
+        throw std::runtime_error("CPU backend missing from decode backend list");
+    }
+    result.push_back(backend_cpu);
+    return result;
+}
+
 using buft_list_t = std::vector<std::pair<ggml_backend_dev_t, ggml_backend_buffer_type_t>>;
 
 static buft_list_t make_buft_list(parakeet_context_params & params) {
@@ -1601,8 +1634,20 @@ static void parakeet_hash_value(uint64_t & hash, const T & value) {
     parakeet_hash_bytes(hash, &value, sizeof(value));
 }
 
+// VOICEOUR PATCH: ggml's canonical CPU buffer type deliberately has no device pointer, but its
+// registered CPU device does support mapped host buffers. Resolve that device explicitly so a
+// split Metal-encoder/CPU-tail arena retains the file-backed weight path.
+static ggml_backend_dev_t parakeet_weight_arena_device(
+        ggml_backend_buffer_type_t buft,
+        bool map_cpu_buffer) {
+    return map_cpu_buffer && buft == ggml_backend_cpu_buffer_type()
+        ? ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU)
+        : ggml_backend_buft_get_device(buft);
+}
+
 static bool parakeet_make_weight_arena_plan(
         const parakeet_weight_ctx_map & ctx_map,
+        bool map_cpu_buffer,
         parakeet_weight_arena_plan & plan) {
     const long page_size_long = sysconf(_SC_PAGESIZE);
     if (page_size_long <= 0) {
@@ -1620,7 +1665,7 @@ static bool parakeet_make_weight_arena_plan(
             continue;
         }
 
-        ggml_backend_dev_t device = ggml_backend_buft_get_device(buft);
+        ggml_backend_dev_t device = parakeet_weight_arena_device(buft, map_cpu_buffer);
         if (!device) {
             return false;
         }
@@ -1752,7 +1797,7 @@ static bool parakeet_allocate_weight_arena_buffers(
         const parakeet_weight_arena_plan & plan) {
     uint8_t * base = static_cast<uint8_t *>(model.weight_arena_addr);
     for (const auto & slice : plan.slices) {
-        ggml_backend_dev_t device = ggml_backend_buft_get_device(slice.buft);
+        ggml_backend_dev_t device = parakeet_weight_arena_device(slice.buft, true);
         ggml_backend_buffer_t buffer = ggml_backend_dev_buffer_from_host_ptr(
             device,
             base + slice.offset,
@@ -2405,8 +2450,12 @@ static bool parakeet_model_load(
         }
 
         ggml_op op = PARAKEET_TENSOR_INFO.at(type);
+        // VOICEOUR PATCH: a CPU tail must keep its immutable prediction/joint weights in the
+        // CPU buffer type too; a CPU-only scheduler cannot execute preallocated MTL0 tensors.
         ggml_backend_buffer_type_t buft =
-            select_weight_buft(hparams, selected_meta, op, buft_list);
+            wctx.params.tail_backend_cpu && type >= PARAKEET_TENSOR_PRED_EMBED_WEIGHT
+                ? ggml_backend_cpu_buffer_type()
+                : select_weight_buft(hparams, selected_meta, op, buft_list);
         if (!buft) {
             throw std::runtime_error(format(
                 "failed to find a compatible buffer type for parakeet tensor %s",
@@ -2621,7 +2670,11 @@ static bool parakeet_model_load(
         path_weight_arena[0] != '\0' &&
         loader->seek &&
         loader->tell;
-    if (arena_requested && parakeet_make_weight_arena_plan(ctx_map, arena_plan)) {
+    if (arena_requested &&
+            parakeet_make_weight_arena_plan(
+                ctx_map,
+                wctx.params.tail_backend_cpu,
+                arena_plan)) {
         arena_path = path_weight_arena;
         arena_manifest_path = arena_path + ".manifest";
         arena_manifest = parakeet_weight_arena_manifest(arena_plan);
@@ -3730,7 +3783,8 @@ static bool parakeet_ensure_encode_sched(
         pstate.enc_out_buffer = nullptr;
         pstate.enc_out = nullptr;
 
-        if (!parakeet_enc_state_init(pstate, pstate.backends[0], pctx.model.hparams.n_audio_state, n_frames_max)) {
+        // VOICEOUR PATCH: a CPU tail keeps resized encoder output on its decode-state backend.
+        if (!parakeet_enc_state_init(pstate, pstate.backend_decode_state, pctx.model.hparams.n_audio_state, n_frames_max)) {
             pstate.sched_encode_n_audio_ctx = 0;
             pstate.n_audio_ctx = prev_n_audio_ctx;
             return false;
@@ -4696,6 +4750,20 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
         return nullptr;
     }
 
+    // VOICEOUR PATCH: the default path retains the original full list and first-backend state
+    // placement. The opt-in path excludes Metal from decode and places every persistent decode
+    // input on CPU so each scalar step has no cross-device state copy.
+    const std::vector<ggml_backend_t> decode_backends =
+        parakeet_backend_decode_list(ctx->params, state->backends);
+    state->backend_decode_state =
+        ctx->params.tail_backend_cpu ? decode_backends.back() : state->backends[0];
+    if (ctx->params.tail_backend_cpu) {
+        for (size_t i = 0; i < decode_backends.size(); ++i) {
+            PARAKEET_LOG_INFO("%s: tail decode backend %zu: %s\n", __func__, i,
+                    ggml_backend_dev_name(ggml_backend_get_device(decode_backends[i])));
+        }
+    }
+
     const int batch_size = ctx->model.hparams.n_audio_ctx;
 
     state->logits.reserve(ctx->vocab.n_vocab * batch_size);
@@ -4707,7 +4775,7 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
         const int subsampl_factor  = ctx->model.hparams.subsampling_factor;
         const int n_frames_max     = (batch_size + subsampl_factor - 1) / subsampl_factor;
 
-        if (!parakeet_enc_state_init(*state, state->backends[0], n_audio_state, n_frames_max)) {
+        if (!parakeet_enc_state_init(*state, state->backend_decode_state, n_audio_state, n_frames_max)) {
             PARAKEET_LOG_ERROR("%s: parakeet_enc_state_init() failed\n", __func__);
             parakeet_free_state(state);
             return nullptr;
@@ -4732,7 +4800,7 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
     }
     state->sched_encode_n_audio_ctx = state->n_audio_ctx > 0 ? state->n_audio_ctx : ctx->model.hparams.n_audio_ctx;
 
-    if (!parakeet_lstm_state_init(*state, state->backends[0], ctx->model.hparams.n_pred_layers, ctx->model.hparams.n_pred_dim)) {
+    if (!parakeet_lstm_state_init(*state, state->backend_decode_state, ctx->model.hparams.n_pred_layers, ctx->model.hparams.n_pred_dim)) {
         PARAKEET_LOG_ERROR("%s: parakeet_lstm_states_init () failed\n", __func__);
         parakeet_free_state(state);
         return nullptr;
@@ -4745,7 +4813,7 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
                 mem_lstm_ctx / 1024.0 / 1024.0, mem_lstm_buf / 1024.0 / 1024.0);
     }
 
-    if (!parakeet_pred_state_init(*state, state->backends[0], ctx->model.hparams.n_pred_dim)) {
+    if (!parakeet_pred_state_init(*state, state->backend_decode_state, ctx->model.hparams.n_pred_dim)) {
         PARAKEET_LOG_ERROR("%s: parakeet_pred_state_init() failed\n", __func__);
         parakeet_free_state(state);
         return nullptr;
@@ -4758,10 +4826,19 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
                 mem_pred_ctx / 1024.0 / 1024.0, mem_pred_out_buf / 1024.0 / 1024.0);
     }
 
+    if (ctx->params.tail_backend_cpu) {
+        // VOICEOUR PATCH: make the no-cross-device per-step placement observable at startup.
+        PARAKEET_LOG_INFO("%s: tail state buffers: enc_out=%s lstm=%s pred_out=%s\n", __func__,
+                ggml_backend_buffer_name(state->enc_out_buffer),
+                ggml_backend_buffer_name(state->lstm_state.buffer),
+                ggml_backend_buffer_name(state->pred_out_buffer));
+    }
+
     PARAKEET_LOG_INFO("%s: compute buffer (encode) = %7.2f MB\n", __func__, parakeet_sched_size(state->sched_encode) / 1e6);
 
     {
-        bool ok = parakeet_sched_graph_init(state->sched_decode, state->backends,
+        // VOICEOUR PATCH: Metal is absent from this scheduler only when tail_backend_cpu is set.
+        bool ok = parakeet_sched_graph_init(state->sched_decode, decode_backends,
                 [&]() {
                     const auto & hparams = ctx->model.hparams;
                     const int n_tokens = hparams.n_audio_ctx; // Use audio ctx for Parakeet
@@ -4787,6 +4864,7 @@ struct parakeet_context_params parakeet_context_default_params() {
     struct parakeet_context_params result = {
         /*.use_gpu              =*/ true,
         /*.gpu_device           =*/ 0,
+        /*.tail_backend_cpu     =*/ false, // VOICEOUR PATCH: default remains the full backend list.
     };
     return result;
 }

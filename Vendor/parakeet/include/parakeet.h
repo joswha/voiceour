@@ -48,6 +48,8 @@ extern "C" {
     struct parakeet_context_params {
         bool  use_gpu;
         int   gpu_device;  // CUDA device
+        // VOICEOUR PATCH: opt-in CPU/Accelerate TDT tail; false preserves backend selection.
+        bool  tail_backend_cpu;
     };
 
     typedef struct parakeet_token_data {

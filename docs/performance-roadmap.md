@@ -1,6 +1,6 @@
 # Performance
 
-Measurements were updated through 2026-08-15 on an Apple M4 Pro (10 performance + 4 efficiency cores, 24 GB) running macOS 26.5.2.
+Measurements were taken on an Apple M4 Pro (10 performance + 4 efficiency cores, 24 GB). Everything below is dated 2026-08-15 on macOS 26.5.2, except the 2026-09-01 quantization correction, which re-measures that one comparison on macOS 26.6.2.
 
 ## Model and runtime
 
@@ -9,7 +9,7 @@ Measurements were updated through 2026-08-15 on an Apple M4 Pro (10 performance 
 - revision: `35156454d1a39de06863303dd209fd2bed6ee079`
 - artifact: `ggml-parakeet-tdt-0.6b-v3-f16.bin`, 1,255,897,319 bytes — the default, and what every measurement here used unless it says otherwise
 - decode: greedy TDT in the persistent sidecar
-- after ASR: deterministic cleanup and glossary canonicalization only
+- after ASR: deterministic cleanup, glossary canonicalization, and glossary-driven vocabulary repair only
 
 ## Corpus baseline
 
@@ -50,15 +50,23 @@ Same tiers and revision, measured 2026-08-15; f16 first, q8_0 second. The f16 co
 - FLEURS ASR p50 / p95: 90.5 / 125.4 ms, 109.0 / 156.5 ms; RTFx 99.7, 84.1
 - U-WER: LibriSpeech 2.807%, 2.782%; FLEURS 4.416%, 4.416%
 
-Quantization saves 587 MB at effectively unchanged accuracy but loses 7–19% throughput, which is why f16 is the default and the compiled fallback. That is not a reason to withhold the trade: q8_0 ships as the user-selectable Compact option, because roughly half the footprint for that throughput is a choice only the reader can make. Reports: `20260815T143055Z-librispeech-parakeet-stt.json`, `20260815T143116Z-fleurs-parakeet-stt.json`.
+Quantization saves 587 MB at effectively unchanged accuracy but lost 7–19% throughput on that toolchain, which is why f16 is the default and the compiled fallback. That is not a reason to withhold the trade: q8_0 ships as the user-selectable Compact option, because roughly half the footprint for that throughput is a choice only the reader can make. Reports: `20260815T143055Z-librispeech-parakeet-stt.json`, `20260815T143116Z-fleurs-parakeet-stt.json`. The throughput half of that rationale no longer reproduces on the current toolchain; the correction below measures it.
 
 Weaker corroboration, 32 LibriSpeech rows: both artifacts scored U-WER 2.2422%, with 31 of 32 transcripts byte-identical. A run that short cannot resolve a difference this small — it sits below the corpus's resolution — so it agrees with the accuracy result above without independently establishing it.
+
+### Correction — 2026-09-01: the throughput penalty does not reproduce on macOS 26.6.2
+
+Re-measured on the same M4 Pro under macOS 26.6.2 (25G83), Xcode 26.6 (17F113), Swift 6.3.3: one warmup plus two timed passes per variant inside one persistent `voiceour-bench pipeline` process, zero error rows, zero cross-pass transcript drift. q8_0 p50 lands at 0.979–0.993 of f16 across all five duration buckets — tied in the two short buckets, 1–3% faster in the long ones. A stock Metal System Trace of one 31.65 s row attributes the change: the LSTM prediction plus joint tail is 24.8% cheaper under q8_0 and the FastConformer encoder 2.5% dearer, so the net favors q8_0. A 552-row probe over both development corpora scored ΔU-WER +0.000307 with equal term metrics and p95 205.75 ms against f16's 208.0 ms, and 20 of those 552 transcripts still differ, so this is parity rather than dominance.
+
+The 2026-08-15 table above stands as the historical record. It was measured correctly, the artifacts have not changed, and the pinned digests still match; what moved underneath it is the OS and toolchain. Treat the 7–19% figure as history, not as the current cost of Compact.
+
+f16 remains the default, because this measurement cannot carry a default change: one Mac, one SoC, one OS, and development corpora — 96 general rows in `bench/autoresearch/corpus.manifest.jsonl` plus 456 synthetic `say` rows in `benchmarks/data/jargon/manifest.jsonl`, which is engineering evidence, not real speakers. Flipping the default is a product decision gated on cross-SoC replication and the paired real-speaker gate in [`benchmarks.md`](benchmarks.md). Full measurement record: `research/bet3-quantization.md`.
 
 ## Ranked next measurements
 
 1. **Held-out real-speaker TechTerms corpus.** The synthetic tier cannot establish jargon recall, false replacement rate, or speaker generalization.
 2. **Stop-to-delivery distribution.** Segment `SessionStageTimings.stopReleaseToInsertionOutcomeMs` by mute state, model load, target disposition, and capture device.
-3. **Energy and thermal cost.** Long dictations and repeated short dictations are unmeasured.
+3. **Energy and thermal cost.** Compute-rail energy over the development corpora is measured in `research/bet2-ane-encoder.md`; thermal behavior, and energy for long single dictations, are not.
 4. **Cold-cache first run.** Time download, cache verification, shader compilation, model load, and first delivery separately; one total cannot locate the wait.
 
 ## Non-candidates

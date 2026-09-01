@@ -98,6 +98,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         log: @escaping (String) -> Void,
         idleUnloadMs: Int = 1_800_000
     ) throws {
+        let tailBackend = try ParakeetTailBackend.resolve(environment: environment)
+        let weightArenaPath = cache.weightArenaURL.path + (tailBackend.usesCPU ? ".tail-cpu" : "")
         let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: environment)
         let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations, log: log)
 
@@ -109,7 +111,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 contextFactory: {
                     try ParakeetContext(
                         modelPath: $0,
-                        weightArenaPath: cache.weightArenaURL.path,
+                        weightArenaPath: weightArenaPath,
+                        tailBackendCPU: tailBackend.usesCPU,
                         coreMLEncoders: coreMLEncoders
                     )
                 }
@@ -143,10 +146,17 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 log: log,
                 idleUnloadMs: idleUnloadMs,
                 contextFactory: {
-                    try ParakeetContext(modelPath: $0, weightArenaPath: cache.weightArenaURL.path)
+                    try ParakeetContext(
+                        modelPath: $0,
+                        weightArenaPath: weightArenaPath,
+                        tailBackendCPU: tailBackend.usesCPU
+                    )
                 }
             )
             log("VOICEOUR_COREML_ENCODER mode=native")
+        }
+        if tailBackend == .cpu {
+            log("VOICEOUR_TAIL_BACKEND mode=cpu")
         }
     }
 

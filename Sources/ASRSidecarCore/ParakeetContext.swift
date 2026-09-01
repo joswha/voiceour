@@ -1,6 +1,35 @@
 import CParakeet
 import Foundation
 
+enum ParakeetTailBackend: Equatable {
+    case `default`
+    case cpu
+
+    static let environmentKey = "VOICEOUR_TAIL_BACKEND"
+
+    static func resolve(environment: [String: String]) throws -> ParakeetTailBackend {
+        guard let value = environment[environmentKey] else { return .default }
+        switch value {
+        case "default": return .default
+        case "cpu": return .cpu
+        default: throw ParakeetTailBackendError.invalidValue(value)
+        }
+    }
+
+    var usesCPU: Bool { self == .cpu }
+}
+
+enum ParakeetTailBackendError: Error, CustomStringConvertible {
+    case invalidValue(String)
+
+    var description: String {
+        switch self {
+        case .invalidValue(let value):
+            return "invalid \(ParakeetTailBackend.environmentKey) value '\(value)'; expected 'default' or 'cpu'"
+        }
+    }
+}
+
 public enum ParakeetContextError: Error, CustomStringConvertible {
     case loadFailed(String)
     case decodeFailed(Int32)
@@ -98,10 +127,12 @@ public final class ParakeetContext {
         modelPath: String,
         weightArenaPath: String? = nil,
         useGPU: Bool = true,
+        tailBackendCPU: Bool = false,
         threadCount: Int32 = 6
     ) throws {
         var params = parakeet_context_default_params()
         params.use_gpu = useGPU
+        params.tail_backend_cpu = tailBackendCPU
         let loaded: OpaquePointer?
         if let weightArenaPath {
             loaded = parakeet_init_from_file_with_params_and_weight_arena(
@@ -123,6 +154,7 @@ public final class ParakeetContext {
         modelPath: String,
         weightArenaPath: String?,
         useGPU: Bool = true,
+        tailBackendCPU: Bool = false,
         threadCount: Int32 = 6,
         coreMLEncoders: CoreMLEncoderSet
     ) throws {
@@ -130,6 +162,7 @@ public final class ParakeetContext {
             modelPath: modelPath,
             weightArenaPath: weightArenaPath,
             useGPU: useGPU,
+            tailBackendCPU: tailBackendCPU,
             threadCount: threadCount
         )
         self.coreMLEncoders = coreMLEncoders

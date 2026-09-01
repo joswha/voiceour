@@ -300,6 +300,19 @@ captured under `patches/`.
     fixed `[1,128,1501]` model input, injected only the valid `[frames,1024]` output, and was
     byte-deterministic across the frozen 552-row two-pass gate. Pooled U-WER delta was +0.000717
     and active compute-rail energy fell 47.0%.
+- `patches/0017-cpu-tail-backend.patch` adds an opt-in `tail_backend_cpu` context parameter
+  (default false). When set, the decode scheduler is built from the CPU/Accelerate backends
+  only, the prediction/joint weight records allocate CPU-side (a distinct weight-arena path
+  suffix keeps the layouts separate), and `enc_out`, the LSTM state, and `pred_out` are placed
+  in CPU buffers so per-step decode runs without Metal dispatches or cross-device copies.
+  Default-off behavior is byte-identical: the parameter only selects backends and buffer
+  placement, never arithmetic.
+  - Upstream status: not reported upstream. It exists for the heterogeneous configuration where
+    the encoder runs in CoreML and the GPU otherwise stays idle during decode.
+  - Test status: transcripts byte-identical to the Metal tail across all 552 frozen rows and
+    3x fresh-process determinism (`.build/asr-research/three-bets/tail-cpu/`); under the
+    palettized CoreML encoder ladder the candidate GPU rail drops to 0.4-2.6 J per block with
+    energy ratio 0.3371/0.3377 across two ABBA runs and general-corpus inference p95 183-185 ms.
 
 
 
