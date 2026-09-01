@@ -14,10 +14,20 @@ zero errors, determinism, term safety.
 uwer_mix .045995 · general .031135 · jargon .060861 · term recall .4653 (161/346) ·
 false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms · 184 MB.
 
-## Segment 3 (energy-primary) — ANE encoder landed
-Native 444.6 J → hybrid 272.3/262.8 J per jargon rep (−39/−41%, 19× noise floor) at
-NI accuracy, deterministic, guards green; GPU rail −80%, encoder on ANE. Vendor patch
-0016 + CoreMLEncoder client, env-gated fail-closed (commit 0a7271db0f74).
+## Segment 3 (energy-primary) — ANE encoder ladder landed
+| run | config | energy_j | verdict |
+|---|---|---:|---|
+| 52 | native Metal | 444.58 | baseline |
+| 53/54 | 15 s ANE hybrid | 272.3 / 262.8 | keep (−41%, 19× noise) |
+| 55 | + 8 s bucket | 204.2 | keep (−22.3%) |
+| 56 | CPU tail | 250.2 | discard — energy +22.5% BUT p95 −11% at byte-identity: latency/energy dial preserved |
+| 57 | + 6 s bucket | **187.5** | keep (−8.2%; **−57.8% total**) |
+
+All kept configs transcript-byte-identical to each other on all 552 rows; accuracy
+guards never moved (uwer_mix .034112, NI ceiling .037509). Four-tier routing
+≤6/≤8/≤15 s CoreML (CPU_AND_NE) / native; vendor patches 0016(+0017 evidence);
+env-gated, fail-closed, env-off byte-inert. Commits 0a7271db, 947e708f, 5f25a63c.
+Product notes: startup load 72→707 ms (lazy-load tiers), per-power-source tail dial.
 
 ## Segment 2 (repair engaged)
 Baseline run 50: **uwer_mix .034009** (−26.1% vs segment 1), recall .7052, false 0,
