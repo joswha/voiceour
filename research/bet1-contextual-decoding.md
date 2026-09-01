@@ -251,3 +251,29 @@ vocabulary path produced **zero repair-attributable insertions and zero changed
 rows** versus cleanup-only (N ≡ N0). Combined with holdout-v1 (synthetic OOD) and
 fleurs-holdout-941 (read speech), the frozen θ=.95 unambiguous-only policy has now
 been silent on every corpus class it could plausibly damage.
+
+### FINAL — decode-side recall family closed by its own preregistration (recorded 2026-09-01)
+
+Recovered from `.build/asr-research/three-bets/context-search/` (a prior session ran
+the staged cells; the reports were never transcribed here): the token-DAG
+logit-fusion cached-replay experiment — the last unexplored decode-side mechanism —
+was implemented behind the staged C seam and measured. **I0/I1 both PASS** (NULL
+callback changes nothing; λ0 cached replay byte-identical to pass 1; replay p50/p95
+14.1/16.5 ms, ≤45 steps). **The λ4 center cell KILLED per preregistration**: 4
+accepted candidates, net +2 safe hits, one nonlocal prefix/suffix change (criterion
+4), composite contextual+safe recall .716763 below the .75 bar. Per its own kill
+rules — no λ6/λ8 rescue, no gate-flattening, no risky-term widening.
+
+With this, every decode-side recall mechanism is a preregistered kill: global λ-bias
+(segment 1), forced scoring (segment 1), scalar k-best selection (no kubectl through
+K=8; eight "cubectal" variants), and DAG-bias cached replay (+2 net at λ4 with an
+integrity violation). The frozen θ=.95 repair holds the safe floor. The ~.70 recall
+on the jargon corpus is the pinned 0.6b model's measured ceiling for this audio:
+the acoustic evidence diverges from the canonical surfaces mid-token, and no bounded
+decode-time intervention manufactures the completion without collateral damage.
+
+What would move recall materially, in order of expected yield: a larger pinned model
+(a mission-contract change — the three bets are defined against the 0.6b pin),
+model-vocabulary surgery for the unencodable surfaces (`C#`, `C++`, `io_uring`), or
+re-recorded jargon audio (the TTS pronunciations bound what any decoder can recover).
+All three are maintainer decisions, not harness candidates.
