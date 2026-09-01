@@ -43,6 +43,34 @@ def read_jsonl(path: Path) -> list[dict]:
                 raise SystemExit(f"score_v5.py: FAIL: {path}:{number} is not JSON: {error}") from error
     return rows
 
+def negative_false_term_rows(
+    negative_rows: dict[str, dict],
+    hypotheses: dict[str, dict],
+    surfaces: list[str],
+) -> dict[str, list[str]]:
+    """Rows that add a taught exact surface unsupported by the spoken reference.
+
+    Outputs remain case-sensitive: an assist has to produce the user's canonical
+    spelling to trigger arbitration. References are case-insensitive because the
+    frozen negative corpus intentionally contains ordinary homographs in prose;
+    case-only damage remains covered by U-WER. Collapsed acronym-vs-phrase errors
+    such as ``IAM`` over ``I am`` are unsupported and fail this guard.
+    """
+
+    false_rows: dict[str, list[str]] = {}
+    for row_id, row in negative_rows.items():
+        hypothesis = hypotheses[f"{row_id}#j0"]["final_text"]
+        reference = str(row["reference"])
+        unsupported = [
+            surface
+            for surface in surfaces
+            if contains_exact_term(hypothesis, surface)
+            and not contains_exact_term(reference.casefold(), surface.casefold())
+        ]
+        if unsupported:
+            false_rows[row_id] = unsupported
+    return false_rows
+
 
 def rows_by_id(lines: list[dict], label: str) -> dict[str, dict]:
     out: dict[str, dict] = {}
@@ -64,6 +92,7 @@ def main() -> None:
     parser.add_argument("--general-corpus", required=True, type=Path)
     parser.add_argument("--jargon-corpus", required=True, type=Path)
     parser.add_argument("--jargon-terms", required=True, type=Path)
+    parser.add_argument("--repair-vocabulary", required=True, type=Path)
     parser.add_argument("--warmup-passes", required=True, type=int)
     parser.add_argument("--timed-passes", required=True, type=int)
     parser.add_argument("--peak-footprint-bytes", required=True, type=int)
@@ -77,6 +106,11 @@ def main() -> None:
     general_corpus = read_jsonl(args.general_corpus)
     jargon_corpus = read_jsonl(args.jargon_corpus)
     terms = json.loads(args.jargon_terms.read_text(encoding="utf-8"))
+    repair_vocabulary = json.loads(args.repair_vocabulary.read_text(encoding="utf-8"))
+    taught_surfaces = sorted(
+        set(repair_vocabulary.get("surfaces", []))
+        | set(repair_vocabulary.get("protected_surfaces", []))
+    )
 
     general_rows = rows_by_id(read_jsonl(args.general_results), "general")
     jargon_1 = rows_by_id(read_jsonl(args.jargon_results_1), "jargon pass 1")
@@ -147,7 +181,11 @@ def main() -> None:
     uwer_mix = uwer(general_refs + jargon_refs, general_hyps + jargon_hyps)
 
     expected = {row_id: info for row_id, info in terms.items() if info.get("domain") != "negative"}
-    negatives = {row_id: info for row_id, info in terms.items() if info.get("domain") == "negative"}
+    negatives = {
+        row["id"]: row
+        for row in jargon_corpus
+        if terms.get(row["id"], {}).get("domain") == "negative"
+    }
     recall_hits = sum(
         1
         for row_id, info in expected.items()
@@ -155,12 +193,8 @@ def main() -> None:
         and contains_exact_term(jargon_1[f"{row_id}#j0"]["final_text"], info["canonical"])
     )
     recall = recall_hits / len(expected) if expected else 0.0
-    false_terms = sum(
-        1
-        for row_id, info in negatives.items()
-        if info.get("canonical")
-        and contains_exact_term(jargon_1[f"{row_id}#j0"]["final_text"], info["canonical"])
-    )
+    false_rows = negative_false_term_rows(negatives, jargon_1, taught_surfaces)
+    false_terms = len(false_rows)
     misses = [
         f"{row_id}:{info['canonical']}"
         for row_id, info in sorted(expected.items())
@@ -171,7 +205,11 @@ def main() -> None:
     # --- gates ----------------------------------------------------------------
     footprint_mb = args.peak_footprint_bytes / 1e6
     if false_terms > 0:
-        fail(f"jargon_false_terms {false_terms} > 0")
+        examples = "|".join(
+            f"{row_id}:{','.join(surfaces)}"
+            for row_id, surfaces in sorted(false_rows.items())[:4]
+        )
+        fail(f"jargon_false_terms {false_terms} > 0 ({examples})")
     if uwer_mix > args.uwer_mix_ceiling:
         fail(f"uwer_mix {uwer_mix:.6f} exceeds ceiling {args.uwer_mix_ceiling}")
     if p95 > args.latency_ceiling_ms:

@@ -380,6 +380,7 @@ scored="$WORK/metrics.txt"
         --general-corpus "../$GENERAL_CORPUS" \
         --jargon-corpus "../$JARGON_CORPUS" \
         --jargon-terms "../$JARGON_TERMS" \
+        --repair-vocabulary "../$REPAIR_VOCABULARY" \
         --warmup-passes "$WARMUP_PASSES" \
         --timed-passes "$TIMED_PASSES" \
         --peak-footprint-bytes "$peak_footprint_bytes" \
