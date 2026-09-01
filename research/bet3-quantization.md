@@ -156,3 +156,36 @@ margin, at token argmax (vocab+blank) or duration argmax (5 slots). Plan:
   is deterministic at `4a7e6379…`, 780,892,391 B, and passes regular/cold/warm loader smoke.
   Focused suite: `scripts/tests/test_parakeet_mixed_quantize.py`. The official harness run
   for the candidate is still pending.
+
+## FINAL — Bet 3 verdict (2026-09-01, Main)
+
+**q8 anomaly falsified; q8 is the practical frontier.** On macOS 26.6.2/Xcode 26.6 the
+documented 7–19% q8 penalty no longer exists (bucket p50 ratios .979–.993; Metal trace:
+TDT tail −24.8%, encoder +2.5%). Official instrument probe (run 43, all 552 rows):
+ΔU-WER +.000307 (NI), p95 205.75 vs 208 ms, term metrics equal, −587 MB disk/download.
+Not strict dominance: 20/552 transcripts differ; and after the file-backed arena, q8's
+win is download/disk/cold-load, not resident memory (~184 MB either way). Default-flip
+evidence package preregistered (`local://bet3-q8-promotion-prereg.md`): cross-SoC/OS
+ABBA, sealed real-speaker data, cold/warm strata.
+
+**Provenance discovery (load-bearing):** the official q8 artifact quantizes the ORIGINAL
+F32 checkpoint; re-quantizing the published f16 diverges on all 273 matrices (10.7 MB of
+payload bytes). Reproduced official q8 SHA byte-for-byte from the pinned .nemo via the
+pinned upstream converter. Any future artifact must quantize from F32 —
+`research/bet3-mixed-quantize-provenance.json` is the durable record.
+
+**Mixed precision: infrastructure landed, first candidate killed.** Record-authoritative
+loader (vendor patch 0015) + deterministic dual-source `parakeet-mixed-quantize`
+(22 tests; no-op ≡ f16 SHA; all-Q8 ≡ official q8 SHA) are committed and byte-inert
+(run 45). Encoder-FFN-Q6 candidate (781 MB, SHA 4a7e6379…): U-WER actually improved
+(.045585) but p95 1.0349× breached the 1.03 kill gate — larger AND slower than q8 ⇒
+discarded, no Q4/family rescue (run 47). The 422/370 MB frontiers remain designed but
+unearned; they only make sense if their kernels beat q8's, which FFN-Q6 disproved for
+the mildest family on current Metal.
+
+**Margin stability theory: validated for locating, not for judging.** f16 top-2 margins
+predict q8 local class flips almost perfectly (token AUROC .995–.998, duration .93–.94);
+duration flips dominate path divergence but 86–89% recover to identical text; the
+margin-only union bound tracks path divergence (ratio 1.07–1.14) but overpredicts final
+transcript flips 8–10× and cannot predict harm direction (AUROC .27 among flips).
+Margins are a cheap instability locator for artifact QA, not a quality oracle.

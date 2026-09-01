@@ -97,7 +97,7 @@ public final class ParakeetContext {
         modelPath: String,
         weightArenaPath: String? = nil,
         useGPU: Bool = true,
-        threadCount: Int32 = 4
+        threadCount: Int32 = 6
     ) throws {
         var params = parakeet_context_default_params()
         params.use_gpu = useGPU

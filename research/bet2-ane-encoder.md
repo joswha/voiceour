@@ -115,3 +115,32 @@ contention. Full-corpus quality remains the promotion gate.
 Artifacts: `.build/asr-research/three-bets/coreml/{summary.json,bet2-raw.json,
 determinism.json,latency-only.json,energy-raw.json,padding-raw.json,
 powermetrics-sudo.txt,rusage-energy-probe.json,ioreport-energy-probe.json}`.
+
+## FINAL — Bet 2 verdict (2026-09-01, Main)
+
+**Root cause found (label-free):** the CoreML export preserved NeMo's reflect-centered
+STFT padding while parakeet.cpp uses constant-zero centered padding
+(`.build/.../coreml-rootcause/root-cause-report.json`). Full-FP32 "fidelity" faithfully
+reproduced the wrong frontend contract — precision was never the problem. A second
+residual difference (spelling normalization, `colourful` vs `colorful`) appeared even
+with native mel injected: encoder-tail numerics still differ enough to flip lexical
+variants. **Exact native identity through this export path is falsified**, at every
+precision.
+
+**The honest trade (NI contract, preregistered, run on all 552×2):** native-mel →
+CPU_AND_NE CoreML encoder ≤15 s, native fallback above:
+- Quality: pooled ΔU-WER +.000717 (NI ≤ +.0035), general +0, jargon +.001434, zero new
+  false terms, fwer_negative improved, byte-deterministic across passes, zero errors.
+- Energy: −47.0% active compute rails (locked ABBA, 64-row subset), DRAM .088 vs .115 J.
+- Latency: routed median −10.5% (below the frozen −15% floor); all-row p95 −0.35%.
+- Verdict: FAIL on the latency floor; energy objective met descriptively but the
+  preregistered 32-general stratum was impossible (only 27 eligible ≤15 s rows).
+- One repair attempt (fused native-frontend export): mel inside CoreML is catastrophic
+  (+264% routed median). Closed.
+
+**Standing evidence:** ANE is byte-deterministic (60/60 across processes), reaches 98.85%
+ANE dispatch, and cuts dictation decode energy roughly in half at NI accuracy on this
+M4 Pro. Landing it as a product path requires an energy-primary experiment segment (this
+segment's primary is accuracy), a mel-contract-correct export, and cross-SoC evidence.
+The complete runner/policy/evidence chain lives under `.build/asr-research/three-bets/
+{coreml*,ane-ni,ane-fused-native}/`.

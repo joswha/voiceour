@@ -161,3 +161,37 @@ transcript and accepted edit `replay.outputs.jsonl`; console table `report.txt`.
   globally boosting every low-margin region. Full quantiles/histograms, operating points,
   per-positive join, and method:
   `.build/asr-research/three-bets/margins/{margin-analysis.json,margin-analysis.txt,positive-margin-join.jsonl}`.
+
+## FINAL — Bet 1 verdict (2026-09-01, Main)
+
+Arc: safe deterministic floor → λ-bias kill → forced-scoring kill → sealed holdout.
+
+**Decode-time candidate creation is closed on these weights.** Three mechanisms, three
+preregistered kills, no rescues:
+- λ=4/U137 trie-localized bias (run 44): I0/I1 identity controls exact, but 2 net safe
+  hits vs ≥14 required; one nonlocal rejection.
+- TDT forced forward scoring (24-row probe, `.build/.../forced-score/`): mathematically
+  sound (exact per-history DP, certified omitted-mass ≤.05), yet **0/16 positives** chose
+  the canonical — the model's own evidence prefers its mishearing; p95 89.8 ms > 60.
+  With N8 8/8 safe. The weights do not contain the missing terms as rankable hypotheses;
+  no decoding cleverness can extract what isn't there.
+- k-best/beam (prior art, reconfirmed): misses absent from whole beam.
+
+**The deterministic repair mechanism survived out-of-distribution.** Sealed holdout v1
+(996 rows, 8 voices, 6 locales, clean/noise/room; prereg SHA e57fb400…, opened once):
+- Formal result: FAIL (recall .6156 < .75; false terms 8 > 0; U-WER benefit +.01045 ≥ .005 PASS).
+- Attribution (Main, from asr-results + repair evidence): **all 8 false terms are raw-ASR
+  output on adversarial near-phonetic scripts** (Go, pip, Ruby, semaphore×3, Swift×2);
+  the frozen policy added ZERO false terms, fixed 134 rows, broke 0.
+- Recall decomposition: raw .4220 → repaired .6156. Risky positives (128, ineligible by
+  the safety rule) hit .625 raw-only; unambiguous .376 → .613. Eligibility-capped ceiling
+  = .9306. All 28 case-only residual misses are risky surfaces — the exclusion that keeps
+  `rust`→`Rust` from firing is exactly what blocks them. The .75 bar was unreachable by
+  policy geometry, not by mechanism failure.
+
+**What ships-able knowledge remains:** a vocabulary-driven deterministic repair pass
+(unambiguous surfaces, PHONETIC θ=.95) is safe OOD and buys ~+19 pp exact-term recall and
+−1.0 pp pooled U-WER on jargon-dense speech, on top of raw ASR. Risky-surface recall is
+reachable only through explicit user teaching (the product's existing heard-as Teach flow)
+— not through automatic decode/repair. Real-speaker validation remains required for any
+product promotion (all holdout audio is TTS).
