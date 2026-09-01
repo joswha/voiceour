@@ -687,14 +687,16 @@ struct BenchRunner {
             let cleanupStart = BenchClock.mark()
             cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
             finalText = repairEngine?.repair(cleanedText).text ?? cleanedText
-            if let assistRaw = result.transcript.assistText, let repair {
-                let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
-                let assistFinal = repair.engine.repair(assistCleaned).text
-                finalText = AssistArbitration.arbitrate(
-                    primary: finalText,
-                    assist: assistFinal,
-                    surfaces: repair.surfaces
-                )
+            if let assistRaws = result.transcript.assistTexts, let repair {
+                for assistRaw in assistRaws {
+                    let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
+                    let assistFinal = repair.engine.repair(assistCleaned).text
+                    finalText = AssistArbitration.arbitrate(
+                        primary: finalText,
+                        assist: assistFinal,
+                        surfaces: repair.surfaces
+                    )
+                }
             }
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
         } catch {

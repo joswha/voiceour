@@ -349,6 +349,25 @@ captured under `patches/`.
     run recorded under `.build/asr-research/three-bets/tail-quant/` with the U-WER
     non-inferiority ceiling as the accuracy arbiter (q8_0 changes tail arithmetic, so
     transcripts are not expected to be byte-identical to the f16 pins).
+- `patches/0020-bias-variant-conformer-support.patch` teaches the loader and encoder graph
+  the bias-variant Conformer checkpoints (parakeet-tdt-1.1b): eleven optional per-layer
+  bias records (FFN1/FFN2 linear1+linear2, attention q/k/v/out, conv pointwise1/2 and
+  depthwise) become known tensor names, are created only when the file's record directory
+  carries them (all-or-none per file; the non-seekable legacy path keeps bias-free
+  semantics), and conditional `ggml_add` sites apply them in the graph. The
+  `n_audio_layer` sanity bound rises 24 -> 42 (the pin is enforced by the client-side
+  manifest machinery, not this cap), and for bias-variant files only, PyTorch
+  BatchNorm1d's eps (1e-5) is folded into the conv batch-norm running variance after
+  load: the 1.1b carries fp16-rounded zero and negative-epsilon variance channels whose
+  unprotected `sqrt(var)` reciprocal poisons every later layer with NaN, while the graph
+  the pinned bias-free files execute is byte-untouched (their record sets contain no
+  bias, so every new branch is dead and their variance is never rewritten).
+  - Upstream status: not reported upstream; upstream's parakeet drop targets the
+    bias-free FastConformer family only.
+  - Test status: pinned v3 stack and v2 assist verified byte-identical before/after
+    (456-row pipeline smoke); 1.1b verified against the MLX reference implementation
+    (recall/false/U-WER digits within fp-path tolerance, transcripts matching on
+    inspected rows) under `.build/asr-research/three-bets/assist/`.
 
 
 

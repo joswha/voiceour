@@ -98,6 +98,7 @@ LOCAL_FILES=(
     'patches/0017-cpu-tail-backend.patch'
     'patches/0018-persistent-cpu-threadpool.patch'
     'patches/0019-tail-q8-load-repack.patch'
+    'patches/0020-bias-variant-conformer-support.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'

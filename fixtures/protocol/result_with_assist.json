@@ -11,7 +11,10 @@
     "segments": null,
     "confidence": null,
     "confidence_mode": null,
-    "assist_text": "install kubectl on the cluster"
+    "assist_texts": [
+      "install kubectl on the cluster",
+      "install kubectl on the cluster now"
+    ]
   },
   "timings_ms": {
     "load": 0,

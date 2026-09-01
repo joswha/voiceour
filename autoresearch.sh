@@ -60,6 +60,8 @@ readonly COREML_TINY_MAX_S="6.0"
 readonly ASSIST_MODEL="$PWD/.build/asr-research/models-v2/ggml-parakeet-tdt-0.6b-v2-f16.bin"
 readonly ASSIST_MODEL_SHA256="1af0aed998520343d0f9b9b96b3b351accccb2d87a53c98f08015c5b408256cd"
 readonly ASSIST_MAX_S="15.0"
+readonly ASSIST_MODEL_2="$PWD/.build/asr-research/models-1p1b/ggml-parakeet-tdt-1.1b-f16.bin"
+readonly ASSIST_MODEL_2_SHA256="0f74197dca8668af13dbfdb251edc487dc7156c7acd35292451ecd4814f7c15c"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -183,6 +185,14 @@ if [ -n "$ASSIST_MODEL" ]; then
     [ "$observed_assist_sha" = "$ASSIST_MODEL_SHA256" ] ||
         die "assist model sha $observed_assist_sha != pinned $ASSIST_MODEL_SHA256"
     coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL=$ASSIST_MODEL VOICEOUR_ASSIST_MAX_S=$ASSIST_MAX_S"
+fi
+if [ -n "$ASSIST_MODEL_2" ]; then
+    [ -e "$ASSIST_MODEL_2" ] || die "assist model 2 artifact missing: $ASSIST_MODEL_2"
+    [ -n "$ASSIST_MODEL_2_SHA256" ] || die 'assist model 2 sha pin is empty'
+    observed_assist2_sha="$(shasum -a 256 "$ASSIST_MODEL_2" | cut -d' ' -f1)"
+    [ "$observed_assist2_sha" = "$ASSIST_MODEL_2_SHA256" ] ||
+        die "assist model 2 sha $observed_assist2_sha != pinned $ASSIST_MODEL_2_SHA256"
+    coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL_2=$ASSIST_MODEL_2"
 fi
 
 # --- build, outside the timed region ---------------------------------------

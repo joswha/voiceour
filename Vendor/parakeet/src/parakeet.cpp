@@ -321,6 +321,21 @@ struct parakeet_layer_encoder {
     struct ggml_tensor * ff1_linear1_w = nullptr;
     struct ggml_tensor * ff1_linear2_w = nullptr;
 
+    // VOICEOUR PATCH: optional per-layer biases for the bias-variant Conformer
+    // checkpoints (parakeet-tdt-1.1b). All nullptr for the pinned bias-free files;
+    // the loader enforces all-or-none per file.
+    struct ggml_tensor * ff1_linear1_b = nullptr;
+    struct ggml_tensor * ff1_linear2_b = nullptr;
+    struct ggml_tensor * ff2_linear1_b = nullptr;
+    struct ggml_tensor * ff2_linear2_b = nullptr;
+    struct ggml_tensor * attn_q_b      = nullptr;
+    struct ggml_tensor * attn_k_b      = nullptr;
+    struct ggml_tensor * attn_v_b      = nullptr;
+    struct ggml_tensor * attn_out_b    = nullptr;
+    struct ggml_tensor * conv_pw1_b    = nullptr;
+    struct ggml_tensor * conv_dw_b     = nullptr;
+    struct ggml_tensor * conv_pw2_b    = nullptr;
+
     struct ggml_tensor * norm_conv_w = nullptr;
     struct ggml_tensor * norm_conv_b = nullptr;
 
@@ -1061,6 +1076,7 @@ static bool parakeet_scan_tensor_records(
         parakeet_model_loader * loader,
         int64_t tensor_records_offset,
         const parakeet_tensor_name_set & expected_names,
+        size_t optional_record_count,
         std::vector<parakeet_tensor_record> & records,
         parakeet_tensor_record_index & records_by_name,
         int64_t & file_size) {
@@ -1141,11 +1157,16 @@ static bool parakeet_scan_tensor_records(
         }
     }
 
-    if (records.size() != expected_record_count) {
+    // VOICEOUR PATCH: the expected-name set includes the optional per-layer bias
+    // records of the bias-variant Conformer checkpoints. A file carries either the
+    // complete optional set or none of it; any other total is malformed.
+    if (records.size() != expected_record_count &&
+            records.size() != expected_record_count - optional_record_count) {
         PARAKEET_LOG_ERROR(
-            "%s: wrong tensor-record count: expected %zu, got %zu\n",
+            "%s: wrong tensor-record count: expected %zu (or %zu without optional biases), got %zu\n",
             __func__,
             expected_record_count,
+            expected_record_count - optional_record_count,
             records.size()
         );
         return false;
@@ -2301,14 +2322,20 @@ static bool parakeet_model_load(
     const ggml_type wtype = wctx.wtype;
     const int n_audio_layer = hparams.n_audio_layer;
 
-    // VOICEOUR PATCH: checked exact architecture count: pre-encode, per-layer encoder,
-    // prediction embedding plus three records per LSTM layer, and joint.
+    // VOICEOUR PATCH: checked exact architecture count: pre-encode, per-layer encoder
+    // (29 mandatory plus 11 optional bias records for the bias-variant Conformer
+    // checkpoints), prediction embedding plus three records per LSTM layer, and joint.
     size_t n_tensors = 12;
+    size_t optional_bias_tensors = 0;
     size_t family_tensors = 0;
     if (!parakeet_checked_multiply(
-            29,
+            29 + 11,
             static_cast<size_t>(n_audio_layer),
             family_tensors) ||
+            !parakeet_checked_multiply(
+                11,
+                static_cast<size_t>(n_audio_layer),
+                optional_bias_tensors) ||
             !parakeet_checked_add(n_tensors, family_tensors, n_tensors) ||
             !parakeet_checked_multiply(
                 3,
@@ -2339,6 +2366,7 @@ static bool parakeet_model_load(
                     loader,
                     weight_records_offset,
                     expected_tensor_names,
+                    optional_bias_tensors,
                     tensor_records,
                     tensor_records_by_name,
                     model_file_size)) {
@@ -2544,6 +2572,26 @@ static bool parakeet_model_load(
         const int64_t ne[] = { ne0, ne1, ne2, ne3 };
         return create_tensor(type, legacy_type, 4, ne, layer);
     };
+    // VOICEOUR PATCH: optional per-layer bias records for the bias-variant Conformer
+    // checkpoints. Only a seekable loader can know a record is absent, so the legacy
+    // sequential path keeps bias-free semantics; presence is tracked so a file that
+    // carries a partial bias set is rejected below.
+    size_t optional_bias_created = 0;
+    auto create_optional_tensor_1d = [&](
+            parakeet_tensor type,
+            int64_t ne0,
+            int layer) -> ggml_tensor * {
+        if (!has_record_directory) {
+            return nullptr;
+        }
+        const std::string tensor_name = format(PARAKEET_TENSOR_NAMES.at(type), layer);
+        if (tensor_records_by_name.find(tensor_name) == tensor_records_by_name.end()) {
+            return nullptr;
+        }
+        optional_bias_created += 1;
+        return create_tensor_1d(type, GGML_TYPE_F32, ne0, layer);
+    };
+
 
     // prepare tensors for the weights
 
@@ -2595,6 +2643,8 @@ static bool parakeet_model_load(
         ggml_format_name(layer.ff1_linear1_w, "enc_%d_ff1_linear1_w", i);
         layer.ff1_linear2_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF1_LINEAR2_WEIGHT, wtype, 4*n_audio_state, n_audio_state, i);
         ggml_format_name(layer.ff1_linear2_w, "enc_%d_ff1_linear2_w", i);
+        layer.ff1_linear1_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_FF1_LINEAR1_BIAS, 4*n_audio_state, i);
+        layer.ff1_linear2_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_FF1_LINEAR2_BIAS, n_audio_state, i);
 
         // Convolution module
         layer.norm_conv_w         = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_CONV_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
@@ -2615,6 +2665,9 @@ static bool parakeet_model_load(
         layer.conv_bn_num_batches = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_NUM_BATCHES, GGML_TYPE_I32, 1, i);
         layer.conv_pw2_w          = create_tensor_2d(PARAKEET_TENSOR_ENC_CONV_PW2_WEIGHT, wtype, n_audio_state, n_audio_state, i);
         ggml_format_name(layer.conv_pw2_w, "enc_%d_conv_pw2_w", i);
+        layer.conv_pw1_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_CONV_PW1_BIAS, 2*n_audio_state, i);
+        layer.conv_dw_b  = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_CONV_DW_BIAS, n_audio_state, i);
+        layer.conv_pw2_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_CONV_PW2_BIAS, n_audio_state, i);
 
         // Self attention
         layer.norm_attn_w      = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_ATTN_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
@@ -2627,16 +2680,35 @@ static bool parakeet_model_load(
         layer.attn_out_w       = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_OUT_WEIGHT, wtype, n_audio_state, n_audio_state, i);
         layer.attn_pos_w       = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_POS_WEIGHT, wtype, n_audio_state, n_audio_state, i);
         ggml_format_name(layer.attn_pos_w, "enc_%d_attn_pos_w", i);
+        layer.attn_q_b   = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_ATTN_Q_BIAS, n_audio_state, i);
+        layer.attn_k_b   = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_ATTN_K_BIAS, n_audio_state, i);
+        layer.attn_v_b   = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_ATTN_V_BIAS, n_audio_state, i);
+        layer.attn_out_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_ATTN_OUT_BIAS, n_audio_state, i);
 
         // Feed forward 2
         layer.norm_ff2_w    = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_FF2_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
         layer.norm_ff2_b    = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_FF2_BIAS, GGML_TYPE_F32, n_audio_state, i);
         layer.ff2_linear1_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF2_LINEAR1_WEIGHT, wtype, n_audio_state, 4*n_audio_state, i);
         layer.ff2_linear2_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF2_LINEAR2_WEIGHT, wtype, 4*n_audio_state, n_audio_state, i);
+        layer.ff2_linear1_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_FF2_LINEAR1_BIAS, 4*n_audio_state, i);
+        layer.ff2_linear2_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_FF2_LINEAR2_BIAS, n_audio_state, i);
 
         // Output norm
         layer.norm_out_w = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
         layer.norm_out_b = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_OUT_BIAS, GGML_TYPE_F32, n_audio_state, i);
+    }
+
+    // VOICEOUR PATCH: a bias-variant file carries the complete per-layer bias set;
+    // anything partial is a malformed or truncated conversion.
+    if (optional_bias_created != 0 &&
+            optional_bias_created != 11 * static_cast<size_t>(n_audio_layer)) {
+        PARAKEET_LOG_ERROR(
+            "%s: partial encoder bias set: %zu of %zu records present\n",
+            __func__,
+            optional_bias_created,
+            11 * static_cast<size_t>(n_audio_layer)
+        );
+        return false;
     }
 
     // Prediction network (decoder)
@@ -3140,7 +3212,33 @@ static bool parakeet_model_load(
         return true;
     };
 
+    // VOICEOUR PATCH: the bias-variant variance fix-up must land on freshly read
+    // payloads and be persisted by the arena commit below; a warm arena already
+    // carries folded values, so folding there would drift 1e-5 per process.
+    auto fold_bias_variant_bn_eps = [&]() {
+        if (optional_bias_created == 0) { return; }
+        const float bn_eps = 1e-5f;
+        std::vector<float> var_data(hparams.n_audio_state);
+        for (auto & layer : model.layers) {
+            if (!layer.conv_bn_var) { continue; }
+            ggml_backend_tensor_get(
+                layer.conv_bn_var, var_data.data(), 0, var_data.size() * sizeof(float));
+            for (float & v : var_data) { v += bn_eps; }
+            ggml_backend_tensor_set(
+                layer.conv_bn_var, var_data.data(), 0, var_data.size() * sizeof(float));
+#ifndef _WIN32
+            if (arena_cold && !parakeet_sync_weight_tensor(model, layer.conv_bn_var)) {
+                PARAKEET_LOG_WARN("%s: cannot synchronise folded bn variance\n", __func__);
+            }
+#endif
+        }
+        PARAKEET_LOG_INFO("%s: folded batch-norm eps for bias-variant checkpoint\n", __func__);
+    };
+
     bool weights_loaded = !arena_cache_failed && load_weight_records();
+    if (weights_loaded && !arena_warm) {
+        fold_bias_variant_bn_eps();
+    }
 
 #ifndef _WIN32
     if (weights_loaded && arena_cold) {
@@ -3173,6 +3271,9 @@ static bool parakeet_model_load(
         arena_cold = false;
         arena_cache_failed = false;
         weights_loaded = load_weight_records();
+        if (weights_loaded) {
+            fold_bias_variant_bn_eps();
+        }
     }
 #endif
 
@@ -3184,6 +3285,15 @@ static bool parakeet_model_load(
     for (auto & buf : buffers) {
         ggml_backend_buffer_set_usage(buf, GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
     }
+
+    // VOICEOUR PATCH: fold PyTorch BatchNorm1d's eps (1e-5) into the conv batch-norm
+    // running variance for bias-variant Conformer checkpoints (parakeet-tdt-1.1b). The
+    // graph computes sqrt(var) with no eps term; the pinned bias-free checkpoints have
+    // no near-zero variance channel so their historical arithmetic is untouched, but
+    // the 1.1b carries fp16-rounded zero (and one negative-epsilon) channels whose
+    // unprotected rsqrt poisons every later layer with NaN. The fold ran above, before
+    // the arena commit, so a committed arena persists the corrected variance and a
+    // warm arena load must never fold again (see `fold_bias_variant_bn_eps`).
 
     wctx.t_load_us = ggml_time_us() - t_start_us;
 
@@ -3394,11 +3504,19 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
             ggml_format_name(cur, "enc_%d_ffn_norm_1", il);
 
             // ffn_1
+            // VOICEOUR PATCH: optional linear biases for the bias-variant Conformer
+            // checkpoints; nullptr for the pinned files keeps the graph unchanged.
             cur = ggml_mul_mat(ctx0, layer.ff1_linear1_w, cur);
+            if (layer.ff1_linear1_b) {
+                cur = ggml_add(ctx0, cur, layer.ff1_linear1_b);
+            }
             cur = ggml_silu(ctx0, cur);
             ggml_format_name(cur, "enc_%d_silu", il);
 
             cur = ggml_mul_mat(ctx0, layer.ff1_linear2_w, cur);
+            if (layer.ff1_linear2_b) {
+                cur = ggml_add(ctx0, cur, layer.ff1_linear2_b);
+            }
             ggml_format_name(cur, "enc_%d_ffn_1", il);
 
             cur = ggml_add(ctx0, residual, ggml_scale(ctx0, cur, fc_factor));
@@ -3421,6 +3539,17 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
             struct ggml_tensor * Q_cur = ggml_mul_mat(ctx0, layer.attn_q_w, cur);
             struct ggml_tensor * K_cur = ggml_mul_mat(ctx0, layer.attn_k_w, cur);
             struct ggml_tensor * V_cur = ggml_mul_mat(ctx0, layer.attn_v_w, cur);
+            // VOICEOUR PATCH: optional attention projection biases, added while the
+            // projections are still [feat, time] so the 1-D bias broadcasts per feature.
+            if (layer.attn_q_b) {
+                Q_cur = ggml_add(ctx0, Q_cur, layer.attn_q_b);
+            }
+            if (layer.attn_k_b) {
+                K_cur = ggml_add(ctx0, K_cur, layer.attn_k_b);
+            }
+            if (layer.attn_v_b) {
+                V_cur = ggml_add(ctx0, V_cur, layer.attn_v_b);
+            }
 
             Q_cur = ggml_reshape_3d(ctx0, Q_cur, d_head, n_head, n_time);
             K_cur = ggml_reshape_3d(ctx0, K_cur, d_head, n_head, n_time);
@@ -3667,6 +3796,10 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
                 cur = ggml_cont_2d(ctx0, cur, n_state, n_time);
                 cur = ggml_mul_mat(ctx0, layer.attn_out_w, cur);
             }
+            // VOICEOUR PATCH: optional attention output bias, shared by both branches.
+            if (layer.attn_out_b) {
+                cur = ggml_add(ctx0, cur, layer.attn_out_b);
+            }
             ggml_format_name(cur, "enc_%d_attn_out", il);
 
             cur = ggml_add(ctx0, residual, cur);
@@ -3685,6 +3818,10 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
             // pointwise 1d convolution: [1024, 138] -> [2048, 138]
             cur = ggml_mul_mat(ctx0, layer.conv_pw1_w, cur);
             ggml_format_name(cur, "enc_%d_conv_pw1", il);
+            // VOICEOUR PATCH: optional pointwise-conv1 bias, before the GLU gate.
+            if (layer.conv_pw1_b) {
+                cur = ggml_add(ctx0, cur, layer.conv_pw1_b);
+            }
 
             {
                 int64_t d = cur->ne[0] / 2;
@@ -3715,6 +3852,11 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
 
             cur = ggml_ssm_conv(ctx0, cur, layer.conv_dw_w);
             ggml_format_name(cur, "enc_%d_conv_1d_dw", il);
+            // VOICEOUR PATCH: optional depthwise-conv bias, per channel like the
+            // batch-norm terms directly below.
+            if (layer.conv_dw_b) {
+                cur = ggml_add(ctx0, cur, layer.conv_dw_b);
+            }
 
             cur = ggml_sub(ctx0, cur, layer.conv_bn_mean);
             struct ggml_tensor * std = ggml_sqrt(ctx0, layer.conv_bn_var);
@@ -3727,6 +3869,10 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
 
             cur = ggml_mul_mat(ctx0, layer.conv_pw2_w, cur);
             ggml_format_name(cur, "enc_%d_conv_pw2", il);
+            // VOICEOUR PATCH: optional pointwise-conv2 bias, before the residual.
+            if (layer.conv_pw2_b) {
+                cur = ggml_add(ctx0, cur, layer.conv_pw2_b);
+            }
 
             cur = ggml_add(ctx0, residual, cur);
             ggml_format_name(cur, "enc_%d_conv_res", il);
@@ -3740,8 +3886,15 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
             ggml_format_name(cur, "enc_%d_ffn_norm_2", il);
 
             cur = ggml_mul_mat(ctx0, layer.ff2_linear1_w, cur);
+            // VOICEOUR PATCH: optional ffn_2 linear biases, mirroring ffn_1.
+            if (layer.ff2_linear1_b) {
+                cur = ggml_add(ctx0, cur, layer.ff2_linear1_b);
+            }
             cur = ggml_silu(ctx0, cur);
             cur = ggml_mul_mat(ctx0, layer.ff2_linear2_w, cur);
+            if (layer.ff2_linear2_b) {
+                cur = ggml_add(ctx0, cur, layer.ff2_linear2_b);
+            }
             cur = ggml_add(ctx0, residual, ggml_scale(ctx0, cur, 0.5));
             ggml_format_name(cur, "enc_%d_ffn_res", il);
         }

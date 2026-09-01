@@ -105,26 +105,28 @@ struct ProtocolFixtureParityTests {
         #expect(try ASRWire.decode(ASRHealthResponse.self, from: line) == sent)
     }
 
-    /// `assist_text` is optional in both directions: the plain `result.json` fixture omits it
-    /// and must decode to nil, the assist fixture carries it and must surface the exact text,
-    /// and the value must survive the shipped coder's snake-case round trip.
-    @Test func assistTextIsOptionalOnTheWireAndSurvivesTheCoder() throws {
+    /// `assist_texts` is optional in both directions: the plain `result.json` fixture omits it
+    /// and must decode to nil, the assist fixture carries it and must surface the exact texts
+    /// in order, and the value must survive the shipped coder's snake-case round trip.
+    @Test func assistTextsAreOptionalOnTheWireAndSurviveTheCoder() throws {
         let fixtures = repoRoot().appendingPathComponent("fixtures/protocol", isDirectory: true)
         let plain = try ASRWire.decode(
             ASRResult.self,
             from: Data(contentsOf: fixtures.appendingPathComponent("result.json"))
         )
-        #expect(plain.transcript.assistText == nil)
+        #expect(plain.transcript.assistTexts == nil)
 
         let assisted = try ASRWire.decode(
             ASRResult.self,
             from: Data(contentsOf: fixtures.appendingPathComponent("result_with_assist.json"))
         )
-        #expect(assisted.transcript.assistText == "install kubectl on the cluster")
+        #expect(
+            assisted.transcript.assistTexts == ["install kubectl on the cluster", "install kubectl on the cluster now"])
 
         let encoded = try ASRWire.encodeLine(assisted)
         let decoded = try ASRWire.decode(ASRResult.self, from: encoded)
-        #expect(decoded.transcript.assistText == "install kubectl on the cluster")
+        #expect(
+            decoded.transcript.assistTexts == ["install kubectl on the cluster", "install kubectl on the cluster now"])
         #expect(decoded == assisted)
     }
 
