@@ -56,8 +56,8 @@ readonly ENERGY_SAMPLER="bench/autoresearch/energy_sampler.py"
 
 # CoreML encoder candidate plumbing. Empty COREML_ENCODER = native baseline.
 # A non-empty path requires the pinned directory digest to match.
-readonly COREML_ENCODER=""
-readonly COREML_ENCODER_DIGEST=""
+readonly COREML_ENCODER="$PWD/.build/asr-research/three-bets/coreml-native-mel/compiled/parakeet_encoder.mlmodelc"
+readonly COREML_ENCODER_DIGEST="2892a84efbb4e9d26c1adf1fdaf6de97b530c5e2246955807ed27b6d1b4fd952"
 readonly COREML_MAX_S="15.0"
 
 readonly MODEL_VARIANT="f16"
