@@ -368,6 +368,19 @@ captured under `patches/`.
     (456-row pipeline smoke); 1.1b verified against the MLX reference implementation
     (recall/false/U-WER digits within fp-path tolerance, transcripts matching on
     inspected rows) under `.build/asr-research/three-bets/assist/`.
+- `patches/0021-plain-rnnt-decoder-support.patch` treats zero TDT duration slots as
+  the explicit plain-RNNT family marker. The shared encoder/prediction/joint
+  graph is unchanged; the greedy loop uses classic RNNT semantics (blank
+  advances one encoder frame, nonblank stays on frame and advances predictor)
+  instead of indexing a duration array. Raw-duration capture is skipped when
+  the array is empty. This admits official Parakeet RNNT checkpoints while every
+  TDT branch remains byte-identical.
+  - Upstream status: not reported upstream; the vendored engine previously
+    assumed every transducer joint carried TDT duration logits.
+  - Test status: `parakeet-unified-en-0.6b` engine output compared against
+    official NeMo on inspected rows; full jargon/general probe followed by
+    two-pass chained smoke reproduced 278/346, corrected false0 and general
+    identity under `.build/asr-research/three-bets/assist/`.
 
 
 

@@ -1,0 +1,78 @@
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 130727f..618d8db 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -1217,8 +1217,12 @@ static bool parakeet_validate_hparams(const std::map<parakeet_hparam, int32_t> &
+ 
+         const int32_t actual = hparam_value->second;
+         const int32_t expected = hparam_expected.second;
+-        if(actual <=0 || actual > expected){
+-            PARAKEET_LOG_ERROR("%s: invalid Parakeet metadata: %s = %d, expected > 0 and <= %d\n. Unsafe parameter loaded. ",
++        // VOICEOUR PATCH: zero duration slots is the explicit plain-RNNT
++        // decoder-family marker; every other architecture count remains >0.
++        const bool rnnt_zero_durations =
++                hparam == PARAKEET_HPARAM_N_TDT_DURATIONS && actual == 0;
++        if ((!rnnt_zero_durations && actual <= 0) || actual > expected) {
++            PARAKEET_LOG_ERROR("%s: invalid Parakeet metadata: %s = %d, expected <= %d\n",
+                 __func__, PARAKEET_HPARAM_NAMES.at(hparam), actual, expected);
+             return false;
+         }
+@@ -4433,9 +4437,10 @@ static bool parakeet_step(
+         }
+     }
+ 
+-    // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): keep the raw duration slots so
+-    // the decoder can argmax them without the log-softmax underflow.
+-    if (logits_raw) {
++    // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): keep raw TDT
++    // duration slots so the decoder can argmax them without log-softmax
++    // underflow. Plain RNNT has zero duration slots and clears this buffer.
++    if (logits_raw && hparams.n_tdt_durations > 0) {
+         pstate.duration_logits_raw.resize(n_tokens * hparams.n_tdt_durations);
+         const size_t off = sizeof(float) * (size_t) (hparams.n_vocab + 1);
+         for (int i = 0; i < n_tokens; i++) {
+@@ -4621,28 +4626,25 @@ static bool parakeet_decode(
+             }
+         }
+ 
+-        // find the max index of the duration logits, and look up that index
+-        // value in the tdt_durations array to get the actual duration value.
+-        //
+-        // VOICEOUR PATCH (upstream ggml-org/whisper.cpp#3932): argmax the raw duration
+-        // slots. `pstate.logits` is log-softmax output over vocab+durations, so every
+-        // duration slot reads -inf once the winning vocab logit leads by more than ~87;
+-        // upstream's `-1e10f` sentinel with strict `>` then leaves the index at 0, and
+-        // duration 0 on a non-blank token pins the decoder to the same encoder frame.
+-        const float * duration_slots = pstate.duration_logits_raw.empty()
+-            ? pstate.logits.data() + n_vocab_logits
+-            : pstate.duration_logits_raw.data();
++        // TDT chooses a duration slot. Plain RNNT (`n_tdt_durations == 0`)
++        // has the classic transducer rule: blank advances one encoder frame;
++        // a nonblank token stays on the frame and advances the predictor.
++        const float * duration_slots = nullptr;
+         int best_duration_idx = 0;
+-        float best_duration_logit = duration_slots[0];
+-        for (int i = 1; i < n_tdt_durations; ++i) {
+-            if (duration_slots[i] > best_duration_logit) {
+-                best_duration_logit = duration_slots[i];
+-                best_duration_idx = i;
++        int duration = best_token == blank_id ? 1 : 0;
++        if (n_tdt_durations > 0) {
++            duration_slots = pstate.duration_logits_raw.empty()
++                ? pstate.logits.data() + n_vocab_logits
++                : pstate.duration_logits_raw.data();
++            float best_duration_logit = duration_slots[0];
++            for (int i = 1; i < n_tdt_durations; ++i) {
++                if (duration_slots[i] > best_duration_logit) {
++                    best_duration_logit = duration_slots[i];
++                    best_duration_idx = i;
++                }
+             }
++            duration = tdt_durations[best_duration_idx];
+         }
+-        // look up that max duration index value in the tdt_durations array to
+-        // get the actual duration value.
+-        int duration = tdt_durations[best_duration_idx];
+ 
+         const float * token_slots = pstate.token_logits_raw.empty()
+             ? pstate.logits.data()
