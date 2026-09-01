@@ -12,9 +12,10 @@ import ctypes
 import json
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 _T = TypeVar("_T")
 _UTF8 = 0x08000100
@@ -188,7 +189,7 @@ class EnergySampler:
             _cf.CFRelease(self._source_channels)
             self._source_channels = 0
 
-    def __enter__(self) -> "EnergySampler":
+    def __enter__(self) -> EnergySampler:
         return self
 
     def __exit__(self, *_: object) -> None:

@@ -29,9 +29,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import statistics
 import sys
-import re
 from pathlib import Path
 
 from voiceour_bench.metrics import fwer, percentiles, rtfx, uwer
@@ -57,7 +57,7 @@ def read_jsonl(path: Path) -> list[dict]:
             try:
                 rows.append(json.loads(line))
             except json.JSONDecodeError as error:
-                raise SystemExit(f"score.py: FAIL: {path}:{number} is not JSON: {error}")
+                raise SystemExit(f"score.py: FAIL: {path}:{number} is not JSON: {error}") from error
     return rows
 
 
@@ -151,7 +151,7 @@ def main() -> int:
 
     general_lines = read_jsonl(args.general_results)
     g_identity = check_meta(
-        [l for l in general_lines if l.get("type") == "bench_meta"], "general"
+        [line for line in general_lines if line.get("type") == "bench_meta"], "general"
     )
 
     total_passes = args.warmup_passes + args.timed_passes
@@ -160,7 +160,7 @@ def main() -> int:
 
     by_pass: dict[int, dict[str, dict]] = {index: {} for index in range(total_passes)}
     error_rows = 0
-    for row in (l for l in general_lines if l.get("type") == "row"):
+    for row in (line for line in general_lines if line.get("type") == "row"):
         raw_id = str(row.get("id", ""))
         if row.get("error") is not None:
             error_rows += 1
@@ -200,14 +200,14 @@ def main() -> int:
     for position, block in enumerate(blocks):
         lines = read_jsonl(block.results_path)
         identity = check_meta(
-            [l for l in lines if l.get("type") == "bench_meta"],
+            [line for line in lines if line.get("type") == "bench_meta"],
             f"block{position}({block.family})",
         )
         if block.family == "C":
             for key in ("model_file", "vocabulary_sha256"):
                 if identity.get(key) != g_identity.get(key):
                     fail(f"block{position}: bench_meta {key} differs from general invocation")
-        for row in (l for l in lines if l.get("type") == "row"):
+        for row in (line for line in lines if line.get("type") == "row"):
             raw_id = str(row.get("id", ""))
             if row.get("error") is not None:
                 error_rows += 1
@@ -286,7 +286,7 @@ def main() -> int:
         windows = [float(b.energy.get("window_elapsed_ms", 0.0)) for b in group]
         if windows:
             family_median = statistics.median(windows)
-            for b, window in zip(group, windows):
+            for _block, window in zip(group, windows, strict=True):
                 if family_median > 0 and window > 1.5 * family_median:
                     fail(
                         f"{family} block window {window:.0f} ms exceeds 1.5x family "

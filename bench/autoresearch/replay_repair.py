@@ -25,13 +25,14 @@ import json
 import re
 import sys
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.metadata import version
 from itertools import product
 from pathlib import Path
-from typing import Iterable
 
 from rapidfuzz.distance import Levenshtein
+
 from voiceour_bench.metrics import fwer, uwer
 
 REPO = Path(__file__).resolve().parents[2]
@@ -812,7 +813,7 @@ def build_variants(inputs: ReplayInputs, vocabulary: Vocabulary) -> list[ReplayV
             strategy="BASELINE",
             threshold=None,
             outputs=dict(inputs.jargon_finals),
-            repairs={row_id: () for row_id in inputs.jargon_ids},
+            repairs=dict.fromkeys(inputs.jargon_ids, ()),
         )
     ]
     specifications: list[tuple[str, float | None]] = [
