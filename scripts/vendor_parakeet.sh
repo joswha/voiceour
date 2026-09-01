@@ -93,6 +93,7 @@ LOCAL_FILES=(
     'patches/0012-three-encode-threads.patch'
     'patches/0013-file-backed-weight-arena.patch'
     'patches/0014-greedy-decode-step-callback.patch'
+    'patches/0015-record-authoritative-loader.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'

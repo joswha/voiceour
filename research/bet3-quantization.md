@@ -128,15 +128,31 @@ margin, at token argmax (vocab+blank) or duration argmax (5 slots). Plan:
   geometry—do not change the already-faster decoder path. Captures, exported intervals,
   phase analysis, and a **not-applied** node-label instrumentation patch:
   `.build/asr-research/three-bets/quant/{f16-metal.trace,q8_0-metal.trace,f16-gpu-intervals.xml,q8_0-gpu-intervals.xml,metal-attribution.json,instrumentation.patch}`.
-- Repack tooling verdict: **no vendored quantize executable exists** (`Vendor/parakeet`
-  contains no `main` and SwiftPM exposes no quantizer product). ggml does provide the library
-  primitive `ggml_quantize_chunk`, supporting `q4_0/q4_1/q5_*/q8_0`,
-  `q2_K/q3_K/q4_K/q5_K/q6_K`, IQ/TQ, MXFP4/NVFP4, F16/BF16/F32; Metal has q4_K/q6_K/q8_0
-  kernels. The Parakeet `.bin` loader is a custom `GGML_FILE_MAGIC` tensor-record stream,
-  not a generic vendored GGUF CLI path, and allocates large tensors from one global
-  `hparams.ftype`. A mixed repack therefore needs a new converter to parse/copy the custom
-  header/vocab, dequantize each selected F16 tensor, call `ggml_quantize_chunk` by tensor
-  name, and rewrite record `ttype`/payload; plus loader work to allocate from each record's
-  type rather than one global type. K-quants also force the existing 640-wide prediction/joint
-  fallback to F32 (block size 256). After that come a new pinned artifact size/digest and the
-  accuracy/margin gate. It is not an existing one-command repack.
+- Repack tooling verdict (superseded 2026-09-01, see below): the historical claim that no
+  quantizer product existed and that a mixed repack would dequantize selected F16 tensors is
+  obsolete. The repository now ships `parakeet-mixed-quantize` and the loader allocates
+  allowlisted matrices from each record's own type.
+
+### 2026-09-01 — dual-source mixed quantizer shipped; f16 is NOT the quant source
+
+- **Provenance resolved.** Official q8 (`4d64e9e9…`, 668,757,119 B) is the pinned original
+  NVIDIA checkpoint (`nvidia/parakeet-tdt-0.6b-v3` rev `541d1f99…`) converted to an F32
+  stream (`b17956ca…`, 2,508,463,079 B) by the pinned upstream converter with `--use-f32`,
+  then quantized. Re-quantizing the published f16 payloads instead produces `ea8000f1…`
+  with 10,718,248 differing payload bytes across all 273 Q8 records. **Selected F16 tensors
+  must never be dequantized as the quant source**: correct repacks quantize the F32 stream
+  while copying unselected records from the pinned f16 byte-for-byte. Full pins, hashes,
+  and controls: `research/bet3-mixed-quantize-provenance.json`.
+- **Tooling shipped.** `parakeet-mixed-quantize` (SwiftPM product over the vendored `CGgml`
+  `ggml_quantize_chunk`) consumes an exact-name dual-pin plan-v2 minted by
+  `scripts/generate_parakeet_mixed_plan.py`. The generator validates full preamble identity
+  (except the nominal ftype word), name/shape/order identity, and exact F32→F16 rounding of
+  every selected payload before publishing the plan/inventory pair failure-consistently. The
+  converter opens both sources once, sizes/hashes those exact descriptors, rejects any plan
+  name outside the loader's mixed-v1 allowlist, and publishes output+report durably
+  (temp fsync, exclusive rename, directory fsync, deterministic byte-identical rerun).
+- **Controls.** No-op plan reproduces official f16 SHA exactly; all-q8 plan reproduces
+  official q8 SHA exactly; the encoder-FFN-Q6 candidate (96 Q6_K records, fused head F16)
+  is deterministic at `4a7e6379…`, 780,892,391 B, and passes regular/cold/warm loader smoke.
+  Focused suite: `scripts/tests/test_parakeet_mixed_quantize.py`. The official harness run
+  for the candidate is still pending.

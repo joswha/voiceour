@@ -25,6 +25,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -708,6 +709,465 @@ template<typename T>
 static void read_safe(parakeet_model_loader * loader, T & dest) {
     loader->read(loader->context, &dest, sizeof(T));
     BYTESWAP_VALUE(dest);
+}
+
+// VOICEOUR PATCH: seekable built-in loaders make each validated tensor record authoritative
+// for an explicit set of matrix weights. Keep parsing non-asserting: malformed model bytes must
+// fail closed instead of reaching ggml's block-layout assertions.
+using parakeet_tensor_name_set = std::set<std::string, std::less<>>;
+using parakeet_tensor_record_index =
+    std::map<std::string_view, size_t, std::less<>>;
+
+struct parakeet_tensor_record {
+    const std::string * name = nullptr;
+    int32_t n_dims = 0;
+    int32_t ne[4] = { 1, 1, 1, 1 };
+    ggml_type type = GGML_TYPE_COUNT;
+    int64_t payload_offset = -1;
+    size_t payload_bytes = 0;
+    size_t metadata_bytes = 0;
+};
+
+static bool parakeet_read_exact(
+        parakeet_model_loader * loader,
+        void * output,
+        size_t size) {
+    return size == 0 || loader->read(loader->context, output, size) == size;
+}
+
+template<typename T>
+static bool parakeet_read_value(parakeet_model_loader * loader, T & value) {
+    if (!parakeet_read_exact(loader, &value, sizeof(value))) {
+        return false;
+    }
+    BYTESWAP_VALUE(value);
+    return true;
+}
+
+static bool parakeet_tensor_record_type_layout(
+        int32_t type_id,
+        ggml_type & type,
+        size_t & block_size,
+        size_t & type_size) {
+    switch (type_id) {
+        case GGML_TYPE_F32:
+        case GGML_TYPE_F16:
+        case GGML_TYPE_Q8_0:
+        case GGML_TYPE_Q4_K:
+        case GGML_TYPE_Q6_K:
+            type = static_cast<ggml_type>(type_id);
+            break;
+        default:
+            return false;
+    }
+
+    const int64_t block_size_i64 = ggml_blck_size(type);
+    if (block_size_i64 <= 0 ||
+            static_cast<uint64_t>(block_size_i64) >
+                static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        return false;
+    }
+    block_size = static_cast<size_t>(block_size_i64);
+    type_size = ggml_type_size(type);
+    return type_size > 0;
+}
+
+static bool parakeet_checked_add(size_t lhs, size_t rhs, size_t & result);
+
+static bool parakeet_checked_multiply(size_t lhs, size_t rhs, size_t & result) {
+    if (lhs != 0 && rhs > std::numeric_limits<size_t>::max() / lhs) {
+        return false;
+    }
+    result = lhs * rhs;
+    return true;
+}
+
+static bool parakeet_is_valid_tensor_name(std::string_view name) {
+    if (name.empty()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < name.size();) {
+        const uint8_t first = static_cast<uint8_t>(name[i]);
+        if (first == 0) {
+            return false;
+        }
+        if (first < 0x80) {
+            ++i;
+            continue;
+        }
+
+        size_t continuation_count = 0;
+        uint32_t codepoint = 0;
+        uint32_t minimum = 0;
+        if ((first & 0xe0) == 0xc0) {
+            continuation_count = 1;
+            codepoint = first & 0x1f;
+            minimum = 0x80;
+        } else if ((first & 0xf0) == 0xe0) {
+            continuation_count = 2;
+            codepoint = first & 0x0f;
+            minimum = 0x800;
+        } else if ((first & 0xf8) == 0xf0) {
+            continuation_count = 3;
+            codepoint = first & 0x07;
+            minimum = 0x10000;
+        } else {
+            return false;
+        }
+        if (continuation_count > name.size() - i - 1) {
+            return false;
+        }
+        for (size_t j = 1; j <= continuation_count; ++j) {
+            const uint8_t next = static_cast<uint8_t>(name[i + j]);
+            if ((next & 0xc0) != 0x80) {
+                return false;
+            }
+            codepoint = (codepoint << 6) | (next & 0x3f);
+        }
+        if (codepoint < minimum ||
+                codepoint > 0x10ffff ||
+                (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+            return false;
+        }
+        i += continuation_count + 1;
+    }
+    return true;
+}
+
+static bool parakeet_tensor_record_payload_bytes(
+        ggml_type type,
+        const int32_t ne[4],
+        size_t & payload_bytes) {
+    ggml_type checked_type = GGML_TYPE_COUNT;
+    size_t block_size = 0;
+    size_t type_size = 0;
+    if (!parakeet_tensor_record_type_layout(
+            static_cast<int32_t>(type),
+            checked_type,
+            block_size,
+            type_size) ||
+            checked_type != type ||
+            ne[0] <= 0 ||
+            static_cast<size_t>(ne[0]) % block_size != 0) {
+        return false;
+    }
+
+    payload_bytes = static_cast<size_t>(ne[0]) / block_size;
+    if (!parakeet_checked_multiply(payload_bytes, type_size, payload_bytes)) {
+        return false;
+    }
+    for (int i = 1; i < 4; ++i) {
+        if (ne[i] <= 0 ||
+                !parakeet_checked_multiply(
+                    payload_bytes,
+                    static_cast<size_t>(ne[i]),
+                    payload_bytes)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool parakeet_tensor_has_audio_layer(parakeet_tensor tensor) {
+    return
+        tensor >= PARAKEET_TENSOR_ENC_NORM_FF1_WEIGHT &&
+        tensor <= PARAKEET_TENSOR_ENC_NORM_OUT_BIAS;
+}
+
+static bool parakeet_tensor_has_prediction_layer(parakeet_tensor tensor) {
+    return
+        tensor >= PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH &&
+        tensor <= PARAKEET_TENSOR_PRED_LSTM_BIAS_H;
+}
+
+static bool parakeet_expected_tensor_names(
+        int32_t n_audio_layer,
+        int32_t n_pred_layers,
+        parakeet_tensor_name_set & names) {
+    names.clear();
+    for (const auto & entry : PARAKEET_TENSOR_NAMES) {
+        const parakeet_tensor tensor = entry.first;
+        const char * pattern = entry.second;
+        const int32_t layer_count =
+            parakeet_tensor_has_audio_layer(tensor) ? n_audio_layer :
+            parakeet_tensor_has_prediction_layer(tensor) ? n_pred_layers :
+            1;
+        for (int32_t layer = 0; layer < layer_count; ++layer) {
+            const std::string name =
+                layer_count == 1 && !parakeet_tensor_has_audio_layer(tensor) &&
+                        !parakeet_tensor_has_prediction_layer(tensor) ?
+                    pattern :
+                    format(pattern, layer);
+            if (name.empty() ||
+                    name.size() >= GGML_MAX_NAME ||
+                    !names.emplace(name).second) {
+                PARAKEET_LOG_ERROR(
+                    "%s: invalid or duplicate architecture tensor name '%s'\n",
+                    __func__,
+                    name.c_str()
+                );
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool parakeet_read_tensor_record(
+        parakeet_model_loader * loader,
+        int64_t file_size,
+        const parakeet_tensor_name_set & expected_names,
+        parakeet_tensor_record & record) {
+    int32_t name_length = 0;
+    int32_t type_id = 0;
+    if (!parakeet_read_value(loader, record.n_dims) ||
+            !parakeet_read_value(loader, name_length) ||
+            !parakeet_read_value(loader, type_id)) {
+        PARAKEET_LOG_ERROR("%s: truncated tensor header in model file\n", __func__);
+        return false;
+    }
+    if (record.n_dims < 0 ||
+            record.n_dims > 4 ||
+            name_length <= 0 ||
+            name_length >= GGML_MAX_NAME) {
+        PARAKEET_LOG_ERROR("%s: invalid tensor header in model file\n", __func__);
+        return false;
+    }
+
+    size_t dimensions_bytes = 0;
+    if (!parakeet_checked_multiply(
+            static_cast<size_t>(record.n_dims),
+            sizeof(int32_t),
+            dimensions_bytes) ||
+            !parakeet_checked_add(
+                3 * sizeof(int32_t),
+                dimensions_bytes,
+                record.metadata_bytes) ||
+            !parakeet_checked_add(
+                record.metadata_bytes,
+                static_cast<size_t>(name_length),
+                record.metadata_bytes)) {
+        PARAKEET_LOG_ERROR("%s: tensor metadata byte count overflows\n", __func__);
+        return false;
+    }
+
+    size_t block_size = 0;
+    size_t type_size = 0;
+    if (!parakeet_tensor_record_type_layout(
+            type_id,
+            record.type,
+            block_size,
+            type_size)) {
+        PARAKEET_LOG_ERROR("%s: unsupported tensor type %d in model file\n", __func__, type_id);
+        return false;
+    }
+
+    for (int i = 0; i < record.n_dims; ++i) {
+        if (!parakeet_read_value(loader, record.ne[i])) {
+            PARAKEET_LOG_ERROR("%s: truncated tensor dimensions in model file\n", __func__);
+            return false;
+        }
+        if (record.ne[i] <= 0) {
+            PARAKEET_LOG_ERROR("%s: invalid tensor dimensions in model file\n", __func__);
+            return false;
+        }
+    }
+
+    char name_bytes[GGML_MAX_NAME] = {};
+    if (!parakeet_read_exact(
+            loader,
+            name_bytes,
+            static_cast<size_t>(name_length))) {
+        PARAKEET_LOG_ERROR("%s: truncated tensor name in model file\n", __func__);
+        return false;
+    }
+    const std::string_view parsed_name(name_bytes, static_cast<size_t>(name_length));
+    if (!parakeet_is_valid_tensor_name(parsed_name)) {
+        PARAKEET_LOG_ERROR("%s: invalid tensor name in model file\n", __func__);
+        return false;
+    }
+    const auto expected = expected_names.find(parsed_name);
+    if (expected == expected_names.end()) {
+        PARAKEET_LOG_ERROR(
+            "%s: unknown tensor '%.*s' in model file\n",
+            __func__,
+            name_length,
+            name_bytes
+        );
+        return false;
+    }
+    record.name = &*expected;
+
+    record.payload_offset = loader->tell(loader->context);
+    if (!parakeet_tensor_record_payload_bytes(record.type, record.ne, record.payload_bytes)) {
+        PARAKEET_LOG_ERROR(
+            "%s: tensor '%s' has an invalid block shape for type %d\n",
+            __func__,
+            record.name->c_str(),
+            type_id
+        );
+        return false;
+    }
+    if (record.payload_offset < 0 ||
+            record.payload_offset > file_size ||
+            record.payload_bytes >
+                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            static_cast<int64_t>(record.payload_bytes) >
+                file_size - record.payload_offset) {
+        PARAKEET_LOG_ERROR(
+            "%s: tensor '%s' payload exceeds model bounds\n",
+            __func__,
+            record.name->c_str()
+        );
+        return false;
+    }
+    return true;
+}
+
+static bool parakeet_tensor_records_equal(
+        const parakeet_tensor_record & lhs,
+        const parakeet_tensor_record & rhs) {
+    if (lhs.name != rhs.name ||
+            lhs.n_dims != rhs.n_dims ||
+            lhs.type != rhs.type ||
+            lhs.payload_offset != rhs.payload_offset ||
+            lhs.payload_bytes != rhs.payload_bytes ||
+            lhs.metadata_bytes != rhs.metadata_bytes) {
+        return false;
+    }
+    for (int i = 0; i < 4; ++i) {
+        if (lhs.ne[i] != rhs.ne[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool parakeet_scan_tensor_records(
+        parakeet_model_loader * loader,
+        int64_t tensor_records_offset,
+        const parakeet_tensor_name_set & expected_names,
+        std::vector<parakeet_tensor_record> & records,
+        parakeet_tensor_record_index & records_by_name,
+        int64_t & file_size) {
+    if (!loader->seek(loader->context, 0, SEEK_END)) {
+        PARAKEET_LOG_ERROR("%s: cannot determine model bounds\n", __func__);
+        return false;
+    }
+    file_size = loader->tell(loader->context);
+    if (file_size < tensor_records_offset ||
+            !loader->seek(loader->context, tensor_records_offset, SEEK_SET)) {
+        PARAKEET_LOG_ERROR("%s: invalid tensor-record offset\n", __func__);
+        return false;
+    }
+
+    const size_t expected_record_count = expected_names.size();
+    size_t maximum_metadata_bytes = 0;
+    const size_t maximum_record_metadata_bytes =
+        3 * sizeof(int32_t) +
+        4 * sizeof(int32_t) +
+        (GGML_MAX_NAME - 1);
+    if (!parakeet_checked_multiply(
+            expected_record_count,
+            maximum_record_metadata_bytes,
+            maximum_metadata_bytes)) {
+        PARAKEET_LOG_ERROR("%s: tensor metadata cap overflows\n", __func__);
+        return false;
+    }
+
+    records.clear();
+    records.reserve(expected_record_count);
+    records_by_name.clear();
+    size_t total_metadata_bytes = 0;
+    while (true) {
+        const int64_t record_offset = loader->tell(loader->context);
+        if (record_offset < 0 || record_offset > file_size) {
+            PARAKEET_LOG_ERROR("%s: invalid tensor-record position\n", __func__);
+            return false;
+        }
+        if (record_offset == file_size) {
+            break;
+        }
+        if (records.size() >= expected_record_count) {
+            PARAKEET_LOG_ERROR("%s: too many tensor records in model file\n", __func__);
+            return false;
+        }
+
+        parakeet_tensor_record record;
+        if (!parakeet_read_tensor_record(
+                loader,
+                file_size,
+                expected_names,
+                record)) {
+            return false;
+        }
+        if (!parakeet_checked_add(
+                total_metadata_bytes,
+                record.metadata_bytes,
+                total_metadata_bytes) ||
+                total_metadata_bytes > maximum_metadata_bytes) {
+            PARAKEET_LOG_ERROR("%s: tensor metadata exceeds bounded cap\n", __func__);
+            return false;
+        }
+        const size_t record_index = records.size();
+        if (!records_by_name.emplace(*record.name, record_index).second) {
+            PARAKEET_LOG_ERROR(
+                "%s: duplicate tensor '%s' in model file\n",
+                __func__,
+                record.name->c_str()
+            );
+            return false;
+        }
+        const int64_t next_record_offset =
+            record.payload_offset + static_cast<int64_t>(record.payload_bytes);
+        records.push_back(record);
+        if (!loader->seek(loader->context, next_record_offset, SEEK_SET)) {
+            PARAKEET_LOG_ERROR("%s: tensor payload seek exceeds model bounds\n", __func__);
+            return false;
+        }
+    }
+
+    if (records.size() != expected_record_count) {
+        PARAKEET_LOG_ERROR(
+            "%s: wrong tensor-record count: expected %zu, got %zu\n",
+            __func__,
+            expected_record_count,
+            records.size()
+        );
+        return false;
+    }
+    if (!loader->seek(loader->context, tensor_records_offset, SEEK_SET)) {
+        PARAKEET_LOG_ERROR("%s: cannot rewind tensor records\n", __func__);
+        return false;
+    }
+    return true;
+}
+
+static bool parakeet_tensor_uses_record_type(parakeet_tensor tensor) {
+    switch (tensor) {
+        case PARAKEET_TENSOR_ENC_PRE_OUT_WEIGHT:
+        case PARAKEET_TENSOR_ENC_FF1_LINEAR1_WEIGHT:
+        case PARAKEET_TENSOR_ENC_FF1_LINEAR2_WEIGHT:
+        case PARAKEET_TENSOR_ENC_CONV_PW1_WEIGHT:
+        case PARAKEET_TENSOR_ENC_CONV_PW2_WEIGHT:
+        case PARAKEET_TENSOR_ENC_ATTN_Q_WEIGHT:
+        case PARAKEET_TENSOR_ENC_ATTN_K_WEIGHT:
+        case PARAKEET_TENSOR_ENC_ATTN_V_WEIGHT:
+        case PARAKEET_TENSOR_ENC_ATTN_OUT_WEIGHT:
+        case PARAKEET_TENSOR_ENC_ATTN_POS_WEIGHT:
+        case PARAKEET_TENSOR_ENC_FF2_LINEAR1_WEIGHT:
+        case PARAKEET_TENSOR_ENC_FF2_LINEAR2_WEIGHT:
+        case PARAKEET_TENSOR_PRED_EMBED_WEIGHT:
+        case PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH:
+        case PARAKEET_TENSOR_PRED_LSTM_WEIGHT_HH:
+        case PARAKEET_TENSOR_JOINT_PRED_WEIGHT:
+        case PARAKEET_TENSOR_JOINT_ENC_WEIGHT:
+        case PARAKEET_TENSOR_JOINT_NET_WEIGHT:
+            return true;
+        default:
+            return false;
+    }
 }
 
 
@@ -1784,12 +2244,52 @@ static bool parakeet_model_load(
     }
 
     const ggml_type wtype = wctx.wtype;
-
-
     const int n_audio_layer = hparams.n_audio_layer;
 
-    // Calculate tensor count: pre_encode (12) + encoder layers (29 per layer) + prediction (9) + joint (6)
-    size_t n_tensors = 12 + (29 * n_audio_layer) + 9 + 6;
+    // VOICEOUR PATCH: checked exact architecture count: pre-encode, per-layer encoder,
+    // prediction embedding plus three records per LSTM layer, and joint.
+    size_t n_tensors = 12;
+    size_t family_tensors = 0;
+    if (!parakeet_checked_multiply(
+            29,
+            static_cast<size_t>(n_audio_layer),
+            family_tensors) ||
+            !parakeet_checked_add(n_tensors, family_tensors, n_tensors) ||
+            !parakeet_checked_multiply(
+                3,
+                static_cast<size_t>(hparams.n_pred_layers),
+                family_tensors) ||
+            !parakeet_checked_add(n_tensors, 1, n_tensors) ||
+            !parakeet_checked_add(n_tensors, family_tensors, n_tensors) ||
+            !parakeet_checked_add(n_tensors, 6, n_tensors)) {
+        PARAKEET_LOG_ERROR("%s: tensor-record count overflows\n", __func__);
+        return false;
+    }
+
+    const bool has_record_directory = loader->seek && loader->tell;
+    int64_t weight_records_offset = -1;
+    int64_t model_file_size = -1;
+    parakeet_tensor_name_set expected_tensor_names;
+    std::vector<parakeet_tensor_record> tensor_records;
+    parakeet_tensor_record_index tensor_records_by_name;
+    if (has_record_directory) {
+        weight_records_offset = loader->tell(loader->context);
+        if (!parakeet_expected_tensor_names(
+                n_audio_layer,
+                hparams.n_pred_layers,
+                expected_tensor_names) ||
+                expected_tensor_names.size() != n_tensors ||
+                weight_records_offset < 0 ||
+                !parakeet_scan_tensor_records(
+                    loader,
+                    weight_records_offset,
+                    expected_tensor_names,
+                    tensor_records,
+                    tensor_records_by_name,
+                    model_file_size)) {
+            return false;
+        }
+    }
 
     std::map<ggml_backend_buffer_type_t, ggml_context *> ctx_map;
     auto get_ctx = [&](ggml_backend_buffer_type_t buft) -> ggml_context * {
@@ -1818,38 +2318,143 @@ static bool parakeet_model_load(
     // Create a list of available bufts, in priority order
     buft_list_t buft_list = make_buft_list(wctx.params);
 
-    auto create_tensor = [&](parakeet_tensor type, ggml_tensor * meta, int layer = -1) -> ggml_tensor * {
-        ggml_op op = PARAKEET_TENSOR_INFO.at(type);
-        ggml_backend_buffer_type_t buft = select_weight_buft(hparams, meta, op, buft_list);
-        if (!buft) {
-            throw std::runtime_error(format("failed to find a compatible buffer type for parakeet tensor %s",
-                        PARAKEET_TENSOR_NAMES.at(type)));
-        }
+    // Construct exactly one metadata tensor per architecture tensor. On seekable inputs the
+    // record is looked up, shape-checked, and its authoritative mixed-v1 type is chosen first;
+    // the nominal/global type is never passed to ggml for an authoritative record.
+    ggml_init_params params = {
+        /*.mem_size   =*/ n_tensors * ggml_tensor_overhead(),
+        /*.mem_buffer =*/ nullptr,
+        /*.no_alloc   =*/ true,
+    };
+    ggml_context * ctx = ggml_init(params);
+    if (!ctx) {
+        throw std::runtime_error("failed to create tensor metadata context");
+    }
 
-        ggml_context * ctx = get_ctx(buft);
-        ggml_tensor * tensor = ggml_dup_tensor(ctx, meta);
-
+    std::set<std::string_view, std::less<>> record_authoritative_names;
+    auto create_tensor = [&](
+            parakeet_tensor type,
+            ggml_type legacy_type,
+            int32_t n_dims,
+            const int64_t * architecture_ne,
+            int layer = -1) -> ggml_tensor * {
         std::string tensor_name;
         if (layer >= 0) {
             tensor_name = format(PARAKEET_TENSOR_NAMES.at(type), layer);
         } else {
             tensor_name = PARAKEET_TENSOR_NAMES.at(type);
         }
+        if (n_dims <= 0 || n_dims > GGML_MAX_DIMS) {
+            throw std::runtime_error(format(
+                "parakeet tensor %s has invalid architecture dimensions",
+                tensor_name.c_str()
+            ));
+        }
 
-        wctx.model.tensors[tensor_name] = tensor;
+        int64_t selected_ne[GGML_MAX_DIMS] = { 1, 1, 1, 1 };
+        for (int32_t i = 0; i < n_dims; ++i) {
+            if (architecture_ne[i] <= 0) {
+                throw std::runtime_error(format(
+                    "parakeet tensor %s has invalid architecture dimensions",
+                    tensor_name.c_str()
+                ));
+            }
+            selected_ne[i] = architecture_ne[i];
+        }
 
+        ggml_type selected_type = legacy_type;
+        const parakeet_tensor_record * source_record = nullptr;
+        if (has_record_directory) {
+            const auto record_position = tensor_records_by_name.find(tensor_name);
+            if (record_position == tensor_records_by_name.end()) {
+                throw std::runtime_error(format(
+                    "missing parakeet tensor record %s",
+                    tensor_name.c_str()
+                ));
+            }
+            source_record = &tensor_records[record_position->second];
+            for (int i = 0; i < GGML_MAX_DIMS; ++i) {
+                if (selected_ne[i] != source_record->ne[i]) {
+                    throw std::runtime_error(format(
+                        "parakeet tensor %s has the wrong record dimensions",
+                        tensor_name.c_str()
+                    ));
+                }
+            }
+
+            if (parakeet_tensor_uses_record_type(type)) {
+                if (source_record->n_dims != 2 || n_dims != 2) {
+                    throw std::runtime_error(format(
+                        "parakeet tensor %s is not a 2-D quantizable weight record",
+                        tensor_name.c_str()
+                    ));
+                }
+                selected_type = source_record->type;
+                record_authoritative_names.emplace(*source_record->name);
+            }
+        }
+
+        ggml_tensor * selected_meta =
+            ggml_new_tensor(ctx, selected_type, n_dims, selected_ne);
+        if (source_record &&
+                source_record->payload_bytes != ggml_nbytes(selected_meta)) {
+            throw std::runtime_error(format(
+                "parakeet tensor %s has the wrong record payload size",
+                tensor_name.c_str()
+            ));
+        }
+
+        ggml_op op = PARAKEET_TENSOR_INFO.at(type);
+        ggml_backend_buffer_type_t buft =
+            select_weight_buft(hparams, selected_meta, op, buft_list);
+        if (!buft) {
+            throw std::runtime_error(format(
+                "failed to find a compatible buffer type for parakeet tensor %s",
+                tensor_name.c_str()
+            ));
+        }
+
+        ggml_context * tensor_ctx = get_ctx(buft);
+        ggml_tensor * tensor = ggml_dup_tensor(tensor_ctx, selected_meta);
+        if (!wctx.model.tensors.emplace(tensor_name, tensor).second) {
+            throw std::runtime_error(format(
+                "duplicate parakeet architecture tensor %s",
+                tensor_name.c_str()
+            ));
+        }
         return tensor;
     };
 
-    // prepare tensors for the weights
-
-    ggml_init_params params = {
-        /*.mem_size   =*/ n_tensors * ggml_tensor_overhead(),
-        /*.mem_buffer =*/ nullptr,
-        /*.no_alloc   =*/ true,
+    auto create_tensor_1d = [&](
+            parakeet_tensor type,
+            ggml_type legacy_type,
+            int64_t ne0,
+            int layer = -1) -> ggml_tensor * {
+        const int64_t ne[] = { ne0 };
+        return create_tensor(type, legacy_type, 1, ne, layer);
+    };
+    auto create_tensor_2d = [&](
+            parakeet_tensor type,
+            ggml_type legacy_type,
+            int64_t ne0,
+            int64_t ne1,
+            int layer = -1) -> ggml_tensor * {
+        const int64_t ne[] = { ne0, ne1 };
+        return create_tensor(type, legacy_type, 2, ne, layer);
+    };
+    auto create_tensor_4d = [&](
+            parakeet_tensor type,
+            ggml_type legacy_type,
+            int64_t ne0,
+            int64_t ne1,
+            int64_t ne2,
+            int64_t ne3,
+            int layer = -1) -> ggml_tensor * {
+        const int64_t ne[] = { ne0, ne1, ne2, ne3 };
+        return create_tensor(type, legacy_type, 4, ne, layer);
     };
 
-    ggml_context * ctx = ggml_init(params);
+    // prepare tensors for the weights
 
     const int n_audio_state = hparams.n_audio_state;
 
@@ -1858,34 +2463,34 @@ static bool parakeet_model_load(
     // Encoder pre_encode
     const int n_subsampling_channels = hparams.n_subsampling_channels;
     const int n_pre_enc_features     = (hparams.n_mels / hparams.subsampling_factor) * n_subsampling_channels;
-    model.enc_pre_out_w = create_tensor(PARAKEET_TENSOR_ENC_PRE_OUT_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_pre_enc_features, n_audio_state));
+    model.enc_pre_out_w = create_tensor_2d(PARAKEET_TENSOR_ENC_PRE_OUT_WEIGHT, wtype, n_pre_enc_features, n_audio_state);
     ggml_set_name(model.enc_pre_out_w, "enc_pre_out_w");
-    model.enc_pre_out_b = create_tensor(PARAKEET_TENSOR_ENC_PRE_OUT_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state));
+    model.enc_pre_out_b = create_tensor_1d(PARAKEET_TENSOR_ENC_PRE_OUT_BIAS, GGML_TYPE_F32, n_audio_state);
     ggml_set_name(model.enc_pre_out_b, "enc_pre_out_b");
 
-    model.enc_pre_conv_0_w = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_0_WEIGHT, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 3, 3, 1, n_subsampling_channels));
+    model.enc_pre_conv_0_w = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_0_WEIGHT, GGML_TYPE_F32, 3, 3, 1, n_subsampling_channels);
     ggml_set_name(model.enc_pre_conv_0_w, "enc_pre_conv_0_w");
-    model.enc_pre_conv_0_b = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_0_BIAS, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1));
+    model.enc_pre_conv_0_b = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_0_BIAS, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1);
     ggml_set_name(model.enc_pre_conv_0_b, "enc_pre_conv_0_b");
 
-    model.enc_pre_conv_2_w = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_2_WEIGHT, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 3, 3, 1, n_subsampling_channels));
+    model.enc_pre_conv_2_w = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_2_WEIGHT, GGML_TYPE_F32, 3, 3, 1, n_subsampling_channels);
     ggml_set_name(model.enc_pre_conv_2_w, "enc_pre_conv_2_w");
-    model.enc_pre_conv_2_b = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_2_BIAS, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1));
+    model.enc_pre_conv_2_b = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_2_BIAS, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1);
     ggml_set_name(model.enc_pre_conv_2_b, "enc_pre_conv_2_b");
 
-    model.enc_pre_conv_3_w = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_3_WEIGHT, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, n_subsampling_channels));
+    model.enc_pre_conv_3_w = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_3_WEIGHT, GGML_TYPE_F32, 1, 1, n_subsampling_channels, n_subsampling_channels);
     ggml_set_name(model.enc_pre_conv_3_w, "enc_pre_conv_3_w");
-    model.enc_pre_conv_3_b = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_3_BIAS, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1));
+    model.enc_pre_conv_3_b = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_3_BIAS, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1);
     ggml_set_name(model.enc_pre_conv_3_b, "enc_pre_conv_3_b");
 
-    model.enc_pre_conv_5_w = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_5_WEIGHT, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 3, 3, 1, n_subsampling_channels));
+    model.enc_pre_conv_5_w = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_5_WEIGHT, GGML_TYPE_F32, 3, 3, 1, n_subsampling_channels);
     ggml_set_name(model.enc_pre_conv_5_w, "enc_pre_conv_5_w");
-    model.enc_pre_conv_5_b = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_5_BIAS, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1));
+    model.enc_pre_conv_5_b = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_5_BIAS, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1);
     ggml_set_name(model.enc_pre_conv_5_b, "enc_pre_conv_5_b");
 
-    model.enc_pre_conv_6_w = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_6_WEIGHT, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, n_subsampling_channels));
+    model.enc_pre_conv_6_w = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_6_WEIGHT, GGML_TYPE_F32, 1, 1, n_subsampling_channels, n_subsampling_channels);
     ggml_set_name(model.enc_pre_conv_6_w, "enc_pre_conv_6_w");
-    model.enc_pre_conv_6_b = create_tensor(PARAKEET_TENSOR_ENC_PRE_CONV_6_BIAS, ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1));
+    model.enc_pre_conv_6_b = create_tensor_4d(PARAKEET_TENSOR_ENC_PRE_CONV_6_BIAS, GGML_TYPE_F32, 1, 1, n_subsampling_channels, 1);
     ggml_set_name(model.enc_pre_conv_6_b, "enc_pre_conv_6_b");
 
     // Encoder layers
@@ -1893,54 +2498,54 @@ static bool parakeet_model_load(
         auto & layer = model.layers[i];
 
         // Feed forward 1
-        layer.norm_ff1_w    = create_tensor(PARAKEET_TENSOR_ENC_NORM_FF1_WEIGHT, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.norm_ff1_b    = create_tensor(PARAKEET_TENSOR_ENC_NORM_FF1_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.ff1_linear1_w = create_tensor(PARAKEET_TENSOR_ENC_FF1_LINEAR1_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, 4*n_audio_state), i);
+        layer.norm_ff1_w    = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_FF1_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
+        layer.norm_ff1_b    = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_FF1_BIAS, GGML_TYPE_F32, n_audio_state, i);
+        layer.ff1_linear1_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF1_LINEAR1_WEIGHT, wtype, n_audio_state, 4*n_audio_state, i);
         ggml_format_name(layer.ff1_linear1_w, "enc_%d_ff1_linear1_w", i);
-        layer.ff1_linear2_w = create_tensor(PARAKEET_TENSOR_ENC_FF1_LINEAR2_WEIGHT, ggml_new_tensor_2d(ctx, wtype, 4*n_audio_state, n_audio_state), i);
+        layer.ff1_linear2_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF1_LINEAR2_WEIGHT, wtype, 4*n_audio_state, n_audio_state, i);
         ggml_format_name(layer.ff1_linear2_w, "enc_%d_ff1_linear2_w", i);
 
         // Convolution module
-        layer.norm_conv_w         = create_tensor(PARAKEET_TENSOR_ENC_NORM_CONV_WEIGHT, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
+        layer.norm_conv_w         = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_CONV_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
         ggml_format_name(layer.norm_conv_w, "enc_%d_norm_conv_w", i);
-        layer.norm_conv_b         = create_tensor(PARAKEET_TENSOR_ENC_NORM_CONV_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
+        layer.norm_conv_b         = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_CONV_BIAS, GGML_TYPE_F32, n_audio_state, i);
         ggml_format_name(layer.norm_conv_b, "enc_%d_norm_conv_b", i);
-        layer.conv_pw1_w          = create_tensor(PARAKEET_TENSOR_ENC_CONV_PW1_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, 2*n_audio_state), i);
+        layer.conv_pw1_w          = create_tensor_2d(PARAKEET_TENSOR_ENC_CONV_PW1_WEIGHT, wtype, n_audio_state, 2*n_audio_state, i);
         ggml_format_name(layer.conv_pw1_w, "enc_%d_conv_pw1_w", i);
-        layer.conv_dw_w           = create_tensor(PARAKEET_TENSOR_ENC_CONV_DW_WEIGHT, ggml_new_tensor_2d(ctx, GGML_TYPE_F32, hparams.n_conv_kernel, n_audio_state), i);
+        layer.conv_dw_w           = create_tensor_2d(PARAKEET_TENSOR_ENC_CONV_DW_WEIGHT, GGML_TYPE_F32, hparams.n_conv_kernel, n_audio_state, i);
         ggml_format_name(layer.conv_dw_w, "enc_%d_conv_dw_w", i);
-        layer.conv_bn_w           = create_tensor(PARAKEET_TENSOR_ENC_CONV_BN_WEIGHT, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
+        layer.conv_bn_w           = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
         ggml_format_name(layer.conv_bn_w, "enc_%d_conv_bn_w", i);
-        layer.conv_bn_b           = create_tensor(PARAKEET_TENSOR_ENC_CONV_BN_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
+        layer.conv_bn_b           = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_BIAS, GGML_TYPE_F32, n_audio_state, i);
         ggml_format_name(layer.conv_bn_b, "enc_%d_conv_bn_b", i);
-        layer.conv_bn_mean        = create_tensor(PARAKEET_TENSOR_ENC_CONV_BN_MEAN, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.conv_bn_var         = create_tensor(PARAKEET_TENSOR_ENC_CONV_BN_VAR, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
+        layer.conv_bn_mean        = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_MEAN, GGML_TYPE_F32, n_audio_state, i);
+        layer.conv_bn_var         = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_VAR, GGML_TYPE_F32, n_audio_state, i);
         ggml_format_name(layer.conv_bn_var, "enc_%d_conv_bn_var", i);
-        layer.conv_bn_num_batches = create_tensor(PARAKEET_TENSOR_ENC_CONV_BN_NUM_BATCHES, ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 1), i);
-        layer.conv_pw2_w          = create_tensor(PARAKEET_TENSOR_ENC_CONV_PW2_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, n_audio_state), i);
+        layer.conv_bn_num_batches = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_NUM_BATCHES, GGML_TYPE_I32, 1, i);
+        layer.conv_pw2_w          = create_tensor_2d(PARAKEET_TENSOR_ENC_CONV_PW2_WEIGHT, wtype, n_audio_state, n_audio_state, i);
         ggml_format_name(layer.conv_pw2_w, "enc_%d_conv_pw2_w", i);
 
         // Self attention
-        layer.norm_attn_w      = create_tensor(PARAKEET_TENSOR_ENC_NORM_ATTN_WEIGHT, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.norm_attn_b      = create_tensor(PARAKEET_TENSOR_ENC_NORM_ATTN_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.attn_pos_bias_u  = create_tensor(PARAKEET_TENSOR_ENC_ATTN_POS_BIAS_U, ggml_new_tensor_2d(ctx, GGML_TYPE_F32, hparams.n_audio_state / hparams.n_audio_head, hparams.n_audio_head), i);
-        layer.attn_pos_bias_v  = create_tensor(PARAKEET_TENSOR_ENC_ATTN_POS_BIAS_V, ggml_new_tensor_2d(ctx, GGML_TYPE_F32, hparams.n_audio_state / hparams.n_audio_head, hparams.n_audio_head), i);
-        layer.attn_q_w         = create_tensor(PARAKEET_TENSOR_ENC_ATTN_Q_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, n_audio_state), i);
-        layer.attn_k_w         = create_tensor(PARAKEET_TENSOR_ENC_ATTN_K_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, n_audio_state), i);
-        layer.attn_v_w         = create_tensor(PARAKEET_TENSOR_ENC_ATTN_V_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, n_audio_state), i);
-        layer.attn_out_w       = create_tensor(PARAKEET_TENSOR_ENC_ATTN_OUT_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, n_audio_state), i);
-        layer.attn_pos_w       = create_tensor(PARAKEET_TENSOR_ENC_ATTN_POS_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, n_audio_state), i);
+        layer.norm_attn_w      = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_ATTN_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
+        layer.norm_attn_b      = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_ATTN_BIAS, GGML_TYPE_F32, n_audio_state, i);
+        layer.attn_pos_bias_u  = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_POS_BIAS_U, GGML_TYPE_F32, hparams.n_audio_state / hparams.n_audio_head, hparams.n_audio_head, i);
+        layer.attn_pos_bias_v  = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_POS_BIAS_V, GGML_TYPE_F32, hparams.n_audio_state / hparams.n_audio_head, hparams.n_audio_head, i);
+        layer.attn_q_w         = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_Q_WEIGHT, wtype, n_audio_state, n_audio_state, i);
+        layer.attn_k_w         = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_K_WEIGHT, wtype, n_audio_state, n_audio_state, i);
+        layer.attn_v_w         = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_V_WEIGHT, wtype, n_audio_state, n_audio_state, i);
+        layer.attn_out_w       = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_OUT_WEIGHT, wtype, n_audio_state, n_audio_state, i);
+        layer.attn_pos_w       = create_tensor_2d(PARAKEET_TENSOR_ENC_ATTN_POS_WEIGHT, wtype, n_audio_state, n_audio_state, i);
         ggml_format_name(layer.attn_pos_w, "enc_%d_attn_pos_w", i);
 
         // Feed forward 2
-        layer.norm_ff2_w    = create_tensor(PARAKEET_TENSOR_ENC_NORM_FF2_WEIGHT, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.norm_ff2_b    = create_tensor(PARAKEET_TENSOR_ENC_NORM_FF2_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.ff2_linear1_w = create_tensor(PARAKEET_TENSOR_ENC_FF2_LINEAR1_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, 4*n_audio_state), i);
-        layer.ff2_linear2_w = create_tensor(PARAKEET_TENSOR_ENC_FF2_LINEAR2_WEIGHT, ggml_new_tensor_2d(ctx, wtype, 4*n_audio_state, n_audio_state), i);
+        layer.norm_ff2_w    = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_FF2_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
+        layer.norm_ff2_b    = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_FF2_BIAS, GGML_TYPE_F32, n_audio_state, i);
+        layer.ff2_linear1_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF2_LINEAR1_WEIGHT, wtype, n_audio_state, 4*n_audio_state, i);
+        layer.ff2_linear2_w = create_tensor_2d(PARAKEET_TENSOR_ENC_FF2_LINEAR2_WEIGHT, wtype, 4*n_audio_state, n_audio_state, i);
 
         // Output norm
-        layer.norm_out_w = create_tensor(PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
-        layer.norm_out_b = create_tensor(PARAKEET_TENSOR_ENC_NORM_OUT_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_audio_state), i);
+        layer.norm_out_w = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT, GGML_TYPE_F32, n_audio_state, i);
+        layer.norm_out_b = create_tensor_1d(PARAKEET_TENSOR_ENC_NORM_OUT_BIAS, GGML_TYPE_F32, n_audio_state, i);
     }
 
     // Prediction network (decoder)
@@ -1949,39 +2554,53 @@ static bool parakeet_model_load(
     const int n_lstm_gates = 4 * dec_hidden;                                 // 4 LSTM gates
     const int n_joint_out  = hparams.n_vocab + hparams.n_tdt_durations + 1;  // vocab + durations + blank
 
-    // The prediction/joint hidden dimension is 640, which is not a multiple of the
-    // K-quant block size (256). For K-quant models, we keep these tensors at F32.
+    // The legacy/non-seekable global path keeps its K-quant fallback for the 640-wide
+    // prediction/joint tensors. A seekable record directory overrides only allowlisted weights.
     const int blck         = ggml_blck_size(wtype);
     const ggml_type pred_wtype = (blck > 1 && dec_hidden % blck != 0) ? GGML_TYPE_F32 : wtype;
     const ggml_type join_wtype = pred_wtype;
 
-    model.prediction.embed_w = create_tensor(PARAKEET_TENSOR_PRED_EMBED_WEIGHT, ggml_new_tensor_2d(ctx, pred_wtype, dec_hidden, n_pred_embed));
+    model.prediction.embed_w = create_tensor_2d(PARAKEET_TENSOR_PRED_EMBED_WEIGHT, pred_wtype, dec_hidden, n_pred_embed);
     model.prediction.lstm_layer.resize(hparams.n_pred_layers);
     for (int i = 0; i < hparams.n_pred_layers; ++i) {
         auto & layer = model.prediction.lstm_layer[i];
-        layer.ih_w = create_tensor(PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH, ggml_new_tensor_2d(ctx, pred_wtype, dec_hidden, n_lstm_gates), i);
+        layer.ih_w = create_tensor_2d(PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH, pred_wtype, dec_hidden, n_lstm_gates, i);
         ggml_format_name(layer.ih_w, "pred_%d_ih_w", i);
 
-        layer.hh_w = create_tensor(PARAKEET_TENSOR_PRED_LSTM_WEIGHT_HH, ggml_new_tensor_2d(ctx, pred_wtype, dec_hidden, n_lstm_gates), i);
+        layer.hh_w = create_tensor_2d(PARAKEET_TENSOR_PRED_LSTM_WEIGHT_HH, pred_wtype, dec_hidden, n_lstm_gates, i);
         ggml_format_name(layer.hh_w, "pred_%d_hh_w", i);
 
-        layer.b_h = create_tensor(PARAKEET_TENSOR_PRED_LSTM_BIAS_H, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_lstm_gates), i);
+        layer.b_h = create_tensor_1d(PARAKEET_TENSOR_PRED_LSTM_BIAS_H, GGML_TYPE_F32, n_lstm_gates, i);
         ggml_format_name(layer.b_h, "pred_%d_b_h", i);
     }
 
     // Joint network
-    model.joint.pred_w = create_tensor(PARAKEET_TENSOR_JOINT_PRED_WEIGHT, ggml_new_tensor_2d(ctx, join_wtype, dec_hidden, dec_hidden));
+    model.joint.pred_w = create_tensor_2d(PARAKEET_TENSOR_JOINT_PRED_WEIGHT, join_wtype, dec_hidden, dec_hidden);
     ggml_set_name(model.joint.pred_w, "pred_w");
-    model.joint.pred_b = create_tensor(PARAKEET_TENSOR_JOINT_PRED_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, dec_hidden));
+    model.joint.pred_b = create_tensor_1d(PARAKEET_TENSOR_JOINT_PRED_BIAS, GGML_TYPE_F32, dec_hidden);
     ggml_set_name(model.joint.pred_b, "pred_b");
-    model.joint.enc_w  = create_tensor(PARAKEET_TENSOR_JOINT_ENC_WEIGHT, ggml_new_tensor_2d(ctx, wtype, n_audio_state, dec_hidden));
+    model.joint.enc_w  = create_tensor_2d(PARAKEET_TENSOR_JOINT_ENC_WEIGHT, wtype, n_audio_state, dec_hidden);
     ggml_set_name(model.joint.enc_w, "enc_w");
-    model.joint.enc_b  = create_tensor(PARAKEET_TENSOR_JOINT_ENC_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, dec_hidden));
+    model.joint.enc_b  = create_tensor_1d(PARAKEET_TENSOR_JOINT_ENC_BIAS, GGML_TYPE_F32, dec_hidden);
     ggml_set_name(model.joint.enc_b, "enc_b");
-    model.joint.net_w  = create_tensor(PARAKEET_TENSOR_JOINT_NET_WEIGHT, ggml_new_tensor_2d(ctx, join_wtype, dec_hidden, n_joint_out));
+    model.joint.net_w  = create_tensor_2d(PARAKEET_TENSOR_JOINT_NET_WEIGHT, join_wtype, dec_hidden, n_joint_out);
     ggml_set_name(model.joint.net_w, "net_w");
-    model.joint.net_b  = create_tensor(PARAKEET_TENSOR_JOINT_NET_BIAS, ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_joint_out));
+    model.joint.net_b  = create_tensor_1d(PARAKEET_TENSOR_JOINT_NET_BIAS, GGML_TYPE_F32, n_joint_out);
     ggml_set_name(model.joint.net_b, "net_b");
+
+    if (has_record_directory) {
+        bool exact_name_set = model.tensors.size() == tensor_records.size();
+        for (const parakeet_tensor_record & record : tensor_records) {
+            exact_name_set =
+                exact_name_set &&
+                model.tensors.find(*record.name) != model.tensors.end();
+        }
+        if (!exact_name_set) {
+            PARAKEET_LOG_ERROR("%s: tensor record names do not match the architecture\n", __func__);
+            ggml_free(ctx);
+            return false;
+        }
+    }
 
     ggml_free(ctx);
 
@@ -1996,7 +2615,6 @@ static bool parakeet_model_load(
     std::string arena_path;
     std::string arena_manifest_path;
     std::string arena_manifest;
-    int64_t weight_records_offset = -1;
 
     const bool arena_requested =
         path_weight_arena &&
@@ -2074,125 +2692,248 @@ static bool parakeet_model_load(
         int & n_loaded = model.n_loaded;
         n_loaded = 0;
         std::vector<char> read_buf;
+        size_t record_index = 0;
 
         while (true) {
-            int32_t n_dims = 0;
-            int32_t length = 0;
-            int32_t ttype = 0;
-
-            read_safe(loader, n_dims);
-            read_safe(loader, length);
-            read_safe(loader, ttype);
-
-            if (loader->eof(loader->context)) {
-                break;
-            }
-            if (n_dims < 0 || n_dims > 4 || length < 0 || length > (1 << 20)) {
-                PARAKEET_LOG_ERROR("%s: invalid tensor header in model file\n", __func__);
-                return false;
-            }
-            if (ttype < 0 || ttype >= GGML_TYPE_COUNT) {
-                PARAKEET_LOG_ERROR("%s: invalid tensor type %d in model file\n", __func__, ttype);
-                return false;
-            }
-
+            parakeet_tensor_record source_record;
+            std::string legacy_name;
             int64_t nelements = 1;
-            int32_t ne[4] = { 1, 1, 1, 1 };
-            for (int i = 0; i < n_dims; ++i) {
-                read_safe(loader, ne[i]);
-                if (ne[i] <= 0 || nelements > std::numeric_limits<int64_t>::max() / ne[i]) {
-                    PARAKEET_LOG_ERROR("%s: invalid tensor dimensions in model file\n", __func__);
+
+            if (has_record_directory) {
+                if (record_index == tensor_records.size()) {
+                    break;
+                }
+                if (!parakeet_read_tensor_record(
+                        loader,
+                        model_file_size,
+                        expected_tensor_names,
+                        source_record)) {
                     return false;
                 }
-                nelements *= ne[i];
+                if (!parakeet_tensor_records_equal(
+                        source_record,
+                        tensor_records[record_index])) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: tensor record %zu changed between directory and payload pass\n",
+                        __func__,
+                        record_index
+                    );
+                    return false;
+                }
+            } else {
+                int32_t name_length = 0;
+                int32_t type_id = 0;
+                read_safe(loader, source_record.n_dims);
+                read_safe(loader, name_length);
+                read_safe(loader, type_id);
+
+                if (loader->eof(loader->context)) {
+                    break;
+                }
+                if (source_record.n_dims < 0 ||
+                        source_record.n_dims > 4 ||
+                        name_length <= 0 ||
+                        name_length >= GGML_MAX_NAME) {
+                    PARAKEET_LOG_ERROR("%s: invalid tensor header in model file\n", __func__);
+                    return false;
+                }
+                if (type_id < 0 || type_id >= GGML_TYPE_COUNT) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: invalid tensor type %d in model file\n",
+                        __func__,
+                        type_id
+                    );
+                    return false;
+                }
+                source_record.type = static_cast<ggml_type>(type_id);
+
+                for (int i = 0; i < source_record.n_dims; ++i) {
+                    read_safe(loader, source_record.ne[i]);
+                    if (source_record.ne[i] <= 0 ||
+                            nelements >
+                                std::numeric_limits<int64_t>::max() /
+                                source_record.ne[i]) {
+                        PARAKEET_LOG_ERROR(
+                            "%s: invalid tensor dimensions in model file\n",
+                            __func__
+                        );
+                        return false;
+                    }
+                    nelements *= source_record.ne[i];
+                }
+
+                legacy_name.assign(static_cast<size_t>(name_length), '\0');
+                if (loader->read(
+                        loader->context,
+                        legacy_name.data(),
+                        legacy_name.size()) != legacy_name.size()) {
+                    PARAKEET_LOG_ERROR("%s: truncated tensor name in model file\n", __func__);
+                    return false;
+                }
+                if (!parakeet_is_valid_tensor_name(legacy_name)) {
+                    PARAKEET_LOG_ERROR("%s: invalid tensor name in model file\n", __func__);
+                    return false;
+                }
+                source_record.name = &legacy_name;
             }
 
-            std::string name(static_cast<size_t>(length), '\0');
-            if (length > 0 &&
-                    loader->read(loader->context, name.data(), name.size()) != name.size()) {
-                PARAKEET_LOG_ERROR("%s: truncated tensor name in model file\n", __func__);
-                return false;
-            }
-
-            const auto found = tensors_map.find(name);
+            const auto found = tensors_map.find(*source_record.name);
             if (found == tensors_map.end()) {
-                PARAKEET_LOG_ERROR("%s: unknown tensor '%s' in model file\n", __func__, name.c_str());
+                PARAKEET_LOG_ERROR(
+                    "%s: unknown tensor '%s' in model file\n",
+                    __func__,
+                    source_record.name->c_str()
+                );
                 return false;
             }
             ggml_tensor * tensor = found->second;
 
-            if (ggml_nelements(tensor) != nelements ||
-                    tensor->ne[0] != ne[0] ||
-                    tensor->ne[1] != ne[1] ||
-                    tensor->ne[2] != ne[2] ||
-                    tensor->ne[3] != ne[3]) {
-                PARAKEET_LOG_ERROR("%s: tensor '%s' has the wrong shape in model file\n",
-                    __func__, name.c_str());
-                return false;
-            }
-
-            const size_t bpe = ggml_type_size(static_cast<ggml_type>(ttype));
-            if (bpe == 0 ||
-                    static_cast<uint64_t>(nelements) >
-                        std::numeric_limits<size_t>::max() / bpe) {
-                PARAKEET_LOG_ERROR("%s: tensor '%s' byte count overflows\n", __func__, name.c_str());
-                return false;
-            }
-            const size_t source_bytes = static_cast<size_t>(nelements) * bpe;
-            if (source_bytes / ggml_blck_size(tensor->type) != ggml_nbytes(tensor)) {
-                PARAKEET_LOG_ERROR("%s: tensor '%s' has wrong byte size in model file\n",
-                    __func__, name.c_str());
+            if (tensor->ne[0] != source_record.ne[0] ||
+                    tensor->ne[1] != source_record.ne[1] ||
+                    tensor->ne[2] != source_record.ne[2] ||
+                    tensor->ne[3] != source_record.ne[3] ||
+                    (!has_record_directory && ggml_nelements(tensor) != nelements)) {
+                PARAKEET_LOG_ERROR(
+                    "%s: tensor '%s' has the wrong shape in model file\n",
+                    __func__,
+                    source_record.name->c_str()
+                );
                 return false;
             }
 
             const size_t tensor_bytes = ggml_nbytes(tensor);
+            size_t source_bytes = 0;
+            if (has_record_directory) {
+                source_bytes = source_record.payload_bytes;
+                if (record_authoritative_names.find(*source_record.name) !=
+                            record_authoritative_names.end() &&
+                        source_record.type != tensor->type) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: authoritative tensor '%s' has the wrong type in model file\n",
+                        __func__,
+                        source_record.name->c_str()
+                    );
+                    return false;
+                }
+            } else {
+                const size_t type_size = ggml_type_size(source_record.type);
+                if (type_size == 0 ||
+                        static_cast<uint64_t>(nelements) >
+                            std::numeric_limits<size_t>::max() / type_size) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: tensor '%s' byte count overflows\n",
+                        __func__,
+                        source_record.name->c_str()
+                    );
+                    return false;
+                }
+                const size_t unblocked_bytes =
+                    static_cast<size_t>(nelements) * type_size;
+                source_bytes = unblocked_bytes / ggml_blck_size(tensor->type);
+            }
+            if (source_bytes != tensor_bytes) {
+                PARAKEET_LOG_ERROR(
+                    "%s: tensor '%s' has wrong byte size in model file\n",
+                    __func__,
+                    source_record.name->c_str()
+                );
+                return false;
+            }
+
             if (arena_warm) {
-                // The source model remains authoritative: its tensor metadata was just parsed
-                // and checked. Only the already-materialised payload read is skipped.
+                // The source model remains authoritative: the second metadata pass matched the
+                // directory exactly. Only the already-materialised payload read is skipped.
                 if (!loader->seek ||
-                        tensor_bytes > static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
-                        !loader->seek(loader->context, static_cast<int64_t>(tensor_bytes), SEEK_CUR)) {
-                    PARAKEET_LOG_ERROR("%s: tensor '%s' payload seek exceeds model bounds\n",
-                        __func__, name.c_str());
+                        source_bytes >
+                            static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
+                        !loader->seek(
+                            loader->context,
+                            static_cast<int64_t>(source_bytes),
+                            SEEK_CUR)) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: tensor '%s' payload seek exceeds model bounds\n",
+                        __func__,
+                        source_record.name->c_str()
+                    );
                     return false;
                 }
             } else if (ggml_backend_buffer_is_host(tensor->buffer)) {
-                if (loader->read(loader->context, tensor->data, tensor_bytes) != tensor_bytes) {
-                    PARAKEET_LOG_ERROR("%s: truncated tensor '%s' payload\n", __func__, name.c_str());
+                if (loader->read(loader->context, tensor->data, source_bytes) != source_bytes) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: truncated tensor '%s' payload\n",
+                        __func__,
+                        source_record.name->c_str()
+                    );
                     return false;
                 }
                 BYTESWAP_TENSOR(tensor);
 #ifndef _WIN32
                 if (arena_cold && !parakeet_sync_weight_tensor(model, tensor)) {
-                    PARAKEET_LOG_WARN("%s: cannot synchronise arena tensor '%s': %s\n",
-                        __func__, name.c_str(), strerror(errno));
+                    PARAKEET_LOG_WARN(
+                        "%s: cannot synchronise arena tensor '%s': %s\n",
+                        __func__,
+                        source_record.name->c_str(),
+                        strerror(errno)
+                    );
                     arena_cache_failed = true;
                     return false;
                 }
 #endif
             } else {
-                read_buf.resize(tensor_bytes);
-                if (loader->read(loader->context, read_buf.data(), read_buf.size()) != read_buf.size()) {
-                    PARAKEET_LOG_ERROR("%s: truncated tensor '%s' payload\n", __func__, name.c_str());
+                read_buf.resize(source_bytes);
+                if (loader->read(loader->context, read_buf.data(), read_buf.size()) !=
+                        read_buf.size()) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: truncated tensor '%s' payload\n",
+                        __func__,
+                        source_record.name->c_str()
+                    );
                     return false;
                 }
-                ggml_backend_tensor_set(tensor, read_buf.data(), 0, tensor_bytes);
+                ggml_backend_tensor_set(tensor, read_buf.data(), 0, source_bytes);
             }
 
+            if (has_record_directory) {
+                const int64_t expected_offset =
+                    source_record.payload_offset + static_cast<int64_t>(source_bytes);
+                if (loader->tell(loader->context) != expected_offset) {
+                    PARAKEET_LOG_ERROR(
+                        "%s: tensor '%s' payload ended at the wrong offset\n",
+                        __func__,
+                        source_record.name->c_str()
+                    );
+                    return false;
+                }
+            }
             if (tensor_bytes > std::numeric_limits<size_t>::max() - total_size) {
                 PARAKEET_LOG_ERROR("%s: total model byte count overflows\n", __func__);
                 return false;
             }
             total_size += tensor_bytes;
             ++n_loaded;
+            ++record_index;
+        }
+
+        if (has_record_directory &&
+                (record_index != tensor_records.size() ||
+                    loader->tell(loader->context) != model_file_size)) {
+            PARAKEET_LOG_ERROR("%s: tensor payload pass did not end at model EOF\n", __func__);
+            return false;
         }
 
         PARAKEET_LOG_INFO("%s: model size    = %7.2f MB\n", __func__, total_size / 1e6);
         if (n_loaded == 0) {
-            PARAKEET_LOG_WARN("%s: WARN no tensors loaded from model file - assuming empty model for testing\n", __func__);
+            PARAKEET_LOG_WARN(
+                "%s: WARN no tensors loaded from model file - assuming empty model for testing\n",
+                __func__
+            );
         } else if (n_loaded != static_cast<int>(tensors_map.size())) {
-            PARAKEET_LOG_ERROR("%s: ERROR not all tensors loaded from model file - expected %zu, got %d\n",
-                __func__, tensors_map.size(), n_loaded);
+            PARAKEET_LOG_ERROR(
+                "%s: ERROR not all tensors loaded from model file - expected %zu, got %d\n",
+                __func__,
+                tensors_map.size(),
+                n_loaded
+            );
             return false;
         }
         return true;

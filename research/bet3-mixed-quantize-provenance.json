@@ -1,0 +1,64 @@
+{
+  "verdict": "official q8 is the pinned original F32 checkpoint quantized directly, not the published f16 artifact re-expanded to F32",
+  "original_checkpoint": {
+    "model_id": "nvidia/parakeet-tdt-0.6b-v3",
+    "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+    "nemo_size_bytes": 2509332480,
+    "nemo_sha256": "3cbdc85877e668ca7b82d0d56770eb1fac76691f55d6b97545e8d61ca588d10d",
+    "model_weights_member_sha256": "381d1cdc01457395bf9ca4f64a91bbe6d042b6fccd4d9aa88a52d15d63966d99",
+    "model_config_sha256": "eadae985ef97451402be2faef3b240c2cae7d9cc0362c5bd00e64dfc4265ed09"
+  },
+  "official_artifacts": {
+    "repository": "ggml-org/parakeet-GGUF",
+    "revision": "35156454d1a39de06863303dd209fd2bed6ee079",
+    "f16_size_bytes": 1255897319,
+    "f16_sha256": "833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f",
+    "q8_size_bytes": 668757119,
+    "q8_sha256": "4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e"
+  },
+  "f32_quant_source": {
+    "conversion": "pinned upstream whisper.cpp 592feef04a1802b18cbeffd0fd0eb5d02570c2ec models/convert-parakeet-to-ggml.py --use-f32",
+    "converter_sha256": "0862d1d1065cd3347d7c6615ffb7b4dfdd1ffc5b0943477cbb8f8c5f4b7bc2ab",
+    "size_bytes": 2508463079,
+    "sha256": "b17956ca991a7f084c978a8a9d4c9785864260b6dd9b72f884344759d913ae7f",
+    "records": 721,
+    "f32_to_official_f16_matrix_payload_mismatches": 0,
+    "official_q8_unquantized_f32_payload_mismatches": 0
+  },
+  "upstream_toolchain": {
+    "whisper_cpp_commit": "592feef04a1802b18cbeffd0fd0eb5d02570c2ec",
+    "quantizer_sha256": "6e8731291cc8cdbc56af1796dccc1d81dd1fa8fa74f8b4ed322070524f93989e",
+    "common_quantizer_sha256": "8d0b96c9525365066fa9152707594526ae92002e9943aa1c177cb3677aacefe5",
+    "built_quantizer_sha256": "d4bf5c57026b70ea86fdbd742b3bfa915bd59a9818a826cec19ebd8bb1bd21a5",
+    "python": "3.10.12",
+    "torch": "2.7.0",
+    "numpy": "1.26.4",
+    "swift": "6.3.3"
+  },
+  "equality_controls": {
+    "noop_dual_source_output_sha256": "833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f",
+    "noop_cmp_official_f16": "byte-identical",
+    "all_q8_dual_source_output_sha256": "4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e",
+    "all_q8_cmp_official_q8": "byte-identical",
+    "upstream_parakeet_quantize_f32_to_q8_sha256": "4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e",
+    "rejected_hypothesis_f16_derived_q8_sha256": "ea8000f18ae5d347f47973ff0517f673c7a9d65711d6bb6765ef3b20e4baadf5",
+    "rejected_hypothesis_differing_payload_bytes": 10718248
+  },
+  "ffn_q6_candidate": {
+    "plan_family": "encoder-ffn-q6",
+    "selected_q6_K_records": 96,
+    "size_bytes": 780892391,
+    "sha256": "4a7e6379af784585bf6390e7f3e287a488b1a6e5a63bb3a99d471ad857971f17",
+    "deterministic_repeat": "byte-identical",
+    "arena_size_bytes": 780638752,
+    "arena_layout": "421185917ee3981c",
+    "official_harness_run": false
+  },
+  "reproduction": {
+    "tool": "swift build -c release --product parakeet-mixed-quantize",
+    "plan_generator": "scripts/generate_parakeet_mixed_plan.py --input <official-f16> --quant-source <f32-from-original-checkpoint> --family encoder-ffn-q6 --plan plan.tsv --inventory inventory.tsv",
+    "converter": "parakeet-mixed-quantize --input <official-f16> --quant-source <f32> --plan plan.tsv --output candidate.bin --report report.tsv",
+    "tests": "PARAKEET_MIXED_QUANTIZE_BIN=.build/release/parakeet-mixed-quantize python3 scripts/tests/test_parakeet_mixed_quantize.py",
+    "scratch_evidence": ".build/asr-research/three-bets/mixed-loader/ (gitignored working artifacts; this file is the durable summary)"
+  }
+}

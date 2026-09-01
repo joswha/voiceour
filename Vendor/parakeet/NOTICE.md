@@ -261,6 +261,31 @@ captured under `patches/`.
   - Test status: the Swift research caller copies only top-8 token logits and all duration slots;
     vendor reproduction and full-corpus harvest are recorded in
     `research/bet1-contextual-decoding.md` and `research/bet3-quantization.md`.
+- `patches/0015-record-authoritative-loader.patch` pre-scans the existing custom tensor-record
+  stream on seekable loaders and makes each record's storage type authoritative only for the
+  explicit 2-D matrix-weight allowlist, choosing that type before any ggml tensor metadata is
+  constructed. The scan validates GGML_MAX_NAME-bounded names against the exact expected
+  architecture name set before retaining them, dimensions, supported F32/F16/Q8_0/Q4_K/Q6_K
+  types, block shapes, checked payload offsets/byte counts under a checked record-count and
+  metadata-byte cap, and duplicate names. The payload pass then re-parses every header and
+  requires metadata identity with the scanned directory — same name, dimensions, type, offset,
+  and byte count — and exact EOF. The pre-scan promises metadata identity only; it never hashes
+  payload bytes. Payload authenticity is owned by the product model cache, whose locked
+  size/SHA-256 verification gates every artifact before this loader sees it. Fixed/scalar/
+  non-matmul tensors retain their architecture type, including the legacy zero-dimension F32
+  `num_batches_tracked` record loaded into I32 metadata. Non-seekable custom loaders retain the
+  global-`ftype` path.
+  - Upstream status: not reported upstream. The custom stream already stores a type per record;
+    this makes that existing metadata usable for mixed-precision research without a format or
+    graph change.
+  - Test status: focused real-artifact probes accept one Q8 matrix in a nominal F16 stream and
+    an F16 record under a nominal-Q6 global type with `n_subsampling_channels=255`, and reject a
+    duplicate name, an overlong (1 MiB) name length, a truncated final record, Q6_K with inner
+    dimension 640, and an architecture-dimension mismatch. Legacy F16/Q8 regular, cold-arena,
+    and warm-arena identity is recorded in `.build/asr-research/three-bets/mixed-loader/`, and
+    the dual-source provenance summary is tracked at
+    `research/bet3-mixed-quantize-provenance.json`.
+
 
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:4894-4931` routes through

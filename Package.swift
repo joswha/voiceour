@@ -65,6 +65,10 @@ let package = Package(
         .executable(name: "Voiceour", targets: ["Voiceour"]),
         .executable(name: "voiceour-bench", targets: ["VoiceourBench"]),
         .executable(name: "voiceour-asr", targets: ["VoiceourASR"]),
+        .executable(
+            name: "parakeet-mixed-quantize",
+            targets: ["ParakeetMixedQuantize"]
+        ),
         .library(name: "VoiceCore", targets: ["VoiceCore"]),
         .library(name: "VoiceMac", targets: ["VoiceMac"])
     ],
@@ -90,6 +94,10 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit")
             ]
+        ),
+        .executableTarget(
+            name: "ParakeetMixedQuantize",
+            dependencies: ["CGgml"]
         ),
         .target(
             name: "CParakeet",
