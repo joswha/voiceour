@@ -14,7 +14,12 @@ zero errors, determinism, term safety.
 uwer_mix .045995 · general .031135 · jargon .060861 · term recall .4653 (161/346) ·
 false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms · 184 MB.
 
-## Official run ledger
+## Segment 2 (repair engaged)
+Baseline run 50: **uwer_mix .034009** (−26.1% vs segment 1), recall .7052, false 0,
+fwer_negative exact, general byte-untouched; port proven 552/552 + digit-exact
+prediction match. Harness v2.1 pins repair.vocabulary.json (650dfc3f…).
+
+## Official run ledger (segment 1)
 | run | disposition | what |
 |---|---|---|
 | 41 | keep | baseline; cross-process byte determinism proven |
@@ -51,3 +56,7 @@ false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms 
   holdout opened once → formal fail, attribution analysis → mechanism safe; forced-score
   probe killed; ANE NI policy measured; fused-native-frontend killed; scheduler sweep;
   final synthesis.
+
+- 09-01 (cont.): segment 2 — ordinary-span guard derived and measured (2-event cost,
+  0 general events), Swift port landed with 552/552 differential, harness v2.1,
+  run 50 keep at .034009. Runs 49 (stale process, abandoned) / 50.

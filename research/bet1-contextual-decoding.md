@@ -195,3 +195,36 @@ preregistered kills, no rescues:
 reachable only through explicit user teaching (the product's existing heard-as Teach flow)
 — not through automatic decode/repair. Real-speaker validation remains required for any
 product promotion (all holdout audio is TTS).
+
+## Segment 2 — repair engaged (2026-09-01)
+
+Harness v2.1 (commit fc125c674f1e) engages the SHA-pinned repair vocabulary
+(`bench/autoresearch/repair.vocabulary.json`, 650dfc3f…) via `voiceour-bench
+--vocabulary`. Run 50 (keep, segment-2 baseline):
+
+| metric | seg-1 baseline | seg-2 baseline |
+|---|---:|---:|
+| uwer_mix | .045995 | **.034009** (−26.1% rel) |
+| uwer_jargon | .060861 | .036885 |
+| uwer_general | .031135 | .031135 (untouched) |
+| jargon_term_recall | .4653 | **.7052** |
+| jargon_false_terms | 0 | 0 |
+| fwer_negative | .007282 | .007282 (exact) |
+| per-domain recall | apple 17/68 | apple 50/68 · security 48/68 · dataweb 53/66 · cloud 47/72 · langs 46/72 |
+
+Mechanism: `Sources/VoiceCore/VocabularyRepair.swift` — exact Swift port of the
+frozen replay policy (lexical + phonetic θ=.95, unambiguous-only, risky surfaces
+protected) **plus the ordinary-span guard** (reject phonetic candidates whose span
+is entirely ordinary words; single letters ordinary iff a/i). Guard is
+tightening-only: dev cost 2 events (`I am`→IAM, `hash cut`→Hashcat); it kills the
+measured `I am`→IAM hazard on general text (0 surviving general events).
+Proofs: 552/552 byte-exact differential vs Python (incl. events); official run
+matched the offline prediction digit-for-digit on all six accuracy metrics; raw
+ASR transcript SHAs byte-identical to segment 1 (text-stage-only change);
+engine p95 5.2 ms/utterance off the ASR timing path.
+
+Residual 102 misses = risky-ineligible raw misses (Teach-flow territory) +
+phonetic-far mishearings (kubectl→"Quebecal" class — closed at decode level).
+App-side engagement remains an explicit product decision; bench-side capability
+and OOD safety evidence (sealed holdout: +134/−0 rows, 0 policy false terms) are
+the session deliverables.
