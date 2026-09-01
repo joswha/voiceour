@@ -151,13 +151,16 @@ trade: development evidence, including a 5,159-row held-out real-speech
 non-inferiority and determinism evaluation, is recorded in
 `research/bet3-quantization.md`.
 
-`VOICEOUR_COREML_WARM=tiers` loads every configured tier during backend warm-up, on the
-preload thread and under the decode lock, instead of lazily on each tier's first routed
-utterance. A cold ANE tier specialization costs roughly twenty seconds per tier and the
-system's specialization cache is purgeable under disk pressure, so without warm that
-stall can land inside the user's first dictation; with it, the cost is paid before the
-first request, and a tier that fails to warm simply stays lazy. Unset or `default`
-keeps lazy loading; any other value fails sidecar startup closed.
+`VOICEOUR_COREML_WARM=tiers` primes every configured tier whenever a model context is
+created — the preload thread's load and a reload after an idle unload alike. A cold ANE
+tier specialization costs roughly twenty seconds per tier and the system's
+specialization cache is purgeable under disk pressure, so without priming that stall
+can land inside the user's next dictation. Priming runs on its own thread and loads
+throwaway tier clients purely to heat that cache: it holds no decode state and no lock,
+so a real request never waits behind it, and the first utterance routed to a primed
+tier pays only the short lazy load. A tier that fails to prime logs and stays lazy.
+Unset or `default` keeps lazy loading only; any other value fails sidecar startup
+closed.
 
 Startup is fail-closed. Every configured path is resolved and validated while the backend is constructed, so a missing artifact, a path that is neither `.mlmodelc` nor `.mlpackage`, or an out-of-range bound fails the sidecar's start rather than quietly reverting to Metal. Loading is separately lazy: each tier's `MLModel` is built on the first utterance that routes to it, so a configured tier that never matches costs nothing at startup, and a load or prediction failure fails that request instead of being retried on another engine.
 

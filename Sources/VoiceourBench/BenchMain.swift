@@ -323,7 +323,8 @@ struct RepairVerificationCommand {
                 let outcome = loaded.engine.repair(row.input)
                 let end = DispatchTime.now().uptimeNanoseconds
                 elapsed.append(end >= start ? end - start : 0)
-                checksum = checksum &* 16_777_619
+                checksum =
+                    checksum &* 16_777_619
                     &+ UInt64(outcome.text.utf8.count)
                     &+ UInt64(outcome.events.count)
             }

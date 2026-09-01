@@ -408,3 +408,20 @@ Remaining adoption items are the user-owned pair: artifact hosting/manifest and 
 one Makefile env-forward line (now four names: `VOICEOUR_COREML_*`,
 `VOICEOUR_TAIL_BACKEND`, `VOICEOUR_TAIL_QUANT`, `VOICEOUR_COREML_WARM`), plus
 cross-SoC replication for any default flip.
+
+### Warm dial hardened into lock-free priming (2026-09-01)
+
+Two defects in the day-old warm dial, found and fixed before anything shipped around
+it: (1) warm ran only during backend warm-up, so a post-idle-unload reload — which
+happens *because* a dictation arrived — left the next dictation exposed to a cold
+20 s tier specialization; (2) warm held the decode lock while loading, so a dictation
+arriving during a cold warm would have waited behind it, up to a minute for three
+cold tiers. The mechanism is now **priming**: every newly created context (preload
+and post-idle reload alike) schedules a detached thread that loads throwaway tier
+clients purely to heat the system's specialization cache — no decode state, no lock,
+nothing for a request to wait on — and the first routed use then pays only the short
+lazy load against a hot cache. Measured: preload warm 513 ms with tiers priming
+off-path at 171/166/145 ms; `TierPrimeSchedulingTests` pins the contract (one prime
+per created context on the lazy-load request path, none in default mode) through the
+injected context factory. Formatter gate re-run repo-wide and green (it had drifted,
+including files predating this session); ASRSidecarCore suite 87 tests green.

@@ -7,7 +7,7 @@ protocol ParakeetRuntimeContext: AnyObject {
         samples: [Float],
         isCancelled: @escaping () -> Bool
     ) throws -> [ParakeetSegmentRaw]
-    func warmCoreMLTiers(log: (String) -> Void)
+    func primeCoreMLTiers(log: (String) -> Void)
 }
 
 extension ParakeetRuntimeContext {
@@ -18,7 +18,7 @@ extension ParakeetRuntimeContext {
         try transcribe(samples: samples, isCancelled: isCancelled)
     }
 
-    func warmCoreMLTiers(log: (String) -> Void) {}
+    func primeCoreMLTiers(log: (String) -> Void) {}
 }
 
 extension ParakeetContext: ParakeetRuntimeContext {}
@@ -109,7 +109,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             throw ParakeetTailQuantError.requiresCPUTail
         }
         let coreMLWarm = try CoreMLWarmMode.resolve(environment: environment)
-        let weightArenaPath = cache.weightArenaURL.path
+        let weightArenaPath =
+            cache.weightArenaURL.path
             + (tailBackend.usesCPU ? ".tail-cpu" : "")
             + (tailQuant.isQ8 ? ".tail-q8" : "")
         let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: environment)
@@ -266,15 +267,9 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             isCancelled: { false },
             isWarmUp: true
         )
-        // Tier warm belongs after the throwaway decode and outside the acquisition latch for
-        // the same reason the decode does: the artifact is loaded, and a tier that cannot warm
-        // logs and leaves its lazy path to the first request routed to it. The decode lock
-        // serializes against a real dictation racing the preload thread.
-        if coreMLWarm.warmsAllTiers, !isShuttingDown() {
-            decodeLock.lock()
-            defer { decodeLock.unlock() }
-            loaded.warmCoreMLTiers(log: log)
-        }
+        // Tier priming is scheduled by `loadContext` for every newly created context, so the
+        // preload path needs nothing further here: the prime thread is already running against
+        // the context this warm-up loaded.
     }
 
     /// Fetches the artifact if needed and builds the context. Nil when shutdown cut it short.
@@ -514,12 +509,29 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             // whether or not the acquisition above fetched anything, so a switch onto an
             // already-cached variant still retires the one it replaced.
             cache.removeSupersededVariants()
+            scheduleTierPrime(created)
             return created
         } catch {
             stateLock.lock()
             loadFailed = true
             stateLock.unlock()
             throw error
+        }
+    }
+
+    /// Primes the configured CoreML tiers for a newly created context, off the request path.
+    ///
+    /// Runs for every creation — the preload thread's and the post-idle-unload reload on the
+    /// decode queue alike — so a long-idle sidecar does not pay a cold tier specialization
+    /// inside the user's next dictation. Lock-free by design: priming loads throwaway models
+    /// to heat the system's specialization cache and touches no decode state, so a real
+    /// request never waits behind it. A context released before the thread runs is skipped.
+    private func scheduleTierPrime(_ created: any ParakeetRuntimeContext) {
+        guard coreMLWarm.warmsAllTiers else { return }
+        Thread.detachNewThread { [weak self] in
+            guard let self else { return }
+            guard self.currentContext() === created else { return }
+            created.primeCoreMLTiers(log: self.log)
         }
     }
 

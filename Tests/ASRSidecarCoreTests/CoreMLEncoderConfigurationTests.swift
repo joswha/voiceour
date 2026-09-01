@@ -76,7 +76,7 @@ struct CoreMLEncoderConfigurationTests {
     @Test func tinyEncoderCanRouteWithoutLargerArtifacts() throws {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(
             environment: [
-                "VOICEOUR_COREML_ENCODER_TINY": "/tmp/parakeet_encoder_6s.mlmodelc",
+                "VOICEOUR_COREML_ENCODER_TINY": "/tmp/parakeet_encoder_6s.mlmodelc"
             ]
         )
 
@@ -89,7 +89,7 @@ struct CoreMLEncoderConfigurationTests {
     @Test func shortEncoderCanRouteWithoutAStandardArtifact() throws {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(
             environment: [
-                "VOICEOUR_COREML_ENCODER_SHORT": "/tmp/parakeet_encoder_8s.mlmodelc",
+                "VOICEOUR_COREML_ENCODER_SHORT": "/tmp/parakeet_encoder_8s.mlmodelc"
             ]
         )
 
@@ -243,7 +243,7 @@ struct CoreMLEncoderConfigurationTests {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(
             environment: [
                 "VOICEOUR_COREML_ENCODER":
-                    "/definitely/missing/parakeet_encoder.mlmodelc",
+                    "/definitely/missing/parakeet_encoder.mlmodelc"
             ]
         )
 
@@ -256,7 +256,7 @@ struct CoreMLEncoderConfigurationTests {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(
             environment: [
                 "VOICEOUR_COREML_ENCODER_SHORT":
-                    "/definitely/missing/parakeet_encoder_8s.mlmodelc",
+                    "/definitely/missing/parakeet_encoder_8s.mlmodelc"
             ]
         )
 
@@ -269,7 +269,7 @@ struct CoreMLEncoderConfigurationTests {
         let configurations = try CoreMLEncoderConfigurationSet.resolve(
             environment: [
                 "VOICEOUR_COREML_ENCODER_TINY":
-                    "/definitely/missing/parakeet_encoder_6s.mlmodelc",
+                    "/definitely/missing/parakeet_encoder_6s.mlmodelc"
             ]
         )
 

@@ -88,7 +88,7 @@ struct CoreMLEncoderConfiguration: Equatable {
         let maximumDurationSeconds: Double
         if let rawMaximum = environment[bucket.maximumDurationEnvironmentKey] {
             guard let parsed = Double(rawMaximum), parsed.isFinite, parsed > 0,
-                  parsed <= bucket.modelMaximumDurationSeconds
+                parsed <= bucket.modelMaximumDurationSeconds
             else {
                 throw CoreMLEncoderError.invalidMaximumDuration(
                     name: bucket.maximumDurationEnvironmentKey,
@@ -169,7 +169,8 @@ enum CoreMLEncoderError: Error, CustomStringConvertible {
         case .emptyModelPath(let name):
             return "\(name) is set but empty"
         case .invalidMaximumDuration(let name, let value, let maximum):
-            return "\(name) must be a finite value greater than 0 and no greater than \(maximum); got \(value.debugDescription)"
+            return
+                "\(name) must be a finite value greater than 0 and no greater than \(maximum); got \(value.debugDescription)"
         case .modelMissing(let path):
             return "CoreML encoder does not exist at \(path)"
         case .unsupportedModelPath(let path):
@@ -210,9 +211,11 @@ final class CoreMLEncoder {
         guard FileManager.default.fileExists(atPath: configuration.modelURL.path) else {
             throw CoreMLEncoderError.modelMissing(configuration.modelURL.path)
         }
-        guard ["mlmodelc", "mlpackage"].contains(
-            configuration.modelURL.pathExtension.lowercased()
-        ) else {
+        guard
+            ["mlmodelc", "mlpackage"].contains(
+                configuration.modelURL.pathExtension.lowercased()
+            )
+        else {
             throw CoreMLEncoderError.unsupportedModelPath(configuration.modelURL.path)
         }
     }
@@ -257,7 +260,7 @@ final class CoreMLEncoder {
                 )
                 let melLength = try MLMultiArray(shape: [1], dataType: .int32)
                 guard mel.strides.count == 3,
-                      mel.count == Self.melBins * configuration.melFrameCapacity
+                    mel.count == Self.melBins * configuration.melFrameCapacity
                 else {
                     throw CoreMLEncoderError.modelContract(
                         "allocated mel storage has unexpected strides or count"
@@ -303,7 +306,7 @@ final class CoreMLEncoder {
         consume: (UnsafeBufferPointer<Float>, Int) -> Int32
     ) throws -> Int32 {
         guard frameCount > 0, frameCount <= melFrameCapacity,
-              nativeMel.count == frameCount * Self.melBins
+            nativeMel.count == frameCount * Self.melBins
         else {
             throw CoreMLEncoderError.nativeMelContract(
                 "expected [frames,128] with 1...\(melFrameCapacity) frames; got \(nativeMel.count) values over \(frameCount) frames"
@@ -331,15 +334,15 @@ final class CoreMLEncoder {
                 throw CoreMLEncoderError.predictionFailed(String(describing: error))
             }
             guard let encoder = features.featureValue(for: "encoder")?.multiArrayValue,
-                  let encoderLength = features.featureValue(for: "encoder_length")?.multiArrayValue,
-                  encoder.dataType == .float32,
-                  encoderLength.dataType == .int32,
-                  encoder.shape.count == 3,
-                  encoder.shape[0].intValue == 1,
-                  encoder.shape[1].intValue == Self.encoderChannels,
-                  encoder.shape[2].intValue == encoderFrameCapacity,
-                  encoderLength.shape.count == 1,
-                  encoderLength.shape[0].intValue == 1
+                let encoderLength = features.featureValue(for: "encoder_length")?.multiArrayValue,
+                encoder.dataType == .float32,
+                encoderLength.dataType == .int32,
+                encoder.shape.count == 3,
+                encoder.shape[0].intValue == 1,
+                encoder.shape[1].intValue == Self.encoderChannels,
+                encoder.shape[2].intValue == encoderFrameCapacity,
+                encoderLength.shape.count == 1,
+                encoderLength.shape[0].intValue == 1
             else {
                 throw CoreMLEncoderError.predictionContract("output names, dtypes, or shapes changed")
             }
@@ -349,7 +352,7 @@ final class CoreMLEncoder {
             )
             let expectedFrames = (frameCount + 7) / 8
             guard validFrames == expectedFrames, validFrames > 0,
-                  validFrames <= encoderFrameCapacity
+                validFrames <= encoderFrameCapacity
             else {
                 throw CoreMLEncoderError.predictionContract(
                     "encoder_length \(validFrames) does not equal subsampled mel length \(expectedFrames)"
@@ -386,22 +389,22 @@ final class CoreMLEncoder {
         let inputs = model.modelDescription.inputDescriptionsByName
         let outputs = model.modelDescription.outputDescriptionsByName
         guard inputs.count == 2, outputs.count == 2,
-              let mel = inputs["mel"]?.multiArrayConstraint,
-              let melLength = inputs["mel_length"]?.multiArrayConstraint,
-              let encoder = outputs["encoder"]?.multiArrayConstraint,
-              let encoderLength = outputs["encoder_length"]?.multiArrayConstraint,
-              mel.dataType == .float32,
-              melLength.dataType == .int32,
-              encoder.dataType == .float32,
-              encoderLength.dataType == .int32,
-              mel.shape.map(\.intValue) == [1, melBins, configuration.melFrameCapacity],
-              melLength.shape.map(\.intValue) == [1],
-              encoder.shape.map(\.intValue) == [
-                  1,
-                  encoderChannels,
-                  configuration.encoderFrameCapacity,
-              ],
-              encoderLength.shape.map(\.intValue) == [1]
+            let mel = inputs["mel"]?.multiArrayConstraint,
+            let melLength = inputs["mel_length"]?.multiArrayConstraint,
+            let encoder = outputs["encoder"]?.multiArrayConstraint,
+            let encoderLength = outputs["encoder_length"]?.multiArrayConstraint,
+            mel.dataType == .float32,
+            melLength.dataType == .int32,
+            encoder.dataType == .float32,
+            encoderLength.dataType == .int32,
+            mel.shape.map(\.intValue) == [1, melBins, configuration.melFrameCapacity],
+            melLength.shape.map(\.intValue) == [1],
+            encoder.shape.map(\.intValue) == [
+                1,
+                encoderChannels,
+                configuration.encoderFrameCapacity,
+            ],
+            encoderLength.shape.map(\.intValue) == [1]
         else {
             throw CoreMLEncoderError.modelContract(
                 "expected mel[1,128,\(configuration.melFrameCapacity)] f32, mel_length[1] i32 -> encoder[1,1024,\(configuration.encoderFrameCapacity)] f32, encoder_length[1] i32"
@@ -497,22 +500,31 @@ final class CoreMLEncoderSet {
         }
     }
 
-    /// Loads every configured tier now, in routing order. Callers hold the decode lock: the
-    /// lazy resources are serialized by it, and a tier that fails to load logs and stays
-    /// unloaded so the first real utterance routed to it retries with request-owned errors.
-    func warmAll(log: (String) -> Void) {
-        let tiers: [(String, LazyCoreMLResource<CoreMLEncoder>?)] = [
-            ("tiny", tiny), ("short", short), ("standard", standard),
+    /// Primes every configured tier's compiled-graph specialization off the request path.
+    ///
+    /// The expensive artifact is the system's ANE specialization cache — roughly twenty
+    /// seconds per tier when cold and purgeable under disk pressure — not this set's lazy
+    /// resources. Each tier is loaded as a throwaway `CoreMLEncoder` and released: that
+    /// exercises the exact production load path, needs no lock (nothing shared is touched,
+    /// and concurrent loads of the same compiled model are safe), and never makes a real
+    /// dictation wait behind a cold specialization. The first routed utterance afterwards
+    /// pays only the short lazy load against a hot cache; a tier that fails to prime logs
+    /// and leaves lazy loading to report the failure with a request-owned error.
+    func primeAll(log: (String) -> Void) {
+        let tiers: [(String, CoreMLEncoderConfiguration?)] = [
+            ("tiny", configurations.tiny),
+            ("short", configurations.short),
+            ("standard", configurations.standard),
         ]
-        for (name, resource) in tiers {
-            guard let resource else { continue }
+        for (name, configuration) in tiers {
+            guard let configuration else { continue }
             let started = DispatchTime.now().uptimeNanoseconds
             do {
-                _ = try resource.value()
+                _ = try CoreMLEncoder(configuration: configuration)
                 let elapsed = (DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
-                log("VOICEOUR_COREML_WARM tier=\(name) loaded_ms=\(elapsed)")
+                log("VOICEOUR_COREML_WARM tier=\(name) primed_ms=\(elapsed)")
             } catch {
-                log("VOICEOUR_COREML_WARM tier=\(name) failed: \(error)")
+                log("VOICEOUR_COREML_WARM tier=\(name) prime failed: \(error)")
             }
         }
     }

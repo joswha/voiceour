@@ -191,10 +191,10 @@ public final class ParakeetContext {
     private let threadCount: Int32
     private var coreMLEncoders: CoreMLEncoderSet?
 
-    /// Loads every configured CoreML tier now. Callers hold the decode lock; see
-    /// `CoreMLEncoderSet.warmAll`. A context without CoreML tiers does nothing.
-    func warmCoreMLTiers(log: (String) -> Void) {
-        coreMLEncoders?.warmAll(log: log)
+    /// Primes every configured CoreML tier's specialization cache. Lock-free; see
+    /// `CoreMLEncoderSet.primeAll`. A context without CoreML tiers does nothing.
+    func primeCoreMLTiers(log: (String) -> Void) {
+        coreMLEncoders?.primeAll(log: log)
     }
 
     /// Loads the model and uses `weightArenaPath` for the versioned file-backed weight cache.
@@ -343,7 +343,7 @@ public final class ParakeetContext {
 
             return try withExtendedLifetime(latticeBridge) {
                 if routesThroughCoreML,
-                   let coreMLEncoder = try coreMLEncoders?.encoder(sampleCount: samples.count)
+                    let coreMLEncoder = try coreMLEncoders?.encoder(sampleCount: samples.count)
                 {
                     return try decodeWithCoreMLEncoder(
                         coreMLEncoder,
@@ -376,8 +376,8 @@ public final class ParakeetContext {
         let frameCount = Int(parakeet_n_len(context))
         let expectedFrameCount = samples.count / 160 + 1
         guard frameCount == expectedFrameCount,
-              parakeet_model_n_mels(context) == CoreMLEncoder.melBins,
-              let melData = parakeet_get_mel_data(context)
+            parakeet_model_n_mels(context) == CoreMLEncoder.melBins,
+            let melData = parakeet_get_mel_data(context)
         else {
             throw CoreMLEncoderError.nativeMelContract(
                 "expected \(expectedFrameCount) frames x \(CoreMLEncoder.melBins) bins; got \(frameCount) frames"

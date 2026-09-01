@@ -281,8 +281,9 @@ public struct VocabularyRepairEngine {
                             bestSurface = surface
                             bestScore = score
                         } else if abs(score - bestScore) <= Self.epsilon,
-                                  let current = bestSurface,
-                                  surface.rank < current.rank {
+                            let current = bestSurface,
+                            surface.rank < current.rank
+                        {
                             bestSurface = surface
                         }
                     }
@@ -307,7 +308,8 @@ public struct VocabularyRepairEngine {
         }
 
         var accepted = lexical
-        let eligible = fuzzy
+        let eligible =
+            fuzzy
             .filter { !isOrdinarySpan(text: $0.matched) }
             .sorted(by: Self.precedesForPhoneticAcceptance)
         for candidate in eligible where !Self.overlaps(candidate, any: accepted) {
@@ -425,7 +427,8 @@ public struct VocabularyRepairEngine {
             output.replaceSubrange(stringRange, with: candidate.canonical)
         }
 
-        let events = candidates
+        let events =
+            candidates
             .sorted { $0.start < $1.start }
             .filter { $0.matched != $0.canonical }
             .map { candidate in
@@ -580,7 +583,9 @@ public struct VocabularyRepairEngine {
             CharacterSet.alphanumerics.contains($0)
         }
         let compact = String(String.UnicodeScalarView(compactScalars))
-        if tokens.count == 1, compact.count >= 4, compact.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) }) {
+        if tokens.count == 1, compact.count >= 4,
+            compact.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) })
+        {
             let characters = Array(compact)
             if characters.count >= 4 {
                 for split in 2..<(characters.count - 1) {
@@ -588,7 +593,8 @@ public struct VocabularyRepairEngine {
                         (String(characters[..<split]) + " " + String(characters[split...])).lowercased()
                     )
                 }
-                candidates.append("\(characters[0])\(characters.count - 2)\(characters[characters.count - 1])".lowercased())
+                candidates.append(
+                    "\(characters[0])\(characters.count - 2)\(characters[characters.count - 1])".lowercased())
             }
         }
 
@@ -618,7 +624,7 @@ public struct VocabularyRepairEngine {
             (#"([A-Z]+)([A-Z][a-z])"#, "$1 $2"),
             (#"([a-z])([A-Z])"#, "$1 $2"),
             (#"([A-Za-z])([0-9])"#, "$1 $2"),
-            (#"([0-9])([A-Za-z])"#, "$1 $2")
+            (#"([0-9])([A-Za-z])"#, "$1 $2"),
         ]
         for (pattern, template) in boundaries {
             tokenized = replacingMatches(in: tokenized, pattern: pattern, template: template)
@@ -741,13 +747,13 @@ public struct VocabularyRepairEngine {
     private static let casefoldLocale = Locale(identifier: "en_US_POSIX")
     private static let digitWords: [Character: String] = [
         "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
-        "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"
+        "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine",
     ]
     private static let symbolCharacterWords: [Character: String] = [
-        "#": "sharp", "+": "plus", "/": "slash", "&": "and", "@": "at", "%": "percent"
+        "#": "sharp", "+": "plus", "/": "slash", "&": "and", "@": "at", "%": "percent",
     ]
     private static let separatorCharacterWords: [Character: String] = [
-        ".": "dot", "-": "dash", "_": "underscore"
+        ".": "dot", "-": "dash", "_": "underscore",
     ]
     private static let symbolWords: [UInt8: [UInt8]] = [
         35: Array(" sharp ".utf8),
@@ -755,13 +761,13 @@ public struct VocabularyRepairEngine {
         47: Array(" slash ".utf8),
         38: Array(" and ".utf8),
         64: Array(" at ".utf8),
-        37: Array(" percent ".utf8)
+        37: Array(" percent ".utf8),
     ]
     private static let phoneticReplacements: [(String, String)] = [
         ("tch", "C"), ("sch", "sk"), ("tion", "Sn"), ("sion", "Sn"),
         ("ough", "A"), ("ph", "f"), ("ght", "t"), ("ch", "C"),
         ("sh", "S"), ("th", "T"), ("qu", "kw"), ("ck", "k"),
-        ("ng", "N"), ("wh", "w"), ("wr", "r"), ("kn", "n")
+        ("ng", "N"), ("wh", "w"), ("wr", "r"), ("kn", "n"),
     ]
     private static let vowelBytes: Set<UInt8> = [97, 101, 105, 111, 117, 121]
     private static let asciiCapitalA: UInt8 = 65
