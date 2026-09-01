@@ -101,6 +101,7 @@ enum BenchError: Error, CustomStringConvertible {
 enum BenchCommand: String {
     case pipeline
     case tdtLattice = "tdt-lattice"
+    case rawDecode = "raw-decode"
 }
 
 struct BenchOptions {
@@ -110,6 +111,7 @@ struct BenchOptions {
     var backend: String?
     var timeoutMs: Int
     var vocabulary: URL?
+    var model: URL?
 }
 
 enum BenchCLI {
@@ -121,6 +123,8 @@ enum BenchCLI {
               [--backend \(backendChoices)] [--timeout-ms 120000]
               [--vocabulary <repair.vocabulary.json>]
           voiceour-bench tdt-lattice --input <manifest.jsonl> --output <lattice.jsonl>
+          voiceour-bench raw-decode --input <manifest.jsonl> --output <results.jsonl>
+              --model <model.gguf|bin> [--vocabulary <repair.vocabulary.json>]
           voiceour-bench repair-verify --fixtures <directory>
               [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
         """
@@ -137,6 +141,7 @@ enum BenchCLI {
         var backend = ASRBackendRegistry.builtIn.defaultDescriptor.id
         var timeoutMs = 120_000
         var vocabulary: URL?
+        var model: URL?
 
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
@@ -148,6 +153,8 @@ enum BenchCLI {
                 output = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--vocabulary":
                 vocabulary = fileURL(try value(for: parsed, in: arguments, index: &index))
+            case "--model":
+                model = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--backend":
                 let value = try value(for: parsed, in: arguments, index: &index)
                 guard
@@ -174,8 +181,14 @@ enum BenchCLI {
 
         guard let input else { throw BenchError.usage("missing --input") }
         guard let output else { throw BenchError.usage("missing --output") }
-        if vocabulary != nil, command != .pipeline {
-            throw BenchError.usage("--vocabulary is only valid for pipeline")
+        if vocabulary != nil, command != .pipeline, command != .rawDecode {
+            throw BenchError.usage("--vocabulary is only valid for pipeline and raw-decode")
+        }
+        if command == .rawDecode, model == nil {
+            throw BenchError.usage("raw-decode requires --model")
+        }
+        if model != nil, command != .rawDecode {
+            throw BenchError.usage("--model is only valid for raw-decode")
         }
 
         return BenchOptions(
@@ -184,7 +197,8 @@ enum BenchCLI {
             output: output,
             backend: backend,
             timeoutMs: timeoutMs,
-            vocabulary: vocabulary
+            vocabulary: vocabulary,
+            model: model
         )
     }
 
@@ -411,6 +425,8 @@ struct BenchRunner {
             try await runPipeline()
         case .tdtLattice:
             try TDTLatticeCommand(options: options).run()
+        case .rawDecode:
+            try RawDecodeCommand(options: options).run()
         }
     }
 

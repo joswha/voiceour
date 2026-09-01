@@ -277,3 +277,32 @@ What would move recall materially, in order of expected yield: a larger pinned m
 model-vocabulary surgery for the unencodable surfaces (`C#`, `C++`, `io_uring`), or
 re-recorded jargon audio (the TTS pronunciations bound what any decoder can recover).
 All three are maintainer decisions, not harness candidates.
+
+### Model-capacity probe — the pin's final defense (2026-09-01, segment 5)
+
+Under the maximum-power directive, the "bigger model" lever was measured rather than
+assumed. Preregistration sealed before any decode (bar: recall ≥ .75, false = 0,
+uwer_general ≤ .035; `.build/asr-research/model-probe/preregistration.md`, addendum
+sha 092adef0). Instrument: a new `voiceour-bench raw-decode` command (explicit
+`--model`, direct `ParakeetContext`, frozen text stage) validated 456/456
+byte-identical against the shipping pipeline on the pinned model.
+
+| checkpoint | engine | recall | false | uwer_jargon | uwer_general |
+|---|---|---|---|---|---|
+| tdt-0.6b-**v3** (pinned) | ours | .702312 | 0 | .037295 | .030725 |
+| tdt-0.6b-**v2** (English) | ours, converted with the pinned-lineage converter | .719653 | 0 | .037500 | **.025195** |
+| tdt-**1.1b** | MLX reference + byte-exact repair port (vendored engine rejects its bias+batchnorm Conformer variant) | **.575145** | 0 | .037500 | .025399 |
+
+Verdicts per the sealed rule: v2 misses the lane bar by 3 points; the 1.1b misses by
+17.5 — the two-times-larger checkpoint is WORSE at jargon while better at general
+English (1024-token vocabulary, older distribution: "kubectl" decodes as
+"cubectal/cubectol" exactly like the 0.6b). Model capacity is not the recall
+bottleneck on this corpus; the TTS audio and term encodability are. The 0.6b-v3 pin
+stands with its multilinguality intact, now defended by measurement against both a
+sibling and a larger checkpoint. Artifacts under `.build/asr-research/model-probe/`
+and `models-v2/`, `models-1p1b/`; the 42-layer hparam-bound experiment was reverted
+with the lane.
+
+Residual note for a future maintainer decision: v2 offers +1.7pt recall and −18%
+uwer_general as a drop-in English-only swap — real but below the switching bar this
+probe preregistered, and it would surrender v3's 25-language coverage.
