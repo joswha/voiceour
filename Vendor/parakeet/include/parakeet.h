@@ -50,6 +50,9 @@ extern "C" {
         int   gpu_device;  // CUDA device
         // VOICEOUR PATCH: opt-in CPU/Accelerate TDT tail; false preserves backend selection.
         bool  tail_backend_cpu;
+        // VOICEOUR PATCH: opt-in load-time q8_0 repack of the CPU tail's 2-D f16 matmul
+        // weights; requires tail_backend_cpu. The model artifact on disk is untouched.
+        bool  tail_quant_q8;
     };
 
     typedef struct parakeet_token_data {

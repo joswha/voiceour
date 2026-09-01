@@ -313,6 +313,23 @@ captured under `patches/`.
     3x fresh-process determinism (`.build/asr-research/three-bets/tail-cpu/`); under the
     palettized CoreML encoder ladder the candidate GPU rail drops to 0.4-2.6 J per block with
     energy ratio 0.3371/0.3377 across two ABBA runs and general-corpus inference p95 183-185 ms.
+- `patches/0019-tail-q8-load-repack.patch` adds an opt-in `tail_quant_q8` context parameter
+  (default false, requires `tail_backend_cpu`). When set, the seven 2-D f16 matmul weight
+  records of the prediction/joint tail (LSTM input/hidden matrices and the three joint
+  linears; the embedding's per-token row lookup is excluded) are quantized to q8_0 while
+  loading: the tensor is created q8_0, the on-disk record stays f16 and every SHA pin holds,
+  and the payload copy dequantizes f16 to f32 and requantizes rows into the placed blocks.
+  The batch-1 tail streams every weight once per emitted token, so this halves that memory
+  traffic (25.73 MB to 13.67 MB, which also fits the shared cache the f16 tail overflowed).
+  A cold weight arena caches the quantized image under a distinct `.tail-q8` suffix and warm
+  loads skip the conversion; a requested repack that converts zero records fails the load
+  loudly rather than silently measuring the f16 tail.
+  - Upstream status: not reported upstream. Load-time repack exists in the llama.cpp lineage;
+    this is the minimal record-level version for the tail-only case.
+  - Test status: `--prove` transcript identical to the f16 tail; gated by the ABBA energy
+    run recorded under `.build/asr-research/three-bets/tail-quant/` with the U-WER
+    non-inferiority ceiling as the accuracy arbiter (q8_0 changes tail arithmetic, so
+    transcripts are not expected to be byte-identical to the f16 pins).
 
 
 

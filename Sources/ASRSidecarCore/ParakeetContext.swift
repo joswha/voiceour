@@ -30,6 +30,42 @@ enum ParakeetTailBackendError: Error, CustomStringConvertible {
     }
 }
 
+/// Opt-in load-time q8_0 repack of the CPU tail's matmul weights. `default` keeps the f16
+/// tail; `q8_0` quantizes prediction/joint weight streams at load, halving the memory
+/// traffic the batch-1 tail matvecs pay per token. Requires the CPU tail; any other value
+/// refuses startup, mirroring `VOICEOUR_TAIL_BACKEND`.
+enum ParakeetTailQuant: Equatable {
+    case `default`
+    case q8
+
+    static let environmentKey = "VOICEOUR_TAIL_QUANT"
+
+    static func resolve(environment: [String: String]) throws -> ParakeetTailQuant {
+        guard let value = environment[environmentKey] else { return .default }
+        switch value {
+        case "default": return .default
+        case "q8_0": return .q8
+        default: throw ParakeetTailQuantError.invalidValue(value)
+        }
+    }
+
+    var isQ8: Bool { self == .q8 }
+}
+
+enum ParakeetTailQuantError: Error, CustomStringConvertible {
+    case invalidValue(String)
+    case requiresCPUTail
+
+    var description: String {
+        switch self {
+        case .invalidValue(let value):
+            return "invalid \(ParakeetTailQuant.environmentKey) value '\(value)'; expected 'default' or 'q8_0'"
+        case .requiresCPUTail:
+            return "\(ParakeetTailQuant.environmentKey)=q8_0 requires \(ParakeetTailBackend.environmentKey)=cpu"
+        }
+    }
+}
+
 public enum ParakeetContextError: Error, CustomStringConvertible {
     case loadFailed(String)
     case decodeFailed(Int32)
@@ -128,11 +164,13 @@ public final class ParakeetContext {
         weightArenaPath: String? = nil,
         useGPU: Bool = true,
         tailBackendCPU: Bool = false,
+        tailQuantQ8: Bool = false,
         threadCount: Int32 = 6
     ) throws {
         var params = parakeet_context_default_params()
         params.use_gpu = useGPU
         params.tail_backend_cpu = tailBackendCPU
+        params.tail_quant_q8 = tailQuantQ8
         let loaded: OpaquePointer?
         if let weightArenaPath {
             loaded = parakeet_init_from_file_with_params_and_weight_arena(
@@ -155,6 +193,7 @@ public final class ParakeetContext {
         weightArenaPath: String?,
         useGPU: Bool = true,
         tailBackendCPU: Bool = false,
+        tailQuantQ8: Bool = false,
         threadCount: Int32 = 6,
         coreMLEncoders: CoreMLEncoderSet
     ) throws {
@@ -163,6 +202,7 @@ public final class ParakeetContext {
             weightArenaPath: weightArenaPath,
             useGPU: useGPU,
             tailBackendCPU: tailBackendCPU,
+            tailQuantQ8: tailQuantQ8,
             threadCount: threadCount
         )
         self.coreMLEncoders = coreMLEncoders

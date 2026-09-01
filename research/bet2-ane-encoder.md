@@ -316,3 +316,28 @@ score_holdout.py,evaluation.json,N0.results.jsonl,N.results.jsonl,H.results.json
 H2.results.jsonl}`. The provenance's recorded aggregate-SHA recipe could not be
 reproduced (per-file recipe undocumented); the 941/941 individual file SHA matches
 are the substantive integrity basis and are so recorded.
+
+### KEEP — q8_0 tail repack (vendor patch 0019, run 81, 2026-09-01): 0.3053, best of session
+
+`VOICEOUR_TAIL_QUANT=q8_0`: the seven 2-D f16 matmul records of the prediction/joint
+tail (LSTM ih/hh × 2 layers + three joint linears; embedding excluded) are quantized
+to q8_0 at load — tensor q8_0 in memory, record f16 on disk, every SHA pin intact,
+cold arena caches the quantized image under `.tail-q8`, zero-conversion runs fail
+loudly. 25.73 → 13.67 MB (−47%), which moves the whole tail inside the shared cache
+the f16 tail overflowed. Result: energy_ratio **0.3053** (band was 0.3263–0.3399;
+prereg bar 0.3235 cleared by 5.6%), C-median 126.3 J (−19%), DRAM rail 16.4 J,
+p95 179 ms, p50 107 ms, RTFx 190.7, RSS 158.7 MB — and accuracy improved on every
+metric: uwer_mix .034009 (f16 tail: .034317), jargon .037295, recall .702312,
+fwer_negative .006472, false terms 0. The batch-1 tail is a memory-bound matvec
+stream reading every weight once per emitted token; halving the bytes is pure win on
+this substrate. Fourth substrate-dependence instance: whole-model q8 lost on Metal
+(kill, segment 1) while tail-only q8 wins strictly on the CPU tail.
+
+Three runs preceding the keep (78/79/80) were rejected by the contamination gate for
+20–25 s first-routing rows. Root cause was NOT ambient: the data volume hit 98% full
+and macOS began purging the (purgeable) ANE/E5 specialization cache per-process, so
+every fresh block re-specialized cold. Freed ~55 GB of superseded model blobs
+(killed/superseded lanes only; findings retained), verified cross-process
+specialization persistence (302/102/123 ms fresh-process tier rows vs 17 s cold),
+then measured cleanly. Instrument lesson recorded: the specialization cache is
+disk-pressure-volatile, so low disk can masquerade as ambient contamination.

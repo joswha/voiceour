@@ -189,3 +189,12 @@ duration flips dominate path divergence but 86–89% recover to identical text; 
 margin-only union bound tracks path divergence (ratio 1.07–1.14) but overpredicts final
 transcript flips 8–10× and cannot predict harm direction (AUROC .27 among flips).
 Margins are a cheap instability locator for artifact QA, not a quality oracle.
+
+### Tail-only q8_0 realized in the app path (run 81 KEEP — see bet2 for full record)
+
+Bet 3's value landed where the substrate rewards it: not the whole GGUF on Metal
+(killed: q8 decode slower there), but the seven CPU-tail matmul records repacked to
+q8_0 at load (patch 0019, env-gated, fail-closed, artifact SHAs untouched).
+Energy −19%, every accuracy metric equal-or-better than the f16 tail, latency down.
+The parked whole-model q8 flip (cross-SoC prereg) remains a separate, still-blocked
+question.

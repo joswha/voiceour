@@ -99,7 +99,13 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         idleUnloadMs: Int = 1_800_000
     ) throws {
         let tailBackend = try ParakeetTailBackend.resolve(environment: environment)
-        let weightArenaPath = cache.weightArenaURL.path + (tailBackend.usesCPU ? ".tail-cpu" : "")
+        let tailQuant = try ParakeetTailQuant.resolve(environment: environment)
+        if tailQuant.isQ8 && !tailBackend.usesCPU {
+            throw ParakeetTailQuantError.requiresCPUTail
+        }
+        let weightArenaPath = cache.weightArenaURL.path
+            + (tailBackend.usesCPU ? ".tail-cpu" : "")
+            + (tailQuant.isQ8 ? ".tail-q8" : "")
         let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: environment)
         let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations, log: log)
 
@@ -113,6 +119,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                         modelPath: $0,
                         weightArenaPath: weightArenaPath,
                         tailBackendCPU: tailBackend.usesCPU,
+                        tailQuantQ8: tailQuant.isQ8,
                         coreMLEncoders: coreMLEncoders
                     )
                 }
@@ -149,7 +156,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                     try ParakeetContext(
                         modelPath: $0,
                         weightArenaPath: weightArenaPath,
-                        tailBackendCPU: tailBackend.usesCPU
+                        tailBackendCPU: tailBackend.usesCPU,
+                        tailQuantQ8: tailQuant.isQ8
                     )
                 }
             )
@@ -157,6 +165,9 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         }
         if tailBackend == .cpu {
             log("VOICEOUR_TAIL_BACKEND mode=cpu")
+        }
+        if tailQuant.isQ8 {
+            log("VOICEOUR_TAIL_QUANT mode=q8_0")
         }
     }
 
