@@ -364,3 +364,23 @@ ladder + CPU tail + q8 tail configuration is non-inferior on 5,159 held-out
 real-speech rows (Δ −0.000035, clustered upper +0.000438) and cross-process
 deterministic there. Both hybrid generations are now real-speech validated on this
 Mac: f16 era via fleurs-holdout-941, q8 era via librispeech-holdout-5159.
+
+### Correction + closure: tier-boundary refit and mel (probe, 2026-09-01)
+
+The earlier tier-refit rejection quoted 5.1% aggregate padding waste — a mis-grounded
+figure that averaged general96's long native-routed rows (absent from the energy
+blocks) into the corpus. Corrected: the energy-measured jargon corpus bills
+2,748 shape-seconds for 1,943 s of audio — **29.3% padding waste**, and a 4-tier
+{4,5,6,8} ladder would cut billed seconds 20.1%. The lane still dies, now on measured
+mechanism: an ABBA probe (tiny tier enabled vs disabled, +32.7% billed seconds)
+moved the ANE rail only +17.9% (41.25 → 48.65 J; CPU/GPU/window flat) — ANE energy is
+**~0.55-proportional** to billed shape seconds, the rest fixed per-inference cost. At
+k≈0.55 the best refit projects −3.5 J ≈ ratio −0.008, short of the −0.0142 bar
+(floor 0.2931 − 2×MAD 0.0027 = 0.2877). Killed at the probe stage for the cost of
+four 14-second measurements: `.build/asr-research/three-bets/tier-probe/`.
+
+Mel is likewise closed by arithmetic from existing artifacts: total non-inference ASR
+time is 323 ms per 456-row block (p50 1 ms/row) — under 1 J, so a vDSP mel rewrite
+has no energy headroom. With these, every rail of the candidate's energy is
+decomposed and verdicted: ANE (palettization, shapes, routing), CPU (q8 tail, pool,
+QoS, threads, mel), GPU (asleep), DRAM (secondary, −67%).
