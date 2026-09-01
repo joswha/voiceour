@@ -281,3 +281,38 @@ general and >15 s-row p95. 30/30 passes byte-identical to the pinned SHAs.
 Adoption-checklist gap (user-owned Makefile): `make run` does not forward
 `VOICEOUR_COREML_*`/`VOICEOUR_TAIL_BACKEND`; one forward line + `.env` entries are
 needed before real-app ANE testing.
+
+### Real-speaker validation — sealed evaluation PASSED (2026-09-01)
+
+`fleurs-holdout-941-real-speaker-validation-v1`: 941 FLEURS en_us test rows 101+
+(disjoint from every development corpus), 484 speakers, 9,199 s of real human
+speech, per-file SHA verified 941/941. Preregistration sealed before any ASR
+(`.build/asr-research/three-bets/holdout-real/preregistration.json`, sha
+fdbc96b5…); four passes at HEAD `96ecd2126843` release binaries — N0 native
+cleanup-only, N native shipping path, H standing hybrid (palettized 6-bit ladder +
+CPU tail), H2 = H repeat. Zero error rows. Opened once; never reopened.
+
+| endpoint | rule | measured | verdict |
+|---|---|---|---|
+| ANE NI on real speech | pooled ΔU-WER ≤ +.0035 AND speaker-clustered bootstrap (B=10000, seed 20260901) 95% upper ≤ +.005 | Δ = **−0.000435** (H .050505 vs N .050939), upper = **+0.000408** | **PASS** |
+| repair safety | 0 repair-attributable insertions of the 141 eligible surfaces (N vs N0) | **0** — and 0 rows where vocabulary changed final text at all | **PASS** |
+| determinism | H vs H2 byte-identical raw+final | 941/941 identical | **PASS** |
+
+Secondary diagnostics (no pass/fail attached): FWER .11448 N vs .11469 H;
+punct micro-F1 .8091 vs .8061; case F1 .90513 vs .90564; per-gender U-WER
+symmetric (H ≤ N in both genders); 188/941 raw transcripts differ H-vs-N — the
+palettized encoder perturbs one row in five at zero pooled accuracy cost.
+
+What this upgrades: the ANE ladder + CPU tail configuration now carries
+**real-speech validation on this Mac** — non-inferior (measured slightly better)
+on out-of-distribution recorded human speakers, deterministic cross-process, with
+the repair stage proven silent on ordinary English. What it does not: cross-SoC
+evidence, real dictation acoustics (FLEURS is read speech), other languages.
+Promotion prerequisites unchanged: cross-SoC replication, artifact hosting +
+background warm, Makefile env forwarding.
+
+Artifacts: `.build/asr-research/three-bets/holdout-real/{preregistration.json,
+score_holdout.py,evaluation.json,N0.results.jsonl,N.results.jsonl,H.results.jsonl,
+H2.results.jsonl}`. The provenance's recorded aggregate-SHA recipe could not be
+reproduced (per-file recipe undocumented); the 941/941 individual file SHA matches
+are the substantive integrity basis and are so recorded.

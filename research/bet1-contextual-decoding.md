@@ -228,3 +228,16 @@ phonetic-far mishearings (kubectl→"Quebecal" class — closed at decode level)
 App-side engagement remains an explicit product decision; bench-side capability
 and OOD safety evidence (sealed holdout: +134/−0 rows, 0 policy false terms) are
 the session deliverables.
+
+### Real-speech repair safety — sealed holdout endpoint PASSED (2026-09-01)
+
+Within `fleurs-holdout-941-real-speaker-validation-v1` (see bet2 for the full
+evaluation): on 941 real-speaker FLEURS rows, the shipping vocabulary path (N)
+versus cleanup-only (N0) produced **zero repair-attributable insertions of the 141
+eligible surfaces — and zero rows where the vocabulary stage changed final text at
+all** (N ≡ N0, U-WER equal to the last digit). The frozen PHONETIC θ=.95
+unambiguous-only policy is exactly as conservative on out-of-distribution real
+English as designed: it fires never when no technical term is present. Combined
+with holdout-v1 (0 false terms OOD synthetic, fixed 134/broke 0), repair now
+carries both synthetic and one-Mac real-speech safety evidence. Cross-SoC and
+real-dictation acoustics remain the open promotion prerequisites.
