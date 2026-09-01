@@ -138,6 +138,19 @@ An off-by-default execution path runs the FastConformer encoder on the Neural En
 
 `VOICEOUR_TAIL_BACKEND=cpu` additionally routes the TDT prediction/joint tail to the CPU/Accelerate backends with CPU-side decode buffers, so with a CoreML encoder configured the GPU stays idle for the whole decode; unset or `default` keeps the Metal tail, and any other value fails sidecar startup closed.
 
+`VOICEOUR_TAIL_QUANT=q8_0` requires the CPU tail and repacks its seven two-dimensional
+f16 matmul weight records (the prediction LSTM's input/hidden matrices and the three
+joint linears; the embedding stays f16) to q8_0 while loading. The artifact on disk is
+untouched — every pin and digest check still holds — and the quantized image is cached
+in a separate `.tail-q8` weight arena, so warm loads skip the conversion. A requested
+repack that converts no record fails the load rather than silently measuring the f16
+tail. Unset or `default` keeps the f16 tail; any other value, or `q8_0` without
+`VOICEOUR_TAIL_BACKEND=cpu`, fails sidecar startup closed. Like the encoder path, this
+changes tail numerics on a small number of rows and is a measured non-inferiority
+trade: development evidence, including a 5,159-row held-out real-speech
+non-inferiority and determinism evaluation, is recorded in
+`research/bet3-quantization.md`.
+
 Startup is fail-closed. Every configured path is resolved and validated while the backend is constructed, so a missing artifact, a path that is neither `.mlmodelc` nor `.mlpackage`, or an out-of-range bound fails the sidecar's start rather than quietly reverting to Metal. Loading is separately lazy: each tier's `MLModel` is built on the first utterance that routes to it, so a configured tier that never matches costs nothing at startup, and a load or prediction failure fails that request instead of being retried on another engine.
 
 The path is not byte-identical to the native encoder. It is deterministic — the same audio through the same artifacts produces the same bytes across passes and across processes — but its encoder numerics differ from the Metal kernels on a small number of rows, so it is a measured non-inferiority trade, not a drop-in equivalence. Everything known about it is development evidence from one M4 Pro over synthetic corpora, recorded in `research/bet2-ane-encoder.md`. The compiled encoder artifacts are large and are not distributed with the app, which is why the path stays behind environment variables and why the app itself never sets them.
