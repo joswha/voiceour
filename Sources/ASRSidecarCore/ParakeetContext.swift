@@ -90,6 +90,8 @@ public final class ParakeetContext {
 
     private let context: OpaquePointer
     private let threadCount: Int32
+    private var coreMLEncoder: CoreMLEncoder?
+    private var coreMLConfiguration: CoreMLEncoderConfiguration?
 
     /// Loads the model and uses `weightArenaPath` for the versioned file-backed weight cache.
     /// Cache creation or validation failures fall back to ordinary ggml buffers in C++.
@@ -116,6 +118,24 @@ public final class ParakeetContext {
         }
         self.context = context
         self.threadCount = threadCount
+    }
+
+    convenience init(
+        modelPath: String,
+        weightArenaPath: String?,
+        useGPU: Bool = true,
+        threadCount: Int32 = 6,
+        coreMLEncoder: CoreMLEncoder,
+        coreMLConfiguration: CoreMLEncoderConfiguration
+    ) throws {
+        try self.init(
+            modelPath: modelPath,
+            weightArenaPath: weightArenaPath,
+            useGPU: useGPU,
+            threadCount: threadCount
+        )
+        self.coreMLEncoder = coreMLEncoder
+        self.coreMLConfiguration = coreMLConfiguration
     }
 
     deinit {
@@ -183,7 +203,7 @@ public final class ParakeetContext {
         }
 
         var cancellation = CancellationBridge(isCancelled: isCancelled)
-        let status = withUnsafeMutablePointer(to: &cancellation) { bridge in
+        let status = try withUnsafeMutablePointer(to: &cancellation) { bridge in
             params.encoder_begin_callback_user_data = UnsafeMutableRawPointer(bridge)
             params.encoder_begin_callback = { _, _, userData in
                 guard let userData else { return true }
@@ -195,13 +215,66 @@ public final class ParakeetContext {
                 return userData.assumingMemoryBound(to: CancellationBridge.self).pointee.isCancelled()
             }
 
-            return withExtendedLifetime(latticeBridge) {
-                samples.withUnsafeBufferPointer { buffer in
+            return try withExtendedLifetime(latticeBridge) {
+                if let coreMLEncoder, coreMLConfiguration?.routesThroughCoreML(sampleCount: samples.count) == true {
+                    return try decodeWithCoreMLEncoder(
+                        coreMLEncoder,
+                        samples: samples,
+                        params: params,
+                        isCancelled: isCancelled
+                    )
+                }
+                return samples.withUnsafeBufferPointer { buffer in
                     parakeet_full(context, params, buffer.baseAddress, Int32(buffer.count))
                 }
             }
         }
         guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
+    }
+
+    private func decodeWithCoreMLEncoder(
+        _ encoder: CoreMLEncoder,
+        samples: [Float],
+        params: parakeet_full_params,
+        isCancelled: () -> Bool
+    ) throws -> Int32 {
+        var hybridParams = params
+        hybridParams.n_threads = 4
+        let melStatus = samples.withUnsafeBufferPointer { buffer in
+            parakeet_pcm_to_mel(context, buffer.baseAddress, Int32(buffer.count), hybridParams.n_threads)
+        }
+        guard melStatus == 0 else { return melStatus }
+
+        let frameCount = Int(parakeet_n_len(context))
+        let expectedFrameCount = samples.count / 160 + 1
+        guard frameCount == expectedFrameCount,
+              parakeet_model_n_mels(context) == CoreMLEncoder.melBins,
+              let melData = parakeet_get_mel_data(context)
+        else {
+            throw CoreMLEncoderError.nativeMelContract(
+                "expected \(expectedFrameCount) frames x \(CoreMLEncoder.melBins) bins; got \(frameCount) frames"
+            )
+        }
+        if isCancelled() { return -6 }
+
+        return try encoder.encode(
+            nativeMel: UnsafeBufferPointer(
+                start: melData,
+                count: frameCount * CoreMLEncoder.melBins
+            ),
+            frameCount: frameCount
+        ) { states, encoderFrameCount in
+            if isCancelled() { return -6 }
+            return parakeet_full_with_external_encoder(
+                context,
+                hybridParams,
+                nil,
+                0,
+                states.baseAddress,
+                Int32(encoderFrameCount),
+                Int32(CoreMLEncoder.encoderChannels)
+            )
+        }
     }
 
     private func collectSegments() -> [ParakeetSegmentRaw] {

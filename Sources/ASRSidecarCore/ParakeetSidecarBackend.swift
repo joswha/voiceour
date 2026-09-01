@@ -77,6 +77,47 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         )
     }
 
+    /// Resolves the optional CoreML encoder once, at process startup. A configured encoder is
+    /// compiled and loaded here so a bad instrument exits before it can answer any protocol work.
+    public convenience init(
+        cache: ParakeetModelCache,
+        environment: [String: String],
+        log: @escaping (String) -> Void,
+        idleUnloadMs: Int = 1_800_000
+    ) throws {
+        let configuration = try CoreMLEncoderConfiguration.resolve(environment: environment)
+        let coreMLEncoder = try configuration.map(CoreMLEncoder.init(configuration:))
+
+        if let configuration, let coreMLEncoder {
+            self.init(
+                cache: cache,
+                log: log,
+                idleUnloadMs: idleUnloadMs,
+                contextFactory: {
+                    try ParakeetContext(
+                        modelPath: $0,
+                        weightArenaPath: cache.weightArenaURL.path,
+                        coreMLEncoder: coreMLEncoder,
+                        coreMLConfiguration: configuration
+                    )
+                }
+            )
+            log(
+                "VOICEOUR_COREML_ENCODER mode=hybrid compute_units=CPU_AND_NE model=\(configuration.modelURL.path) max_s=\(configuration.maximumDurationSeconds)"
+            )
+        } else {
+            self.init(
+                cache: cache,
+                log: log,
+                idleUnloadMs: idleUnloadMs,
+                contextFactory: {
+                    try ParakeetContext(modelPath: $0, weightArenaPath: cache.weightArenaURL.path)
+                }
+            )
+            log("VOICEOUR_COREML_ENCODER mode=native")
+        }
+    }
+
     init(
         cache: ParakeetModelCache,
         log: @escaping (String) -> Void,

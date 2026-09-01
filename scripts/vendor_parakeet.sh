@@ -94,6 +94,7 @@ LOCAL_FILES=(
     'patches/0013-file-backed-weight-arena.patch'
     'patches/0014-greedy-decode-step-callback.patch'
     'patches/0015-record-authoritative-loader.patch'
+    'patches/0016-external-encoder-seam.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'

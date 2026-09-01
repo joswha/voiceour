@@ -285,6 +285,21 @@ captured under `patches/`.
     and warm-arena identity is recorded in `.build/asr-research/three-bets/mixed-loader/`, and
     the dual-source provenance summary is tracked at
     `research/bet3-mixed-quantize-provenance.json`.
+- `patches/0016-external-encoder-seam.patch` adds two opt-in C APIs for heterogeneous
+  execution: a read-only view of the default state's native frame-major mel tensor and a full
+  path that validates and copies caller-provided frame-major F32 encoder states into `enc_out`
+  before running the existing greedy TDT decode and result construction. The injection requires
+  the model's 1024-channel width, the exact `(n_mel + 7) / 8` valid-frame count, and a frame count
+  no larger than the state's allocated `enc_out` capacity. Ordinary `parakeet_full` never calls
+  either API, so an unused seam performs no work and changes no default state transition.
+  - Upstream status: not reported upstream. This is the narrow boundary needed to keep the
+    native parakeet frontend and TDT tail while executing only the FastConformer encoder in
+    CoreML.
+  - Test status: the separate CoreML encoder prototype under
+    `.build/asr-research/three-bets/coreml-native-mel/` copied native zero-padded mel into the
+    fixed `[1,128,1501]` model input, injected only the valid `[frames,1024]` output, and was
+    byte-deterministic across the frozen 552-row two-pass gate. Pooled U-WER delta was +0.000717
+    and active compute-rail energy fell 47.0%.
 
 
 

@@ -121,7 +121,11 @@ let package = Package(
         ),
         .target(
             name: "ASRSidecarCore",
-            dependencies: ["VoiceCore", "CParakeet"]
+            dependencies: ["VoiceCore", "CParakeet"],
+            linkerSettings: [
+                .linkedFramework("CoreML"),
+                .linkedFramework("Foundation")
+            ]
         ),
         .executableTarget(
             name: "VoiceourASR",

@@ -124,6 +124,11 @@ extern "C" {
                                 int   n_samples,
                                 int   n_threads);
 
+    // VOICEOUR PATCH: Read-only frame-major [n_len, n_mels] storage produced by
+    // parakeet_pcm_to_mel(). The pointer remains owned by the default state and is invalidated
+    // by the next mel computation or context destruction.
+    PARAKEET_API const float * parakeet_get_mel_data(struct parakeet_context * ctx);
+
     // This can be used to set a custom log mel spectrogram inside the default state of the provided parakeet context.
     // Use this instead of parakeet_pcm_to_mel() if you want to provide your own log mel spectrogram.
     // n_mel must be 128
@@ -316,6 +321,19 @@ extern "C" {
             struct parakeet_full_params   params,
                             const float * samples,
                                     int   n_samples);
+
+    // VOICEOUR PATCH: Run the native frontend and unchanged TDT tail around caller-provided
+    // frame-major [n_encoder_frames, n_encoder_state] encoder states. Pass samples=NULL and
+    // n_samples=0 to consume a mel spectrogram prepared by parakeet_pcm_to_mel().
+    // The external frame count must equal the model's subsampled mel length and fit enc_out.
+    PARAKEET_API int parakeet_full_with_external_encoder(
+                struct parakeet_context * ctx,
+            struct parakeet_full_params   params,
+                            const float * samples,
+                                    int   n_samples,
+                            const float * encoder_states,
+                                    int   n_encoder_frames,
+                                    int   n_encoder_state);
 
     // Process a single chunk of audio data that fits within the model's audio context window.
     // This is more efficient than parakeet_full() for short audio clips.

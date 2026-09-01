@@ -47,15 +47,16 @@ private func installParakeetLogging(_ environment: [String: String]) {
     )
 }
 
-private func makeBackend(_ environment: [String: String]) -> SidecarBackend? {
+private func makeBackend(_ environment: [String: String]) throws -> SidecarBackend? {
     switch environment["VOICEOUR_ASR_BACKEND"] ?? "fake" {
     case "fake":
         return FakeASRBackend(environment: environment)
     case "parakeet":
         // Unset keeps the 30-minute default; a value <= 0 disables the unload entirely.
         let idleUnloadMs = environment["VOICEOUR_IDLE_UNLOAD_MS"].flatMap(Int.init)
-        return ParakeetSidecarBackend(
+        return try ParakeetSidecarBackend(
             cache: .standard(environment: environment),
+            environment: environment,
             log: logLine,
             idleUnloadMs: idleUnloadMs ?? 1_800_000
         )
@@ -73,11 +74,18 @@ private func makeBackend(_ environment: [String: String]) -> SidecarBackend? {
 private func prove(wavPath: String, environment: [String: String]) -> Int32 {
     // No idle unload: --prove is one load and one decode, and a timer would only add a way
     // for the measurement to change under it.
-    let backend = ParakeetSidecarBackend(
-        cache: .standard(environment: environment),
-        log: logLine,
-        idleUnloadMs: 0
-    )
+    let backend: ParakeetSidecarBackend
+    do {
+        backend = try ParakeetSidecarBackend(
+            cache: .standard(environment: environment),
+            environment: environment,
+            log: logLine,
+            idleUnloadMs: 0
+        )
+    } catch {
+        logLine("prove: sidecar startup failed: \(error)")
+        return 1
+    }
     defer { backend.shutdown() }
 
     let loadStart = DispatchTime.now().uptimeNanoseconds
@@ -138,8 +146,16 @@ if arguments.first == "--prove" {
     exit(prove(wavPath: arguments[1], environment: environment))
 }
 
+let backend: SidecarBackend?
+do {
+    backend = try makeBackend(environment)
+} catch {
+    logLine("voiceour-asr startup failed: \(error)")
+    exit(1)
+}
+
 let server = SidecarServer(
-    backend: makeBackend(environment),
+    backend: backend,
     output: SidecarOutput(handle: FileHandle.standardOutput),
     log: logLine,
     preloadEnabled: environment["VOICEOUR_PRELOAD"] == "1"

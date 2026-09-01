@@ -1,0 +1,181 @@
+diff --git a/include/parakeet.h b/include/parakeet.h
+index 01cda15..aab0d18 100644
+--- a/include/parakeet.h
++++ b/include/parakeet.h
+@@ -124,6 +124,11 @@ extern "C" {
+                                 int   n_samples,
+                                 int   n_threads);
+ 
++    // VOICEOUR PATCH: Read-only frame-major [n_len, n_mels] storage produced by
++    // parakeet_pcm_to_mel(). The pointer remains owned by the default state and is invalidated
++    // by the next mel computation or context destruction.
++    PARAKEET_API const float * parakeet_get_mel_data(struct parakeet_context * ctx);
++
+     // This can be used to set a custom log mel spectrogram inside the default state of the provided parakeet context.
+     // Use this instead of parakeet_pcm_to_mel() if you want to provide your own log mel spectrogram.
+     // n_mel must be 128
+@@ -317,6 +322,19 @@ extern "C" {
+                             const float * samples,
+                                     int   n_samples);
+ 
++    // VOICEOUR PATCH: Run the native frontend and unchanged TDT tail around caller-provided
++    // frame-major [n_encoder_frames, n_encoder_state] encoder states. Pass samples=NULL and
++    // n_samples=0 to consume a mel spectrogram prepared by parakeet_pcm_to_mel().
++    // The external frame count must equal the model's subsampled mel length and fit enc_out.
++    PARAKEET_API int parakeet_full_with_external_encoder(
++                struct parakeet_context * ctx,
++            struct parakeet_full_params   params,
++                            const float * samples,
++                                    int   n_samples,
++                            const float * encoder_states,
++                                    int   n_encoder_frames,
++                                    int   n_encoder_state);
++
+     // Process a single chunk of audio data that fits within the model's audio context window.
+     // This is more efficient than parakeet_full() for short audio clips.
+     PARAKEET_API int parakeet_chunk(
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index fb7b50d..f2a9727 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -5170,6 +5170,14 @@ int parakeet_pcm_to_mel(struct parakeet_context * ctx, const float * samples, in
+     return parakeet_pcm_to_mel_with_state(ctx, ctx->state, samples, n_samples, n_threads);
+ }
+ 
++// VOICEOUR PATCH: expose the native frontend output to an external encoder without copying it.
++const float * parakeet_get_mel_data(struct parakeet_context * ctx) {
++    if (!ctx || !ctx->state || ctx->state->mel.data.empty()) {
++        return nullptr;
++    }
++    return ctx->state->mel.data.data();
++}
++
+ int parakeet_set_mel_with_state(
+         struct parakeet_context * ctx,
+           struct parakeet_state * state,
+@@ -5565,6 +5573,125 @@ int parakeet_full_with_state(
+     return 0;
+ }
+ 
++// VOICEOUR PATCH: inject an external encoder result, then run the existing greedy TDT tail and
++// result construction. The ordinary parakeet_full path never calls this entry point.
++int parakeet_full_with_external_encoder(
++        struct parakeet_context * ctx,
++    struct parakeet_full_params   params,
++                    const float * samples,
++                           int    n_samples,
++                    const float * encoder_states,
++                           int    n_encoder_frames,
++                           int    n_encoder_state) {
++    if (!ctx || !ctx->state) {
++        PARAKEET_LOG_ERROR("%s: context has no default state\n", __func__);
++        return -8;
++    }
++
++    struct parakeet_state * state = ctx->state;
++    state->result_all.clear();
++
++    if (params.no_context) {
++        parakeet_reset_state(state);
++    }
++
++    if (n_samples > 0) {
++        if (parakeet_pcm_to_mel_with_state(ctx, state, samples, n_samples, params.n_threads) != 0) {
++            PARAKEET_LOG_ERROR("%s: failed to compute log mel spectrogram\n", __func__);
++            return -2;
++        }
++    }
++
++    const int subsampling_factor = ctx->model.hparams.subsampling_factor;
++    const int expected_frames = (state->mel.n_len + subsampling_factor - 1) / subsampling_factor;
++    if (!encoder_states || !state->enc_out || state->mel.n_len <= 0 ||
++            n_encoder_frames != expected_frames ||
++            n_encoder_state != ctx->model.hparams.n_audio_state ||
++            state->enc_out->ne[0] != n_encoder_state ||
++            n_encoder_frames > state->enc_out->ne[1]) {
++        PARAKEET_LOG_ERROR(
++            "%s: invalid external encoder shape: mel=%d expected=[%d,%d] got=[%d,%d] capacity=[%lld,%lld]\n",
++            __func__,
++            state->mel.n_len,
++            expected_frames,
++            ctx->model.hparams.n_audio_state,
++            n_encoder_frames,
++            n_encoder_state,
++            state->enc_out ? (long long) state->enc_out->ne[1] : 0,
++            state->enc_out ? (long long) state->enc_out->ne[0] : 0);
++        return -8;
++    }
++
++    if (params.encoder_begin_callback) {
++        if (!params.encoder_begin_callback(ctx, state, params.encoder_begin_callback_user_data)) {
++            PARAKEET_LOG_ERROR("%s: encoder_begin_callback returned false\n", __func__);
++            return -6;
++        }
++    }
++    if (params.progress_callback) {
++        params.progress_callback(ctx, state, 0, params.progress_callback_user_data);
++    }
++    if (params.abort_callback && params.abort_callback(params.abort_callback_user_data)) {
++        return -6;
++    }
++
++    state->n_frames = n_encoder_frames;
++    ggml_backend_tensor_set(
++        state->enc_out,
++        encoder_states,
++        0,
++        (size_t) n_encoder_frames * (size_t) n_encoder_state * sizeof(float));
++
++    if (params.abort_callback && params.abort_callback(params.abort_callback_user_data)) {
++        return -6;
++    }
++    if (params.progress_callback) {
++        params.progress_callback(ctx, state, 100, params.progress_callback_user_data);
++    }
++
++    const size_t tokens_before = state->decoded_tokens.size();
++
++    if (!parakeet_decode(*ctx, *state, state->batch, params.n_threads, &params)) {
++        PARAKEET_LOG_ERROR("%s: failed to decode\n", __func__);
++        return -7;
++    }
++
++    const size_t tokens_after    = state->decoded_tokens.size();
++    const size_t new_token_count = tokens_after - tokens_before;
++
++    if (new_token_count > 0) {
++        std::string text;
++        std::vector<parakeet_token_data> result_tokens;
++
++        for (size_t i = tokens_before; i < tokens_after; i++) {
++            const auto token_id  = state->decoded_tokens[i];
++            const char * tok_str = parakeet_token_to_str(ctx, token_id);
++            if (tok_str) {
++                const bool is_first = (tokens_before == 0) && text.empty();
++                text += sentencepiece_piece_to_text(tok_str, is_first);
++            }
++            result_tokens.push_back(state->decoded_token_data[i]);
++        }
++
++        refine_timestamps_tdt(ctx->vocab, result_tokens);
++
++        if (!text.empty()) {
++            parakeet_segment seg;
++            seg.t0     = 0;
++            seg.t1     = state->n_frames;
++            seg.text   = text;
++            seg.tokens = result_tokens;
++            state->result_all.push_back(std::move(seg));
++
++            if (params.new_segment_callback) {
++                params.new_segment_callback(ctx, state, 1, params.new_segment_callback_user_data);
++            }
++        }
++    }
++
++    return 0;
++}
++
+ int parakeet_full(
+         struct parakeet_context * ctx,
+     struct parakeet_full_params   params,
