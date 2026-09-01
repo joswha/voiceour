@@ -59,6 +59,9 @@ readonly ENERGY_SAMPLER="bench/autoresearch/energy_sampler.py"
 readonly COREML_ENCODER="$PWD/.build/asr-research/three-bets/coreml-native-mel/compiled/parakeet_encoder.mlmodelc"
 readonly COREML_ENCODER_DIGEST="2892a84efbb4e9d26c1adf1fdaf6de97b530c5e2246955807ed27b6d1b4fd952"
 readonly COREML_MAX_S="15.0"
+readonly COREML_ENCODER_SHORT="$PWD/.build/asr-research/three-bets/bucket8/parakeet_encoder_8s.mlmodelc"
+readonly COREML_ENCODER_SHORT_DIGEST="9352b55bd0f0da4113831eda276a75bdcbb004c686655406bdab1451d5b26481"
+readonly COREML_SHORT_MAX_S="8.0"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -162,6 +165,14 @@ if [ -n "$COREML_ENCODER" ]; then
     [ "$observed_coreml_digest" = "$COREML_ENCODER_DIGEST" ] ||
         die "coreml encoder digest $observed_coreml_digest != pinned $COREML_ENCODER_DIGEST"
     coreml_env_args="VOICEOUR_COREML_ENCODER=$COREML_ENCODER VOICEOUR_COREML_MAX_S=$COREML_MAX_S"
+    if [ -n "$COREML_ENCODER_SHORT" ]; then
+        [ -e "$COREML_ENCODER_SHORT" ] || die "coreml short encoder artifact missing: $COREML_ENCODER_SHORT"
+        [ -n "$COREML_ENCODER_SHORT_DIGEST" ] || die 'coreml short encoder digest pin is empty'
+        observed_short_digest="$(cd "$COREML_ENCODER_SHORT" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)"
+        [ "$observed_short_digest" = "$COREML_ENCODER_SHORT_DIGEST" ] ||
+            die "coreml short encoder digest $observed_short_digest != pinned $COREML_ENCODER_SHORT_DIGEST"
+        coreml_env_args="$coreml_env_args VOICEOUR_COREML_ENCODER_SHORT=$COREML_ENCODER_SHORT VOICEOUR_COREML_SHORT_MAX_S=$COREML_SHORT_MAX_S"
+    fi
 fi
 
 # --- build, outside the timed region ---------------------------------------
@@ -377,6 +388,8 @@ printf 'ASI repair_vocabulary_sha256=%s\n' "$REPAIR_VOCABULARY_SHA256"
 printf 'ASI coreml_encoder=%s\n' "${COREML_ENCODER:-native}"
 printf 'ASI coreml_encoder_digest=%s\n' "${COREML_ENCODER_DIGEST:-none}"
 printf 'ASI coreml_max_s=%s\n' "$COREML_MAX_S"
+printf 'ASI coreml_encoder_short=%s\n' "${COREML_ENCODER_SHORT:-none}"
+printf 'ASI coreml_short_digest=%s\n' "${COREML_ENCODER_SHORT_DIGEST:-none}"
 printf 'ASI jargon_reps=%s\n' "$JARGON_REPS"
 printf 'ASI model_sha256=%s\n' "$observed_model_sha"
 printf 'ASI model_bytes=%s\n' "$observed_bytes"

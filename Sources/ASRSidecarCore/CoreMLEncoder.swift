@@ -2,34 +2,101 @@ import CoreML
 import Foundation
 
 struct CoreMLEncoderConfiguration: Equatable {
-    static let defaultMaximumDurationSeconds = 15.0
-    static let modelMaximumDurationSeconds = 15.0
+    enum Bucket: Equatable {
+        case short
+        case standard
+
+        var modelEnvironmentKey: String {
+            switch self {
+            case .short:
+                return "VOICEOUR_COREML_ENCODER_SHORT"
+            case .standard:
+                return "VOICEOUR_COREML_ENCODER"
+            }
+        }
+
+        var maximumDurationEnvironmentKey: String {
+            switch self {
+            case .short:
+                return "VOICEOUR_COREML_SHORT_MAX_S"
+            case .standard:
+                return "VOICEOUR_COREML_MAX_S"
+            }
+        }
+
+        var defaultMaximumDurationSeconds: Double {
+            switch self {
+            case .short:
+                return 8.0
+            case .standard:
+                return 15.0
+            }
+        }
+
+        var modelMaximumDurationSeconds: Double {
+            defaultMaximumDurationSeconds
+        }
+
+        var melFrameCapacity: Int {
+            switch self {
+            case .short:
+                return 801
+            case .standard:
+                return 1_501
+            }
+        }
+
+        var encoderFrameCapacity: Int {
+            switch self {
+            case .short:
+                return 101
+            case .standard:
+                return 188
+            }
+        }
+    }
+
     private static let sampleRate = 16_000
 
+    let bucket: Bucket
     let modelURL: URL
     let maximumDurationSeconds: Double
     let maximumSampleCount: Int
+    let melFrameCapacity: Int
+    let encoderFrameCapacity: Int
 
-    static func resolve(environment: [String: String]) throws -> CoreMLEncoderConfiguration? {
-        guard let modelPath = environment["VOICEOUR_COREML_ENCODER"] else { return nil }
-        guard !modelPath.isEmpty else { throw CoreMLEncoderError.emptyModelPath }
+    fileprivate static func resolve(
+        environment: [String: String],
+        bucket: Bucket
+    ) throws -> CoreMLEncoderConfiguration? {
+        guard let modelPath = environment[bucket.modelEnvironmentKey] else { return nil }
+        guard !modelPath.isEmpty else {
+            throw CoreMLEncoderError.emptyModelPath(bucket.modelEnvironmentKey)
+        }
 
         let maximumDurationSeconds: Double
-        if let rawMaximum = environment["VOICEOUR_COREML_MAX_S"] {
+        if let rawMaximum = environment[bucket.maximumDurationEnvironmentKey] {
             guard let parsed = Double(rawMaximum), parsed.isFinite, parsed > 0,
-                  parsed <= modelMaximumDurationSeconds
+                  parsed <= bucket.modelMaximumDurationSeconds
             else {
-                throw CoreMLEncoderError.invalidMaximumDuration(rawMaximum)
+                throw CoreMLEncoderError.invalidMaximumDuration(
+                    name: bucket.maximumDurationEnvironmentKey,
+                    value: rawMaximum,
+                    maximum: bucket.modelMaximumDurationSeconds
+                )
             }
             maximumDurationSeconds = parsed
         } else {
-            maximumDurationSeconds = defaultMaximumDurationSeconds
+            maximumDurationSeconds = bucket.defaultMaximumDurationSeconds
         }
 
         return CoreMLEncoderConfiguration(
+            bucket: bucket,
             modelURL: URL(fileURLWithPath: modelPath),
             maximumDurationSeconds: maximumDurationSeconds,
-            maximumSampleCount: Int(maximumDurationSeconds * Double(sampleRate))
+            maximumSampleCount: Int(maximumDurationSeconds * Double(sampleRate)),
+            melFrameCapacity: bucket.melFrameCapacity,
+            encoderFrameCapacity: bucket.encoderFrameCapacity
         )
     }
 
@@ -38,9 +105,37 @@ struct CoreMLEncoderConfiguration: Equatable {
     }
 }
 
+struct CoreMLEncoderConfigurationSet: Equatable {
+    let standard: CoreMLEncoderConfiguration?
+    let short: CoreMLEncoderConfiguration?
+
+    static func resolve(environment: [String: String]) throws -> CoreMLEncoderConfigurationSet {
+        CoreMLEncoderConfigurationSet(
+            standard: try CoreMLEncoderConfiguration.resolve(
+                environment: environment,
+                bucket: .standard
+            ),
+            short: try CoreMLEncoderConfiguration.resolve(
+                environment: environment,
+                bucket: .short
+            )
+        )
+    }
+
+    func selectedConfiguration(sampleCount: Int) -> CoreMLEncoderConfiguration? {
+        if let short, short.routesThroughCoreML(sampleCount: sampleCount) {
+            return short
+        }
+        if let standard, standard.routesThroughCoreML(sampleCount: sampleCount) {
+            return standard
+        }
+        return nil
+    }
+}
+
 enum CoreMLEncoderError: Error, CustomStringConvertible {
-    case emptyModelPath
-    case invalidMaximumDuration(String)
+    case emptyModelPath(String)
+    case invalidMaximumDuration(name: String, value: String, maximum: Double)
     case modelMissing(String)
     case unsupportedModelPath(String)
     case modelCompilationFailed(String)
@@ -52,10 +147,10 @@ enum CoreMLEncoderError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .emptyModelPath:
-            return "VOICEOUR_COREML_ENCODER is set but empty"
-        case .invalidMaximumDuration(let value):
-            return "VOICEOUR_COREML_MAX_S must be a finite value greater than 0 and no greater than 15.0; got \(value.debugDescription)"
+        case .emptyModelPath(let name):
+            return "\(name) is set but empty"
+        case .invalidMaximumDuration(let name, let value, let maximum):
+            return "\(name) must be a finite value greater than 0 and no greater than \(maximum); got \(value.debugDescription)"
         case .modelMissing(let path):
             return "CoreML encoder does not exist at \(path)"
         case .unsupportedModelPath(let path):
@@ -80,9 +175,7 @@ enum CoreMLEncoderError: Error, CustomStringConvertible {
 /// frame-major output buffer are created once and reused by the persistent sidecar.
 final class CoreMLEncoder {
     static let melBins = 128
-    static let melWidth = 1_501
     static let encoderChannels = 1_024
-    static let encoderWidth = 188
 
     private let model: MLModel
     private let mel: MLMultiArray
@@ -90,10 +183,9 @@ final class CoreMLEncoder {
     private let provider: MLDictionaryFeatureProvider
     private let melChannelStride: Int
     private let melFrameStride: Int
-    private var frameMajorStates = [Float](
-        repeating: 0,
-        count: CoreMLEncoder.encoderChannels * CoreMLEncoder.encoderWidth
-    )
+    private let melFrameCapacity: Int
+    private let encoderFrameCapacity: Int
+    private var frameMajorStates: [Float]
 
     init(configuration: CoreMLEncoderConfiguration) throws {
         let fileManager = FileManager.default
@@ -126,14 +218,20 @@ final class CoreMLEncoder {
                 } catch {
                     throw CoreMLEncoderError.modelLoadFailed(String(describing: error))
                 }
-                try Self.validate(model: model)
+                try Self.validate(model: model, configuration: configuration)
 
                 let mel = try MLMultiArray(
-                    shape: [1, NSNumber(value: Self.melBins), NSNumber(value: Self.melWidth)],
+                    shape: [
+                        1,
+                        NSNumber(value: Self.melBins),
+                        NSNumber(value: configuration.melFrameCapacity),
+                    ],
                     dataType: .float32
                 )
                 let melLength = try MLMultiArray(shape: [1], dataType: .int32)
-                guard mel.strides.count == 3, mel.count == Self.melBins * Self.melWidth else {
+                guard mel.strides.count == 3,
+                      mel.count == Self.melBins * configuration.melFrameCapacity
+                else {
                     throw CoreMLEncoderError.modelContract(
                         "allocated mel storage has unexpected strides or count"
                     )
@@ -162,6 +260,12 @@ final class CoreMLEncoder {
         provider = loaded.3
         melChannelStride = loaded.4
         melFrameStride = loaded.5
+        melFrameCapacity = configuration.melFrameCapacity
+        encoderFrameCapacity = configuration.encoderFrameCapacity
+        frameMajorStates = [Float](
+            repeating: 0,
+            count: Self.encoderChannels * configuration.encoderFrameCapacity
+        )
     }
 
     /// Transposes native frame-major mel into the fixed BCT input, predicts synchronously, copies
@@ -171,15 +275,15 @@ final class CoreMLEncoder {
         frameCount: Int,
         consume: (UnsafeBufferPointer<Float>, Int) -> Int32
     ) throws -> Int32 {
-        guard frameCount > 0, frameCount <= Self.melWidth,
+        guard frameCount > 0, frameCount <= melFrameCapacity,
               nativeMel.count == frameCount * Self.melBins
         else {
             throw CoreMLEncoderError.nativeMelContract(
-                "expected [frames,128] with 1...1501 frames; got \(nativeMel.count) values over \(frameCount) frames"
+                "expected [frames,128] with 1...\(melFrameCapacity) frames; got \(nativeMel.count) values over \(frameCount) frames"
             )
         }
 
-        guard mel.count == Self.melBins * Self.melWidth else {
+        guard mel.count == Self.melBins * melFrameCapacity else {
             throw CoreMLEncoderError.modelContract("runtime mel storage count changed")
         }
         let destination = mel.dataPointer.assumingMemoryBound(to: Float.self)
@@ -206,7 +310,7 @@ final class CoreMLEncoder {
                   encoder.shape.count == 3,
                   encoder.shape[0].intValue == 1,
                   encoder.shape[1].intValue == Self.encoderChannels,
-                  encoder.shape[2].intValue == Self.encoderWidth,
+                  encoder.shape[2].intValue == encoderFrameCapacity,
                   encoderLength.shape.count == 1,
                   encoderLength.shape[0].intValue == 1
             else {
@@ -217,7 +321,9 @@ final class CoreMLEncoder {
                 encoderLength.dataPointer.assumingMemoryBound(to: Int32.self).pointee
             )
             let expectedFrames = (frameCount + 7) / 8
-            guard validFrames == expectedFrames, validFrames > 0, validFrames <= Self.encoderWidth else {
+            guard validFrames == expectedFrames, validFrames > 0,
+                  validFrames <= encoderFrameCapacity
+            else {
                 throw CoreMLEncoderError.predictionContract(
                     "encoder_length \(validFrames) does not equal subsampled mel length \(expectedFrames)"
                 )
@@ -246,7 +352,10 @@ final class CoreMLEncoder {
         }
     }
 
-    private static func validate(model: MLModel) throws {
+    private static func validate(
+        model: MLModel,
+        configuration: CoreMLEncoderConfiguration
+    ) throws {
         let inputs = model.modelDescription.inputDescriptionsByName
         let outputs = model.modelDescription.outputDescriptionsByName
         guard inputs.count == 2, outputs.count == 2,
@@ -258,15 +367,47 @@ final class CoreMLEncoder {
               melLength.dataType == .int32,
               encoder.dataType == .float32,
               encoderLength.dataType == .int32,
-              mel.shape.map(\.intValue) == [1, melBins, melWidth],
+              mel.shape.map(\.intValue) == [1, melBins, configuration.melFrameCapacity],
               melLength.shape.map(\.intValue) == [1],
-              encoder.shape.map(\.intValue) == [1, encoderChannels, encoderWidth],
+              encoder.shape.map(\.intValue) == [
+                  1,
+                  encoderChannels,
+                  configuration.encoderFrameCapacity,
+              ],
               encoderLength.shape.map(\.intValue) == [1]
         else {
             throw CoreMLEncoderError.modelContract(
-                "expected mel[1,128,1501] f32, mel_length[1] i32 -> encoder[1,1024,188] f32, encoder_length[1] i32"
+                "expected mel[1,128,\(configuration.melFrameCapacity)] f32, mel_length[1] i32 -> encoder[1,1024,\(configuration.encoderFrameCapacity)] f32, encoder_length[1] i32"
             )
         }
     }
 
+}
+
+/// Owns one persistent CoreML client per configured fixed-shape artifact.
+final class CoreMLEncoderSet {
+    private let configurations: CoreMLEncoderConfigurationSet
+    private let standard: CoreMLEncoder?
+    private let short: CoreMLEncoder?
+
+    var isEmpty: Bool {
+        standard == nil && short == nil
+    }
+
+    init(configurations: CoreMLEncoderConfigurationSet) throws {
+        self.configurations = configurations
+        short = try configurations.short.map(CoreMLEncoder.init(configuration:))
+        standard = try configurations.standard.map(CoreMLEncoder.init(configuration:))
+    }
+
+    func encoder(sampleCount: Int) -> CoreMLEncoder? {
+        switch configurations.selectedConfiguration(sampleCount: sampleCount)?.bucket {
+        case .short:
+            return short
+        case .standard:
+            return standard
+        case nil:
+            return nil
+        }
+    }
 }

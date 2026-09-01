@@ -90,8 +90,7 @@ public final class ParakeetContext {
 
     private let context: OpaquePointer
     private let threadCount: Int32
-    private var coreMLEncoder: CoreMLEncoder?
-    private var coreMLConfiguration: CoreMLEncoderConfiguration?
+    private var coreMLEncoders: CoreMLEncoderSet?
 
     /// Loads the model and uses `weightArenaPath` for the versioned file-backed weight cache.
     /// Cache creation or validation failures fall back to ordinary ggml buffers in C++.
@@ -125,8 +124,7 @@ public final class ParakeetContext {
         weightArenaPath: String?,
         useGPU: Bool = true,
         threadCount: Int32 = 6,
-        coreMLEncoder: CoreMLEncoder,
-        coreMLConfiguration: CoreMLEncoderConfiguration
+        coreMLEncoders: CoreMLEncoderSet
     ) throws {
         try self.init(
             modelPath: modelPath,
@@ -134,8 +132,7 @@ public final class ParakeetContext {
             useGPU: useGPU,
             threadCount: threadCount
         )
-        self.coreMLEncoder = coreMLEncoder
-        self.coreMLConfiguration = coreMLConfiguration
+        self.coreMLEncoders = coreMLEncoders
     }
 
     deinit {
@@ -216,7 +213,7 @@ public final class ParakeetContext {
             }
 
             return try withExtendedLifetime(latticeBridge) {
-                if let coreMLEncoder, coreMLConfiguration?.routesThroughCoreML(sampleCount: samples.count) == true {
+                if let coreMLEncoder = coreMLEncoders?.encoder(sampleCount: samples.count) {
                     return try decodeWithCoreMLEncoder(
                         coreMLEncoder,
                         samples: samples,

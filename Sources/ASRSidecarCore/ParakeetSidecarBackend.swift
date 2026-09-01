@@ -85,10 +85,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         log: @escaping (String) -> Void,
         idleUnloadMs: Int = 1_800_000
     ) throws {
-        let configuration = try CoreMLEncoderConfiguration.resolve(environment: environment)
-        let coreMLEncoder = try configuration.map(CoreMLEncoder.init(configuration:))
+        let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: environment)
+        let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations)
 
-        if let configuration, let coreMLEncoder {
+        if !coreMLEncoders.isEmpty {
             self.init(
                 cache: cache,
                 log: log,
@@ -97,14 +97,20 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                     try ParakeetContext(
                         modelPath: $0,
                         weightArenaPath: cache.weightArenaURL.path,
-                        coreMLEncoder: coreMLEncoder,
-                        coreMLConfiguration: configuration
+                        coreMLEncoders: coreMLEncoders
                     )
                 }
             )
-            log(
-                "VOICEOUR_COREML_ENCODER mode=hybrid compute_units=CPU_AND_NE model=\(configuration.modelURL.path) max_s=\(configuration.maximumDurationSeconds)"
-            )
+            if let standard = configurations.standard {
+                log(
+                    "VOICEOUR_COREML_ENCODER mode=hybrid compute_units=CPU_AND_NE model=\(standard.modelURL.path) max_s=\(standard.maximumDurationSeconds)"
+                )
+            }
+            if let short = configurations.short {
+                log(
+                    "VOICEOUR_COREML_ENCODER_SHORT mode=hybrid compute_units=CPU_AND_NE model=\(short.modelURL.path) max_s=\(short.maximumDurationSeconds)"
+                )
+            }
         } else {
             self.init(
                 cache: cache,

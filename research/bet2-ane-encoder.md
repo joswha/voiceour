@@ -144,3 +144,35 @@ M4 Pro. Landing it as a product path requires an energy-primary experiment segme
 segment's primary is accuracy), a mel-contract-correct export, and cross-SoC evidence.
 The complete runner/policy/evidence chain lives under `.build/asr-research/three-bets/
 {coreml*,ane-ni,ane-fused-native}/`.
+
+## Segment 3 — energy-primary: ANE encoder LANDED (2026-09-01)
+
+Harness v3 (commit 8b95aa521c9b): general96 latency block + jargon456 ×3 reps inside an
+unprivileged IOReport Energy Model window; primary `energy_j` = compute rails
+(CPU+GPU+ANE) per rep. Accuracy is a hard guard (uwer_mix ≤ .037509 = seg-2 baseline
++ NI .0035; p95 ≤ 230 ms; RTFx ≥ 100) — energy cannot be bought with accuracy/speed.
+
+| run | config | energy_j | rails (CPU/GPU/ANE J per 3 reps) | verdict |
+|---|---|---:|---|---|
+| 52 | native Metal | 444.579 | 286 / 996 / 52 | baseline |
+| 53 | **ANE hybrid** | **272.300 (−38.8%)** | 321 / 201 / 295 | keep (prereg ≥20%) |
+| 54 | replication | 262.808 | 293 / 202 / 293 | keep; noise band ±3.5%; 19.1× floor |
+
+Guards under the hybrid: uwer_mix .034112 (+.000103, well inside NI), general U-WER
+value unchanged, recall −2 rows (.6994), false terms 0, fwer_negative improved,
+p95 207.75–210 ms, deterministic across passes/reps AND across processes (SHAs
+identical between runs 53/54).
+
+Integration (committed 0a7271db0f74): vendor patch 0016 (native-mel read seam +
+capacity-checked external encoder-state injection) + `CoreMLEncoder.swift` persistent
+CPU_AND_NE client in ASRSidecarCore; env-gated `VOICEOUR_COREML_ENCODER`
+(+`VOICEOUR_COREML_MAX_S`, default 15 s; longer audio routes native); fail-closed
+startup; env-off byte-inert. Artifact pinned by directory digest 2892a84e….
+
+Open in-segment item: in-sidecar hybrid costs ~55 ms/row on jargon rows vs ~45 native
+and ~39.5 in the scratch runner — ~10–15 ms/request integration overhead (CPU rail
++35 J signature). Overhead fix in flight; identity-pinned (numerics must not change).
+
+Promotion caveats unchanged: one M4 Pro, TTS corpora, system-wide rail attribution
+under exclusive-hardware discipline; product adoption needs cross-SoC + real speakers
++ an explicit product decision on the second inference runtime (CoreML) in the sidecar.

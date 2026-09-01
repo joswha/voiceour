@@ -14,6 +14,11 @@ zero errors, determinism, term safety.
 uwer_mix .045995 · general .031135 · jargon .060861 · term recall .4653 (161/346) ·
 false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms · 184 MB.
 
+## Segment 3 (energy-primary) — ANE encoder landed
+Native 444.6 J → hybrid 272.3/262.8 J per jargon rep (−39/−41%, 19× noise floor) at
+NI accuracy, deterministic, guards green; GPU rail −80%, encoder on ANE. Vendor patch
+0016 + CoreMLEncoder client, env-gated fail-closed (commit 0a7271db0f74).
+
 ## Segment 2 (repair engaged)
 Baseline run 50: **uwer_mix .034009** (−26.1% vs segment 1), recall .7052, false 0,
 fwer_negative exact, general byte-untouched; port proven 552/552 + digit-exact
