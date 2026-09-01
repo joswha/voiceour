@@ -46,6 +46,7 @@ readonly FOOTPRINT_CEILING_MB=2500
 readonly GENERAL_CORPUS="bench/autoresearch/corpus.manifest.jsonl"
 readonly JARGON_CORPUS="benchmarks/data/jargon/manifest.jsonl"
 readonly JARGON_TERMS="bench/autoresearch/jargon.terms.json"
+readonly REPAIR_VOCABULARY="bench/autoresearch/repair.vocabulary.json"
 readonly SCORER="bench/autoresearch/score.py"
 readonly WORK=".build/autoresearch"
 readonly MEM_SAMPLER="bench/autoresearch/mem_sampler.py"
@@ -58,6 +59,7 @@ readonly MODEL_DIR="$HOME/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml"
 readonly GENERAL_CORPUS_SHA256="885331c29340aca170ae3a061747986bcf91f960b2fec192aefd09e4d72c3749"
 readonly JARGON_CORPUS_SHA256="576efc9f9e6f11e3e14048258e023d0695bb56f8403482e953c061c03a17e2bf"
 readonly JARGON_TERMS_SHA256="2c3dfd1bf8250c97172ef1af16c74de01d30e8376c58474b61aee513fa47d4b5"
+readonly REPAIR_VOCABULARY_SHA256="650dfc3fa02ebc7e2e8754066f0f9d4336d5113444154e1a27975139812fd1c8"
 readonly EXPECTED_METRIC_COUNT=13
 
 die() {
@@ -75,7 +77,7 @@ for tool in swift shasum sysctl sw_vers pgrep ps uv python3; do
     command -v "$tool" >/dev/null 2>&1 || die "missing prerequisite: $tool"
 done
 
-for file in "$GENERAL_CORPUS" "$JARGON_CORPUS" "$JARGON_TERMS" "$SCORER"; do
+for file in "$GENERAL_CORPUS" "$JARGON_CORPUS" "$JARGON_TERMS" "$REPAIR_VOCABULARY" "$SCORER"; do
     [ -f "$file" ] || die "missing prerequisite file: $file"
 done
 [ -d bench/.venv ] || die "missing bench/.venv; run 'cd bench && uv --no-config sync --all-groups' once, with network"
@@ -89,6 +91,7 @@ pin() {
 pin "$GENERAL_CORPUS" "$GENERAL_CORPUS_SHA256"
 pin "$JARGON_CORPUS" "$JARGON_CORPUS_SHA256"
 pin "$JARGON_TERMS" "$JARGON_TERMS_SHA256"
+pin "$REPAIR_VOCABULARY" "$REPAIR_VOCABULARY_SHA256"
 
 # The corpus audio is a gitignored local dataset. Name a broken dataset here
 # rather than letting it arrive later as hundreds of error rows.
@@ -246,6 +249,7 @@ env -i \
     --input "$RUN_MANIFEST" \
     --output "$RUN_RESULTS" \
     --timeout-ms "$ROW_TIMEOUT_MS" \
+    --vocabulary "$REPAIR_VOCABULARY" \
     >"$WORK/run.log" 2>&1
 bench_status=$?
 run_elapsed=$(($(date +%s) - run_started))
@@ -311,6 +315,7 @@ cat "$scored"
 printf 'ASI general_corpus_sha256=%s\n' "$GENERAL_CORPUS_SHA256"
 printf 'ASI jargon_corpus_sha256=%s\n' "$JARGON_CORPUS_SHA256"
 printf 'ASI jargon_terms_sha256=%s\n' "$JARGON_TERMS_SHA256"
+printf 'ASI repair_vocabulary_sha256=%s\n' "$REPAIR_VOCABULARY_SHA256"
 printf 'ASI model_sha256=%s\n' "$observed_model_sha"
 printf 'ASI model_bytes=%s\n' "$observed_bytes"
 printf 'ASI sidecar_sha256=%s\n' "$(shasum -a 256 "$SIDECAR_BIN" | cut -d' ' -f1)"

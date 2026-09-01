@@ -3,7 +3,11 @@ import Foundation
 public enum CleanupEngine {
     static let fillers: Set<String> = ["um", "uh", "uhm", "erm", "mmm", "hmm"]
 
-    public static func clean(_ raw: String, glossary: [ProtectedTerm]) -> String {
+    public static func clean(
+        _ raw: String,
+        glossary: [ProtectedTerm],
+        repairEngine: VocabularyRepairEngine? = nil
+    ) -> String {
         let normalized = normalize(raw)
         guard !normalized.isEmpty else { return "" }
         let fragile = fragileSurfaces(in: glossary)
@@ -16,7 +20,8 @@ public enum CleanupEngine {
             fragile: fragile
         )
         let canonical = Glossary.canonicalize(recased, terms: glossary)
-        return canonical.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return repairEngine?.repair(canonical).text ?? canonical
     }
 
     /// Re-capitalizes a word that one of the deletion passes promoted to the start

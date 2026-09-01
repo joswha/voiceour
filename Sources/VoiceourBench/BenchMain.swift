@@ -14,8 +14,12 @@ struct VoiceourBenchMain {
                 print(BenchCLI.usage)
                 exit(0)
             }
-            let options = try BenchCLI.parse(arguments)
-            try await BenchRunner(options: options).run()
+            if arguments.first == "repair-verify" {
+                try RepairVerificationCommand.parse(Array(arguments.dropFirst())).run()
+            } else {
+                let options = try BenchCLI.parse(arguments)
+                try await BenchRunner(options: options).run()
+            }
             exit(0)
         } catch let error as BenchError {
             fputs("voiceour-bench: \(error.description)\n", stderr)
@@ -105,6 +109,7 @@ struct BenchOptions {
     var output: URL
     var backend: String?
     var timeoutMs: Int
+    var vocabulary: URL?
 }
 
 enum BenchCLI {
@@ -114,7 +119,10 @@ enum BenchCLI {
         Usage:
           voiceour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
               [--backend \(backendChoices)] [--timeout-ms 120000]
+              [--vocabulary <repair.vocabulary.json>]
           voiceour-bench tdt-lattice --input <manifest.jsonl> --output <lattice.jsonl>
+          voiceour-bench repair-verify --fixtures <directory>
+              [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
@@ -128,6 +136,7 @@ enum BenchCLI {
         var output: URL?
         var backend = ASRBackendRegistry.builtIn.defaultDescriptor.id
         var timeoutMs = 120_000
+        var vocabulary: URL?
 
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
@@ -137,6 +146,8 @@ enum BenchCLI {
                 input = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--output":
                 output = fileURL(try value(for: parsed, in: arguments, index: &index))
+            case "--vocabulary":
+                vocabulary = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--backend":
                 let value = try value(for: parsed, in: arguments, index: &index)
                 guard
@@ -163,24 +174,28 @@ enum BenchCLI {
 
         guard let input else { throw BenchError.usage("missing --input") }
         guard let output else { throw BenchError.usage("missing --output") }
+        if vocabulary != nil, command != .pipeline {
+            throw BenchError.usage("--vocabulary is only valid for pipeline")
+        }
 
         return BenchOptions(
             command: command,
             input: input,
             output: output,
             backend: backend,
-            timeoutMs: timeoutMs
+            timeoutMs: timeoutMs,
+            vocabulary: vocabulary
         )
     }
 
-    private static func splitOption(_ argument: String) -> (name: String, inlineValue: String?) {
+    static func splitOption(_ argument: String) -> (name: String, inlineValue: String?) {
         guard argument.hasPrefix("--"), let equals = argument.firstIndex(of: "=") else {
             return (argument, nil)
         }
         return (String(argument[..<equals]), String(argument[argument.index(after: equals)...]))
     }
 
-    private static func value(
+    static func value(
         for parsed: (name: String, inlineValue: String?), in arguments: [String], index: inout Int
     ) throws -> String {
         if let inlineValue = parsed.inlineValue {
@@ -208,6 +223,182 @@ enum BenchCLI {
             .appendingPathComponent(expanded)
             .standardizedFileURL
     }
+}
+
+struct LoadedRepairEngine {
+    var engine: VocabularyRepairEngine
+    var sha256: String
+
+    static func load(_ url: URL) throws -> LoadedRepairEngine {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw BenchError.io("cannot read vocabulary \(url.path): \(BenchError.describe(error))")
+        }
+
+        let vocabulary: RepairVocabulary
+        do {
+            vocabulary = try JSONDecoder().decode(RepairVocabulary.self, from: data)
+        } catch {
+            throw BenchError.io("cannot decode vocabulary \(url.path): \(BenchError.describe(error))")
+        }
+        return LoadedRepairEngine(
+            engine: VocabularyRepairEngine(vocabulary: vocabulary),
+            sha256: try BenchRunner.sha256(of: url)
+        )
+    }
+}
+
+struct RepairVerificationCommand {
+    var fixtures: URL
+    var vocabulary: URL
+    var repetitions: Int
+
+    static func parse(_ arguments: [String]) throws -> RepairVerificationCommand {
+        var fixtures: URL?
+        var vocabulary = BenchCLI.fileURL("bench/autoresearch/repair.vocabulary.json")
+        var repetitions = 20
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let parsed = BenchCLI.splitOption(arguments[index])
+            switch parsed.name {
+            case "--fixtures":
+                fixtures = BenchCLI.fileURL(
+                    try BenchCLI.value(for: parsed, in: arguments, index: &index)
+                )
+            case "--vocabulary":
+                vocabulary = BenchCLI.fileURL(
+                    try BenchCLI.value(for: parsed, in: arguments, index: &index)
+                )
+            case "--repetitions":
+                let value = try BenchCLI.value(for: parsed, in: arguments, index: &index)
+                guard let parsedRepetitions = Int(value), parsedRepetitions > 0 else {
+                    throw BenchError.usage("--repetitions must be a positive integer")
+                }
+                repetitions = parsedRepetitions
+            default:
+                throw BenchError.usage("unknown option: \(arguments[index])")
+            }
+            index = arguments.index(after: index)
+        }
+        guard let fixtures else { throw BenchError.usage("missing --fixtures") }
+        return RepairVerificationCommand(
+            fixtures: fixtures,
+            vocabulary: vocabulary,
+            repetitions: repetitions
+        )
+    }
+
+    func run() throws {
+        let loaded = try LoadedRepairEngine.load(vocabulary)
+        let jargon = try readRows(fixtures.appendingPathComponent("expected-jargon.jsonl"))
+        let general = try readRows(fixtures.appendingPathComponent("expected-general.jsonl"))
+        let rows = jargon + general
+        var changed = 0
+        var eventCount = 0
+
+        for row in rows {
+            let outcome = loaded.engine.repair(row.input)
+            guard outcome.text.utf8.elementsEqual(row.expected.utf8) else {
+                throw BenchError.io(
+                    "repair mismatch for \(row.id): got \(quoted(outcome.text)), expected \(quoted(row.expected))"
+                )
+            }
+            guard eventsEqual(outcome.events, row.events) else {
+                throw BenchError.io("repair event mismatch for \(row.id)")
+            }
+            if !outcome.text.utf8.elementsEqual(row.input.utf8) {
+                changed += 1
+            }
+            eventCount += outcome.events.count
+        }
+
+        var elapsed: [UInt64] = []
+        elapsed.reserveCapacity(jargon.count * repetitions)
+        var checksum: UInt64 = 0
+        for _ in 0..<repetitions {
+            for row in jargon {
+                let start = DispatchTime.now().uptimeNanoseconds
+                let outcome = loaded.engine.repair(row.input)
+                let end = DispatchTime.now().uptimeNanoseconds
+                elapsed.append(end >= start ? end - start : 0)
+                checksum = checksum &* 16_777_619
+                    &+ UInt64(outcome.text.utf8.count)
+                    &+ UInt64(outcome.events.count)
+            }
+        }
+
+        elapsed.sort()
+        let p50 = percentile(elapsed, percent: 50)
+        let p95 = percentile(elapsed, percent: 95)
+        let maximum = Double(elapsed.last ?? 0) / 1_000
+        print(
+            "repair_verify exact=\(rows.count)/\(rows.count) changed=\(changed) "
+                + "events=\(eventCount) samples=\(elapsed.count) "
+                + "p50_us=\(format(p50)) p95_us=\(format(p95)) max_us=\(format(maximum)) "
+                + "checksum=\(checksum) vocabulary_sha256=\(loaded.sha256)"
+        )
+    }
+
+    private func readRows(_ url: URL) throws -> [RepairFixtureRow] {
+        let reader = try JSONLLineReader(url: url)
+        let decoder = JSONDecoder()
+        var rows: [RepairFixtureRow] = []
+        var lineNumber = 0
+        while let line = try reader.nextLine() {
+            lineNumber += 1
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw BenchError.malformedInput(line: lineNumber, detail: "empty line")
+            }
+            do {
+                rows.append(try decoder.decode(RepairFixtureRow.self, from: Data(line.utf8)))
+            } catch {
+                throw BenchError.malformedInput(
+                    line: lineNumber,
+                    detail: "\(url.lastPathComponent): \(BenchError.describe(error))"
+                )
+            }
+        }
+        return rows
+    }
+
+    private func eventsEqual(_ actual: [RepairEvent], _ expected: [RepairEvent]) -> Bool {
+        guard actual.count == expected.count else { return false }
+        return zip(actual, expected).allSatisfy { actual, expected in
+            actual.start == expected.start
+                && actual.end == expected.end
+                && actual.before.utf8.elementsEqual(expected.before.utf8)
+                && actual.after.utf8.elementsEqual(expected.after.utf8)
+                && actual.kind == expected.kind
+                && roundedEventScore(actual.score) == expected.score
+        }
+    }
+
+    private func roundedEventScore(_ score: Double) -> Double {
+        (score * 1_000_000_000).rounded(.toNearestOrEven) / 1_000_000_000
+    }
+
+    private func percentile(_ sorted: [UInt64], percent: Int) -> Double {
+        guard !sorted.isEmpty else { return 0 }
+        let rank = max(1, (sorted.count * percent + 99) / 100)
+        return Double(sorted[rank - 1]) / 1_000
+    }
+
+    private func format(_ value: Double) -> String {
+        String(format: "%.3f", value)
+    }
+
+    private func quoted(_ value: String) -> String {
+        String(reflecting: value)
+    }
+}
+
+struct RepairFixtureRow: Decodable {
+    var id: String
+    var input: String
+    var expected: String
+    var events: [RepairEvent]
 }
 
 struct BenchRunner {
@@ -244,12 +435,14 @@ struct BenchRunner {
     private func runPipeline() async throws {
         let manifestSHA256 = try Self.sha256(of: options.input)
         let audioManifestSHA256 = try Self.audioManifestSHA256(of: options.input)
+        let repair = try options.vocabulary.map(LoadedRepairEngine.load)
         let writer = try JSONLWriter(url: options.output)
         try writer.write(
             meta(
                 mode: .pipeline,
                 manifestSHA256: manifestSHA256,
-                audioManifestSHA256: audioManifestSHA256
+                audioManifestSHA256: audioManifestSHA256,
+                vocabularySHA256: repair?.sha256
             )
         )
         let reader = try JSONLLineReader(url: options.input)
@@ -270,7 +463,7 @@ struct BenchRunner {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
 
-            let outputRow = await processPipelineRow(inputRow, asr: asr)
+            let outputRow = await processPipelineRow(inputRow, asr: asr, repairEngine: repair?.engine)
             try writer.write(outputRow)
             rowCount += 1
             print("processed \(inputRow.id)")
@@ -281,7 +474,8 @@ struct BenchRunner {
     private func meta(
         mode: BenchCommand,
         manifestSHA256: String,
-        audioManifestSHA256: String
+        audioManifestSHA256: String,
+        vocabularySHA256: String?
     ) -> BenchMeta {
         let model = Self.modelIdentity(for: options.backend)
         return BenchMeta(
@@ -292,6 +486,7 @@ struct BenchRunner {
             modelFile: model.file,
             manifestSHA256: manifestSHA256,
             audioManifestSHA256: audioManifestSHA256,
+            vocabularySHA256: vocabularySHA256,
             startedAt: ISO8601DateFormatter().string(from: Date())
         )
     }
@@ -390,7 +585,8 @@ struct BenchRunner {
 
     private func processPipelineRow(
         _ input: PipelineInputRow,
-        asr: any ASRClienting
+        asr: any ASRClienting,
+        repairEngine: VocabularyRepairEngine?
     ) async -> BenchOutputRow {
         let totalStart = BenchClock.mark()
         var rawTranscript = ""
@@ -421,8 +617,8 @@ struct BenchRunner {
 
             let cleanupStart = BenchClock.mark()
             cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
+            finalText = repairEngine?.repair(cleanedText).text ?? cleanedText
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
-            finalText = cleanedText
         } catch {
             rowError = BenchError.describe(error)
         }
@@ -599,6 +795,7 @@ struct BenchMeta: Encodable {
     var modelFile: String?
     var manifestSHA256: String
     var audioManifestSHA256: String
+    var vocabularySHA256: String?
     var startedAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -610,6 +807,7 @@ struct BenchMeta: Encodable {
         case modelFile = "model_file"
         case manifestSHA256 = "manifest_sha256"
         case audioManifestSHA256 = "audio_manifest_sha256"
+        case vocabularySHA256 = "vocabulary_sha256"
         case startedAt = "started_at"
     }
 
@@ -631,6 +829,9 @@ struct BenchMeta: Encodable {
         }
         try container.encode(manifestSHA256, forKey: .manifestSHA256)
         try container.encode(audioManifestSHA256, forKey: .audioManifestSHA256)
+        if let vocabularySHA256 {
+            try container.encode(vocabularySHA256, forKey: .vocabularySHA256)
+        }
         try container.encode(startedAt, forKey: .startedAt)
     }
 }
