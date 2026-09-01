@@ -193,7 +193,7 @@ def main() -> None:
     print(f"METRIC load_ms={load_ms:g}")
     print(f"METRIC peak_phys_footprint_mb={footprint_mb:.3f}")
     print(f"METRIC peak_rss_mb={args.peak_resident_bytes / 1e6:.3f}")
-    print(f"METRIC error_rows=0")
+    print("METRIC error_rows=0")
     print(f"METRIC recall_hits={recall_hits}")
 
     domains: dict[str, list[str]] = {}
