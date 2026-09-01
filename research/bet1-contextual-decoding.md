@@ -241,3 +241,13 @@ English as designed: it fires never when no technical term is present. Combined
 with holdout-v1 (0 false terms OOD synthetic, fixed 134/broke 0), repair now
 carries both synthetic and one-Mac real-speech safety evidence. Cross-SoC and
 real-dictation acoustics remain the open promotion prerequisites.
+
+### Disfluent-speech repair safety — sealed AMI endpoint PASSED (2026-09-01)
+
+Within `ami-holdout-12643-spontaneous-speech-v1` (bet3 holds the full record): on
+12,643 rows of heavily disfluent spontaneous meeting speech — fillers, restarts,
+fragments, the natural attack surface for a phonetic repair gate — the shipping
+vocabulary path produced **zero repair-attributable insertions and zero changed
+rows** versus cleanup-only (N ≡ N0). Combined with holdout-v1 (synthetic OOD) and
+fleurs-holdout-941 (read speech), the frozen θ=.95 unambiguous-only policy has now
+been silent on every corpus class it could plausibly damage.

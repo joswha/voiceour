@@ -223,3 +223,31 @@ Standing evidence for the kept config (ladder + CPU tail + q8 tail): dev-corpus
 accuracy improved on every metric, energy 0.3039–0.3053, and now real-speech NI +
 determinism on 8.6 h / 73 speakers. Remaining promotion gaps are unchanged and
 external: cross-SoC, real dictation acoustics, artifact hosting + background warm.
+
+### Spontaneous-speech validation — sealed evaluation PASSED (2026-09-01)
+
+`ami-holdout-12643-spontaneous-speech-v1`: the full AMI test split — 12,643 rows of
+individual-headset-mic spontaneous meeting speech, 16 speakers, 31,253 s — the
+closest public proxy to dictation acoustics (spontaneous phrasing, heavy disfluency,
+real close mics), never touched by any development corpus. Prereg sealed before any
+ASR (sha dd01ad54…); four passes (N0/N/Q/Q2) at tip `2944406fd597`, zero error rows.
+
+| endpoint | rule | measured | verdict |
+|---|---|---|---|
+| q8 NI on spontaneous speech | pooled ΔU-WER ≤ +.0035 AND 16-cluster bootstrap (B=10000, seed 20260903) 95% upper ≤ +.005 | Δ = **−0.000814** (Q .131079 vs N .131894), upper **+0.000176** | **PASS** |
+| repair safety on disfluent speech | 0 repair-attributable insertions of the 141 surfaces (N vs N0) | **0 — and 0 rows where vocabulary changed final text at all** | **PASS** |
+| determinism | Q ≡ Q2 raw+final | 12,643/12,643 identical | **PASS** |
+
+Base U-WER here is 13.1% — four times the read-speech corpora — and the q8
+configuration is still measurably better, with a bootstrap upper bound 28× inside
+the ceiling. The repair endpoint is the first disfluent-speech test of the frozen
+θ=.95 gate: disfluent fragments are its natural attack surface, and it fired zero
+times in 12,643 rows. Secondary: meeting-family splits mixed-sign at noise scale
+(EN/ES/TS favor Q, IS favors N); 1,332 raw transcripts perturbed at negative pooled
+cost; worst speaker delta +0.0058 over 270 rows.
+
+Sealed real-speech ledger for the kept config now spans three corpora: FLEURS-941
+(read, f16-era stack), LibriSpeech-5159 (read, q8), AMI-12643 (spontaneous close-mic,
+q8 + repair). The remaining acoustic gap to true dictation is the exact microphone
+and the single-speaker register; the spontaneity and disfluency dimensions are now
+covered. Cross-SoC remains the promotion blocker.
