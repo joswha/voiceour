@@ -198,3 +198,28 @@ q8_0 at load (patch 0019, env-gated, fail-closed, artifact SHAs untouched).
 Energy −19%, every accuracy metric equal-or-better than the f16 tail, latency down.
 The parked whole-model q8 flip (cross-SoC prereg) remains a separate, still-blocked
 question.
+
+### Real-speech validation of the q8 tail — sealed evaluation PASSED (2026-09-01)
+
+`librispeech-holdout-5159-q8-tail-real-speech-v1`: 5,159 LibriSpeech test rows at
+per-split duration-rank 201+ (every dev corpus used 1–200 only), 73 speakers,
+30,905 s of held-out read speech; prereg sealed before any ASR (sha 6788c613…);
+three passes at tip `af79f135983c` (N native, Q = kept q8 config, Q2 = Q repeat),
+zero error rows; corpus provenance carries per-file SHAs plus a documented
+aggregate recipe.
+
+| endpoint | rule | measured | verdict |
+|---|---|---|---|
+| q8 NI on real speech | pooled ΔU-WER ≤ +.0035 AND 73-cluster bootstrap (B=10000, seed 20260902) 95% upper ≤ +.005 | Δ = **−0.000035** (Q .0297760 vs N .0298110), upper **+0.000438** | **PASS** |
+| determinism | Q ≡ Q2 raw+final | 5,159/5,159 identical | **PASS** |
+
+Secondary: clean split favors Q (.020748 vs .021335), other favors N (.038721 vs
+.038209) — symmetric at noise scale; 643/5,159 raw transcripts perturbed at zero
+pooled cost; worst single speaker delta +0.0114 over 75 rows. No repair endpoint by
+design: the text stage is byte-identical code and vocabulary to the FLEURS-941
+evaluation that already proved 0 insertions on real speech.
+
+Standing evidence for the kept config (ladder + CPU tail + q8 tail): dev-corpus
+accuracy improved on every metric, energy 0.3039–0.3053, and now real-speech NI +
+determinism on 8.6 h / 73 speakers. Remaining promotion gaps are unchanged and
+external: cross-SoC, real dictation acoustics, artifact hosting + background warm.

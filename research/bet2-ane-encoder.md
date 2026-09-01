@@ -341,3 +341,26 @@ every fresh block re-specialized cold. Freed ~55 GB of superseded model blobs
 specialization persistence (302/102/123 ms fresh-process tier rows vs 17 s cold),
 then measured cleanly. Instrument lesson recorded: the specialization cache is
 disk-pressure-volatile, so low disk can masquerade as ambient contamination.
+
+### Pool question closed on both substrates (run 83, 2026-09-01)
+
+Patch 0018 re-preregistered under the q8 tail (fresh bar 0.3025 vs new band
+0.3039/0.3053): measured **0.3205 — discard**. Under the f16 tail spin == churn
+(neutral, run 77); under the cheaper q8 tail spin > churn (+5% energy). The
+persistent pool is an energy-negative, latency-positive dial everywhere tested —
+question closed. The latency dividend replicated and strengthened: p95 165.25 ms,
+p50 97.5 ms (first sub-100 of the session), RTFx 207, digits pinned identically
+under both tails. Product option recorded at
+`.build/asr-research/three-bets/cpu-pool-q8/` (prereg, verdict, full diff vs the
+0019 tree, tests): `VOICEOUR_CPU_POOL=persistent` buys p95 −7% / p50 −8% for ~+5%
+dictation-window energy — a defensible trade for a dictation app, but not this
+segment's metric. The kept research config remains ladder + CPU tail + q8 tail at
+0.3039–0.3053.
+
+### q8-tail config real-speech validated (2026-09-01)
+
+See bet3 for the sealed `librispeech-holdout-5159` evaluation: the kept
+ladder + CPU tail + q8 tail configuration is non-inferior on 5,159 held-out
+real-speech rows (Δ −0.000035, clustered upper +0.000438) and cross-process
+deterministic there. Both hybrid generations are now real-speech validated on this
+Mac: f16 era via fleurs-holdout-941, q8 era via librispeech-holdout-5159.
