@@ -23,6 +23,23 @@ extension ParakeetRuntimeContext {
 
 extension ParakeetContext: ParakeetRuntimeContext {}
 
+enum ParakeetAssistError: Error, CustomStringConvertible {
+    case emptyModelPath
+    case modelMissing(String)
+    case invalidMaximumDuration(String)
+
+    var description: String {
+        switch self {
+        case .emptyModelPath:
+            return "VOICEOUR_ASSIST_MODEL is set but empty"
+        case .modelMissing(let path):
+            return "VOICEOUR_ASSIST_MODEL artifact missing: \(path)"
+        case .invalidMaximumDuration(let value):
+            return "VOICEOUR_ASSIST_MAX_S must be a positive finite number of seconds, got: \(value)"
+        }
+    }
+}
+
 /// The real backend: parakeet.cpp over the pinned GGUF checkpoint.
 ///
 /// State shared by the reader thread (`health`), decode queue (`transcribe`) and preload thread
@@ -49,6 +66,13 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     /// Held for the duration of one `parakeet_full`. See `decode(_:samples:isCancelled:)`.
     private let decodeLock = NSLock()
     private var context: (any ParakeetRuntimeContext)?
+    /// Optional second-opinion model: decoded serially after the primary for audio at or
+    /// under `assistMaxSamples`, its raw transcript returned as `assistText` for the
+    /// client-side text stage to arbitrate. Nil path disables the feature entirely.
+    private let assistModelPath: String?
+    private let assistMaxSamples: Int
+    private var assistContext: (any ParakeetRuntimeContext)?
+    private let assistContextFactory: (String) throws -> any ParakeetRuntimeContext
     private var loadMs = 0
     private var loadFailed = false
     /// 0...1 while `warmUp` is acquiring the artifact; nil at every other moment.
@@ -117,12 +141,35 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: environment)
         let coreMLEncoders = try CoreMLEncoderSet(configurations: configurations, log: log)
 
+        var assistModelPath: String?
+        var assistMaxSamples = 0
+        if let assistPath = environment["VOICEOUR_ASSIST_MODEL"] {
+            guard !assistPath.isEmpty else {
+                throw ParakeetAssistError.emptyModelPath
+            }
+            guard FileManager.default.fileExists(atPath: assistPath) else {
+                throw ParakeetAssistError.modelMissing(assistPath)
+            }
+            var maxSeconds = 15.0
+            if let rawMax = environment["VOICEOUR_ASSIST_MAX_S"] {
+                guard let parsed = Double(rawMax), parsed.isFinite, parsed > 0 else {
+                    throw ParakeetAssistError.invalidMaximumDuration(rawMax)
+                }
+                maxSeconds = parsed
+            }
+            assistModelPath = assistPath
+            assistMaxSamples = Int(maxSeconds * 16_000)
+            log("VOICEOUR_ASSIST_MODEL mode=serial model=\(assistPath) max_s=\(maxSeconds)")
+        }
+
         if !coreMLEncoders.isEmpty {
             self.init(
                 cache: cache,
                 log: log,
                 idleUnloadMs: idleUnloadMs,
                 coreMLWarm: coreMLWarm,
+                assistModelPath: assistModelPath,
+                assistMaxSamples: assistMaxSamples,
                 contextFactory: {
                     try ParakeetContext(
                         modelPath: $0,
@@ -165,6 +212,8 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                 cache: cache,
                 log: log,
                 idleUnloadMs: idleUnloadMs,
+                assistModelPath: assistModelPath,
+                assistMaxSamples: assistMaxSamples,
                 contextFactory: {
                     try ParakeetContext(
                         modelPath: $0,
@@ -193,13 +242,20 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         log: @escaping (String) -> Void,
         idleUnloadMs: Int,
         coreMLWarm: CoreMLWarmMode = .default,
-        contextFactory: @escaping (String) throws -> any ParakeetRuntimeContext
+        assistModelPath: String? = nil,
+        assistMaxSamples: Int = 0,
+        contextFactory: @escaping (String) throws -> any ParakeetRuntimeContext,
+        assistContextFactory: ((String) throws -> any ParakeetRuntimeContext)? = nil
     ) {
         self.cache = cache
         self.log = log
         self.idleUnloadMs = idleUnloadMs
         self.coreMLWarm = coreMLWarm
+        self.assistModelPath = assistModelPath
+        self.assistMaxSamples = assistMaxSamples
         self.contextFactory = contextFactory
+        self.assistContextFactory =
+            assistContextFactory ?? { try ParakeetContext(modelPath: $0, weightArenaPath: $0 + ".weight-arena") }
     }
 
     public func startupStatus() -> BackendStatus {
@@ -312,9 +368,12 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     public func shutdown() {
         stateLock.lock()
         let released = context
+        let releasedAssist = assistContext
         context = nil
+        assistContext = nil
         stateLock.unlock()
         _ = released
+        _ = releasedAssist
     }
 
     public func transcribe(
@@ -361,6 +420,24 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             if isCancelled() { return .cancelled }
             return .failure(code: .inferenceFailed, detail: String(describing: error), fatal: true)
         }
+
+        var assistText: String?
+        if assistModelPath != nil, samples.count <= assistMaxSamples {
+            do {
+                let assist = try loadAssistContext()
+                let assistSegments = try decode(assist, samples: samples, isCancelled: isCancelled)
+                assistText = TokenMapping.transcript(from: assistSegments).text
+            } catch {
+                // Assist is configured on purpose; a silent fallback to the primary-only
+                // transcript would report a run that never exercised the candidate.
+                if isCancelled() { return .cancelled }
+                return .failure(
+                    code: .inferenceFailed,
+                    detail: "assist decode failed: \(String(describing: error))",
+                    fatal: true
+                )
+            }
+        }
         let inferenceMs = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
 
         if isCancelled() { return .cancelled }
@@ -369,8 +446,10 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         let loadMs = self.loadMs
         stateLock.unlock()
 
+        var transcript = TokenMapping.transcript(from: segments)
+        transcript.assistText = assistText
         return .result(
-            transcript: TokenMapping.transcript(from: segments),
+            transcript: transcript,
             backendId: backendId,
             modelId: ASRModelContract.modelId,
             modelRevision: ASRModelContract.revision,
@@ -525,6 +604,35 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         }
     }
 
+    /// Creates the assist context on first assisted decode, exactly once, under the same
+    /// load lock as the primary: two contexts share ggml's Metal device and their
+    /// constructions must never race (see `loadContext`).
+    private func loadAssistContext() throws -> any ParakeetRuntimeContext {
+        stateLock.lock()
+        let existing = assistContext
+        stateLock.unlock()
+        if let existing { return existing }
+
+        guard let assistModelPath else {
+            throw ParakeetAssistError.emptyModelPath
+        }
+        loadLock.lock()
+        defer { loadLock.unlock() }
+        stateLock.lock()
+        let raced = assistContext
+        stateLock.unlock()
+        if let raced { return raced }
+
+        let started = DispatchTime.now().uptimeNanoseconds
+        let created = try assistContextFactory(assistModelPath)
+        let elapsed = Int((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
+        stateLock.lock()
+        assistContext = created
+        stateLock.unlock()
+        log("VOICEOUR_ASSIST_MODEL loaded in \(elapsed)ms")
+        return created
+    }
+
     /// Primes the configured CoreML tiers for a newly created context, off the request path.
     ///
     /// Runs for every creation — the preload thread's and the post-idle-unload reload on the
@@ -591,8 +699,11 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         stateLock.lock()
         let idleMs = Self.elapsedMs(from: lastDecodeEndedAt, to: .now())
         let released = context
+        let releasedAssist = assistContext
         context = nil
+        assistContext = nil
         stateLock.unlock()
+        _ = releasedAssist
 
         guard released != nil else { return }
         log("idle unload after \(idleMs)ms; the next dictation reloads (~314 ms plus a warm decode)")

@@ -370,19 +370,26 @@ public struct ASRTranscript: Codable, Equatable, Sendable {
     public var segments: [ASRSegment]?
     public var confidence: Double?
     public var confidenceMode: ASRConfidenceMode?
+    /// Second-opinion transcript from the optional assist model, decoded from the
+    /// same audio. Optional in both directions: a sidecar without an assist model
+    /// omits it and a client that ignores it decodes unchanged. The client-side
+    /// text stage arbitrates between `text` and this after cleanup.
+    public var assistText: String?
 
     public init(
         text: String,
         language: String?,
         segments: [ASRSegment]?,
         confidence: Double? = nil,
-        confidenceMode: ASRConfidenceMode? = nil
+        confidenceMode: ASRConfidenceMode? = nil,
+        assistText: String? = nil
     ) {
         self.text = text
         self.language = language
         self.segments = segments
         self.confidence = confidence
         self.confidenceMode = confidenceMode
+        self.assistText = assistText
     }
 }
 

@@ -16,6 +16,7 @@ struct ProtocolFixtureParityTests {
             "transcribe.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
             "result.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "result_with_words.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
+            "result_with_assist.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "cancel.json": { _ = try ASRWire.decode(ASRCancelRequest.self, from: $0) },
             "cancelled.json": { _ = try ASRWire.decode(ASRCancelledMessage.self, from: $0) },
             "error.json": { _ = try ASRWire.decode(ASRErrorMessage.self, from: $0) },
@@ -102,6 +103,29 @@ struct ProtocolFixtureParityTests {
         let line = try ASRWire.encodeLine(sent)
         #expect(String(decoding: line, as: UTF8.self).contains("\"last_acquisition_error\""))
         #expect(try ASRWire.decode(ASRHealthResponse.self, from: line) == sent)
+    }
+
+    /// `assist_text` is optional in both directions: the plain `result.json` fixture omits it
+    /// and must decode to nil, the assist fixture carries it and must surface the exact text,
+    /// and the value must survive the shipped coder's snake-case round trip.
+    @Test func assistTextIsOptionalOnTheWireAndSurvivesTheCoder() throws {
+        let fixtures = repoRoot().appendingPathComponent("fixtures/protocol", isDirectory: true)
+        let plain = try ASRWire.decode(
+            ASRResult.self,
+            from: Data(contentsOf: fixtures.appendingPathComponent("result.json"))
+        )
+        #expect(plain.transcript.assistText == nil)
+
+        let assisted = try ASRWire.decode(
+            ASRResult.self,
+            from: Data(contentsOf: fixtures.appendingPathComponent("result_with_assist.json"))
+        )
+        #expect(assisted.transcript.assistText == "install kubectl on the cluster")
+
+        let encoded = try ASRWire.encodeLine(assisted)
+        let decoded = try ASRWire.decode(ASRResult.self, from: encoded)
+        #expect(decoded.transcript.assistText == "install kubectl on the cluster")
+        #expect(decoded == assisted)
     }
 
     @Test func resultWithWordsDecodesPopulatedWordEvidence() throws {

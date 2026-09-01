@@ -57,6 +57,9 @@ readonly COREML_SHORT_MAX_S="8.0"
 readonly COREML_ENCODER_TINY="$PWD/.build/asr-research/three-bets/palettize6/tiny/parakeet_encoder_6bit.mlmodelc"
 readonly COREML_ENCODER_TINY_DIGEST="e77ac4a6fc6299868fce308b652b363a3fd98d7024a225b6920f691ff66add05"
 readonly COREML_TINY_MAX_S="6.0"
+readonly ASSIST_MODEL="$PWD/.build/asr-research/models-v2/ggml-parakeet-tdt-0.6b-v2-f16.bin"
+readonly ASSIST_MODEL_SHA256="1af0aed998520343d0f9b9b96b3b351accccb2d87a53c98f08015c5b408256cd"
+readonly ASSIST_MAX_S="15.0"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -172,6 +175,14 @@ if [ -n "$COREML_ENCODER" ]; then
         coreml_env_args="$coreml_env_args VOICEOUR_COREML_ENCODER_TINY=$COREML_ENCODER_TINY VOICEOUR_COREML_TINY_MAX_S=$COREML_TINY_MAX_S"
     fi
     coreml_env_args="$coreml_env_args VOICEOUR_TAIL_BACKEND=cpu VOICEOUR_TAIL_QUANT=q8_0 VOICEOUR_CPU_POOL=persistent"
+fi
+if [ -n "$ASSIST_MODEL" ]; then
+    [ -e "$ASSIST_MODEL" ] || die "assist model artifact missing: $ASSIST_MODEL"
+    [ -n "$ASSIST_MODEL_SHA256" ] || die 'assist model sha pin is empty'
+    observed_assist_sha="$(shasum -a 256 "$ASSIST_MODEL" | cut -d' ' -f1)"
+    [ "$observed_assist_sha" = "$ASSIST_MODEL_SHA256" ] ||
+        die "assist model sha $observed_assist_sha != pinned $ASSIST_MODEL_SHA256"
+    coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL=$ASSIST_MODEL VOICEOUR_ASSIST_MAX_S=$ASSIST_MAX_S"
 fi
 
 # --- build, outside the timed region ---------------------------------------

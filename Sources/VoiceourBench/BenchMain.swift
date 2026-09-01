@@ -241,6 +241,8 @@ enum BenchCLI {
 
 struct LoadedRepairEngine {
     var engine: VocabularyRepairEngine
+    /// Eligible (non-ordinary) canonical surfaces, retained for assist arbitration.
+    var surfaces: [String]
     var sha256: String
 
     static func load(_ url: URL) throws -> LoadedRepairEngine {
@@ -259,8 +261,52 @@ struct LoadedRepairEngine {
         }
         return LoadedRepairEngine(
             engine: VocabularyRepairEngine(vocabulary: vocabulary),
+            surfaces: vocabulary.surfaces,
             sha256: try BenchRunner.sha256(of: url)
         )
+    }
+}
+
+/// Second-opinion arbitration between the primary transcript and the assist model's,
+/// both after the identical cleanup + repair stage. Adopt the assist row exactly when
+/// it contains at least one eligible taught surface the primary lacks and the primary
+/// contains none the assist lacks; every other case keeps the primary byte-for-byte.
+enum AssistArbitration {
+    static func arbitrate(primary: String, assist: String, surfaces: [String]) -> String {
+        let primaryTerms = taughtSurfaces(in: primary, surfaces: surfaces)
+        let assistTerms = taughtSurfaces(in: assist, surfaces: surfaces)
+        if !assistTerms.subtracting(primaryTerms).isEmpty,
+            primaryTerms.subtracting(assistTerms).isEmpty
+        {
+            return assist
+        }
+        return primary
+    }
+
+    /// Case-sensitive exact-surface presence with word boundaries, mirroring the
+    /// scorer's `contains_exact_term`: `(?<!\w)` / `(?!\w)` guards are applied only
+    /// when the surface's own edge is a word character.
+    static func taughtSurfaces(in text: String, surfaces: [String]) -> Set<String> {
+        var found: Set<String> = []
+        for surface in surfaces where !surface.isEmpty {
+            guard text.contains(surface) else { continue }
+            let first = surface.unicodeScalars.first.map(isWordScalar) == true
+            let last = surface.unicodeScalars.last.map(isWordScalar) == true
+            let pattern =
+                (first ? "(?<!\\w)" : "")
+                + NSRegularExpression.escapedPattern(for: surface)
+                + (last ? "(?!\\w)" : "")
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(text.startIndex..., in: text)
+            if regex.firstMatch(in: text, range: range) != nil {
+                found.insert(surface)
+            }
+        }
+        return found
+    }
+
+    private static func isWordScalar(_ scalar: Unicode.Scalar) -> Bool {
+        scalar == "_" || CharacterSet.alphanumerics.contains(scalar)
     }
 }
 
@@ -480,7 +526,7 @@ struct BenchRunner {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
 
-            let outputRow = await processPipelineRow(inputRow, asr: asr, repairEngine: repair?.engine)
+            let outputRow = await processPipelineRow(inputRow, asr: asr, repair: repair)
             try writer.write(outputRow)
             rowCount += 1
             print("processed \(inputRow.id)")
@@ -603,7 +649,7 @@ struct BenchRunner {
     private func processPipelineRow(
         _ input: PipelineInputRow,
         asr: any ASRClienting,
-        repairEngine: VocabularyRepairEngine?
+        repair: LoadedRepairEngine?
     ) async -> BenchOutputRow {
         let totalStart = BenchClock.mark()
         var rawTranscript = ""
@@ -632,9 +678,19 @@ struct BenchRunner {
             confidence = result.transcript.confidence
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
+            let repairEngine = repair?.engine
             let cleanupStart = BenchClock.mark()
             cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
             finalText = repairEngine?.repair(cleanedText).text ?? cleanedText
+            if let assistRaw = result.transcript.assistText, let repair {
+                let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
+                let assistFinal = repair.engine.repair(assistCleaned).text
+                finalText = AssistArbitration.arbitrate(
+                    primary: finalText,
+                    assist: assistFinal,
+                    surfaces: repair.surfaces
+                )
+            }
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
         } catch {
             rowError = BenchError.describe(error)
