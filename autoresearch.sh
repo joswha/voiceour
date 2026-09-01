@@ -56,14 +56,14 @@ readonly ENERGY_SAMPLER="bench/autoresearch/energy_sampler.py"
 
 # CoreML encoder candidate plumbing. Empty COREML_ENCODER = native baseline.
 # A non-empty path requires the pinned directory digest to match.
-readonly COREML_ENCODER="$PWD/.build/asr-research/three-bets/coreml-native-mel/compiled/parakeet_encoder.mlmodelc"
-readonly COREML_ENCODER_DIGEST="2892a84efbb4e9d26c1adf1fdaf6de97b530c5e2246955807ed27b6d1b4fd952"
+readonly COREML_ENCODER="$PWD/.build/asr-research/three-bets/palettize6/standard/parakeet_encoder_6bit.mlmodelc"
+readonly COREML_ENCODER_DIGEST="adffa42216599bdb01611a6e06cb8f26448cb3a66078b8fbed66dbe8b6cb544d"
 readonly COREML_MAX_S="15.0"
-readonly COREML_ENCODER_SHORT="$PWD/.build/asr-research/three-bets/bucket8/parakeet_encoder_8s.mlmodelc"
-readonly COREML_ENCODER_SHORT_DIGEST="9352b55bd0f0da4113831eda276a75bdcbb004c686655406bdab1451d5b26481"
+readonly COREML_ENCODER_SHORT="$PWD/.build/asr-research/three-bets/palettize6/short/parakeet_encoder_6bit.mlmodelc"
+readonly COREML_ENCODER_SHORT_DIGEST="1d995f0ef5a92e14f92214b93af46126a78427513be7d6ea695cae421f6a16e6"
 readonly COREML_SHORT_MAX_S="8.0"
-readonly COREML_ENCODER_TINY="$PWD/.build/asr-research/three-bets/bucket6/parakeet_encoder_6s.mlmodelc"
-readonly COREML_ENCODER_TINY_DIGEST="6ee06a3171532a0ce3ee9b3aa93659c464b8ad934e0acb0dada416f5e331741a"
+readonly COREML_ENCODER_TINY="$PWD/.build/asr-research/three-bets/palettize6/tiny/parakeet_encoder_6bit.mlmodelc"
+readonly COREML_ENCODER_TINY_DIGEST="e77ac4a6fc6299868fce308b652b363a3fd98d7024a225b6920f691ff66add05"
 readonly COREML_TINY_MAX_S="6.0"
 
 readonly MODEL_VARIANT="f16"

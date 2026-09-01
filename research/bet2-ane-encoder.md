@@ -218,3 +218,29 @@ effect is **−43% energy at NI accuracy**, with the 8 s/6 s rung fine-structure
 into one robust self-referenced number. The v4 instrument remains available for any
 future energy candidate; no candidate with a predicted effect above its gate remains
 on this Mac.
+
+### Runs 62–63 — product wiring pair (2026-09-01)
+
+Both standing in-machine wiring decisions executed and gated:
+
+1. **Vocabulary repair in the app** (commit 9139bc2f): TranscriptProcessingPipeline now
+   applies the frozen θ=.95 repair after CleanupEngine, driven by the user's ACTIVE
+   taught glossary — corpus-independent risk rule (baked ordinary-words VoiceCore
+   resource + generator; single-letter a/i rule), per-snapshot engine cache (cold
+   21.8 ms, hit 3.4 µs). Proven inert to the instrument (repair-verify 552/552, all
+   transcript SHAs unchanged) and green on app gates: `make self-test`, `make ui-flow`
+   23/23 no drift, `make verify-bundle` (bundle.sh now ships the SwiftPM resource
+   bundle + assertion).
+2. **Lazy per-tier CoreML loading**: startup stats/validates fail-closed, defers
+   MLModel loads to first routed use. Real energy win — C blocks stop paying for
+   unused tier loads: C median 247.5→227.9→226.5 J (0.6% spread across runs).
+
+energy_ratio 0.5679 → 0.4664 → 0.4335 (best). The C-side absolute cost is highly
+reproducible; the ratio's denominator (R native) climbs with ambient contention
+(436→489→523 J) — contention hits the GPU-heavy native path harder than the isolated
+ANE path, so the hybrid's advantage GROWS under load. Conservative certified claim
+remains the quiet-anchored 0.568; live-conditions band 0.43–0.47.
+
+**ANE artifact-shipping constraint measured:** each tier's .mlmodelc is 1.1 GB
+(3.3 GB for the ladder) — product distribution needs palettization/weight-sharing
+research or a single-tier compromise before this leaves env-gated status.
