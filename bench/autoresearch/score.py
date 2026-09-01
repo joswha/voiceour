@@ -279,12 +279,28 @@ def main() -> int:
 
     # --- energy ratio -------------------------------------------------------
 
+    # Contamination gate: the workload per block is fixed, so a wall-time
+    # blowout is an external-interference signal independent of the energy
+    # metric itself. Reject the run rather than average poison into the ratio.
+    for family, group in (("R", r_blocks), ("C", c_blocks)):
+        windows = [float(b.energy.get("window_elapsed_ms", 0.0)) for b in group]
+        if windows:
+            family_median = statistics.median(windows)
+            for b, window in zip(group, windows):
+                if family_median > 0 and window > 1.5 * family_median:
+                    fail(
+                        f"{family} block window {window:.0f} ms exceeds 1.5x family "
+                        f"median {family_median:.0f} ms: external contamination"
+                    )
+
+    c_med = statistics.median([b.compute_j for b in c_blocks])
+    r_med = statistics.median([b.compute_j for b in r_blocks])
     c_sum = sum(b.compute_j for b in c_blocks)
     r_sum = sum(b.compute_j for b in r_blocks)
-    energy_ratio = finite("energy_ratio", c_sum / r_sum if r_sum > 0 else float("inf"))
-    energy_j = finite("energy_j", c_sum / max(len(c_blocks), 1))
+    energy_ratio = finite("energy_ratio", c_med / r_med if r_med > 0 else float("inf"))
+    energy_j = finite("energy_j", c_med)
     energy_dram_j = finite(
-        "energy_dram_j", sum(b.dram_j for b in c_blocks) / max(len(c_blocks), 1)
+        "energy_dram_j", statistics.median([b.dram_j for b in c_blocks])
     )
 
     # --- accuracy (candidate block C1) --------------------------------------
@@ -407,6 +423,8 @@ def main() -> int:
     print("ASI block_window_ms=" + ",".join(
         f"{float(b.energy.get('window_elapsed_ms', 0.0)):.0f}" for b in blocks))
     print(f"ASI r_sum_compute_j={r_sum:.1f}")
+    print(f"ASI r_median_compute_j={r_med:.1f}")
+    print(f"ASI c_median_compute_j={c_med:.1f}")
     print(f"ASI c_sum_compute_j={c_sum:.1f}")
     print(f"ASI r_transcript_sha256={r_blocks[0].sha}")
     print(f"ASI c_transcript_sha256={c_blocks[0].sha}")

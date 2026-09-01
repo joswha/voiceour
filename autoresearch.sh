@@ -42,7 +42,7 @@ readonly ROW_TIMEOUT_MS=120000
 readonly LATENCY_CEILING_MS=230
 readonly RTFX_FLOOR=100
 readonly FOOTPRINT_CEILING_MB=2500
-readonly BLOCK_SEQUENCE="R C C R"
+readonly BLOCK_SEQUENCE="R C C R C R R C"
 readonly UWER_MIX_CEILING=0.037509
 
 readonly GENERAL_CORPUS="bench/autoresearch/corpus.manifest.jsonl"
