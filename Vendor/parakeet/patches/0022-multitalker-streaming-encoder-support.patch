@@ -1,0 +1,551 @@
+diff --git a/src/parakeet-arch.h b/src/parakeet-arch.h
+index e9f8200..895e815 100644
+--- a/src/parakeet-arch.h
++++ b/src/parakeet-arch.h
+@@ -64,6 +64,16 @@ enum parakeet_tensor {
+     PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT,
+     PARAKEET_TENSOR_ENC_NORM_OUT_BIAS,
+ 
++    // VOICEOUR PATCH: optional multitalker single-speaker residual FF kernel.
++    PARAKEET_TENSOR_SPK_FF1_WEIGHT,
++    PARAKEET_TENSOR_SPK_FF1_BIAS,
++    PARAKEET_TENSOR_SPK_FF2_WEIGHT,
++    PARAKEET_TENSOR_SPK_FF2_BIAS,
++    PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,
++    PARAKEET_TENSOR_BG_SPK_FF1_BIAS,
++    PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,
++    PARAKEET_TENSOR_BG_SPK_FF2_BIAS,
++
+     // Prediction network
+     PARAKEET_TENSOR_PRED_EMBED_WEIGHT,
+     PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH,
+@@ -153,6 +163,16 @@ static const std::map<parakeet_tensor, const char *> PARAKEET_TENSOR_NAMES = {
+     {PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT,         "encoder.layers.%d.norm_out.weight"},
+     {PARAKEET_TENSOR_ENC_NORM_OUT_BIAS,           "encoder.layers.%d.norm_out.bias"},
+ 
++    // Multitalker single-speaker residual FF kernel before encoder layer 0.
++    {PARAKEET_TENSOR_SPK_FF1_WEIGHT,              "spk_kernels.0.0.weight"},
++    {PARAKEET_TENSOR_SPK_FF1_BIAS,                "spk_kernels.0.0.bias"},
++    {PARAKEET_TENSOR_SPK_FF2_WEIGHT,              "spk_kernels.0.3.weight"},
++    {PARAKEET_TENSOR_SPK_FF2_BIAS,                "spk_kernels.0.3.bias"},
++    {PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,           "bg_spk_kernels.0.0.weight"},
++    {PARAKEET_TENSOR_BG_SPK_FF1_BIAS,             "bg_spk_kernels.0.0.bias"},
++    {PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,           "bg_spk_kernels.0.3.weight"},
++    {PARAKEET_TENSOR_BG_SPK_FF2_BIAS,             "bg_spk_kernels.0.3.bias"},
++
+     // Prediction network
+     {PARAKEET_TENSOR_PRED_EMBED_WEIGHT,            "decoder.prediction.embed.weight"},
+     {PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH,          "decoder.prediction.dec_rnn.lstm.weight_ih_l%d"},
+@@ -225,6 +245,16 @@ static const std::map<parakeet_tensor, ggml_op> PARAKEET_TENSOR_INFO = {
+     {PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT,         GGML_OP_MUL},
+     {PARAKEET_TENSOR_ENC_NORM_OUT_BIAS,           GGML_OP_ADD},
+ 
++    // Multitalker single-speaker residual FF kernel.
++    {PARAKEET_TENSOR_SPK_FF1_WEIGHT,              GGML_OP_MUL_MAT},
++    {PARAKEET_TENSOR_SPK_FF1_BIAS,                GGML_OP_ADD},
++    {PARAKEET_TENSOR_SPK_FF2_WEIGHT,              GGML_OP_MUL_MAT},
++    {PARAKEET_TENSOR_SPK_FF2_BIAS,                GGML_OP_ADD},
++    {PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,           GGML_OP_MUL_MAT},
++    {PARAKEET_TENSOR_BG_SPK_FF1_BIAS,             GGML_OP_ADD},
++    {PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,           GGML_OP_MUL_MAT},
++    {PARAKEET_TENSOR_BG_SPK_FF2_BIAS,             GGML_OP_ADD},
++
+     // Prediction network
+     {PARAKEET_TENSOR_PRED_EMBED_WEIGHT,            GGML_OP_GET_ROWS},
+     {PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH,          GGML_OP_MUL_MAT},
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 618d8db..8d2dad6 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -150,6 +150,14 @@ static constexpr int PARAKEET_LOCAL_ATTN_THRESHOLD = 8192;
+ // Window of context in each director of the current token.
+ // 128 frames * 80ms = 10.24 s
+ static constexpr int PARAKEET_LOCAL_ATTN_WINDOW    = 128;
++// VOICEOUR PATCH: cache-aware streaming checkpoints train with
++// `att_context_style: chunked_limited` and `att_context_size: [70, 13]`, so a
++// query sees its whole `right + 1` frame chunk plus `left / (right + 1)`
++// preceding chunks — not a per-frame `[q - left, q + right]` band. The two
++// agree only on the last query of each chunk, so the band form perturbs every
++// attention layer. Only the speaker-kernel files take this path.
++static constexpr int PARAKEET_MULTITALKER_ATT_LEFT  = 70;
++static constexpr int PARAKEET_MULTITALKER_ATT_RIGHT = 13;
+ 
+ static std::string format(const char * fmt, ...) {
+     va_list ap;
+@@ -413,6 +421,16 @@ struct parakeet_model {
+ 
+     parakeet_joint_network joint;
+ 
++    // VOICEOUR PATCH: optional multitalker single-speaker residual FF kernel.
++    struct ggml_tensor * spk_ff1_w = nullptr;
++    struct ggml_tensor * spk_ff1_b = nullptr;
++    struct ggml_tensor * spk_ff2_w = nullptr;
++    struct ggml_tensor * spk_ff2_b = nullptr;
++    struct ggml_tensor * bg_spk_ff1_w = nullptr;
++    struct ggml_tensor * bg_spk_ff1_b = nullptr;
++    struct ggml_tensor * bg_spk_ff2_w = nullptr;
++    struct ggml_tensor * bg_spk_ff2_b = nullptr;
++
+     std::vector<uint32_t> tdt_durations;
+ 
+     std::vector<ggml_context *> ctxs;
+@@ -1076,7 +1094,9 @@ static bool parakeet_scan_tensor_records(
+         parakeet_model_loader * loader,
+         int64_t tensor_records_offset,
+         const parakeet_tensor_name_set & expected_names,
+-        size_t optional_record_count,
++        size_t optional_bias_record_count,
++        size_t optional_norm_stat_count,
++        size_t optional_speaker_record_count,
+         std::vector<parakeet_tensor_record> & records,
+         parakeet_tensor_record_index & records_by_name,
+         int64_t & file_size) {
+@@ -1157,18 +1177,32 @@ static bool parakeet_scan_tensor_records(
+         }
+     }
+ 
+-    // VOICEOUR PATCH: the expected-name set includes the optional per-layer bias
+-    // records of the bias-variant Conformer checkpoints. A file carries either the
+-    // complete optional set or none of it; any other total is malformed.
+-    if (records.size() != expected_record_count &&
+-            records.size() != expected_record_count - optional_record_count) {
++    // VOICEOUR PATCH: expected names include three independent all-or-none
++    // optional families: bias-variant linear/conv biases, BatchNorm running
++    // statistics, and the multitalker single-speaker residual kernel.
++    if (records.size() > expected_record_count) {
++        PARAKEET_LOG_ERROR("%s: too many tensor records: %zu > %zu\n",
++                __func__, records.size(), expected_record_count);
++        return false;
++    }
++    const size_t missing = expected_record_count - records.size();
++    const size_t groups[] = {
++        optional_bias_record_count,
++        optional_norm_stat_count,
++        optional_speaker_record_count,
++    };
++    bool valid_optional_total = false;
++    for (unsigned mask = 0; mask < 8; ++mask) {
++        size_t candidate = 0;
++        for (unsigned bit = 0; bit < 3; ++bit) {
++            if (mask & (1u << bit)) { candidate += groups[bit]; }
++        }
++        valid_optional_total = valid_optional_total || candidate == missing;
++    }
++    if (!valid_optional_total) {
+         PARAKEET_LOG_ERROR(
+-            "%s: wrong tensor-record count: expected %zu (or %zu without optional biases), got %zu\n",
+-            __func__,
+-            expected_record_count,
+-            expected_record_count - optional_record_count,
+-            records.size()
+-        );
++            "%s: wrong tensor-record count: expected %zu, got %zu (missing %zu is not optional families)\n",
++            __func__, expected_record_count, records.size(), missing);
+         return false;
+     }
+     if (!loader->seek(loader->context, tensor_records_offset, SEEK_SET)) {
+@@ -1192,6 +1226,10 @@ static bool parakeet_tensor_uses_record_type(parakeet_tensor tensor) {
+         case PARAKEET_TENSOR_ENC_ATTN_POS_WEIGHT:
+         case PARAKEET_TENSOR_ENC_FF2_LINEAR1_WEIGHT:
+         case PARAKEET_TENSOR_ENC_FF2_LINEAR2_WEIGHT:
++        case PARAKEET_TENSOR_SPK_FF1_WEIGHT:
++        case PARAKEET_TENSOR_SPK_FF2_WEIGHT:
++        case PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT:
++        case PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT:
+         case PARAKEET_TENSOR_PRED_EMBED_WEIGHT:
+         case PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH:
+         case PARAKEET_TENSOR_PRED_LSTM_WEIGHT_HH:
+@@ -1309,6 +1347,17 @@ static bool parakeet_pred_state_init(
+     return true;
+ }
+ 
++static int parakeet_encoder_frame_count(const parakeet_model & model, int mel_frames) {
++    if (model.spk_ff1_w) {
++        for (int stage = 0; stage < 3; ++stage) {
++            mel_frames = mel_frames / 2 + 1;
++        }
++        return mel_frames;
++    }
++    const int factor = model.hparams.subsampling_factor;
++    return (mel_frames + factor - 1) / factor;
++}
++
+ static bool parakeet_enc_state_init(
+                struct parakeet_state & pstate,
+                       ggml_backend_t   backend,
+@@ -2326,11 +2375,14 @@ static bool parakeet_model_load(
+     const ggml_type wtype = wctx.wtype;
+     const int n_audio_layer = hparams.n_audio_layer;
+ 
+-    // VOICEOUR PATCH: checked exact architecture count: pre-encode, per-layer encoder
+-    // (29 mandatory plus 11 optional bias records for the bias-variant Conformer
+-    // checkpoints), prediction embedding plus three records per LSTM layer, and joint.
+-    size_t n_tensors = 12;
++    // VOICEOUR PATCH: checked exact architecture count: pre-encode plus the
++    // optional eight-record foreground/background speaker kernels, per-layer
++    // encoder (29 mandatory plus 11 optional biases), prediction embedding
++    // plus three records per LSTM layer, and joint.
++    size_t n_tensors = 20;
+     size_t optional_bias_tensors = 0;
++    size_t optional_norm_stats = 0;
++    const size_t optional_speaker_tensors = 8;
+     size_t family_tensors = 0;
+     if (!parakeet_checked_multiply(
+             29 + 11,
+@@ -2340,6 +2392,10 @@ static bool parakeet_model_load(
+                 11,
+                 static_cast<size_t>(n_audio_layer),
+                 optional_bias_tensors) ||
++            !parakeet_checked_multiply(
++                3,
++                static_cast<size_t>(n_audio_layer),
++                optional_norm_stats) ||
+             !parakeet_checked_add(n_tensors, family_tensors, n_tensors) ||
+             !parakeet_checked_multiply(
+                 3,
+@@ -2371,6 +2427,8 @@ static bool parakeet_model_load(
+                     weight_records_offset,
+                     expected_tensor_names,
+                     optional_bias_tensors,
++                    optional_norm_stats,
++                    optional_speaker_tensors,
+                     tensor_records,
+                     tensor_records_by_name,
+                     model_file_size)) {
+@@ -2595,6 +2653,24 @@ static bool parakeet_model_load(
+         optional_bias_created += 1;
+         return create_tensor_1d(type, GGML_TYPE_F32, ne0, layer);
+     };
++    // VOICEOUR PATCH: conv-LayerNorm checkpoints omit BatchNorm running
++    // mean/variance/counter while retaining the affine weight+bias names.
++    size_t optional_norm_stats_created = 0;
++    auto create_optional_norm_tensor_1d = [&](
++            parakeet_tensor type,
++            ggml_type legacy_type,
++            int64_t ne0,
++            int layer) -> ggml_tensor * {
++        if (!has_record_directory) {
++            return nullptr;
++        }
++        const std::string tensor_name = format(PARAKEET_TENSOR_NAMES.at(type), layer);
++        if (tensor_records_by_name.find(tensor_name) == tensor_records_by_name.end()) {
++            return nullptr;
++        }
++        optional_norm_stats_created += 1;
++        return create_tensor_1d(type, legacy_type, ne0, layer);
++    };
+ 
+ 
+     // prepare tensors for the weights
+@@ -2603,10 +2679,20 @@ static bool parakeet_model_load(
+ 
+     model.layers.resize(n_audio_layer);
+ 
+-    // Encoder pre_encode
++    // Encoder pre_encode. Causal dw-striding has one extra frequency cell;
++    // seekable records are authoritative for the flattened feature width.
+     const int n_subsampling_channels = hparams.n_subsampling_channels;
+-    const int n_pre_enc_features     = (hparams.n_mels / hparams.subsampling_factor) * n_subsampling_channels;
+-    model.enc_pre_out_w = create_tensor_2d(PARAKEET_TENSOR_ENC_PRE_OUT_WEIGHT, wtype, n_pre_enc_features, n_audio_state);
++    int n_pre_enc_features =
++        (hparams.n_mels / hparams.subsampling_factor) * n_subsampling_channels;
++    if (has_record_directory) {
++        const auto position = tensor_records_by_name.find(
++            PARAKEET_TENSOR_NAMES.at(PARAKEET_TENSOR_ENC_PRE_OUT_WEIGHT));
++        if (position != tensor_records_by_name.end()) {
++            n_pre_enc_features = tensor_records[position->second].ne[0];
++        }
++    }
++    model.enc_pre_out_w = create_tensor_2d(
++        PARAKEET_TENSOR_ENC_PRE_OUT_WEIGHT, wtype, n_pre_enc_features, n_audio_state);
+     ggml_set_name(model.enc_pre_out_w, "enc_pre_out_w");
+     model.enc_pre_out_b = create_tensor_1d(PARAKEET_TENSOR_ENC_PRE_OUT_BIAS, GGML_TYPE_F32, n_audio_state);
+     ggml_set_name(model.enc_pre_out_b, "enc_pre_out_b");
+@@ -2663,10 +2749,15 @@ static bool parakeet_model_load(
+         ggml_format_name(layer.conv_bn_w, "enc_%d_conv_bn_w", i);
+         layer.conv_bn_b           = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_BIAS, GGML_TYPE_F32, n_audio_state, i);
+         ggml_format_name(layer.conv_bn_b, "enc_%d_conv_bn_b", i);
+-        layer.conv_bn_mean        = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_MEAN, GGML_TYPE_F32, n_audio_state, i);
+-        layer.conv_bn_var         = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_VAR, GGML_TYPE_F32, n_audio_state, i);
+-        ggml_format_name(layer.conv_bn_var, "enc_%d_conv_bn_var", i);
+-        layer.conv_bn_num_batches = create_tensor_1d(PARAKEET_TENSOR_ENC_CONV_BN_NUM_BATCHES, GGML_TYPE_I32, 1, i);
++        layer.conv_bn_mean = create_optional_norm_tensor_1d(
++            PARAKEET_TENSOR_ENC_CONV_BN_MEAN, GGML_TYPE_F32, n_audio_state, i);
++        layer.conv_bn_var = create_optional_norm_tensor_1d(
++            PARAKEET_TENSOR_ENC_CONV_BN_VAR, GGML_TYPE_F32, n_audio_state, i);
++        if (layer.conv_bn_var) {
++            ggml_format_name(layer.conv_bn_var, "enc_%d_conv_bn_var", i);
++        }
++        layer.conv_bn_num_batches = create_optional_norm_tensor_1d(
++            PARAKEET_TENSOR_ENC_CONV_BN_NUM_BATCHES, GGML_TYPE_I32, 1, i);
+         layer.conv_pw2_w          = create_tensor_2d(PARAKEET_TENSOR_ENC_CONV_PW2_WEIGHT, wtype, n_audio_state, n_audio_state, i);
+         ggml_format_name(layer.conv_pw2_w, "enc_%d_conv_pw2_w", i);
+         layer.conv_pw1_b = create_optional_tensor_1d(PARAKEET_TENSOR_ENC_CONV_PW1_BIAS, 2*n_audio_state, i);
+@@ -2715,6 +2806,56 @@ static bool parakeet_model_load(
+         return false;
+     }
+ 
++    if (optional_norm_stats_created != 0 &&
++            optional_norm_stats_created != 3 * static_cast<size_t>(n_audio_layer)) {
++        PARAKEET_LOG_ERROR(
++            "%s: partial BatchNorm statistics set: %zu of %zu records present\n",
++            __func__,
++            optional_norm_stats_created,
++            3 * static_cast<size_t>(n_audio_layer)
++        );
++        return false;
++    }
++
++    const parakeet_tensor speaker_types[] = {
++        PARAKEET_TENSOR_SPK_FF1_WEIGHT,
++        PARAKEET_TENSOR_SPK_FF1_BIAS,
++        PARAKEET_TENSOR_SPK_FF2_WEIGHT,
++        PARAKEET_TENSOR_SPK_FF2_BIAS,
++        PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,
++        PARAKEET_TENSOR_BG_SPK_FF1_BIAS,
++        PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,
++        PARAKEET_TENSOR_BG_SPK_FF2_BIAS,
++    };
++    size_t speaker_records = 0;
++    for (parakeet_tensor type : speaker_types) {
++        speaker_records += has_record_directory &&
++                tensor_records_by_name.find(PARAKEET_TENSOR_NAMES.at(type)) !=
++                    tensor_records_by_name.end();
++    }
++    if (speaker_records != 0 && speaker_records != 8) {
++        PARAKEET_LOG_ERROR("%s: partial speaker-kernel record set\n", __func__);
++        return false;
++    }
++    if (speaker_records == 8) {
++        model.spk_ff1_w = create_tensor_2d(
++            PARAKEET_TENSOR_SPK_FF1_WEIGHT, wtype, n_audio_state, n_audio_state);
++        model.spk_ff1_b = create_tensor_1d(
++            PARAKEET_TENSOR_SPK_FF1_BIAS, GGML_TYPE_F32, n_audio_state);
++        model.spk_ff2_w = create_tensor_2d(
++            PARAKEET_TENSOR_SPK_FF2_WEIGHT, wtype, n_audio_state, n_audio_state);
++        model.spk_ff2_b = create_tensor_1d(
++            PARAKEET_TENSOR_SPK_FF2_BIAS, GGML_TYPE_F32, n_audio_state);
++        model.bg_spk_ff1_w = create_tensor_2d(
++            PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT, wtype, n_audio_state, n_audio_state);
++        model.bg_spk_ff1_b = create_tensor_1d(
++            PARAKEET_TENSOR_BG_SPK_FF1_BIAS, GGML_TYPE_F32, n_audio_state);
++        model.bg_spk_ff2_w = create_tensor_2d(
++            PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT, wtype, n_audio_state, n_audio_state);
++        model.bg_spk_ff2_b = create_tensor_1d(
++            PARAKEET_TENSOR_BG_SPK_FF2_BIAS, GGML_TYPE_F32, n_audio_state);
++    }
++
+     // Prediction network (decoder)
+     const int dec_hidden   = hparams.n_pred_dim;
+     const int n_pred_embed = hparams.n_vocab + 1;                            // vocab + blank token
+@@ -3401,16 +3542,36 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+     ggml_set_name(mel, "mel");
+     ggml_set_input(mel);
+ 
++    // VOICEOUR PATCH: causal dw-striding pads each frequency/time axis with
++    // two leading and one trailing zero before every stride-2 3x3 convolution.
++    auto causal_pad_2d = [&](ggml_tensor * input) {
++        if (!model.spk_ff1_w) { return input; }
++        ggml_tensor * padded = ggml_pad(ctx0, input, 3, 3, 0, 0);
++        padded = ggml_roll(ctx0, padded, 2, 0, 0, 0);
++        return ggml_roll(ctx0, padded, 0, 2, 0, 0);
++    };
++    const int stride_padding = model.spk_ff1_w ? 0 : 1;
++
+     // [freq, time, channels, batch]
+-    struct ggml_tensor * cur = parakeet_conv_2d_bias(ctx0, model.enc_pre_conv_0_w, mel,
+-            model.enc_pre_conv_0_b, 2, 2, 1, 1, 1, 1);
++    struct ggml_tensor * cur = parakeet_conv_2d_bias(
++        ctx0,
++        model.enc_pre_conv_0_w,
++        causal_pad_2d(mel),
++        model.enc_pre_conv_0_b,
++        2, 2, stride_padding, stride_padding, 1, 1
++    );
+     ggml_set_name(cur, "pre_conv_0");
+ 
+     cur = ggml_relu(ctx0, cur);
+     ggml_set_name(cur, "pre_conv_0_relu");
+ 
+     // [freq, time, channels, batch]
+-    cur = ggml_conv_2d_dw_direct(ctx0, model.enc_pre_conv_2_w, cur, 2, 2, 1, 1, 1, 1);
++    cur = ggml_conv_2d_dw_direct(
++        ctx0,
++        model.enc_pre_conv_2_w,
++        causal_pad_2d(cur),
++        2, 2, stride_padding, stride_padding, 1, 1
++    );
+     cur = ggml_add(ctx0, cur, model.enc_pre_conv_2_b);
+     ggml_set_name(cur, "pre_conv_2");
+ 
+@@ -3423,7 +3584,12 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+     ggml_set_name(cur, "pre_conv_3_relu");
+ 
+     // [freq, time, channels, batch]
+-    cur = ggml_conv_2d_dw_direct(ctx0, model.enc_pre_conv_5_w, cur, 2, 2, 1, 1, 1, 1);
++    cur = ggml_conv_2d_dw_direct(
++        ctx0,
++        model.enc_pre_conv_5_w,
++        causal_pad_2d(cur),
++        2, 2, stride_padding, stride_padding, 1, 1
++    );
+     ggml_set_name(cur, "pre_conv_5_direct");
+     cur = ggml_add(ctx0, cur, model.enc_pre_conv_5_b);
+     ggml_set_name(cur, "pre_conv_5");
+@@ -3453,6 +3619,30 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+ 
+     ggml_set_name(cur, "pre_enc_out");
+ 
++    // VOICEOUR PATCH: multitalker single-speaker mode uses an all-ones speaker
++    // mask, so its layer-0 hook is exactly this residual FF transform. Dropout
++    // is disabled at inference.
++    if (model.spk_ff1_w) {
++        struct ggml_tensor * speaker = ggml_mul_mat(ctx0, model.spk_ff1_w, cur);
++        speaker = ggml_add(ctx0, speaker, model.spk_ff1_b);
++        speaker = ggml_relu(ctx0, speaker);
++        speaker = ggml_mul_mat(ctx0, model.spk_ff2_w, speaker);
++        speaker = ggml_add(ctx0, speaker, model.spk_ff2_b);
++        cur = ggml_add(ctx0, cur, speaker);
++        ggml_set_name(cur, "speaker_kernel_out");
++        // Background targets are absent in single-speaker transcription, so
++        // their mask is zero. The biased FF kernel still contributes a learned
++        // constant residual and must not be dropped.
++        struct ggml_tensor * background = ggml_scale(ctx0, cur, 0.0f);
++        background = ggml_mul_mat(ctx0, model.bg_spk_ff1_w, background);
++        background = ggml_add(ctx0, background, model.bg_spk_ff1_b);
++        background = ggml_relu(ctx0, background);
++        background = ggml_mul_mat(ctx0, model.bg_spk_ff2_w, background);
++        background = ggml_add(ctx0, background, model.bg_spk_ff2_b);
++        cur = ggml_add(ctx0, cur, background);
++        ggml_set_name(cur, "background_speaker_kernel_out");
++    }
++
+     // Encoder
+     // cur: [n_state, n_enc_time]
+ 
+@@ -3851,7 +4041,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+             // `dw_pad`. Same elements in the same places, one fewer node and one fewer
+             // [n_time + dw_pad, n_state] f32 write-and-reread per layer.
+             cur = ggml_pad(ctx0, cur, 2 * dw_pad, 0, 0, 0);
+-            cur = ggml_roll(ctx0, cur, dw_pad, 0, 0, 0);
++            const int dw_shift = model.spk_ff1_w ? 2 * dw_pad : dw_pad;
++            cur = ggml_roll(ctx0, cur, dw_shift, 0, 0, 0);
+             ggml_format_name(cur, "enc_%d_conv_dw_pad", il);
+ 
+             cur = ggml_ssm_conv(ctx0, cur, layer.conv_dw_w);
+@@ -3862,11 +4053,17 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
+                 cur = ggml_add(ctx0, cur, layer.conv_dw_b);
+             }
+ 
+-            cur = ggml_sub(ctx0, cur, layer.conv_bn_mean);
+-            struct ggml_tensor * std = ggml_sqrt(ctx0, layer.conv_bn_var);
+-            cur = ggml_div(ctx0, cur, std);
++            if (layer.conv_bn_mean && layer.conv_bn_var) {
++                cur = ggml_sub(ctx0, cur, layer.conv_bn_mean);
++                struct ggml_tensor * std = ggml_sqrt(ctx0, layer.conv_bn_var);
++                cur = ggml_div(ctx0, cur, std);
++            } else {
++                // VOICEOUR PATCH: streaming/multitalker checkpoints configure
++                // conv LayerNorm and therefore omit all running statistics.
++                cur = ggml_norm(ctx0, cur, hparams.eps);
++            }
+             cur = ggml_add(ctx0, ggml_mul(ctx0, cur, layer.conv_bn_w), layer.conv_bn_b);
+-            ggml_format_name(cur, "enc_%d_conv_bn", il);
++            ggml_format_name(cur, "enc_%d_conv_norm", il);
+ 
+             cur = ggml_silu(ctx0, cur);
+             ggml_format_name(cur, "enc_%d_conv_silu", il);
+@@ -3965,16 +4162,28 @@ static bool parakeet_encode_internal(
+         const int n_q = attn_mask->ne[1];
+         const int n_k = attn_mask->ne[0];
+ 
+-        const int32_t subsampl_factor = pctx.model.hparams.subsampling_factor;
+-        const int n_tokens_real = (pstate.mel.n_len_org + subsampl_factor - 1) / subsampl_factor;
++        // VOICEOUR PATCH: causal downsampling emits `floor(L / 2) + 1` frames
++        // per stage, one more than the non-causal `ceil(L / factor)`; the pad
++        // mask has to count the frames NeMo's `calc_length` counts or it masks
++        // the last real frame. Identical arithmetic for every non-causal file.
++        const int n_tokens_real =
++            parakeet_encoder_frame_count(pctx.model, pstate.mel.n_len_org);
+ 
+         std::vector<float> mask_data(n_q * n_k);
+         const float mask_value = -1e30f;
+ 
+-        if (n_k == n_q) {   // full attention
++        if (n_k == n_q) {   // dense tensor, optionally context-masked
++            const bool chunked     = pctx.model.spk_ff1_w != nullptr;
++            const int  chunk       = PARAKEET_MULTITALKER_ATT_RIGHT + 1;
++            const int  left_chunks = PARAKEET_MULTITALKER_ATT_LEFT / chunk;
+             for (int q = 0; q < n_q; ++q) {
++                const int q_chunk = q / chunk;
+                 for (int k = 0; k < n_k; ++k) {
+-                    mask_data[q * n_k + k] = (k >= n_tokens_real) ? mask_value : 0.0f;
++                    const int chunk_diff = q_chunk - k / chunk;
++                    const bool in_multitalker_context =
++                            !chunked || (chunk_diff >= 0 && chunk_diff <= left_chunks);
++                    mask_data[q * n_k + k] =
++                        (k >= n_tokens_real || !in_multitalker_context) ? mask_value : 0.0f;
+                 }
+             }
+         } else {            // local attention
+@@ -4040,6 +4249,7 @@ static bool parakeet_encode_internal(
+         return false;
+     }
+ 
++
+     pstate.t_encode_us += ggml_time_us() - t_start_us;
+     pstate.n_encode++;
+ 
+@@ -4050,8 +4260,7 @@ static bool parakeet_ensure_encode_sched(
+         parakeet_context & pctx,
+           parakeet_state & pstate,
+                     int    n_audio_ctx) {
+-    const int subsampl_factor = pctx.model.hparams.subsampling_factor;
+-    const int n_frames_max = (n_audio_ctx + subsampl_factor - 1) / subsampl_factor;
++    const int n_frames_max = parakeet_encoder_frame_count(pctx.model, n_audio_ctx);
+ 
+     // VOICEOUR PATCH: the encoder reservation is a high-water mark, not an exact fit.
+     //
+@@ -4903,6 +5112,7 @@ static bool log_mel_spectrogram(
+                        const int   n_threads,
+           const parakeet_filters & filters,
+                       const bool   debug,
++                      const bool   normalize_per_feature,
+                     parakeet_mel & mel,
+         const parakeet_mel_cache & cache) {
+     const int64_t t_start_us = ggml_time_us();
+@@ -4960,7 +5170,12 @@ static bool log_mel_spectrogram(
+         }
+     }
+ 
+-    {
++    // VOICEOUR PATCH: NeMo's `normalize: per_feature` utterance z-score. The
++    // multitalker/streaming checkpoints configure `normalize: NA` and feed the
++    // raw log-mel straight into the causal pre-encoder, so this block must not
++    // run for them; a per-bin rescale there survives the whole encoder. Every
++    // per_feature checkpoint keeps its exact arithmetic.
++    if (normalize_per_feature) {
+         const double eps = 1e-5;
+         int valid_frames = n_samples / frame_step;
+ 
+@@ -5093,9 +5308,8 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
+     state->batch = parakeet_batch_init(batch_size);
+ 
+     {
+-        const int n_audio_state    = ctx->model.hparams.n_audio_state;
+-        const int subsampl_factor  = ctx->model.hparams.subsampling_factor;
+-        const int n_frames_max     = (batch_size + subsampl_factor - 1) / subsampl_factor;
++        const int n_audio_state = ctx->model.hparams.n_audio_state;
++        const int n_frames_max = parakeet_encoder_frame_count(ctx->model, batch_size);
+ 
+         if (!parakeet_enc_state_init(*state, state->backend_decode_state, n_audio_state, n_frames_max)) {
+             PARAKEET_LOG_ERROR("%s: parakeet_enc_state_init() failed\n", __func__);
+@@ -5566,6 +5780,8 @@ int parakeet_pcm_to_mel_with_state(struct parakeet_context * ctx, struct parakee
+                 n_threads,
+                 ctx->model.filters,
+                 false,                        // debug
++                // VOICEOUR PATCH: `normalize: NA` for the speaker-kernel files.
++                ctx->model.spk_ff1_w == nullptr,
+                 state->mel,
+                 ctx->mel_cache)) {
+         PARAKEET_LOG_ERROR("%s: failed to compute mel spectrogram\n", __func__);

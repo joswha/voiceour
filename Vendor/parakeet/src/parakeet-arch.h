@@ -64,6 +64,16 @@ enum parakeet_tensor {
     PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT,
     PARAKEET_TENSOR_ENC_NORM_OUT_BIAS,
 
+    // VOICEOUR PATCH: optional multitalker single-speaker residual FF kernel.
+    PARAKEET_TENSOR_SPK_FF1_WEIGHT,
+    PARAKEET_TENSOR_SPK_FF1_BIAS,
+    PARAKEET_TENSOR_SPK_FF2_WEIGHT,
+    PARAKEET_TENSOR_SPK_FF2_BIAS,
+    PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,
+    PARAKEET_TENSOR_BG_SPK_FF1_BIAS,
+    PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,
+    PARAKEET_TENSOR_BG_SPK_FF2_BIAS,
+
     // Prediction network
     PARAKEET_TENSOR_PRED_EMBED_WEIGHT,
     PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH,
@@ -153,6 +163,16 @@ static const std::map<parakeet_tensor, const char *> PARAKEET_TENSOR_NAMES = {
     {PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT,         "encoder.layers.%d.norm_out.weight"},
     {PARAKEET_TENSOR_ENC_NORM_OUT_BIAS,           "encoder.layers.%d.norm_out.bias"},
 
+    // Multitalker single-speaker residual FF kernel before encoder layer 0.
+    {PARAKEET_TENSOR_SPK_FF1_WEIGHT,              "spk_kernels.0.0.weight"},
+    {PARAKEET_TENSOR_SPK_FF1_BIAS,                "spk_kernels.0.0.bias"},
+    {PARAKEET_TENSOR_SPK_FF2_WEIGHT,              "spk_kernels.0.3.weight"},
+    {PARAKEET_TENSOR_SPK_FF2_BIAS,                "spk_kernels.0.3.bias"},
+    {PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,           "bg_spk_kernels.0.0.weight"},
+    {PARAKEET_TENSOR_BG_SPK_FF1_BIAS,             "bg_spk_kernels.0.0.bias"},
+    {PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,           "bg_spk_kernels.0.3.weight"},
+    {PARAKEET_TENSOR_BG_SPK_FF2_BIAS,             "bg_spk_kernels.0.3.bias"},
+
     // Prediction network
     {PARAKEET_TENSOR_PRED_EMBED_WEIGHT,            "decoder.prediction.embed.weight"},
     {PARAKEET_TENSOR_PRED_LSTM_WEIGHT_IH,          "decoder.prediction.dec_rnn.lstm.weight_ih_l%d"},
@@ -224,6 +244,16 @@ static const std::map<parakeet_tensor, ggml_op> PARAKEET_TENSOR_INFO = {
     {PARAKEET_TENSOR_ENC_FF2_LINEAR2_BIAS,        GGML_OP_ADD},
     {PARAKEET_TENSOR_ENC_NORM_OUT_WEIGHT,         GGML_OP_MUL},
     {PARAKEET_TENSOR_ENC_NORM_OUT_BIAS,           GGML_OP_ADD},
+
+    // Multitalker single-speaker residual FF kernel.
+    {PARAKEET_TENSOR_SPK_FF1_WEIGHT,              GGML_OP_MUL_MAT},
+    {PARAKEET_TENSOR_SPK_FF1_BIAS,                GGML_OP_ADD},
+    {PARAKEET_TENSOR_SPK_FF2_WEIGHT,              GGML_OP_MUL_MAT},
+    {PARAKEET_TENSOR_SPK_FF2_BIAS,                GGML_OP_ADD},
+    {PARAKEET_TENSOR_BG_SPK_FF1_WEIGHT,           GGML_OP_MUL_MAT},
+    {PARAKEET_TENSOR_BG_SPK_FF1_BIAS,             GGML_OP_ADD},
+    {PARAKEET_TENSOR_BG_SPK_FF2_WEIGHT,           GGML_OP_MUL_MAT},
+    {PARAKEET_TENSOR_BG_SPK_FF2_BIAS,             GGML_OP_ADD},
 
     // Prediction network
     {PARAKEET_TENSOR_PRED_EMBED_WEIGHT,            GGML_OP_GET_ROWS},

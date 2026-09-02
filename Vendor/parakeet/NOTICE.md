@@ -381,6 +381,24 @@ captured under `patches/`.
     official NeMo on inspected rows; full jargon/general probe followed by
     two-pass chained smoke reproduced 278/346, corrected false0 and general
     identity under `.build/asr-research/three-bets/assist/`.
+- `patches/0022-multitalker-streaming-encoder-support.patch` admits the official
+  multitalker streaming RNNT encoder without changing classic checkpoints:
+  BatchNorm running mean/variance/counter become an independent optional
+  all-or-none record family whose absence selects conv LayerNorm; eight
+  foreground/background speaker-kernel records implement the documented
+  single-speaker residual FF hooks before layer 0; causal dw-striding pads each
+  frequency/time axis left=2/right=1; conformer depthwise convolution pads
+  left=8/right=0; real encoder frame capacity follows the causal three-stage
+  formula; attention uses NeMo's chunked-limited [70,13] mask; and the
+  checkpoint's `normalize: NA` skips utterance-level per-feature z-scoring.
+  Every branch is gated by speaker-kernel record presence.
+  - Upstream status: NVIDIA's NeMo-Speech.cpp implements the same streaming
+    feature/encoder semantics in a separate runtime; not reported to this
+    older parakeet.cpp lineage.
+  - Test status: pre-encoder correlation .9982 and final encoder correlation
+    .9967 against NeMo on the same audio; engine full probe and two-pass chain
+    reproduce 280/346, corrected false0 and general identity; repeated warm
+    general passes measure p95 209/209/210.
 
 
 

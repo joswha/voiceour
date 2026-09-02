@@ -165,6 +165,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             ("VOICEOUR_ASSIST_MODEL_2", nil),
             ("VOICEOUR_ASSIST_MODEL_3", "VOICEOUR_ASSIST_MODEL_3_MAX_S"),
             ("VOICEOUR_ASSIST_MODEL_4", "VOICEOUR_ASSIST_MODEL_4_MAX_S"),
+            ("VOICEOUR_ASSIST_MODEL_5", "VOICEOUR_ASSIST_MODEL_5_MAX_S"),
         ]
         for key in assistKeys {
             guard let assistPath = environment[key.model] else { continue }

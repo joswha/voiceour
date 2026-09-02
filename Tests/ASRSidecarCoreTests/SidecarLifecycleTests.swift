@@ -436,6 +436,38 @@ struct SidecarLifecycleTests {
         #expect(assistLog.contains(paths.joined(separator: ",")))
         #expect(assistLog.contains("max_s=15.0,15.0,15.0,5.0"))
     }
+    @Test func aFifthAssistCanCarryItsOwnDurationCap() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecar-fifth-assist-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let paths = (1...5).map { directory.appendingPathComponent("assist-\($0).bin").path }
+        for path in paths {
+            try Data("assist".utf8).write(to: URL(fileURLWithPath: path))
+        }
+        var logs: [String] = []
+
+        _ = try ParakeetSidecarBackend(
+            cache: ParakeetModelCache(directory: directory),
+            environment: [
+                "VOICEOUR_ASSIST_MODEL": paths[0],
+                "VOICEOUR_ASSIST_MODEL_2": paths[1],
+                "VOICEOUR_ASSIST_MODEL_3": paths[2],
+                "VOICEOUR_ASSIST_MODEL_4": paths[3],
+                "VOICEOUR_ASSIST_MODEL_5": paths[4],
+                "VOICEOUR_ASSIST_MODEL_3_MAX_S": "8",
+                "VOICEOUR_ASSIST_MODEL_4_MAX_S": "5",
+                "VOICEOUR_ASSIST_MODEL_5_MAX_S": "5",
+            ],
+            log: { logs.append($0) },
+            idleUnloadMs: 0
+        )
+
+        let assistLog = try #require(logs.first { $0.contains("VOICEOUR_ASSIST_MODEL mode=chain") })
+        #expect(assistLog.contains(paths.joined(separator: ",")))
+        #expect(assistLog.contains("max_s=15.0,15.0,8.0,5.0,5.0"))
+    }
 
 }
 

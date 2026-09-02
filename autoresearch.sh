@@ -70,6 +70,9 @@ readonly ASSIST_MODEL_3_MAX_S="8.0"
 readonly ASSIST_MODEL_4="$PWD/.build/asr-research/models-unified-0p6b/ggml-parakeet-unified-0p6b-f16.bin"
 readonly ASSIST_MODEL_4_SHA256="76c770a31154c321aad2730261c4d5a86e6b32081fc467981d710f4b13f31da3"
 readonly ASSIST_MODEL_4_MAX_S="5.0"
+readonly ASSIST_MODEL_5="$PWD/.build/asr-research/models-multitalker-0p6b/ggml-multitalker-0p6b-f16.bin"
+readonly ASSIST_MODEL_5_SHA256="1ab201eda23787bf250089aed64d2a2ccf0acf15f71ee11b77f24a501087d7f4"
+readonly ASSIST_MODEL_5_MAX_S="5.0"
 
 readonly MODEL_VARIANT="f16"
 readonly MODEL_FILE="ggml-parakeet-tdt-0.6b-v3-f16.bin"
@@ -217,6 +220,14 @@ if [ -n "$ASSIST_MODEL_4" ]; then
     [ "$observed_assist4_sha" = "$ASSIST_MODEL_4_SHA256" ] ||
         die "assist model 4 sha $observed_assist4_sha != pinned $ASSIST_MODEL_4_SHA256"
     coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL_4=$ASSIST_MODEL_4 VOICEOUR_ASSIST_MODEL_4_MAX_S=$ASSIST_MODEL_4_MAX_S"
+fi
+if [ -n "$ASSIST_MODEL_5" ]; then
+    [ -e "$ASSIST_MODEL_5" ] || die "assist model 5 artifact missing: $ASSIST_MODEL_5"
+    [ -n "$ASSIST_MODEL_5_SHA256" ] || die 'assist model 5 sha pin is empty'
+    observed_assist5_sha="$(shasum -a 256 "$ASSIST_MODEL_5" | cut -d' ' -f1)"
+    [ "$observed_assist5_sha" = "$ASSIST_MODEL_5_SHA256" ] ||
+        die "assist model 5 sha $observed_assist5_sha != pinned $ASSIST_MODEL_5_SHA256"
+    coreml_env_args="$coreml_env_args VOICEOUR_ASSIST_MODEL_5=$ASSIST_MODEL_5 VOICEOUR_ASSIST_MODEL_5_MAX_S=$ASSIST_MODEL_5_MAX_S"
 fi
 
 # --- build, outside the timed region ---------------------------------------

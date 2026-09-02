@@ -100,6 +100,7 @@ LOCAL_FILES=(
     'patches/0019-tail-q8-load-repack.patch'
     'patches/0020-bias-variant-conformer-support.patch'
     'patches/0021-plain-rnnt-decoder-support.patch'
+    'patches/0022-multitalker-streaming-encoder-support.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'
