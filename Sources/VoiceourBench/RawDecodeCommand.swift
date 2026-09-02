@@ -54,7 +54,7 @@ struct RawDecodeCommand {
         context: ParakeetContext,
         repair: VocabularyRepairEngine?
     ) throws -> BenchOutputRow {
-        let audioURL = try validatedAudioURL(for: input)
+        let audioURL = try BenchRunner.validatedAudioURL(for: input)
         let samples = try WAVFile.readSamples(at: audioURL)
         let inferenceStart = BenchClock.mark()
         let segments = try context.transcribe(samples: samples, isCancelled: { false })
@@ -78,23 +78,5 @@ struct RawDecodeCommand {
             ),
             audioS: input.audioS
         )
-    }
-
-    private func validatedAudioURL(for input: PipelineInputRow) throws -> URL {
-        let audioURL = BenchCLI.fileURL(input.audioPath)
-        let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path)
-        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
-        guard byteCount == input.audioBytes else {
-            throw BenchError.io(
-                "audio size mismatch for \(input.id): got \(byteCount), expected \(input.audioBytes)"
-            )
-        }
-        let digest = try BenchRunner.sha256(of: audioURL)
-        guard digest == input.audioSHA256.lowercased() else {
-            throw BenchError.io(
-                "audio SHA-256 mismatch for \(input.id): got \(digest), expected \(input.audioSHA256)"
-            )
-        }
-        return audioURL
     }
 }

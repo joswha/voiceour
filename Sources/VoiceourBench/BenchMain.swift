@@ -1,3 +1,4 @@
+import ASRSidecarCore
 import CryptoKit
 import Darwin
 import Dispatch
@@ -16,6 +17,8 @@ struct VoiceourBenchMain {
             }
             if arguments.first == "repair-verify" {
                 try RepairVerificationCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "glossary-conditioning" {
+                try GlossaryConditioningCommand.parse(Array(arguments.dropFirst())).run()
             } else {
                 let options = try BenchCLI.parse(arguments)
                 try await BenchRunner(options: options).run()
@@ -62,6 +65,11 @@ enum BenchError: Error, CustomStringConvertible {
     static func describe(_ error: Error) -> String {
         if let benchError = error as? BenchError {
             return benchError.description
+        }
+        // In-process Parakeet errors describe themselves; without this the bridged NSError
+        // would report only "error 2", which is useless to a research run that just stopped.
+        if let contextError = error as? ParakeetContextError {
+            return contextError.description
         }
         if let asrError = error as? ASRErrorMessage {
             if let detail = asrError.detail, !detail.isEmpty {
@@ -125,6 +133,12 @@ enum BenchCLI {
           voiceour-bench tdt-lattice --input <manifest.jsonl> --output <lattice.jsonl>
           voiceour-bench raw-decode --input <manifest.jsonl> --output <results.jsonl>
               --model <model.gguf|bin> [--vocabulary <repair.vocabulary.json>]
+          voiceour-bench glossary-conditioning dump-states --input <manifest.jsonl>
+              --output-dir <state-dump/> --model <model.bin> [--lattice <lattice.jsonl>]
+              [--vocabulary <repair.vocabulary.json>]
+          voiceour-bench glossary-conditioning replay-states --input <manifest.jsonl>
+              --states <states.f32> --index <index.jsonl> --output <rows.jsonl>
+              --model <model.bin> [--vocabulary <repair.vocabulary.json>]
           voiceour-bench repair-verify --fixtures <directory>
               [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
         """
@@ -933,7 +947,11 @@ struct BenchRunner {
         )
     }
 
-    private func recordedAudio(for input: PipelineInputRow) throws -> RecordedAudio {
+    /// Resolves a manifest row's audio and refuses it unless the file on disk is byte-for-byte
+    /// the one the manifest pinned. Every command that reads audio from a manifest goes through
+    /// here: a benchmark that silently measured a different recording than the manifest names
+    /// would be worse than one that stopped.
+    static func validatedAudioURL(for input: PipelineInputRow) throws -> URL {
         let audioURL = BenchCLI.fileURL(input.audioPath)
         let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path)
         let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
@@ -948,6 +966,11 @@ struct BenchRunner {
                 "audio SHA-256 mismatch for \(input.id): got \(digest), expected \(input.audioSHA256)"
             )
         }
+        return audioURL
+    }
+
+    private func recordedAudio(for input: PipelineInputRow) throws -> RecordedAudio {
+        let audioURL = try Self.validatedAudioURL(for: input)
         let durationMs = input.audioS.map { max(0, Int(($0 * 1000.0).rounded())) } ?? 0
         let meta = ASRAudioMeta(
             path: audioURL.path,
@@ -955,7 +978,7 @@ struct BenchRunner {
             sampleRateHz: 16_000,
             channels: 1,
             durationMs: durationMs,
-            byteCount: byteCount
+            byteCount: input.audioBytes
         )
         return RecordedAudio(url: audioURL, meta: meta)
     }

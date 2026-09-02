@@ -136,11 +136,21 @@ enum ParakeetCPUPoolError: Error, CustomStringConvertible {
 public enum ParakeetContextError: Error, CustomStringConvertible {
     case loadFailed(String)
     case decodeFailed(Int32)
+    case coreMLEncodersUnconfigured
+    case coreMLTierUnavailable(sampleCount: Int)
+    case externalStateContract(String)
 
     public var description: String {
         switch self {
         case .loadFailed(let path): return "parakeet_init_from_file_with_params failed for \(path)"
         case .decodeFailed(let code): return "parakeet_full returned \(code)"
+        case .coreMLEncodersUnconfigured:
+            return
+                "no CoreML encoder tier is configured: set VOICEOUR_COREML_ENCODER_TINY, VOICEOUR_COREML_ENCODER_SHORT, or VOICEOUR_COREML_ENCODER"
+        case .coreMLTierUnavailable(let sampleCount):
+            return "no configured CoreML encoder tier accepts \(sampleCount) samples"
+        case .externalStateContract(let detail):
+            return "external encoder states rejected: \(detail)"
         }
     }
 }
@@ -220,6 +230,18 @@ public final class ParakeetContext {
     /// (`include/parakeet.h:33-34`, `src/parakeet.cpp` `create_token_data`).
     public static let msPerFrame = 10
 
+    /// Frame-major encoder state width — the model's `n_audio_state`, and the trailing
+    /// dimension of every state buffer the external-encoder seams lend or accept.
+    public static let encoderStateWidth = CoreMLEncoder.encoderChannels
+
+    /// Mel frames per encoder frame, the factor the tail's external-state guard applies
+    /// to the stored mel length (`parakeet.cpp:6236-6237`).
+    private static let melSubsamplingFactor = 8
+
+    /// Thread count the hybrid CoreML path hands the TDT tail. Both external-encoder
+    /// routes use it, so replayed states decode under exactly the dumping run's tail.
+    private static let hybridTailThreadCount: Int32 = 4
+
     private let context: OpaquePointer
     private let threadCount: Int32
     private var coreMLEncoders: CoreMLEncoderSet?
@@ -285,6 +307,33 @@ public final class ParakeetContext {
         self.coreMLEncoders = coreMLEncoders
     }
 
+    /// Research entry point: one context whose encode routes through the same fixed-shape
+    /// CoreML tiers the sidecar resolves from `environment`, with no sidecar process,
+    /// pinned-artifact cache, or weight arena in the way.
+    ///
+    /// Refuses a configuration with no tier at all instead of silently handing back the
+    /// native encoder: a caller that asked for the CoreML states must not get other ones.
+    public convenience init(
+        modelPath: String,
+        coreMLEnvironment: [String: String],
+        useGPU: Bool = true,
+        tailBackendCPU: Bool = false,
+        threadCount: Int32 = 6,
+        log: @escaping (String) -> Void = { _ in }
+    ) throws {
+        let configurations = try CoreMLEncoderConfigurationSet.resolve(environment: coreMLEnvironment)
+        let encoders = try CoreMLEncoderSet(configurations: configurations, log: log)
+        guard !encoders.isEmpty else { throw ParakeetContextError.coreMLEncodersUnconfigured }
+        try self.init(
+            modelPath: modelPath,
+            weightArenaPath: nil,
+            useGPU: useGPU,
+            tailBackendCPU: tailBackendCPU,
+            threadCount: threadCount,
+            coreMLEncoders: encoders
+        )
+    }
+
     deinit {
         parakeet_free(context)
     }
@@ -327,12 +376,117 @@ public final class ParakeetContext {
         return ParakeetLatticeResult(segments: collectSegments(), steps: bridge.steps)
     }
 
-    private func decode(
+    /// Research seam: run the configured CoreML tier's encode, lend the frame-major
+    /// `[frames, encoderStateWidth]` F32 states to `observeStates` before the tail can see
+    /// them, then run the unchanged external-encoder tail over those same bytes.
+    ///
+    /// The lent buffer is the encoder's reusable storage and is valid only for the duration
+    /// of the observer call; a caller that needs it afterwards copies it. An observer that
+    /// throws stops before the tail runs and its error is rethrown unchanged.
+    ///
+    /// This refuses a row no configured tier accepts rather than falling back to the native
+    /// encoder, because such a row has no CoreML state to hand out.
+    public func transcribeCapturingCoreMLStates(
         samples: [Float],
         isCancelled: @escaping () -> Bool,
+        observeStates: (UnsafeBufferPointer<Float>, Int) throws -> Void
+    ) throws -> [ParakeetSegmentRaw] {
+        guard let encoder = try coreMLEncoders?.encoder(sampleCount: samples.count) else {
+            throw ParakeetContextError.coreMLTierUnavailable(sampleCount: samples.count)
+        }
+        var observationError: Error?
+        let status = try withDecodeParams(
+            threadCount: threadCount,
+            isCancelled: isCancelled,
+            latticeBridge: nil
+        ) { params in
+            try decodeWithCoreMLEncoder(
+                encoder,
+                samples: samples,
+                params: params,
+                isCancelled: isCancelled
+            ) { states, encoderFrameCount in
+                do {
+                    try observeStates(states, encoderFrameCount)
+                    return true
+                } catch {
+                    observationError = error
+                    return false
+                }
+            }
+        }
+        if let observationError { throw observationError }
+        guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
+        return collectSegments()
+    }
+
+    /// Research seam: decode caller-supplied frame-major `[frames, encoderStateWidth]` F32
+    /// states through the same unchanged external-encoder tail, over `samples`' own mel.
+    ///
+    /// The mel is recomputed from the audio because the tail checks the external frame count
+    /// against the stored mel length (`parakeet.cpp:6236-6254`); the supplied states are
+    /// never re-encoded, and no CoreML model is loaded or required. The frame count and
+    /// width are refused here, with the mismatch named, before the C guard sees them.
+    public func transcribeWithExternalStates(
+        samples: [Float],
+        states: UnsafeBufferPointer<Float>,
+        frameCount: Int,
+        isCancelled: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        let status = try withDecodeParams(
+            threadCount: Self.hybridTailThreadCount,
+            isCancelled: isCancelled,
+            latticeBridge: nil
+        ) { params in
+            let melStatus = samples.withUnsafeBufferPointer { buffer in
+                parakeet_pcm_to_mel(context, buffer.baseAddress, Int32(buffer.count), params.n_threads)
+            }
+            guard melStatus == 0 else { return melStatus }
+
+            let melFrameCount = Int(parakeet_n_len(context))
+            let expectedMelFrameCount = samples.count / 160 + 1
+            guard melFrameCount == expectedMelFrameCount else {
+                throw ParakeetContextError.externalStateContract(
+                    "mel is \(melFrameCount) frames, expected \(expectedMelFrameCount)"
+                )
+            }
+            let expectedFrameCount =
+                (melFrameCount + Self.melSubsamplingFactor - 1) / Self.melSubsamplingFactor
+            guard frameCount == expectedFrameCount else {
+                throw ParakeetContextError.externalStateContract(
+                    "\(frameCount) encoder frames supplied, mel of \(melFrameCount) expects \(expectedFrameCount)"
+                )
+            }
+            guard states.count == frameCount * Self.encoderStateWidth else {
+                throw ParakeetContextError.externalStateContract(
+                    "\(states.count) floats supplied, expected \(frameCount) x \(Self.encoderStateWidth)"
+                )
+            }
+            if isCancelled() { return -6 }
+
+            return parakeet_full_with_external_encoder(
+                context,
+                params,
+                nil,
+                0,
+                states.baseAddress,
+                Int32(frameCount),
+                Int32(Self.encoderStateWidth)
+            )
+        }
+        guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
+        return collectSegments()
+    }
+
+    /// Builds the greedy parameters every decode route shares — thread count, the optional
+    /// lattice callback, and the cancellation callbacks bound to a bridge that outlives
+    /// `body` — then runs `body` with them.
+    private func withDecodeParams<Result>(
+        threadCount: Int32,
+        isCancelled: @escaping () -> Bool,
         latticeBridge: LatticeBridge?,
-        routesThroughCoreML: Bool = true
-    ) throws {
+        body: (parakeet_full_params) throws -> Result
+    ) throws -> Result {
         var params = parakeet_full_default_params(PARAKEET_SAMPLING_GREEDY)
         params.n_threads = threadCount
 
@@ -366,7 +520,7 @@ public final class ParakeetContext {
         }
 
         var cancellation = CancellationBridge(isCancelled: isCancelled)
-        let status = try withUnsafeMutablePointer(to: &cancellation) { bridge in
+        return try withUnsafeMutablePointer(to: &cancellation) { bridge in
             params.encoder_begin_callback_user_data = UnsafeMutableRawPointer(bridge)
             params.encoder_begin_callback = { _, _, userData in
                 guard let userData else { return true }
@@ -379,32 +533,52 @@ public final class ParakeetContext {
             }
 
             return try withExtendedLifetime(latticeBridge) {
-                if routesThroughCoreML,
-                    let coreMLEncoder = try coreMLEncoders?.encoder(sampleCount: samples.count)
-                {
-                    return try decodeWithCoreMLEncoder(
-                        coreMLEncoder,
-                        samples: samples,
-                        params: params,
-                        isCancelled: isCancelled
-                    )
-                }
-                return samples.withUnsafeBufferPointer { buffer in
-                    parakeet_full(context, params, buffer.baseAddress, Int32(buffer.count))
-                }
+                try body(params)
+            }
+        }
+    }
+
+    private func decode(
+        samples: [Float],
+        isCancelled: @escaping () -> Bool,
+        latticeBridge: LatticeBridge?,
+        routesThroughCoreML: Bool = true
+    ) throws {
+        let status = try withDecodeParams(
+            threadCount: threadCount,
+            isCancelled: isCancelled,
+            latticeBridge: latticeBridge
+        ) { params in
+            if routesThroughCoreML,
+                let coreMLEncoder = try coreMLEncoders?.encoder(sampleCount: samples.count)
+            {
+                return try decodeWithCoreMLEncoder(
+                    coreMLEncoder,
+                    samples: samples,
+                    params: params,
+                    isCancelled: isCancelled
+                )
+            }
+            return samples.withUnsafeBufferPointer { buffer in
+                parakeet_full(context, params, buffer.baseAddress, Int32(buffer.count))
             }
         }
         guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
     }
 
+    /// Nonzero status stood in for an observer that threw. The captured error is rethrown
+    /// before this value can be inspected, so it only has to be distinct from success.
+    private static let observerFailedStatus: Int32 = -9
+
     private func decodeWithCoreMLEncoder(
         _ encoder: CoreMLEncoder,
         samples: [Float],
         params: parakeet_full_params,
-        isCancelled: () -> Bool
+        isCancelled: () -> Bool,
+        observeStates: (UnsafeBufferPointer<Float>, Int) -> Bool = { _, _ in true }
     ) throws -> Int32 {
         var hybridParams = params
-        hybridParams.n_threads = 4
+        hybridParams.n_threads = Self.hybridTailThreadCount
         let melStatus = samples.withUnsafeBufferPointer { buffer in
             parakeet_pcm_to_mel(context, buffer.baseAddress, Int32(buffer.count), hybridParams.n_threads)
         }
@@ -430,6 +604,9 @@ public final class ParakeetContext {
             frameCount: frameCount
         ) { states, encoderFrameCount in
             if isCancelled() { return -6 }
+            guard observeStates(states, encoderFrameCount) else {
+                return Self.observerFailedStatus
+            }
             return parakeet_full_with_external_encoder(
                 context,
                 hybridParams,
