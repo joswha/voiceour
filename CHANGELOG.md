@@ -8,6 +8,12 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 
 ## Unreleased
 
+## [0.3.0] - 2026-09-02
+
+### Added
+
+- **Glossary phonetic repair.** Terms taught in the Glossary now correct close phonetic mishearings as well as spelling and spacing variants. Matching remains deterministic and local, protects ordinary words and ambiguous surfaces, and applies exactly once before delivery.
+
 ## [0.2.1] - 2026-08-30
 
 ### Changed
