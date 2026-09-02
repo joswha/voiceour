@@ -66,6 +66,30 @@ struct AssistArbitrationTests {
         #expect(result == primary)
     }
 
+    @Test("title-case canonical needs nonordinary phonetic evidence")
+    func titleCaseCanonicalRejectsOrdinaryInflections() {
+        let primary = "We need more portable radios for the department."
+        let candidates = [
+            AssistArbitration.RelaxedCandidate(
+                text: "We need more portable Redis for the department.",
+                events: [phoneticEvent(before: "radios", after: "Redis")]
+            ),
+            AssistArbitration.RelaxedCandidate(
+                text: "We need more portable Redis for the department.",
+                events: [phoneticEvent(before: "radius", after: "Redis")]
+            )
+        ]
+
+        let result = AssistArbitration.arbitrateRelaxed(
+            primary: primary,
+            candidates: candidates,
+            surfaces: ["Redis"],
+            ordinaryWords: ["radio", "radius"]
+        )
+
+        #expect(result == primary)
+    }
+
     private func phoneticEvent(before: String, after: String) -> RepairEvent {
         RepairEvent(start: 0, end: before.count, before: before, after: after, kind: "phonetic", score: 0.85)
     }

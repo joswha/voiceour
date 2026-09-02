@@ -242,6 +242,7 @@ enum BenchCLI {
 struct LoadedRepairEngine {
     var engine: VocabularyRepairEngine
     var relaxedEngine: VocabularyRepairEngine
+    var ordinaryWords: Set<String>
     /// Every taught canonical surface — eligible and protected alike — retained for
     /// assist arbitration. Protected surfaces are excluded from phonetic repair
     /// because they collide with ordinary words, but arbitration only ever fires on
@@ -270,6 +271,7 @@ struct LoadedRepairEngine {
         return LoadedRepairEngine(
             engine: VocabularyRepairEngine(vocabulary: vocabulary),
             relaxedEngine: VocabularyRepairEngine(vocabulary: relaxedVocabulary),
+            ordinaryWords: Set(vocabulary.ordinaryWords.lazy.map { $0.lowercased() }),
             surfaces: vocabulary.surfaces + vocabulary.protectedSurfaces,
             sha256: try BenchRunner.sha256(of: url)
         )
@@ -305,7 +307,8 @@ enum AssistArbitration {
     static func arbitrateRelaxed(
         primary: String,
         candidates: [RelaxedCandidate],
-        surfaces: [String]
+        surfaces: [String],
+        ordinaryWords: Set<String> = []
     ) -> String {
         let taught = Set(surfaces)
         var formsBySurface: [String: Set<String>] = [:]
@@ -322,9 +325,15 @@ enum AssistArbitration {
                 formsBySurface[event.after, default: []].insert(normalized)
             }
         }
-        let approved = Set(
+        let approved: Set<String> = Set(
             formsBySurface.compactMap { surface, forms in
-                forms.count >= minimumDistinctPhoneticForms ? surface : nil
+                guard forms.count >= minimumDistinctPhoneticForms else { return nil }
+                if isTitleCaseSurface(surface),
+                    forms.allSatisfy({ isOrdinaryPhrase($0, words: ordinaryWords) })
+                {
+                    return nil
+                }
+                return surface
             }
         )
 
@@ -352,6 +361,30 @@ enum AssistArbitration {
             foundLetter = true
         }
         return true
+    }
+
+    private static func isTitleCaseSurface(_ surface: String) -> Bool {
+        guard let first = surface.unicodeScalars.first(where: CharacterSet.letters.contains) else {
+            return false
+        }
+        return CharacterSet.uppercaseLetters.contains(first)
+    }
+
+    private static func isOrdinaryPhrase(_ phrase: String, words: Set<String>) -> Bool {
+        let tokens = phrase.unicodeScalars
+            .split(whereSeparator: { !CharacterSet.alphanumerics.contains($0) })
+            .map { String(String.UnicodeScalarView($0)).lowercased() }
+        return !tokens.isEmpty && tokens.allSatisfy { isOrdinaryWord($0, words: words) }
+    }
+
+    private static func isOrdinaryWord(_ word: String, words: Set<String>) -> Bool {
+        if words.contains(word) {
+            return true
+        }
+        let suffixLengths = word.hasSuffix("ing") ? [3] : word.hasSuffix("es") || word.hasSuffix("ed") ? [2] : [1]
+        return suffixLengths.contains { length in
+            word.count > length + 1 && words.contains(String(word.dropLast(length)))
+        }
     }
 
     /// Case-sensitive exact-surface presence with word boundaries, mirroring the
@@ -779,7 +812,8 @@ struct BenchRunner {
                 finalText = AssistArbitration.arbitrateRelaxed(
                     primary: finalText,
                     candidates: relaxedCandidates,
-                    surfaces: repair.surfaces
+                    surfaces: repair.surfaces,
+                    ordinaryWords: repair.ordinaryWords
                 )
             } else {
                 finalText = cleanedText
