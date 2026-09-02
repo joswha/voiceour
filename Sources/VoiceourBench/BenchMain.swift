@@ -311,7 +311,9 @@ enum AssistArbitration {
         var formsBySurface: [String: Set<String>] = [:]
         for candidate in candidates {
             for event in candidate.events
-                where event.kind == "phonetic" && taught.contains(event.after)
+                where event.kind == "phonetic"
+                && taught.contains(event.after)
+                && permitsRelaxedPhoneticSurface(event.after)
             {
                 let normalized = event.before
                     .split(whereSeparator: \.isWhitespace)
@@ -339,6 +341,17 @@ enum AssistArbitration {
             }
         }
         return selected
+    }
+
+    private static func permitsRelaxedPhoneticSurface(_ surface: String) -> Bool {
+        var foundLetter = false
+        for scalar in surface.unicodeScalars where CharacterSet.letters.contains(scalar) {
+            if foundLetter, CharacterSet.uppercaseLetters.contains(scalar) {
+                return false
+            }
+            foundLetter = true
+        }
+        return true
     }
 
     /// Case-sensitive exact-surface presence with word boundaries, mirroring the

@@ -43,6 +43,29 @@ struct AssistArbitrationTests {
         #expect(result == primary)
     }
 
+    @Test("phonetic consensus cannot invent acronym or camel-case identifiers")
+    func shapedIdentifierDoesNotAuthorizeAdoption() {
+        let primary = "I'm pleased to announce the annual plan."
+        let candidates = [
+            AssistArbitration.RelaxedCandidate(
+                text: "IAM pleased to announce the annual plan.",
+                events: [phoneticEvent(before: "I'm", after: "IAM")]
+            ),
+            AssistArbitration.RelaxedCandidate(
+                text: "IAM pleased to announce the annual plan.",
+                events: [phoneticEvent(before: "am", after: "IAM")]
+            )
+        ]
+
+        let result = AssistArbitration.arbitrateRelaxed(
+            primary: primary,
+            candidates: candidates,
+            surfaces: ["IAM"]
+        )
+
+        #expect(result == primary)
+    }
+
     private func phoneticEvent(before: String, after: String) -> RepairEvent {
         RepairEvent(start: 0, end: before.count, before: before, after: after, kind: "phonetic", score: 0.85)
     }
