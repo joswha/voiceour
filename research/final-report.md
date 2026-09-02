@@ -73,6 +73,10 @@ Safety failures were treated as invalidations, not explained away:
 The final C++ shelter is mechanically exact and fired on only the two intended frozen
 rows; its planned extra shard was cancelled to converge promptly. It therefore has
 strong unit/frozen evidence but not a separate fresh-holdout claim.
+Across 10,830 already-decoded People's Speech rows from shards 0–2, the exact
+`C plus plus` consensus pattern occurred zero times, so the shelter introduced no
+additional real-speech fire in that retrospective scan.
+
 
 ### What failed
 
@@ -82,7 +86,10 @@ longer-surface arbitration, thread-count tuning, generic quorum, and source-orde
 permutations. External independent pilots also stopped early:
 
 - Fun-ASR Nano: one GitLab rescue, but an unsafe `Xcode` fire for spoken `eksctl`.
-- Moonshine Medium Streaming: one safe SAML rescue, below the sealed 2/16 promotion bar.
+- Moonshine Medium Streaming without bias rescued only SAML. Its supported keyterm
+  mode reached 301/346 on the full frozen projection, but was rejected: jargon U-WER
+  regressed .025410→.027664, 8/14 adopted rows worsened, and 6 taught surfaces were
+  unsupported (including QUIC for queues, C++ for CI/secret, and CUDA for securely).
 - Nemotron Speech Streaming: one monorepo rescue already subsumed by diverse repair;
   RTFx 84.67 and ~2.05 GB process footprint missed product bars.
 
