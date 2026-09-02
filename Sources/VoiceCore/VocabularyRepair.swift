@@ -358,12 +358,41 @@ public struct VocabularyRepairEngine {
                     matched: Self.substring(text, range: match.range)
                 )
                 discoveryOrder += 1
-                if !Self.overlaps(candidate, any: protected) {
+                let overlappingProtected = protected.filter {
+                    candidate.start < $0.end && $0.start < candidate.end
+                }
+                if overlappingProtected.isEmpty
+                    || Self.canSupersedeProtectedPrefix(
+                        candidate,
+                        protected: overlappingProtected
+                    )
+                {
                     candidates.append(candidate)
                 }
             }
         }
         return candidates
+    }
+
+    private static func canSupersedeProtectedPrefix(
+        _ candidate: Candidate,
+        protected: [Candidate]
+    ) -> Bool {
+        guard surfaceShape(candidate.matched) == surfaceShape(candidate.canonical) else {
+            return false
+        }
+        return protected.allSatisfy {
+            candidate.canonical.count > $0.canonical.count
+                && candidate.canonical.hasPrefix($0.canonical)
+        }
+    }
+
+    private static func surfaceShape(_ value: String) -> String {
+        String(
+            value.filter {
+                !$0.isWhitespace && $0 != "." && $0 != "_" && $0 != "-"
+            }
+        )
     }
 
     private func tokenMatches(in text: String) -> [Token] {

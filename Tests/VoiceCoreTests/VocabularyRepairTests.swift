@@ -126,6 +126,28 @@ struct VocabularyRepairTests {
         )
     }
 
+    @Test func exactCasedLongerAliasSupersedesProtectedPrefix() {
+        let engine = VocabularyRepairEngine(
+            vocabulary: vocabulary(
+                surfaces: ["SwiftUI"],
+                protectedSurfaces: ["Swift"]
+            )
+        )
+
+        #expect(engine.repair("Build the panel with Swift UI.").text == "Build the panel with SwiftUI.")
+    }
+
+    @Test func ordinaryPhraseDoesNotSupersedeProtectedInitial() {
+        let engine = VocabularyRepairEngine(
+            vocabulary: vocabulary(
+                surfaces: ["IAM"],
+                protectedSurfaces: ["I"]
+            )
+        )
+
+        #expect(engine.repair("I am ready.").text == "I am ready.")
+    }
+
     private func vocabulary(
         surfaces: [String],
         protectedSurfaces: [String] = [],
