@@ -468,6 +468,59 @@ struct SidecarLifecycleTests {
         #expect(assistLog.contains(paths.joined(separator: ",")))
         #expect(assistLog.contains("max_s=15.0,15.0,8.0,5.0,5.0"))
     }
+    @Test func distinctAssistContextsStartConcurrently() throws {
+        let bytes = Data("model".utf8)
+        let artifact = ParakeetModelManifest(
+            modelId: "test/model",
+            revision: "test-revision",
+            file: "model.bin",
+            sha256: "test-digest",
+            sizeBytes: Int64(bytes.count)
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidecar-concurrent-assists-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = ParakeetModelCache(
+            directory: directory,
+            artifact: artifact,
+            ownsVariantRoot: false
+        )
+        try bytes.write(to: cache.modelURL)
+        try JSONEncoder().encode(artifact).write(to: cache.manifestURL)
+        let gate = AssistConcurrencyGate()
+        let contexts = [
+            "first": GatedAssistContext(gate: gate),
+            "second": GatedAssistContext(gate: gate),
+        ]
+        let backend = ParakeetSidecarBackend(
+            cache: cache,
+            log: { _ in },
+            idleUnloadMs: 0,
+            assistModelPaths: ["first", "second"],
+            assistMaxSampleCounts: [32, 32],
+            contextFactory: { _ in EmptyParakeetRuntimeContext() },
+            assistContextFactory: { contexts[$0]! }
+        )
+        let audio = try writeSilentWAV(in: directory)
+        let completed = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = backend.transcribe(
+                transcribeRequest(audio: audio),
+                isCancelled: { false }
+            )
+            completed.signal()
+        }
+
+        let first = gate.started.wait(timeout: .now() + 1)
+        let second = gate.started.wait(timeout: .now() + 1)
+        gate.release.signal()
+        gate.release.signal()
+
+        #expect(first == .success)
+        #expect(second == .success)
+        #expect(completed.wait(timeout: .now() + 1) == .success)
+    }
 
 }
 
@@ -533,6 +586,28 @@ private final class FailThenSucceedContextFactory: @unchecked Sendable {
         }
         if attempt == 1 { throw ScriptedLoadError.firstAttempt }
         return EmptyParakeetRuntimeContext()
+    }
+}
+
+private final class AssistConcurrencyGate: @unchecked Sendable {
+    let started = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+}
+
+private final class GatedAssistContext: ParakeetRuntimeContext, @unchecked Sendable {
+    private let gate: AssistConcurrencyGate
+
+    init(gate: AssistConcurrencyGate) {
+        self.gate = gate
+    }
+
+    func transcribe(
+        samples _: [Float],
+        isCancelled _: @escaping () -> Bool
+    ) throws -> [ParakeetSegmentRaw] {
+        gate.started.signal()
+        gate.release.wait()
+        return []
     }
 }
 
