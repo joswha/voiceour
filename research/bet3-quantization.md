@@ -1,5 +1,10 @@
 # Bet 3 — Quantization frontier + margin stability theory
 
+> **Final state:** the historical 7–19% slowdown below is falsified on the current
+> toolchain. Whole-model q8 is non-inferior, tied/faster, and 587 MB smaller; the
+> independently surviving runtime change is CPU-tail-only q8. Mixed FFN-Q6 and
+> margin-only harm prediction are closed. See `research/final-report.md`.
+
 Goal: shrink weights (1.26 GB f16 → ≤ q8's 669 MB, ideally ~400 MB mixed) and cold load
 (3.5 s → ~1 s) with `uwer_mix` non-inferior — and make quantized decode *not slower*.
 

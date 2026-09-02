@@ -1,5 +1,12 @@
 # Voiceour three-bets research session — context pack
 
+> **Final-state notice (2026-09-02):** `research/final-report.md` supersedes the
+> exploratory assumptions below. In particular, q8 is not 7–19% slower on the current
+> toolchain; the final harness uses a CoreML tier ladder, CPU/q8 tail, five concurrent
+> assists, and guarded repair; its primary is jargon recall with p95≤230 and RTFx≥100.
+> The context below remains useful as the cold-start record of why the three bets were
+> chosen, not as the final configuration.
+
 **Read this first.** Every subagent in this session starts cold; this file is the shared
 memory. It compresses five scout reports (2026-08-31) plus the committed docs into the facts
 a research task needs. Cite it as `research/CONTEXT.md`; verify against source before

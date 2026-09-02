@@ -1,6 +1,7 @@
 import Testing
-@testable import VoiceourBench
 import VoiceCore
+
+@testable import VoiceourBench
 
 struct AssistArbitrationTests {
     @Test("distinct phonetic forms authorize relaxed whole-transcript adoption")
@@ -14,7 +15,7 @@ struct AssistArbitrationTests {
             AssistArbitration.RelaxedCandidate(
                 text: "Check whether containerd accepts the registry credentials.",
                 events: [phoneticEvent(before: "contained", after: "containerd")]
-            )
+            ),
         ]
 
         let result = AssistArbitration.arbitrateRelaxed(
@@ -54,7 +55,7 @@ struct AssistArbitrationTests {
             AssistArbitration.RelaxedCandidate(
                 text: "IAM pleased to announce the annual plan.",
                 events: [phoneticEvent(before: "am", after: "IAM")]
-            )
+            ),
         ]
 
         let result = AssistArbitration.arbitrateRelaxed(
@@ -77,7 +78,7 @@ struct AssistArbitrationTests {
             AssistArbitration.RelaxedCandidate(
                 text: "We need more portable Redis for the department.",
                 events: [phoneticEvent(before: "radius", after: "Redis")]
-            )
+            ),
         ]
 
         let result = AssistArbitration.arbitrateRelaxed(
@@ -95,7 +96,7 @@ struct AssistArbitrationTests {
         let raw = [
             "the c plus plus compiler rejects this overload",
             "The C plus plus compiler rejects this overload.",
-            "The C compiler rejects this overload."
+            "The C compiler rejects this overload.",
         ]
 
         let protected = AssistArbitration.protectSpokenAliases(in: raw, surfaces: ["C++"])

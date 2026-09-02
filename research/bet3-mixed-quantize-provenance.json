@@ -52,7 +52,10 @@
     "deterministic_repeat": "byte-identical",
     "arena_size_bytes": 780638752,
     "arena_layout": "421185917ee3981c",
-    "official_harness_run": false
+    "official_harness_run": true,
+    "official_harness_uwer_mix": 0.045585,
+    "official_harness_p95_ratio": 1.0349,
+    "official_harness_verdict": "discard: p95 ratio exceeded 1.03 gate"
   },
   "reproduction": {
     "tool": "swift build -c release --product parakeet-mixed-quantize",

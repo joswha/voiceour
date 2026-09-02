@@ -1,5 +1,11 @@
 # Bet 2 — Heterogeneous execution (CoreML/ANE encoder, native TDT tail)
 
+> **Final state:** the 6/8/15 s CoreML ladder survives as research infrastructure:
+> −57.8% ladder energy and contamination-resistant ratio .5679. Promotion remains
+> blocked on cross-SoC, hosted artifacts, and cold-specialization readiness.
+> See `research/final-report.md`; do not conflate the later .3053 composite ratio
+> with ANE-only savings.
+
 Goal: same transcripts, less time/energy. Guards: `uwer_mix` non-inferior, p95 ≤ 300 ms,
 footprint ≤ 2500 MB, determinism (cross-pass identity — a nondeterministic engine
 cannot ship through the harness).

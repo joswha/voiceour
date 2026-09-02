@@ -1,18 +1,28 @@
 # Three-bets research session — index
 
 Branch `autoresearch/research-all-those-three-bets-you-have-unlimited-20260831`.
-Read `research/CONTEXT.md` first; instrument spec in `research/harness.md`; final verdicts
-at the end of each bet page.
+**Final conclusions and current metrics: `research/final-report.md`.** Read that first.
+The remainder of this index is the chronological experiment ledger; older sections
+retain their then-current metrics and are not the final product recommendation.
 
 ## Mission
 Juice the pinned Parakeet TDT weights and Apple-Silicon runtime: (1) contextual decoding
 for vocabulary binding, (2) ANE/heterogeneous execution, (3) quantization + margin
-stability theory. Primary `uwer_mix` (lower); guards p95≤300 ms, RTFx≥40, ≤2500 MB,
-zero errors, determinism, term safety.
+stability theory. Final segment primary: jargon term recall (higher); fixed guards:
+mix U-WER≤.037509, p95≤230 ms, RTFx≥100, footprint≤2500 MB, zero corrected false rows,
+zero errors, deterministic paired outputs.
 
 ## Baseline (run 41, M4 Pro, macOS 26.6.2, f16)
 uwer_mix .045995 · general .031135 · jargon .060861 · term recall .4653 (161/346) ·
 false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms · 184 MB.
+
+## Final frontier (run 133)
+
+Recall **.852601 (295/346)** · mix/general/jargon U-WER
+**.028068/.030725/.025410** · corrected false rows 0 · p50/p95
+130.5/176 ms · RTFx 152.95 · physical footprint 318 MB · deterministic/error0.
+This is a bench-only research ensemble; see the final report for safety evidence and
+the decision not to productize it.
 
 ## Segment 4 (ABBA ratio) — certified, then product-wired
 Runs 61–63: ladder certified 0.5679 drift-immune; then the wiring pair landed —

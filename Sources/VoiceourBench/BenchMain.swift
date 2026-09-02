@@ -313,15 +313,18 @@ enum AssistArbitration {
             }
             let repeatedPlus = Array(repeating: "plus", count: scalars.count - 1)
                 .joined(separator: "\\s+")
-            let pattern = "(?<!\\w)"
+            let pattern =
+                "(?<!\\w)"
                 + NSRegularExpression.escapedPattern(for: String(letter))
                 + "\\s+"
                 + repeatedPlus
                 + "(?!\\w)"
-            guard let expression = try? NSRegularExpression(
-                pattern: pattern,
-                options: .caseInsensitive
-            ) else {
+            guard
+                let expression = try? NSRegularExpression(
+                    pattern: pattern,
+                    options: .caseInsensitive
+                )
+            else {
                 return nil
             }
             return SpokenAliasRule(canonical: surface, expression: expression)
@@ -377,7 +380,7 @@ enum AssistArbitration {
         var formsBySurface: [String: Set<String>] = [:]
         for candidate in candidates {
             for event in candidate.events
-                where event.kind == "phonetic"
+            where event.kind == "phonetic"
                 && taught.contains(event.after)
                 && permitsRelaxedPhoneticSurface(event.after)
             {

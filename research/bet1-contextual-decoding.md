@@ -1,5 +1,10 @@
 # Bet 1 — Contextual decoding (vocabulary binding at decode time)
 
+> **Final state:** guarded repair plus the five-assist research teacher reaches
+> 295/346 recall with mix U-WER .028068 and corrected false rows 0. Decode-side
+> candidate creation remains closed; the ensemble is not a product candidate.
+> See `research/final-report.md` for safety invalidations and current metrics.
+
 Goal: raise `jargon_term_recall` (baseline **.4653**, 161/346) and lower `uwer_jargon`
 (**.0609**) without moving `jargon_false_terms` (0), `fwer_negative` (.0073), or
 `uwer_general` (.0311). Primary lever on `uwer_mix` (.0460).
