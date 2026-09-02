@@ -283,7 +283,7 @@ struct LoadedRepairEngine {
 /// produced at least two distinct spellings that map to the same canonical surface.
 /// Repeated copies of one homophone are one observation, not consensus.
 enum AssistArbitration {
-    static let relaxedPhoneticThreshold = 0.85
+    static let relaxedPhoneticThreshold = 0.80
     private static let minimumDistinctPhoneticForms = 2
 
     struct RelaxedCandidate {
