@@ -241,6 +241,7 @@ enum BenchCLI {
 
 struct LoadedRepairEngine {
     var engine: VocabularyRepairEngine
+    var relaxedEngine: VocabularyRepairEngine
     /// Every taught canonical surface — eligible and protected alike — retained for
     /// assist arbitration. Protected surfaces are excluded from phonetic repair
     /// because they collide with ordinary words, but arbitration only ever fires on
@@ -264,8 +265,11 @@ struct LoadedRepairEngine {
         } catch {
             throw BenchError.io("cannot decode vocabulary \(url.path): \(BenchError.describe(error))")
         }
+        var relaxedVocabulary = vocabulary
+        relaxedVocabulary.phoneticThreshold = AssistArbitration.relaxedPhoneticThreshold
         return LoadedRepairEngine(
             engine: VocabularyRepairEngine(vocabulary: vocabulary),
+            relaxedEngine: VocabularyRepairEngine(vocabulary: relaxedVocabulary),
             surfaces: vocabulary.surfaces + vocabulary.protectedSurfaces,
             sha256: try BenchRunner.sha256(of: url)
         )
@@ -273,10 +277,20 @@ struct LoadedRepairEngine {
 }
 
 /// Second-opinion arbitration between the primary transcript and the assist model's,
-/// both after the identical cleanup + repair stage. Adopt the assist row exactly when
-/// it contains at least one eligible taught surface the primary lacks and the primary
-/// contains none the assist lacks; every other case keeps the primary byte-for-byte.
+/// both after the identical cleanup + repair stage. Strict repair adopts a complete
+/// transcript only for an exact taught-surface superset. A lower-threshold phonetic
+/// repair may drive the same whole-transcript choice only when independent decoders
+/// produced at least two distinct spellings that map to the same canonical surface.
+/// Repeated copies of one homophone are one observation, not consensus.
 enum AssistArbitration {
+    static let relaxedPhoneticThreshold = 0.85
+    private static let minimumDistinctPhoneticForms = 2
+
+    struct RelaxedCandidate {
+        var text: String
+        var events: [RepairEvent]
+    }
+
     static func arbitrate(primary: String, assist: String, surfaces: [String]) -> String {
         let primaryTerms = taughtSurfaces(in: primary, surfaces: surfaces)
         let assistTerms = taughtSurfaces(in: assist, surfaces: surfaces)
@@ -286,6 +300,45 @@ enum AssistArbitration {
             return assist
         }
         return primary
+    }
+
+    static func arbitrateRelaxed(
+        primary: String,
+        candidates: [RelaxedCandidate],
+        surfaces: [String]
+    ) -> String {
+        let taught = Set(surfaces)
+        var formsBySurface: [String: Set<String>] = [:]
+        for candidate in candidates {
+            for event in candidate.events
+                where event.kind == "phonetic" && taught.contains(event.after)
+            {
+                let normalized = event.before
+                    .split(whereSeparator: \.isWhitespace)
+                    .joined(separator: " ")
+                    .lowercased()
+                formsBySurface[event.after, default: []].insert(normalized)
+            }
+        }
+        let approved = Set(
+            formsBySurface.compactMap { surface, forms in
+                forms.count >= minimumDistinctPhoneticForms ? surface : nil
+            }
+        )
+
+        var selected = primary
+        for candidate in candidates {
+            let selectedTerms = taughtSurfaces(in: selected, surfaces: surfaces)
+            let candidateTerms = taughtSurfaces(in: candidate.text, surfaces: surfaces)
+            let added = candidateTerms.subtracting(selectedTerms)
+            if !added.isEmpty,
+                added.isSubset(of: approved),
+                selectedTerms.subtracting(candidateTerms).isEmpty
+            {
+                selected = candidate.text
+            }
+        }
+        return selected
     }
 
     /// Case-sensitive exact-surface presence with word boundaries, mirroring the
@@ -683,20 +736,40 @@ struct BenchRunner {
             confidence = result.transcript.confidence
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
-            let repairEngine = repair?.engine
             let cleanupStart = BenchClock.mark()
             cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
-            finalText = repairEngine?.repair(cleanedText).text ?? cleanedText
-            if let assistRaws = result.transcript.assistTexts, let repair {
-                for assistRaw in assistRaws {
-                    let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
-                    let assistFinal = repair.engine.repair(assistCleaned).text
-                    finalText = AssistArbitration.arbitrate(
-                        primary: finalText,
-                        assist: assistFinal,
-                        surfaces: repair.surfaces
+            if let repair {
+                finalText = repair.engine.repair(cleanedText).text
+                let primaryRelaxed = repair.relaxedEngine.repair(cleanedText)
+                var relaxedCandidates = [
+                    AssistArbitration.RelaxedCandidate(
+                        text: primaryRelaxed.text,
+                        events: primaryRelaxed.events
                     )
+                ]
+                if let assistRaws = result.transcript.assistTexts {
+                    relaxedCandidates.reserveCapacity(assistRaws.count + 1)
+                    for assistRaw in assistRaws {
+                        let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
+                        let assistFinal = repair.engine.repair(assistCleaned).text
+                        finalText = AssistArbitration.arbitrate(
+                            primary: finalText,
+                            assist: assistFinal,
+                            surfaces: repair.surfaces
+                        )
+                        let relaxed = repair.relaxedEngine.repair(assistCleaned)
+                        relaxedCandidates.append(
+                            AssistArbitration.RelaxedCandidate(text: relaxed.text, events: relaxed.events)
+                        )
+                    }
                 }
+                finalText = AssistArbitration.arbitrateRelaxed(
+                    primary: finalText,
+                    candidates: relaxedCandidates,
+                    surfaces: repair.surfaces
+                )
+            } else {
+                finalText = cleanedText
             }
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
         } catch {

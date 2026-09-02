@@ -175,6 +175,14 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "VoiceourBenchTests",
+            dependencies: [
+                "VoiceourBench",
+                "VoiceCore",
+                .product(name: "Testing", package: "swift-testing")
+            ]
+        ),
+        .testTarget(
             name: "VoiceourASRTests",
             dependencies: [
                 "VoiceCore",
