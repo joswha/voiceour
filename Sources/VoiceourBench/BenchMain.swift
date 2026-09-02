@@ -243,6 +243,7 @@ struct LoadedRepairEngine {
     var engine: VocabularyRepairEngine
     var relaxedEngine: VocabularyRepairEngine
     var ordinaryWords: Set<String>
+    var spokenAliasRules: [AssistArbitration.SpokenAliasRule]
     /// Every taught canonical surface — eligible and protected alike — retained for
     /// assist arbitration. Protected surfaces are excluded from phonetic repair
     /// because they collide with ordinary words, but arbitration only ever fires on
@@ -266,13 +267,15 @@ struct LoadedRepairEngine {
         } catch {
             throw BenchError.io("cannot decode vocabulary \(url.path): \(BenchError.describe(error))")
         }
+        let surfaces = vocabulary.surfaces + vocabulary.protectedSurfaces
         var relaxedVocabulary = vocabulary
         relaxedVocabulary.phoneticThreshold = AssistArbitration.relaxedPhoneticThreshold
         return LoadedRepairEngine(
             engine: VocabularyRepairEngine(vocabulary: vocabulary),
             relaxedEngine: VocabularyRepairEngine(vocabulary: relaxedVocabulary),
             ordinaryWords: Set(vocabulary.ordinaryWords.lazy.map { $0.lowercased() }),
-            surfaces: vocabulary.surfaces + vocabulary.protectedSurfaces,
+            spokenAliasRules: AssistArbitration.spokenAliasRules(for: surfaces),
+            surfaces: surfaces,
             sha256: try BenchRunner.sha256(of: url)
         )
     }
@@ -285,12 +288,72 @@ struct LoadedRepairEngine {
 /// produced at least two distinct spellings that map to the same canonical surface.
 /// Repeated copies of one homophone are one observation, not consensus.
 enum AssistArbitration {
-    static let relaxedPhoneticThreshold = 0.75
+    static let relaxedPhoneticThreshold = 0.80
     private static let minimumDistinctPhoneticForms = 2
 
     struct RelaxedCandidate {
         var text: String
         var events: [RepairEvent]
+    }
+
+    struct SpokenAliasRule {
+        var canonical: String
+        var expression: NSRegularExpression
+    }
+
+    static func spokenAliasRules(for surfaces: [String]) -> [SpokenAliasRule] {
+        surfaces.compactMap { surface in
+            let scalars = Array(surface.unicodeScalars)
+            guard scalars.count >= 3,
+                let letter = scalars.first,
+                CharacterSet.letters.contains(letter),
+                scalars.dropFirst().allSatisfy({ $0 == "+" })
+            else {
+                return nil
+            }
+            let repeatedPlus = Array(repeating: "plus", count: scalars.count - 1)
+                .joined(separator: "\\s+")
+            let pattern = "(?<!\\w)"
+                + NSRegularExpression.escapedPattern(for: String(letter))
+                + "\\s+"
+                + repeatedPlus
+                + "(?!\\w)"
+            guard let expression = try? NSRegularExpression(
+                pattern: pattern,
+                options: .caseInsensitive
+            ) else {
+                return nil
+            }
+            return SpokenAliasRule(canonical: surface, expression: expression)
+        }
+    }
+
+    static func protectSpokenAliases(in rawTexts: [String], surfaces: [String]) -> [String] {
+        protectSpokenAliases(in: rawTexts, rules: spokenAliasRules(for: surfaces))
+    }
+
+    static func protectSpokenAliases(
+        in rawTexts: [String],
+        rules: [SpokenAliasRule]
+    ) -> [String] {
+        var protected = rawTexts
+        for rule in rules {
+            let supportingSources = protected.lazy.filter { text in
+                let range = NSRange(text.startIndex..., in: text)
+                return rule.expression.firstMatch(in: text, range: range) != nil
+            }.count
+            guard supportingSources >= 2 else { continue }
+            let replacement = NSRegularExpression.escapedTemplate(for: rule.canonical)
+            protected = protected.map { text in
+                let range = NSRange(text.startIndex..., in: text)
+                return rule.expression.stringByReplacingMatches(
+                    in: text,
+                    range: range,
+                    withTemplate: replacement
+                )
+            }
+        }
+        return protected
     }
 
     static func arbitrate(primary: String, assist: String, surfaces: [String]) -> String {
@@ -783,8 +846,13 @@ struct BenchRunner {
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
             let cleanupStart = BenchClock.mark()
-            cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
             if let repair {
+                let rawCandidates = [rawTranscript] + (result.transcript.assistTexts ?? [])
+                let protectedRaws = AssistArbitration.protectSpokenAliases(
+                    in: rawCandidates,
+                    rules: repair.spokenAliasRules
+                )
+                cleanedText = CleanupEngine.clean(protectedRaws[0], glossary: [])
                 finalText = repair.engine.repair(cleanedText).text
                 let primaryRelaxed = repair.relaxedEngine.repair(cleanedText)
                 var relaxedCandidates = [
@@ -793,21 +861,19 @@ struct BenchRunner {
                         events: primaryRelaxed.events
                     )
                 ]
-                if let assistRaws = result.transcript.assistTexts {
-                    relaxedCandidates.reserveCapacity(assistRaws.count + 1)
-                    for assistRaw in assistRaws {
-                        let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
-                        let assistFinal = repair.engine.repair(assistCleaned).text
-                        finalText = AssistArbitration.arbitrate(
-                            primary: finalText,
-                            assist: assistFinal,
-                            surfaces: repair.surfaces
-                        )
-                        let relaxed = repair.relaxedEngine.repair(assistCleaned)
-                        relaxedCandidates.append(
-                            AssistArbitration.RelaxedCandidate(text: relaxed.text, events: relaxed.events)
-                        )
-                    }
+                relaxedCandidates.reserveCapacity(protectedRaws.count)
+                for assistRaw in protectedRaws.dropFirst() {
+                    let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
+                    let assistFinal = repair.engine.repair(assistCleaned).text
+                    finalText = AssistArbitration.arbitrate(
+                        primary: finalText,
+                        assist: assistFinal,
+                        surfaces: repair.surfaces
+                    )
+                    let relaxed = repair.relaxedEngine.repair(assistCleaned)
+                    relaxedCandidates.append(
+                        AssistArbitration.RelaxedCandidate(text: relaxed.text, events: relaxed.events)
+                    )
                 }
                 finalText = AssistArbitration.arbitrateRelaxed(
                     primary: finalText,
@@ -816,6 +882,7 @@ struct BenchRunner {
                     ordinaryWords: repair.ordinaryWords
                 )
             } else {
+                cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
                 finalText = cleanedText
             }
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)

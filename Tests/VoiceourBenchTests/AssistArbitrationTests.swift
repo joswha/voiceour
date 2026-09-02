@@ -90,6 +90,30 @@ struct AssistArbitrationTests {
         #expect(result == primary)
     }
 
+    @Test("two raw sources shelter spoken C-plus-plus before cleanup")
+    func spokenPlusAliasConsensusSheltersCanonical() {
+        let raw = [
+            "the c plus plus compiler rejects this overload",
+            "The C plus plus compiler rejects this overload.",
+            "The C compiler rejects this overload."
+        ]
+
+        let protected = AssistArbitration.protectSpokenAliases(in: raw, surfaces: ["C++"])
+
+        #expect(protected[0] == "the C++ compiler rejects this overload")
+        #expect(protected[1] == "The C++ compiler rejects this overload.")
+        #expect(protected[2] == raw[2])
+    }
+
+    @Test("one source or ambiguous sharp alias is not sheltered")
+    func unsupportedSpokenAliasRemainsRaw() {
+        let raw = ["Our C sharp target builds.", "Our C plus plus target builds."]
+
+        let protected = AssistArbitration.protectSpokenAliases(in: raw, surfaces: ["C#", "C++"])
+
+        #expect(protected == raw)
+    }
+
     private func phoneticEvent(before: String, after: String) -> RepairEvent {
         RepairEvent(start: 0, end: before.count, before: before, after: after, kind: "phonetic", score: 0.85)
     }
