@@ -115,6 +115,78 @@ struct AssistArbitrationTests {
         #expect(protected == raw)
     }
 
+    @Test("two spellings inside one source are not decoder consensus")
+    func oneSourceCannotAuthorizeItsOwnVariants() {
+        let primary = "We launch the product and launched the beta."
+        let candidate = AssistArbitration.RelaxedCandidate(
+            text: "We launchd the product and launchd the beta.",
+            events: [
+                phoneticEvent(before: "launch", after: "launchd"),
+                phoneticEvent(before: "launched", after: "launchd"),
+            ]
+        )
+
+        let result = AssistArbitration.arbitrateRelaxed(
+            primary: primary,
+            candidates: [candidate],
+            surfaces: ["launchd"]
+        )
+
+        #expect(result == primary)
+    }
+
+    @Test("punctuation differences are one phonetic form")
+    func punctuationDoesNotCreateDistinctEvidence() {
+        let primary = "Taxes paid as expected."
+        let candidates = [
+            AssistArbitration.RelaxedCandidate(
+                text: "Taxes pandas expected.",
+                events: [phoneticEvent(before: "paid, as", after: "pandas")]
+            ),
+            AssistArbitration.RelaxedCandidate(
+                text: "Taxes pandas expected.",
+                events: [phoneticEvent(before: "paid as", after: "pandas")]
+            ),
+        ]
+
+        let result = AssistArbitration.arbitrateRelaxed(
+            primary: primary,
+            candidates: candidates,
+            surfaces: ["pandas"]
+        )
+
+        #expect(result == primary)
+    }
+
+    @Test("approved repair cannot carry an unrelated unapproved repair")
+    func candidateWithUnapprovedEventIsRejected() {
+        let primary = "We use kqueue on macOS and a queue for jobs so containered handles it."
+        let candidates = [
+            AssistArbitration.RelaxedCandidate(
+                text: "We use kqueue on macOS and a kqueue for jobs so containerd handles it.",
+                events: [
+                    phoneticEvent(before: "queue", after: "kqueue"),
+                    phoneticEvent(before: "containered", after: "containerd"),
+                ]
+            ),
+            AssistArbitration.RelaxedCandidate(
+                text: "We use kqueue on macOS and a kqueue for jobs so containerd handles it.",
+                events: [
+                    phoneticEvent(before: "queue", after: "kqueue"),
+                    phoneticEvent(before: "contained", after: "containerd"),
+                ]
+            ),
+        ]
+
+        let result = AssistArbitration.arbitrateRelaxed(
+            primary: primary,
+            candidates: candidates,
+            surfaces: ["kqueue", "containerd"]
+        )
+
+        #expect(result == primary)
+    }
+
     private func phoneticEvent(before: String, after: String) -> RepairEvent {
         RepairEvent(start: 0, end: before.count, before: before, after: after, kind: "phonetic", score: 0.85)
     }

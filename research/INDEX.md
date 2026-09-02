@@ -16,13 +16,14 @@ zero errors, deterministic paired outputs.
 uwer_mix .045995 · general .031135 · jargon .060861 · term recall .4653 (161/346) ·
 false 0 · fwer_neg .00728 · p50/p95 128/208.75 ms · RTFx 153.5 · load 58 ms · 184 MB.
 
-## Final frontier (run 133)
+## Final verified frontier
 
 Recall **.852601 (295/346)** · mix/general/jargon U-WER
 **.028068/.030725/.025410** · corrected false rows 0 · p50/p95
-130.5/176 ms · RTFx 152.95 · physical footprint 318 MB · deterministic/error0.
-This is a bench-only research ensemble; see the final report for safety evidence and
-the decision not to productize it.
+127.5/174 ms · RTFx 155.21 · physical footprint 310 MB · deterministic/error0.
+This includes the post-review source-independence, punctuation-normalization, and
+unapproved-event guards. It is a bench-only research ensemble; see the final report
+for safety evidence and the decision not to productize it.
 
 ## Segment 4 (ABBA ratio) — certified, then product-wired
 Runs 61–63: ladder certified 0.5679 drift-immune; then the wiring pair landed —

@@ -377,23 +377,22 @@ enum AssistArbitration {
         ordinaryWords: Set<String> = []
     ) -> String {
         let taught = Set(surfaces)
-        var formsBySurface: [String: Set<String>] = [:]
-        for candidate in candidates {
+        var evidenceBySurface: [String: [(source: Int, form: String)]] = [:]
+        for (source, candidate) in candidates.enumerated() {
             for event in candidate.events
             where event.kind == "phonetic"
                 && taught.contains(event.after)
                 && permitsRelaxedPhoneticSurface(event.after)
             {
-                let normalized = event.before
-                    .split(whereSeparator: \.isWhitespace)
-                    .joined(separator: " ")
-                    .lowercased()
-                formsBySurface[event.after, default: []].insert(normalized)
+                let normalized = normalizedEvidenceForm(event.before)
+                guard !normalized.isEmpty else { continue }
+                evidenceBySurface[event.after, default: []].append((source, normalized))
             }
         }
         let approved: Set<String> = Set(
-            formsBySurface.compactMap { surface, forms in
-                guard forms.count >= minimumDistinctPhoneticForms else { return nil }
+            evidenceBySurface.compactMap { surface, evidence in
+                guard hasDiverseSourceEvidence(evidence) else { return nil }
+                let forms = Set(evidence.map(\.form))
                 if isTitleCaseSurface(surface),
                     forms.allSatisfy({ isOrdinaryPhrase($0, words: ordinaryWords) })
                 {
@@ -408,6 +407,12 @@ enum AssistArbitration {
             let selectedTerms = taughtSurfaces(in: selected, surfaces: surfaces)
             let candidateTerms = taughtSurfaces(in: candidate.text, surfaces: surfaces)
             let added = candidateTerms.subtracting(selectedTerms)
+            let candidatePhoneticSurfaces = Set(
+                candidate.events.lazy
+                    .filter { $0.kind == "phonetic" && taught.contains($0.after) }
+                    .map(\.after)
+            )
+            guard candidatePhoneticSurfaces.isSubset(of: approved) else { continue }
             if !added.isEmpty,
                 added.isSubset(of: approved),
                 selectedTerms.subtracting(candidateTerms).isEmpty
@@ -416,6 +421,27 @@ enum AssistArbitration {
             }
         }
         return selected
+    }
+    private static func hasDiverseSourceEvidence(
+        _ evidence: [(source: Int, form: String)]
+    ) -> Bool {
+        for left in evidence.indices {
+            for right in evidence.indices where right > left {
+                if evidence[left].source != evidence[right].source,
+                    evidence[left].form != evidence[right].form
+                {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func normalizedEvidenceForm(_ form: String) -> String {
+        form.unicodeScalars
+            .split(whereSeparator: { !CharacterSet.alphanumerics.contains($0) })
+            .map { String(String.UnicodeScalarView($0)).lowercased() }
+            .joined(separator: " ")
     }
 
     private static func permitsRelaxedPhoneticSurface(_ surface: String) -> Bool {

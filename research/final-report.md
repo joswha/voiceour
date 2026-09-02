@@ -19,13 +19,13 @@ single primary transcript.
 
 ## Final measured configuration
 
-Run 133, M4 Pro, macOS 26.6.2:
+Post-review harness verification, M4 Pro, macOS 26.6.2:
 
 - jargon term recall **.852601 (295/346)**; 51 misses;
 - `uwer_mix` **.028068**, `uwer_general` **.030725**, `uwer_jargon` **.025410**;
 - corrected jargon false rows **0**; deterministic pair; error rows 0;
-- inference p50/p95 **130.5/176 ms**, RTFx **152.95**;
-- peak physical footprint **318 MB**, peak RSS **217 MB**;
+- inference p50/p95 **127.5/174 ms**, RTFx **155.21**;
+- peak physical footprint **310 MB**, peak RSS **219 MB**;
 - final transcript hashes: jargon `41c27a19460bfdea0f382d2cb4d181cb35a057bd40204cff9dc4207354e5ae53`, general `6607b2326b40254f37b7332262b3d7009272e9e811a94ffc493e8dbc6229a229`.
 
 The low process footprint does not represent installed bytes: clean file-backed mappings
@@ -42,17 +42,21 @@ CoreML tiers the measured research installation is about 19.9 GB.
    unified 0.6B, and multitalker 0.6B assists. Concurrent assist contexts recovered
    p95 from ~209 to ~170–185 ms without output change.
 3. Guarded diverse-form repair: a second `.80` pass is evidence only. A relaxed term
-   requires at least two distinct phonetic spellings; acronyms/camel identifiers require
-   exact evidence; Titlecase terms require at least one nonordinary form. Strict product
-   repair remains `.95`.
+   requires different normalized alphanumeric spellings from different decoder sources;
+   repeated forms or punctuation-only variants are one observation. Acronyms/camel
+   identifiers require exact evidence; Titlecase terms require at least one nonordinary
+   form. A candidate carrying any unapproved relaxed repair is rejected wholesale.
+   Strict product repair remains `.95`.
 4. Pre-clean spoken alias shelter for mechanically derived `letter + >=2 plus` terms.
    Two raw sources must say the bounded alias before `C plus plus` becomes `C++`.
    `C#`/“sharp” is deliberately excluded.
 
-The last two mechanisms raised 282→295 hits without changing general output. They fix
-source defects rather than hiding scorer symptoms: heterogeneous misspellings provide
-repair evidence; identical homophones do not; symbol shelter runs before cleanup can
-collapse the evidence.
+The last two mechanisms raised 282→295 hits without changing general output in runs
+133–134. They fix source defects rather than hiding scorer symptoms: heterogeneous
+misspellings provide repair evidence; identical homophones do not; symbol shelter runs
+before cleanup can collapse the evidence. A final independent review then hardened
+source independence, punctuation normalization, and unapproved-event rejection with
+three red→green regression tests; the post-review harness result is the final authority.
 
 ### Safety sequence
 
@@ -72,11 +76,10 @@ Safety failures were treated as invalidations, not explained away:
 
 The final C++ shelter is mechanically exact and fired on only the two intended frozen
 rows; its planned extra shard was cancelled to converge promptly. It therefore has
-strong unit/frozen evidence but not a separate fresh-holdout claim.
-Across 10,830 already-decoded People's Speech rows from shards 0–2, the exact
-`C plus plus` consensus pattern occurred zero times, so the shelter introduced no
-additional real-speech fire in that retrospective scan.
-
+strong unit/frozen evidence but not a separate fresh-holdout claim. Across 10,830
+already-decoded People's Speech rows from shards 0–2, the exact `C plus plus` consensus
+pattern occurred zero times, so the shelter introduced no additional real-speech fire
+in that retrospective scan.
 
 ### What failed
 
@@ -93,7 +96,7 @@ permutations. External independent pilots also stopped early:
 - Nemotron Speech Streaming: one monorepo rescue already subsumed by diverse repair;
   RTFx 84.67 and ~2.05 GB process footprint missed product bars.
 
-All 51 final misses lack an exact canonical in every Parakeet source. Remaining broad
+All 51 run134 misses lack an exact canonical in every Parakeet source. Remaining broad
 phonetic lowering is unsafe; `.70` retained no extra recall and produced unrelated
 technical insertions. Decode-side candidate creation is closed for this model family.
 
