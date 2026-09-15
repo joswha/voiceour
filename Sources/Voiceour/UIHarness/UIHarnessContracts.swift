@@ -353,18 +353,13 @@
                 mode = .flowUpdate
             }
 
-            let rawOnly = Self.value(for: "--only", in: arguments)
-            if let raw = rawOnly {
+            if let raw = Self.value(for: "--only", in: arguments) {
                 only = raw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
                     .filter { !$0.isEmpty }
             }
             if let raw = Self.value(for: "--except", in: arguments) {
                 except = raw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
                     .filter { !$0.isEmpty }
-            } else if mode != .list, mode != .flowList, rawOnly == nil {
-                // An unfiltered render must stay on the portable path. Explicit filters
-                // opt out exactly as they did when the catalog parsed argv itself.
-                except = ["os26"]
             }
             if let raw = Self.value(for: "--out", in: arguments) {
                 outputDirectory = URL(fileURLWithPath: raw, isDirectory: true)

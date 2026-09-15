@@ -305,9 +305,6 @@
             RenderOverrides.reduceMotion = false
             RenderOverrides.differentiateWithoutColor = false
             RenderOverrides.increasedContrast = false
-            // `#available` follows the runtime OS. Committed goldens intentionally
-            // exercise the painted path even when the harness runs on macOS 26.
-            RenderOverrides.forceLegacyGlass = true
             // Which apps this Mac has installed is machine state, and an app
             // icon is the most machine-dependent pixel a golden could hold.
             RenderOverrides.installedApps = pinnedInstalledApps

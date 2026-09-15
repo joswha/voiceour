@@ -263,13 +263,14 @@ struct ConsoleGlossaryTab: View {
                     Text(Self.originTitle(originFilter)).lineLimit(1)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                originFilter.map { "Filtering by \(Self.originTitle($0))" } ?? "Filter by origin"
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Show terms of one origin")
-        .accessibilityLabel(
-            originFilter.map { "Filtering by \(Self.originTitle($0))" } ?? "Filter by origin"
-        )
         .accessibilityIdentifier("glossary.filter")
     }
 

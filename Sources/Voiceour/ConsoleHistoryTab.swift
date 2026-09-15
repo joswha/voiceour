@@ -308,11 +308,12 @@ struct ConsoleHistoryTab: View {
                     Text(activeFilterLabel(appFilter)).lineLimit(1)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(appFilter.map { "Filtering by \(activeFilterLabel($0))" } ?? "Filter by app")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Show sessions from one app")
-        .accessibilityLabel(appFilter.map { "Filtering by \(activeFilterLabel($0))" } ?? "Filter by app")
         .accessibilityIdentifier("sessions.filter")
     }
 
@@ -915,6 +916,9 @@ struct ConsoleHistoryTab: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
+            // Keep mouse selection while exposing the text once, not both the
+            // native selection wrapper and its identical accessibility child.
+            .accessibilityRepresentation { Text(value) }
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

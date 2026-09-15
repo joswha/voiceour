@@ -64,7 +64,7 @@
     //
     // Adding a scene is a one-place edit: append a `UIScene` to the matching group
     // array below (`consoleScenes`, `menuScenes`, `overlayScenes`,
-    // `accessibilityScenes`, `systemGlassScenes`), which is all `all()` concatenates.
+    // `accessibilityScenes`), which is all `all()` concatenates.
     // Prefer the area factories over a raw `UIScene(...)` so sizes, tags and appearance
     // stay consistent. Every scene must be reproducible byte for
     // byte, which in practice means:
@@ -102,13 +102,12 @@
                 + menuScenes
                 + overlayScenes
                 + accessibilityScenes
-                + systemGlassScenes
         }
 
         static func everything() -> [UIScene] {
-            // Covers direct overlay scenes as well as coordinator-backed ones.
-            // Portable scenes stay pinned to the painted path; only the explicitly
-            // tagged system-glass scenes below release that pin for their lifetime.
+            // Covers direct overlay scenes as well as coordinator-backed ones. The
+            // pins are process-wide, so they are installed before any scene closure
+            // runs; every scene then renders the one shipping path.
             UIFixtures.pinProcessSeams()
             return registry.map { $0.makeScene() }
         }
@@ -278,36 +277,6 @@
                     "Settings readiness while the model is still downloading",
                     tab: .settings,
                     fixture: .backendDownloading
-                ),
-            ]
-        }
-
-        /// Representative native-material scenes for each surviving surface with
-        /// a macOS 26 availability branch. The console itself is now a native
-        /// `TabView`/`Form` hierarchy and has no separate branch, and the recording
-        /// island has no branch at all: it is one CPU-rasterized mercury body on
-        /// every OS, with no capsule, no material and no glass to exercise.
-        ///
-        /// What these verify is the app's own painted content, geometry, control
-        /// boundaries and accessibility tree on that branch -- NOT the system material.
-        /// `cacheDisplay` does not rasterise SwiftUI `.glassEffect`, so the material is
-        /// absent from these captures rather than flattened.
-        private static var systemGlassScenes: [UISceneDescriptor] {
-            [
-                systemMenu(
-                    "menu.idle.os26",
-                    "Menu bar popover at rest on the native branch",
-                    fixture: .populated
-                ),
-                systemMenu(
-                    "menu.error.os26",
-                    "Menu bar popover after a failed start on the native branch",
-                    fixture: .micDenied
-                ),
-                systemMenu(
-                    "menu.transcript.os26",
-                    "Menu bar popover with the last transcript on the native branch",
-                    fixture: .completedDictation
                 ),
             ]
         }
@@ -621,32 +590,6 @@
             }
         }
 
-        /// The menu equivalent of `systemConsole`: coordinator construction pins
-        /// process seams, so the native path is released only after the fixture exists.
-        private static func systemMenu(
-            _ identifier: String,
-            _ title: String,
-            fixture: UIFixtures.Kind
-        ) -> UISceneDescriptor {
-            UISceneDescriptor(
-                id: identifier,
-                title: title,
-                size: menuSize,
-                tags: ["menu", "os26"]
-            ) {
-                AnyView(
-                    UIHarnessSystemGlassScope {
-                        AnyView(
-                            MenuView(coordinator: UIFixtures.coordinator(fixture))
-                                .frame(width: menuSize.width, alignment: .top)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                                .background(backdrop(for: .dark))
-                        )
-                    }
-                )
-            }
-        }
-
         /// Literal fills, not `NSColor` system colours: a dynamic system colour
         /// resolves against this Mac's accent and appearance settings and would not
         /// port between machines.
@@ -823,28 +766,6 @@
             content
                 .onDisappear {
                     RenderOverrides.historyInitialAppFilter = previous
-                }
-        }
-    }
-
-    /// Process-wide render seam scoped to one hosted scene. `onDisappear` runs during
-    /// `UIHarnessRuntime` teardown before the next scene is built, preventing the
-    /// native path from contaminating portable scenes later in the same process.
-    private struct UIHarnessSystemGlassScope: View {
-        private let content: AnyView
-        private let previousForceLegacyGlass: Bool
-
-        @MainActor
-        init(build: @escaping @MainActor () -> AnyView) {
-            content = build()
-            previousForceLegacyGlass = RenderOverrides.forceLegacyGlass
-            RenderOverrides.forceLegacyGlass = false
-        }
-
-        var body: some View {
-            content
-                .onDisappear {
-                    RenderOverrides.forceLegacyGlass = previousForceLegacyGlass
                 }
         }
     }

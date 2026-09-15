@@ -17,8 +17,8 @@
     /// all the standard presentation values, and nothing else in this target reads
     /// `RenderOverrides`.
     ///
-    /// The selection matches `make ui-snap` — `all()` drops `os26` scenes for any
-    /// caller that passes neither `--list` nor `--only`, which a test runner does not.
+    /// `all()` is the unfiltered catalog, and with one shipping render path an
+    /// unfiltered `make ui-snap` renders exactly this selection.
     @MainActor
     struct UISceneCatalogTests {
         @Test func sceneIdsAreUnique() {

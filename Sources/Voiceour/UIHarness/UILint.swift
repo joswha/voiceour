@@ -233,10 +233,10 @@
 
         /// `unsupported-view`: SwiftUI painted its `#FFCC00` "cannot render" placeholder.
         ///
-        /// Catches an AppKit-backed view (NSViewRepresentable, ProgressView, the repo's own
-        /// FrostedGlassBackground) failing to rasterise. It fails silently — you get a
-        /// cheerful yellow rectangle with a no-entry badge instead of an error — so without
-        /// this rule the placeholder gets committed as the expected appearance.
+        /// Catches an AppKit-backed view — an `NSViewRepresentable`-backed view, a
+        /// ProgressView — failing to rasterise. It fails silently: you get a cheerful
+        /// yellow rectangle with a no-entry badge instead of an error, so without this
+        /// rule the placeholder gets committed as the expected appearance.
         private static func unsupportedView(
             root: AXNode,
             capture: UICapture?,

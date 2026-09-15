@@ -21,9 +21,7 @@ import VoiceCore
 ///   choices", and it leaves the primary as the only bounded, filled, tinted
 ///   object in the action region.
 ///
-/// On macOS 26 the standard popover owns its system glass chrome. The legacy
-/// path paints one opaque rounded ground after clearing the host window so it
-/// never stacks a second rounded rectangle inside AppKit's popover shape.
+/// The standard popover owns its system glass chrome; content adds no second ground.
 struct MenuView: View {
     var coordinator: DictationCoordinator
     private var a11y = A11y()
@@ -33,26 +31,8 @@ struct MenuView: View {
         self.coordinator = coordinator
     }
 
-    @ViewBuilder
     var body: some View {
-        if #available(macOS 26, *) {
-            if RenderOverrides.forceLegacyGlass {
-                legacyBody
-            } else {
-                menuBehavior(menuContent)
-            }
-        } else {
-            legacyBody
-        }
-    }
-
-    private var legacyBody: some View {
-        menuBehavior(
-            menuContent
-                .background { popoverGround }
-                .clipShape(MenuLayout.popoverShape)
-                .background { PopoverChromeConfigurator() }
-        )
+        menuBehavior(menuContent)
     }
 
     private var menuContent: some View {
@@ -111,20 +91,6 @@ struct MenuView: View {
     /// single frame while the popover window resized under the pointer.
     private var transition: Animation? {
         a11y.reduceMotion ? nil : VoiceourMotion.standard
-    }
-
-    // MARK: Ground
-
-    private var popoverGround: some View {
-        MenuLayout.popoverShape
-            .fill(VoiceourPalette.Ink.void)
-            .overlay {
-                MenuLayout.popoverShape
-                    .strokeBorder(
-                        a11y.lineEdge,
-                        lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
-                    )
-            }
     }
 
     // MARK: Status

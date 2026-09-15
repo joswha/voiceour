@@ -90,36 +90,9 @@
         }
 
         private static func runFlows(_ request: UIHarnessRequest) -> Bool {
-            var flows = UIFlowCatalog.all(request: request)
+            let flows = UIFlowCatalog.all(request: request)
             guard !flows.isEmpty else {
                 return report("no flow matched the request filters")
-            }
-            // `os26` flows release `RenderOverrides.forceLegacyGlass` so the script drives the
-            // native macOS 26 branch. `#available` resolves against the RUNTIME OS, so on
-            // macOS 14/15 releasing the seam changes nothing: every one of them would re-run
-            // the painted path a portable flow already verifies while pretending to exercise
-            // the native branch.
-            //
-            // Skip them rather than abort, exactly as the scene path does: `--only console`
-            // substring-matches `console.tab.navigation.os26` alongside the portable console
-            // flows, and that focused run is the documented everyday workflow. Fail only when
-            // nothing runnable is left.
-            if #unavailable(macOS 26) {
-                let native = flows.filter { $0.tags.contains("os26") }
-                if !native.isEmpty {
-                    flows.removeAll { $0.tags.contains("os26") }
-                    guard !flows.isEmpty else {
-                        return report(
-                            "every matched flow is tagged os26 and needs macOS 26; this host is "
-                                + "older, so they would drive the painted path rather than the "
-                                + "native branch. Use --except os26 (that is what `make ui-flow` does)."
-                        )
-                    }
-                    report(
-                        "skipping \(native.count) os26 flow(s): they need macOS 26 and this host "
-                            + "is older. Running the \(flows.count) portable flow(s)."
-                    )
-                }
             }
 
             let results = flows.map { UIFlowRunner.run($0, request: request) }
@@ -154,43 +127,9 @@
 
     extension UIHarnessMain {
         private static func runScenes(_ request: UIHarnessRequest) -> Bool {
-            var scenes = UISceneCatalog.all(request: request)
+            let scenes = UISceneCatalog.all(request: request)
             guard !scenes.isEmpty else {
                 return report("no scene matched --only \(request.only.joined(separator: ","))")
-            }
-            // `os26` scenes execute the native macOS 26 code branch. They do NOT capture the
-            // system material: `cacheDisplay` does not rasterise SwiftUI `.glassEffect`, so it
-            // is absent from these renders rather than flattened, and what the goldens record
-            // is the app's own paint, geometry and accessibility tree on that branch.
-            //
-            // `#available` resolves against the RUNTIME OS, so on macOS 14/15 every one of
-            // them would quietly take the painted fallback branch and record something the
-            // scene does not exist to show. In `check` mode that is a confusing failure; in
-            // `update` mode it would overwrite the native goldens with fallback renders, and
-            // the corruption would only surface on the next Tahoe machine.
-            //
-            // Skip them rather than abort: `--only console` substring-matches
-            // native scenes such as `console.sessions.os26` as well as the portable
-            // console scenes, and that focused run is the documented everyday workflow.
-            // Refusing the whole selection over one unrenderable match would break it on
-            // exactly the hosts that can only ever use the portable path. Fail only when
-            // nothing renderable is left.
-            if #unavailable(macOS 26) {
-                let native = scenes.filter { $0.tags.contains("os26") }
-                if !native.isEmpty {
-                    scenes.removeAll { $0.tags.contains("os26") }
-                    guard !scenes.isEmpty else {
-                        return report(
-                            "every matched scene is tagged os26 and needs macOS 26; this host is "
-                                + "older, so they would record the painted fallback rather than "
-                                + "the native branch. Use --except os26 (that is what `make ui-snap` does)."
-                        )
-                    }
-                    report(
-                        "skipping \(native.count) os26 scene(s): they need macOS 26 and this host "
-                            + "is older. Rendering the \(scenes.count) portable scene(s)."
-                    )
-                }
             }
             guard prepareDirectories(request) else { return false }
             // `prepareProcess()` already enabled enhanced accessibility and reported failure

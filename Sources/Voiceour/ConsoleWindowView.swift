@@ -278,6 +278,9 @@ struct ConsoleStateMark: View {
         }
         .foregroundStyle(severity.color)
         .fixedSize(horizontal: true, vertical: false)
+        // Native form readouts otherwise acquire a selectable wrapper whose AX
+        // value stays at the first label even after the visible state changes.
+        .textSelection(.disabled)
         .accessibilityLabel(label)
     }
 }

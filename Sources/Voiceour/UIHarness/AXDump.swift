@@ -275,8 +275,8 @@
     @objc private protocol AXModernElement {
         func accessibilityRole() -> String?
         func accessibilitySubrole() -> String?
-        func accessibilityLabel() -> String?
-        func accessibilityTitle() -> String?
+        func accessibilityLabel() -> Any?
+        func accessibilityTitle() -> Any?
         func accessibilityValue() -> Any?
         func accessibilityPlaceholderValue() -> String?
         func accessibilityIdentifier() -> String?
@@ -337,12 +337,16 @@
             return legacyText(AXLegacyKey.subrole)
         }
 
-        /// SwiftUI publishes its text through `accessibilityLabel`; AppKit-backed controls
-        /// publish theirs through `accessibilityTitle` (or legacy `AXDescription`/`AXTitle`).
-        /// One field in the golden, four possible sources.
+        /// AppKit's title carries a control's explicit accessible name; its label
+        /// may only describe the visible glyph or selected text. SwiftUI nodes
+        /// without a title publish their name through the label instead.
         func label() -> String? {
-            if answers(AXSelectors.label), let label = axNonEmpty(modern.accessibilityLabel()) { return label }
-            if answers(AXSelectors.title), let title = axNonEmpty(modern.accessibilityTitle()) { return title }
+            if answers(AXSelectors.title), let title = AXValueFormatter.string(from: modern.accessibilityTitle()) {
+                return title
+            }
+            if answers(AXSelectors.label), let label = AXValueFormatter.string(from: modern.accessibilityLabel()) {
+                return label
+            }
             if let described = legacyText(AXLegacyKey.descriptionAttribute) { return described }
             return legacyText(AXLegacyKey.title)
         }

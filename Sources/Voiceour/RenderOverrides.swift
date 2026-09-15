@@ -17,8 +17,8 @@ import VoiceMac
 /// The invariant is about its defaults: every field's declared default is nil or false,
 /// and with all of them at that default the app behaves exactly as it would if this type
 /// did not exist. How a set seam is read follows what it substitutes — `override ?? realValue`
-/// for a value, `if let` for a wholesale replacement, a plain boolean branch for
-/// `forceLegacyGlass` — never a branch that exists only to make a golden pass.
+/// for a value, `if let` for a wholesale replacement — never a branch that exists
+/// only to make a golden pass.
 /// Read and written on the main thread only, like the views that consume them.
 @MainActor
 enum RenderOverrides {
@@ -100,10 +100,6 @@ enum RenderOverrides {
     static var mercurySeed: UInt64?
     static var mercuryStep: Int?
     static var mercuryWorld: MercuryWorld?
-
-    /// Forces the painted macOS 14 glass path on a newer runtime. Production
-    /// follows availability normally; the harness pins this to true below.
-    static var forceLegacyGlass = false
 
     /// Harness-only ledger populated by `.roleStyle(_:)`. Nil in production, so
     /// shipping views do not install geometry probes or allocate samples.

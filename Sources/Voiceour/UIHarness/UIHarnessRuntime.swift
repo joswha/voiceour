@@ -81,18 +81,15 @@
     /// Known and accepted limitations of this rasterisation path, all measured:
     /// - `cacheDisplay` silently drops `.blur(radius:)` and `.shadow(...)`; Core Animation
     ///   filters are not composited by it. There is no workaround — do not add one.
-    /// - A legacy behind-window `NSVisualEffectView` renders as a flat opaque fill because
-    ///   there is no desktop behind an offscreen window to sample. That is also a
-    ///   determinism win: the user's wallpaper cannot perturb a golden.
-    /// - `cacheDisplay` does not rasterise SwiftUI `.glassEffect` at all. That is different
-    ///   in kind from the bullet above: the legacy material rasterises as a flat fill, the
-    ///   modern one is absent and its area captures fully transparent.
-    ///   `overlay.island.recording.os26.png` captures 0.0% opaque and 59.3% fully
-    ///   transparent; `menu.idle.os26.png` likewise omits its glass, against 100% opaque
-    ///   for the painted `console.sessions.populated.png`. An `os26` scene therefore
-    ///   verifies the native branch's own painted content, geometry, control boundaries and
-    ///   accessibility tree; it never verifies the material. `scripts/console_shot.sh` is
-    ///   the only way to see composited glass.
+    /// - The console's window ground is an `NSGlassEffectView` (`ConsoleGlassGround`), and
+    ///   an offscreen window has no desktop behind it for that material to sample.
+    ///   On macOS 27, `console.home.populated.png` measures 99.936% opaque and
+    ///   0.047% fully transparent pixels: a nearly opaque ground, not composited
+    ///   glass. Native scenes pass error-severity lint without a Reduce Transparency
+    ///   pin. The PNG, rather than the manifest (which carries no alpha histogram),
+    ///   supplies those percentages. Verify the real material through
+    ///   `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh`.
+    ///   No shipping view uses SwiftUI `.glassEffect`.
     /// - `NSColor.controlAccentColor` resolves to the user's system accent colour and no
     ///   environment key overrides it. A golden that shows the system accent will not port
     ///   between machines; SwiftUI's `Color.accentColor` is safe.
@@ -422,7 +419,7 @@
             }
             // SHOWSTOPPER: `cacheDisplay(in:to:)` into a bitmap we own, never `ImageRenderer`.
             // ImageRenderer stubs EVERY NSViewRepresentable and AppKit-backed control with an
-            // opaque #FFCC00 rectangle — confirmed for this repo's own FrostedGlassBackground
+            // opaque #FFCC00 rectangle — confirmed for an `NSViewRepresentable`-backed view
             // and for a plain ProgressView — so it cannot render this app at all.
             view.cacheDisplay(in: view.bounds, to: rep)
             guard rep.bitmapData != nil else {

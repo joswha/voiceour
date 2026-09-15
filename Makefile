@@ -215,28 +215,16 @@ fixture:
 	scripts/make_fixture.sh
 
 #> UI goldens
-.PHONY: ui-snap ui-snap-os26 ui-update ui-update-os26 ui-list ui-flow ui-flow-os26 ui-flow-update ui-flow-list ui-all ui-mercury ui-mercury-bench
+.PHONY: ui-snap ui-update ui-list ui-flow ui-flow-update ui-flow-list ui-all ui-mercury ui-mercury-bench
 
-# The portable gate. Runs on any host: every scene is pinned to the painted
-# path by `RenderOverrides.forceLegacyGlass`, so these goldens are the ones CI
-# and a macOS 14/15 machine can both reproduce.
-## ui-snap: portable scene digests and AX dumps
+# Every scene renders the shipping path on the macOS 27 host the package requires.
+## ui-snap: scene digests and AX dumps
 ui-snap:
-	scripts/ui_harness.sh --except os26
+	scripts/ui_harness.sh
 
-# The native Liquid Glass gate. Renders real system glass, so it only works on
-# a macOS 26 host and its goldens are excluded from `ui-snap` above.
-## ui-snap-os26: the native Liquid Glass scenes (macOS 26 host only)
-ui-snap-os26:
-	scripts/ui_harness.sh --only os26
-
-## ui-update: bless intended portable scene changes
+## ui-update: bless intended scene changes
 ui-update:
-	scripts/ui_harness.sh --update --except os26
-
-## ui-update-os26: bless intended native scene changes
-ui-update-os26:
-	scripts/ui_harness.sh --update --only os26
+	scripts/ui_harness.sh --update
 
 ## ui-list: list the scene catalogue
 ui-list:
@@ -259,36 +247,22 @@ ui-mercury-bench:
 	.build/release/Voiceour --ui-harness --repo-root . --mode mercury-benchmark
 
 # The required semantic flow gate checks deterministic journals and named expectations.
-## ui-flow: portable semantic flow journals
+## ui-flow: semantic flow journals
 ui-flow:
-	scripts/ui_harness.sh --mode flow-check --except os26
-
-# The native gate for interactive behaviour. These flows release
-# `RenderOverrides.forceLegacyGlass`, so they drive the native macOS 26 branch and
-# only mean anything on a macOS 26 host; they are excluded from `ui-flow` above.
-## ui-flow-os26: native semantic flow journals (macOS 26 host only)
-ui-flow-os26:
-	scripts/ui_harness.sh --mode flow-check --only os26
+	scripts/ui_harness.sh --mode flow-check
 
 # Flow updates bless intended journal changes.
-## ui-flow-update: bless intended portable flow journals
+## ui-flow-update: bless intended flow journals
 ui-flow-update:
-	scripts/ui_harness.sh --mode flow-update --except os26
+	scripts/ui_harness.sh --mode flow-update
 
 ## ui-flow-list: list the flow catalogue
 ui-flow-list:
 	scripts/ui_harness.sh --mode flow-list
 
 # The complete local UI gate includes scene snapshots and semantic flow journals.
-# The os26 legs need a macOS 26 host to render native glass, so they are conditional
-# rather than excluded: on this hardware they are part of the gate.
-## ui-all: every UI gate this host can run
+## ui-all: every scene and semantic flow gate
 ui-all: ui-snap ui-flow
-	@if [ "$$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then \
-		$(MAKE) ui-snap-os26 ui-flow-os26; \
-	else \
-		echo "ui-all: skipping os26 gates (host < macOS 26)"; \
-	fi
 
 #> Benchmarks
 .PHONY: bench-smoke bench-stt bench-e2e bench-techterms bench-gate
