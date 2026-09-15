@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   real-asr:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - name: Check out repository
@@ -29,6 +29,15 @@ jobs:
       # revision alone does not identify the bytes: the key carries the artifact's
       # file name too. This caches the default variant, which is what the build under
       # test downloads when nothing sets VOICEOUR_MODEL_VARIANT.
+
+      - name: Assert the macOS 27 toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion | grep -E '^27\.'
+          xcodebuild -version | grep -E '^Xcode 27'
+          [ "$(xcrun --show-sdk-version | cut -d. -f1)" = "27" ]
+          swift --version 2>&1 | grep -E 'Swift version 6\.4'
+          [ "$(uname -m)" = "arm64" ]
       - name: Cache the pinned Parakeet artifact
         uses: actions/cache@v4
         with:

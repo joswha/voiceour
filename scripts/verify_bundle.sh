@@ -16,7 +16,11 @@ fail() {
 
 # The whole point of the bundle: a copied .app must carry its own ASR sidecar.
 [ -x "$SIDECAR" ] || fail "missing ASR sidecar $SIDECAR; run scripts/bundle.sh first"
-[ -s "$APP/Contents/Resources/voiceour_VoiceCore.bundle/ordinary-words.txt" ] || fail "missing VoiceCore ordinary-word resource"
+voicecore_resources="$APP/Contents/Resources/voiceour_VoiceCore.bundle"
+if [ -d "$voicecore_resources/Contents" ]; then
+  voicecore_resources="$voicecore_resources/Contents/Resources"
+fi
+[ -s "$voicecore_resources/ordinary-words.txt" ] || fail "missing VoiceCore ordinary-word resource"
 binary_archs=$(lipo -archs "$BIN")
 [ "$binary_archs" = "arm64" ] || fail "unexpected architectures for $BIN: $binary_archs"
 sidecar_archs=$(lipo -archs "$SIDECAR")
@@ -41,6 +45,15 @@ lsui_element=$(/usr/libexec/PlistBuddy -c 'Print LSUIElement' "$APP/Contents/Inf
 
 microphone_usage=$(/usr/libexec/PlistBuddy -c 'Print NSMicrophoneUsageDescription' "$APP/Contents/Info.plist")
 [ -n "$microphone_usage" ] || fail "NSMicrophoneUsageDescription is empty"
+
+min_os=$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$APP/Contents/Info.plist")
+[ "$min_os" = "27.0" ] || fail "unexpected LSMinimumSystemVersion: $min_os"
+for binary in "$BIN" "$SIDECAR"; do
+  build=$(xcrun vtool -show-build "$binary")
+  printf '%s\n' "$build"
+  printf '%s\n' "$build" | grep -Eq '^ *minos 27\.' || fail "$binary is not built for macOS 27: $build"
+  printf '%s\n' "$build" | grep -Eq '^ *sdk 27\.' || fail "$binary was not linked against the macOS 27 SDK: $build"
+done
 
 codesign --display --verbose=4 "$APP"
 entitlements=$(codesign --display --entitlements :- "$APP" 2>&1)

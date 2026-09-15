@@ -15,13 +15,11 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # macos-26, not macos-15: the console's glass ground subclasses
-  # `NSGlassEffectView` and three surfaces call SwiftUI `.glassEffect`, both
-  # macOS 26 APIs behind `if #available(macOS 26, *)`. Availability gates the
-  # runtime call, not the compile, so the runner has to carry the macOS 26 SDK
-  # even though the deployment target stays macOS 14.
+  # The package floor is macOS 27, so the runner must be macOS 27.
+  # xcode-27 is GitHub's public-preview arm64 label for that image.
+  # Assertions drain command output: grep -q can SIGPIPE xcodebuild under pipefail.
   ci:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - name: Check out repository
@@ -30,6 +28,15 @@ jobs:
           persist-credentials: false
 
       # `bench/` is the only Python left in this repository, and it never ships.
+
+      - name: Assert the macOS 27 toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion | grep -E '^27\.'
+          xcodebuild -version | grep -E '^Xcode 27'
+          [ "$(xcrun --show-sdk-version | cut -d. -f1)" = "27" ]
+          swift --version 2>&1 | grep -E 'Swift version 6\.4'
+          [ "$(uname -m)" = "arm64" ]
       - name: Install uv and cache Python dependencies
         uses: astral-sh/setup-uv@v5
         with:
@@ -87,13 +94,22 @@ jobs:
           fi
 
   release:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Assert the macOS 27 toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion | grep -E '^27\.'
+          xcodebuild -version | grep -E '^Xcode 27'
+          [ "$(xcrun --show-sdk-version | cut -d. -f1)" = "27" ]
+          swift --version 2>&1 | grep -E 'Swift version 6\.4'
+          [ "$(uname -m)" = "arm64" ]
 
       - name: Build release configuration
         run: swift build -c release
@@ -111,12 +127,20 @@ jobs:
   # above; promote the scene snapshots and their lint findings only after two
   # consecutive green runs on main.
   ui-snapshots:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Portable UI snapshots
+      - name: Assert the macOS 27 toolchain
+        run: |
+          set -euo pipefail
+          sw_vers -productVersion | grep -E '^27\.'
+          xcodebuild -version | grep -E '^Xcode 27'
+          [ "$(xcrun --show-sdk-version | cut -d. -f1)" = "27" ]
+          swift --version 2>&1 | grep -E 'Swift version 6\.4'
+          [ "$(uname -m)" = "arm64" ]
+      - name: UI snapshots
         run: make ui-snap

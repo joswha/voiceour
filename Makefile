@@ -1,7 +1,7 @@
 # Voiceour is package-first: SwiftPM compiles it, `scripts/bundle.sh` assembles the
 # .app, and this Makefile is the whole interface. `make` prints the catalogue, `make
 # run` gets the real app running, `make check` is the gate. Nothing here needs an
-# install beyond Apple's Command Line Tools, which ship both make and Swift.
+# install beyond Xcode 27, whose toolchain ships make, Swift 6.4 and the macOS 27 SDK.
 #
 # That make is GNU Make 3.81, which has no `.ONESHELL`, no `.SHELLFLAGS` and no
 # `$(file ...)`. Every recipe line is its own `/bin/sh -c`, so a recipe that needs
