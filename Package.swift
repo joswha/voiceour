@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.4
 import PackageDescription
 
 // Feature guards for the vendored ggml/parakeet.cpp sources under Vendor/parakeet.
@@ -60,7 +60,7 @@ let parakeetCxxSettings: [CXXSetting] =
 
 let package = Package(
     name: "voiceour",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v27)],
     products: [
         .executable(name: "Voiceour", targets: ["Voiceour"]),
         .executable(name: "voiceour-bench", targets: ["VoiceourBench"]),
@@ -71,9 +71,6 @@ let package = Package(
         ),
         .library(name: "VoiceCore", targets: ["VoiceCore"]),
         .library(name: "VoiceMac", targets: ["VoiceMac"])
-    ],
-    dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-testing.git", revision: "5ee435b15ad40ec1f644b5eb9d247f263ccd2170")
     ],
     targets: [
         .target(
@@ -145,16 +142,14 @@ let package = Package(
         .testTarget(
             name: "VoiceCoreTests",
             dependencies: [
-                "VoiceCore",
-                .product(name: "Testing", package: "swift-testing")
+                "VoiceCore"
             ]
         ),
         .testTarget(
             name: "VoiceMacTests",
             dependencies: [
                 "VoiceMac",
-                "VoiceCore",
-                .product(name: "Testing", package: "swift-testing")
+                "VoiceCore"
             ]
         ),
         .testTarget(
@@ -162,31 +157,27 @@ let package = Package(
             dependencies: [
                 "Voiceour",
                 "VoiceMac",
-                "VoiceCore",
-                .product(name: "Testing", package: "swift-testing")
+                "VoiceCore"
             ]
         ),
         .testTarget(
             name: "ASRSidecarCoreTests",
             dependencies: [
                 "ASRSidecarCore",
-                "VoiceCore",
-                .product(name: "Testing", package: "swift-testing")
+                "VoiceCore"
             ]
         ),
         .testTarget(
             name: "VoiceourBenchTests",
             dependencies: [
                 "VoiceourBench",
-                "VoiceCore",
-                .product(name: "Testing", package: "swift-testing")
+                "VoiceCore"
             ]
         ),
         .testTarget(
             name: "VoiceourASRTests",
             dependencies: [
-                "VoiceCore",
-                .product(name: "Testing", package: "swift-testing")
+                "VoiceCore"
             ]
         )
     ],

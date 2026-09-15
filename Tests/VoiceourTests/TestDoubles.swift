@@ -10,6 +10,7 @@ import Testing
 /// Swift test targets cannot import one another, so each target keeps its own
 /// support file. Doubles live here when more than one test file needs them;
 /// single-consumer, behaviour-specific fakes stay private to their own file.
+// `lock` protects recording output and microphone pin history.
 final class FakeRecorder: AudioRecording, @unchecked Sendable {
     private let lock = NSLock()
     private let directory: URL
@@ -78,6 +79,7 @@ final class FakeRecorder: AudioRecording, @unchecked Sendable {
     }
 }
 
+// `lock` protects backend health; decode behavior is immutable.
 final class FakeASR: ASRClienting, @unchecked Sendable {
     enum Behavior {
         case text(String)
@@ -159,6 +161,7 @@ struct FakePermissions: PermissionsChecking {
     func accessibility() -> PermissionState { .granted }
 }
 
+// `lock` protects callbacks and cancel arming.
 final class FakeHotkey: HotkeyBinding, @unchecked Sendable {
     private let lock = NSLock()
     private var handler: (@Sendable () -> Void)?

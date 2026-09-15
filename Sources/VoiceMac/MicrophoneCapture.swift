@@ -24,6 +24,7 @@ import Foundation
 /// type. Exact zero is a sound proxy rather than a threshold guess: across 375
 /// consecutive built-in-microphone buffers, none were all-zero, while 64 of 197
 /// were on a cold AirPods Max.
+// `lock` protects capture state; `sessionQueue` serializes session start and stop.
 final class MicrophoneCapture: NSObject, @unchecked Sendable {
     enum CaptureError: Error, LocalizedError {
         case noInputDevice
@@ -119,8 +120,7 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
             startedAt = Date()
             isCapturing = true
         }
-        let session = session
-        sessionQueue.async { session.startRunning() }
+        sessionQueue.async { self.session.startRunning() }
     }
 
     /// Idempotent: cancel, error and normal-stop paths all reach it.

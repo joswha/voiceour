@@ -20,6 +20,7 @@ import VoiceMac
 /// for a value, `if let` for a wholesale replacement, a plain boolean branch for
 /// `forceLegacyGlass` — never a branch that exists only to make a golden pass.
 /// Read and written on the main thread only, like the views that consume them.
+@MainActor
 enum RenderOverrides {
     /// Pins "now" for deterministic fixtures that render date-relative state.
     /// Without it, labels derived from the current day can change at midnight.
@@ -168,6 +169,7 @@ final class TextRoleRecorder {
 /// resolve all three the same way — one that misses a seam bakes this Mac's own
 /// settings into a committed fixture. Always a fresh instance: `DateFormatter`
 /// is mutable and each call site sets its own format on top.
+@MainActor
 enum RenderFormatters {
     static func dateFormatter() -> DateFormatter {
         let formatter = DateFormatter()

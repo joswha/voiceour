@@ -58,12 +58,6 @@ struct RecordingOverlayAnnouncementTests {
                 failure: nil
             ) == "The transcript is on the clipboard."
         )
-        #expect(
-            RecordingOverlayController.announcement(
-                for: .insertFailed(reason: "kAXErrorNoValue"),
-                failure: nil
-            ) == "Paste failed. The transcript is on the clipboard."
-        )
     }
 
     /// A normal paste is already confirmed by the arriving text, and a

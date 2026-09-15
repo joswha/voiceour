@@ -1,6 +1,7 @@
 import Darwin
 import Dispatch
 import Foundation
+import Synchronization
 
 // Teardown invariant for every reader in this file: it drains a *duplicate* of
 // the caller's descriptor, so closing the caller's `FileHandle` no longer ends
@@ -36,7 +37,10 @@ import Foundation
 /// else may read it -- a `read(upToCount:)` there would answer `EAGAIN` with
 /// empty data, which every caller in this module reads as end of stream. The
 /// pipe's write end is a separate description, so the child is unaffected.
-final class PipeByteSource: @unchecked Sendable {
+///
+/// `Sendable` without an escape hatch: the stored properties are immutable, and
+/// every mutable field lives in `State`, which is touched only on `queue`.
+final class PipeByteSource: Sendable {
     /// Serial queue that owns the drain. `onBytes`, `onEnd` and
     /// `wantsMoreBytes` always run on it, so a consumer can confine its own
     /// state to this queue instead of taking a second lock.
@@ -45,16 +49,18 @@ final class PipeByteSource: @unchecked Sendable {
     private let state: State
     private let source: DispatchSourceRead?
 
-    private static let liveLock = NSLock()
-    private static var liveLabels: [String: Int] = [:]
+    /// Live sources counted by label. A mutex rather than a `static var`: each
+    /// source mutates it from its own queue, and a test reads the count from
+    /// yet another thread.
+    private static let liveLabels = Mutex<[String: Int]>([:])
 
     /// Sources holding a duplicated descriptor right now, counted by label. A
     /// teardown path that forgets `stop()` shows up here, which is the one
     /// failure mode a leaked reader shares with a leaked thread. Scoped by
     /// label so a test can measure its own sources while other suites run.
     static func liveCount(labelPrefix: String) -> Int {
-        liveLock.withLock {
-            liveLabels.reduce(0) { $1.key.hasPrefix(labelPrefix) ? $0 + $1.value : $0 }
+        liveLabels.withLock { labels in
+            labels.reduce(0) { $1.key.hasPrefix(labelPrefix) ? $0 + $1.value : $0 }
         }
     }
 
@@ -67,7 +73,8 @@ final class PipeByteSource: @unchecked Sendable {
         case paused
     }
 
-    /// Touched only on `queue`.
+    /// `@unchecked Sendable`: every field here is touched only on the owning
+    /// source's `queue`, the private serial queue that runs the drain.
     private final class State: @unchecked Sendable {
         let fd: Int32
         let scratch: UnsafeMutableRawBufferPointer
@@ -270,12 +277,12 @@ final class PipeByteSource: @unchecked Sendable {
     }
 
     private static func changeLiveCount(of label: String, by delta: Int) {
-        liveLock.withLock {
-            let live = (liveLabels[label] ?? 0) + delta
+        liveLabels.withLock { labels in
+            let live = (labels[label] ?? 0) + delta
             if live == 0 {
-                liveLabels.removeValue(forKey: label)
+                labels.removeValue(forKey: label)
             } else {
-                liveLabels[label] = live
+                labels[label] = live
             }
         }
     }
@@ -364,14 +371,15 @@ struct NDJSONLineFramer {
 /// that pipe must share it. The NDJSON clients use it strictly sequentially --
 /// the startup task first, then the reader loop once startup completes -- and
 /// that is the contract: at most one `nextLine()` outstanding at a time.
-final class NDJSONLineReader: @unchecked Sendable {
+final class NDJSONLineReader: Sendable {
     private let deliveries: Deliveries
     private let source: PipeByteSource
-    private let ticketLock = NSLock()
-    private var lastTicket: UInt64 = 0
+    /// Pull order. A mutex, not a `var` behind `@unchecked Sendable`: this is
+    /// the one piece of state a caller touches off `source.queue`.
+    private let lastTicket = Mutex<UInt64>(0)
 
-    /// Framing plus the pull that is waiting for it. Touched only on
-    /// `source.queue`.
+    /// Framing plus the pull that is waiting for it. `@unchecked Sendable`:
+    /// every field here is touched only on `source.queue`.
     private final class Deliveries: @unchecked Sendable {
         /// Stop reading once this much is framed and unclaimed, so the ceiling
         /// stays the kernel pipe buffer -- which back-pressures the child --
@@ -496,9 +504,9 @@ final class NDJSONLineReader: @unchecked Sendable {
     }
 
     private func issueTicket() -> UInt64 {
-        ticketLock.withLock {
-            lastTicket += 1
-            return lastTicket
+        lastTicket.withLock { ticket in
+            ticket += 1
+            return ticket
         }
     }
 }

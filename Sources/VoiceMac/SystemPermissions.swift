@@ -28,7 +28,8 @@ public struct SystemPermissions: PermissionsChecking, Sendable {
         if synthPaste() == .granted { return true }
         if CGRequestPostEventAccess() { return true }
 
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        // The SDK exposes this constant as a mutable CFString global.
+        let promptKey = "AXTrustedCheckOptionPrompt"
         let options = [promptKey: true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }

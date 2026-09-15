@@ -106,6 +106,7 @@
         }
     }
 
+    @MainActor
     private struct UIHarnessAccessibilitySnapshot {
         let reduceTransparency: Bool?
         let reduceMotion: Bool?
@@ -130,6 +131,7 @@
     }
 
     extension UIHarnessAccessibilityAdaptation {
+        @MainActor
         fileprivate func install() {
             RenderOverrides.reduceTransparency = false
             RenderOverrides.reduceMotion = false

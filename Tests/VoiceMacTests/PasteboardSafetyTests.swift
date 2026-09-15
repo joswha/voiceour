@@ -460,12 +460,12 @@ struct PasteboardSafetyTests {
         #expect(clearSpy.scheduledChangeCounts.isEmpty)
     }
 
-    @Test func clearIfUnchangedClearsOwnWriteButNeverNewerContent() {
-        let ownCount = GeneralPasteboard.copy("dictated transient")
+    @Test func clearIfUnchangedClearsOwnWriteButNeverNewerContent() throws {
+        let ownCount = try #require(GeneralPasteboard.copy("dictated transient"))
         #expect(GeneralPasteboard.clearIfUnchanged(since: ownCount))
         #expect(pasteboardString() == nil)
 
-        let staleCount = GeneralPasteboard.copy("dictated stale")
+        let staleCount = try #require(GeneralPasteboard.copy("dictated stale"))
         replacePasteboard(with: "user copied afterwards")
         #expect(!GeneralPasteboard.clearIfUnchanged(since: staleCount))
         #expect(pasteboardString() == "user copied afterwards")
@@ -504,6 +504,7 @@ struct PasteboardSafetyTests {
 /// Answers successive focus inspections from a script, repeating the last entry
 /// once exhausted. `snapshot()` consumes one, and each `stillMatches` consumes
 /// another, so a script positions a focus change exactly between two checks.
+// `lock` protects the remaining focus inspections and last answer.
 private final class ScriptedFocusInspector: @unchecked Sendable {
     private let lock = NSLock()
     private var remaining: [TargetFocusInspection]
@@ -524,6 +525,7 @@ private final class ScriptedFocusInspector: @unchecked Sendable {
     }
 }
 
+// `lock` protects the permission request count.
 private final class CountingDeniedPastePermissions: PermissionsChecking, @unchecked Sendable {
     private let lock = NSLock()
     private var requests = 0
@@ -551,6 +553,7 @@ private final class CountingDeniedPastePermissions: PermissionsChecking, @unchec
     }
 }
 
+// `lock` protects the scheduled change counts.
 private final class TransientClearSpy: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [Int] = []
@@ -568,6 +571,7 @@ private final class TransientClearSpy: @unchecked Sendable {
     }
 }
 
+// `lock` protects the paste call count.
 private final class PasteboardPostSpy: @unchecked Sendable {
     private let lock = NSLock()
     private let result: Bool
@@ -594,6 +598,7 @@ private final class PasteboardPostSpy: @unchecked Sendable {
 /// Answers both identity checks affirmatively, then cancels the inserting task
 /// from the second one — the only point where the pasteboard already carries the
 /// dictated text but Cmd-V has not gone out.
+// `lock` protects the call count and cancellation callback.
 private final class CancellingAfterCopyTracker: TargetTracking, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
@@ -618,6 +623,7 @@ private final class CancellingAfterCopyTracker: TargetTracking, @unchecked Senda
     }
 }
 
+// `lock` protects the scripted matches and call count.
 private final class SequencedTargetTracker: TargetTracking, @unchecked Sendable {
     private let lock = NSLock()
     private var responses: [Bool]

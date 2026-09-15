@@ -10,6 +10,7 @@ import SwiftUI
 /// colour ladder those adaptations share, so a surface cannot adapt to one
 /// setting and forget the other.
 
+@MainActor
 struct A11y: DynamicProperty {
     @Environment(\.accessibilityReduceTransparency) private var envReduceTransparency
     @Environment(\.accessibilityReduceMotion) private var envReduceMotion

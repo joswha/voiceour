@@ -1,10 +1,11 @@
 import Darwin
 import Foundation
+import Synchronization
 import VoiceCore
 
-/// Set before `signal(SIGTERM)` installs its handler. A C function pointer cannot capture
-/// context, so the path the handler writes has to live at file scope.
-private var terminationMarkerPath: UnsafeMutablePointer<CChar>?
+/// Published before the handler is installed and kept alive until `_exit`.
+/// A lock-free pointer load keeps the signal handler independent of Swift actors or locks.
+private let terminationMarkerPath = Atomic<UInt>(0)
 
 /// A misbehaving NDJSON peer, selected by argv, for exercising `SidecarASRClient`.
 ///
@@ -138,9 +139,9 @@ enum StubMain {
     /// signalled, which is how the timeout test proves the client actually killed it.
     private static func silentAfterHello(pidFile: String?, terminatedFile: String?) {
         if let terminatedFile {
-            terminationMarkerPath = strdup(terminatedFile)
+            terminationMarkerPath.store(UInt(bitPattern: strdup(terminatedFile)), ordering: .releasing)
             signal(SIGTERM) { _ in
-                if let path = terminationMarkerPath {
+                if let path = UnsafePointer<CChar>(bitPattern: terminationMarkerPath.load(ordering: .acquiring)) {
                     let descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
                     if descriptor >= 0 {
                         _ = "terminated".withCString { write(descriptor, $0, strlen($0)) }

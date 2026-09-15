@@ -330,6 +330,7 @@ import Testing
 /// device deadlock.
 @Suite("Microphone capture integration", .serialized)
 struct MicrophoneCaptureIntegrationTests {
+    // `lock` protects the delivered-buffer count.
     private final class BufferCounter: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0

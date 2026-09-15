@@ -17,6 +17,7 @@ import Testing
 /// `fire()`. Used to hold a fake mid-flight so a test can observe intermediate
 /// state. Deliberately ignores task cancellation — the point is to model work
 /// that keeps running after its caller gives up.
+// `lock` protects the gate state and pending continuations.
 final class TestGate: @unchecked Sendable {
     private let lock = NSLock()
     private var openState = false

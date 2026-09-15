@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import VoiceCore
 
-public final class PasteboardInserter: TextInserting, @unchecked Sendable {
+public final class PasteboardInserter: TextInserting, Sendable {
     private let permissions: PermissionsChecking
     private let tracker: TargetTracking
     private let postPaste: @Sendable () -> Bool
@@ -21,6 +21,7 @@ public final class PasteboardInserter: TextInserting, @unchecked Sendable {
         self.scheduleTransientClear = scheduleTransientClear
     }
 
+    @concurrent
     public func insert(_ text: String, into target: TargetSnapshot) async -> InsertionOutcome {
         // Policy decisions -- may this class be pasted into, and what does each
         // refusal report -- belong to `InsertionSafetyPolicy`. What is left here
@@ -53,7 +54,9 @@ public final class PasteboardInserter: TextInserting, @unchecked Sendable {
             return .copiedOnly(reason: InsertionSafetyPolicy.targetChangedBeforeCopy)
         }
         if Task.isCancelled { return .failed(reason: "cancelled") }
-        let changeCount = GeneralPasteboard.copy(safeText, transient: true)
+        guard let changeCount = GeneralPasteboard.copy(safeText, transient: true) else {
+            return .failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed)
+        }
         guard tracker.stillMatches(target) else {
             return .copiedOnly(reason: InsertionSafetyPolicy.targetChangedAfterCopy)
         }
@@ -96,6 +99,7 @@ public final class PasteboardInserter: TextInserting, @unchecked Sendable {
     }
 }
 
+// `lock` protects the one-shot permission request flag.
 private final class OneShotPermissionRequestGate: @unchecked Sendable {
     private let lock = NSLock()
     private var wasClaimed = false

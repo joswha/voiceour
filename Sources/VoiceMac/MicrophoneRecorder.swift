@@ -76,6 +76,7 @@ struct CaptureWAVTarget {
 /// `captureIsLive() == true` from the first tick; the `-120 dB` floor that
 /// `averagePower` returns during the gap is a workable signal but a weaker one than
 /// simply looking at the samples.
+// `lock` protects the capture, converter, file and recording state.
 public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Sendable {
     private let lock = NSLock()
     private var capture: MicrophoneCapture?
@@ -141,6 +142,7 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         }
     }
 
+    @concurrent
     public func stop() async throws -> RecordedAudio {
         // `stop()` on the capture is deliberately OUTSIDE this lock.
         // `AVCaptureSession.stopRunning()` blocks until the delegate queue quiesces,
@@ -284,6 +286,7 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         return nil
     }
 
+    @concurrent
     public func discardRecording() async {
         let claimed: MicrophoneCapture? = lock.withLock { capture }
         claimed?.stop()

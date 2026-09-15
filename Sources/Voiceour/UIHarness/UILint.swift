@@ -21,7 +21,7 @@
         let textSamples: [TextRoleSample]
     }
 
-    private protocol UILintRule {
+    private protocol UILintRule: Sendable {
         var id: String { get }
         var severity: UIFinding.Severity { get }
 
@@ -33,7 +33,7 @@
         /// Registry metadata only. A finding's own severity remains authoritative so
         /// rules that classify individual findings can emit a different severity.
         let severity: UIFinding.Severity
-        let evaluator: (UILintContext) -> [UIFinding]
+        let evaluator: @Sendable (UILintContext) -> [UIFinding]
 
         func evaluate(context: UILintContext) -> [UIFinding] {
             evaluator(context)

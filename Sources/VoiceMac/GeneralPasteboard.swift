@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 
 /// Privacy-preserving write-only access to the general pasteboard.
 /// Voiceour must never read, snapshot, or restore the user's prior clipboard contents.
@@ -17,14 +18,26 @@ public enum GeneralPasteboard {
     /// churning; it is the harness reaching out of its box into the user's workspace,
     /// which the privacy rules forbid outright.
     ///
-    /// Shaped like `RenderOverrides`: nil by default, every read is
-    /// `override ?? <the real write>`, and nothing in production assigns it. Only
-    /// `UI_HARNESS` code sets it, and only for the lifetime of one flow.
-    public static var writeOverride: (@Sendable (String) -> Int)?
+    /// Nil by default; only harness code installs the replacement. The mutex protects
+    /// installation and lookup, and the copied closure runs outside the lock.
+    public static var writeOverride: (@Sendable (String) -> Int?)? {
+        get { overrides.withLock { $0.write } }
+        set { overrides.withLock { $0.write = newValue } }
+    }
 
     /// Companion seam for `clearIfUnchanged`, so a harness flow can neither clear the real
     /// pasteboard nor read its real change count.
-    public static var clearOverride: (@Sendable (Int) -> Bool)?
+    public static var clearOverride: (@Sendable (Int) -> Bool)? {
+        get { overrides.withLock { $0.clear } }
+        set { overrides.withLock { $0.clear = newValue } }
+    }
+
+    private struct Overrides: Sendable {
+        var write: (@Sendable (String) -> Int?)?
+        var clear: (@Sendable (Int) -> Bool)?
+    }
+
+    private static let overrides = Mutex(Overrides())
 
     /// Writes `text` as pasteboard content and returns the resulting change count.
     @discardableResult
@@ -32,7 +45,7 @@ public enum GeneralPasteboard {
         _ text: String,
         concealed: Bool = false,
         transient: Bool = false
-    ) -> Int {
+    ) -> Int? {
         if let writeOverride { return writeOverride(text) }
         let pasteboard = NSPasteboard.general
         var types = [NSPasteboard.PasteboardType.string]

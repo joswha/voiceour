@@ -101,21 +101,26 @@ struct ConsoleWindowView: View {
 
     var body: some View {
         TabView(selection: externalTab ?? $tab) {
-            ConsoleHomeTab(coordinator: coordinator)
-                .tabItem { tabLabel(.home) }
-                .tag(ConsoleTab.home)
-
-            ConsoleGlossaryTab(coordinator: coordinator)
-                .tabItem { tabLabel(.glossary) }
-                .tag(ConsoleTab.glossary)
-
-            ConsoleHistoryTab(coordinator: coordinator)
-                .tabItem { tabLabel(.history) }
-                .tag(ConsoleTab.history)
-
-            ConsoleSettingsTab(coordinator: coordinator)
-                .tabItem { tabLabel(.settings) }
-                .tag(ConsoleTab.settings)
+            Tab(value: ConsoleTab.home) {
+                ConsoleHomeTab(coordinator: coordinator)
+            } label: {
+                tabLabel(.home)
+            }
+            Tab(value: ConsoleTab.glossary) {
+                ConsoleGlossaryTab(coordinator: coordinator)
+            } label: {
+                tabLabel(.glossary)
+            }
+            Tab(value: ConsoleTab.history) {
+                ConsoleHistoryTab(coordinator: coordinator)
+            } label: {
+                tabLabel(.history)
+            }
+            Tab(value: ConsoleTab.settings) {
+                ConsoleSettingsTab(coordinator: coordinator)
+            } label: {
+                tabLabel(.settings)
+            }
         }
         // One application, not three: the scroll modifiers propagate through the
         // environment, so this reaches every `Form` on every tab and the History

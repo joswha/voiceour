@@ -34,6 +34,8 @@ public enum InsertionSafetyPolicy: Sendable {
     /// Reason emitted when Cmd-V could not be posted after the write. The
     /// clipboard already carries the text, so this is copy-only, not a failure.
     public static let postEventFailed = "post_event_failed"
+    /// Reason emitted when the transcript could not be written to the pasteboard.
+    public static let pasteboardWriteFailed = "pasteboard_write_failed"
     /// Reason emitted when the task was cancelled after the pasteboard write.
     public static let cancelledAfterCopy = "cancelled_after_copy"
 

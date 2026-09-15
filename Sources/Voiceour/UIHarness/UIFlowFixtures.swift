@@ -410,6 +410,7 @@
     /// than actor-isolated for the same reason `UIScriptClock` is: the port it answers is
     /// `Sendable` and nonisolated, and hopping actors to read a Bool would change the
     /// metering loop's shape.
+    // `lock` protects the live capture flag.
     final class UICaptureWarmup: @unchecked Sendable {
         private let lock = NSLock()
         private var live = false
@@ -457,6 +458,7 @@
     /// that hops to the main actor without ever suspending; that starved layout in
     /// later scenes and moved a committed golden by 59 pt.
     /// Sleeping is not a determinism problem -- no artifact records elapsed time.
+    // `lock` protects the clock and UUID counters.
     final class UIScriptClock: @unchecked Sendable {
         static let backendProbeStep: TimeInterval = 6
 

@@ -669,7 +669,9 @@ public final class ParakeetContext {
         var buffer = [CChar](repeating: 0, count: piece.utf8.count + 2)
         let written = parakeet_token_to_text(piece, isFirst, &buffer, Int32(buffer.count))
         guard written > 0 else { return "" }
-        return String(cString: buffer)
+        return buffer.withUnsafeBytes { bytes in
+            String(decoding: bytes.prefix(while: { $0 != 0 }), as: UTF8.self)
+        }
     }
 
     private func string(_ pointer: UnsafePointer<CChar>?) -> String {

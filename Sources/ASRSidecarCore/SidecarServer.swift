@@ -2,7 +2,7 @@ import Foundation
 import VoiceCore
 
 protocol ShutdownAwareSidecarPreloading: AnyObject {
-    func warmUp(isShuttingDown: @escaping () -> Bool) throws
+    func warmUp(isShuttingDown: @escaping @Sendable () -> Bool) throws
 }
 
 /// The NDJSON protocol loop.
@@ -10,7 +10,8 @@ protocol ShutdownAwareSidecarPreloading: AnyObject {
 /// One line of JSON per message on stdout and nothing else, ever: stderr carries diagnostics.
 /// Requests are multiplexed by `request_id`; the reader thread stays responsive so `health`
 /// and `cancel` are answered while a decode is running.
-public final class SidecarServer {
+// `lifecycleLock` protects shutdown and preload state; `decodeQueue` serializes decodes.
+public final class SidecarServer: @unchecked Sendable {
     public static let sidecarVersion = "1.0.0"
 
     /// Ceiling on how long EOF waits for accepted requests to answer. Two minutes covers a cold
@@ -23,7 +24,7 @@ public final class SidecarServer {
 
     private let backend: SidecarBackend?
     private let output: SidecarOutput
-    private let log: (String) -> Void
+    private let log: @Sendable (String) -> Void
     private let preloadEnabled: Bool
     private let lifecycleLock = NSLock()
     private var shutdownRequested = false
@@ -49,7 +50,7 @@ public final class SidecarServer {
     public init(
         backend: SidecarBackend?,
         output: SidecarOutput,
-        log: @escaping (String) -> Void,
+        log: @escaping @Sendable (String) -> Void,
         preloadEnabled: Bool
     ) {
         self.backend = backend
@@ -203,7 +204,7 @@ public final class SidecarServer {
     private func start(
         _ request: ASRTranscribeRequest,
         on backend: SidecarBackend,
-        decode: @escaping (ASRTranscribeRequest, @escaping () -> Bool) -> SidecarTerminal
+        decode: @escaping @Sendable (ASRTranscribeRequest, @escaping @Sendable () -> Bool) -> SidecarTerminal
     ) {
         guard let token = inflight.register(request.requestId) else {
             output.emit(
@@ -235,6 +236,7 @@ public final class SidecarServer {
 // MARK: - Output
 
 /// Serializes every stdout write. Nothing but protocol JSON is allowed through here.
+// `lock` serializes every write to the output handle.
 public final class SidecarOutput: @unchecked Sendable {
     private let handle: FileHandle
     private let lock = NSLock()
@@ -274,6 +276,7 @@ public final class SidecarOutput: @unchecked Sendable {
 // MARK: - In-flight requests
 
 /// One cancellation flag per in-flight request, readable from the decode queue.
+// `lock` protects the cancellation flag.
 final class CancellationToken: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
@@ -293,6 +296,7 @@ final class CancellationToken: @unchecked Sendable {
 
 /// Tracks which request ids are running so duplicates are rejected, cancels reach the right
 /// worker, and EOF can give in-flight work a bounded grace period.
+// The condition `lock` protects the in-flight token registry.
 final class InflightRegistry: @unchecked Sendable {
     private let lock = NSCondition()
     private var tokens: [String: CancellationToken] = [:]

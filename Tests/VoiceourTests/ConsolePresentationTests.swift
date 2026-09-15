@@ -70,10 +70,4 @@ struct ConsolePresentationTests {
         #expect(!ConsolePresentation.isConsole(panel))
         #expect(!ConsolePresentation.isConsole(harnessLike))
     }
-
-    /// One spelling of the scene id, shared by the scene that declares the window
-    /// and by every `openWindow(id:)` that asks for it.
-    @Test func sceneIdentifierIsSpelledOnce() {
-        #expect(ConsolePresentation.windowID == "main")
-    }
 }

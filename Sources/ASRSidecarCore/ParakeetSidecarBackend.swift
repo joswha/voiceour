@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import VoiceCore
 
 protocol ParakeetRuntimeContext: AnyObject {
@@ -40,6 +41,7 @@ enum ParakeetAssistError: Error, CustomStringConvertible {
     }
 }
 
+// `lock` protects accumulated segments and the first failure.
 private final class AssistDecodeAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [Int: [ParakeetSegmentRaw]] = [:]
@@ -120,7 +122,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     /// The shutdown latch the server hands to `warmUp`, kept so acquisition started later —
     /// the one automatic re-acquisition — bails out of model work on EOF exactly as the preload
     /// thread does. Nil only in a process that never preloaded.
-    private var shutdownProbe: (() -> Bool)?
+    private var shutdownProbe: (@Sendable () -> Bool)?
 
     /// Idle time after which the loaded model is released, or 0 to keep it forever.
     ///
@@ -351,7 +353,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         try warmUp(isShuttingDown: { false })
     }
 
-    func warmUp(isShuttingDown: @escaping () -> Bool) throws {
+    func warmUp(isShuttingDown: @escaping @Sendable () -> Bool) throws {
         guard !isShuttingDown() else { return }
         withState {
             $0.warmingInProgress = true
@@ -434,7 +436,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
 
     public func transcribe(
         _ request: ASRTranscribeRequest,
-        isCancelled: @escaping () -> Bool
+        isCancelled: @escaping @Sendable () -> Bool
     ) -> SidecarTerminal {
         if isCancelled() { return .cancelled }
 
@@ -473,17 +475,17 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         // context's own decode stays serialized by its lock. A per-model cap may omit
         // a costly assist while preserving the configured ordering of those that run.
         let runAssist = assistMaxSampleCounts.contains { samples.count <= $0 }
-        var assistOutcome: Result<[[ParakeetSegmentRaw]], Error>?
+        let assistOutcome = Mutex<Result<[[ParakeetSegmentRaw]], Error>?>(nil)
         let assistJoin = DispatchSemaphore(value: 0)
         if runAssist {
             let assistSamples = samples
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 defer { assistJoin.signal() }
                 guard let self else {
-                    assistOutcome = .failure(ParakeetAssistError.emptyModelPath)
+                    assistOutcome.withLock { $0 = .failure(ParakeetAssistError.emptyModelPath) }
                     return
                 }
-                assistOutcome = Result {
+                let outcome = Result {
                     let assists = try self.loadAssistContexts()
                     let activeIndices = assists.indices.filter {
                         assistSamples.count <= self.assistMaxSampleCounts[$0]
@@ -493,7 +495,6 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                         let index = activeIndices[offset]
                         do {
                             let value = try self.decodeAssist(
-                                assists[index],
                                 index: index,
                                 samples: assistSamples,
                                 isCancelled: isCancelled
@@ -505,6 +506,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
                     }
                     return try accumulator.ordered(indices: activeIndices)
                 }
+                assistOutcome.withLock { $0 = outcome }
             }
         }
 
@@ -523,7 +525,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
         var assistTexts: [String]?
         if runAssist {
             assistJoin.wait()
-            switch assistOutcome {
+            switch assistOutcome.withLock({ $0 }) {
             case .success(let assistSegments):
                 assistTexts = assistSegments.map { TokenMapping.transcript(from: $0).text }
             case .failure(let error):
@@ -744,10 +746,11 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     /// request never waits behind it. A context released before the thread runs is skipped.
     private func scheduleTierPrime(_ created: any ParakeetRuntimeContext) {
         guard coreMLWarm.warmsAllTiers else { return }
+        let identity = ObjectIdentifier(created)
         Thread.detachNewThread { [weak self] in
             guard let self else { return }
-            guard self.currentContext() === created else { return }
-            created.primeCoreMLTiers(log: self.log)
+            guard let current = self.currentContext(), ObjectIdentifier(current) == identity else { return }
+            current.primeCoreMLTiers(log: self.log)
         }
     }
 
@@ -852,7 +855,6 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
     }
 
     private func decodeAssist(
-        _ context: any ParakeetRuntimeContext,
         index: Int,
         samples: [Float],
         isCancelled: @escaping () -> Bool
@@ -863,6 +865,7 @@ public final class ParakeetSidecarBackend: SidecarBackend, ShutdownAwareSidecarP
             withState { $0.lastDecodeEndedAt = DispatchTime.now() }
             lock.unlock()
         }
+        let context = stateLock.withLock { assistContexts[index] }
         return try context.transcribe(samples: samples, isCancelled: isCancelled)
     }
 }

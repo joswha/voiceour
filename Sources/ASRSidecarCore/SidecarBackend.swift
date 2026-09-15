@@ -31,7 +31,7 @@ public protocol SidecarBackend: AnyObject, Sendable {
     /// Status reported in `hello`, before any request arrives.
     func startupStatus() -> BackendStatus
     func health() -> ASRBackendHealth
-    func transcribe(_ request: ASRTranscribeRequest, isCancelled: @escaping () -> Bool) -> SidecarTerminal
+    func transcribe(_ request: ASRTranscribeRequest, isCancelled: @escaping @Sendable () -> Bool) -> SidecarTerminal
     /// Acquire and warm whatever the first real request would otherwise pay for.
     /// Runs on a background thread; network work must not touch the decode queue.
     func warmUp() throws

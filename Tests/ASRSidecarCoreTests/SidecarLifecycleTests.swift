@@ -575,6 +575,7 @@ private func writeSilentWAV(in directory: URL) throws -> URL {
     return url
 }
 
+// `lock` protects the context creation attempt count.
 private final class FailThenSucceedContextFactory: @unchecked Sendable {
     private let lock = NSLock()
     private var attempts = 0
@@ -589,12 +590,12 @@ private final class FailThenSucceedContextFactory: @unchecked Sendable {
     }
 }
 
-private final class AssistConcurrencyGate: @unchecked Sendable {
+private final class AssistConcurrencyGate: Sendable {
     let started = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
 }
 
-private final class GatedAssistContext: ParakeetRuntimeContext, @unchecked Sendable {
+private final class GatedAssistContext: ParakeetRuntimeContext, Sendable {
     private let gate: AssistConcurrencyGate
 
     init(gate: AssistConcurrencyGate) {
@@ -611,6 +612,7 @@ private final class GatedAssistContext: ParakeetRuntimeContext, @unchecked Senda
     }
 }
 
+// `lock` protects the decode count.
 private final class AssistRecordingContext: ParakeetRuntimeContext, @unchecked Sendable {
     private let lock = NSLock()
     private let text: String
@@ -660,6 +662,7 @@ private final class WarmUpRecordingContext: ParakeetRuntimeContext {
     }
 }
 
+// `lock` protects preload activity and recorded lifecycle state.
 private final class ScriptedPreloadBackend: SidecarBackend, ShutdownAwareSidecarPreloading, @unchecked Sendable {
     struct State {
         var modelLoadStarted = false
@@ -692,7 +695,7 @@ private final class ScriptedPreloadBackend: SidecarBackend, ShutdownAwareSidecar
 
     func transcribe(
         _ request: ASRTranscribeRequest,
-        isCancelled _: @escaping () -> Bool
+        isCancelled _: @escaping @Sendable () -> Bool
     ) -> SidecarTerminal {
         .failure(code: .internalError, detail: "unused in this test", fatal: false)
     }
@@ -701,7 +704,7 @@ private final class ScriptedPreloadBackend: SidecarBackend, ShutdownAwareSidecar
         try warmUp(isShuttingDown: { false })
     }
 
-    func warmUp(isShuttingDown: @escaping () -> Bool) throws {
+    func warmUp(isShuttingDown: @escaping @Sendable () -> Bool) throws {
         lock.withLock { preloadActive = true }
         defer { lock.withLock { preloadActive = false } }
         acquisitionStarted.signal()
@@ -721,6 +724,7 @@ private final class ScriptedPreloadBackend: SidecarBackend, ShutdownAwareSidecar
     }
 }
 
+// `lock` protects the server's recorded exit value.
 private final class LockedRunResult: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: Int32?

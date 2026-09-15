@@ -18,7 +18,7 @@ public struct WorkspaceTargetApplication: Equatable, Sendable {
     }
 }
 
-public final class WorkspaceTargetTracker: TargetTracking, @unchecked Sendable {
+public final class WorkspaceTargetTracker: TargetTracking, Sendable {
     private let frontmostApplication: @Sendable () -> WorkspaceTargetApplication?
     private let focusInspector: @Sendable (pid_t) -> TargetFocusInspection
     private let secureInputActive: @Sendable () -> Bool
