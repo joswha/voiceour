@@ -23,6 +23,15 @@ final class CaptureConverter {
     /// silently short capture instead of transcribing it.
     private(set) var didFailToFollowFormat = false
 
+    /// The first error `AVAudioConverter` reported, or nil.
+    ///
+    /// A conversion that fails mid-utterance contributes nothing from that point
+    /// on, and the WAV it leaves behind is short rather than wrong-looking. The
+    /// recorder's stop-path validation reads this and refuses the capture instead
+    /// of transcribing its prefix. First-writer-wins, like the capture's own
+    /// latch: the first cause is the one that explains the recording.
+    private(set) var conversionFailure: String?
+
     private var converter: AVAudioConverter?
     private let makeConverter: (AVAudioFormat, AVAudioFormat) -> AVAudioConverter?
 
@@ -45,7 +54,7 @@ final class CaptureConverter {
     func convert(_ buffer: AVAudioPCMBuffer) -> [AVAudioPCMBuffer] {
         var out: [AVAudioPCMBuffer] = []
         if let existing = converter, existing.inputFormat != buffer.format {
-            out += Self.drain(existing, to: targetFormat)
+            out += drain(existing, to: targetFormat)
             converter = nil
         }
         if converter == nil {
@@ -55,7 +64,7 @@ final class CaptureConverter {
             }
         }
         guard let converter else { return out }
-        out += Self.pump(converter, input: buffer, to: targetFormat, endOfStream: false)
+        out += pump(converter, input: buffer, to: targetFormat, endOfStream: false)
         return out
     }
 
@@ -63,14 +72,14 @@ final class CaptureConverter {
     func drain() -> [AVAudioPCMBuffer] {
         guard let converter else { return [] }
         self.converter = nil
-        return Self.drain(converter, to: targetFormat)
+        return drain(converter, to: targetFormat)
     }
 
-    private static func drain(_ converter: AVAudioConverter, to format: AVAudioFormat) -> [AVAudioPCMBuffer] {
+    private func drain(_ converter: AVAudioConverter, to format: AVAudioFormat) -> [AVAudioPCMBuffer] {
         pump(converter, input: nil, to: format, endOfStream: true)
     }
 
-    private static func pump(
+    private func pump(
         _ converter: AVAudioConverter,
         input: AVAudioPCMBuffer?,
         to format: AVAudioFormat,
@@ -112,7 +121,10 @@ final class CaptureConverter {
             case .inputRanDry:
                 if endOfStream { continue }
                 return out
-            case .endOfStream, .error:
+            case .endOfStream:
+                return out
+            case .error:
+                conversionFailure = conversionFailure ?? (error?.localizedDescription ?? "audio conversion failed")
                 return out
             @unknown default:
                 return out

@@ -84,6 +84,16 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     private var file: AVAudioFile?
     private var outputURL: URL?
     private var writtenFrames: AVAudioFramePosition = 0
+    /// The first `AVAudioFile.write` failure of this recording, or nil.
+    ///
+    /// A rejected write costs exactly the frames it carried, and nothing else
+    /// records that they are missing: the WAV stays well-formed, merely shorter
+    /// than what was said, which the decoder answers with a different sentence.
+    /// Latched on the capture queue rather than thrown from it — tearing the
+    /// capture down mid-utterance would lose the rest of it too — and read by the
+    /// stop path, which refuses the recording. `start()` clears it so one bad
+    /// recording cannot condemn the next.
+    private var writeFailure: String?
     private var lastStartLatency: Int?
     /// The user's Settings selection, pushed by the coordinator. Read at each
     /// `start()`, so a change applies from the next recording without rebuilding
@@ -126,6 +136,7 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
             self.capture = capture
             outputURL = wav.url
             writtenFrames = 0
+            writeFailure = nil
             lastStartLatency = nil
 
             capture.start { [weak self] buffer in
@@ -154,8 +165,15 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
         }
         claimed.stop()
 
-        let finished: (url: URL, frames: AVAudioFramePosition, latency: Int?, converterLostRoute: Bool) =
-            try lock.withLock {
+        let finished:
+            (
+                url: URL,
+                frames: AVAudioFramePosition,
+                latency: Int?,
+                converterLostRoute: Bool,
+                conversionFailure: String?,
+                writeFailure: String?
+            ) = try lock.withLock {
                 // Identity check, not just presence: a cancel that ran between the
                 // claim above and here has already started a *new* session, and
                 // clearing its capture/file/URL here would strand a live recording
@@ -164,7 +182,6 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
                 let latency = claimed.startLatencyMs()
                 // Whatever the resampler still holds belongs to this utterance. Safe to
                 // drain now: no more buffers can arrive once the capture has stopped.
-                let converterLostRoute = converter?.didFailToFollowFormat == true
                 if let converter, let file {
                     for chunk in converter.drain() {
                         // Counted only when the WAV accepted it. `try?` plus an
@@ -174,27 +191,39 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
                             try file.write(from: chunk)
                             writtenFrames += AVAudioFramePosition(chunk.frameLength)
                         } catch {
-                            // A failed tail write costs the tail, not the utterance.
+                            // Latched, not shrugged off: the tail is the end of the
+                            // sentence, and a recording missing it transcribes as a
+                            // different one.
+                            if writeFailure == nil { writeFailure = error.localizedDescription }
                         }
                     }
                 }
+                // Both read after the drain: the tail is the resampler's last chance
+                // to fail, and its writes feed the latch above.
+                let converterLostRoute = converter?.didFailToFollowFormat == true
+                let conversionFailure = converter?.conversionFailure
                 let frames = writtenFrames
                 capture = nil
                 self.converter = nil
-                // Releasing the file is what flushes the WAV header's final sizes.
+                // Closing flushes the WAV header's final sizes here, rather than
+                // whenever the last reference to the file happens to go away.
+                file?.close()
                 file = nil
                 self.outputURL = nil
                 lastStartLatency = latency
-                return (outputURL, frames, latency, converterLostRoute)
+                return (outputURL, frames, latency, converterLostRoute, conversionFailure, writeFailure)
             }
 
-        // A capture that failed mid-recording, one that wrote nothing at all, or
-        // one that heard nothing but digital silence is reported rather than
-        // transcribed. All three used to reach ASR as a valid-looking WAV: the
-        // model then invents words from silence and the app pastes them.
+        // A capture that failed mid-recording, one whose conversion or writes
+        // dropped part of the utterance, one that wrote nothing at all, or one
+        // that heard nothing but digital silence is reported rather than
+        // transcribed. They used to reach ASR as a valid-looking WAV: the model
+        // then invents words from silence and the app pastes them.
         if let error = Self.recordingFailure(
             latched: claimed.failureReason(),
             converterLostRoute: finished.converterLostRoute,
+            conversionFailure: finished.conversionFailure,
+            writeFailure: finished.writeFailure,
             frames: finished.frames,
             silentCapture: claimed.hasReceivedAudio() ? nil : Self.silentCaptureReason(claimed.source)
         ) {
@@ -245,6 +274,11 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     /// with `0`. That WAV is full length and full of frames, so only the capture's
     /// own liveness can tell it apart from a recording of a quiet room — a real
     /// microphone's noise floor is never exactly zero.
+    /// `conversionFailure` and `writeFailure` catch the last two, which no other
+    /// check can see: a resampler that errored partway and a file that rejected a
+    /// write each drop only the audio they were handed, leaving frames, liveness,
+    /// duration and format all looking healthy on a recording that is short by
+    /// exactly what was lost.
     static let routeFollowFailureReason =
         "the microphone's format changed mid-recording and could not be followed"
 
@@ -273,11 +307,17 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
     static func recordingFailure(
         latched: String?,
         converterLostRoute: Bool,
+        conversionFailure: String? = nil,
+        writeFailure: String? = nil,
         frames: AVAudioFramePosition,
         silentCapture: String?
     ) -> RecorderError? {
         if let latched { return .captureFailed(latched) }
         if converterLostRoute { return .captureFailed(routeFollowFailureReason) }
+        // Ahead of silence and the frame count: both name what went wrong, where
+        // a partial recording otherwise looks like a short-but-healthy one.
+        if let conversionFailure { return .captureFailed("audio conversion failed: \(conversionFailure)") }
+        if let writeFailure { return .captureFailed("the recording could not be written: \(writeFailure)") }
         // Ahead of the frame count: a device that delivered nothing but zeros
         // explains the empty recording, where "no audio was recorded" only
         // restates it.
@@ -327,8 +367,10 @@ public final class MicrophoneRecorder: NSObject, AudioRecording, @unchecked Send
                     try file.write(from: chunk)
                     writtenFrames += AVAudioFramePosition(chunk.frameLength)
                 } catch {
-                    // A failed write must not kill the capture: the utterance so far
-                    // is still worth transcribing, and stop() validates the file.
+                    // Latched rather than fatal: tearing the capture down here would
+                    // lose the rest of the utterance too. stop() refuses the whole
+                    // recording instead of transcribing what survived.
+                    if writeFailure == nil { writeFailure = error.localizedDescription }
                 }
             }
         }

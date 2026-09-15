@@ -254,30 +254,60 @@ extension MicrophoneCapture: AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     /// One pass for both questions: is any sample non-zero, and what is the RMS.
-    private static func scan(_ buffer: AVAudioPCMBuffer) -> (hasSignal: Bool, rms: Double) {
+    ///
+    /// Every channel is read, not only the first. A stereo interface that wires
+    /// its microphone to the right channel delivers exact zeros on channel 0 for
+    /// the whole recording, and a first-channel-only scan reports that capture as
+    /// dead: liveness never flips, the overlay never says LIVE, and the stop path
+    /// refuses a WAV that holds the entire utterance. Channel pointers are laid
+    /// out by `stride` — for an interleaved buffer they address the same block,
+    /// each offset by one sample, with `stride` equal to the channel count; for a
+    /// deinterleaved one they are separate blocks with `stride == 1` — so one
+    /// indexing rule covers both. `int32ChannelData` is the third layout a
+    /// capture device can hand over; it used to fall through to "no signal".
+    ///
+    /// Internal so the channel walk is provable from a synthesized buffer: a real
+    /// microphone cannot be asked to speak on one channel only.
+    static func scan(_ buffer: AVAudioPCMBuffer) -> (hasSignal: Bool, rms: Double) {
         let frames = Int(buffer.frameLength)
-        guard frames > 0 else { return (false, 0) }
+        let channels = Int(buffer.format.channelCount)
+        guard frames > 0, channels > 0 else { return (false, 0) }
+        let stride = buffer.stride
 
         var hasSignal = false
         var sum: Double = 0
         if let floatData = buffer.floatChannelData {
-            let samples = floatData[0]
-            for index in 0..<frames {
-                let sample = samples[index]
-                if sample != 0 { hasSignal = true }
-                sum += Double(sample) * Double(sample)
+            for channel in 0..<channels {
+                let samples = floatData[channel]
+                for frame in 0..<frames {
+                    let sample = Double(samples[frame * stride])
+                    if sample != 0 { hasSignal = true }
+                    sum += sample * sample
+                }
             }
         } else if let intData = buffer.int16ChannelData {
-            let samples = intData[0]
-            for index in 0..<frames {
-                let sample = samples[index]
-                if sample != 0 { hasSignal = true }
-                let scaled = Double(sample) / 32768
-                sum += scaled * scaled
+            for channel in 0..<channels {
+                let samples = intData[channel]
+                for frame in 0..<frames {
+                    let sample = samples[frame * stride]
+                    if sample != 0 { hasSignal = true }
+                    let scaled = Double(sample) / 32768
+                    sum += scaled * scaled
+                }
+            }
+        } else if let intData = buffer.int32ChannelData {
+            for channel in 0..<channels {
+                let samples = intData[channel]
+                for frame in 0..<frames {
+                    let sample = samples[frame * stride]
+                    if sample != 0 { hasSignal = true }
+                    let scaled = Double(sample) / 2_147_483_648
+                    sum += scaled * scaled
+                }
             }
         } else {
             return (false, 0)
         }
-        return (hasSignal, (sum / Double(frames)).squareRoot())
+        return (hasSignal, (sum / Double(frames * channels)).squareRoot())
     }
 }
