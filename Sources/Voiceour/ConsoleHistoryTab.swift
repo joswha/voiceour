@@ -925,7 +925,9 @@ struct ConsoleHistoryTab: View {
     // MARK: Actions
 
     private func copy(_ session: RecentSession) {
-        GeneralPasteboard.copy(session.text)
+        // The mark and the announcement are claims about the clipboard, so a refused
+        // write leaves the row exactly as it was instead of confirming nothing.
+        guard GeneralPasteboard.copy(session.text) != nil else { return }
         announceCopy()
         resetCopyFeedbackTask?.cancel()
         // Both directions of the confirmation run through one curve and one

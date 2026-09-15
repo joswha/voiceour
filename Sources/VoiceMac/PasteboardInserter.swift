@@ -27,13 +27,19 @@ public final class PasteboardInserter: TextInserting, Sendable {
         // refusal report -- belong to `InsertionSafetyPolicy`. What is left here
         // is mechanism: pasteboard writes, the permission request, the identity
         // re-checks, and posting the key event.
+        //
+        // A copy-only disposition still depends on the write landing: when the
+        // pasteboard refuses it the text was delivered nowhere, so every branch
+        // below reports `pasteboardWriteFailed` rather than claiming a copy.
         if Task.isCancelled { return .failed(reason: "cancelled") }
         let safeText =
             InsertionSafetyPolicy.stripsTrailingNewline(for: target.safety)
             ? stripSingleTrailingNewline(text)
             : text
         if case .copyOnly(let reason) = InsertionSafetyPolicy.disposition(for: target.safety) {
-            GeneralPasteboard.copy(safeText, concealed: target.safety == .secure)
+            guard GeneralPasteboard.copy(safeText, concealed: target.safety == .secure) != nil else {
+                return .failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed)
+            }
             return .copiedOnly(reason: reason)
         }
         if permissions.synthPaste() != .granted {
@@ -45,12 +51,16 @@ public final class PasteboardInserter: TextInserting, Sendable {
             }
             if Task.isCancelled { return .failed(reason: "cancelled") }
             guard permissionGranted else {
-                GeneralPasteboard.copy(safeText)
+                guard GeneralPasteboard.copy(safeText) != nil else {
+                    return .failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed)
+                }
                 return .copiedOnly(reason: InsertionSafetyPolicy.missingSynthPastePermission)
             }
         }
         guard tracker.stillMatches(target) else {
-            GeneralPasteboard.copy(safeText)
+            guard GeneralPasteboard.copy(safeText) != nil else {
+                return .failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed)
+            }
             return .copiedOnly(reason: InsertionSafetyPolicy.targetChangedBeforeCopy)
         }
         if Task.isCancelled { return .failed(reason: "cancelled") }

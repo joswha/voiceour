@@ -607,14 +607,14 @@ struct ConsoleSettingsTab: View {
     // MARK: Diagnostics
 
     private func copyDiagnostics() {
-        GeneralPasteboard.copy(
-            DiagnosticsReport.text(
-                coordinator: coordinator,
-                microphone: microphone,
-                accessibility: accessibility,
-                synthPaste: synthPaste
-            )
+        let report = DiagnosticsReport.text(
+            coordinator: coordinator,
+            microphone: microphone,
+            accessibility: accessibility,
+            synthPaste: synthPaste
         )
+        // "Copied" is a statement about the clipboard: a refused write shows nothing.
+        guard GeneralPasteboard.copy(report) != nil else { return }
         resetCopyFeedbackTask?.cancel()
         withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.quick) {
             didCopyDiagnostics = true

@@ -460,6 +460,52 @@ struct PasteboardSafetyTests {
         #expect(clearSpy.scheduledChangeCounts.isEmpty)
     }
 
+    /// The write used to be assumed: `copy` reported a change count whether or not the
+    /// pasteboard accepted the text, so a refused write still posted Cmd-V and pasted
+    /// whatever the clipboard happened to hold into the user's document. A failed write
+    /// delivers nothing, posts nothing, and schedules no clear of someone else's content.
+    @Test func pasteboardWriteFailureNeverPostsPaste() async {
+        replacePasteboard(with: "clipboard the user owns")
+        GeneralPasteboard.writeOverride = { _ in nil }
+        defer { GeneralPasteboard.writeOverride = nil }
+        let postPaste = PasteboardPostSpy(result: true)
+        let clearSpy = TransientClearSpy()
+        let inserter = PasteboardInserter(
+            permissions: FakePermissions(synth: .granted),
+            tracker: SequencedTargetTracker(responses: [true, true]),
+            postPaste: { postPaste.post() },
+            scheduleTransientClear: { clearSpy.record($0) }
+        )
+
+        let outcome = await inserter.insert("never pasted", into: target(safety: .normalText))
+
+        #expect(outcome == .failed(reason: "pasteboard_write_failed"))
+        #expect(postPaste.callCount == 0)
+        #expect(clearSpy.scheduledChangeCounts.isEmpty)
+        #expect(pasteboardString() == "clipboard the user owns")
+    }
+
+    /// A copy-only target has no second delivery route: the clipboard is the delivery. So a
+    /// refused write there is a failure, not a copy that never happened — and secure text
+    /// must not be retried through some unconcealed fallback write.
+    @Test func secureCopyOnlyReportsWriteFailureInsteadOfClaimingACopy() async {
+        replacePasteboard(with: "clipboard the user owns")
+        GeneralPasteboard.writeOverride = { _ in nil }
+        defer { GeneralPasteboard.writeOverride = nil }
+        let postPaste = PasteboardPostSpy(result: true)
+        let inserter = PasteboardInserter(
+            permissions: FakePermissions(synth: .granted),
+            tracker: SequencedTargetTracker(responses: []),
+            postPaste: { postPaste.post() }
+        )
+
+        let outcome = await inserter.insert("secret text", into: target(safety: .secure))
+
+        #expect(outcome == .failed(reason: "pasteboard_write_failed"))
+        #expect(postPaste.callCount == 0)
+        #expect(pasteboardString() == "clipboard the user owns")
+    }
+
     @Test func clearIfUnchangedClearsOwnWriteButNeverNewerContent() throws {
         let ownCount = try #require(GeneralPasteboard.copy("dictated transient"))
         #expect(GeneralPasteboard.clearIfUnchanged(since: ownCount))

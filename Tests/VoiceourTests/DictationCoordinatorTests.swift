@@ -612,6 +612,28 @@ struct DictationCoordinatorTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
     }
 
+    @Test(arguments: [TargetSafetyClass.normalText, .secure])
+    func historySaveFailuresAreReportedOnlyForJournaledTargets(_ safety: TargetSafetyClass) async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("delivered despite the failed save")),
+            tracker: FakeTracker(safety: safety),
+            inserter: FakeInserter(
+                outcome: safety == .secure ? .copiedOnly(reason: "secure_target") : .pasteAttempted
+            ),
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { _, _ in throw SessionSnapshotWriterSpy.SaveError.injected }
+        )
+
+        await driveUtterance(coordinator)
+        _ = await coordinator.recentSessionPersistenceTail?.value
+        await Task.yield()
+
+        #expect(coordinator.lastTranscript == "delivered despite the failed save")
+        #expect(coordinator.errorMessage == (safety == .secure ? nil : "Dictation history could not be saved."))
+    }
+
     @Test func terminationWaitsForPendingSessionCheckpoint() async {
         let fixture = temporarySessionStore()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }

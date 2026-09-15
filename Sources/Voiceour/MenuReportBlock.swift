@@ -39,7 +39,8 @@ struct MenuReportBlock: View {
     }
 
     private func copyTranscript() {
-        GeneralPasteboard.copy(text)
-        isCopied = true
+        // `isCopied` is the only confirmation the menu shows; it may never outrun
+        // the write it reports.
+        isCopied = GeneralPasteboard.copy(text) != nil
     }
 }

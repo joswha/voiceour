@@ -39,7 +39,13 @@ public enum GeneralPasteboard {
 
     private static let overrides = Mutex(Overrides())
 
-    /// Writes `text` as pasteboard content and returns the resulting change count.
+    /// Writes the transcript and returns its prepared change count, or `nil` if
+    /// the string or a required privacy marker could not be written. Failure can
+    /// follow a partial write; callers must not paste, clear, or confirm success.
+    ///
+    /// Concealed copies are host-only; ordinary and transient copies keep the
+    /// system's Universal Clipboard policy. Preparing contents clears the board
+    /// without reading, retaining, or restoring anything previously copied.
     @discardableResult
     public static func copy(
         _ text: String,
@@ -47,16 +53,16 @@ public enum GeneralPasteboard {
         transient: Bool = false
     ) -> Int? {
         if let writeOverride { return writeOverride(text) }
+        // Publish one complete item: no clipboard observer may see the text
+        // before its concealed/transient opt-out markers are advertised.
+        let item = NSPasteboardItem()
+        guard item.setString(text, forType: .string) else { return nil }
+        guard !concealed || item.setData(Data(), forType: concealedType) else { return nil }
+        guard !transient || item.setData(Data(), forType: transientType) else { return nil }
         let pasteboard = NSPasteboard.general
-        var types = [NSPasteboard.PasteboardType.string]
-        if concealed { types.append(concealedType) }
-        if transient { types.append(transientType) }
-        pasteboard.clearContents()
-        pasteboard.declareTypes(types, owner: nil)
-        pasteboard.setString(text, forType: .string)
-        if concealed { pasteboard.setData(Data(), forType: concealedType) }
-        if transient { pasteboard.setData(Data(), forType: transientType) }
-        return pasteboard.changeCount
+        let changeCount = pasteboard.prepareForNewContents(with: concealed ? .currentHostOnly : [])
+        guard pasteboard.writeObjects([item]) else { return nil }
+        return changeCount
     }
 
     /// Clears the pasteboard only if nothing else has written to it since `changeCount`.

@@ -131,12 +131,16 @@ extension DictationCoordinator {
                 try save(store, snapshot)
                 return true
             } catch {
-                // Persistence is best-effort for the live dictation path. Each
-                // failure is isolated so subsequent snapshots still execute.
+                // A failed snapshot does not prevent later snapshots from running;
+                // the main-actor observer below reports the lost durability.
                 return false
             }
         }
         recentSessionPersistenceTail = next
+        Task { @MainActor [weak self] in
+            guard await next.value == false, let self else { return }
+            self.errorMessage = "Dictation history could not be saved."
+        }
         return next
     }
 }
