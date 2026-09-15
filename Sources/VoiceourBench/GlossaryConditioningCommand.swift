@@ -65,6 +65,37 @@ enum GlossaryConditioningContract {
         (melFrameCount + melFramesPerEncoderFrame - 1) / melFramesPerEncoderFrame
     }
 
+    /// Decodes a benchmark manifest and refuses it whole: duplicate ids and audio that is not
+    /// the pinned recording are found before any model is loaded or any artifact created.
+    ///
+    /// Every route that reads a manifest row's audio shares this, so a run that measured a
+    /// different recording than the manifest names stops instead of reporting a number.
+    static func readManifest(at url: URL) throws -> [(row: PipelineInputRow, audio: URL)] {
+        let reader = try JSONLLineReader(url: url)
+        let decoder = JSONDecoder()
+        var rows: [(row: PipelineInputRow, audio: URL)] = []
+        var seenIDs = Set<String>()
+        var lineNumber = 0
+        while let line = try reader.nextLine() {
+            lineNumber += 1
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw BenchError.malformedInput(line: lineNumber, detail: "empty line")
+            }
+            let row: PipelineInputRow
+            do {
+                row = try decoder.decode(PipelineInputRow.self, from: Data(line.utf8))
+            } catch {
+                throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
+            }
+            guard seenIDs.insert(row.id).inserted else {
+                throw BenchError.malformedInput(line: lineNumber, detail: "duplicate id \(row.id)")
+            }
+            rows.append((row, try BenchRunner.validatedAudioURL(for: row)))
+        }
+        guard !rows.isEmpty else { throw BenchError.io("\(url.path) has no rows") }
+        return rows
+    }
+
     /// One context per run, on the explicit `--model` file rather than the pinned product
     /// cache, with the accelerator dials fixed so dump and replay share one tail.
     static func makeContext(
@@ -160,7 +191,7 @@ struct GlossaryConditioningDumpStates {
     func run() throws {
         // Stage 1 is one exclusive pass over the whole manifest, so every cheap refusal is
         // paid before the first decode: a bad row 300 must not cost 299 good encodes.
-        let rows = try readManifest()
+        let rows = try GlossaryConditioningContract.readManifest(at: input)
         print("validated \(rows.count) manifest rows")
 
         let statesURL = outputDirectory.appendingPathComponent("states.f32")
@@ -313,34 +344,6 @@ struct GlossaryConditioningDumpStates {
         if latticeTranscripts != nil {
             print("lattice raw-text agreement \(latticeMatches)/\(rows.count)")
         }
-    }
-
-    /// Decodes the manifest and refuses it whole: duplicate ids and audio that is not the
-    /// pinned recording are found before any model is loaded or any artifact created.
-    private func readManifest() throws -> [(row: PipelineInputRow, audio: URL)] {
-        let reader = try JSONLLineReader(url: input)
-        let decoder = JSONDecoder()
-        var rows: [(row: PipelineInputRow, audio: URL)] = []
-        var seenIDs = Set<String>()
-        var lineNumber = 0
-        while let line = try reader.nextLine() {
-            lineNumber += 1
-            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw BenchError.malformedInput(line: lineNumber, detail: "empty line")
-            }
-            let row: PipelineInputRow
-            do {
-                row = try decoder.decode(PipelineInputRow.self, from: Data(line.utf8))
-            } catch {
-                throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
-            }
-            guard seenIDs.insert(row.id).inserted else {
-                throw BenchError.malformedInput(line: lineNumber, detail: "duplicate id \(row.id)")
-            }
-            rows.append((row, try BenchRunner.validatedAudioURL(for: row)))
-        }
-        guard !rows.isEmpty else { throw BenchError.io("\(input.path) has no rows") }
-        return rows
     }
 
     /// Records the invocation beside its output: the dump is not reproducible from the

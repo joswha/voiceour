@@ -167,9 +167,10 @@ def _audio_manifest_sha256(rows: list[dict[str, Any]], source: str) -> str:
     return digest.hexdigest()
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _read_jsonl(path: Path, *, raw: str | None = None) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    content = path.read_text(encoding="utf-8") if raw is None else raw
+    for line_number, line in enumerate(content.splitlines(), start=1):
         if not line.strip():
             continue
         try:
@@ -241,15 +242,19 @@ def _find_audio_manifest_pin(document: dict[str, Any], meta: dict[str, Any]) -> 
 
 
 def _load_report(path: Path) -> _Report:
-    raw = path.read_text(encoding="utf-8")
+    data = path.read_bytes()
+    raw = data.decode("utf-8")
+    results_sha256 = hashlib.sha256(data).hexdigest()
     document: dict[str, Any] = {}
     entries: list[dict[str, Any]]
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        entries = _read_jsonl(path)
+        entries = _read_jsonl(path, raw=raw)
     else:
-        if isinstance(parsed, dict):
+        if isinstance(parsed, dict) and parsed.get("type") in ("row", "bench_meta", "encoder_meta"):
+            entries = [parsed]
+        elif isinstance(parsed, dict):
             document = parsed
             raw_rows = parsed.get("rows")
             if not isinstance(raw_rows, list):
@@ -276,8 +281,24 @@ def _load_report(path: Path) -> _Report:
         if meta and meta != meta_entries[0]:
             raise GateInputError("PROVENANCE_FAIL", f"{path} has conflicting metadata records")
         meta = dict(meta_entries[0])
+    if not meta:
+        sidecar = path.with_name(path.name + ".meta.json")
+        if sidecar.exists():
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            if (
+                not isinstance(provenance, dict)
+                or provenance.get("schema_version") != 1
+                or provenance.get("results_sha256") != results_sha256
+                or not isinstance(provenance.get("meta"), dict)
+                or provenance["meta"].get("mode") != "raw-decode"
+            ):
+                raise GateInputError("PROVENANCE_FAIL", f"{sidecar} is not bound to the raw-decode result bytes")
+            meta = dict(provenance["meta"])
+    encoder_entries = [entry for entry in entries if entry.get("type") == "encoder_meta"]
+    if len(encoder_entries) > 1 or (encoder_entries and meta.get("mode") != "external-encoder"):
+        raise GateInputError("PROVENANCE_FAIL", f"{path} has invalid encoder metadata")
 
-    rows = [entry for entry in entries if entry.get("type") != "bench_meta"]
+    rows = [entry for entry in entries if entry.get("type") not in ("bench_meta", "encoder_meta")]
     if not rows:
         raise GateInputError("REPORT_ROWS_MISSING", f"{path} contains no row-level records")
     _validated_ids(rows, str(path))
@@ -287,7 +308,7 @@ def _load_report(path: Path) -> _Report:
         raise GateInputError("ROWSET_FAIL", f"{path} must provide both successful and error row-id evidence")
     return _Report(
         path=path,
-        sha256=_sha256(path),
+        sha256=results_sha256,
         meta=meta,
         rows=rows,
         successful_evidence=successful_evidence,
@@ -392,10 +413,7 @@ def _f1_counts(metric: dict[str, Any], bucket: str) -> tuple[int, int, int]:
 
 
 def _deletion_tokens(text: str) -> list[str]:
-    return [
-        match.group().casefold().replace("’", "'")
-        for match in _DELETION_WORD_RE.finditer(text)
-    ]
+    return [match.group().casefold().replace("’", "'") for match in _DELETION_WORD_RE.finditer(text)]
 
 
 def _number_canonicalization_deletion_spans(
@@ -419,16 +437,10 @@ def _number_canonicalization_deletion_spans(
         hypothesis_end = run[-1].hyp_end_idx
         reference_surface = " ".join(reference_tokens[reference_start:reference_end])
         hypothesis_surface = " ".join(hypothesis_tokens[hypothesis_start:hypothesis_end])
-        if (
-            any(character.isdigit() for character in hypothesis_surface)
-            and english_number_normalize(reference_surface)
-            == english_number_normalize(hypothesis_surface)
-        ):
-            exempt.update(
-                (chunk.ref_start_idx, chunk.ref_end_idx)
-                for chunk in run
-                if chunk.type == "delete"
-            )
+        if any(character.isdigit() for character in hypothesis_surface) and english_number_normalize(
+            reference_surface
+        ) == english_number_normalize(hypothesis_surface):
+            exempt.update((chunk.ref_start_idx, chunk.ref_end_idx) for chunk in run if chunk.type == "delete")
         index = end
     return exempt
 
@@ -470,8 +482,7 @@ def _candidate_deletion_hazards(
     hazards: list[dict[str, Any]] = []
     for start, end in candidate_spans:
         incumbent_already_deletes_span = any(
-            incumbent_start <= start and incumbent_end >= end
-            for incumbent_start, incumbent_end in incumbent_spans
+            incumbent_start <= start and incumbent_end >= end for incumbent_start, incumbent_end in incumbent_spans
         )
         if incumbent_already_deletes_span:
             continue
@@ -530,9 +541,7 @@ def _estimate_and_jackknife(
         stratum_totals = counts_2d[:, indices] @ metric.features[indices]
         remaining = stratum_totals[:, np.newaxis, :] - metric.features[np.newaxis, indices, :]
         deleted_totals[:, indices, :] = (
-            totals[:, np.newaxis, :]
-            - metric.features[np.newaxis, indices, :]
-            + remaining / (stratum_size - 1.0)
+            totals[:, np.newaxis, :] - metric.features[np.newaxis, indices, :] + remaining / (stratum_size - 1.0)
         )
 
     deleted_estimates = _metric_value(deleted_totals, metric.kind)
@@ -543,10 +552,13 @@ def _estimate_and_jackknife(
         stratum_size = len(indices)
         stratum_counts = counts_2d[:, indices]
         stratum_estimates = deleted_estimates[:, indices]
-        means = np.sum(
-            np.where(stratum_counts > 0, stratum_counts * stratum_estimates, 0.0),
-            axis=1,
-        ) / stratum_size
+        means = (
+            np.sum(
+                np.where(stratum_counts > 0, stratum_counts * stratum_estimates, 0.0),
+                axis=1,
+            )
+            / stratum_size
+        )
         squared = np.where(
             stratum_counts > 0,
             stratum_counts * (stratum_estimates - means[:, np.newaxis]) ** 2,
@@ -600,9 +612,7 @@ def _jackknife_acceleration(values: np.ndarray, strata: list[np.ndarray]) -> flo
         if len(indices) < 2:
             return None
         stratum_values = values[indices]
-        influence_parts.append(
-            (len(indices) - 1.0) * (float(np.mean(stratum_values)) - stratum_values)
-        )
+        influence_parts.append((len(indices) - 1.0) * (float(np.mean(stratum_values)) - stratum_values))
     influences = np.concatenate(influence_parts)
     sum_squares = float(np.sum(influences**2))
     if sum_squares == 0.0:
@@ -991,19 +1001,14 @@ def evaluate_files(
         "error_sets_equal": incumbent_errors == candidate_errors,
         "zero_error_rows": not incumbent_errors and not candidate_errors,
         "manifest_pins_present": all(
-            isinstance(pin, str) and bool(pin)
-            for pin in (incumbent.manifest_pin, candidate.manifest_pin)
+            isinstance(pin, str) and bool(pin) for pin in (incumbent.manifest_pin, candidate.manifest_pin)
         ),
-        "manifest_pins_match": all(
-            pin == manifest_sha256 for pin in (incumbent.manifest_pin, candidate.manifest_pin)
-        ),
+        "manifest_pins_match": all(pin == manifest_sha256 for pin in (incumbent.manifest_pin, candidate.manifest_pin)),
         "audio_manifest_pins_present": all(
-            isinstance(pin, str) and bool(pin)
-            for pin in (incumbent.audio_manifest_pin, candidate.audio_manifest_pin)
+            isinstance(pin, str) and bool(pin) for pin in (incumbent.audio_manifest_pin, candidate.audio_manifest_pin)
         ),
         "audio_manifest_pins_match": all(
-            pin == audio_manifest_sha256
-            for pin in (incumbent.audio_manifest_pin, candidate.audio_manifest_pin)
+            pin == audio_manifest_sha256 for pin in (incumbent.audio_manifest_pin, candidate.audio_manifest_pin)
         ),
     }
     reasons: list[dict[str, Any]] = []
@@ -1039,10 +1044,14 @@ def evaluate_files(
     validation["report_modes_present"] = all(
         isinstance(mode, str) and bool(mode) for mode in (incumbent_mode, candidate_mode)
     )
+    encoder_modes = ("raw-decode", "external-encoder")
+    validation["report_modes_compatible"] = validation["report_modes_equal"] or (
+        incumbent_mode in encoder_modes and candidate_mode in encoder_modes
+    )
     if not validation["report_modes_present"]:
         reasons.append(_reason("PROVENANCE_FAIL", "both reports must record a non-empty execution mode"))
-    elif not validation["report_modes_equal"]:
-        reasons.append(_reason("PROVENANCE_FAIL", "incumbent and candidate report modes differ"))
+    elif not validation["report_modes_compatible"]:
+        reasons.append(_reason("PROVENANCE_FAIL", "incumbent and candidate report modes are not compatible"))
     if reasons:
         return _early_result(
             manifest_path,
@@ -1058,11 +1067,7 @@ def evaluate_files(
 
     layout = _cluster_layout(manifest_rows, config)
     cluster_count = len(layout.labels)
-    underreplicated = [
-        layout.stratum_labels[index]
-        for index, indices in enumerate(layout.strata)
-        if len(indices) < 2
-    ]
+    underreplicated = [layout.stratum_labels[index] for index, indices in enumerate(layout.strata) if len(indices) < 2]
     if underreplicated:
         raise GateInputError(
             "CLUSTER_STRATUM_UNDERREPLICATED",
@@ -1104,14 +1109,10 @@ def evaluate_files(
             raise AssertionError(f"reference word count changed for {row_id}")
         wer_features[cluster_index] += (reference_words, incumbent_edits, candidate_edits)
         edit_delta = candidate_edits - incumbent_edits
-        edit_signs[
-            "candidate_better" if edit_delta < 0 else "candidate_worse" if edit_delta > 0 else "tie"
-        ] += 1
+        edit_signs["candidate_better" if edit_delta < 0 else "candidate_worse" if edit_delta > 0 else "tie"] += 1
         exact_discordance["incumbent_exact_candidate_wrong"] += int(incumbent_exact and not candidate_exact)
         exact_discordance["incumbent_wrong_candidate_exact"] += int(not incumbent_exact and candidate_exact)
-        deletion_hazards.extend(
-            _candidate_deletion_hazards(row_id, reference, incumbent_text, candidate_text)
-        )
+        deletion_hazards.extend(_candidate_deletion_hazards(row_id, reference, incumbent_text, candidate_text))
 
         formatted_reference = manifest_row.get("formatted_reference")
         if isinstance(formatted_reference, str):
@@ -1215,9 +1216,7 @@ def evaluate_files(
         }
     intervals = make_intervals(bootstrap)
     final_passes = {
-        name: _interval_passes(summary, thresholds[name])
-        for name, summary in intervals.items()
-        if name in thresholds
+        name: _interval_passes(summary, thresholds[name]) for name, summary in intervals.items() if name in thresholds
     }
     final_passes["benefit_upper"] = (
         intervals["uwer"]["decision_bound"] is not None

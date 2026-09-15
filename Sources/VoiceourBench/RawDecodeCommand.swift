@@ -24,6 +24,17 @@ struct RawDecodeCommand {
             throw BenchError.io("model file missing: \(modelURL.path)")
         }
         let repair = try options.vocabulary.map(LoadedRepairEngine.load)
+        let meta = BenchMeta(
+            mode: "raw-decode",
+            backend: "parakeet-cpp",
+            modelId: modelURL.lastPathComponent,
+            modelRevision: "unreported",
+            modelFile: modelURL.lastPathComponent,
+            manifestSHA256: try BenchRunner.sha256(of: options.input),
+            audioManifestSHA256: try BenchRunner.audioManifestSHA256(of: options.input),
+            vocabularySHA256: repair?.sha256,
+            startedAt: ISO8601DateFormatter().string(from: Date())
+        )
         let context = try ParakeetContext(modelPath: modelURL.path)
         let reader = try JSONLLineReader(url: options.input)
         let writer = try JSONLWriter(url: options.output)
@@ -46,6 +57,18 @@ struct RawDecodeCommand {
             rowCount += 1
         }
 
+        // Keep the existing row stream unchanged. Paired comparisons read the
+        // companion provenance only when its digest binds these exact bytes.
+        let provenance = Provenance(
+            meta: meta,
+            resultsSHA256: try BenchRunner.sha256(of: options.output)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(provenance).write(
+            to: options.output.appendingPathExtension("meta.json"),
+            options: .atomic
+        )
         print("wrote \(rowCount) raw-decode rows to \(options.output.path)")
     }
 
@@ -78,5 +101,17 @@ struct RawDecodeCommand {
             ),
             audioS: input.audioS
         )
+    }
+
+    private struct Provenance: Encodable {
+        let schemaVersion = 1
+        let meta: BenchMeta
+        let resultsSHA256: String
+
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version"
+            case meta
+            case resultsSHA256 = "results_sha256"
+        }
     }
 }

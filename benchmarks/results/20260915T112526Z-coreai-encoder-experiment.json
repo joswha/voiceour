@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "experiment": "Core AI FastConformer encoder, static 15 s, benchmark only",
+  "status": "conversion blocked",
+  "recorded_at": "2026-09-15T11:25:26.941056+00:00",
+  "host": {
+    "os": "macOS 27.0",
+    "hardware": "Apple M4 Pro",
+    "xcode": "27.0",
+    "swift": "6.4"
+  },
+  "blocker": {
+    "stage": "NeMo torch.export on the remote GPU export host",
+    "reason": "The existing NeMo environment is on an unreachable export host; Tailscale is stopped.",
+    "user_decision": "Keep stopped. Do not enable the VPN for this export.",
+    "attempts": [
+      {
+        "route": "SSH alias for the export host",
+        "exit_code": 255,
+        "error": "Could not resolve hostname <export host>"
+      },
+      {
+        "route": "LAN hostname of the export host",
+        "exit_code": 255,
+        "error": "ssh: Could not resolve hostname <export host>: nodename nor servname provided, or not known"
+      },
+      {
+        "route": "VPN address of the export host",
+        "exit_code": 255,
+        "error": "ssh: connect to host <export host> port 22: Operation timed out"
+      }
+    ],
+    "local_conversion_attempt": {
+      "exit_code": 1,
+      "output": "convert_encoder.py: missing export sidecar ../../.build/coreai/encoder-15s.export.json.\nconvert_encoder.py: copy it from the devbox beside encoder-15s.pt2, or pass --export-metadata. The source checkpoint's digest is measured there and is never invented here."
+    }
+  },
+  "tooling": {
+    "coreai_torch_git_revision": "799d990deb85af350aa6a4aa23c85f211f2207ad",
+    "installed_versions": {
+      "torch": "2.11.0",
+      "numpy": "2.5.3",
+      "coreai-torch": "0.4.2",
+      "coreai-core": "1.0.0b2"
+    },
+    "project": "bench/coreai/pyproject.toml",
+    "aot": false
+  },
+  "source_checkpoint_pin": {
+    "model_id": "nvidia/parakeet-tdt-0.6b-v3",
+    "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+    "sha256": "3cbdc85877e668ca7b82d0d56770eb1fac76691f55d6b97545e8d61ca588d10d",
+    "size_bytes": 2509332480,
+    "kind": "required source pin, not a newly exported artifact"
+  },
+  "io_contract": {
+    "function": "main",
+    "inputs": {
+      "mel": {
+        "dtype": "float32",
+        "shape": [
+          1,
+          128,
+          1501
+        ]
+      },
+      "mel_length": {
+        "dtype": "int32",
+        "shape": [
+          1
+        ]
+      }
+    },
+    "outputs": {
+      "encoder": {
+        "dtype": "float32",
+        "shape": [
+          1,
+          1024,
+          188
+        ]
+      },
+      "encoder_length": {
+        "dtype": "int32",
+        "shape": [
+          1
+        ]
+      }
+    }
+  },
+  "artifact": null,
+  "corpora": {
+    "librispeech": {
+      "source": ".build/asr-research/librispeech-200-per-split.manifest.jsonl",
+      "total": 400,
+      "retained": 29,
+      "dropped": 371,
+      "filtered_manifest": ".build/coreai/librispeech.le15.manifest.jsonl",
+      "sha256": "1d404359e3799c186c47c8ff4d914d63473f2cca1e2c9305c1933ce40374e8fa"
+    },
+    "fleurs": {
+      "source": ".build/asr-research/fleurs-100.manifest.jsonl",
+      "total": 100,
+      "retained": 95,
+      "dropped": 5,
+      "filtered_manifest": ".build/coreai/fleurs.le15.manifest.jsonl",
+      "sha256": "b27cf6de3dabc8b9c8789d8c6668618749f2c6b3a98c86ba6d602a654e188b3d"
+    }
+  },
+  "measurements": null,
+  "specialization": {
+    "cold_ms": null,
+    "warm_ms": null,
+    "status": "not measured on a Parakeet Core AI artifact"
+  },
+  "determinism": {
+    "status": "not run",
+    "reason": "No converted Parakeet encoder exists."
+  },
+  "paired_gates": {
+    "librispeech": {
+      "native-vs-coreai": {
+        "status": "not run",
+        "path": ".build/coreai/librispeech.native-vs-coreai.gate.json"
+      },
+      "native-vs-coreml": {
+        "status": "not run",
+        "path": ".build/coreai/librispeech.native-vs-coreml.gate.json"
+      },
+      "coreml-vs-coreai": {
+        "status": "not run",
+        "path": ".build/coreai/librispeech.coreml-vs-coreai.gate.json"
+      }
+    },
+    "fleurs": {
+      "native-vs-coreai": {
+        "status": "not run",
+        "path": ".build/coreai/fleurs.native-vs-coreai.gate.json"
+      },
+      "native-vs-coreml": {
+        "status": "not run",
+        "path": ".build/coreai/fleurs.native-vs-coreml.gate.json"
+      },
+      "coreml-vs-coreai": {
+        "status": "not run",
+        "path": ".build/coreai/fleurs.coreml-vs-coreai.gate.json"
+      }
+    }
+  },
+  "implementation_checks": {
+    "coreai_python_runtime": {
+      "fixture": "synthetic subsampling/repetition graph, NOT the Parakeet encoder",
+      "zero_max_abs_diff": 0.0,
+      "seeded_random_max_abs_diff": 0.0,
+      "output_shapes": [
+        [
+          1,
+          1024,
+          188
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    "coreai_swift_route": {
+      "fixture": "the same synthetic layout graph, NOT a quality or performance measurement",
+      "rows": 8,
+      "error_rows": 0,
+      "compute": "cpu",
+      "cache_policy": "none"
+    },
+    "coreml_route": {
+      "fixture": "repository synthetic speech smoke corpus",
+      "rows": 8,
+      "error_rows": 0,
+      "artifact": "standard 6-bit palettized CoreML tier"
+    },
+    "native_compatibility": {
+      "rows": 8,
+      "non_timing_fields_identical": true,
+      "serialization_without_encoder_object": "byte-identical"
+    },
+    "paired_gate_interoperability": {
+      "fixture": "native/CoreML synthetic speech smoke",
+      "provenance_accepted": true,
+      "statistical_decision": "reject",
+      "reason_codes": [
+        "BENEFIT_POINT_MISS",
+        "FORMAT_POINT_INFERIOR"
+      ]
+    }
+  },
+  "limitations": [
+    "No Parakeet Core AI latency, accuracy, cold/warm-cache cost, or determinism claim is made.",
+    "The Core AI artifact is planned unquantized; the CoreML comparator is 6-bit palettized.",
+    "Core AI tail_ms includes an additional native mel recomputation; CoreML encode_ms includes its native mel.",
+    "CoreML load_function_ms is an explicitly-labelled preflight artifact load; its context remains lazy.",
+    "Compute values are requested preferences, not measured device residency. A fresh process does not prove a cold system cache.",
+    "Only 29 of 400 LibriSpeech rows and 95 of 100 FLEURS rows meet the fixed 15 s window.",
+    "Parakeet remains the production recognizer. No app, sidecar, settings, or launch-environment Core AI route was added."
+  ]
+}

@@ -478,6 +478,39 @@ public final class ParakeetContext {
         return collectSegments()
     }
 
+    /// Frame-major native mel values, copied for a benchmark-owned external encoder.
+    public struct NativeMel: Sendable {
+        /// Bins per frame: the one mel geometry every encoder route shares.
+        public static let melBins = CoreMLEncoder.melBins
+        public let frameCount: Int
+        public let values: [Float]
+    }
+
+    /// Computes the native front end's mel for `samples`, as `[frames, 128]`.
+    ///
+    /// `transcribeWithExternalStates` recomputes this mel for its contract check;
+    /// the copy here keeps that research tail unchanged.
+    public func nativeMel(samples: [Float]) throws -> NativeMel {
+        let status = samples.withUnsafeBufferPointer { buffer in
+            parakeet_pcm_to_mel(context, buffer.baseAddress, Int32(buffer.count), Self.hybridTailThreadCount)
+        }
+        guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
+        let frameCount = Int(parakeet_n_len(context))
+        let expectedFrameCount = samples.count / 160 + 1
+        guard frameCount == expectedFrameCount,
+            parakeet_model_n_mels(context) == CoreMLEncoder.melBins,
+            let melData = parakeet_get_mel_data(context)
+        else {
+            throw CoreMLEncoderError.nativeMelContract(
+                "expected \(expectedFrameCount) frames x \(CoreMLEncoder.melBins) bins; got \(frameCount) frames"
+            )
+        }
+        return NativeMel(
+            frameCount: frameCount,
+            values: Array(UnsafeBufferPointer(start: melData, count: frameCount * CoreMLEncoder.melBins))
+        )
+    }
+
     /// Builds the greedy parameters every decode route shares — thread count, the optional
     /// lattice callback, and the cancellation callbacks bound to a bridge that outlives
     /// `body` — then runs `body` with them.

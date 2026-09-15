@@ -137,7 +137,8 @@ let package = Package(
         ),
         .executableTarget(
             name: "VoiceourBench",
-            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"]
+            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"],
+            linkerSettings: [.linkedFramework("CoreAI")]
         ),
         .testTarget(
             name: "VoiceCoreTests",

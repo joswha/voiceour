@@ -19,6 +19,8 @@ struct VoiceourBenchMain {
                 try RepairVerificationCommand.parse(Array(arguments.dropFirst())).run()
             } else if arguments.first == "glossary-conditioning" {
                 try GlossaryConditioningCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "external-encoder" {
+                try await ExternalEncoderCommand.parse(Array(arguments.dropFirst())).run()
             } else {
                 let options = try BenchCLI.parse(arguments)
                 try await BenchRunner(options: options).run()
@@ -70,6 +72,11 @@ enum BenchError: Error, CustomStringConvertible {
         // would report only "error 2", which is useless to a research run that just stopped.
         if let contextError = error as? ParakeetContextError {
             return contextError.description
+        }
+        // The Core AI adapter's errors name the artifact and the violated contract; the bridged
+        // NSError would reduce a contract failure to a numeric code.
+        if let coreAIError = error as? CoreAIEncoderError {
+            return coreAIError.description
         }
         if let asrError = error as? ASRErrorMessage {
             if let detail = asrError.detail, !detail.isEmpty {
@@ -139,6 +146,10 @@ enum BenchCLI {
           voiceour-bench glossary-conditioning replay-states --input <manifest.jsonl>
               --states <states.f32> --index <index.jsonl> --output <rows.jsonl>
               --model <model.bin> [--vocabulary <repair.vocabulary.json>]
+          voiceour-bench external-encoder --engine coreml|coreai --input <manifest.jsonl>
+              --output <results.jsonl> --model <model.bin> [--coreai-model <encoder.aimodel|.aimodelc>]
+              [--coreai-compute default|neural-engine|cpu] [--coreai-cache none|default|persistent]
+              [--vocabulary <repair.vocabulary.json>]
           voiceour-bench repair-verify --fixtures <directory>
               [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
         """
@@ -800,7 +811,9 @@ struct BenchRunner {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func audioManifestSHA256(of url: URL) throws -> String {
+    /// The row-identity digest every mode's `bench_meta` carries: the manifest's ids, audio
+    /// sizes and audio digests, independent of the file's formatting.
+    static func audioManifestSHA256(of url: URL) throws -> String {
         let reader = try JSONLLineReader(url: url)
         let decoder = JSONDecoder()
         var hasher = SHA256()
@@ -991,6 +1004,13 @@ struct BenchClock {
 
     static func elapsedMilliseconds(since start: UInt64) -> Int {
         let end = DispatchTime.now().uptimeNanoseconds
+        guard end >= start else { return 0 }
+        return Int((end - start) / 1_000_000)
+    }
+
+    /// Milliseconds between two marks, for a stage whose end is stamped inside a callback
+    /// rather than at the call site.
+    static func milliseconds(from start: UInt64, to end: UInt64) -> Int {
         guard end >= start else { return 0 }
         return Int((end - start) / 1_000_000)
     }
@@ -1203,6 +1223,9 @@ struct BenchOutputRow: Encodable {
     var error: String?
     var confidence: Double?
     var confidenceMode: String?
+    /// Per-stage encoder measurement, present only for the `external-encoder` mode and
+    /// encoded only when present, so every other mode's rows stay byte-identical.
+    var encoder: EncoderRowTimings?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -1215,6 +1238,7 @@ struct BenchOutputRow: Encodable {
         case error
         case confidence
         case confidenceMode = "confidence_mode"
+        case encoder
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1241,5 +1265,6 @@ struct BenchOutputRow: Encodable {
         if let confidenceMode {
             try container.encode(confidenceMode, forKey: .confidenceMode)
         }
+        try container.encodeIfPresent(self.encoder, forKey: .encoder)
     }
 }
