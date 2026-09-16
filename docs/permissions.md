@@ -17,10 +17,14 @@ Delivery is a clipboard write plus a synthetic Cmd-V, never Accessibility text m
 | Normal text | Clipboard write, then Cmd-V when permission and identity checks pass |
 | Terminal | Copy-only; strips exactly one trailing newline |
 | Code editor | Copy-only |
-| Secure | Concealed copy-only; no History row |
+| Secure | Host-only concealed copy; no Universal Clipboard transfer or History row |
 | Unknown-risky | Copy-only; strips exactly one trailing newline |
 
 `SafetyClassifier` lists known terminal and editor bundle ids. Secure input and secure Accessibility roles outrank them; failed inspection counts as unknown-risky.
+
+Transcript text and its concealed/transient markers are published as one pasteboard item, so a clipboard manager never sees an unmarked intermediate transcript. These opt-out markers remain advisory to local clipboard managers. Ordinary and transient copies keep the system's Universal Clipboard policy.
+
+A failed pasteboard write is failed delivery: Voiceour posts no Cmd-V, schedules no transient clear, and gives no copied confirmation. The menu and recording announcement do not claim the transcript reached the clipboard.
 
 ## Focus races
 

@@ -6,7 +6,7 @@ Setup instructions are in [docs/developer-setup.md](docs/developer-setup.md). [A
 
 ## Before you open a PR
 
-Run `make check`. It is the portable gate, in this order: build, format-check, check-docs, lint-python, test, ui-flow, test-python, self-test, bench-smoke. Any of those can be run alone.
+Run `make check` on macOS 27 with Xcode 27 and Swift 6.4. It is the local gate, in this order: build, format-check, check-docs, lint-python, test, ui-flow, ui-mercury-bench, test-python, self-test, bench-smoke. Any of those can be run alone.
 
 ```sh
 make check
@@ -15,6 +15,8 @@ make check
 Everyone runs `make check`. The real-model and real-microphone suites need a downloaded model or a physical input device, so run them only when your change touches those paths; [docs/developer-setup.md](docs/developer-setup.md) names their flags.
 
 If you changed the UI, also run `make ui-snap`. Read the generated `.ax.diff` or `.flow.diff` before you bless a golden with `make ui-update` or `make ui-flow-update`. A scene with an error-severity lint finding cannot be blessed; [docs/ui-harness.md](docs/ui-harness.md) explains the artifacts.
+
+CI uses the `xcode-27` preview runner and asserts macOS 27, Xcode 27, SDK 27, Swift 6.4, and arm64 before building. Semantic flows are required; hosted scene snapshots remain advisory, so do not bless CI raster drift.
 
 ## What a good PR looks like
 

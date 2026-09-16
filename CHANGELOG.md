@@ -8,6 +8,22 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 
 ## Unreleased
 
+### Changed
+
+- **macOS 27 baseline.** Voiceour requires macOS 27 on Apple Silicon; building from source requires Xcode 27 and Swift 6.4.
+- **Native console and menu.** The console uses native tabs and system glass, with an opaque ground under Reduce Transparency. The menu popover uses the system's own chrome.
+
+### Fixed
+
+- **Swift 6.4 builds.** The recording overlay's animation completion handler explicitly preserves its existing capture ownership, keeping warnings-as-errors builds compatible with the newer compiler.
+- **Persistent local signing selection.** Bundling accepts signing identity and keychain pins from the ignored `.env`, while explicit signing overrides still win. An existing alternative identity can be used without replacing an inaccessible development keychain.
+- **Portable vocabulary resources.** Packaged apps resolve their ordinary-word list through Foundation's bundle lookup, supporting both flat and macOS-style SwiftPM resource bundles without depending on the build directory.
+- **Delivery failures stay truthful.** Clipboard writes must succeed before paste or copied feedback. Secure copies are host-only, and privacy markers are published with the transcript.
+- **Incomplete recordings are rejected.** Conversion/write errors discard the utterance; channel-aware liveness handles interleaved and Int32 audio.
+- **History write failures are visible.** Lost persistence is reported without preventing later saves or delivery.
+- **System audio recovery.** Restoration identifies the muted output by its recorded device UID. Unresolved ownership survives later sessions until that output returns, and interrupted fades restore partially lowered volumes. An unreadable recovery record is quarantined like unreadable settings instead of silently disabling muting.
+- **Hardened release helper.** Notarization signing enables and checks the hardened runtime on both the app and its ASR helper.
+
 ## [0.3.0] - 2026-09-02
 
 ### Added

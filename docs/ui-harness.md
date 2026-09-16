@@ -6,12 +6,12 @@ Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI 
 
 | command | purpose |
 | --- | --- |
-| `make ui-snap`, `make ui-snap-os26` | Render scenes; compare AX dumps and PNG digests. The `os26` leg needs a macOS 26 host. |
-| `make ui-update`, `make ui-update-os26` | Rewrite intended scene goldens. |
-| `make ui-flow`, `make ui-flow-os26` | Run flows and compare their journals. |
-| `make ui-flow-update` | Rewrite intended portable flow journals. |
+| `make ui-snap` | Render all scenes; compare AX dumps and PNG digests on macOS 27. |
+| `make ui-update` | Rewrite intended scene goldens. |
+| `make ui-flow` | Run all flows and compare their journals. |
+| `make ui-flow-update` | Rewrite intended flow journals. |
 | `make ui-list`, `make ui-flow-list` | Print the scene or flow catalog as JSON. |
-| `make ui-all` | Portable scenes and flows, then the supported `os26` legs. |
+| `make ui-all` | All scenes and semantic flows. |
 | `make ui-mercury` | Render isolated shipping/prototype material contact sheets. Not a gate. |
 | `make ui-mercury-bench` | Gate 4,096 room seeds, 64 production rasters, 30 seconds of motion, and 1,200 raster plus engine-and-layer frames at represented 120 Hz. |
 
@@ -26,7 +26,7 @@ Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI 
 | `--scale 1\|2` | Raster scale; default 1. |
 | `--no-sheet`, `--stdout` | Skip the contact sheet; emit the NDJSON manifest to stdout. |
 
-An unfiltered run excludes `os26`. Exit status is 0 when clean or updated, 1 for a changed, missing, or failed artifact or an error-severity lint finding, 2 for bad arguments.
+An unfiltered run includes the full catalog. Exit status is 0 when clean or updated, 1 for a changed, missing, or failed artifact or an error-severity lint finding, 2 for bad arguments.
 
 ## Artifacts and goldens
 
@@ -65,6 +65,10 @@ The full PNG is for inspection; the committed raster golden is its SHA-256 diges
 
 Read the generated `.ax.diff` or `.flow.diff` before any update; update mode writes only changed payloads. A scene with an error-severity lint finding cannot be blessed, and neither can a failing flow.
 
+On macOS 27 the native `console.home.populated.png` capture is 99.936% opaque and 0.047% fully transparent, measured from its alpha channel. The native ground passes error-severity lint; base scenes retain Reduce Transparency off, and the dedicated accessibility scenes exercise it on.
+
+Native accessibility titles may be attributed strings. The walker prefers a control's explicit title over its glyph/selected-text label. Dynamic state marks remain nonselectable because macOS 27's grouped-form text-selection wrapper retains its initial accessibility value; selectable History evidence supplies one plain-text accessibility representation to avoid duplicate narration.
+
 ### Committed documentation captures
 
 `docs/media/` holds the full PNGs that public documentation displays. They are never hand-edited and never a gate.
@@ -77,7 +81,7 @@ Read the generated `.ax.diff` or `.flow.diff` before any update; update mode wri
 
 The two harness captures are copied straight from `.build/ui-harness/*.png` after `scripts/ui_harness.sh --only console.sessions.selection,console.glossary.populated`.
 
-`home-sample.png` cannot come from the harness, because it is the one documentation capture that shows the console *window*. `cacheDisplay` renders neither glass path, so the offscreen tab bar comes out as a white block and there is no title bar at all — an image that reads as a broken app. It is photographed onscreen instead:
+`home-sample.png` cannot come from the harness, because it is the one documentation capture that shows the console *window*. `cacheDisplay` cannot capture composited desktop glass, and the offscreen window has no title bar. It is photographed onscreen instead:
 
 ```sh
 CONSOLE_SHOT_SAMPLE_DATA=1 CONSOLE_SHOT_ACTIVATE=1 \
@@ -95,7 +99,7 @@ Because the window is real, the Top-apps rows resolve icons through LaunchServic
 
 ## Scenes
 
-A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, first-run, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations; `os26` branches.
+A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, first-run, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations. Every scene follows the shipping macOS 27 path.
 
 Home's first-run card needs no seam of its own. Whether it is owed is computed from three real inputs a fixture already owns — the persisted `has_completed_first_run` flag, the seeded transcript journal, and the seeded lifetime ledger — so the `firstRunDownloading`, `firstRunReady`, `firstRunAcquisitionFailed` and `erasedFigures` fixtures reach their states the way a real install does. Adding a `RenderOverrides` field for it would be a branch that exists only to make a golden pass.
 
@@ -103,7 +107,7 @@ Scene rules:
 
 1. Build coordinators through `UIFixtures`, never `DictationCoordinator.live()`.
 2. Derive no artifact value from the current time, randomness, the system accent, local permission grants, home paths, or the developer's locale or time zone.
-3. Pin those values through the existing `RenderOverrides` seams; read that type for the full set. Every seam defaults to nil or false, and at those defaults production must behave as if the type did not exist. A set seam substitutes an input or selects a path production already reaches — `override ?? realValue` for a value, `if let` for a wholesale replacement, a boolean branch for `forceLegacyGlass`'s painted pre-macOS-26 path — never a branch that exists only to make a golden pass.
+3. Pin those values through the existing main-actor [`RenderOverrides`](../Sources/Voiceour/RenderOverrides.swift) seams. Every seam defaults to nil or false, and at those defaults production must behave as if the type did not exist. A set seam substitutes an input or selects a path production already reaches — `override ?? realValue` for a value, `if let` for a wholesale replacement — never a branch that exists only to make a golden pass.
 4. Avoid perpetual animation. Fixed run-loop pumping makes an animating scene time-dependent.
 5. Extend the closest existing scene instead of starting a second fixture convention.
 
