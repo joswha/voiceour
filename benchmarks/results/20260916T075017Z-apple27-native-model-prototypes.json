@@ -1,0 +1,2024 @@
+{
+  "schema_version": 1,
+  "experiment": "macOS 27 native model prototypes for Voiceour dictation",
+  "status": "measured",
+  "recorded_at": "2026-09-16T09:22:06.985750+00:00",
+  "host": {
+    "os": "macOS 27.0 (26A428)",
+    "hardware": "Apple M4 Pro, 24 GB",
+    "xcode": "27.0",
+    "swift": "6.4",
+    "condition": "shared interactive desktop with Voiceour running; exploratory, not an idle promotion gate"
+  },
+  "source_revision": "60c14b8961cb1311b54df708ab8aa50ee8965309",
+  "corpus": {
+    "schema_version": 1,
+    "sources": [
+      {
+        "path": ".build/coreai/fleurs.le15.manifest.jsonl",
+        "sha256": "b27cf6de3dabc8b9c8789d8c6668618749f2c6b3a98c86ba6d602a654e188b3d",
+        "rows": 95
+      },
+      {
+        "path": ".build/coreai/librispeech.le15.manifest.jsonl",
+        "sha256": "1d404359e3799c186c47c8ff4d914d63473f2cca1e2c9305c1933ce40374e8fa",
+        "rows": 29
+      },
+      {
+        "path": "benchmarks/data/techterms/manifest.jsonl",
+        "sha256": "ec60c1c17b410a0b9564704b0d0666d2daf8a87ff7321ec4b352ba0ddd781ff1",
+        "rows": 16
+      }
+    ],
+    "rows": 140,
+    "tiers": {
+      "fleurs": 95,
+      "librispeech": 29,
+      "techterms": 16
+    },
+    "audio_seconds": 1329.1026875,
+    "manifest_sha256": "14c3bfb023b2703504b743726ffbd44fb2d447d499698b017f01110166371406",
+    "vocabulary_sha256": "9a5c3becc51af502038c25f6b2f440660c973abc89626138f78d8fe766db6252",
+    "vocabulary_source": "global canonical_term catalog from public techterms fixture; no reference sentences",
+    "controls": [
+      {
+        "id": "control-silence-1s",
+        "audio_s": 1.0
+      },
+      {
+        "id": "control-silence-10s",
+        "audio_s": 10.0
+      },
+      {
+        "id": "control-long-2x",
+        "audio_s": 21.12
+      },
+      {
+        "id": "control-long-3x",
+        "audio_s": 31.68
+      }
+    ],
+    "limitations": [
+      "Primary natural-speech rows are the existing <=15-second subsets; not representative of long audio.",
+      "Technical-term rows are synthetic speech, reported separately from natural-speech corpora.",
+      "No microphone, user recordings, history transcripts, or private vocabulary are used."
+    ]
+  },
+  "pins": {
+    "voiceour_revision": "60c14b8961cb1311b54df708ab8aa50ee8965309",
+    "coreai_models": {
+      "repository": "https://github.com/apple/coreai-models.git",
+      "revision": "7359dbcf6c3babb4fbfadfd015ffcc1cb6d87420",
+      "checkout": ".build/apple27/upstream/coreai-models"
+    },
+    "model_candidates": [
+      "nvidia/parakeet-tdt-0.6b-v3",
+      "openai/whisper-large-v3-turbo",
+      "openai/whisper-large-v3",
+      "wav2vec2_asr_base_960h"
+    ],
+    "constraints": {
+      "production_changes": false,
+      "microphone": false,
+      "ui_automation": false,
+      "vpn_changes": false,
+      "cloud_requires_explicit_flag": true
+    },
+    "model_pins": {
+      "nvidia/parakeet-tdt-0.6b-v3": {
+        "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+        "source_api": "https://huggingface.co/api/models/nvidia/parakeet-tdt-0.6b-v3"
+      },
+      "openai/whisper-large-v3-turbo": {
+        "revision": "41f01f3fe87f28c78e2fbf8b568835947dd65ed9",
+        "source_api": "https://huggingface.co/api/models/openai/whisper-large-v3-turbo"
+      },
+      "openai/whisper-large-v3": {
+        "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+        "source_api": "https://huggingface.co/api/models/openai/whisper-large-v3"
+      },
+      "wav2vec2_asr_base_960h": {
+        "revision": "torchaudio-2.11.0",
+        "source": "https://download.pytorch.org/torchaudio/models/wav2vec2_fairseq_base_ls960_asr_ls960.pth"
+      }
+    }
+  },
+  "apple_model_facts": {
+    "system_language_model": {
+      "system_variant": "AFM 3 Core Advanced",
+      "system_availability": "available",
+      "system_context_tokens": 8192,
+      "system_capabilities": {
+        "guided_generation": true,
+        "reasoning": false,
+        "tool_calling": true,
+        "vision": true
+      }
+    },
+    "pcc": {
+      "availability": "available",
+      "entitlement_present": false,
+      "block_reasons": [
+        "Cloud inference not authorized: --allow-cloud absent",
+        "PCC entitlement not verified: Valid signature lacks Boolean true entitlement"
+      ],
+      "generation_performed": false
+    },
+    "speech_assets": {
+      "asset_status_before": "supported",
+      "asset_status_after": "installed",
+      "installed_locales_before": [
+        "en_AU",
+        "en_CA",
+        "en_GB",
+        "en_IE",
+        "en_IN",
+        "en_NZ",
+        "en_SG",
+        "en_US",
+        "en_ZA"
+      ],
+      "resolved_locale": "en_US"
+    }
+  },
+  "candidates": {
+    "parakeet-native (production sidecar baseline)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "963a5ecb24b4cb710e6e2a2cbc576397c911c438d39063f0770ecf3e2cf54f18",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.0391740054661403,
+            "cer": 0.01644845417537683,
+            "formatted_wer": 0.6645649432534678,
+            "punctuation_micro_f1": 0.6390728476821191,
+            "case_f1": 0.7892234548335976,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 67.5,
+            "p95": 97.0
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 138.92575389359249,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.04221105527638191,
+            "cer": 0.01972818939061815,
+            "formatted_wer": 0.0987599645704163,
+            "punctuation_micro_f1": 0.8489208633093526,
+            "case_f1": 0.920570264765784,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 64.0,
+            "p95": 90.6
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 137.80167641942106,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.0316930775646372,
+            "cer": 0.010468674504751167,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 95.0,
+            "p95": 100.6
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 154.96167883211677,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.0673076923076923,
+            "cer": 0.015957446808510637,
+            "formatted_wer": 0.0743801652892562,
+            "punctuation_micro_f1": 1.0,
+            "case_f1": 1.0,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 29.5,
+            "p95": 38.0
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 65.8485863095238,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "unchanged": 140
+        },
+        "content_edit_rate": 0.0,
+        "number_token_changes": [],
+        "negation_token_changes": [],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {}
+    },
+    "apple-speech-transcriber": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "bca90a5bb88f78df06c8319b29d42fb558b5c931b9b12a0d844c0fb08be3ab59",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.05648344974187671,
+            "cer": 0.025140279458686323,
+            "formatted_wer": 0.6830601092896175,
+            "punctuation_micro_f1": 0.6989966555183945,
+            "case_f1": 0.7580372250423012,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.2727272727272727,
+              "f1": 0.42857142857142855,
+              "tp": 3,
+              "fp": 0,
+              "fn": 8,
+              "opportunities": 16,
+              "predicted_positive": 3
+            }
+          },
+          "asr_ms": {
+            "p50": 147.6222495,
+            "p95": 288.82854934999995
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 58.836312738645724,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.06281407035175879,
+            "cer": 0.028671635247698377,
+            "formatted_wer": 0.13108945969884853,
+            "punctuation_micro_f1": 0.8635346756152125,
+            "case_f1": 0.8535564853556485,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 142.137458,
+            "p95": 223.5591795
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 62.51314545832678,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.040033361134278564,
+            "cer": 0.01626670961507489,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 251.934125,
+            "p95": 353.8086751999999
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 54.792904527314086,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.125,
+            "cer": 0.051418439716312055,
+            "formatted_wer": 0.1487603305785124,
+            "punctuation_micro_f1": 1.0,
+            "case_f1": 0.909090909090909,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.2727272727272727,
+              "f1": 0.42857142857142855,
+              "tp": 3,
+              "fp": 0,
+              "fn": 8,
+              "opportunities": 16,
+              "predicted_positive": 3
+            }
+          },
+          "asr_ms": {
+            "p50": 55.0818125,
+            "p95": 71.2278025
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 36.77058233974887,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "improved": 15,
+          "worsened": 51,
+          "unchanged": 74
+        },
+        "content_edit_rate": 0.04809741248097413,
+        "number_token_changes": [
+          "fleurs-en_us-test-000009",
+          "fleurs-en_us-test-000043",
+          "fleurs-en_us-test-000092"
+        ],
+        "negation_token_changes": [
+          "librispeech-test.other-000172",
+          "librispeech-test.other-000198"
+        ],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 23.419231541993213,
+        "maximum_client_rss_bytes": 37830656,
+        "user_cpu_seconds": 1.490618,
+        "system_cpu_seconds": 0.422983,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "Timing includes file provider creation, decode and format conversion; baseline asr_inference excludes audio load."
+      ]
+    },
+    "apple-dictation-transcriber (punctuation on)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "6c2bae09b4fe1172d09a6d94d369c59173630d650e79c53d40fcd275a29e91aa",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.1232918311569997,
+            "cer": 0.055506656397843544,
+            "formatted_wer": 0.7540983606557377,
+            "punctuation_micro_f1": 0.32105263157894737,
+            "case_f1": 0.6980802792321117,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.2727272727272727,
+              "f1": 0.42857142857142855,
+              "tp": 3,
+              "fp": 0,
+              "fn": 8,
+              "opportunities": 16,
+              "predicted_positive": 3
+            }
+          },
+          "asr_ms": {
+            "p50": 269.214896,
+            "p95": 599.1208547999997
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 32.81484601652507,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.10954773869346733,
+            "cer": 0.051907058307759754,
+            "formatted_wer": 0.22763507528786536,
+            "punctuation_micro_f1": 0.39215686274509803,
+            "case_f1": 0.7912087912087913,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 223.185417,
+            "p95": 501.0344287
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 35.70531132755574,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.13928273561301086,
+            "cer": 0.060718312127556774,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 522.020791,
+            "p95": 765.3579001999998
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 28.24266800129244,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.20192307692307693,
+            "cer": 0.07092198581560284,
+            "formatted_wer": 0.3140495867768595,
+            "punctuation_micro_f1": 0.10526315789473684,
+            "case_f1": 0.8695652173913043,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.2727272727272727,
+              "f1": 0.42857142857142855,
+              "tp": 3,
+              "fp": 0,
+              "fn": 8,
+              "opportunities": 16,
+              "predicted_positive": 3
+            }
+          },
+          "asr_ms": {
+            "p50": 59.7664585,
+            "p95": 102.0103025
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 31.12750323926796,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "improved": 8,
+          "worsened": 94,
+          "unchanged": 38
+        },
+        "content_edit_rate": 0.11354642313546423,
+        "number_token_changes": [
+          "fleurs-en_us-test-000009",
+          "fleurs-en_us-test-000043",
+          "fleurs-en_us-test-000092",
+          "librispeech-test.other-000190",
+          "librispeech-test.other-000195"
+        ],
+        "negation_token_changes": [
+          "fleurs-en_us-test-000046",
+          "fleurs-en_us-test-000088",
+          "librispeech-test.other-000177",
+          "librispeech-test.other-000198"
+        ],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 41.78276195800572,
+        "maximum_client_rss_bytes": 36536320,
+        "user_cpu_seconds": 2.152212,
+        "system_cpu_seconds": 0.784504,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "Whether this reaches the newly announced AFM Core Advanced Dictation model is not publicly documented; results describe whatever the OS provides."
+      ]
+    },
+    "apple-dictation-transcriber + 12 glossary hints (punctuation on)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "fe0f47f8eafa8098e891ebc33c91cefb8029960e7c306a0768d9e7069276d4c1",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.12207713331308837,
+            "cer": 0.05512157553086148,
+            "formatted_wer": 0.7524169819251787,
+            "punctuation_micro_f1": 0.32189973614775724,
+            "case_f1": 0.6991304347826086,
+            "technical_terms": {
+              "precision": 0.8333333333333334,
+              "recall": 0.45454545454545453,
+              "f1": 0.5882352941176471,
+              "tp": 5,
+              "fp": 1,
+              "fn": 6,
+              "opportunities": 16,
+              "predicted_positive": 6
+            }
+          },
+          "asr_ms": {
+            "p50": 269.691375,
+            "p95": 702.8856368499997
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 30.092860406837797,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.10954773869346733,
+            "cer": 0.051907058307759754,
+            "formatted_wer": 0.22763507528786536,
+            "punctuation_micro_f1": 0.39215686274509803,
+            "case_f1": 0.7912087912087913,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 237.540708,
+            "p95": 506.7566329
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 34.37212485407475,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.13928273561301086,
+            "cer": 0.060718312127556774,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 577.792291,
+            "p95": 963.0607746
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 24.062885747201104,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.16346153846153846,
+            "cer": 0.05851063829787234,
+            "formatted_wer": 0.2809917355371901,
+            "punctuation_micro_f1": 0.1111111111111111,
+            "case_f1": 0.8749999999999999,
+            "technical_terms": {
+              "precision": 0.8333333333333334,
+              "recall": 0.45454545454545453,
+              "f1": 0.5882352941176471,
+              "tp": 5,
+              "fp": 1,
+              "fn": 6,
+              "opportunities": 16,
+              "predicted_positive": 6
+            }
+          },
+          "asr_ms": {
+            "p50": 74.9107505,
+            "p95": 100.17747925
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 28.320115654474897,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "improved": 9,
+          "worsened": 94,
+          "unchanged": 37
+        },
+        "content_edit_rate": 0.1141552511415525,
+        "number_token_changes": [
+          "fleurs-en_us-test-000009",
+          "fleurs-en_us-test-000043",
+          "fleurs-en_us-test-000092",
+          "librispeech-test.other-000190",
+          "librispeech-test.other-000195"
+        ],
+        "negation_token_changes": [
+          "fleurs-en_us-test-000046",
+          "fleurs-en_us-test-000088",
+          "librispeech-test.other-000177",
+          "librispeech-test.other-000198"
+        ],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 54.344280250006705,
+        "maximum_client_rss_bytes": 38633472,
+        "user_cpu_seconds": 2.429396,
+        "system_cpu_seconds": 0.896323,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      }
+    },
+    "apple-dictation-transcriber (punctuation off, initial config)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "b106fb28d58c8f309037d75a27129ed02730a5ef3325faeb4520a01d909973ad",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.1232918311569997,
+            "cer": 0.055506656397843544,
+            "formatted_wer": 0.7486338797814208,
+            "punctuation_micro_f1": 0.02542372881355932,
+            "case_f1": 0.6905187835420393,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.2727272727272727,
+              "f1": 0.42857142857142855,
+              "tp": 3,
+              "fp": 0,
+              "fn": 8,
+              "opportunities": 16,
+              "predicted_positive": 3
+            }
+          },
+          "asr_ms": {
+            "p50": 232.94093750000002,
+            "p95": 554.4550711499999
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 37.074758440285464,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.10954773869346733,
+            "cer": 0.051907058307759754,
+            "formatted_wer": 0.2471213463241807,
+            "punctuation_micro_f1": 0.02727272727272727,
+            "case_f1": 0.7775280898876404,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 201.1285,
+            "p95": 413.1017589
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 40.60009448379879,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.13928273561301086,
+            "cer": 0.060718312127556774,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 452.088792,
+            "p95": 725.1061245999998
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 31.44117867302558,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.20192307692307693,
+            "cer": 0.07092198581560284,
+            "formatted_wer": 0.2975206611570248,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.888888888888889,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.2727272727272727,
+              "f1": 0.42857142857142855,
+              "tp": 3,
+              "fp": 0,
+              "fn": 8,
+              "opportunities": 16,
+              "predicted_positive": 3
+            }
+          },
+          "asr_ms": {
+            "p50": 53.6718545,
+            "p95": 81.05284375
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 37.550987036162255,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "improved": 8,
+          "worsened": 94,
+          "unchanged": 38
+        },
+        "content_edit_rate": 0.11354642313546423,
+        "number_token_changes": [
+          "fleurs-en_us-test-000009",
+          "fleurs-en_us-test-000043",
+          "fleurs-en_us-test-000092",
+          "librispeech-test.other-000190",
+          "librispeech-test.other-000195"
+        ],
+        "negation_token_changes": [
+          "fleurs-en_us-test-000046",
+          "fleurs-en_us-test-000088",
+          "librispeech-test.other-000177",
+          "librispeech-test.other-000198"
+        ],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 37.05800729201292,
+        "maximum_client_rss_bytes": 36978688,
+        "user_cpu_seconds": 2.26122,
+        "system_cpu_seconds": 0.853335,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "Superseded configuration; kept for transparency."
+      ]
+    },
+    "coreai-parakeet-tdt-0.6b-v3 float16 static15s (Apple recipe, Swift runtime)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "8bbec04e47bbbc37c13058270dbfc389ef98b0f5b83a883fc88dbaeb7fe36d58",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.04008502884907379,
+            "cer": 0.01644845417537683,
+            "formatted_wer": 0.6675073560319462,
+            "punctuation_micro_f1": 0.631404958677686,
+            "case_f1": 0.7892234548335976,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.5454545454545454,
+              "f1": 0.7058823529411765,
+              "tp": 6,
+              "fp": 0,
+              "fn": 5,
+              "opportunities": 16,
+              "predicted_positive": 6
+            }
+          },
+          "asr_ms": {
+            "p50": 79.168937,
+            "p95": 103.346425
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 117.3694653947078,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.04321608040201005,
+            "cer": 0.01972818939061815,
+            "formatted_wer": 0.10053144375553587,
+            "punctuation_micro_f1": 0.8441247002398081,
+            "case_f1": 0.9190283400809716,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 77.529916,
+            "p95": 94.1830411
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 116.12323815261432,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.0316930775646372,
+            "cer": 0.010468674504751167,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 98.960709,
+            "p95": 108.077317
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 147.37101587550333,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.07692307692307693,
+            "cer": 0.015957446808510637,
+            "formatted_wer": 0.09090909090909091,
+            "punctuation_micro_f1": 0.9375,
+            "case_f1": 0.9777777777777777,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.5454545454545454,
+              "f1": 0.7058823529411765,
+              "tp": 6,
+              "fp": 0,
+              "fn": 5,
+              "opportunities": 16,
+              "predicted_positive": 6
+            }
+          },
+          "asr_ms": {
+            "p50": 57.9758125,
+            "p95": 62.565051999999994
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 35.322764700510035,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "unchanged": 135,
+          "improved": 1,
+          "worsened": 4
+        },
+        "content_edit_rate": 0.0024353120243531205,
+        "number_token_changes": [],
+        "negation_token_changes": [],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 17.14231074998679,
+        "maximum_client_rss_bytes": 2526035968,
+        "user_cpu_seconds": 3.904839,
+        "system_cpu_seconds": 2.060594,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "Numerical parity versus PyTorch float16 traces on 2 clips: encoder relative L2 0.0018 and 0.0014.",
+        "17 of 140 transcripts differ from the native ggml path; U-WER 4.01% versus 3.92%.",
+        "Controls: silence produces empty transcripts; >15 s clips are refused, not truncated."
+      ]
+    },
+    "coreai-wav2vec2-base-960h float32 cpu-only": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "1249bc220e1adcc4ab2d8d952e969ad2ffe444e562c86bb82c93b258b10d3781",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.20042514424536897,
+            "cer": 0.07899658928374959,
+            "formatted_wer": 1.5077763766288357,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.14851759490163477,
+            "technical_terms": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "opportunities": 16,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 125.41639600385679,
+            "p95": 131.11992645572172
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 75.011767648217,
+          "first_seen_shape_rows": 1,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.27035175879396983,
+            "cer": 0.10705830775975449,
+            "formatted_wer": 1.004428697962799,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.21628721541155868,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 126.85791699914262,
+            "p95": 132.65034609357826
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 71.78455265904601,
+          "first_seen_shape_rows": 1,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.0633861551292744,
+            "cer": 0.02158157513287164,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 123.54762500035577,
+            "p95": 125.49259179795627
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 118.22842119709065,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.4423076923076923,
+            "cer": 0.14361702127659576,
+            "formatted_wer": 1.024793388429752,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.32307692307692304,
+            "technical_terms": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "opportunities": 16,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 124.41254199802643,
+            "p95": 127.30799949349603
+          },
+          "postprocess_ms": {
+            "p50": null,
+            "p95": null
+          },
+          "rtfx": 16.683174852531224,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "improved": 3,
+          "worsened": 115,
+          "unchanged": 22
+        },
+        "content_edit_rate": 0.18995433789954339,
+        "number_token_changes": [
+          "fleurs-en_us-test-000009",
+          "fleurs-en_us-test-000011",
+          "fleurs-en_us-test-000012",
+          "fleurs-en_us-test-000022",
+          "fleurs-en_us-test-000025",
+          "fleurs-en_us-test-000043",
+          "fleurs-en_us-test-000048",
+          "fleurs-en_us-test-000063",
+          "fleurs-en_us-test-000068",
+          "fleurs-en_us-test-000084",
+          "fleurs-en_us-test-000092",
+          "librispeech-test.other-000175",
+          "techterms_05_ipv6"
+        ],
+        "negation_token_changes": [
+          "fleurs-en_us-test-000005",
+          "fleurs-en_us-test-000019"
+        ],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 19.126616958004888,
+        "maximum_client_rss_bytes": 1162084352,
+        "user_cpu_seconds": 45.261702,
+        "system_cpu_seconds": 1.674576,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "float16 export produced NaN emissions in Core AI where PyTorch float16 stayed finite; default compute failed with ANE program load no-memory.",
+        "Uppercase unpunctuated CTC output; formatted metrics are structurally unfavorable."
+      ]
+    },
+    "afm3-format (default guardrails)": {
+      "status": "completed_with_errors",
+      "errors_or_missing": 10,
+      "results_sha256": "adb0f17832e10802b3cb79183345ee872e107d8297d6e3f01a21631364929141",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 130,
+          "errors_or_missing": 10,
+          "final": {
+            "uwer": 0.1269359246887337,
+            "cer": 0.10567719221036417,
+            "formatted_wer": 0.6103404791929382,
+            "punctuation_micro_f1": 0.6596119929453262,
+            "case_f1": 0.7919463087248322,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 66.5,
+            "p95": 97.0
+          },
+          "postprocess_ms": {
+            "p50": 708.6039165,
+            "p95": 1155.0557081499999
+          },
+          "rtfx": 138.00987104304258,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 90,
+          "errors_or_missing": 5,
+          "final": {
+            "uwer": 0.09095477386934674,
+            "cer": 0.0711968434896975,
+            "formatted_wer": 0.14127546501328608,
+            "punctuation_micro_f1": 0.8361858190709047,
+            "case_f1": 0.8912133891213389,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 64.0,
+            "p95": 91.1
+          },
+          "postprocess_ms": {
+            "p50": 684.602166,
+            "p95": 935.2695276
+          },
+          "rtfx": 137.7333999001497,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 24,
+          "errors_or_missing": 5,
+          "final": {
+            "uwer": 0.1926605504587156,
+            "cer": 0.17748429698824286,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 95.0,
+            "p95": 100.85
+          },
+          "postprocess_ms": {
+            "p50": 1069.7754375,
+            "p95": 1233.4749313
+          },
+          "rtfx": 154.77082415160862,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.057692307692307696,
+            "cer": 0.012411347517730497,
+            "formatted_wer": 0.06611570247933884,
+            "punctuation_micro_f1": 1.0,
+            "case_f1": 1.0,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 29.5,
+            "p95": 38.0
+          },
+          "postprocess_ms": {
+            "p50": 376.69437500000004,
+            "p95": 445.3626875
+          },
+          "rtfx": 65.8485863095238,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "unchanged": 127,
+          "improved": 2,
+          "worsened": 1
+        },
+        "content_edit_rate": 0.0013409319477036541,
+        "number_token_changes": [],
+        "negation_token_changes": [],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 107.87826258399582,
+        "maximum_client_rss_bytes": 22315008,
+        "user_cpu_seconds": 3.038796,
+        "system_cpu_seconds": 0.407452,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "10 rows refused with \"Response may contain sensitive or unsafe content\"; refusals scored as empty output."
+      ]
+    },
+    "afm3-glossary (default guardrails)": {
+      "status": "completed_with_errors",
+      "errors_or_missing": 11,
+      "results_sha256": "a4be0160a96b56751d1d356eef510036bcbb8453ff08cb264fefe23baa87c563",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 129,
+          "errors_or_missing": 11,
+          "final": {
+            "uwer": 0.13634983297904646,
+            "cer": 0.11381890196941358,
+            "formatted_wer": 0.5952080706179067,
+            "punctuation_micro_f1": 0.6619217081850532,
+            "case_f1": 0.8061224489795918,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 66.0,
+            "p95": 97.0
+          },
+          "postprocess_ms": {
+            "p50": 727.807875,
+            "p95": 1188.1346917999997
+          },
+          "rtfx": 137.70248331991255,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 90,
+          "errors_or_missing": 5,
+          "final": {
+            "uwer": 0.09045226130653267,
+            "cer": 0.07075843928101709,
+            "formatted_wer": 0.14260407440212577,
+            "punctuation_micro_f1": 0.8333333333333334,
+            "case_f1": 0.8916666666666666,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 64.0,
+            "p95": 91.1
+          },
+          "postprocess_ms": {
+            "p50": 717.0641455,
+            "p95": 944.5437109
+          },
+          "rtfx": 137.7333999001497,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 23,
+          "errors_or_missing": 6,
+          "final": {
+            "uwer": 0.21934945788156798,
+            "cer": 0.20196488967627638,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 95.0,
+            "p95": 100.9
+          },
+          "postprocess_ms": {
+            "p50": 1073.701041,
+            "p95": 1335.7667333999998
+          },
+          "rtfx": 154.22935779816513,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.057692307692307696,
+            "cer": 0.014184397163120567,
+            "formatted_wer": 0.06611570247933884,
+            "punctuation_micro_f1": 1.0,
+            "case_f1": 1.0,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 29.5,
+            "p95": 38.0
+          },
+          "postprocess_ms": {
+            "p50": 420.129375,
+            "p95": 461.63528175
+          },
+          "rtfx": 65.8485863095238,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "unchanged": 126,
+          "improved": 3
+        },
+        "content_edit_rate": 0.0020359687818120122,
+        "number_token_changes": [],
+        "negation_token_changes": [],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 108.96581170801073,
+        "maximum_client_rss_bytes": 25034752,
+        "user_cpu_seconds": 3.06716,
+        "system_cpu_seconds": 0.419494,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      }
+    },
+    "afm3-format (permissiveContentTransformations)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "8ea55ecce3902fd8ac5dacffcb9276117fb7d107772347aa81d2e35b26fa23ab",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.03887033100516247,
+            "cer": 0.016668500385080866,
+            "formatted_wer": 0.6633039092055486,
+            "punctuation_micro_f1": 0.6392092257001647,
+            "case_f1": 0.7917329093799682,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 67.5,
+            "p95": 97.0
+          },
+          "postprocess_ms": {
+            "p50": 491.0163335,
+            "p95": 841.7595544999999
+          },
+          "rtfx": 138.92575389359249,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.04170854271356784,
+            "cer": 0.01981587023235423,
+            "formatted_wer": 0.09787422497785651,
+            "punctuation_micro_f1": 0.8476190476190476,
+            "case_f1": 0.920570264765784,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 64.0,
+            "p95": 90.6
+          },
+          "postprocess_ms": {
+            "p50": 472.032417,
+            "p95": 640.5033705999999
+          },
+          "rtfx": 137.80167641942106,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.03252710592160134,
+            "cer": 0.011273957158962795,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 95.0,
+            "p95": 100.6
+          },
+          "postprocess_ms": {
+            "p50": 795.037292,
+            "p95": 939.1069837999999
+          },
+          "rtfx": 154.96167883211677,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.057692307692307696,
+            "cer": 0.012411347517730497,
+            "formatted_wer": 0.06611570247933884,
+            "punctuation_micro_f1": 1.0,
+            "case_f1": 1.0,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 29.5,
+            "p95": 38.0
+          },
+          "postprocess_ms": {
+            "p50": 245.954667,
+            "p95": 316.94700025
+          },
+          "rtfx": 65.8485863095238,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "unchanged": 137,
+          "improved": 2,
+          "worsened": 1
+        },
+        "content_edit_rate": 0.0012176560121765602,
+        "number_token_changes": [],
+        "negation_token_changes": [],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 76.30595679199905,
+        "maximum_client_rss_bytes": 23330816,
+        "user_cpu_seconds": 1.302332,
+        "system_cpu_seconds": 0.36327499999999996,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      }
+    },
+    "afm3-glossary (permissiveContentTransformations)": {
+      "status": "complete",
+      "errors_or_missing": 0,
+      "results_sha256": "64a0cd7310795ab2a7ee868af0b27ac44f91512da26d772d348459a617bc92ca",
+      "scores": {
+        "all": {
+          "rows": 140,
+          "completed": 140,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.03856665654418463,
+            "cer": 0.0162834195180988,
+            "formatted_wer": 0.6649852879361076,
+            "punctuation_micro_f1": 0.6369636963696368,
+            "case_f1": 0.794912559618442,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 67.5,
+            "p95": 97.0
+          },
+          "postprocess_ms": {
+            "p50": 496.24699999999996,
+            "p95": 859.0208062499999
+          },
+          "rtfx": 138.92575389359249,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "fleurs": {
+          "rows": 95,
+          "completed": 95,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.04120603015075377,
+            "cer": 0.019377466023673826,
+            "formatted_wer": 0.09920283436669619,
+            "punctuation_micro_f1": 0.8448687350835322,
+            "case_f1": 0.920892494929006,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 64.0,
+            "p95": 90.6
+          },
+          "postprocess_ms": {
+            "p50": 477.485833,
+            "p95": 650.3322747999999
+          },
+          "rtfx": 137.80167641942106,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "librispeech": {
+          "rows": 29,
+          "completed": 29,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.03252710592160134,
+            "cer": 0.01079078756643582,
+            "formatted_wer": 1.0,
+            "punctuation_micro_f1": 0.0,
+            "case_f1": 0.0,
+            "technical_terms": {
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "opportunities": 0,
+              "predicted_positive": 0
+            }
+          },
+          "asr_ms": {
+            "p50": 95.0,
+            "p95": 100.6
+          },
+          "postprocess_ms": {
+            "p50": 777.031959,
+            "p95": 943.75155
+          },
+          "rtfx": 154.96167883211677,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        },
+        "techterms": {
+          "rows": 16,
+          "completed": 16,
+          "errors_or_missing": 0,
+          "final": {
+            "uwer": 0.057692307692307696,
+            "cer": 0.014184397163120567,
+            "formatted_wer": 0.06611570247933884,
+            "punctuation_micro_f1": 1.0,
+            "case_f1": 1.0,
+            "technical_terms": {
+              "precision": 1.0,
+              "recall": 0.6363636363636364,
+              "f1": 0.7777777777777778,
+              "tp": 7,
+              "fp": 0,
+              "fn": 4,
+              "opportunities": 16,
+              "predicted_positive": 7
+            }
+          },
+          "asr_ms": {
+            "p50": 29.5,
+            "p95": 38.0
+          },
+          "postprocess_ms": {
+            "p50": 241.3473125,
+            "p95": 279.96451049999996
+          },
+          "rtfx": 65.8485863095238,
+          "first_seen_shape_rows": 0,
+          "empty_transcripts": 0
+        }
+      },
+      "versus_baseline_final": {
+        "row_wer_changes": {
+          "unchanged": 136,
+          "improved": 3,
+          "worsened": 1
+        },
+        "content_edit_rate": 0.00213089802130898,
+        "number_token_changes": [],
+        "negation_token_changes": [],
+        "note": "Changed token lists flag inspection candidates, not proven semantic errors."
+      },
+      "process": {
+        "wall_seconds": 73.0750342500105,
+        "maximum_client_rss_bytes": 24051712,
+        "user_cpu_seconds": 1.210601,
+        "system_cpu_seconds": 0.29550499999999996,
+        "memory_scope": "Child-process maximum RSS, not simultaneous process-tree total; Apple system model servers excluded."
+      },
+      "notes": [
+        "11 of 140 rows edited; edits were punctuation/case, spelling of rare words, and two glossary-adjacent fixes; 0 number-token and 0 negation-token changes flagged."
+      ]
+    }
+  },
+  "not_measured_on_corpus": {
+    "coreai-whisper-large-v3-turbo": {
+      "candidate": "coreai-whisper-turbo",
+      "export": ".build/apple27/exports/whisper-turbo-f16-static/export.json",
+      "graph": "single encoder+decoder forward, fixed 448-token decoder input, float16",
+      "runtime_outcomes": [
+        {
+          "compute": "default (dynamic decoder graph)",
+          "status": "blocked",
+          "reason": "ANE compiler exhausted disk; zero transcripts"
+        },
+        {
+          "compute": "gpu-preferred (dynamic decoder graph)",
+          "status": "blocked",
+          "reason": "runtime still compiled per-length ANE regions; stopped by free-disk guard; zero transcripts"
+        },
+        {
+          "compute": "default (fixed decoder graph)",
+          "status": "blocked",
+          "reason": "ANE program load failed: no memory; process aborted"
+        },
+        {
+          "compute": "cpu-only (fixed decoder graph)",
+          "status": "functional smoke complete",
+          "rows": 4,
+          "errors": 0,
+          "asr_ms": [
+            18564.659791998565,
+            28824.991208006395,
+            10356.17779099266,
+            9625.58775000798
+          ],
+          "note": "10-29 s per short clip: functional route only, orders of magnitude off dictation latency targets; not a performance measurement of an optimized Whisper deployment."
+        }
+      ],
+      "padding_equivalence": ".build/apple27/runs/20260916T075017Z/whisper-padding-check.stdout.log",
+      "decision": "Do not spend the remaining disk/thermal budget on 140-row Whisper runs; the CPU-only functional result already answers the practical question for a stop-to-text dictation app."
+    },
+    "coreai-whisper-large-v3": {
+      "candidate": "coreai-whisper-large-v3",
+      "export": ".build/apple27/exports/whisper-large-f16-static/export.json",
+      "graph": "single encoder+decoder forward, fixed 448-token decoder input, float16",
+      "runtime_outcome": {
+        "compute": "cpu-only",
+        "status": "functional smoke complete",
+        "rows": 2,
+        "errors": 0,
+        "asr_ms": [
+          47832.189332999405,
+          29265.711832995294
+        ],
+        "peak_client_rss_bytes": 9044459520
+      },
+      "decision": "Same conclusion as turbo with higher cost; no full-corpus run, no ANE/GPU retry on this disk/memory budget."
+    },
+    "private-cloud-compute": {
+      "status": "blocked",
+      "reason": "No managed com.apple.developer.private-cloud-compute entitlement on this executable; --allow-cloud never passed; zero requests sent."
+    }
+  },
+  "runtime_failures_preserved": [
+    ".build/apple27/runs/20260916T075017Z/whisper-default-failure.json",
+    ".build/apple27/runs/20260916T075017Z/whisper-dynamic-graph-failure.json",
+    ".build/apple27/runs/20260916T075017Z/wav2vec2-status.json"
+  ],
+  "run_directory": ".build/apple27/runs/20260916T075017Z",
+  "limitations": [
+    "Exploratory shared-desktop run; not an idle-machine production promotion gate.",
+    "Apple system model weights are OS-managed and not independently revision-pinnable.",
+    "Process-first timing is not guaranteed model-cold; platform services can retain models.",
+    "Per-backend timing boundaries are recorded in metadata; input conversion may differ.",
+    "Client RSS excludes shared Apple model services and may exclude the Parakeet sidecar; not an apples-to-apples model-memory comparison.",
+    "Errors/missing outputs are counted; final-text quality treats them as empty outputs, never silently drops them.",
+    "Natural-speech and synthetic technical-term tiers are reported separately.",
+    "Whisper candidates were exercised functionally on CPU only after ANE compilation/load failures; no accelerator latency is claimed for them.",
+    "Apple system speech and language models are OS-managed; no independent revision pin exists.",
+    "Dictation \"punctuation on\" runs were measured after the unpunctuated runs in the same process-warm session order; latency differences between the two configurations are within run-to-run noise on a shared desktop.",
+    "empty_transcripts counts completed rows with no text on a clip that has speech; every measured candidate scored 0 on every tier."
+  ]
+}
