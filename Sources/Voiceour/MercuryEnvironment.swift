@@ -83,7 +83,7 @@ final class MercuryEnvironment {
         bake()
     }
 
-    deinit {
+    isolated deinit {
         tables.deinitialize(count: capacity)
         tables.deallocate()
     }

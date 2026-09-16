@@ -20,7 +20,7 @@ extension SessionState {
 enum MercuryOutcomeGesture: Sendable, Equatable {
     /// A copy-only delivery that cost the user nothing: the body draws in on itself.
     case gathered
-    /// A paste that was refused: one lateral lean and rebound.
+    /// A failed delivery: one lateral lean and rebound.
     case lurch
     /// A dictation that produced no text: the body flattens and trembles.
     case collapse
@@ -51,11 +51,10 @@ struct RecordingOverlayOutcome: Equatable, Sendable {
             accessibilityStatus = "The transcript is on the clipboard."
         case .insertFailed:
             gesture = .lurch
-            isFailure = false
-            // Paste failed, but the clipboard still holds the transcript —
-            // that half is what the user can act on. The associated reason
-            // is an insertion token, never spoken.
-            accessibilityStatus = "Paste failed. The transcript is on the clipboard."
+            isFailure = true
+            // Only copy-only outcomes confirm clipboard delivery. A write or a
+            // required privacy marker may have failed before anything was pasted.
+            accessibilityStatus = "Delivery failed. Clipboard copy was not confirmed."
         case .error(let code):
             gesture = .collapse
             isFailure = true

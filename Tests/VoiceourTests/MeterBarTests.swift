@@ -3,6 +3,7 @@ import Testing
 @testable import Voiceour
 
 @Suite("MeterBar")
+@MainActor
 struct MeterBarTests {
     @Test func clampsToUnitRangeAndSurvivesNonFiniteInput() {
         #expect(MeterBar.clamped(0.6) == 0.6)

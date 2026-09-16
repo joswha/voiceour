@@ -169,12 +169,12 @@
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
             sessionFlows + voiceFlows + glossaryFlows + systemFlows + consoleFlows + menuFlows
-                + overlayFlows + modernFlows
+                + overlayFlows
         }
 
         /// Selection goes through `UIHarnessRequest.matches(id:tags:)`, the one spelling of
-        /// `--only`/`--except` shared with the scene catalog. Parsing installs the default
-        /// `os26` exclusion.
+        /// `--only`/`--except` shared with the scene catalog. Nothing is excluded unless
+        /// `--except` asks for it: every flow drives the one shipping render path.
         static func all(request: UIHarnessRequest) -> [UIFlow] {
             everything().filter { request.matches(id: $0.id, tags: $0.tags) }
         }
@@ -578,11 +578,7 @@
             [
                 homeStatsFlow,
                 homeFirstRunFlow,
-                tabNavigationFlow(
-                    id: "console.tab.navigation",
-                    title: "The native console switches through every tab",
-                    tags: ["console", "tab", "navigation"]
-                ),
+                tabNavigationFlow,
             ]
         }
 
@@ -694,10 +690,71 @@
             )
         }
 
+        /// The console's four destinations in declaration order. Each leg asserts that
+        /// the tab reporting itself selected is the one whose content rendered, so a
+        /// selection that moves the control without moving the destination fails here.
+        private static var tabNavigationFlow: UIFlow {
+            UIFlow(
+                id: "console.tab.navigation",
+                title: "The native console switches through every tab",
+                tags: ["console", "tab", "navigation"],
+                host: .console(.home),
+                fixture: .static(.populated),
+                steps: [
+                    .check(
+                        "home",
+                        [
+                            .count(Selector.homeContent, .exactly(1)),
+                            .value(Selector.tab(.home), .equals("1")),
+                            .absent(Selector.settingsContent),
+                        ]
+                    ),
+                    .act(.navigate(.glossary)),
+                    .wait(.element(Selector.glossaryContent)),
+                    .check(
+                        "glossary",
+                        [
+                            .count(Selector.glossaryContent, .exactly(1)),
+                            .value(Selector.tab(.glossary), .equals("1")),
+                            .value(Selector.tab(.home), .equals("0")),
+                            .absent(Selector.historyContent),
+                        ]
+                    ),
+                    .act(.navigate(.history)),
+                    .wait(.element(Selector.historyContent)),
+                    .check(
+                        "history",
+                        [
+                            .count(Selector.historyContent, .exactly(1)),
+                            .absent(Selector.glossaryContent),
+                            .value(Selector.tab(.history), .equals("1")),
+                            .value(Selector.tab(.glossary), .equals("0")),
+                        ]
+                    ),
+                    .act(.navigate(.settings)),
+                    .wait(.element(Selector.settingsContent)),
+                    // Both halves of the merged tab in one check: the preference
+                    // rows the General tab used to own and the diagnostics row the
+                    // System tab used to own now render on one destination.
+                    .check(
+                        "settings",
+                        [
+                            .count(Selector.settingsContent, .exactly(1)),
+                            .count(Selector.settingsDiagnostics, .exactly(1)),
+                            .absent(Selector.historyContent),
+                            .value(Selector.tab(.settings), .equals("1")),
+                            .value(Selector.tab(.history), .equals("0")),
+                        ]
+                    ),
+                ]
+            )
+        }
+
         // MARK: Menu and dictation
 
         private static var menuFlows: [UIFlow] {
             [
+                menuPrimaryActionFlow,
                 pasteDeliveredFlow,
                 copyOnlyFlow,
                 cancelledFlow,
@@ -729,6 +786,70 @@
                         ),
                     ]),
             ]
+        }
+
+        private static var menuPrimaryActionFlow: UIFlow {
+            UIFlow(
+                id: "menu.primary-action",
+                title: "The menu primary action drives a dictation",
+                tags: ["menu", "dictation"],
+                host: .menu,
+                // Modelled on `dictation.cancelled`: cancelling from `.recording` never
+                // reaches the later boundaries, so arming them would leave gates no script
+                // can release.
+                fixture: .dictation(
+                    transcript: dictatedText,
+                    outcome: .pasteAttempted,
+                    targetBundleID: pasteBundleID,
+                    targetSafety: .normalText,
+                    reaches: [.permission]
+                ),
+                steps: [
+                    // `.lintClean` is affordable here and nowhere else: the menu host paints
+                    // `Ink.void` behind `MenuView`, so the raster the geometry and contrast
+                    // rules read is real paint rather than the unrasterised window ground a
+                    // console render leaves behind.
+                    .check(
+                        "idle",
+                        [
+                            .role(Selector.startDictation, "AXButton"),
+                            .label(Selector.startDictation, .equals("START DICTATION")),
+                            .enabled(Selector.startDictation, true),
+                            .lintClean,
+                        ]
+                    ),
+                    .act(.press(Selector.startDictation)),
+                    .wait(.state(.checkingPermissions)),
+                    .release(.permission),
+                    .wait(.state(.recording)),
+                    .check(
+                        "live",
+                        [
+                            .state(.recording),
+                            .transitions([.idle, .checkingPermissions, .recording], .exact),
+                            // MenuView.swift's `dictationTitle`: one capsule, two labels.
+                            .absent(Selector.startDictation),
+                            .role(Selector.stopDictation, "AXButton"),
+                            .label(Selector.stopDictation, .equals("STOP DICTATION")),
+                            .enabled(Selector.stopDictation, true),
+                            .text(.equals("LIVE"), .exactly(1)),
+                        ]
+                    ),
+                    .act(.dictate(.cancel)),
+                    .wait(.state(.idle)),
+                    .check(
+                        "idle-again",
+                        [
+                            .state(.idle),
+                            .transitions([.idle, .checkingPermissions, .recording, .cancelled, .idle], .exact),
+                            .absent(Selector.stopDictation),
+                            .label(Selector.startDictation, .equals("START DICTATION")),
+                            .enabled(Selector.startDictation, true),
+                            .model(.deliveryCount, .equals("0")),
+                        ]
+                    ),
+                ]
+            )
         }
 
         private static var pasteDeliveredFlow: UIFlow {
@@ -1079,142 +1200,6 @@
                     .act(.dictate(.cancel)),
                     .wait(.state(.idle)),
                 ])
-        }
-
-        // MARK: Modern render path (macOS 26)
-
-        /// The menu journey drives its macOS 26 branch. The console journey keeps
-        /// the renamed compatibility contract while exercising the same native
-        /// `TabView` hierarchy under the `os26` harness tag.
-        private static var modernFlows: [UIFlow] {
-            [
-                tabNavigationFlow(
-                    id: "console.tab.navigation.os26",
-                    title: "The native console switches tabs under the os26 harness path",
-                    tags: ["console", "tab", "navigation", "os26"]
-                ),
-                UIFlow(
-                    id: "menu.primary-action.os26",
-                    title: "The menu primary action drives a dictation on the native render path",
-                    tags: ["menu", "dictation", "os26"],
-                    host: .menu,
-                    // Modelled on `dictation.cancelled`: cancelling from `.recording` never
-                    // reaches the later boundaries, so arming them would leave gates no script
-                    // can release.
-                    fixture: .dictation(
-                        transcript: dictatedText,
-                        outcome: .pasteAttempted,
-                        targetBundleID: pasteBundleID,
-                        targetSafety: .normalText,
-                        reaches: [.permission]
-                    ),
-                    steps: [
-                        // `.lintClean` is affordable here and nowhere else on the native path:
-                        // the menu host paints `Ink.void` behind `MenuView`, so the raster the
-                        // geometry and contrast rules read is real paint rather than the
-                        // unrasterised window ground an `os26` console render leaves behind.
-                        .check(
-                            "idle",
-                            [
-                                .role(Selector.startDictation, "AXButton"),
-                                .label(Selector.startDictation, .equals("START DICTATION")),
-                                .enabled(Selector.startDictation, true),
-                                .lintClean,
-                            ]
-                        ),
-                        .act(.press(Selector.startDictation)),
-                        .wait(.state(.checkingPermissions)),
-                        .release(.permission),
-                        .wait(.state(.recording)),
-                        .check(
-                            "live",
-                            [
-                                .state(.recording),
-                                .transitions([.idle, .checkingPermissions, .recording], .exact),
-                                // MenuView.swift:155-157: one capsule, two labels.
-                                .absent(Selector.startDictation),
-                                .role(Selector.stopDictation, "AXButton"),
-                                .label(Selector.stopDictation, .equals("STOP DICTATION")),
-                                .enabled(Selector.stopDictation, true),
-                                .text(.equals("LIVE"), .exactly(1)),
-                            ]
-                        ),
-                        .act(.dictate(.cancel)),
-                        .wait(.state(.idle)),
-                        .check(
-                            "idle-again",
-                            [
-                                .state(.idle),
-                                .transitions([.idle, .checkingPermissions, .recording, .cancelled, .idle], .exact),
-                                .absent(Selector.stopDictation),
-                                .label(Selector.startDictation, .equals("START DICTATION")),
-                                .enabled(Selector.startDictation, true),
-                                .model(.deliveryCount, .equals("0")),
-                            ]
-                        ),
-                    ]),
-            ]
-        }
-
-        private static func tabNavigationFlow(
-            id: String,
-            title: String,
-            tags: [String]
-        ) -> UIFlow {
-            UIFlow(
-                id: id,
-                title: title,
-                tags: tags,
-                host: .console(.home),
-                fixture: .static(.populated),
-                steps: [
-                    .check(
-                        "home",
-                        [
-                            .count(Selector.homeContent, .exactly(1)),
-                            .value(Selector.tab(.home), .equals("1")),
-                            .absent(Selector.settingsContent),
-                        ]
-                    ),
-                    .act(.navigate(.glossary)),
-                    .wait(.element(Selector.glossaryContent)),
-                    .check(
-                        "glossary",
-                        [
-                            .count(Selector.glossaryContent, .exactly(1)),
-                            .value(Selector.tab(.glossary), .equals("1")),
-                            .value(Selector.tab(.home), .equals("0")),
-                            .absent(Selector.historyContent),
-                        ]
-                    ),
-                    .act(.navigate(.history)),
-                    .wait(.element(Selector.historyContent)),
-                    .check(
-                        "history",
-                        [
-                            .count(Selector.historyContent, .exactly(1)),
-                            .absent(Selector.glossaryContent),
-                            .value(Selector.tab(.history), .equals("1")),
-                            .value(Selector.tab(.glossary), .equals("0")),
-                        ]
-                    ),
-                    .act(.navigate(.settings)),
-                    .wait(.element(Selector.settingsContent)),
-                    // Both halves of the merged tab in one check: the preference
-                    // rows the General tab used to own and the diagnostics row the
-                    // System tab used to own now render on one destination.
-                    .check(
-                        "settings",
-                        [
-                            .count(Selector.settingsContent, .exactly(1)),
-                            .count(Selector.settingsDiagnostics, .exactly(1)),
-                            .absent(Selector.historyContent),
-                            .value(Selector.tab(.settings), .equals("1")),
-                            .value(Selector.tab(.history), .equals("0")),
-                        ]
-                    ),
-                ]
-            )
         }
     }
 

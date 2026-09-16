@@ -2,6 +2,8 @@
 
 Voiceour is a macOS menu-bar dictation app. It has one production speech path: microphone capture, a local Parakeet sidecar, deterministic cleanup, then a safety-checked delivery to the focused app. Downloading the pinned model is the only network access, and `voiceour-asr` is the only subprocess.
 
+The package requires macOS 27 and Swift tools 6.4, with Swift 6 language mode for every target. Tests use the toolchain's `Testing` framework; the package has no external Swift dependencies. The sibling Syncour package is not migrated here: its owner must raise its manifest's platform and toolchain requirements before consuming these library products.
+
 ```mermaid
 flowchart LR
     Hotkey[Fn / Globe tap] --> Coordinator[DictationCoordinator]
@@ -44,6 +46,10 @@ Invariants:
 Each utterance takes two target snapshots: the capture target before recording, which names the record-start "Will paste into X" label, and a fresh delivery target immediately before persistence and insertion. Vocabulary is compiled once per utterance from the glossary alone; a term is active everywhere, never scoped to an app or a project.
 
 Starting and stopping capture blocks, so it runs off the main actor on a serial queue.
+
+Conversion and file writes latch their first failure. Finalization drains the converter, closes the WAV, and rejects latched capture, route, conversion, or write failures before silence/empty-frame checks. Liveness scans every channel, including interleaved Int16 and Int32 sources.
+
+Mute ownership is restored by recorded device UID. An unavailable output keeps its recovery record across later sessions; no new mute may overwrite that pending ownership. Disk-loaded and interrupted fades restore partial volumes, while a completed live mute retains the conservative check for user-adjusted volume.
 
 Which device records is decided per recording, in `CoreAudioInputDevice.preferredCaptureUID`. A microphone chosen in Settings — persisted as its durable CoreAudio UID plus the name that can still label it while unplugged — wins whenever it is connected. Without one, or when it is unplugged, the automatic policy applies: the system default input, except that a Bluetooth headset default is redirected to a working built-in microphone, because HFP/SCO negotiation replaces the first second of a headset capture with digital zeros. A selection that stops resolving falls back rather than failing the dictation.
 
@@ -166,11 +172,20 @@ Startup is fail-closed. Every configured path is resolved and validated while th
 
 The path is not byte-identical to the native encoder. It is deterministic — the same audio through the same artifacts produces the same bytes across passes and across processes — but its encoder numerics differ from the Metal kernels on a small number of rows, so it is a measured non-inferiority trade, not a drop-in equivalence. Everything known about it is development evidence from one M4 Pro over synthetic corpora, recorded in `research/bet2-ane-encoder.md`. The compiled encoder artifacts are large and are not distributed with the app, which is why the path stays behind environment variables and why the app itself never sets them.
 
+## Benchmark-only Core AI encoder
+
+`voiceour-bench external-encoder` compares a static 15 s Core AI encoder with one configured CoreML tier through the same native mel front end and four-thread ggml TDT tail. `ParakeetContext.nativeMel` copies frame-major mel values for the asynchronous Core AI adapter; external-state decoding retains its existing mel recomputation. The artifact contract is `mel` float32 `[1,128,1501]`, `mel_length` int32 `[1]`, `encoder` float32 `[1,1024,188]`, and `encoder_length` int32 `[1]`.
+
+The app, sidecar backend, launch environment, and settings never select this adapter. Parakeet remains the production recognizer. Conversion, measurement caveats, and provenance are specified in [benchmarks.md](benchmarks.md#core-ai-encoder-experiment).
+
+
 ## Cleanup and glossary
 
 Three deterministic stages run after ASR and nothing else does. `LiteralComposition` resolves the spoken spelling and literal commands. `CleanupEngine` performs configured filler removal plus glossary canonicalization, in one pass over the transcript. `VocabularyRepairEngine` then repairs close phonetic mishearings of glossary terms. The cleanup setting gates the second and third together; all three are pure functions of the transcript and the glossary snapshot compiled at the top of the stop path — the capture target names the label, never the vocabulary — and every way of adding a term passes through `VocabularySanitizer`, which rejects an ambiguous alias instead of guessing.
 
 Repair only ever moves the transcript toward a term the user taught. It scores token windows of up to five words against the active canonicals at a phonetic threshold of 0.95, frozen because lowering it needs new safety evidence rather than a better result, and accepts a rewrite only on a span nothing else claimed: exact alias matches resolve first and longest, then the highest-scoring phonetic candidates take what is left. Two rules keep it from inventing corrections. A canonical that is itself an ordinary English word, or is at most two characters, is never a phonetic target and its occurrences are protected spans: `Rust` still lands wherever the glossary rule matches that word, but repair will not conjure it out of a span that merely sounds like it. And a candidate whose every token is an ordinary word is rejected outright — the guard that stops `I am` from becoming `IAM` — with single letters ordinary only for `a` and `i`. That word list is a baked resource, `Sources/VoiceCore/Resources/ordinary-words.txt`, which `scripts/bundle.sh` copies into the app as `Contents/Resources/voiceour_VoiceCore.bundle` and refuses to build without. The engine is rebuilt only when the active canonical set changes. The sidecar's own transcript is untouched by any of this: repair is a text stage in the app, and `voiceour-bench pipeline` applies it only when passed `--vocabulary`.
+
+`RepairVocabulary.bundledOrdinaryWords` resolves the packaged word list through Foundation's `Bundle` resource lookup, which accepts both flat SwiftPM bundles and macOS bundles with `Contents/Resources`. Command-line products and tests fall back to `Bundle.module`; a packaged app does not need the checkout's build directory.
 
 `WordListImporter` is the bulk path into that vocabulary. It reads a JSON array of spellings, a JSON array of `{"term": ..., "heard_as": [...]}` rows, or a newline-delimited list, and returns unprotected `manualImport` terms. The row shape carries the surfaces a model actually produces, which is what a spelling cannot: `derivedAliases` recovers `Swift UI` from `SwiftUI` for free, but nothing derives `Qbectal` from `kubectl`. Spellings and heard-as forms pass the same filters — `VocabularySanitizer.isSafe`, the length cap, case-insensitive de-duplication — and the coordinator validates the whole merged glossary for ambiguity before accepting any of it, so a colliding file is refused rather than partially applied.
 
@@ -178,9 +193,13 @@ Repair only ever moves the transcript toward a term the user taught. It scores t
 
 `InsertionSafetyPolicy` is fail-closed: only a target classified as normal text may receive a synthetic Cmd-V; terminal, code-editor, secure, and unknown targets are clipboard-only. The inserter re-checks target identity before the pasteboard write and again before the keystroke, so a focus race only degrades to copy-only. [permissions.md](permissions.md) owns the target-safety matrix.
 
+`GeneralPasteboard.copy` returns a change count only when the complete transcript item and its required privacy markers are published; `nil` becomes `pasteboard_write_failed`. A failed write posts no Cmd-V, schedules no clear, and confirms no copy. Concealed secure-target copies use host-only preparation; ordinary and transient output retains the system's Universal Clipboard policy.
+
 ## Persistence
 
 Transcripts live in one file, `recent-sessions.json`, newest first, capped at the newest 500. Lifetime totals need a second file, `dictation-activity.json`, because at that cap each new dictation evicts an older one: `DictationStatsLedger` holds aggregates only — sessions, words, seconds, active days, streaks, one bucket per local day and per destination app — and no transcript text or session ids. Settings, transcript, and ledger writes share one detached FIFO tail, keeping write order intact and file I/O off the main actor. A delivered dictation folds both records in one main-actor turn, from the journaled row itself, and only then enqueues the two writes: neither record is ever observable without the other, which matters because Home reads them together and the first-run card retires on either one. An unreadable file is quarantined as `<name>.corrupt-<ISO8601>`, and the reader sees that filename. No audio is retained.
+
+History snapshot failures surface as “Dictation history could not be saved.” without preventing delivery or later saves. Secure-target delivery never enters the history journal.
 
 ## Console window
 

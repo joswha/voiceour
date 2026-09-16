@@ -2,6 +2,7 @@ import Foundation
 
 /// A one-shot async gate: `wait()` suspends until some other task calls `fire()`.
 /// Used to hold an injected fake service mid-flight so a test can observe intermediate state.
+// `lock` protects the gate state and pending continuations.
 final class TestGate: @unchecked Sendable {
     private let lock = NSLock()
     private var isOpen = false

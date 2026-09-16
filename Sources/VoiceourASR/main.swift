@@ -1,6 +1,7 @@
 import ASRSidecarCore
 import CParakeet
 import Foundation
+import Synchronization
 import VoiceCore
 
 /// Entry point of the `voiceour-asr` helper: a persistent NDJSON sidecar over stdio.
@@ -18,30 +19,35 @@ private func logLine(_ message: String) {
 /// The vendored runtime is chatty at INFO: one line per Metal pipeline it compiles, which is
 /// hundreds on a cold start. Levels are ggml's own (`ggml_log_level`): DEBUG 1, INFO 2, WARN 3,
 /// ERROR 4, CONT 5. `none` parks the threshold above every real level.
-private nonisolated(unsafe) var logThreshold: Int32 = 2
-/// Whether the last non-continuation line was forwarded. `GGML_LOG_LEVEL_CONT` continues the
-/// previous line and carries no level of its own, so it inherits that verdict. Display-only: the
-/// race between two logging threads can only interleave text that was already interleaved.
-private nonisolated(unsafe) var lastLogPassed = true
+private struct LogState {
+    var threshold: Int32 = 2
+    /// Continuations inherit the preceding non-continuation line's verdict.
+    var lastPassed = true
+}
+private let logState = Mutex(LogState())
 
 private func installParakeetLogging(_ environment: [String: String]) {
-    switch (environment["VOICEOUR_ASR_LOG"] ?? "info").lowercased() {
-    case "debug": logThreshold = 1
-    case "warn": logThreshold = 3
-    case "error": logThreshold = 4
-    case "none": logThreshold = 99
-    default: logThreshold = 2
+    logState.withLock { state in
+        switch (environment["VOICEOUR_ASR_LOG"] ?? "info").lowercased() {
+        case "debug": state.threshold = 1
+        case "warn": state.threshold = 3
+        case "error": state.threshold = 4
+        case "none": state.threshold = 99
+        default: state.threshold = 2
+        }
     }
     // `parakeet_log_set` forwards the same callback to `ggml_log_set`, so one install covers
     // both loggers (Vendor/parakeet/src/parakeet.cpp:3883-3887). The callback takes no captures.
     parakeet_log_set(
         { level, text, _ in
             guard let text else { return }
-            let raw = level.rawValue
-            let pass = raw == GGML_LOG_LEVEL_CONT.rawValue ? lastLogPassed : raw >= logThreshold
-            if raw != GGML_LOG_LEVEL_CONT.rawValue { lastLogPassed = pass }
-            guard pass else { return }
-            FileHandle.standardError.write(Data(String(cString: text).utf8))
+            logState.withLock { state in
+                let raw = level.rawValue
+                let pass = raw == GGML_LOG_LEVEL_CONT.rawValue ? state.lastPassed : raw >= state.threshold
+                if raw != GGML_LOG_LEVEL_CONT.rawValue { state.lastPassed = pass }
+                guard pass else { return }
+                FileHandle.standardError.write(Data(String(cString: text).utf8))
+            }
         },
         nil
     )
@@ -157,7 +163,7 @@ do {
 let server = SidecarServer(
     backend: backend,
     output: SidecarOutput(handle: FileHandle.standardOutput),
-    log: logLine,
+    log: { logLine($0) },
     preloadEnabled: environment["VOICEOUR_PRELOAD"] == "1"
 )
 exit(server.run(input: FileHandle.standardInput))

@@ -1,54 +1,68 @@
 import Darwin
 import Foundation
+import Synchronization
 import VoiceCore
 
-public final class FakeAudioRecorder: AudioRecording, @unchecked Sendable {
-    private var startedAt: Date?
-    private var outputURL: URL?
+public final class FakeAudioRecorder: AudioRecording, Sendable {
+    private struct State {
+        var startedAt: Date?
+        var outputURL: URL?
+    }
+
+    private let state = Mutex(State())
 
     public init() {}
 
     public func start() throws {
-        outputURL = try CaptureTemporaryFile.makeWAVURL()
-        startedAt = Date()
-    }
-
-    public func stop() async throws -> RecordedAudio {
-        let url = outputURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("voiceour-fake.wav")
-        let wav = Self.silenceWav(sampleRate: 16_000, milliseconds: 100)
-        try wav.write(to: url, options: [.atomic])
-        let durationMs = max(100, Int(Date().timeIntervalSince(startedAt ?? Date()) * 1000))
-        outputURL = nil
-        startedAt = nil
-        let telemetry = try CaptureTelemetryAnalyzer.analyzeWAV(
-            data: wav,
-            processingMode: .standard
-        )
-        return RecordedAudio(
-            url: url,
-            meta: ASRAudioMeta(
-                path: url.path,
-                format: "wav",
-                sampleRateHz: 16_000,
-                channels: 1,
-                durationMs: durationMs,
-                byteCount: wav.count
-            ),
-            telemetry: telemetry,
-            isSynthetic: true
-        )
-    }
-
-    public func discardRecording() async {
-        if let outputURL {
-            try? FileManager.default.removeItem(at: outputURL)
+        try state.withLock { state in
+            state.outputURL = try CaptureTemporaryFile.makeWAVURL()
+            state.startedAt = Date()
         }
-        outputURL = nil
-        startedAt = nil
+    }
+
+    @concurrent
+    public func stop() async throws -> RecordedAudio {
+        try state.withLock { state in
+            let url =
+                state.outputURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("voiceour-fake.wav")
+            let wav = Self.silenceWav(sampleRate: 16_000, milliseconds: 100)
+            try wav.write(to: url, options: [.atomic])
+            let durationMs = max(100, Int(Date().timeIntervalSince(state.startedAt ?? Date()) * 1000))
+            state.outputURL = nil
+            state.startedAt = nil
+            let telemetry = try CaptureTelemetryAnalyzer.analyzeWAV(
+                data: wav,
+                processingMode: .standard
+            )
+            return RecordedAudio(
+                url: url,
+                meta: ASRAudioMeta(
+                    path: url.path,
+                    format: "wav",
+                    sampleRateHz: 16_000,
+                    channels: 1,
+                    durationMs: durationMs,
+                    byteCount: wav.count
+                ),
+                telemetry: telemetry,
+                isSynthetic: true
+            )
+        }
+    }
+
+    @concurrent
+    public func discardRecording() async {
+        state.withLock { state in
+            if let outputURL = state.outputURL {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+            state.outputURL = nil
+            state.startedAt = nil
+        }
     }
 
     public func currentInputLevel() -> Float? {
-        guard let startedAt else { return nil }
+        guard let startedAt = state.withLock({ $0.startedAt }) else { return nil }
         let elapsed = Date().timeIntervalSince(startedAt)
         let pulse = (sin(elapsed * 6.2) + 1) / 2
         let flutter = (sin(elapsed * 18.0 + 0.7) + 1) / 2

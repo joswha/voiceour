@@ -37,9 +37,7 @@ benchmarks|d0e0e3|bench/ tooling, datasets, reports, gates
 packaging|5319e7|Bundle, signing, notarization, release artifacts
 harness|e99695|Offscreen UI harness, scenes, flows, goldens
 vendor|ededed|Vendored parakeet.cpp and ggml
-os:macos14|c2e0c6|Reproduced on or specific to macOS 14
-os:macos15|c2e0c6|Reproduced on or specific to macOS 15
-os:macos26|c2e0c6|Reproduced on or specific to macOS 26, including Liquid Glass
+os:macos27|c2e0c6|Reproduced on or specific to a macOS 27 point release
 LABELS
 ```
 
@@ -99,8 +97,7 @@ Read the title, the body, and every comment; the comments usually carry the repr
 - `vendor` — vendored parakeet.cpp or ggml, the pin, the patch ledger.
 
 **macOS version** — only when material to reproduction or root cause
-- `os:macos14`, `os:macos15` — the painted pre-macOS-26 glass path and the deployment floor.
-- `os:macos26` — native Liquid Glass, `NSGlassEffectView`, the native harness legs.
+- `os:macos27` — the deployment floor and the only shipping path; use it to pin a point release (`27.x`) that reproduces or fixes the issue. A report from an older macOS is `wontfix`: the app does not launch there.
 
 Do not label a hardware generation. The app is Apple Silicon only by design; an Intel or universal-build request is `wontfix`, not a platform label.
 

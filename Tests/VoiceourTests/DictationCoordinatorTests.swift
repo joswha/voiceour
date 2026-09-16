@@ -612,6 +612,28 @@ struct DictationCoordinatorTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.store.url.path))
     }
 
+    @Test(arguments: [TargetSafetyClass.normalText, .secure])
+    func historySaveFailuresAreReportedOnlyForJournaledTargets(_ safety: TargetSafetyClass) async {
+        let fixture = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .text("delivered despite the failed save")),
+            tracker: FakeTracker(safety: safety),
+            inserter: FakeInserter(
+                outcome: safety == .secure ? .copiedOnly(reason: "secure_target") : .pasteAttempted
+            ),
+            recentSessionStore: fixture.store,
+            recentSessionSnapshotSave: { _, _ in throw SessionSnapshotWriterSpy.SaveError.injected }
+        )
+
+        await driveUtterance(coordinator)
+        _ = await coordinator.recentSessionPersistenceTail?.value
+        await Task.yield()
+
+        #expect(coordinator.lastTranscript == "delivered despite the failed save")
+        #expect(coordinator.errorMessage == (safety == .secure ? nil : "Dictation history could not be saved."))
+    }
+
     @Test func terminationWaitsForPendingSessionCheckpoint() async {
         let fixture = temporarySessionStore()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -2115,7 +2137,7 @@ struct DictationCoordinatorTests {
 
     // MARK: Session cues
 
-    @Test func theStartCuePlaysBeforeTheDeviceIsMuted() async {
+    @Test func theStartCuePlaysBeforeTheDeviceIsMuted() async throws {
         let log = AudioEventLog()
         let clock = VirtualClock()
         let coordinator = makeCoordinator(
@@ -2129,7 +2151,9 @@ struct DictationCoordinatorTests {
         await waitUntil { log.events.contains(.mute) }
 
         let events = log.events
-        #expect(events.first == .cue(.listeningStarted))
+        let cueIndex = try #require(events.firstIndex(of: .cue(.listeningStarted)))
+        let muteIndex = try #require(events.firstIndex(of: .mute))
+        #expect(cueIndex < muteIndex)
         // The mute waited one whole cue length before touching the device, so the
         // 120 ms fade cannot duck the rise. Logged rather than read off
         // `clock.elapsed()`, which the 40 ms metering poll also advances.
@@ -2607,6 +2631,7 @@ private struct DeniedMicrophonePermissions: PermissionsChecking {
 
 /// A recorder that reports a steady non-zero input level and a live capture, so
 /// the metering loop has something to publish.
+// `lock` protects the recorder's active output.
 private final class MeteringRecorder: AudioRecording, @unchecked Sendable {
     private let lock = NSLock()
     private let level: Float
@@ -2651,6 +2676,7 @@ private final class MeteringRecorder: AudioRecording, @unchecked Sendable {
 /// non-zero sample: `captureIsLive()` stays false, and `stop()` refuses the
 /// recording the way ``MicrophoneRecorder`` does for a capture that heard
 /// nothing.
+// `lock` protects the recorder's stop count.
 private final class SilentRecorder: AudioRecording, @unchecked Sendable {
     private let lock = NSLock()
     private let reason: String
@@ -2678,6 +2704,7 @@ private final class SilentRecorder: AudioRecording, @unchecked Sendable {
 /// Time that only the metering loop advances: every `sleep` moves the clock by
 /// exactly the interval asked for and returns immediately, so a six-second
 /// deadline is proven in milliseconds and never depends on the host's speed.
+// `lock` protects the virtual clock's current instant.
 private final class VirtualClock: @unchecked Sendable {
     private let lock = NSLock()
     private let start = Date(timeIntervalSince1970: 1_700_000_000)
@@ -2701,6 +2728,7 @@ private final class VirtualClock: @unchecked Sendable {
     }
 }
 
+// `lock` protects mute and restore counts.
 private final class CountingAudioMuter: SystemAudioMuting, @unchecked Sendable {
     private let lock = NSLock()
     private var mutes = 0
@@ -2730,6 +2758,7 @@ private enum AudioEvent: Equatable {
     case slept(UInt64)
 }
 
+// `lock` protects the audio event log.
 private final class AudioEventLog: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [AudioEvent] = []
@@ -2741,7 +2770,7 @@ private final class AudioEventLog: @unchecked Sendable {
     }
 }
 
-private final class LoggingCuePlayer: SessionCuePlaying, @unchecked Sendable {
+private final class LoggingCuePlayer: SessionCuePlaying {
     private let log: AudioEventLog
 
     init(log: AudioEventLog) {
@@ -2753,7 +2782,7 @@ private final class LoggingCuePlayer: SessionCuePlaying, @unchecked Sendable {
     }
 }
 
-private final class LoggingAudioMuter: SystemAudioMuting, @unchecked Sendable {
+private final class LoggingAudioMuter: SystemAudioMuting {
     private let log: AudioEventLog
 
     init(log: AudioEventLog) {
@@ -2771,7 +2800,7 @@ private final class LoggingAudioMuter: SystemAudioMuting, @unchecked Sendable {
 }
 
 /// A muter standing in for an output device with no writable mute or volume.
-private final class RefusingAudioMuter: SystemAudioMuting, @unchecked Sendable {
+private final class RefusingAudioMuter: SystemAudioMuting {
     func mute() async -> Bool { false }
     func restore() async {}
 }
@@ -2780,6 +2809,7 @@ private final class RefusingAudioMuter: SystemAudioMuting, @unchecked Sendable {
 /// where the device is muted but `isSystemAudioMuted` has not been published yet.
 /// `isMuted` tracks the device, which is the invariant that actually matters: the
 /// user's audio must not stay muted after the app exits.
+// `lock` protects mute state and call counts.
 private final class GatedAudioMuter: SystemAudioMuting, @unchecked Sendable {
     private let lock = NSLock()
     private let muteGate: TestGate
@@ -2822,6 +2852,7 @@ private final class GatedAudioMuter: SystemAudioMuting, @unchecked Sendable {
     }
 }
 
+// `lock` protects the current recording URL.
 private final class FixtureRecorder: AudioRecording, @unchecked Sendable {
     private let lock = NSLock()
     private let sourceURL: URL
@@ -2870,6 +2901,7 @@ private final class FixtureRecorder: AudioRecording, @unchecked Sendable {
     func captureIsLive() -> Bool { true }
 }
 
+// `lock` protects the removal attempt count.
 private final class TransientFailingAudioRemover: @unchecked Sendable {
     enum RemovalError: Error {
         case injected
@@ -2894,6 +2926,7 @@ private final class TransientFailingAudioRemover: @unchecked Sendable {
     }
 }
 
+// `lock` protects the current target snapshot.
 private final class MutableTracker: TargetTracking, @unchecked Sendable {
     private let lock = NSLock()
     private var currentSnapshot: TargetSnapshot
@@ -2917,6 +2950,7 @@ private final class MutableTracker: TargetTracking, @unchecked Sendable {
     }
 }
 
+// `lock` protects insertion evidence.
 private final class CapturingInserter: TextInserting, @unchecked Sendable {
     private let lock = NSLock()
     private var target: TargetSnapshot?
@@ -2945,6 +2979,7 @@ private final class CapturingInserter: TextInserting, @unchecked Sendable {
     }
 }
 
+// `lock` protects the insertion side-effect count.
 private final class GatedInserter: TextInserting, @unchecked Sendable {
     private let lock = NSLock()
     private let returned: TestGate
@@ -2965,6 +3000,7 @@ private final class GatedInserter: TextInserting, @unchecked Sendable {
     }
 }
 
+// `lock` protects stored snapshots and pending save gates.
 private final class SessionSnapshotWriterSpy: @unchecked Sendable {
     enum SaveError: Error {
         case injected

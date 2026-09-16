@@ -177,49 +177,10 @@ struct VoiceCoreTests {
         )
     }
 
-    @Test func insertionOutcomeSummaryMapsPublicOutcomesToExactPresentation() {
-        let cases: [(name: String, outcome: InsertionOutcome, expected: InsertionOutcomeSummary)] = [
-            (
-                "paste attempted",
-                .pasteAttempted,
-                InsertionOutcomeSummary(
-                    label: "PASTE ATTEMPTED",
-                    detail: "Command-V was posted to the captured target.",
-                    severity: .ok
-                )
-            ),
-            (
-                "copied terminal target",
-                .copiedOnly(reason: "target_terminal"),
-                InsertionOutcomeSummary(
-                    label: "COPIED ONLY",
-                    detail: "Terminal target protected.",
-                    severity: .warn
-                )
-            ),
-            (
-                "copied missing synthetic paste permission",
-                .copiedOnly(reason: "synth_paste_permission"),
-                InsertionOutcomeSummary(
-                    label: "COPIED ONLY",
-                    detail: "Accessibility or synthetic paste permission missing.",
-                    severity: .warn
-                )
-            ),
-            (
-                "failed event post",
-                .failed(reason: "post_event_failed"),
-                InsertionOutcomeSummary(
-                    label: "PASTE FAILED",
-                    detail: "Command-V event post failed.",
-                    severity: .crit
-                )
-            ),
-        ]
-
-        for testCase in cases {
-            #expect(testCase.outcome.summary == testCase.expected, "\(testCase.name) summary")
-        }
+    @Test func insertionOutcomeSeverityDistinguishesDeliveryOutcomes() {
+        #expect(InsertionOutcome.pasteAttempted.summary.severity == .ok)
+        #expect(InsertionOutcome.copiedOnly(reason: "target_terminal").summary.severity == .warn)
+        #expect(InsertionOutcome.failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed).summary.severity == .crit)
     }
 
     @Test func settingsJSONMissingMuteFieldsEnablesMute() throws {

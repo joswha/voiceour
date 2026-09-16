@@ -330,6 +330,7 @@ import Testing
 /// device deadlock.
 @Suite("Microphone capture integration", .serialized)
 struct MicrophoneCaptureIntegrationTests {
+    // `lock` protects the delivered-buffer count.
     private final class BufferCounter: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
@@ -618,11 +619,144 @@ struct MicrophoneCaptureIntegrationTests {
         #expect(reason == "session runtime error")
     }
 
+    /// A resampler that errored partway through stops contributing audio, so the
+    /// WAV is short by whatever it dropped while its frame count still looks like
+    /// speech. The utterance is refused rather than transcribed from the prefix
+    /// that survived.
+    @Test func aConversionFailureIsReportedInsteadOfTranscribed() throws {
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: nil,
+                converterLostRoute: false,
+                conversionFailure: "The operation could not be completed",
+                frames: 48_000,
+                silentCapture: nil
+            )
+        )
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "audio conversion failed: The operation could not be completed")
+    }
+
+    /// The same shape from the far end of the pipe: the file rejected a write, so
+    /// the frames it carried are missing from an otherwise healthy recording.
+    @Test func aWriteFailureIsReportedInsteadOfTranscribed() throws {
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: nil,
+                converterLostRoute: false,
+                writeFailure: "The volume is out of space",
+                frames: 48_000,
+                silentCapture: nil
+            )
+        )
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "the recording could not be written: The volume is out of space")
+    }
+
+    /// Precedence runs past the new causes too: a disconnected microphone is why
+    /// the conversion and the writes then failed, so the report names the cause
+    /// rather than either symptom.
+    @Test func aLatchedFailureOutranksAConversionOrWriteFailure() throws {
+        let failure = try #require(
+            MicrophoneRecorder.recordingFailure(
+                latched: "the microphone was disconnected during recording",
+                converterLostRoute: false,
+                conversionFailure: "the converter stopped",
+                writeFailure: "the file stopped accepting data",
+                frames: 48_000,
+                silentCapture: nil
+            )
+        )
+        guard case .captureFailed(let reason) = failure else {
+            Issue.record("expected a captureFailed error")
+            return
+        }
+        #expect(reason == "the microphone was disconnected during recording")
+    }
+
     @Test func aCleanRecordingWithAudioIsAccepted() {
         #expect(
             MicrophoneRecorder.recordingFailure(
                 latched: nil, converterLostRoute: false, frames: 1, silentCapture: nil
             ) == nil
         )
+    }
+}
+
+/// The liveness scan, which is what tells a recording of a quiet room from a
+/// microphone that was never there. Buffers are synthesized because the layouts
+/// that matter — a device that speaks only on its second channel, a device that
+/// hands over Int32 samples — cannot be asked of the built-in microphone.
+@Suite struct CaptureSignalScanTests {
+    /// The first channel of an interleaved stereo buffer is silent on any
+    /// interface that wires its microphone to the right input. Scanning only
+    /// channel 0 there reports a live capture as dead: the overlay never says
+    /// LIVE and the stop path refuses a WAV holding the whole utterance.
+    @Test func scanSeesSignalOnAnyInterleavedChannel() throws {
+        let format = try #require(
+            AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48_000, channels: 2, interleaved: true)
+        )
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        buffer.frameLength = 4
+        let samples = try #require(buffer.int16ChannelData)
+        for frame in 0..<4 {
+            samples[0][frame * buffer.stride] = 0
+            samples[1][frame * buffer.stride] = 12_000
+        }
+
+        let scan = MicrophoneCapture.scan(buffer)
+
+        #expect(scan.hasSignal)
+        // Energy is averaged over every channel, not over the frames of one: a
+        // signal on one side of a stereo buffer meters at 1/√2 of its amplitude.
+        #expect(abs(scan.rms - (12_000.0 / 32_768) / Double(2).squareRoot()) < 0.001)
+    }
+
+    /// Digital silence stays silence whatever the channel count: exact zeros are
+    /// the proxy for "the microphone is not there yet", and a warm-up gap that
+    /// started reporting signal would put LIVE on the overlay 1.3 s early.
+    @Test func scanReportsNoSignalWhenEveryChannelIsZero() throws {
+        let format = try #require(
+            AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48_000, channels: 2, interleaved: true)
+        )
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        buffer.frameLength = 4
+        let samples = try #require(buffer.int16ChannelData)
+        for frame in 0..<4 {
+            samples[0][frame * buffer.stride] = 0
+            samples[1][frame * buffer.stride] = 0
+        }
+
+        let scan = MicrophoneCapture.scan(buffer)
+
+        #expect(!scan.hasSignal)
+        #expect(scan.rms == 0)
+    }
+
+    /// Int32 is the third layout a capture device can deliver. It used to fall
+    /// through to "no signal", which is the dead-microphone verdict.
+    @Test func scanReadsInt32Buffers() throws {
+        let format = try #require(
+            AVAudioFormat(commonFormat: .pcmFormatInt32, sampleRate: 48_000, channels: 1, interleaved: true)
+        )
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        buffer.frameLength = 4
+        let samples = try #require(buffer.int32ChannelData)[0]
+        for frame in 0..<4 { samples[frame * buffer.stride] = 0 }
+        samples[2 * buffer.stride] = 1_073_741_824
+
+        let scan = MicrophoneCapture.scan(buffer)
+
+        #expect(scan.hasSignal)
+        // Scaled by the Int32 full scale, not the Int16 one: one half-scale
+        // sample in four frames is an RMS of 0.25, where reading it as Int16
+        // would overflow the scale by 2^16.
+        #expect(abs(scan.rms - 0.25) < 0.001)
     }
 }

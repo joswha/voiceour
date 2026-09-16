@@ -165,7 +165,7 @@ extension InsertionOutcome {
             )
         case .failed(let reason):
             InsertionOutcomeSummary(
-                label: "PASTE FAILED",
+                label: "DELIVERY FAILED",
                 detail: insertionOutcomeDetail(for: reason),
                 severity: .crit
             )
@@ -191,6 +191,8 @@ private func insertionOutcomeDetail(for reason: String) -> String {
         "Target changed after clipboard write."
     case "post_event_failed":
         "Command-V event post failed."
+    case InsertionSafetyPolicy.pasteboardWriteFailed:
+        "The transcript could not be written to the clipboard."
     case "cancelled":
         "Session cancelled."
     default:

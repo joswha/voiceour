@@ -1,6 +1,7 @@
 import CoreAudio
 import Foundation
 import VoiceCore
+import os
 
 /// One property write the muter is responsible for undoing. It doubles as the
 /// on-disk crash-recovery record, so in-memory and durable ownership can never
@@ -52,12 +53,20 @@ private struct VolumeRamp: Equatable {
 ///   wear while dictating. Whatever the default output device is, that is what
 ///   the user hears, so that is what gets muted.
 public actor SystemAudioMuter: SystemAudioMuting {
+    /// Unified log for the one state this actor cannot repair on its own:
+    ///
+    ///     log stream --predicate 'subsystem == "com.voiceour.app" AND category == "audio"'
+    private static let log = Logger(subsystem: "com.voiceour.app", category: "audio")
+
     /// Fade time at each edge of a capture. Long enough to remove the click,
     /// short enough that the stop path does not feel like it stalled.
     private static let fadeDuration: Duration = .milliseconds(120)
     private static let fadeSteps = 8
 
     private var ownership: MuteOwnership?
+    /// Only a completed live mute is known to have reached zero. Disk records
+    /// and interrupted fades must restore partial volumes like crash recovery.
+    private var completedMute = false
 
     /// Bumped on entry to every public operation. A fade suspends between steps
     /// and an actor is reentrant across suspensions, so each step checks that
@@ -69,9 +78,16 @@ public actor SystemAudioMuter: SystemAudioMuting {
     public init() {}
 
     public func mute() async -> Bool {
+        loadPendingOwnership()
         if ownership != nil {
             await restore()
+            // An unplugged device still owns the durable recovery slot. A later
+            // session must not overwrite it with ownership of another output.
+            guard ownership == nil else { return false }
         }
+        guard let flagURL = Self.durableOwnershipFlagURL,
+            !FileManager.default.fileExists(atPath: flagURL.path)
+        else { return false }
         let generation = beginOperation()
 
         guard let deviceID = CoreAudioOutputDevice.defaultDevice() else {
@@ -86,12 +102,15 @@ public actor SystemAudioMuter: SystemAudioMuting {
         else {
             return false
         }
+        ownership = newOwnership
+        completedMute = false
 
         var applied = await ramp(
             deviceID: deviceID,
             ramps: volumeControls.map { VolumeRamp(element: $0.element, start: $0.value, end: 0) },
             generation: generation
         )
+        guard generation == self.generation else { return false }
         if priorMute != nil {
             // Left operand first, and always evaluated: `||` short-circuits
             // rightwards, so the write happens whatever the ramp reported.
@@ -101,32 +120,61 @@ public actor SystemAudioMuter: SystemAudioMuting {
         }
 
         guard applied else {
+            ownership = nil
             Self.removeDurableOwnershipFlag()
             return false
         }
-        ownership = newOwnership
+        completedMute = true
         return true
     }
 
     public func restore() async {
-        guard let ownership else {
-            Self.removeDurableOwnershipFlag()
-            return
-        }
+        loadPendingOwnership()
+        guard let ownership else { return }
+        let toleratePartialVolume = !completedMute
+        completedMute = false
 
         let generation = beginOperation()
-        self.ownership = nil
-        let deviceID = AudioObjectID(ownership.deviceID)
+        guard let deviceID = Self.recoveryDeviceID(deviceID: ownership.deviceID, deviceUID: ownership.deviceUID) else {
+            return
+        }
 
         // The mute lifts first and the volume ramps back under it; the other
         // order spends the whole fade behind a mute and still ends in a step.
         Self.restoreMuteControls(ownership.controls, deviceID: deviceID)
         _ = await ramp(
             deviceID: deviceID,
-            ramps: Self.volumeRamps(forRestoring: ownership.controls, deviceID: deviceID, tolerant: false),
+            ramps: Self.volumeRamps(
+                forRestoring: ownership.controls, deviceID: deviceID, tolerant: toleratePartialVolume
+            ),
             generation: generation
         )
+        guard generation == self.generation else { return }
+        self.ownership = nil
         Self.removeDurableOwnershipFlag()
+    }
+
+    /// A recovery record can outlive this actor or a disconnected device.
+    /// Reading it here keeps file I/O on the actor, not its caller's initializer.
+    ///
+    /// A record that no longer decodes can never be restored by anyone, and
+    /// `mute()` refuses to take ownership while any record exists, so leaving it
+    /// in place would disable system-audio muting for every later launch. It is
+    /// quarantined the way unreadable settings and history are, so the bytes stay
+    /// discoverable while the slot is free again.
+    private func loadPendingOwnership() {
+        guard ownership == nil, let flagURL = Self.durableOwnershipFlagURL,
+            let data = try? Data(contentsOf: flagURL)
+        else { return }
+        do {
+            ownership = try JSONDecoder().decode(MuteOwnership.self, from: data)
+            completedMute = false
+        } catch {
+            let quarantined = quarantineUnreadableVoiceourState(at: flagURL)
+            Self.log.error(
+                "unreadable mute ownership record quarantined at \(quarantined?.path ?? "<unmoved>", privacy: .public): \(error, privacy: .public)"
+            )
+        }
     }
 
     private func beginOperation() -> UInt64 {

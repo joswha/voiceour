@@ -6,7 +6,7 @@
 
 <p><strong>Tap <code>fn</code> to dictate where your cursor is.</strong></p>
 
-<sub>macOS 14+ · Apple Silicon only · English only · initial 1.26 GB model download</sub>
+<sub>macOS 27+ · Apple Silicon only · English only · initial 1.26 GB model download</sub>
 
 </div>
 
@@ -14,6 +14,7 @@
 
 Tap Fn once and speak. Tap again and the text lands in the app you were already using — recorded, recognized, and cleaned up entirely on your Mac. Ordinary text fields get the paste; a terminal, a code editor, a password field, or a target Voiceour could not read gets the transcript on the clipboard instead, and no setting widens that. [Permissions and delivery safety](docs/permissions.md) has the matrix.
 The mercury recording island is synchronized to the display it occupies: 120 fps on a ProMotion screen, the native rate on lower-refresh displays, capped at 120.
+Concealed copies for secure targets stay on this Mac instead of entering Universal Clipboard; ordinary and transient copies keep the system's Universal Clipboard policy. Clipboard and History-save failures are reported; an incomplete audio conversion or write rejects the utterance rather than transcribing a truncated recording.
 
 Terms you teach in the Glossary do more than fix spelling: Voiceour also repairs close phonetic mishearings of them, by deterministic matching against your own terms rather than a model rewriting your words. Terms that are ordinary English words are held out of that phonetic step, so a word you actually said is never traded for one that merely sounds like something you taught.
 
@@ -42,7 +43,7 @@ Two things that are especially welcome:
 
 ## Build it
 
-There is no signed release yet, so build from source. You need macOS 14 or newer on Apple Silicon and a Swift 6 toolchain — Xcode 16 or newer, or just its Command Line Tools.
+There is no signed release yet, so build from source. You need macOS 27 or newer on Apple Silicon, Xcode 27, and its Swift 6.4 toolchain.
 
 ```sh
 git clone https://github.com/joswha/voiceour.git
@@ -102,7 +103,7 @@ You can block Voiceour in a firewall such as Little Snitch if you'd rather it di
 <details>
 <summary><strong>Where does Voiceour keep my data?</strong></summary>
 
-On your Mac, and nowhere else. Audio is never saved — the recording is deleted as soon as it's transcribed. Transcripts stay in a local history file capped at the newest 500, and a secure field like a password box records nothing at all.
+Voiceour stores settings and history locally and uploads no audio or transcripts. Recordings are temporary WAV files, deleted after processing, cancellation, or failure. Transcripts stay in a local history file capped at the newest 500; delivery to a secure field creates no History row. Ordinary clipboard output can sync through Universal Clipboard according to your system settings; concealed secure-target copies are host-only.
 
 Settings has a Clear History button that erases the transcripts and the lifetime counters together. [Permissions and delivery safety](docs/permissions.md) covers the rest.
 
@@ -127,7 +128,7 @@ Not yet. A Homebrew cask has to pass macOS Gatekeeper checks, which needs a nota
 <details>
 <summary><strong>The build fails on an older toolchain</strong></summary>
 
-Swift 6 is required: Xcode 16 or newer, or just its Command Line Tools.
+Use Xcode 27 with Swift 6.4 and the macOS 27 SDK, on macOS 27 or newer and Apple Silicon. An older Xcode or Swift 6 toolchain is not sufficient.
 
 </details>
 

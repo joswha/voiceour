@@ -34,7 +34,7 @@ public final class FakeASRBackend: SidecarBackend {
 
     public func transcribe(
         _ request: ASRTranscribeRequest,
-        isCancelled: @escaping () -> Bool
+        isCancelled: @escaping @Sendable () -> Bool
     ) -> SidecarTerminal {
         if delayMs > 0 {
             let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(delayMs) * 1_000_000

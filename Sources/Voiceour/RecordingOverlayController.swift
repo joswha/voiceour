@@ -171,7 +171,7 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
             context.duration = VoiceourMotion.standardDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
-        } completionHandler: {
+        } completionHandler: { [self] in
             Task { @MainActor [weak self] in
                 guard let self, self.visibilityToken == token, let panel = self.panel else {
                     return

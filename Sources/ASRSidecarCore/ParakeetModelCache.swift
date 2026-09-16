@@ -84,7 +84,7 @@ public struct ParakeetModelManifest: Codable, Equatable, Sendable {
 /// Unlike the Hugging Face snapshot layout it replaces, this is a flat directory with two
 /// entries and no shared global cache: the sidecar owns it, and deleting it is a complete
 /// uninstall of the model.
-public struct ParakeetModelCache: @unchecked Sendable {
+public struct ParakeetModelCache: Sendable {
     public let directory: URL
     /// What must be in the directory. Defaults to the shipped pin; tests substitute a
     /// small artifact so the real download, verify and rename path is exercised for real.
@@ -105,7 +105,7 @@ public struct ParakeetModelCache: @unchecked Sendable {
     public let ownsVariantRoot: Bool
     /// How the preflight asks a volume what it can still give, in bytes, or nil when the volume
     /// cannot be asked. A seam: a genuinely full disk is not something a unit suite can arrange.
-    public let availableCapacity: (URL) -> Int64?
+    public let availableCapacity: @Sendable (URL) -> Int64?
 
     /// Attempts one `ensureModel` makes before giving up. Each resumes where the last stopped.
     public static let downloadAttempts = 3
@@ -134,7 +134,7 @@ public struct ParakeetModelCache: @unchecked Sendable {
         ownsVariantRoot: Bool = true,
         sessionConfiguration: URLSessionConfiguration = ParakeetModelCache.defaultSessionConfiguration(),
         retryDelay: TimeInterval = 2,
-        availableCapacity: @escaping (URL) -> Int64? = ParakeetModelCache.volumeAvailableCapacity
+        availableCapacity: @escaping @Sendable (URL) -> Int64? = ParakeetModelCache.volumeAvailableCapacity
     ) {
         self.directory = directory
         self.artifact = artifact
@@ -466,6 +466,7 @@ public struct ParakeetModelCache: @unchecked Sendable {
 ///
 /// Every method runs on the session's serial delegate queue except `waitUntilFinished`
 /// and the post-completion reads, which are ordered behind the semaphore.
+// The session's serial delegate queue owns mutable state until the completion semaphore fires.
 private final class ArtifactSink: @unchecked Sendable {
     private let handle: FileHandle
     private let expectedBytes: Int64

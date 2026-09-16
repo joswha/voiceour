@@ -16,10 +16,6 @@ enum MenuLayout {
         inset: VoiceourMetrics.Space.md
     )
 
-    static var popoverShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: VoiceourMetrics.Radius.window, style: .continuous)
-    }
-
     static var innerShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: innerRadius, style: .continuous)
     }

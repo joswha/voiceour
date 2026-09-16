@@ -353,6 +353,7 @@ struct RoleStyledText: View {
     }
 }
 
+@MainActor
 extension View {
     /// A role plus a state colour, for a non-`Text` label (a `ButtonStyle`'s
     /// `configuration.label`) whose colour changes with the control's state.
@@ -390,6 +391,7 @@ extension View {
     }
 }
 
+@MainActor
 extension Text {
     func roleStyle(_ role: TextRole) -> RoleStyledText {
         RoleStyledText(self, role: role)

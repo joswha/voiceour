@@ -246,7 +246,31 @@ struct HotkeyEventRouter {
     }
 }
 
+/// Owns the process-wide dictation gesture: an active event tap while Accessibility is
+/// granted, passive `NSEvent` monitors while it is not, and a watchdog that promotes one
+/// to the other.
+///
+/// `HotkeyBinding` is a synchronous, nonisolated port, so the binder carries its own
+/// confinement, in two layers that together cover every field below:
+///
+/// 1. `lock` is the only protection for the stored state. Every read and every write of
+///    every `var` happens inside it: the app on the main actor, the tap callback on the
+///    main run loop, the watchdog on `DispatchQueue.main`, the passive path's hop, and
+///    `deinit` on whichever thread drops the last reference.
+/// 2. The OS resources' *lifecycle* is confined to the main thread, which is what orders
+///    install -> promote -> teardown: the tap's run-loop source is attached to
+///    `CFRunLoopGetMain()`, `NSEvent` monitors have to be added and removed on the main
+///    thread, the watchdog timer targets `DispatchQueue.main`, and the passive monitors
+///    hop there before routing. The lock therefore only has to make each access
+///    race-free; it is never asked to order two competing installs.
+///
+/// Nothing that can re-enter the binder or spin the run loop runs while `lock` is held:
+/// no toggle/cancel callout, no `tapCreate`, no monitor add/remove, no Accessibility
+/// prompt. That is what keeps a main-thread caller from deadlocking against the tap
+/// callback, which lands on the very same thread.
+// `lock` protects every mutable field below; the main thread orders the tap and monitor lifecycle.
 public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
+    private let lock = NSLock()
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var monitorTokens: [Any] = []
@@ -270,32 +294,40 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
 
     public init() {}
 
+    /// Synchronous on whichever thread drops the last reference, because the tap callback
+    /// reaches this object through an unretained pointer: the port has to be invalidated
+    /// before the object dies. Hopping teardown onto the main queue would leave a live tap
+    /// aimed at freed memory for one turn of the run loop.
     deinit {
         teardown()
     }
 
     public func onToggle(_ handler: @escaping @Sendable () -> Void) {
-        self.handler = handler
+        lock.withLock { self.handler = handler }
         installIfNeeded()
     }
 
     public func onCancel(_ handler: @escaping @Sendable () -> Void) {
-        cancelHandler = handler
+        lock.withLock { cancelHandler = handler }
         installIfNeeded()
     }
 
-    /// Written by the app on session-state changes and read by the tap callback. Both
-    /// run on the main thread — the tap's run-loop source is attached to
-    /// `CFRunLoopGetMain()` — so this needs no more synchronisation than `handler`.
+    /// Written by the app on session-state changes and read by the tap callback. The app
+    /// is on the main actor and the callback on the main run loop, but this port is
+    /// synchronous and nonisolated, so both facts move under `lock` in one step: a router
+    /// rebuilt between them must never see one and not the other.
     public func setCancelArmed(_ isArmed: Bool) {
-        isSessionActive = isArmed
-        router.isCancelArmed = isArmed
+        lock.withLock {
+            isSessionActive = isArmed
+            router.isCancelArmed = isArmed
+        }
     }
 
     // MARK: - Installation
 
     private func installIfNeeded() {
-        guard eventTap == nil, monitorTokens.isEmpty else { return }
+        let isInstalled = lock.withLock { eventTap != nil || !monitorTokens.isEmpty }
+        guard !isInstalled else { return }
         // Primary path: an active session event tap that can *consume* the standalone
         // Fn/Globe tap so macOS does not also open the emoji/dictation popup.
         if installEventTap() {
@@ -323,17 +355,29 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     /// So it waits for the gesture itself, which is the thing trust actually buys. By
     /// then the reader has met the emoji picker the tap exists to swallow, and the
     /// dialog answers a question they now have. Still one prompt per process: the
-    /// watchdog's silent retries must never spawn dialogs on a timer.
+    /// watchdog's silent retries must never spawn dialogs on a timer. The claim of that
+    /// one prompt is the whole point of taking `lock` here — the flag is set inside the
+    /// same critical section that reads it, and the dialog is raised after the release,
+    /// because `AXIsProcessTrustedWithOptions` puts UI on screen and may pump the run
+    /// loop straight back into the tap callback.
     ///
     /// Never during a live session. `AXIsProcessTrustedWithOptions` puts a system alert
     /// on screen, and a transcript's delivery target is snapshotted from whatever is
     /// focused when insertion begins — prompting mid-utterance would move the
     /// destination out from under the reader.
     private func promptForAccessibilityIfEarned() {
-        guard !didPromptForAccessibility else { return }
-        guard eventTap == nil, didUseGestureWithoutTap, !isSessionActive else { return }
-        didPromptForAccessibility = true
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let shouldPrompt = lock.withLock { () -> Bool in
+            guard !didPromptForAccessibility else { return false }
+            guard eventTap == nil, didUseGestureWithoutTap, !isSessionActive else { return false }
+            didPromptForAccessibility = true
+            return true
+        }
+        guard shouldPrompt else { return }
+        // `kAXTrustedCheckOptionPrompt` is an `extern CFStringRef`, so Swift imports it as a
+        // mutable global that Swift 6 refuses to read, and the only way to keep the symbol is
+        // an unsafe escape for a string constant. Spelling the documented key instead, read
+        // back from the symbol on macOS 27 (26A428) to confirm the value below.
+        let promptKey = "AXTrustedCheckOptionPrompt"
         _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
     }
 
@@ -347,18 +391,27 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     /// rebuild a tap whose port has died. A tick against a healthy tap is one
     /// `CFMachPortIsValid` plus one `tapIsEnabled` check.
     private func startWatchdog() {
-        guard watchdog == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        // Created inside the critical section that claims the slot: a timer source that
+        // was never resumed traps libdispatch when it is released, so it must not be
+        // possible to build one and then discover another install already won.
+        let timer: DispatchSourceTimer? = lock.withLock {
+            guard watchdog == nil else { return nil }
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            watchdog = timer
+            return timer
+        }
+        guard let timer else { return }
         timer.schedule(deadline: .now() + 2.0, repeating: 2.0, leeway: .milliseconds(500))
         timer.setEventHandler { [weak self] in
             self?.watchdogTick()
         }
         timer.resume()
-        watchdog = timer
     }
 
     private func watchdogTick() {
-        if let tap = eventTap {
+        // The port is read out rather than held: it is a retained reference, so an
+        // invalidation racing this tick turns into `CFMachPortIsValid` saying false.
+        if let tap = lock.withLock({ eventTap }) {
             if CFMachPortIsValid(tap) {
                 // The callback re-enables on tapDisabled events; this covers a disable
                 // observed between callback invocations.
@@ -378,7 +431,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             resetRouter()
             Self.log.log("hotkey path upgraded: passive monitors -> session event tap")
             removePassiveMonitors()
-        } else if monitorTokens.isEmpty {
+        } else if lock.withLock({ monitorTokens.isEmpty }) {
             Self.log.error("tapCreate still failing; staying on passive monitors")
             installPassiveMonitors()
         }
@@ -394,6 +447,11 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
     /// leaves the passive path's router alone: recreating it every two seconds threw
     /// away an Fn hold in progress, so a tap that straddled a tick toggled nothing.
     private func resetRouter() {
+        lock.withLock { resetRouterLocked() }
+    }
+
+    /// `lock` is already held.
+    private func resetRouterLocked() {
         router = HotkeyEventRouter()
         router.isCancelArmed = isSessionActive
     }
@@ -409,9 +467,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             let binder = Unmanaged<KeyboardShortcutsBinder>.fromOpaque(refcon).takeUnretainedValue()
 
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = binder.eventTap {
-                    CGEvent.tapEnable(tap: tap, enable: true)
-                }
+                binder.reenableTap()
                 return Unmanaged.passUnretained(event)
             }
 
@@ -435,9 +491,13 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
             return false
         }
 
-        eventTap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        runLoopSource = source
+        // Both handles are published before the source can deliver anything, so the first
+        // callback already finds the port it is expected to re-enable.
+        lock.withLock {
+            eventTap = tap
+            runLoopSource = source
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         return true
@@ -445,6 +505,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
 
     private func installPassiveMonitors() {
         let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .keyUp]
+        var tokens: [Any] = []
 
         if let globalToken = NSEvent.addGlobalMonitorForEvents(
             matching: mask,
@@ -452,7 +513,7 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
                 self?.enqueuePassive(event)
             })
         {
-            monitorTokens.append(globalToken)
+            tokens.append(globalToken)
         }
 
         if let localToken = NSEvent.addLocalMonitorForEvents(
@@ -462,29 +523,47 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
                 return event
             })
         {
-            monitorTokens.append(localToken)
+            tokens.append(localToken)
         }
+
+        lock.withLock { monitorTokens.append(contentsOf: tokens) }
     }
 
     // MARK: - Event handling
 
+    /// Reached only from the tap callback, on the main run loop. The port is read under
+    /// `lock` because a watchdog rebuild can replace it between two events.
+    private func reenableTap() {
+        guard let tap = lock.withLock({ eventTap }) else { return }
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
     // Runs on the main run loop (the tap source is attached to it). Returns true when the
-    // event should be consumed.
+    // event should be consumed. The router advances and the matching callback is picked in
+    // one critical section; the callback itself is dispatched after the release, so app
+    // code never runs inside the event filter — and never under `lock`.
     func handleTap(_ event: CGEvent) -> Bool {
-        switch router.routeTapped(event) {
+        let (outcome, callback) = lock.withLock { () -> (HotkeyEventRouter.Outcome, (@Sendable () -> Void)?) in
+            let outcome = router.routeTapped(event)
+            switch outcome {
+            case .toggle:
+                return (outcome, handler)
+            case .cancel:
+                return (outcome, cancelHandler)
+            case .pass, .consume:
+                return (outcome, nil)
+            }
+        }
+
+        switch outcome {
         case .pass:
             return false
         case .consume:
             let keycode = event.getIntegerValueField(.keyboardEventKeycode)
             Self.log.log("consumed event type=\(event.type.rawValue) keycode=\(keycode)")
             return true
-        case .toggle:
-            let handler = self.handler
-            DispatchQueue.main.async { handler?() }
-            return true
-        case .cancel:
-            let cancelHandler = self.cancelHandler
-            DispatchQueue.main.async { cancelHandler?() }
+        case .toggle, .cancel:
+            DispatchQueue.main.async { callback?() }
             return true
         }
     }
@@ -500,53 +579,71 @@ public final class KeyboardShortcutsBinder: HotkeyBinding, @unchecked Sendable {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            switch self.router.route(
-                eventKind,
-                keyCode: keyCode,
-                modifierFlags: modifierFlags,
-                isAutorepeat: isAutorepeat
-            ) {
-            case .pass, .consume:
-                return
-            case .toggle:
-                // The reader wants the gesture and is not getting the suppression the
-                // tap would give it, so the grant is now worth asking for. The watchdog
-                // does the asking, off the session path.
-                self.didUseGestureWithoutTap = true
-                self.handler?()
-            case .cancel:
-                self.cancelHandler?()
+            let callback = self.lock.withLock { () -> (@Sendable () -> Void)? in
+                switch self.router.route(
+                    eventKind,
+                    keyCode: keyCode,
+                    modifierFlags: modifierFlags,
+                    isAutorepeat: isAutorepeat
+                ) {
+                case .pass, .consume:
+                    return nil
+                case .toggle:
+                    // The reader wants the gesture and is not getting the suppression the
+                    // tap would give it, so the grant is now worth asking for. The watchdog
+                    // does the asking, off the session path.
+                    self.didUseGestureWithoutTap = true
+                    return self.handler
+                case .cancel:
+                    return self.cancelHandler
+                }
             }
+            callback?()
         }
     }
 
     // MARK: - Teardown
 
     private func teardown() {
-        watchdog?.cancel()
-        watchdog = nil
+        let timer = lock.withLock { () -> DispatchSourceTimer? in
+            let claimed = watchdog
+            watchdog = nil
+            return claimed
+        }
+        timer?.cancel()
         teardownTap()
         removePassiveMonitors()
     }
 
     func teardownTap() {
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        // One critical section claims both handles and clears the router, so a second
+        // teardown cannot invalidate the same port twice or strand the run-loop source,
+        // and no event can reach a router that still believes in the old tap's keys.
+        let (source, tap) = lock.withLock { () -> (CFRunLoopSource?, CFMachPort?) in
+            let claimed = (runLoopSource, eventTap)
             runLoopSource = nil
+            eventTap = nil
+            // Once the tap is gone, no held-key belief can be paired with future events.
+            resetRouterLocked()
+            return claimed
         }
-        if let tap = eventTap {
+        if let source {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
             CFMachPortInvalidate(tap)
-            eventTap = nil
         }
-        // Once the tap is gone, no held-key belief can be paired with future events.
-        resetRouter()
     }
 
     private func removePassiveMonitors() {
-        for token in monitorTokens {
+        let tokens = lock.withLock { () -> [Any] in
+            let claimed = monitorTokens
+            monitorTokens.removeAll()
+            return claimed
+        }
+        for token in tokens {
             NSEvent.removeMonitor(token)
         }
-        monitorTokens.removeAll()
     }
 }

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Synchronization
 import Testing
 import VoiceCore
 
@@ -25,32 +26,29 @@ struct ScriptedResponse {
 /// The real `ParakeetModelCache` transfer runs through it unchanged: same delegate, same sink,
 /// same digest. Only the bytes' origin is substituted, which is the point — the resume, restart
 /// and retry paths are exactly what a network cannot be asked to reproduce on demand.
-final class ScriptedDownloadProtocol: URLProtocol {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var script: [ScriptedResponse] = []
-    nonisolated(unsafe) private static var payload = Data()
-    nonisolated(unsafe) private static var seenRangeHeaders: [String?] = []
+// `deliveryQueue` serializes asynchronous delivery; `state` protects the shared script.
+final class ScriptedDownloadProtocol: URLProtocol, @unchecked Sendable {
+    private struct State {
+        var script: [ScriptedResponse] = []
+        var payload = Data()
+        var seenRangeHeaders: [String?] = []
+    }
+    private static let state = Mutex(State())
 
     static func install(payload: Data, script: [ScriptedResponse]) {
-        lock.lock()
-        defer { lock.unlock() }
-        Self.payload = payload
-        Self.script = script
-        Self.seenRangeHeaders = []
+        state.withLock { $0 = State(script: script, payload: payload) }
     }
 
     static var rangeHeaders: [String?] {
-        lock.lock()
-        defer { lock.unlock() }
-        return seenRangeHeaders
+        state.withLock { $0.seenRangeHeaders }
     }
 
     private static func take(rangeHeader: String?) -> (ScriptedResponse, Data)? {
-        lock.lock()
-        defer { lock.unlock() }
-        seenRangeHeaders.append(rangeHeader)
-        guard !script.isEmpty else { return nil }
-        return (script.removeFirst(), payload)
+        state.withLock { state in
+            state.seenRangeHeaders.append(rangeHeader)
+            guard !state.script.isEmpty else { return nil }
+            return (state.script.removeFirst(), state.payload)
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

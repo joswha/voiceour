@@ -70,7 +70,9 @@ func removeVoiceourPrivateState(at url: URL) throws {
 /// reports the path so the file is discoverable rather than merely preserved.
 public func quarantineUnreadableVoiceourState(at url: URL) -> URL? {
     guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    let stamp = ISO8601DateFormatter.voiceourFileStamp.string(from: Date())
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime, .withTimeZone]
+    let stamp = formatter.string(from: Date())
     let destination = url.deletingLastPathComponent()
         .appendingPathComponent("\(url.lastPathComponent).corrupt-\(stamp)")
     do {
@@ -79,15 +81,4 @@ public func quarantineUnreadableVoiceourState(at url: URL) -> URL? {
     } catch {
         return nil
     }
-}
-
-extension ISO8601DateFormatter {
-    /// Colons are legal in HFS+/APFS names but read as path separators to
-    /// Carbon-era APIs and to anyone pasting the name into a shell, so the
-    /// quarantine stamp omits them.
-    static let voiceourFileStamp: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime, .withTimeZone]
-        return formatter
-    }()
 }

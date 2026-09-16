@@ -1,5 +1,5 @@
-flow: menu.primary-action.os26
-title: The menu primary action drives a dictation on the native render path
+flow: menu.primary-action
+title: The menu primary action drives a dictation
 fixture: dictation
 transitions: idle -> checkingPermissions -> recording -> cancelled -> idle
 PASS 1 idle | role label="START DICTATION" == AXButton | AXButton

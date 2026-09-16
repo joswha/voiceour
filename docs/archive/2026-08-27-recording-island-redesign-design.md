@@ -1,6 +1,6 @@
 # Recording island redesign — design
 
-Date: 2026-08-27. Status: approved, implementing.
+Archived 2026-09-15. Design dated 2026-08-27, superseded by the CPU-rasterized mercury body and the macOS 27 single-path harness.
 
 ## The problem
 
@@ -81,7 +81,7 @@ One ground per path, chosen once and passed down as `RecordingOverlaySurface`:
 | case | ground | when |
 | --- | --- | --- |
 | `.systemGlass` | `.glassEffect(.regular, in: .capsule)`, untinted | macOS 26, not forced legacy, not Reduce Transparency |
-| `.painted` | behind-window frost + `glassTint` + specular rim + definition rim | macOS 14/15, or `RenderOverrides.forceLegacyGlass` |
+| `.painted` | behind-window frost + `glassTint` + specular rim + definition rim | macOS 14/15, or the then-available painted harness override |
 | `.opaque` | `Ink.void` + `a11y.lineEdge` | Reduce Transparency, on every OS |
 
 Rules that hold on every path:
@@ -209,7 +209,7 @@ both — so no golden can prove either the halo's absence or the material's appe
 Goldens still cover what they can: the AX tree, layout, and the app-drawn signal.
 
 - `make build`, `make format-check`, `make check-docs`, `make test`.
-- `make ui-snap` and `make ui-snap-os26`; review `.ax.diff` before blessing.
+- `make ui-snap`; review `.ax.diff` before blessing. The separate native-branch gate this design used is retired.
 - `make ui-flow` as a regression check; the two overlay journals are semantic and should
   not move.
 - On-screen proof in the signed app on macOS 26 over a white backdrop, a dark backdrop and

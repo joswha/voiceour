@@ -74,7 +74,10 @@ public enum SidecarASRClientError: Error, Equatable {
     case writeFailed(String)
 }
 
-public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
+/// `ASRClienting` requires `Sendable`, and this satisfies it without an escape
+/// hatch: both stored properties are immutable and every piece of mutable state
+/// lives in the `SidecarProcessRuntime` actor below.
+public final class SidecarASRClient: ASRClienting {
     private let runtime: SidecarProcessRuntime
     /// The model this client's sidecar must have loaded, echoed on every
     /// transcribe so a stale cache fails as a mismatch instead of quietly
@@ -273,6 +276,8 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         case cancelled
     }
 
+    /// First of value/failure/timeout/cancellation wins. `@unchecked Sendable`:
+    /// `lock` guards both the continuation and the result.
     private final class RequestRaceBox<T: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<RequestRaceResult<T>, Never>?
@@ -317,7 +322,10 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         }
     }
 
-    private final class StartingSidecar: @unchecked Sendable {
+    /// Handles and tasks of a sidecar that has not greeted yet. Deliberately not
+    /// `Sendable`: it is created, read and torn down only inside
+    /// `SidecarProcessRuntime`, and that confinement is the protection.
+    private final class StartingSidecar {
         let id: UUID
         let process: Process
         let stdin: FileHandle
@@ -352,7 +360,10 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         }
     }
 
-    private final class RunningSidecar: @unchecked Sendable {
+    /// The greeted sidecar. Deliberately not `Sendable`, which is what protects
+    /// the mutable `readerTask`: only `SidecarProcessRuntime` touches this box,
+    /// so the actor serializes every read and write.
+    private final class RunningSidecar {
         let id: UUID
         let process: Process
         let stdin: FileHandle
@@ -362,6 +373,8 @@ public final class SidecarASRClient: ASRClienting, @unchecked Sendable {
         let stderr: FileHandle
         let hello: ASRHello
         let stderrSource: PipeByteSource
+        /// Installed by `startReader(for:)`, cancelled by `stopReaders(of:)`,
+        /// both actor-isolated: the actor is this field's only writer.
         var readerTask: Task<Void, Never>?
 
         init(starting: StartingSidecar, hello: ASRHello) {

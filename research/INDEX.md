@@ -5,6 +5,15 @@ Branch `autoresearch/research-all-those-three-bets-you-have-unlimited-20260831`.
 The remainder of this index is the chronological experiment ledger; older sections
 retain their then-current metrics and are not the final product recommendation.
 
+**Next phase contract: `research/next-program.md`.** It is authoritative for the four
+workstreams (`data-foundation`, `precision-recall`, `single-model`, `runtime-speed`),
+their artifact roots, the evidence-packet schema, shared metric identifiers, global
+gates, run budgets, and exclusive-hardware ownership of the S/A-tier program that
+follows this session. It carries durable interfaces only: live program status — track
+states, owners, current sprint, blockers, decision ledger, session handoff — lives only
+in the Obsidian control plane `projects/voiceour/concepts/asr-research-program.md`
+(vault `/Users/vlad/Documents/ObsidianVault`), never in this repository.
+
 ## Mission
 Juice the pinned Parakeet TDT weights and Apple-Silicon runtime: (1) contextual decoding
 for vocabulary binding, (2) ANE/heterogeneous execution, (3) quantization + margin

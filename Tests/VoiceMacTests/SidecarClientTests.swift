@@ -169,6 +169,7 @@ struct SidecarClientTests {
 
     /// The stderr sink is called from the byte source's private queue, so the
     /// count it accumulates needs a lock rather than a bare `var`.
+    // `lock` protects the emitted-frame counter.
     private final class FloodCounter: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
@@ -523,7 +524,8 @@ private func thrownError<T>(from operation: () async throws -> T) async -> Error
     }
 }
 
-private final class LockedResult<Value>: @unchecked Sendable {
+// `lock` protects the first completed result.
+private final class LockedResult<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: Result<Value, Error>?
 
@@ -541,9 +543,11 @@ private final class LockedResult<Value>: @unchecked Sendable {
     }
 }
 
-private func resultWithin<T>(timeout: TimeInterval, operation: @escaping () async throws -> T) async -> Result<
-    T, Error
->? {
+private func resultWithin<T: Sendable>(timeout: TimeInterval, operation: @escaping @Sendable () async throws -> T) async
+    -> Result<
+        T, Error
+    >?
+{
     let result = LockedResult<T>()
     let task = Task {
         do {

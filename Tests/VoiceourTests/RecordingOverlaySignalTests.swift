@@ -169,16 +169,6 @@ struct RecordingOverlayOutcomeTests {
         #expect(copied?.accessibilityStatus.contains("secure_input") == false)
     }
 
-    /// A failed paste is not a dead end: the transcript is on the clipboard, and that is
-    /// the actionable half of the sentence.
-    @Test func aFailedPasteNamesTheClipboard() {
-        let spoken = RecordingOverlayOutcome(
-            state: .insertFailed(reason: "no focused element")
-        )?.accessibilityStatus.lowercased()
-
-        #expect(spoken?.contains("clipboard") == true)
-    }
-
     /// An ASR code names the failure family, not always the actual cause. The
     /// stable readout keeps the coordinator's published sentence so a denied
     /// microphone cannot masquerade as a transcription-engine outage.
@@ -194,11 +184,14 @@ struct RecordingOverlayOutcomeTests {
         )
     }
 
-    /// Both copy-only paths cost the user nothing, so neither is dressed as a failure;
-    /// only a dictation that produced no text is.
+    /// Only confirmed copy-only delivery is nonfatal; failed writes and ASR
+    /// failures must never be presented as completed delivery.
     @Test func onlyARealFailureReadsAsOne() {
         #expect(RecordingOverlayOutcome(state: .copiedOnly(reason: "terminal"))?.isFailure == false)
-        #expect(RecordingOverlayOutcome(state: .insertFailed(reason: "x"))?.isFailure == false)
+        #expect(
+            RecordingOverlayOutcome(state: .insertFailed(reason: InsertionSafetyPolicy.pasteboardWriteFailed))?
+                .isFailure == true
+        )
         #expect(RecordingOverlayOutcome(state: .error(.inferenceFailed))?.isFailure == true)
     }
 

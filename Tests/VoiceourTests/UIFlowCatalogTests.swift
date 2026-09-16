@@ -78,17 +78,6 @@
             #expect(UIFlowCatalog.all(request: combinedRequest).isEmpty)
         }
 
-        @Test func defaultCatalogExcludesOS26Flows() throws {
-            let request = try #require(
-                UIHarnessRequest(arguments: ["Voiceour", "--ui-harness", "--flow-check"]))
-            #expect(request.except == ["os26"])
-            let selected = UIFlowCatalog.all(request: request)
-            let expected = UIFlowCatalog.everything().filter { !matches("os26", id: $0.id, tags: $0.tags) }
-
-            #expect(selected.map(\.id) == expected.map(\.id))
-            #expect(selected.allSatisfy { !matches("os26", id: $0.id, tags: $0.tags) })
-        }
-
         private func matches(_ needle: String, id: String, tags: [String]) -> Bool {
             id.contains(needle) || tags.contains(needle)
         }

@@ -5,6 +5,12 @@ APP="$ROOT/.build/Voiceour.app"
 BIN="$ROOT/.build/release/Voiceour"
 SIGN_IDENTITY=${VOICEOUR_CODESIGN_IDENTITY:-}
 SIGN_KEYCHAIN=${VOICEOUR_CODESIGN_KEYCHAIN:-}
+# An explicit identity bypasses local development pins, including during notarization.
+if [ -z "$SIGN_IDENTITY" ] && [ -f "$ROOT/.env" ]; then
+  . "$ROOT/.env"
+  SIGN_IDENTITY=${VOICEOUR_CODESIGN_IDENTITY:-}
+  SIGN_KEYCHAIN=${SIGN_KEYCHAIN:-${VOICEOUR_CODESIGN_KEYCHAIN:-}}
+fi
 LOCAL_KEYCHAIN="$HOME/Library/Keychains/voiceour-dev.keychain-db"
 if [ -z "$SIGN_IDENTITY" ] && [ -f "$LOCAL_KEYCHAIN" ]; then
   security unlock-keychain -p "" "$LOCAL_KEYCHAIN" >/dev/null 2>&1 || true

@@ -98,6 +98,66 @@ def _codes(result: dict) -> set[str]:
     return {reason["code"] for reason in result["decision"]["reasons"]}
 
 
+def _encoder_comparison_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
+    paths = _paths(
+        tmp_path,
+        [
+            ("one two", "one two", "one two", "a"),
+            ("three four", "three four", "three four", "b"),
+        ],
+    )
+    native, external = paths[1:]
+    native_records = [json.loads(line) for line in native.read_text().splitlines()]
+    native_meta = native_records.pop(0)
+    native_meta["mode"] = "raw-decode"
+    _write_jsonl(native, native_records)
+    native.with_name(native.name + ".meta.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "meta": native_meta,
+                "results_sha256": hashlib.sha256(native.read_bytes()).hexdigest(),
+            }
+        )
+    )
+    external_records = [json.loads(line) for line in external.read_text().splitlines()]
+    external_records[0]["mode"] = "external-encoder"
+    external_records.insert(1, {"type": "encoder_meta", "engine": "coreai"})
+    _write_jsonl(external, external_records)
+    return paths
+
+
+def test_encoder_comparison_reads_bound_native_provenance_and_encoder_metadata(tmp_path: Path) -> None:
+    result = evaluate_files(*_encoder_comparison_paths(tmp_path), config=_config())
+    assert result["validation"]["report_modes_equal"] is False
+    assert result["validation"]["report_modes_compatible"] is True
+    assert result["validation"]["manifest_pins_match"] is True
+    assert result["validation"]["audio_manifest_pins_match"] is True
+    assert result["accuracy"]["delta_candidate_minus_incumbent"] == 0.0
+
+
+def test_native_provenance_cannot_be_reused_after_result_bytes_change(tmp_path: Path) -> None:
+    paths = _encoder_comparison_paths(tmp_path)
+    native = paths[1]
+    native.write_text(native.read_text().replace("one two", "different words"))
+    with pytest.raises(GateInputError) as raised:
+        evaluate_files(*paths, config=_config())
+    assert raised.value.code == "PROVENANCE_FAIL"
+
+
+def test_encoder_comparison_does_not_accept_an_unrelated_execution_mode(tmp_path: Path) -> None:
+    paths = _encoder_comparison_paths(tmp_path)
+    native = paths[1]
+    sidecar = json.loads(native.with_name(native.name + ".meta.json").read_text())
+    meta = sidecar["meta"]
+    meta["mode"] = "pipeline"
+    rows = [json.loads(line) for line in native.read_text().splitlines()]
+    _write_jsonl(native, [meta, *rows])
+    result = evaluate_files(*paths, config=_config())
+    assert result["decision"]["status"] == "reject"
+    assert "PROVENANCE_FAIL" in _codes(result)
+
+
 def test_tied_systems_produce_legitimate_zero_width_intervals(tmp_path: Path) -> None:
     paths = _paths(
         tmp_path,
@@ -161,15 +221,18 @@ def test_whole_cluster_resampling_retains_cluster_dependence(tmp_path: Path) -> 
         ),
     )
 
-    clustered_width = clustered["accuracy"]["upper_interval"]["bca"]["bound"] - clustered["accuracy"][
-        "delta_candidate_minus_incumbent"
-    ]
-    conditional_width = row_conditional["accuracy"]["upper_interval"]["bca"]["bound"] - row_conditional[
-        "accuracy"
-    ]["delta_candidate_minus_incumbent"]
+    clustered_width = (
+        clustered["accuracy"]["upper_interval"]["bca"]["bound"]
+        - clustered["accuracy"]["delta_candidate_minus_incumbent"]
+    )
+    conditional_width = (
+        row_conditional["accuracy"]["upper_interval"]["bca"]["bound"]
+        - row_conditional["accuracy"]["delta_candidate_minus_incumbent"]
+    )
     assert clustered_width >= conditional_width
     assert row_conditional["analysis"]["population_claim_permitted"] is False
     assert "CLUSTER_METADATA_MISSING" in row_conditional["warnings"]
+
 
 def test_bootstrap_resamples_clusters_within_each_stratum(tmp_path: Path) -> None:
     paths = _paths(
@@ -193,7 +256,6 @@ def test_bootstrap_resamples_clusters_within_each_stratum(tmp_path: Path) -> Non
     ]
 
 
-
 def test_population_claims_are_refused() -> None:
     with pytest.raises(GateInputError, match="POPULATION_CLAIM_UNSUPPORTED"):
         _config(claim_scope="population")
@@ -210,6 +272,7 @@ def test_resampling_refuses_singleton_strata(tmp_path: Path) -> None:
 
     with pytest.raises(GateInputError, match="CLUSTER_STRATUM_UNDERREPLICATED"):
         evaluate_files(*paths, config=_config(stratum_fields=("split",)))
+
 
 def test_manifest_provenance_pin_must_match_supplied_manifest(tmp_path: Path) -> None:
     manifest, incumbent, candidate = _paths(
@@ -434,16 +497,10 @@ def test_gate_emits_pass_for_uniform_cluster_level_benefit(tmp_path: Path) -> No
     assert set(result["decision"]["gates"].values()) == {"pass"}
 
 
-
-
 def test_gate_emits_inconclusive_when_point_benefit_lacks_cluster_evidence(tmp_path: Path) -> None:
-    cases = [
-        (f"word{index} tail", f"word{index}", f"word{index} tail", f"speaker-{index}")
-        for index in range(3)
-    ]
+    cases = [(f"word{index} tail", f"word{index}", f"word{index} tail", f"speaker-{index}") for index in range(3)]
     cases.extend(
-        (f"same{index} tail", f"same{index} tail", f"same{index} tail", f"speaker-{index + 3}")
-        for index in range(3)
+        (f"same{index} tail", f"same{index} tail", f"same{index} tail", f"speaker-{index + 3}") for index in range(3)
     )
     paths = _paths(tmp_path, cases)
 

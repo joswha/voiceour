@@ -460,12 +460,58 @@ struct PasteboardSafetyTests {
         #expect(clearSpy.scheduledChangeCounts.isEmpty)
     }
 
-    @Test func clearIfUnchangedClearsOwnWriteButNeverNewerContent() {
-        let ownCount = GeneralPasteboard.copy("dictated transient")
+    /// The write used to be assumed: `copy` reported a change count whether or not the
+    /// pasteboard accepted the text, so a refused write still posted Cmd-V and pasted
+    /// whatever the clipboard happened to hold into the user's document. A failed write
+    /// delivers nothing, posts nothing, and schedules no clear of someone else's content.
+    @Test func pasteboardWriteFailureNeverPostsPaste() async {
+        replacePasteboard(with: "clipboard the user owns")
+        GeneralPasteboard.writeOverride = { _ in nil }
+        defer { GeneralPasteboard.writeOverride = nil }
+        let postPaste = PasteboardPostSpy(result: true)
+        let clearSpy = TransientClearSpy()
+        let inserter = PasteboardInserter(
+            permissions: FakePermissions(synth: .granted),
+            tracker: SequencedTargetTracker(responses: [true, true]),
+            postPaste: { postPaste.post() },
+            scheduleTransientClear: { clearSpy.record($0) }
+        )
+
+        let outcome = await inserter.insert("never pasted", into: target(safety: .normalText))
+
+        #expect(outcome == .failed(reason: "pasteboard_write_failed"))
+        #expect(postPaste.callCount == 0)
+        #expect(clearSpy.scheduledChangeCounts.isEmpty)
+        #expect(pasteboardString() == "clipboard the user owns")
+    }
+
+    /// A copy-only target has no second delivery route: the clipboard is the delivery. So a
+    /// refused write there is a failure, not a copy that never happened — and secure text
+    /// must not be retried through some unconcealed fallback write.
+    @Test func secureCopyOnlyReportsWriteFailureInsteadOfClaimingACopy() async {
+        replacePasteboard(with: "clipboard the user owns")
+        GeneralPasteboard.writeOverride = { _ in nil }
+        defer { GeneralPasteboard.writeOverride = nil }
+        let postPaste = PasteboardPostSpy(result: true)
+        let inserter = PasteboardInserter(
+            permissions: FakePermissions(synth: .granted),
+            tracker: SequencedTargetTracker(responses: []),
+            postPaste: { postPaste.post() }
+        )
+
+        let outcome = await inserter.insert("secret text", into: target(safety: .secure))
+
+        #expect(outcome == .failed(reason: "pasteboard_write_failed"))
+        #expect(postPaste.callCount == 0)
+        #expect(pasteboardString() == "clipboard the user owns")
+    }
+
+    @Test func clearIfUnchangedClearsOwnWriteButNeverNewerContent() throws {
+        let ownCount = try #require(GeneralPasteboard.copy("dictated transient"))
         #expect(GeneralPasteboard.clearIfUnchanged(since: ownCount))
         #expect(pasteboardString() == nil)
 
-        let staleCount = GeneralPasteboard.copy("dictated stale")
+        let staleCount = try #require(GeneralPasteboard.copy("dictated stale"))
         replacePasteboard(with: "user copied afterwards")
         #expect(!GeneralPasteboard.clearIfUnchanged(since: staleCount))
         #expect(pasteboardString() == "user copied afterwards")
@@ -504,6 +550,7 @@ struct PasteboardSafetyTests {
 /// Answers successive focus inspections from a script, repeating the last entry
 /// once exhausted. `snapshot()` consumes one, and each `stillMatches` consumes
 /// another, so a script positions a focus change exactly between two checks.
+// `lock` protects the remaining focus inspections and last answer.
 private final class ScriptedFocusInspector: @unchecked Sendable {
     private let lock = NSLock()
     private var remaining: [TargetFocusInspection]
@@ -524,6 +571,7 @@ private final class ScriptedFocusInspector: @unchecked Sendable {
     }
 }
 
+// `lock` protects the permission request count.
 private final class CountingDeniedPastePermissions: PermissionsChecking, @unchecked Sendable {
     private let lock = NSLock()
     private var requests = 0
@@ -551,6 +599,7 @@ private final class CountingDeniedPastePermissions: PermissionsChecking, @unchec
     }
 }
 
+// `lock` protects the scheduled change counts.
 private final class TransientClearSpy: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [Int] = []
@@ -568,6 +617,7 @@ private final class TransientClearSpy: @unchecked Sendable {
     }
 }
 
+// `lock` protects the paste call count.
 private final class PasteboardPostSpy: @unchecked Sendable {
     private let lock = NSLock()
     private let result: Bool
@@ -594,6 +644,7 @@ private final class PasteboardPostSpy: @unchecked Sendable {
 /// Answers both identity checks affirmatively, then cancels the inserting task
 /// from the second one — the only point where the pasteboard already carries the
 /// dictated text but Cmd-V has not gone out.
+// `lock` protects the call count and cancellation callback.
 private final class CancellingAfterCopyTracker: TargetTracking, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
@@ -618,6 +669,7 @@ private final class CancellingAfterCopyTracker: TargetTracking, @unchecked Senda
     }
 }
 
+// `lock` protects the scripted matches and call count.
 private final class SequencedTargetTracker: TargetTracking, @unchecked Sendable {
     private let lock = NSLock()
     private var responses: [Bool]

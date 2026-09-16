@@ -32,9 +32,9 @@
     /// collide with AppKit's own nullability-annotated versions of the same methods.
     @objc private protocol AXLiveAccessors {
         @objc(accessibilityChildren) func liveChildren() -> [Any]?
-        @objc(accessibilityIdentifier) func liveIdentifier() -> String?
-        @objc(accessibilityLabel) func liveLabel() -> String?
-        @objc(accessibilityTitle) func liveTitle() -> String?
+        @objc(accessibilityIdentifier) func liveIdentifier() -> Any?
+        @objc(accessibilityLabel) func liveLabel() -> Any?
+        @objc(accessibilityTitle) func liveTitle() -> Any?
     }
 
     /// Applies a scene's interaction script to an offscreen, never-key window.
@@ -353,9 +353,18 @@
         private static func liveString(_ element: NSObject, selector: Selector) -> String? {
             guard element.responds(to: selector) else { return nil }
             let bridged = unsafeBitCast(element, to: AXLiveAccessors.self)
-            if selector == identifierSelector { return bridged.liveIdentifier() }
-            if selector == labelSelector { return bridged.liveLabel() }
-            return bridged.liveTitle()
+            // Native controls may return attributed labels. An NSString return
+            // declaration would force-bridge that object before we can inspect it.
+            let raw: Any?
+            if selector == identifierSelector {
+                raw = bridged.liveIdentifier()
+            } else if selector == labelSelector {
+                raw = bridged.liveLabel()
+            } else {
+                raw = bridged.liveTitle()
+            }
+            if let text = raw as? String { return text }
+            return (raw as? NSAttributedString)?.string
         }
 
         private static func liveChildren(of element: NSObject) -> [NSObject] {

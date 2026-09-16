@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 
 /// Privacy-preserving write-only access to the general pasteboard.
 /// Voiceour must never read, snapshot, or restore the user's prior clipboard contents.
@@ -17,33 +18,51 @@ public enum GeneralPasteboard {
     /// churning; it is the harness reaching out of its box into the user's workspace,
     /// which the privacy rules forbid outright.
     ///
-    /// Shaped like `RenderOverrides`: nil by default, every read is
-    /// `override ?? <the real write>`, and nothing in production assigns it. Only
-    /// `UI_HARNESS` code sets it, and only for the lifetime of one flow.
-    public static var writeOverride: (@Sendable (String) -> Int)?
+    /// Nil by default; only harness code installs the replacement. The mutex protects
+    /// installation and lookup, and the copied closure runs outside the lock.
+    public static var writeOverride: (@Sendable (String) -> Int?)? {
+        get { overrides.withLock { $0.write } }
+        set { overrides.withLock { $0.write = newValue } }
+    }
 
     /// Companion seam for `clearIfUnchanged`, so a harness flow can neither clear the real
     /// pasteboard nor read its real change count.
-    public static var clearOverride: (@Sendable (Int) -> Bool)?
+    public static var clearOverride: (@Sendable (Int) -> Bool)? {
+        get { overrides.withLock { $0.clear } }
+        set { overrides.withLock { $0.clear = newValue } }
+    }
 
-    /// Writes `text` as pasteboard content and returns the resulting change count.
+    private struct Overrides: Sendable {
+        var write: (@Sendable (String) -> Int?)?
+        var clear: (@Sendable (Int) -> Bool)?
+    }
+
+    private static let overrides = Mutex(Overrides())
+
+    /// Writes the transcript and returns its prepared change count, or `nil` if
+    /// the string or a required privacy marker could not be written. Failure can
+    /// follow a partial write; callers must not paste, clear, or confirm success.
+    ///
+    /// Concealed copies are host-only; ordinary and transient copies keep the
+    /// system's Universal Clipboard policy. Preparing contents clears the board
+    /// without reading, retaining, or restoring anything previously copied.
     @discardableResult
     public static func copy(
         _ text: String,
         concealed: Bool = false,
         transient: Bool = false
-    ) -> Int {
+    ) -> Int? {
         if let writeOverride { return writeOverride(text) }
+        // Publish one complete item: no clipboard observer may see the text
+        // before its concealed/transient opt-out markers are advertised.
+        let item = NSPasteboardItem()
+        guard item.setString(text, forType: .string) else { return nil }
+        guard !concealed || item.setData(Data(), forType: concealedType) else { return nil }
+        guard !transient || item.setData(Data(), forType: transientType) else { return nil }
         let pasteboard = NSPasteboard.general
-        var types = [NSPasteboard.PasteboardType.string]
-        if concealed { types.append(concealedType) }
-        if transient { types.append(transientType) }
-        pasteboard.clearContents()
-        pasteboard.declareTypes(types, owner: nil)
-        pasteboard.setString(text, forType: .string)
-        if concealed { pasteboard.setData(Data(), forType: concealedType) }
-        if transient { pasteboard.setData(Data(), forType: transientType) }
-        return pasteboard.changeCount
+        let changeCount = pasteboard.prepareForNewContents(with: concealed ? .currentHostOnly : [])
+        guard pasteboard.writeObjects([item]) else { return nil }
+        return changeCount
     }
 
     /// Clears the pasteboard only if nothing else has written to it since `changeCount`.

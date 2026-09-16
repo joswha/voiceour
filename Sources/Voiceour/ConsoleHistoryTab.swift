@@ -308,11 +308,12 @@ struct ConsoleHistoryTab: View {
                     Text(activeFilterLabel(appFilter)).lineLimit(1)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(appFilter.map { "Filtering by \(activeFilterLabel($0))" } ?? "Filter by app")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Show sessions from one app")
-        .accessibilityLabel(appFilter.map { "Filtering by \(activeFilterLabel($0))" } ?? "Filter by app")
         .accessibilityIdentifier("sessions.filter")
     }
 
@@ -915,13 +916,18 @@ struct ConsoleHistoryTab: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
+            // Keep mouse selection while exposing the text once, not both the
+            // native selection wrapper and its identical accessibility child.
+            .accessibilityRepresentation { Text(value) }
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Actions
 
     private func copy(_ session: RecentSession) {
-        GeneralPasteboard.copy(session.text)
+        // The mark and the announcement are claims about the clipboard, so a refused
+        // write leaves the row exactly as it was instead of confirming nothing.
+        guard GeneralPasteboard.copy(session.text) != nil else { return }
         announceCopy()
         resetCopyFeedbackTask?.cancel()
         // Both directions of the confirmation run through one curve and one

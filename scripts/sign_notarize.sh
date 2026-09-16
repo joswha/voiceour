@@ -39,10 +39,17 @@ if [ "$CHECK_ENV_ONLY" -eq 1 ]; then
 fi
 
 APP=$(VOICEOUR_CODESIGN_IDENTITY="$IDENTITY" "$ROOT/scripts/bundle.sh")
+codesign --force --options runtime --sign "$IDENTITY" "$APP/Contents/MacOS/voiceour-asr"
 codesign --force --options runtime --entitlements "$ROOT/Resources/Voiceour.entitlements" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign --display --entitlements :- "$APP"
 "$ROOT/scripts/verify_bundle.sh"
+for binary in "$APP/Contents/MacOS/voiceour-asr" "$APP"; do
+  codesign --display --verbose=4 "$binary" 2>&1 | grep -Eq 'flags=0x[0-9a-f]+\(.*runtime' || {
+    echo "sign_notarize.sh: $binary lacks the hardened runtime" >&2
+    exit 1
+  }
+done
 
 # Resources/Info.plist is the single source of truth for the version, read back off the
 # bundle that was actually built rather than restated here.

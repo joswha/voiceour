@@ -1,0 +1,31 @@
+[project]
+name = "voiceour-nemo-env"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+  "torch",
+  "torchaudio",
+  "nemo_toolkit[asr]",
+  "soundfile",
+  "numpy",
+  "pandas",
+  "rapidfuzz",
+  "jiwer",
+  "regex",
+  "huggingface_hub[hf_xet]",
+  "silero-vad",
+  "static-ffmpeg",
+  "yt-dlp",
+]
+
+[tool.uv]
+package = false
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }

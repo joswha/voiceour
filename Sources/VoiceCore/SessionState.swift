@@ -41,7 +41,7 @@ public enum SessionState: Equatable, Sendable {
         case .readyToInsert: "Ready to insert"
         case .pasteAttempted: "Paste attempted"
         case .copiedOnly(let reason): "Copied: \(reason)"
-        case .insertFailed(let reason): "Copied, paste failed: \(reason)"
+        case .insertFailed(let reason): "Delivery failed: \(reason)"
         case .error(let code): "Error: \(code.rawValue)"
         case .cancelled: "Cancelled"
         }

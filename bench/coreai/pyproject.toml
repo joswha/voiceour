@@ -1,0 +1,28 @@
+[project]
+# Benchmark-only Core AI encoder experiment (Step 7.1). This is its own uv
+# project on purpose: `bench/pyproject.toml` stays offline and torch-free, so
+# `make lint-python` and `make test-python` keep working on a machine that never
+# resolves torch. `make lint-python` still lints this directory, because ruff
+# walks up to `bench/pyproject.toml` for its configuration (no [tool.ruff] here).
+#
+# Stage 1 (`export_encoder.py`) does NOT run here: it needs NeMo and runs in the
+# devbox `envs/nemo` project, which already has torch 2.11.0 and nemo_toolkit
+# 3.0.0. Stage 2 (`convert_encoder.py`) runs here, on the Mac.
+name = "voiceour-coreai"
+version = "0.1.0"
+description = "Core AI encoder conversion for the Voiceour benchmark-only encoder experiment"
+requires-python = "==3.12.*"
+dependencies = [
+    # Matches the devbox `envs/nemo` torch exactly: the `.pt2` that stage 1
+    # writes is loaded here by the same torch version that wrote it.
+    "torch==2.11.0",
+    "numpy",
+    # Pinned to the commit `git ls-remote https://github.com/apple/coreai-torch HEAD`
+    # reported at implementation time; recorded in the artifact manifest as
+    # versions.convert.coreai_torch_git.declared_sha. coreai-torch pulls the
+    # `coreai` runtime itself (coreai-core), so it is not pinned twice here.
+    "coreai-torch @ git+https://github.com/apple/coreai-torch@799d990deb85af350aa6a4aa23c85f211f2207ad",
+]
+
+[tool.uv]
+package = false

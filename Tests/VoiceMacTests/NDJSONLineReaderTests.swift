@@ -214,6 +214,7 @@ extension NDJSONLineFramer {
 
 /// `Thread` is not `Sendable`, so a test observes its progress through this
 /// instead of `Thread.isFinished`.
+// `lock` protects the completion flag.
 private final class TestFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var raised = false

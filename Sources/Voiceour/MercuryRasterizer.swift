@@ -23,7 +23,7 @@ final class MercuryRasterizer {
     private var responseKey: MercuryDisplayResponse?
     private var responseLookup: MercuryDisplayLookup?
 
-    deinit {
+    isolated deinit {
         columns?.deallocate()
     }
 

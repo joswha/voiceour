@@ -38,6 +38,7 @@ extension TargetSafetyClass {
     }
 }
 
+@MainActor
 enum SessionsFormatters {
     static let timestamp: DateFormatter = {
         let formatter = RenderFormatters.dateFormatter()

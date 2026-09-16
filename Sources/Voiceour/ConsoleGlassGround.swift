@@ -12,15 +12,9 @@ import SwiftUI
 /// material itself is an `NSView`, so the view that clears the window is the
 /// same view that fills it.
 ///
-/// Deliberately NOT SwiftUI `.glassEffect`. That is element glass — macOS 26
-/// only, documented for floating controls, and it cannot sample other glass — so
-/// a window-filling `.glassEffect` over a window-filling material is two blurs
-/// arguing. AppKit's `NSGlassEffectView` (macOS 26) is the window-scale Liquid
-/// Glass surface, with `NSVisualEffectView` as the macOS 14/15 path.
-///
-/// Deliberately NOT ``FrostedGlassBackground`` either: that one pins
-/// `.vibrantDark` and a corner radius for the recording island, and this window
-/// keeps the appearance the user chose.
+/// AppKit's `NSGlassEffectView` supplies the window-scale material through an
+/// `NSViewRepresentable`-backed view. The window keeps the user's appearance,
+/// and native section plates keep text off the sampled desktop.
 struct ConsoleGlassGround: View {
     private var a11y = A11y()
 
@@ -34,14 +28,8 @@ struct ConsoleGlassGround: View {
 
     @ViewBuilder
     private var surface: some View {
-        // Two reasons to paint the plain window colour instead of a material.
-        // Reduce Transparency is the user asking for it. `forceLegacyGlass` is
-        // the offscreen harness, which cannot rasterise either glass path —
-        // `cacheDisplay` flattens a behind-window material to an opaque fill and
-        // drops `.glassEffect` entirely — so a golden has to record a real
-        // ground rather than a hole. It is also why nothing below this branch
-        // ever touches the harness's parked window.
-        if a11y.reduceTransparency || RenderOverrides.forceLegacyGlass {
+        // Reduce Transparency requests an opaque system window ground.
+        if a11y.reduceTransparency {
             Color(nsColor: .windowBackgroundColor)
         } else {
             WindowGlassSurface()
@@ -52,37 +40,20 @@ struct ConsoleGlassGround: View {
 /// The material, and the window mutation it needs to be visible at all.
 private struct WindowGlassSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        if #available(macOS 26, *) {
-            return ConsoleGlassView()
-        }
-        return ConsoleVibrancyView()
+        ConsoleGlassView()
     }
 
     func updateNSView(_ view: NSView, context: Context) {}
 }
 
-/// macOS 26 Liquid Glass. `contentView` stays nil: the SwiftUI content is a
+/// Window-scale Liquid Glass. `contentView` stays nil: the SwiftUI content is a
 /// sibling above this view, not a child of it, because a glass view hosting the
 /// whole console would put every native control inside a surface that samples
 /// them.
-@available(macOS 26, *)
 private final class ConsoleGlassView: NSGlassEffectView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         style = .regular
-        clearHostWindowBackground()
-    }
-}
-
-/// macOS 14/15. `.underWindowBackground` is the window-scale vibrancy material;
-/// the island's `.hudWindow` is a floating-panel material and reads far darker
-/// than a window ground should.
-private final class ConsoleVibrancyView: NSVisualEffectView {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        material = .underWindowBackground
-        blendingMode = .behindWindow
-        state = .active
         clearHostWindowBackground()
     }
 }

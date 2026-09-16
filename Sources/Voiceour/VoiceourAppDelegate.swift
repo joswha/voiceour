@@ -60,7 +60,10 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
     /// an explicit request, `scripts/console_shot.sh` pairs it with `--no-activate`,
     /// and the presentation layer already declines to steal focus for that pair.
     private var owesFirstRunGuidance: Bool {
-        NSApp.activationPolicy() != .prohibited && coordinator?.owesFirstRunGuidance == true
+        // `NSApplication.shared`, not the `NSApp` global: the global is nil until
+        // AppKit publishes it, and a test that drives this delegate directly has no
+        // guarantee another test created the application object first.
+        NSApplication.shared.activationPolicy() != .prohibited && coordinator?.owesFirstRunGuidance == true
     }
 
     /// `open -a Voiceour`, a click on the Dock icon the open console puts there,

@@ -12,18 +12,12 @@ public struct RepairVocabulary: Codable {
     /// A packaged macOS app keeps SwiftPM's bundle in `Contents/Resources`; command-line
     /// products and tests use `Bundle.module`.
     public static let bundledOrdinaryWords: Set<String> = {
-        let packagedURL = Bundle.main.resourceURL?
+        let packagedBundleURL = Bundle.main.resourceURL?
             .appendingPathComponent("voiceour_VoiceCore.bundle", isDirectory: true)
-            .appendingPathComponent("ordinary-words.txt")
-        let resourceURL: URL?
-        if let packagedURL, FileManager.default.fileExists(atPath: packagedURL.path) {
-            resourceURL = packagedURL
-        } else {
-            resourceURL = Bundle.module.url(
-                forResource: "ordinary-words",
-                withExtension: "txt"
-            )
-        }
+        let resourceURL =
+            packagedBundleURL.flatMap { Bundle(url: $0) }?
+            .url(forResource: "ordinary-words", withExtension: "txt")
+            ?? Bundle.module.url(forResource: "ordinary-words", withExtension: "txt")
         guard let resourceURL else {
             preconditionFailure("VoiceCore ordinary-words.txt resource is missing")
         }

@@ -151,7 +151,6 @@ struct DictationPolicyTests {
         #expect(failed == .insertFailed(reason: "post_event_failed"))
         #expect(failed.isCritical)
         #expect(!failed.isActive)
-        #expect(failed.displayName.contains("Copied"))
     }
 
     // MARK: First-run guidance

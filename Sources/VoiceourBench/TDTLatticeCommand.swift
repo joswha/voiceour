@@ -34,7 +34,7 @@ struct TDTLatticeCommand {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
 
-            let audioURL = try validatedAudioURL(for: input)
+            let audioURL = try BenchRunner.validatedAudioURL(for: input)
             let samples = try WAVFile.readSamples(at: audioURL)
             let lattice = try context.transcribeWithLattice(samples: samples, isCancelled: { false })
             let output = TDTLatticeOutputRow(input: input, lattice: lattice)
@@ -45,24 +45,6 @@ struct TDTLatticeCommand {
         }
 
         print("wrote \(rowCount) lattice rows, \(stepCount) steps to \(options.output.path)")
-    }
-
-    private func validatedAudioURL(for input: PipelineInputRow) throws -> URL {
-        let audioURL = BenchCLI.fileURL(input.audioPath)
-        let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path)
-        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
-        guard byteCount == input.audioBytes else {
-            throw BenchError.io(
-                "audio size mismatch for \(input.id): got \(byteCount), expected \(input.audioBytes)"
-            )
-        }
-        let digest = try BenchRunner.sha256(of: audioURL)
-        guard digest == input.audioSHA256.lowercased() else {
-            throw BenchError.io(
-                "audio SHA-256 mismatch for \(input.id): got \(digest), expected \(input.audioSHA256)"
-            )
-        }
-        return audioURL
     }
 }
 

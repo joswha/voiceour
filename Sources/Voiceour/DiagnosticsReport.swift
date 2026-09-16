@@ -15,6 +15,7 @@ import VoiceMac
 /// already resolves them through the harness's `RenderOverrides.permissions`
 /// seam, and a second, unseamed read would put whichever privacy grants this Mac
 /// happens to have into a report the harness is supposed to be able to pin.
+@MainActor
 enum DiagnosticsReport {
     static let selfTestCommand = "Voiceour --self-test"
 

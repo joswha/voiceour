@@ -7,6 +7,7 @@ import Testing
 /// pins one explicitly. The stored value is a raw tab name in UserDefaults;
 /// junk in either source must degrade to "no answer", never crash or guess.
 @Suite("Console tab persistence")
+@MainActor
 struct ConsoleTabPersistenceTests {
     private func scratchDefaults() throws -> UserDefaults {
         let suite = "voiceour-tab-tests-\(UUID().uuidString)"
