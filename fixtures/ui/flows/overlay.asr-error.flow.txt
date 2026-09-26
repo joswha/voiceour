@@ -1,0 +1,9 @@
+flow: overlay.asr-error
+title: A sidecar refusal announces its actionable cause without confirming delivery
+fixture: dictation-error-insufficient_disk_space
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error
+PASS 1 failed-with-cause | value label="Dictation status" == "Voiceour needs more free space on this Mac before it can download the speech model." | "Voiceour needs more free space on this Mac before it can download the speech model."
+PASS 2 failed-with-cause | actions label="Dictation status" == [] | []
+PASS 3 failed-with-cause | model deliveryCount == "0" | 0
+PASS 4 failed-with-cause | model recentSessionCount == "0" | 0
+PASS 5 failed-with-cause | model processingInFlight == "false" | false

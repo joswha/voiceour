@@ -15,6 +15,7 @@
 Tap Fn once and speak. Tap again and the text lands in the app you were already using — recorded, recognized, and cleaned up entirely on your Mac. Ordinary text fields get the paste; a terminal, a code editor, a password field, or a target Voiceour could not read gets the transcript on the clipboard instead, and no setting widens that. [Permissions and delivery safety](docs/permissions.md) has the matrix.
 The mercury recording island is synchronized to the display it occupies: 120 fps on a ProMotion screen, the native rate on lower-refresh displays, capped at 120.
 Concealed copies for secure targets stay on this Mac instead of entering Universal Clipboard; ordinary and transient copies keep the system's Universal Clipboard policy. Clipboard and History-save failures are reported; an incomplete audio conversion or write rejects the utterance rather than transcribing a truncated recording.
+Transcription failures name the model, engine, or timeout problem and offer the relevant recovery action. Invalid sidecar responses are rejected without delivering or saving the failed utterance; a later attempt can start a clean engine process.
 
 Terms you teach in the Glossary do more than fix spelling: Voiceour also repairs close phonetic mishearings of them, by deterministic matching against your own terms rather than a model rewriting your words. Terms that are ordinary English words are held out of that phonetic step, so a word you actually said is never traded for one that merely sounds like something you taught.
 

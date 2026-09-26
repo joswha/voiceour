@@ -103,6 +103,8 @@ A scene is an id, size, tags, and a closure building the real view. `make ui-lis
 
 Home's first-run card needs no seam of its own. Whether it is owed is computed from three real inputs a fixture already owns — the persisted `has_completed_first_run` flag, the seeded transcript journal, and the seeded lifetime ledger — so the `firstRunDownloading`, `firstRunReady`, `firstRunAcquisitionFailed` and `erasedFigures` fixtures reach their states the way a real install does. Adding a `RenderOverrides` field for it would be a branch that exists only to make a golden pass.
 
+`menu.sidecar-error` drives the actual coordinator through a wrapped sidecar model failure before capturing the menu. It locks the specific cause and recovery controls, rather than assigning an error state directly.
+
 Scene rules:
 
 1. Build coordinators through `UIFixtures`, never `DictationCoordinator.live()`.
@@ -114,6 +116,8 @@ Scene rules:
 ## Semantic flows
 
 A flow hosts a real menu, overlay, or console view with an inert fixture, then drives real controls and `DictationCoordinator` transitions through a deterministic script. Checkpoints assert named semantics into a host-independent `.flow.txt` journal, which is the durable contract; flows own no raster or AX golden. `make ui-flow-list` is the authoritative inventory.
+
+Failure journeys inject the same `SidecarASRClientError.protocolError` wrapper the real client throws. `dictation.asr-error` checks the engine-specific cause and zero delivery/history; `dictation.asr-recovery` presses the real Try Again control and completes a later utterance; `overlay.asr-error` checks the actionable failure announcement without a delivery confirmation. Process-level malformed JSON/schema/UTF-8 rejection and respawn are exercised separately through `ASRSidecarStub`, including a client-to-coordinator integration path.
 
 ## Load-bearing constraints
 

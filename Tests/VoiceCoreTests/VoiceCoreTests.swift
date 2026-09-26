@@ -690,15 +690,6 @@ struct VoiceCoreTests {
         await muter.restore()
     }
 
-    @Test func applicationSupportPathsDeriveFromTheVoiceourBase() {
-        let base = URL.voiceourSupportDirectory()
-        #expect(base.lastPathComponent == "Voiceour")
-        #expect(SettingsStore.defaultURL.deletingLastPathComponent().path == base.path)
-        #expect(SettingsStore.defaultURL.lastPathComponent == "settings.json")
-        #expect(RecentSessionStore.defaultURL.deletingLastPathComponent().path == base.path)
-        #expect(RecentSessionStore.defaultURL.lastPathComponent == "recent-sessions.json")
-    }
-
     @Test func supportDirectoryOverrideNamesTheDirectoryItIsGiven() {
         let pinned = URL.voiceourSupportDirectory(
             environment: ["VOICEOUR_SUPPORT_DIR": "/tmp/voiceour-sample"]

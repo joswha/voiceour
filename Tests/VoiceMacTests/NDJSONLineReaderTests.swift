@@ -12,8 +12,8 @@ struct NDJSONLineReaderTests {
         try pipe.fileHandleForWriting.close()
         let reader = NDJSONLineReader(reading: pipe.fileHandleForReading, label: "test.chunk")
 
-        #expect(await reader.nextLine() == "first")
-        #expect(await reader.nextLine() == "second")
+        #expect(await reader.nextLine() == Data("first".utf8))
+        #expect(await reader.nextLine() == Data("second".utf8))
         #expect(await reader.nextLine() == nil)
     }
 
@@ -31,7 +31,7 @@ struct NDJSONLineReaderTests {
         writer.start()
         let reader = NDJSONLineReader(reading: pipe.fileHandleForReading, label: "test.large")
 
-        #expect(await reader.nextLine() == expected)
+        #expect(await reader.nextLine() == Data(expected.utf8))
         #expect(await reader.nextLine() == nil)
     }
 
@@ -41,7 +41,7 @@ struct NDJSONLineReaderTests {
         try pipe.fileHandleForWriting.close()
         let reader = NDJSONLineReader(reading: pipe.fileHandleForReading, label: "test.trailing")
 
-        #expect(await reader.nextLine() == "trailing")
+        #expect(await reader.nextLine() == Data("trailing".utf8))
         #expect(await reader.nextLine() == nil)
     }
 
@@ -50,19 +50,6 @@ struct NDJSONLineReaderTests {
         try pipe.fileHandleForWriting.close()
         let reader = NDJSONLineReader(reading: pipe.fileHandleForReading, label: "test.empty")
 
-        #expect(await reader.nextLine() == nil)
-    }
-
-    @Test func deliversMalformedUTF8InsteadOfEndingTheStream() async throws {
-        let pipe = Pipe()
-        try pipe.fileHandleForWriting.write(contentsOf: Data([0x61, 0xFF, 0x0A]) + Data("next\n".utf8))
-        try pipe.fileHandleForWriting.close()
-        let reader = NDJSONLineReader(reading: pipe.fileHandleForReading, label: "test.malformed")
-
-        // One bad byte must not read as end of stream: the line is delivered,
-        // fails JSON decode upstream, and the stream keeps going.
-        #expect(await reader.nextLine() == "a\u{FFFD}")
-        #expect(await reader.nextLine() == "next")
         #expect(await reader.nextLine() == nil)
     }
 
@@ -86,7 +73,7 @@ struct NDJSONLineReaderTests {
         // A cancelled consumer must not latch the reader into end of stream for
         // everyone who comes after it.
         try pipe.fileHandleForWriting.write(contentsOf: Data("after-cancel\n".utf8))
-        #expect(await reader.nextLine() == "after-cancel")
+        #expect(await reader.nextLine() == Data("after-cancel".utf8))
 
         reader.stop()
         try? pipe.fileHandleForWriting.close()
@@ -118,7 +105,7 @@ struct NDJSONLineReaderTests {
         await waitUntilTimeoutCondition(timeout: .seconds(5)) { wroteEverything.isRaised }
         #expect(wroteEverything.isRaised)
         try? pipe.fileHandleForWriting.close()
-        #expect(await pull.value == String(repeating: "a", count: payload.count))
+        #expect(await pull.value == payload)
         reader.stop()
     }
 
@@ -161,8 +148,8 @@ struct NDJSONLineFramerTests {
         #expect(framer.takeLine() == nil)
         framer.appendBytes(Data("st\nsecond\nthi".utf8))
 
-        #expect(framer.takeLine() == "first")
-        #expect(framer.takeLine() == "second")
+        #expect(framer.takeLine() == Data("first".utf8))
+        #expect(framer.takeLine() == Data("second".utf8))
         #expect(framer.takeLine() == nil)
         #expect(framer.pendingBytes == 3)
     }
@@ -172,7 +159,7 @@ struct NDJSONLineFramerTests {
         framer.appendBytes(Data("trailing".utf8))
         framer.end()
 
-        #expect(framer.takeLine() == "trailing")
+        #expect(framer.takeLine() == Data("trailing".utf8))
         #expect(framer.takeLine() == nil)
         #expect(framer.pendingBytes == 0)
     }
@@ -188,8 +175,8 @@ struct NDJSONLineFramerTests {
         var framer = NDJSONLineFramer()
         framer.appendBytes(Data("\n\n".utf8))
 
-        #expect(framer.takeLine() == "")
-        #expect(framer.takeLine() == "")
+        #expect(framer.takeLine() == Data())
+        #expect(framer.takeLine() == Data())
         #expect(framer.takeLine() == nil)
     }
 

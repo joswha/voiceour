@@ -1,0 +1,24 @@
+flow: dictation.asr-recovery
+title: A model failure offers recovery and the next dictation delivers
+fixture: dictation-recovery-manifest_mismatch
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
+PASS 1 model-failure | text == "MODEL MISMATCH" exactly 1 | 1 match
+PASS 2 model-failure | text == "The cached speech model is not the one this build expects; it will be fetched again." exactly 1 | 1 match
+PASS 3 model-failure | enabled(true) label="Try Again" | true
+PASS 4 model-failure | enabled(true) label="Start Dictation" | true
+PASS 5 model-failure | model processingInFlight == "false" | false
+PASS 6 model-failure | model deliveryCount == "0" | 0
+PASS 7 model-failure | model recentSessionCount == "0" | 0
+PASS 8 recording-again | absent label="Try Again" | 0 matches
+PASS 9 recording-again | text == "The cached speech model is not the one this build expects; it will be fetched again." exactly 0 | 0 matches
+PASS 10 recording-again | model errorMessage is empty | ""
+PASS 11 recording-again | enabled(true) label="STOP DICTATION" | true
+PASS 12 recovered | transitions contiguous [error -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
+PASS 13 recovered | model deliveredText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 14 recovered | model deliveryDisposition == "paste" | "paste"
+PASS 15 recovered | model deliveryCount == "1" | 1
+PASS 16 recovered | model recentSessionCount == "1" | 1
+PASS 17 recovered | model processingInFlight == "false" | false
+PASS 18 recovered | model errorMessage is empty | ""
+PASS 19 recovered | absent label="Try Again" | 0 matches
+PASS 20 recovered | text == "PASTE ATTEMPTED" exactly 1 | 1 match

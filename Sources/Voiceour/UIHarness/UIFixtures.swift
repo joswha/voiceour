@@ -67,9 +67,11 @@
     private struct HarnessASR: ASRClienting {
         let transcript: String
         let backendHealth: ASRBackendHealth?
+        var transcriptionError: SidecarASRClientError? = nil
 
         func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
-            ASRResult(
+            if let transcriptionError { throw transcriptionError }
+            return ASRResult(
                 requestId: "ui-harness",
                 backendId: backendHealth?.backendId ?? "ui-harness",
                 modelId: "ui-harness-fixture",
@@ -178,6 +180,8 @@
             case recording
             /// Real backend with the microphone denied: `state == .error`.
             case micDenied
+            /// A real stop pipeline receiving a wrapped sidecar model failure.
+            case sidecarFailure
             /// Real backend, healthy sidecar, every permission granted.
             case backendReady
             /// Real backend whose health probe fails, permissions denied.
@@ -252,6 +256,8 @@
                 return makeRecording()
             case .micDenied:
                 return makeMicDenied()
+            case .sidecarFailure:
+                return makeSidecarFailure()
             case .backendReady:
                 return make(
                     sessions: history,
@@ -545,6 +551,26 @@
             )
             coordinator.start()
             settle { coordinator.errorMessage != nil }
+            return coordinator
+        }
+
+        private static func makeSidecarFailure() -> DictationCoordinator {
+            let coordinator = make(
+                sessions: [],
+                settings: settings(glossary: []),
+                asrOverride: HarnessASR(
+                    transcript: "",
+                    backendHealth: devBackendHealth,
+                    transcriptionError: .protocolError(
+                        ASRErrorMessage(
+                            code: .manifestMismatch, requestId: "ui-scene", detail: "Fixture model mismatch.")
+                    )
+                )
+            )
+            coordinator.start()
+            settle { coordinator.state == .recording }
+            coordinator.stopAndProcess()
+            settle { coordinator.state == .error(.manifestMismatch) && !coordinator.isProcessingInFlight }
             return coordinator
         }
 
