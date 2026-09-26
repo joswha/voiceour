@@ -323,20 +323,18 @@ struct NDJSONLineFramer {
     /// line once the stream has ended, or nil while more bytes may still
     /// arrive.
     ///
-    /// Decodes with UTF-8 replacement rather than failing: a malformed line is
-    /// delivered, fails JSON decode and is ignored, where returning nil would
-    /// have meant end of stream and torn down a healthy child over one bad
-    /// byte.
-    mutating func takeLine() -> String? {
+    /// Preserves the wire bytes for the JSON decoder. Lossy UTF-8 conversion here could
+    /// turn a corrupt string value into a syntactically valid but altered transcript.
+    mutating func takeLine() -> Data? {
         if let newline = firstNewline() {
-            let line = String(decoding: buffer[start..<newline], as: UTF8.self)
+            let line = Data(buffer[start..<newline])
             start = newline + 1
             scanned = start
             compact()
             return line
         }
         guard ended, start < buffer.count else { return nil }
-        let line = String(decoding: buffer[start...], as: UTF8.self)
+        let line = Data(buffer[start...])
         reset()
         return line
     }
@@ -388,7 +386,7 @@ final class NDJSONLineReader: Sendable {
         private static let highWaterBytes = 64 << 10
 
         private var framer = NDJSONLineFramer()
-        private var waiters: [(ticket: UInt64, continuation: CheckedContinuation<String?, Never>)] = []
+        private var waiters: [(ticket: UInt64, continuation: CheckedContinuation<Data?, Never>)] = []
         /// Pulls cancelled before they reached this queue.
         private var cancelledTickets: Set<UInt64> = []
         private var highestInstalledTicket: UInt64 = 0
@@ -409,7 +407,7 @@ final class NDJSONLineReader: Sendable {
             deliver()
         }
 
-        func install(_ ticket: UInt64, _ continuation: CheckedContinuation<String?, Never>) {
+        func install(_ ticket: UInt64, _ continuation: CheckedContinuation<Data?, Never>) {
             highestInstalledTicket = max(highestInstalledTicket, ticket)
             if cancelledTickets.remove(ticket) != nil {
                 // The cancellation handler beat the pull to this queue.
@@ -473,7 +471,7 @@ final class NDJSONLineReader: Sendable {
     /// The next line, the final unterminated line at end of stream, or nil once
     /// the stream is exhausted, the reader was stopped, or the awaiting task was
     /// cancelled. Suspends on a continuation; never occupies a thread.
-    func nextLine() async -> String? {
+    func nextLine() async -> Data? {
         let ticket = issueTicket()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

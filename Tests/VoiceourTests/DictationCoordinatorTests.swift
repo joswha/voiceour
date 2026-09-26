@@ -206,7 +206,7 @@ struct DictationCoordinatorTests {
         )
         let coordinator = makeCoordinator(
             recorder: recorder,
-            asr: FakeASR(behavior: .throwError(error))
+            asr: FakeASR(behavior: .throwError(SidecarASRClientError.protocolError(error)))
         )
 
         coordinator.start()
@@ -220,6 +220,256 @@ struct DictationCoordinatorTests {
         #expect(recorder.producedURL != nil)
         #expect(!fileExists(recorder.producedURL))
         #expect(coordinator.state == .error(.internalError))
+    }
+
+    // MARK: Sidecar failure recovery
+
+    @Test(arguments: [ASRErrorCode.manifestMismatch, .insufficientDiskSpace, .inferenceFailed, .timeout])
+    func wrappedWireFailuresPreserveRecoverySemantics(_ code: ASRErrorCode) async throws {
+        let detail = "Diagnostic for \(code.rawValue): fixture request could not finish."
+        let message = ASRErrorMessage(code: code, requestId: "failed-request", detail: detail)
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .throwError(SidecarASRClientError.protocolError(message))),
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(
+                url: history.directory.appendingPathComponent("dictation-activity.json")
+            )
+        )
+
+        await driveUtterance(coordinator)
+
+        let failure = try #require(coordinator.lastFailure)
+        #expect(coordinator.state == .error(code))
+        #expect(failure.detail == detail)
+        let expectedDestination: UserFacingDictationFailure.Destination =
+            code == .manifestMismatch || code == .insufficientDiskSpace ? .voiceSettings : .none
+        #expect(failure.destination == expectedDestination)
+        #expect(failure.isRetryable == (code != .insufficientDiskSpace))
+        #expect(failure.cause == UserFacingDictationFailure(code: code, detail: nil).cause)
+        #expect(coordinator.errorMessage == failure.cause)
+    }
+
+    @Test(arguments: [
+        (SidecarASRClientError.timeout, ASRErrorCode.timeout),
+        (.launchFailed("helper is missing"), .backendUnavailable),
+        (.noHello, .backendUnavailable),
+        (.processExited("helper exited during decode"), .backendUnavailable),
+        (.writeFailed("request pipe closed"), .backendUnavailable),
+        (.incompatibleHello, .incompatibleProtocol),
+        (.unexpectedMessage("malformed response frame"), .incompatibleProtocol),
+    ])
+    func transportFailuresPreserveRecoverySemantics(
+        _ error: SidecarASRClientError,
+        _ expectedCode: ASRErrorCode
+    ) async throws {
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .throwError(error)),
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(
+                url: history.directory.appendingPathComponent("dictation-activity.json")
+            )
+        )
+
+        await driveUtterance(coordinator)
+
+        let failure = try #require(coordinator.lastFailure)
+        #expect(coordinator.state == .error(expectedCode))
+        #expect(failure.destination == (expectedCode == .timeout ? .none : .voiceSettings))
+        #expect(failure.isRetryable == (expectedCode != .incompatibleProtocol))
+        #expect(failure.cause == UserFacingDictationFailure(code: expectedCode, detail: nil).cause)
+        #expect(coordinator.errorMessage == failure.cause)
+    }
+
+    @Test(arguments: [
+        SidecarASRClientError.protocolError(
+            ASRErrorMessage(code: .manifestMismatch, requestId: "first", detail: "cached model pin differs")
+        ),
+        .timeout,
+        .unexpectedMessage("invalid response schema"),
+    ])
+    func aFailedSidecarSessionLeavesNoDeliveryAndTheNextUtteranceSucceeds(
+        _ error: SidecarASRClientError
+    ) async throws {
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        let stats = DictationStatsStore(url: history.directory.appendingPathComponent("dictation-activity.json"))
+        let recorder = FakeRecorder()
+        let inserter = CapturingInserter()
+        let successGate = TestGate()
+        defer { successGate.fire() }
+        let recoveredText = "the next utterance is delivered"
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FailOnceASR(error: error, successGate: successGate, transcript: recoveredText),
+            inserter: inserter,
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: stats
+        )
+
+        await driveUtterance(coordinator)
+
+        let failedAudio = try #require(recorder.producedURL)
+        #expect(!coordinator.isProcessingInFlight)
+        #expect(coordinator.lastFailure != nil)
+        #expect(coordinator.lastTranscript.isEmpty)
+        #expect(coordinator.lastOutcome == nil)
+        #expect(inserter.insertionCount == 0)
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(coordinator.dictationStats == DictationStatsLedger())
+        #expect(!fileExists(history.store.url))
+        #expect(!fileExists(stats.url))
+        #expect(!fileExists(failedAudio))
+        #expect(recorder.discardCount == 1)
+
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        #expect(coordinator.lastFailure == nil)
+        #expect(coordinator.errorMessage == nil)
+        #expect(recorder.startCount == 2)
+        coordinator.stopAndProcess()
+        await waitUntil { coordinator.state == .transcribing }
+        let recoveredAudio = try #require(recorder.producedURL)
+        #expect(recoveredAudio != failedAudio)
+        #expect(fileExists(recoveredAudio))
+        #expect(inserter.insertionCount == 0)
+        successGate.fire()
+        await waitUntil { !coordinator.isProcessingInFlight }
+        await coordinator.prepareForTermination()
+
+        #expect(coordinator.lastFailure == nil)
+        #expect(coordinator.errorMessage == nil)
+        #expect(coordinator.lastTranscript == recoveredText)
+        #expect(coordinator.lastOutcome == .pasteAttempted)
+        #expect(inserter.insertionCount == 1)
+        #expect(inserter.insertedText == recoveredText)
+        #expect(coordinator.recentSessions.map(\.text) == [recoveredText])
+        #expect(try history.store.load().map(\.text) == [recoveredText])
+        #expect(coordinator.dictationStats.totalSessions == 1)
+        #expect(try stats.load().totalSessions == 1)
+        #expect(!fileExists(recoveredAudio))
+    }
+
+    @Test(arguments: ["invalid-json", "invalid-utf8"])
+    func aRealMalformedSidecarFailureIsPresentedAndTheNextSessionRespawns(_ frame: String) async throws {
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        try FileManager.default.createDirectory(at: history.directory, withIntermediateDirectories: true)
+        let client = SidecarASRClient(
+            launch: SidecarLaunchConfiguration(
+                executableURL: testProductsDirectory().appendingPathComponent("ASRSidecarStub"),
+                arguments: ["malformed-first-run", frame, history.directory.appendingPathComponent("peer-state").path]
+            )
+        )
+        let recorder = FakeRecorder()
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: client,
+            inserter: inserter,
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(url: history.directory.appendingPathComponent("activity.json"))
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.state == .error(.incompatibleProtocol))
+        let failure = try #require(coordinator.lastFailure)
+        #expect(failure.destination == .voiceSettings)
+        #expect(!failure.isRetryable)
+        #expect(inserter.insertionCount == 0)
+        #expect(coordinator.recentSessions.isEmpty)
+        #expect(!fileExists(recorder.producedURL))
+
+        await driveUtterance(coordinator)
+        await coordinator.prepareForTermination()
+
+        #expect(coordinator.lastFailure == nil)
+        #expect(coordinator.lastTranscript == "respawned")
+        #expect(inserter.insertedText == "respawned")
+        #expect(inserter.insertionCount == 1)
+        #expect(try history.store.load().map(\.text) == ["respawned"])
+        #expect(!fileExists(recorder.producedURL))
+    }
+
+    @Test func unrelatedProcessingErrorsRemainInternalFailures() async throws {
+        let error = NSError(domain: "CoordinatorRecoveryTests", code: 7)
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        let coordinator = makeCoordinator(
+            asr: FakeASR(behavior: .throwError(error)),
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(
+                url: history.directory.appendingPathComponent("dictation-activity.json")
+            )
+        )
+
+        await driveUtterance(coordinator)
+
+        let failure = try #require(coordinator.lastFailure)
+        #expect(coordinator.state == .error(.internalError))
+        #expect(failure.destination == .none)
+        #expect(failure.isRetryable)
+        #expect(failure.detail == error.localizedDescription)
+    }
+
+    @Test func anASRCancellationDoesNotBecomeAFailure() async throws {
+        let recorder = FakeRecorder()
+        let inserter = CapturingInserter()
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        let coordinator = makeCoordinator(
+            recorder: recorder,
+            asr: FakeASR(behavior: .throwError(CancellationError())),
+            inserter: inserter,
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(
+                url: history.directory.appendingPathComponent("dictation-activity.json")
+            )
+        )
+
+        await driveUtterance(coordinator)
+        await waitUntil { coordinator.state == .idle }
+
+        #expect(coordinator.lastFailure == nil)
+        #expect(coordinator.errorMessage == nil)
+        #expect(coordinator.lastOutcome == nil)
+        #expect(inserter.insertionCount == 0)
+        let audioURL = try #require(recorder.producedURL)
+        #expect(!fileExists(audioURL))
+        #expect(recorder.discardCount == 1)
+    }
+
+    @Test func captureFailuresKeepTheirSystemSettingsRecovery() async throws {
+        let reason = "the selected input disconnected"
+        let history = temporarySessionStore()
+        defer { try? FileManager.default.removeItem(at: history.directory) }
+        let coordinator = makeCoordinator(
+            recorder: SilentRecorder(reason: reason),
+            settingsStore: SettingsStore(url: history.directory.appendingPathComponent("settings.json")),
+            recentSessionStore: history.store,
+            dictationStatsStore: DictationStatsStore(
+                url: history.directory.appendingPathComponent("dictation-activity.json")
+            )
+        )
+
+        await driveUtterance(coordinator)
+
+        let failure = try #require(coordinator.lastFailure)
+        #expect(coordinator.state == .error(.internalError))
+        #expect(failure.destination == .systemSettings)
+        #expect(failure.isRetryable)
+        #expect(failure.detail == reason)
+        #expect(failure.cause == UserFacingDictationFailure.captureFailed(reason: reason).cause)
     }
 
     @Test func focusSwitchDuringTranscriptionUsesLatestTargetForInsertion() async {
@@ -901,14 +1151,17 @@ struct DictationCoordinatorTests {
             behavior = .gatedText(transcriptionGate, "cancelled mid-transcription")
         case .asrFailure:
             behavior = .throwError(
-                ASRErrorMessage(
-                    requestId: "req",
-                    code: .internalError,
-                    category: "backend",
-                    retryable: false,
-                    userMessageKey: "asr_error",
-                    detail: "boom"
-                ))
+                SidecarASRClientError.protocolError(
+                    ASRErrorMessage(
+                        requestId: "req",
+                        code: .internalError,
+                        category: "backend",
+                        retryable: false,
+                        userMessageKey: "asr_error",
+                        detail: "boom"
+                    )
+                )
+            )
         }
 
         let muter = CountingAudioMuter()
@@ -1309,7 +1562,13 @@ struct DictationCoordinatorTests {
         let recorder = FakeRecorder()
         let coordinator = makeCoordinator(
             recorder: recorder,
-            asr: FakeASR(behavior: .throwError(ASRErrorMessage(code: .inferenceFailed, requestId: nil, detail: "boom")))
+            asr: FakeASR(
+                behavior: .throwError(
+                    SidecarASRClientError.protocolError(
+                        ASRErrorMessage(code: .inferenceFailed, requestId: nil, detail: "boom")
+                    )
+                )
+            )
         )
 
         await driveUtterance(coordinator)
@@ -2596,6 +2855,28 @@ struct DictationCoordinatorTests {
     /// state before we assert it did not.
     private func drain() async {
         for _ in 0..<20 { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+}
+
+private actor FailOnceASR: ASRClienting {
+    private var firstError: Error?
+    private let recovered: FakeASR
+
+    init(error: Error, successGate: TestGate, transcript: String) {
+        firstError = error
+        recovered = FakeASR(behavior: .gatedText(successGate, transcript))
+    }
+
+    func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
+        if let error = firstError {
+            firstError = nil
+            throw error
+        }
+        return try await recovered.transcribe(audio, timeoutMs: timeoutMs)
+    }
+
+    func health(timeoutMs: Int) async throws -> ASRBackendHealth {
+        FakeASR.ready
     }
 }
 

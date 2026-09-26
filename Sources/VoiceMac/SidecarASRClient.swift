@@ -221,8 +221,27 @@ public final class SidecarASRClient: ASRClienting {
         UInt64(max(milliseconds, 1)) * 1_000_000
     }
 
-    private static func messageType(from line: String) throws -> String {
-        let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    /// Foundation also detects UTF-16/32; this wire accepts only UTF-8 JSON.
+    /// Literal NUL is forbidden by JSON and would otherwise admit BOM-free UTF-16 ASCII.
+    private static func hasUTF8JSONEncoding(_ data: Data) -> Bool {
+        data.withUnsafeBytes { bytes in
+            var iterator = bytes.makeIterator()
+            var decoder = UTF8()
+            while true {
+                switch decoder.decode(&iterator) {
+                case .scalarValue(let scalar):
+                    if scalar.value == 0 { return false }
+                case .emptyInput:
+                    return true
+                case .error:
+                    return false
+                }
+            }
+        }
+    }
+
+    private static func messageType(from data: Data) throws -> String {
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return object?["type"] as? String ?? ""
     }
 
@@ -233,9 +252,14 @@ public final class SidecarASRClient: ASRClienting {
         case cancelled(ASRCancelledMessage)
     }
 
-    private static func decodeResponseFrame(_ line: String) throws -> DecodedResponseFrame? {
-        let data = Data(line.utf8)
-        switch try messageType(from: line) {
+    private static func decodeResponseFrame(_ data: Data) throws -> DecodedResponseFrame {
+        guard hasUTF8JSONEncoding(data) else {
+            throw SidecarASRClientError.protocolError(
+                ASRErrorMessage(
+                    code: .incompatibleProtocol, requestId: nil, detail: "Invalid sidecar response encoding")
+            )
+        }
+        switch try messageType(from: data) {
         case "result":
             let result = try ASRWire.decode(ASRResult.self, from: data)
             try requireCompatibleProtocol(result.protocolVersion, requestId: result.requestId)
@@ -253,7 +277,13 @@ public final class SidecarASRClient: ASRClienting {
             try requireCompatibleProtocol(cancelled.protocolVersion, requestId: cancelled.requestId)
             return .cancelled(cancelled)
         default:
-            return nil
+            throw SidecarASRClientError.protocolError(
+                ASRErrorMessage(
+                    code: .incompatibleProtocol,
+                    requestId: nil,
+                    detail: "Unrecognized sidecar response type"
+                )
+            )
         }
     }
 
@@ -572,11 +602,11 @@ public final class SidecarASRClient: ASRClienting {
                 guard let helloLine = await stdoutReader.nextLine() else {
                     throw SidecarASRClientError.noHello
                 }
-                let hello = try ASRWire.decode(ASRHello.self, from: Data(helloLine.utf8))
-                guard hello.type == "hello" else {
-                    throw SidecarASRClientError.noHello
-                }
-                guard hello.protocolVersion == asrProtocolVersion else {
+                guard SidecarASRClient.hasUTF8JSONEncoding(helloLine),
+                    let hello = try? ASRWire.decode(ASRHello.self, from: helloLine),
+                    hello.type == "hello",
+                    hello.protocolVersion == asrProtocolVersion
+                else {
                     throw SidecarASRClientError.incompatibleHello
                 }
                 return hello
@@ -630,25 +660,30 @@ public final class SidecarASRClient: ASRClienting {
             }
         }
 
-        private func handleLine(_ line: String, sidecarId: UUID) {
+        private func handleLine(_ line: Data, sidecarId: UUID) {
             guard running?.id == sidecarId else { return }
 
             let frame: DecodedResponseFrame
             do {
-                guard let decoded = try SidecarASRClient.decodeResponseFrame(line) else { return }
-                frame = decoded
-            } catch let clientError as SidecarASRClientError {
-                guard case .protocolError(let message) = clientError else { return }
-                // An incompatible peer cannot safely serve later requests either. Fail every
-                // pending call with the protocol error instead of acting on a v2 terminal.
+                frame = try SidecarASRClient.decodeResponseFrame(line)
+            } catch {
+                let clientError =
+                    (error as? SidecarASRClientError)
+                    ?? .protocolError(
+                        ASRErrorMessage(
+                            code: .incompatibleProtocol,
+                            requestId: nil,
+                            detail: "Malformed sidecar response frame"
+                        )
+                    )
+                // This actor still owns the guarded process: no await separates decoding from
+                // teardown. Fail all pending calls and discard any valid tail on this channel.
                 failAllAndStop(
-                    requestId: message.requestId,
-                    requestError: clientError,
+                    requestId: nil,
+                    requestError: nil,
                     otherError: clientError,
                     terminate: true
                 )
-                return
-            } catch {
                 return
             }
 

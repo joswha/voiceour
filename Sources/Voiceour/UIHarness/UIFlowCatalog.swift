@@ -30,6 +30,8 @@
         private enum Selector {
             static let startDictation = UIQuery.label("START DICTATION")
             static let stopDictation = UIQuery.label("STOP DICTATION")
+            static let retryDictation = UIQuery.label("Try Again")
+            static let startAfterFailure = UIQuery.label("Start Dictation")
 
             static let sessionSearch = UIQuery.id("sessions.search.field")
             static let clearSessionSearch = UIQuery.id("sessions.search.clear")
@@ -759,6 +761,7 @@
                 copyOnlyFlow,
                 cancelledFlow,
                 asrErrorFlow,
+                asrRecoveryFlow,
                 UIFlow(
                     id: "menu.copy-transcript",
                     title: "The last transcript can be copied from its card",
@@ -923,7 +926,8 @@
         }
 
         private static var asrErrorFlow: UIFlow {
-            UIFlow(
+            let failure = UserFacingDictationFailure(code: .backendUnavailable, detail: nil)
+            return UIFlow(
                 id: "dictation.asr-error",
                 title: "An ASR error is terminal and delivers nothing",
                 tags: ["menu", "dictation", "error"],
@@ -950,9 +954,86 @@
                             ),
                             .model(.deliveryCount, .equals("0")),
                             .model(.recentSessionCount, .equals("0")),
+                            .model(.processingInFlight, .equals("false")),
+                            .text(.equals(failure.title), .exactly(1)),
+                            .text(.equals(failure.cause), .exactly(1)),
+                            .enabled(Selector.retryDictation, true),
                         ]
                     ),
                 ])
+        }
+
+        private static var asrRecoveryFlow: UIFlow {
+            let failure = UserFacingDictationFailure(code: .manifestMismatch, detail: nil)
+            return UIFlow(
+                id: "dictation.asr-recovery",
+                title: "A model failure offers recovery and the next dictation delivers",
+                tags: ["menu", "dictation", "error", "recovery", "model"],
+                host: .menu,
+                fixture: .dictationRecovery(code: .manifestMismatch, transcript: dictatedText),
+                steps: [
+                    .act(.press(Selector.startDictation)),
+                    .wait(.state(.checkingPermissions)),
+                    .release(.permission),
+                    .wait(.state(.recording)),
+                    .act(.press(Selector.stopDictation)),
+                    .wait(.state(.finalizingAudio)),
+                    .release(.recorderStop),
+                    .wait(.state(.transcribing)),
+                    .release(.transcription),
+                    .wait(.state(.error)),
+                    .check(
+                        "model-failure",
+                        [
+                            .text(.equals(failure.title), .exactly(1)),
+                            .text(.equals(failure.cause), .exactly(1)),
+                            .enabled(Selector.retryDictation, true),
+                            .enabled(Selector.startAfterFailure, true),
+                            .model(.processingInFlight, .equals("false")),
+                            .model(.deliveryCount, .equals("0")),
+                            .model(.recentSessionCount, .equals("0")),
+                        ]
+                    ),
+                    .act(.press(Selector.retryDictation)),
+                    .act(.press(Selector.startAfterFailure)),
+                    // The first utterance opened these sticky gates. The next one can
+                    // record immediately, but still parks at its first insertion.
+                    .wait(.state(.recording)),
+                    .check(
+                        "recording-again",
+                        [
+                            .absent(Selector.retryDictation),
+                            .text(.equals(failure.cause), .exactly(0)),
+                            .model(.errorMessage, .isEmpty),
+                            .enabled(Selector.stopDictation, true),
+                        ]
+                    ),
+                    .act(.press(Selector.stopDictation)),
+                    .wait(.state(.readyToInsert)),
+                    .release(.insertion),
+                    .wait(.state(.idle)),
+                    .check(
+                        "recovered",
+                        [
+                            .transitions(
+                                [
+                                    .error, .checkingPermissions, .recording, .finalizingAudio,
+                                    .transcribing, .cleaning, .readyToInsert, .pasteAttempted, .idle,
+                                ],
+                                .contiguous
+                            ),
+                            .model(.deliveredText, .equals(dictatedText)),
+                            .model(.deliveryDisposition, .equals("paste")),
+                            .model(.deliveryCount, .equals("1")),
+                            .model(.recentSessionCount, .equals("1")),
+                            .model(.processingInFlight, .equals("false")),
+                            .model(.errorMessage, .isEmpty),
+                            .absent(Selector.retryDictation),
+                            .text(.equals("PASTE ATTEMPTED"), .exactly(1)),
+                        ]
+                    ),
+                ]
+            )
         }
 
         private static var pasteFixture: UIFlowFixture {
@@ -1056,7 +1137,41 @@
                     ]),
                 warmupFlow,
                 overlayCopyOnlyFlow,
+                overlayASRErrorFlow,
             ]
+        }
+
+        private static var overlayASRErrorFlow: UIFlow {
+            let failure = UserFacingDictationFailure(code: .insufficientDiskSpace, detail: nil)
+            return UIFlow(
+                id: "overlay.asr-error",
+                title: "A sidecar refusal announces its actionable cause without confirming delivery",
+                tags: ["overlay", "dictation", "error"],
+                host: .overlay,
+                fixture: .dictationError(code: .insufficientDiskSpace),
+                steps: [
+                    .act(.dictate(.start)),
+                    .wait(.state(.checkingPermissions)),
+                    .release(.permission),
+                    .wait(.state(.recording)),
+                    .act(.dictate(.stopAndProcess)),
+                    .wait(.state(.finalizingAudio)),
+                    .release(.recorderStop),
+                    .wait(.state(.transcribing)),
+                    .release(.transcription),
+                    .wait(.state(.error)),
+                    .check(
+                        "failed-with-cause",
+                        [
+                            .value(Selector.dictationStatus, .equals(failure.cause)),
+                            .actions(Selector.dictationStatus, []),
+                            .model(.deliveryCount, .equals("0")),
+                            .model(.recentSessionCount, .equals("0")),
+                            .model(.processingInFlight, .equals("false")),
+                        ]
+                    ),
+                ]
+            )
         }
 
         /// The overlay bridge holds the terminal presentation stable after the

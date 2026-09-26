@@ -55,6 +55,8 @@ Which device records is decided per recording, in `CoreAudioInputDevice.preferre
 
 `UserFacingDictationFailure` is the single mapping from mechanism to recovery: each failure gets a title, a plain cause, whether retrying can work, and where to fix it.
 
+The stop pipeline unwraps `SidecarASRClientError.protocolError` before applying that mapping, preserving the wire code and diagnostic detail. Local timeouts map to `timeout`; launch, missing-greeting, process-exit and pipe-write failures map to `backend_unavailable`; incompatible greetings and unexpected response kinds map to `incompatible_protocol`. Cancellation and recording failures keep their separate ownership and presentation paths. The public client error enum remains unchanged for library consumers.
+
 ## Recording overlay renderer
 The full derivation, research record, rejected alternatives and measured gates live in
 [Procedural mercury renderer](mercury-renderer.md).
@@ -118,6 +120,8 @@ Newline-delimited JSON over the sidecar's stdin and stdout. Stdout carries proto
 The sidecar emits `hello` on start and accepts `health`, `transcribe`, and `cancel`. Each request gets exactly one terminal response — `result`, `error`, or `cancelled` — matched by request id. `health` reports readiness, model and cache state, download progress, warmup, and the backend's last unresolved acquisition failure. That failure is a wire error code plus a diagnostic detail, optional in both directions, latched by the backend when a download, verification, disk-space or load attempt fails and cleared by the next successful load. The app takes it over any state it could infer for itself.
 
 `SidecarASRClient` owns one persistent child and multiplexes request ids. The child's environment is an allowlist — `PATH`, `HOME`, `TMPDIR`, the proxy and TLS variables downloading needs, and `VOICEOUR_` names — so no other parent variable crosses the boundary. Registered backends are exactly `parakeet` (production) and `fake` (development, tests, benchmarks), and the recognizer is English-only.
+
+The internal line reader passes exact `Data` frames to decoding: it never repairs malformed UTF-8 into a valid string. The client validates UTF-8 scalars and rejects literal NUL before Foundation can auto-detect UTF-16/32; a legitimately encoded replacement character is preserved. Invalid JSON, invalid known-frame schemas, unknown response types and incompatible protocol versions fail every pending call and terminate that process. Its identity guard discards any buffered valid tail or stale callback; a later request spawns a fresh helper. An invalid greeting reports `incompatibleHello`, while EOF before a greeting remains `noHello`. Well-formed responses for an already-retired request id remain ignorable stale work, not framing errors.
 
 ## Model pin
 

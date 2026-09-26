@@ -126,6 +126,30 @@ extension DictationCoordinator {
         refreshTarget()
     }
 
+    /// Keeps wire diagnostics and transport failures on the app's existing recovery taxonomy.
+    private func processingFailureDetails(for error: Error) -> (code: ASRErrorCode, detail: String?) {
+        if let message = error as? ASRErrorMessage {
+            return (message.code, message.detail)
+        }
+        guard let clientError = error as? SidecarASRClientError else {
+            return (.internalError, error.localizedDescription)
+        }
+        switch clientError {
+        case .protocolError(let message):
+            return (message.code, message.detail)
+        case .timeout:
+            return (.timeout, nil)
+        case .launchFailed(let detail), .processExited(let detail), .writeFailed(let detail):
+            return (.backendUnavailable, detail)
+        case .noHello:
+            return (.backendUnavailable, "The speech engine did not send a greeting.")
+        case .incompatibleHello:
+            return (.incompatibleProtocol, "The speech engine sent an incompatible greeting.")
+        case .unexpectedMessage(let type):
+            return (.incompatibleProtocol, "Unexpected speech engine response: \(type)")
+        }
+    }
+
     func processStop(generation: AsyncGenerationGate.Token, stopReleaseStarted: Date) async {
         var audioURL: URL?
         defer { removeTemporaryAudio(&audioURL) }
@@ -322,19 +346,6 @@ extension DictationCoordinator {
                 generation: generation,
                 state: .cancelled
             )
-        } catch let error as ASRErrorMessage {
-            // The wire's code names a mechanism; the user reads a sentence and a
-            // place to go. One translation, so the menu and any later surface
-            // cannot describe the same failure differently.
-            await finishFailedProcessing(
-                generation: generation,
-                state: .error(error.code),
-                failure: UserFacingDictationFailure(
-                    code: error.code,
-                    detail: error.detail,
-                    acquisitionFraction: modelDownloadFraction
-                )
-            )
         } catch let error as RecorderError {
             let reason: String
             if case .captureFailed(let latched) = error {
@@ -348,12 +359,14 @@ extension DictationCoordinator {
                 failure: .captureFailed(reason: reason)
             )
         } catch {
+            let failure = processingFailureDetails(for: error)
             await finishFailedProcessing(
                 generation: generation,
-                state: .error(.internalError),
+                state: .error(failure.code),
                 failure: UserFacingDictationFailure(
-                    code: .internalError,
-                    detail: error.localizedDescription
+                    code: failure.code,
+                    detail: failure.detail,
+                    acquisitionFraction: modelDownloadFraction
                 )
             )
         }

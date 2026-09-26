@@ -332,6 +332,8 @@
             [
                 menu("menu.idle", "Menu bar popover at rest", fixture: .populated),
                 menu("menu.error", "Menu bar popover after a failed start", fixture: .micDenied),
+                menu(
+                    "menu.sidecar-error", "Menu bar popover after a wrapped sidecar failure", fixture: .sidecarFailure),
                 menu("menu.transcript", "Menu bar popover with the last transcript", fixture: .completedDictation),
                 menu(
                     "menu.downloading",

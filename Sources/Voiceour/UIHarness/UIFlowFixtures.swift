@@ -67,10 +67,26 @@
             return UIFlowFixture(name: "dictation-error-\(code.rawValue)", armedGates: gates) {
                 makeDictationContext(
                     armedGates: gates,
-                    transcription: .failure(scriptedASRError(code: code)),
+                    transcription: .failure(SidecarASRClientError.protocolError(scriptedASRError(code: code))),
                     insertion: .failed(reason: "transcription failed"),
                     targetBundleID: "com.apple.TextEdit",
                     targetSafety: .normalText
+                )
+            }
+        }
+
+        /// The backend remains failed until the real menu's Try Again action warms it.
+        /// The next utterance then follows the ordinary insertion boundary.
+        static func dictationRecovery(code: ASRErrorCode, transcript: String) -> UIFlowFixture {
+            let gates: Set<UIGate> = [.permission, .recorderStop, .transcription, .insertion]
+            return UIFlowFixture(name: "dictation-recovery-\(code.rawValue)", armedGates: gates) {
+                makeDictationContext(
+                    armedGates: gates,
+                    transcription: .failure(SidecarASRClientError.protocolError(scriptedASRError(code: code))),
+                    insertion: .pasteAttempted,
+                    targetBundleID: "com.apple.TextEdit",
+                    targetSafety: .normalText,
+                    recoveryResult: scriptedASRResult(transcript: transcript)
                 )
             }
         }
@@ -165,11 +181,12 @@
         @MainActor
         private static func makeDictationContext(
             armedGates: Set<UIGate>,
-            transcription: Result<ASRResult, ASRErrorMessage>,
+            transcription: Result<ASRResult, Error>,
             insertion: InsertionOutcome,
             targetBundleID: String,
             targetSafety: TargetSafetyClass,
-            capture: UICaptureWarmup? = nil
+            capture: UICaptureWarmup? = nil,
+            recoveryResult: ASRResult? = nil
         ) -> UIFlowContext {
             let permissionLink = UIAdapterLink(gate: .permission)
             let recorderLink = UIAdapterLink(gate: .recorderStop)
@@ -188,7 +205,8 @@
                 ),
                 asr: UIGatedASR(
                     link: transcriptionLink,
-                    result: transcription
+                    result: transcription,
+                    recoveryResult: recoveryResult
                 ),
                 // No persisted name: each flow's target names itself from its own
                 // bundle id, so one tracker serves every flow's chosen app.
@@ -361,13 +379,22 @@
         func discardRecording() async {}
     }
 
-    struct UIGatedASR: ASRClienting {
+    actor UIGatedASR: ASRClienting {
         let link: UIAdapterLink
-        let result: Result<ASRResult, ASRErrorMessage>
+        let result: Result<ASRResult, Error>
+        private let recoveryResult: ASRResult?
+        private var didWarmUp = false
+
+        init(link: UIAdapterLink, result: Result<ASRResult, Error>, recoveryResult: ASRResult? = nil) {
+            self.link = link
+            self.result = result
+            self.recoveryResult = recoveryResult
+        }
 
         func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
             await link.arrive()
             await link.recordTranscriptionRequest()
+            if didWarmUp, let recoveryResult { return recoveryResult }
             return try result.get()
         }
 
@@ -381,7 +408,9 @@
             )
         }
 
-        func warmUp() async {}
+        func warmUp() async {
+            didWarmUp = true
+        }
     }
 
     struct UIGatedInserter: TextInserting {

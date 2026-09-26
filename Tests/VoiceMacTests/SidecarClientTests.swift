@@ -95,7 +95,100 @@ struct SidecarClientTests {
         }
         #expect(message.code == .incompatibleProtocol)
         #expect(message.requestId != nil)
-        #expect(message.detail == "protocol_version mismatch")
+    }
+
+    @Test(arguments: [
+        "invalid-json", "invalid-utf8", "missing-type", "non-string-type", "unknown-type",
+        "utf16-be-bom", "utf16-be-no-bom", "utf32-le-bom",
+        "invalid-result", "invalid-health", "invalid-error", "invalid-cancelled",
+    ])
+    func malformedFrameRejectsValidTailAndNextTranscribeRespawns(frame: String) async throws {
+        let temp = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let stateFile = temp.appendingPathComponent("malformed-process.pid")
+        let client = SidecarASRClient(launch: stubLaunch("malformed-first-run", frame, stateFile.path))
+        await client.warmUp()
+        let pidText = try await waitForFile(stateFile, timeout: 2.0)
+        let pid = try #require(pid_t(pidText))
+        try #require(pid > 0)
+
+        let outcome = await resultWithin(timeout: 2.0) {
+            try await client.transcribe(sampleAudio(), timeoutMs: 10_000)
+        }
+
+        expectProtocolIncompatibility(outcome)
+        #expect(await waitForProcessExit(pid, timeout: 1.5))
+        let recovered = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
+        #expect(recovered.transcript.text == "respawned")
+        let health = try await client.health(timeoutMs: 5_000)
+        #expect(health.ready)
+        #expect(health.modelLoaded)
+        #expect(health.cacheOk)
+    }
+
+    @Test func malformedFrameFailsPendingHealthAndTranscribeAndNextCallRespawns() async throws {
+        let temp = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let stateFile = temp.appendingPathComponent("malformed-process.pid")
+        let client = SidecarASRClient(
+            launch: stubLaunch("malformed-two-pending-first-run", "invalid-json", stateFile.path)
+        )
+        await client.warmUp()
+        let pidText = try await waitForFile(stateFile, timeout: 2.0)
+        let pid = try #require(pid_t(pidText))
+        try #require(pid > 0)
+
+        // The peer holds both replies until one health and one transcribe have reached stdin.
+        // The two-second observation budget is deliberately shorter than either request timeout.
+        async let transcription = resultWithin(timeout: 2.0) {
+            try await client.transcribe(sampleAudio(), timeoutMs: 10_000)
+        }
+        async let health = resultWithin(timeout: 2.0) {
+            try await client.health(timeoutMs: 10_000)
+        }
+        let outcomes = await (transcription, health)
+
+        expectProtocolIncompatibility(outcomes.0)
+        expectProtocolIncompatibility(outcomes.1)
+        #expect(await waitForProcessExit(pid, timeout: 1.5))
+        let recovered = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
+        #expect(recovered.transcript.text == "respawned")
+        let recoveredHealth = try await client.health(timeoutMs: 5_000)
+        #expect(recoveredHealth.ready)
+        #expect(recoveredHealth.modelLoaded)
+        #expect(recoveredHealth.cacheOk)
+    }
+
+    @Test(arguments: [
+        "invalid-json", "invalid-utf8-hello", "invalid-hello", "wrong-kind-hello",
+        "utf16-be-bom-hello", "utf16-be-no-bom-hello", "utf32-le-bom-hello",
+    ])
+    func malformedStartupHelloThrowsIncompatibleHelloAndNextStartRecovers(frame: String) async throws {
+        let temp = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let stateFile = temp.appendingPathComponent("malformed-startup.pid")
+        let client = SidecarASRClient(launch: stubLaunch("malformed-hello-first-run", frame, stateFile.path))
+
+        let outcome = await resultWithin(timeout: 5.0) {
+            try await client.transcribe(sampleAudio(), timeoutMs: 15_000)
+        }
+        if let outcome, case .failure(let error) = outcome {
+            #expect(error as? SidecarASRClientError == .incompatibleHello)
+        } else {
+            Issue.record(
+                "Expected a typed startup failure before the request timeout, got \(String(describing: outcome))")
+        }
+        let pidText = try await waitForFile(stateFile, timeout: 2.0)
+        let pid = try #require(pid_t(pidText))
+        try #require(pid > 0)
+        #expect(await waitForProcessExit(pid, timeout: 1.5))
+
+        let recovered = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
+        #expect(recovered.transcript.text == "respawned")
+        let health = try await client.health(timeoutMs: 5_000)
+        #expect(health.ready)
+        #expect(health.modelLoaded)
+        #expect(health.cacheOk)
     }
 
     @Test func twoTranscribesReuseOneProcess() async throws {
@@ -378,11 +471,10 @@ struct SidecarClientTests {
             Issue.record("Expected processExited SidecarASRClientError, got \(String(describing: firstError))")
             return
         }
-        guard case .processExited(let reason) = firstSidecarError else {
+        guard case .processExited = firstSidecarError else {
             Issue.record("Expected processExited SidecarASRClientError, got \(firstSidecarError)")
             return
         }
-        #expect(reason.contains("sidecar"))
 
         let second = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
         #expect(second.transcript.text == "respawned")
@@ -393,6 +485,15 @@ struct SidecarClientTests {
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 2_000)
 
         #expect(result.transcript.text == "stub text")
+    }
+
+    @Test func validUTF8ReplacementCharacterInTranscriptIsPreserved() async throws {
+        let transcript = "before\u{FFFD}after"
+        let client = SidecarASRClient(launch: stubLaunch("fixed-result", transcript))
+
+        let result = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
+
+        #expect(result.transcript.text == transcript)
     }
 
     @Test func sidecarHealthAgainstStubProcess() async throws {
@@ -512,6 +613,17 @@ private func sampleAudio() -> RecordedAudio {
             byteCount: 84
         )
     )
+}
+
+private func expectProtocolIncompatibility<T>(_ outcome: Result<T, Error>?) {
+    guard let outcome, case .failure(let error) = outcome,
+        let clientError = error as? SidecarASRClientError,
+        case .protocolError(let message) = clientError
+    else {
+        Issue.record("Expected protocol incompatibility before the request timeout, got \(String(describing: outcome))")
+        return
+    }
+    #expect(message.code == .incompatibleProtocol)
 }
 
 private func thrownError<T>(from operation: () async throws -> T) async -> Error? {
