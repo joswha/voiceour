@@ -1,5 +1,5 @@
 diff --git a/include/parakeet.h b/include/parakeet.h
-index c6ab873..775459c 100644
+index 96b9744..4496df1 100644
 --- a/include/parakeet.h
 +++ b/include/parakeet.h
 @@ -50,6 +50,9 @@ extern "C" {
@@ -9,14 +9,14 @@ index c6ab873..775459c 100644
 +        // VOICEOUR PATCH: opt-in load-time q8_0 repack of the CPU tail's 2-D f16 matmul
 +        // weights; requires tail_backend_cpu. The model artifact on disk is untouched.
 +        bool  tail_quant_q8;
-     };
- 
-     typedef struct parakeet_token_data {
+         // VOICEOUR PATCH: 0 keeps ggml's per-compute disposable CPU pool; N attaches one
+         // persistent N-thread pool to the CPU backend for the state's lifetime.
+         int   persistent_cpu_pool_threads;
 diff --git a/src/parakeet.cpp b/src/parakeet.cpp
-index 5cdfc64..a96d7fa 100644
+index f4eb2ee..9d471d5 100644
 --- a/src/parakeet.cpp
 +++ b/src/parakeet.cpp
-@@ -2377,6 +2377,11 @@ static bool parakeet_model_load(
+@@ -2387,6 +2387,11 @@ static bool parakeet_model_load(
      }
  
      std::set<std::string_view, std::less<>> record_authoritative_names;
@@ -28,7 +28,7 @@ index 5cdfc64..a96d7fa 100644
      auto create_tensor = [&](
              parakeet_tensor type,
              ggml_type legacy_type,
-@@ -2439,15 +2444,42 @@ static bool parakeet_model_load(
+@@ -2449,15 +2454,42 @@ static bool parakeet_model_load(
              }
          }
  
@@ -72,7 +72,7 @@ index 5cdfc64..a96d7fa 100644
  
          ggml_op op = PARAKEET_TENSOR_INFO.at(type);
          // VOICEOUR PATCH: a CPU tail must keep its immutable prediction/joint weights in the
-@@ -2745,6 +2777,12 @@ static bool parakeet_model_load(
+@@ -2755,6 +2787,12 @@ static bool parakeet_model_load(
          int & n_loaded = model.n_loaded;
          n_loaded = 0;
          std::vector<char> read_buf;
@@ -85,7 +85,7 @@ index 5cdfc64..a96d7fa 100644
          size_t record_index = 0;
  
          while (true) {
-@@ -2856,9 +2894,15 @@ static bool parakeet_model_load(
+@@ -2866,9 +2904,15 @@ static bool parakeet_model_load(
  
              const size_t tensor_bytes = ggml_nbytes(tensor);
              size_t source_bytes = 0;
@@ -102,7 +102,7 @@ index 5cdfc64..a96d7fa 100644
                              record_authoritative_names.end() &&
                          source_record.type != tensor->type) {
                      PARAKEET_LOG_ERROR(
-@@ -2868,6 +2912,14 @@ static bool parakeet_model_load(
+@@ -2878,6 +2922,14 @@ static bool parakeet_model_load(
                      );
                      return false;
                  }
@@ -117,7 +117,7 @@ index 5cdfc64..a96d7fa 100644
              } else {
                  const size_t type_size = ggml_type_size(source_record.type);
                  if (type_size == 0 ||
-@@ -2884,7 +2936,10 @@ static bool parakeet_model_load(
+@@ -2894,7 +2946,10 @@ static bool parakeet_model_load(
                      static_cast<size_t>(nelements) * type_size;
                  source_bytes = unblocked_bytes / ggml_blck_size(tensor->type);
              }
@@ -129,7 +129,7 @@ index 5cdfc64..a96d7fa 100644
                  PARAKEET_LOG_ERROR(
                      "%s: tensor '%s' has wrong byte size in model file\n",
                      __func__,
-@@ -2910,6 +2965,63 @@ static bool parakeet_model_load(
+@@ -2920,6 +2975,63 @@ static bool parakeet_model_load(
                      );
                      return false;
                  }
@@ -193,7 +193,7 @@ index 5cdfc64..a96d7fa 100644
              } else if (ggml_backend_buffer_is_host(tensor->buffer)) {
                  if (loader->read(loader->context, tensor->data, source_bytes) != source_bytes) {
                      PARAKEET_LOG_ERROR(
-@@ -2975,6 +3087,32 @@ static bool parakeet_model_load(
+@@ -2985,6 +3097,32 @@ static bool parakeet_model_load(
          }
  
          PARAKEET_LOG_INFO("%s: model size    = %7.2f MB\n", __func__, total_size / 1e6);
@@ -226,11 +226,11 @@ index 5cdfc64..a96d7fa 100644
          if (n_loaded == 0) {
              PARAKEET_LOG_WARN(
                  "%s: WARN no tensors loaded from model file - assuming empty model for testing\n",
-@@ -4865,6 +5003,7 @@ struct parakeet_context_params parakeet_context_default_params() {
+@@ -4894,6 +5032,7 @@ struct parakeet_context_params parakeet_context_default_params() {
          /*.use_gpu              =*/ true,
          /*.gpu_device           =*/ 0,
          /*.tail_backend_cpu     =*/ false, // VOICEOUR PATCH: default remains the full backend list.
 +        /*.tail_quant_q8        =*/ false, // VOICEOUR PATCH: f16 tail by default.
+         /*.persistent_cpu_pool_threads =*/ 0, // VOICEOUR PATCH: disposable pools by default.
      };
      return result;
- }

@@ -1,11 +1,11 @@
 diff --git a/include/parakeet.h b/include/parakeet.h
-index 775459c..4496df1 100644
+index c6ab873..96b9744 100644
 --- a/include/parakeet.h
 +++ b/include/parakeet.h
-@@ -53,6 +53,9 @@ extern "C" {
-         // VOICEOUR PATCH: opt-in load-time q8_0 repack of the CPU tail's 2-D f16 matmul
-         // weights; requires tail_backend_cpu. The model artifact on disk is untouched.
-         bool  tail_quant_q8;
+@@ -50,6 +50,9 @@ extern "C" {
+         int   gpu_device;  // CUDA device
+         // VOICEOUR PATCH: opt-in CPU/Accelerate TDT tail; false preserves backend selection.
+         bool  tail_backend_cpu;
 +        // VOICEOUR PATCH: 0 keeps ggml's per-compute disposable CPU pool; N attaches one
 +        // persistent N-thread pool to the CPU backend for the state's lifetime.
 +        int   persistent_cpu_pool_threads;
@@ -13,7 +13,7 @@ index 775459c..4496df1 100644
  
      typedef struct parakeet_token_data {
 diff --git a/src/parakeet.cpp b/src/parakeet.cpp
-index c1c23be..c511f5d 100644
+index 5cdfc64..f4eb2ee 100644
 --- a/src/parakeet.cpp
 +++ b/src/parakeet.cpp
 @@ -170,6 +170,14 @@ static std::string format(const char * fmt, ...) {
@@ -40,7 +40,7 @@ index c1c23be..c511f5d 100644
  
      parakeet_sched sched_encode;
      parakeet_sched sched_decode;
-@@ -4890,6 +4900,25 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
+@@ -4764,6 +4774,25 @@ struct parakeet_state * parakeet_init_state(parakeet_context * ctx) {
          }
      }
  
@@ -66,15 +66,15 @@ index c1c23be..c511f5d 100644
      const int batch_size = ctx->model.hparams.n_audio_ctx;
  
      state->logits.reserve(ctx->vocab.n_vocab * batch_size);
-@@ -4992,6 +5021,7 @@ struct parakeet_context_params parakeet_context_default_params() {
+@@ -4865,6 +4894,7 @@ struct parakeet_context_params parakeet_context_default_params() {
+         /*.use_gpu              =*/ true,
          /*.gpu_device           =*/ 0,
          /*.tail_backend_cpu     =*/ false, // VOICEOUR PATCH: default remains the full backend list.
-         /*.tail_quant_q8        =*/ false, // VOICEOUR PATCH: f16 tail by default.
 +        /*.persistent_cpu_pool_threads =*/ 0, // VOICEOUR PATCH: disposable pools by default.
      };
      return result;
  }
-@@ -5302,6 +5332,13 @@ struct parakeet_context * parakeet_init_with_params(struct parakeet_model_loader
+@@ -5175,6 +5205,13 @@ struct parakeet_context * parakeet_init_with_params(struct parakeet_model_loader
  
  void parakeet_free_state(struct parakeet_state * state) {
      if (state) {
@@ -88,7 +88,7 @@ index c1c23be..c511f5d 100644
          ggml_backend_buffer_free(state->lstm_state.buffer);
          ggml_backend_buffer_free(state->pred_out_buffer);
          ggml_backend_buffer_free(state->enc_out_buffer);
-@@ -5682,6 +5719,9 @@ int parakeet_full_with_state(
+@@ -5555,6 +5592,9 @@ int parakeet_full_with_state(
                             int    n_samples) {
      state->result_all.clear();
  
@@ -98,7 +98,7 @@ index c1c23be..c511f5d 100644
      if (params.no_context) {
          parakeet_reset_state(state);
      }
-@@ -5796,6 +5836,9 @@ int parakeet_full_with_external_encoder(
+@@ -5669,6 +5709,9 @@ int parakeet_full_with_external_encoder(
      struct parakeet_state * state = ctx->state;
      state->result_all.clear();
  
@@ -108,7 +108,7 @@ index c1c23be..c511f5d 100644
      if (params.no_context) {
          parakeet_reset_state(state);
      }
-@@ -5912,6 +5955,9 @@ int parakeet_chunk(
+@@ -5785,6 +5828,9 @@ int parakeet_chunk(
                      const float * samples,
                              int   n_samples) {
  
