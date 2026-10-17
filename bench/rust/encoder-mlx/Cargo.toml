@@ -1,0 +1,30 @@
+[package]
+name = "encoder-mlx"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+description = "Benchmark-only FastConformer encoder of the pinned parakeet-tdt-0.6b-v3 model over MLX (bet B4b)."
+
+[lib]
+name = "encoder_mlx"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "encoder-bench"
+path = "src/bin/encoder-bench.rs"
+
+[dependencies]
+# mlx-rs 0.32.0 -> mlx-sys 0.6.0 -> mlx-c (bundled) -> MLX v0.32.2, fetched and built from source by cmake.
+mlx-rs = "=0.32.0"
+parakeet-model = { path = "../parakeet-model" }
+
+# Own workspace: every crate under bench/rust/ is built on its own.
+[workspace]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+# The C ABI catches panics and reports them through `err`; that needs unwinding.
+panic = "unwind"
+debug = "line-tables-only"

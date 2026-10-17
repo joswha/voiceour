@@ -21,6 +21,14 @@ struct VoiceourBenchMain {
                 try GlossaryConditioningCommand.parse(Array(arguments.dropFirst())).run()
             } else if arguments.first == "external-encoder" {
                 try await ExternalEncoderCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "tail-bench" {
+                try TailBenchCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "mel-bench" {
+                try MelBenchCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "encoder-bench" {
+                try EncoderBenchCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "combined-bench" {
+                try CombinedBenchCommand.parse(Array(arguments.dropFirst())).run()
             } else {
                 let options = try BenchCLI.parse(arguments)
                 try await BenchRunner(options: options).run()
@@ -117,16 +125,23 @@ enum BenchCommand: String {
     case pipeline
     case tdtLattice = "tdt-lattice"
     case rawDecode = "raw-decode"
+    case dumpStates = "dump-states"
+    case stageProfile = "stage-profile"
 }
 
 struct BenchOptions {
     var command: BenchCommand
     var input: URL
+    /// The results file; for `dump-states`, the `--output-dir` directory.
     var output: URL
     var backend: String?
     var timeoutMs: Int
     var vocabulary: URL?
     var model: URL?
+    /// `stage-profile` measured passes, each after warmup pass 0.
+    var passes: Int
+    /// `stage-profile --sidecar`: also time every row through the real sidecar.
+    var sidecar: Bool
 }
 
 enum BenchCLI {
@@ -140,6 +155,11 @@ enum BenchCLI {
           voiceour-bench tdt-lattice --input <manifest.jsonl> --output <lattice.jsonl>
           voiceour-bench raw-decode --input <manifest.jsonl> --output <results.jsonl>
               --model <model.gguf|bin> [--vocabulary <repair.vocabulary.json>]
+          voiceour-bench dump-states --input <manifest.jsonl> --output-dir <dump/>
+              [--model <model.bin>]
+          voiceour-bench stage-profile --input <manifest.jsonl> --output <profile.jsonl>
+              [--passes 1] [--sidecar] [--timeout-ms 120000]
+              [--vocabulary <repair.vocabulary.json>]
           voiceour-bench glossary-conditioning dump-states --input <manifest.jsonl>
               --output-dir <state-dump/> --model <model.bin> [--lattice <lattice.jsonl>]
               [--vocabulary <repair.vocabulary.json>]
@@ -152,6 +172,17 @@ enum BenchCLI {
               [--vocabulary <repair.vocabulary.json>]
           voiceour-bench repair-verify --fixtures <directory>
               [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
+          voiceour-bench tail-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
+              [--rust-tail-lib <libtdt_tail.dylib> [--rust-arms a,b]] [--states-dir <states/>]
+              [--cpp-elapsed decode|tail|wall]
+          voiceour-bench mel-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
+              [--rust-mel-lib <libmel_frontend.dylib> [--rust-arms a,b]] [--transcripts]
+          voiceour-bench encoder-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
+              [--rust-encoder-lib <libencoder_ENGINE.dylib>[,...] [--rust-arms ENGINE:arm,...]]
+          voiceour-bench combined-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
+              --rust-mel-lib <libmel_frontend.dylib> --rust-tail-lib <libtdt_tail.dylib>
+              [--arms native,native@aa,rust-tail,rust-mel,rust-mel-tail,c-control]
+              [--rust-mel-arm best] [--rust-tail-arm best] [--c-tail-arm c-best]
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
@@ -163,10 +194,13 @@ enum BenchCLI {
 
         var input: URL?
         var output: URL?
+        var outputDirectory: URL?
         var backend = ASRBackendRegistry.builtIn.defaultDescriptor.id
         var timeoutMs = 120_000
         var vocabulary: URL?
         var model: URL?
+        var passes: Int?
+        var sidecar = false
 
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
@@ -176,6 +210,19 @@ enum BenchCLI {
                 input = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--output":
                 output = fileURL(try value(for: parsed, in: arguments, index: &index))
+            case "--output-dir":
+                outputDirectory = fileURL(try value(for: parsed, in: arguments, index: &index))
+            case "--passes":
+                let value = try value(for: parsed, in: arguments, index: &index)
+                guard let parsedPasses = Int(value), parsedPasses > 0 else {
+                    throw BenchError.usage("--passes must be a positive integer")
+                }
+                passes = parsedPasses
+            case "--sidecar":
+                guard parsed.inlineValue == nil else {
+                    throw BenchError.usage("--sidecar takes no value")
+                }
+                sidecar = true
             case "--vocabulary":
                 vocabulary = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--model":
@@ -205,25 +252,41 @@ enum BenchCLI {
         }
 
         guard let input else { throw BenchError.usage("missing --input") }
-        guard let output else { throw BenchError.usage("missing --output") }
-        if vocabulary != nil, command != .pipeline, command != .rawDecode {
-            throw BenchError.usage("--vocabulary is only valid for pipeline and raw-decode")
+        let destination: URL
+        if command == .dumpStates {
+            guard output == nil else { throw BenchError.usage("dump-states writes --output-dir, not --output") }
+            guard let outputDirectory else { throw BenchError.usage("missing --output-dir") }
+            destination = outputDirectory
+        } else {
+            guard outputDirectory == nil else {
+                throw BenchError.usage("--output-dir is only valid for dump-states")
+            }
+            guard let output else { throw BenchError.usage("missing --output") }
+            destination = output
+        }
+        if vocabulary != nil, command != .pipeline, command != .rawDecode, command != .stageProfile {
+            throw BenchError.usage("--vocabulary is only valid for pipeline, raw-decode and stage-profile")
         }
         if command == .rawDecode, model == nil {
             throw BenchError.usage("raw-decode requires --model")
         }
-        if model != nil, command != .rawDecode {
-            throw BenchError.usage("--model is only valid for raw-decode")
+        if model != nil, command != .rawDecode, command != .dumpStates {
+            throw BenchError.usage("--model is only valid for raw-decode and dump-states")
+        }
+        if passes != nil || sidecar, command != .stageProfile {
+            throw BenchError.usage("--passes and --sidecar are only valid for stage-profile")
         }
 
         return BenchOptions(
             command: command,
             input: input,
-            output: output,
+            output: destination,
             backend: backend,
             timeoutMs: timeoutMs,
             vocabulary: vocabulary,
-            model: model
+            model: model,
+            passes: passes ?? 1,
+            sidecar: sidecar
         )
     }
 
@@ -694,19 +757,23 @@ struct BenchRunner {
             try TDTLatticeCommand(options: options).run()
         case .rawDecode:
             try RawDecodeCommand(options: options).run()
+        case .dumpStates:
+            try DumpStatesCommand(options: options).run()
+        case .stageProfile:
+            try await StageProfileCommand(options: options).run()
         }
     }
 
     /// The artifact this run loads. Resolved from the environment exactly as the app resolves
     /// it, and read once so the emitted metadata cannot name a different file than the one the
     /// client was launched with.
-    private static let modelVariant = ASRModelVariant.resolved(
+    static let modelVariant = ASRModelVariant.resolved(
         ProcessInfo.processInfo.environment[ASRModelVariant.environmentKey]
     )
 
     /// The registry's client for `backend`, which for every registered backend is
     /// the sidecar client: this benchmark transcribes files and never records.
-    private static func makeASRClient(backend: String) -> any ASRClienting {
+    static func makeASRClient(backend: String) -> any ASRClienting {
         ASRBackendRegistry.builtIn.client(
             for: backend,
             context: ASRBackendContext(
@@ -884,7 +951,7 @@ struct BenchRunner {
         var confidenceMode: String?
 
         do {
-            let audio = try recordedAudio(for: input)
+            let audio = try Self.recordedAudio(for: input)
             let asrStart = BenchClock.mark()
             let result: ASRResult
             do {
@@ -982,7 +1049,7 @@ struct BenchRunner {
         return audioURL
     }
 
-    private func recordedAudio(for input: PipelineInputRow) throws -> RecordedAudio {
+    static func recordedAudio(for input: PipelineInputRow) throws -> RecordedAudio {
         let audioURL = try Self.validatedAudioURL(for: input)
         let durationMs = input.audioS.map { max(0, Int(($0 * 1000.0).rounded())) } ?? 0
         let meta = ASRAudioMeta(

@@ -1,0 +1,22 @@
+[package]
+name = "parakeet-model"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+description = "Benchmark-only zero-copy reader for the pinned parakeet-tdt ggml model file, mirroring parakeet_model_load."
+
+[lib]
+name = "parakeet_model"
+path = "src/lib.rs"
+
+[[bin]]
+name = "parakeet-model-info"
+path = "src/bin/parakeet-model-info.rs"
+
+[dependencies]
+memmap2 = "0.9"
+sha2 = "0.10"
+
+# Own workspace: bench crates never join a parent workspace.
+[workspace]

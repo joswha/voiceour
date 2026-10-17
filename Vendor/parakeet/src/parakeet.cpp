@@ -6011,6 +6011,25 @@ void parakeet_reset_timings(struct parakeet_context * ctx) {
     }
 }
 
+// VOICEOUR PATCH: benchmark stage profile over the counters the stages already keep.
+int parakeet_get_stage_timings(struct parakeet_context * ctx, struct parakeet_stage_timings * out) {
+    if (!ctx || !ctx->state || !out) {
+        return -1;
+    }
+
+    const struct parakeet_state * state = ctx->state;
+    out->t_mel_us     = state->t_mel_us;
+    out->t_encode_us  = state->t_encode_us;
+    out->t_decode_us  = state->t_decode_us;
+    out->t_sample_us  = state->t_sample_us;
+    out->t_predict_us = state->t_predict_us;
+    out->n_encode     = state->n_encode;
+    out->n_decode     = state->n_decode;
+    out->n_predict    = state->n_predict;
+    out->n_sample     = state->n_sample;
+    return 0;
+}
+
 const char * parakeet_print_system_info(void) {
     static std::string s;
 
@@ -6318,6 +6337,122 @@ int parakeet_full_with_external_encoder(
                 params.new_segment_callback(ctx, state, 1, params.new_segment_callback_user_data);
             }
         }
+    }
+
+    return 0;
+}
+
+// VOICEOUR PATCH: benchmark read-back of the encoder output the TDT tail consumes. Read-only:
+// no state transition, and ggml_backend_tensor_get serves Metal and CPU tail buffers alike.
+// The ordinary parakeet_full path never calls this entry point.
+int parakeet_copy_encoder_states(
+        struct parakeet_context * ctx,
+                          float * dst,
+                            int   max_frames,
+                            int   n_state) {
+    if (!ctx || !ctx->state) {
+        return -1;
+    }
+
+    const struct parakeet_state * state = ctx->state;
+    const int n_frames = state->n_frames;
+    if (!state->enc_out ||
+            n_state != ctx->model.hparams.n_audio_state ||
+            state->enc_out->ne[0] != n_state ||
+            n_frames <= 0 ||
+            n_frames > state->enc_out->ne[1]) {
+        return -1;
+    }
+    if (dst == nullptr) {
+        return max_frames == 0 ? n_frames : -1;
+    }
+    if (max_frames < n_frames) {
+        return -1;
+    }
+
+    ggml_backend_tensor_get(
+        state->enc_out,
+        dst,
+        0,
+        (size_t) n_frames * (size_t) n_state * sizeof(float));
+    return n_frames;
+}
+
+// VOICEOUR PATCH: benchmark encoder-only entry point over the stored mel. It prepares the mel's
+// shape exactly as parakeet_full_with_state() does with n_samples = 0 before its encoder call -
+// the same no_context reset, the same audio context per path (parakeet_chunk's for a mel that
+// fits the model's n_audio_ctx, the whole mel for the dynamic graph above it), the same
+// high-water-mark scheduler reservation and encoder_begin_callback, in the same order - then
+// runs parakeet_encode_internal once and stops before the TDT tail. state->n_frames and enc_out
+// then hold what parakeet_copy_encoder_states() reads. A smaller or larger mel than the previous
+// call goes through the unchanged parakeet_ensure_encode_sched. The progress callback is not
+// invoked. The ordinary parakeet_full path never calls this entry point.
+int parakeet_encode_stored_mel(
+        struct parakeet_context * ctx,
+    struct parakeet_full_params   params) {
+    if (!ctx || !ctx->state) {
+        PARAKEET_LOG_ERROR("%s: context has no default state\n", __func__);
+        return -8;
+    }
+
+    struct parakeet_state * state = ctx->state;
+    state->result_all.clear();
+
+    // quiesce the persistent CPU pool on every return path, as parakeet_full does.
+    parakeet_cpu_pool_quiescer cpu_pool_quiescer { state->cpu_pool };
+
+    if (params.no_context) {
+        parakeet_reset_state(state);
+    }
+
+    const int n_mel_total = state->mel.n_len;
+    if (n_mel_total <= 0 || state->mel.n_mel != ctx->model.hparams.n_mels) {
+        PARAKEET_LOG_ERROR("%s: no stored mel: %d frames x %d bands (model has %d bands)\n",
+                __func__, n_mel_total, state->mel.n_mel, ctx->model.hparams.n_mels);
+        return -8;
+    }
+
+    if (n_mel_total <= ctx->model.hparams.n_audio_ctx) {
+        // parakeet_chunk(ctx, state, params, nullptr, 0), up to its encoder call.
+        if (params.audio_ctx == 0) {
+            params.audio_ctx = std::min(parakeet_n_len_from_state(state), parakeet_n_audio_ctx(ctx));
+        }
+        state->n_audio_ctx = params.audio_ctx;
+
+        if (!parakeet_ensure_encode_sched(*ctx, *state, state->n_audio_ctx)) {
+            PARAKEET_LOG_ERROR("%s: failed to allocate encoder graph for %d mel frames\n",
+                    __func__, state->n_audio_ctx);
+            return -6;
+        }
+
+        if (params.encoder_begin_callback) {
+            if (!params.encoder_begin_callback(ctx, state, params.encoder_begin_callback_user_data)) {
+                PARAKEET_LOG_ERROR("%s: encoder_begin_callback returned false - aborting\n", __func__);
+                return -6;
+            }
+        }
+    } else {
+        // parakeet_full_with_state's dynamic-graph path, up to its encoder call.
+        if (params.encoder_begin_callback) {
+            if (!params.encoder_begin_callback(ctx, state, params.encoder_begin_callback_user_data)) {
+                PARAKEET_LOG_ERROR("%s: encoder_begin_callback returned false\n", __func__);
+                return -6;
+            }
+        }
+
+        if (!parakeet_ensure_encode_sched(*ctx, *state, n_mel_total)) {
+            PARAKEET_LOG_ERROR("%s: failed to allocate dynamic encoder graph for %d mel frames\n",
+                    __func__, n_mel_total);
+            return -6;
+        }
+
+        state->n_audio_ctx = n_mel_total;
+    }
+
+    if (!parakeet_encode_internal(*ctx, *state, 0, params.n_threads,
+                                  params.abort_callback, params.abort_callback_user_data)) {
+        PARAKEET_LOG_ERROR("%s: failed to encode\n", __func__);
+        return -6;
     }
 
     return 0;

@@ -224,6 +224,25 @@ extern "C" {
     PARAKEET_API void parakeet_print_timings(struct parakeet_context * ctx);
     PARAKEET_API void parakeet_reset_timings(struct parakeet_context * ctx);
 
+    // VOICEOUR PATCH: Benchmark observability. Totals of the default state's existing stage
+    // counters since the last parakeet_reset_timings(); reading them adds no timer anywhere.
+    // t_decode_us/n_decode cover every greedy step graph (joint, plus a merged prediction when
+    // the previous step emitted); t_predict_us covers standalone prediction graphs only, while
+    // n_predict counts both kinds; t_sample_us/n_sample cover emitted (non-blank) tokens only.
+    struct parakeet_stage_timings {
+        int64_t t_mel_us;
+        int64_t t_encode_us;
+        int64_t t_decode_us;
+        int64_t t_sample_us;
+        int64_t t_predict_us;
+        int32_t n_encode;
+        int32_t n_decode;
+        int32_t n_predict;
+        int32_t n_sample;
+    };
+    // Returns 0 and fills `out`, or -1 when the context has no default state or `out` is NULL.
+    PARAKEET_API int parakeet_get_stage_timings(struct parakeet_context * ctx, struct parakeet_stage_timings * out);
+
     // Print system information
     PARAKEET_API const char * parakeet_print_system_info(void);
 
@@ -342,6 +361,31 @@ extern "C" {
                             const float * encoder_states,
                                     int   n_encoder_frames,
                                     int   n_encoder_state);
+
+    // VOICEOUR PATCH: Benchmark observability. Copies the default state's encoder output
+    // `enc_out` - frame-major [n_frames, n_state] F32, the exact buffer the TDT tail reads -
+    // into `dst`, for either tail placement. Returns n_frames, or -1 when no encoder output is
+    // stored, n_state is not the model width, or max_frames < n_frames. dst=NULL with
+    // max_frames=0 reports n_frames without copying.
+    PARAKEET_API int parakeet_copy_encoder_states(
+                struct parakeet_context * ctx,
+                                  float * dst,
+                                    int   max_frames,
+                                    int   n_state);
+
+    // VOICEOUR PATCH: Benchmark encoder seam. Runs the encoder alone over the default state's
+    // stored mel (parakeet_pcm_to_mel() or parakeet_set_mel()) and stops before the TDT tail.
+    // It prepares the mel's shape exactly as parakeet_full() does with n_samples = 0: the
+    // params.no_context state reset, the audio context of this mel (a single chunk up to the
+    // model's n_audio_ctx, the whole mel for the dynamic graph above it), the encoder
+    // scheduler's high-water-mark reservation and params.encoder_begin_callback, then one
+    // encode honoring params.n_threads and params.abort_callback. Successive calls may use
+    // smaller or larger mels. params.progress_callback is not invoked. The encoder output is
+    // then readable with parakeet_copy_encoder_states(). Returns 0 on success, -8 when the
+    // context has no default state or no stored mel, -6 when the encoder is cancelled or fails.
+    PARAKEET_API int parakeet_encode_stored_mel(
+                struct parakeet_context * ctx,
+            struct parakeet_full_params   params);
 
     // Process a single chunk of audio data that fits within the model's audio context window.
     // This is more efficient than parakeet_full() for short audio clips.

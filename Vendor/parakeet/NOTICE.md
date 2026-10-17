@@ -399,6 +399,37 @@ captured under `patches/`.
     .9967 against NeMo on the same audio; engine full probe and two-pass chain
     reproduce 280/346, corrected false0 and general identity; repeated warm
     general passes measure p95 209/209/210.
+- `patches/0023-bench-observability-seams.patch` adds two read-only C APIs for
+  `voiceour-bench`: `parakeet_copy_encoder_states` copies the default state's frame-major
+  `enc_out` (the exact F32 buffer the TDT tail reads, Metal or CPU placement) to host memory,
+  and `parakeet_get_stage_timings` returns the existing mel/encode/decode/sample/predict
+  counters as totals since `parakeet_reset_timings`. Rationale: offline stage profiles and
+  encoder-state dumps need the native boundaries without adding a timer or a copy to any decode
+  path; neither the sidecar nor `parakeet_full` calls them.
+  - Upstream status: not reported upstream; benchmark-only observability.
+  - Test status: `voiceour-bench dump-states` copied the encoder output after each production
+    `parakeet_full` on the general (96), jargon (456) and LibriSpeech (128) manifests and
+    replayed the dumped file through `parakeet_full_with_external_encoder` on the same Metal
+    tail: 680/680 rows reproduced every token field bit for bit and the transcript text, and
+    the stored mel matched a fresh `parakeet_pcm_to_mel` bitwise on every row. The dumps stay
+    under the gitignored `.build/rust-bench/dumps/`.
+- `patches/0024-bench-encode-stored-mel-seam.patch` adds one benchmark-only C API,
+  `parakeet_encode_stored_mel`, that runs the encoder alone over the default state's stored mel
+  (from `parakeet_pcm_to_mel` or `parakeet_set_mel`) and stops before the TDT tail. It prepares
+  the mel's shape in the order `parakeet_full` does with no samples: the `no_context` state
+  reset, the audio context of this mel (`parakeet_chunk`'s choice up to the model's
+  `n_audio_ctx`, the whole mel for the dynamic graph above it), the unchanged high-water-mark
+  `parakeet_ensure_encode_sched` reservation, the encoder-begin callback, then one
+  `parakeet_encode_internal`. Rationale: `parakeet_encode` sizes its graph from the audio context
+  the previous `parakeet_full` left behind, so a harness that times the encoder over a new mel
+  had to prime it with an untimed full decode; this entry point makes variable-shape preparation
+  part of the timed call. Neither the sidecar nor `parakeet_full` calls it.
+  - Upstream status: not reported upstream; benchmark-only seam.
+  - Test status: applied to the post-0023 `parakeet.h` and `parakeet.cpp` it reproduces the
+    vendored files byte for byte. Equivalence of its encoder output with `parakeet_full`'s is
+    checked in every `voiceour-bench combined-bench` row: each Rust-tail arm decodes the states
+    this call produced, and its token sequence and transcript are compared with the same row's
+    native `ParakeetContext.transcribe` and the dump's reference.
 
 
 

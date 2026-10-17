@@ -139,6 +139,8 @@ public enum ParakeetContextError: Error, CustomStringConvertible {
     case coreMLEncodersUnconfigured
     case coreMLTierUnavailable(sampleCount: Int)
     case externalStateContract(String)
+    /// A benchmark-only stage entry point (`ParakeetContext`'s stage-isolated extension) failed.
+    case benchStageFailed(String)
 
     public var description: String {
         switch self {
@@ -151,6 +153,8 @@ public enum ParakeetContextError: Error, CustomStringConvertible {
             return "no configured CoreML encoder tier accepts \(sampleCount) samples"
         case .externalStateContract(let detail):
             return "external encoder states rejected: \(detail)"
+        case .benchStageFailed(let detail):
+            return detail
         }
     }
 }
@@ -427,14 +431,19 @@ public final class ParakeetContext {
     /// against the stored mel length (`parakeet.cpp:6236-6254`); the supplied states are
     /// never re-encoded, and no CoreML model is loaded or required. The frame count and
     /// width are refused here, with the mismatch named, before the C guard sees them.
+    ///
+    /// `tailThreadCount` nil keeps the hybrid routes' tail thread count, so replayed states
+    /// decode under exactly the dumping run's tail; replaying a native `transcribe` passes
+    /// `decodeThreadCount` instead.
     public func transcribeWithExternalStates(
         samples: [Float],
         states: UnsafeBufferPointer<Float>,
         frameCount: Int,
+        tailThreadCount: Int32? = nil,
         isCancelled: @escaping () -> Bool
     ) throws -> [ParakeetSegmentRaw] {
         let status = try withDecodeParams(
-            threadCount: Self.hybridTailThreadCount,
+            threadCount: tailThreadCount ?? Self.hybridTailThreadCount,
             isCancelled: isCancelled,
             latticeBridge: nil
         ) { params in
@@ -710,6 +719,392 @@ public final class ParakeetContext {
     private func string(_ pointer: UnsafePointer<CChar>?) -> String {
         guard let pointer else { return "" }
         return String(cString: pointer)
+    }
+}
+
+/// Native stage counters accumulated since the last `ParakeetContext.resetStageTimings()`, read
+/// through `parakeet_get_stage_timings`. `decode` covers every greedy step graph; `predict`
+/// covers standalone prediction graphs only, while `predictCount` also counts predictions merged
+/// into a step; `sample` covers emitted tokens only.
+public struct ParakeetStageTimings: Equatable, Sendable {
+    public var melMicroseconds: Int64
+    public var encodeMicroseconds: Int64
+    public var decodeMicroseconds: Int64
+    public var sampleMicroseconds: Int64
+    public var predictMicroseconds: Int64
+    public var encodeCount: Int
+    public var decodeCount: Int
+    public var predictCount: Int
+    public var sampleCount: Int
+}
+
+/// One decoded token exactly as `parakeet_token_data` stores it. `t0`/`t1` are mel frames after
+/// the decoder's punctuation timestamp refinement.
+public struct ParakeetNativeToken: Equatable, Sendable {
+    public var id: Int32
+    public var frameIndex: Int32
+    public var durationIndex: Int32
+    public var duration: Int32
+    public var probability: Float
+    public var logProbability: Float
+    public var t0: Int64
+    public var t1: Int64
+}
+
+/// Benchmark observability for `voiceour-bench`. The sidecar never calls these: each one either
+/// reads state the last decode left behind or runs the unchanged production decode.
+extension ParakeetContext {
+    /// The thread count every production decode on this context uses.
+    public var decodeThreadCount: Int32 { threadCount }
+
+    /// `transcribe`'s decode — the same parameters and routing into `parakeet_full` — without
+    /// collecting segments, so a profiler can time the native call alone.
+    public func decodeForProfiling(samples: [Float]) throws {
+        try decode(samples: samples, isCancelled: { false }, latticeBridge: nil)
+    }
+
+    /// `transcribe`'s segment collection over the result the last decode stored.
+    public func collectDecodedSegments() -> [ParakeetSegmentRaw] {
+        collectSegments()
+    }
+
+    /// The stored result's tokens per segment, as the decoder recorded them.
+    public func decodedNativeTokens() -> [[ParakeetNativeToken]] {
+        (0..<Int(parakeet_full_n_segments(context))).map { segment in
+            let segmentIndex = Int32(segment)
+            return (0..<Int(parakeet_full_n_tokens(context, segmentIndex))).map { index in
+                let data = parakeet_full_get_token_data(context, segmentIndex, Int32(index))
+                return ParakeetNativeToken(
+                    id: data.id,
+                    frameIndex: data.frame_index,
+                    durationIndex: data.duration_idx,
+                    duration: data.duration_value,
+                    probability: data.p,
+                    logProbability: data.plog,
+                    t0: data.t0,
+                    t1: data.t1
+                )
+            }
+        }
+    }
+
+    public func resetStageTimings() {
+        parakeet_reset_timings(context)
+    }
+
+    public func stageTimings() -> ParakeetStageTimings? {
+        var raw = parakeet_stage_timings()
+        guard parakeet_get_stage_timings(context, &raw) == 0 else { return nil }
+        return ParakeetStageTimings(
+            melMicroseconds: raw.t_mel_us,
+            encodeMicroseconds: raw.t_encode_us,
+            decodeMicroseconds: raw.t_decode_us,
+            sampleMicroseconds: raw.t_sample_us,
+            predictMicroseconds: raw.t_predict_us,
+            encodeCount: Int(raw.n_encode),
+            decodeCount: Int(raw.n_decode),
+            predictCount: Int(raw.n_predict),
+            sampleCount: Int(raw.n_sample)
+        )
+    }
+
+    /// Mel frames the last front-end run left in the default state.
+    public var storedMelFrameCount: Int {
+        Int(parakeet_n_len(context))
+    }
+
+    /// A copy of that mel, frame-major `[frames, NativeMel.melBins]`.
+    public func storedMel() -> NativeMel? {
+        let frameCount = storedMelFrameCount
+        guard frameCount > 0,
+            parakeet_model_n_mels(context) == NativeMel.melBins,
+            let melData = parakeet_get_mel_data(context)
+        else {
+            return nil
+        }
+        return NativeMel(
+            frameCount: frameCount,
+            values: Array(UnsafeBufferPointer(start: melData, count: frameCount * NativeMel.melBins))
+        )
+    }
+
+    /// Frames of the encoder output the last encode or injection stored, or nil when none is.
+    public var storedEncoderFrameCount: Int? {
+        let frameCount = parakeet_copy_encoder_states(context, nil, 0, Int32(Self.encoderStateWidth))
+        return frameCount > 0 ? Int(frameCount) : nil
+    }
+
+    /// A copy of that encoder output, frame-major `[frames, encoderStateWidth]`: the exact F32
+    /// buffer the TDT tail read.
+    public func storedEncoderStates() -> (frameCount: Int, values: [Float])? {
+        guard let frameCount = storedEncoderFrameCount else { return nil }
+        var values = [Float](repeating: 0, count: frameCount * Self.encoderStateWidth)
+        let copied = values.withUnsafeMutableBufferPointer { buffer in
+            parakeet_copy_encoder_states(
+                context,
+                buffer.baseAddress,
+                Int32(frameCount),
+                Int32(Self.encoderStateWidth)
+            )
+        }
+        guard Int(copied) == frameCount else { return nil }
+        return (frameCount, values)
+    }
+}
+
+/// Stage-isolated native entry points for the Rust rewrite benchmarks (`voiceour-bench`'s
+/// `tail-bench`, `mel-bench` and `encoder-bench`). Each runs one unchanged native stage on the
+/// default state with `transcribe`'s thread count and callbacks, so a harness can time that stage
+/// alone on caller-chosen inputs. The sidecar never calls these.
+extension ParakeetContext {
+    /// `parakeet_pcm_to_mel` at the production thread count: the front end `parakeet_full` runs
+    /// first. Returns the stored mel's frame count.
+    @discardableResult
+    public func computeMel(samples: UnsafeBufferPointer<Float>) throws -> Int {
+        let status = parakeet_pcm_to_mel(context, samples.baseAddress, Int32(samples.count), threadCount)
+        guard status == 0 else {
+            throw ParakeetContextError.benchStageFailed("parakeet_pcm_to_mel returned \(status)")
+        }
+        return storedMelFrameCount
+    }
+
+    /// Replaces the stored mel with frame-major `[frameCount, NativeMel.melBins]` values through
+    /// `parakeet_set_mel`, so the next encode or stored-mel tail reads them instead of a front-end
+    /// run's output.
+    public func setStoredMel(_ values: UnsafeBufferPointer<Float>, frameCount: Int) throws {
+        guard frameCount > 0, values.count == frameCount * NativeMel.melBins else {
+            throw ParakeetContextError.benchStageFailed(
+                "\(values.count) mel values supplied, expected \(frameCount) x \(NativeMel.melBins)"
+            )
+        }
+        let status = parakeet_set_mel(context, values.baseAddress, Int32(frameCount), Int32(NativeMel.melBins))
+        guard status == 0 else {
+            throw ParakeetContextError.benchStageFailed("parakeet_set_mel returned \(status)")
+        }
+    }
+
+    /// `parakeet_full` over the stored mel with the front end skipped: the production encoder and
+    /// TDT tail with `transcribe`'s parameters. It also sizes the encoder graph to this mel —
+    /// `parakeet_chunk` stores the audio context before encoding — which `encodeStoredMel`
+    /// relies on.
+    public func decodeStoredMel() throws {
+        let status = try withDecodeParams(
+            threadCount: threadCount,
+            isCancelled: { false },
+            latticeBridge: nil,
+            body: { params in
+                parakeet_full(context, params, nil, 0)
+            }
+        )
+        guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
+    }
+
+    /// `parakeet_encode` over the stored mel: the encoder graph alone, at the production thread
+    /// count, into the encoder output the tail reads. The graph's length is the audio context the
+    /// last `parakeet_full` stored, not the stored mel's, so `decodeStoredMel` must have run on a
+    /// mel of this length first; otherwise the graph is built for the wrong length.
+    public func encodeStoredMel() throws {
+        let status = parakeet_encode(context, 0, threadCount)
+        guard status == 0 else {
+            throw ParakeetContextError.benchStageFailed("parakeet_encode returned \(status)")
+        }
+    }
+
+    /// The external-encoder tail over the stored mel: `parakeet_full_with_external_encoder` with
+    /// no samples, so caller-supplied frame-major `[frameCount, encoderStateWidth]` states decode
+    /// through the unchanged TDT tail and result construction with `transcribe`'s parameters,
+    /// against the stored mel's frame contract and without recomputing that mel.
+    public func decodeExternalStatesOverStoredMel(_ states: UnsafeBufferPointer<Float>, frameCount: Int) throws {
+        let melFrameCount = storedMelFrameCount
+        let expectedFrameCount = (melFrameCount + Self.melSubsamplingFactor - 1) / Self.melSubsamplingFactor
+        guard melFrameCount > 0, frameCount == expectedFrameCount else {
+            throw ParakeetContextError.externalStateContract(
+                "\(frameCount) encoder frames supplied, stored mel of \(melFrameCount) expects \(expectedFrameCount)"
+            )
+        }
+        guard states.count == frameCount * Self.encoderStateWidth else {
+            throw ParakeetContextError.externalStateContract(
+                "\(states.count) floats supplied, expected \(frameCount) x \(Self.encoderStateWidth)"
+            )
+        }
+        let status = try withDecodeParams(
+            threadCount: threadCount,
+            isCancelled: { false },
+            latticeBridge: nil,
+            body: { params in
+                parakeet_full_with_external_encoder(
+                    context,
+                    params,
+                    nil,
+                    0,
+                    states.baseAddress,
+                    Int32(frameCount),
+                    Int32(Self.encoderStateWidth)
+                )
+            }
+        )
+        guard status == 0 else { throw ParakeetContextError.decodeFailed(status) }
+    }
+
+    /// `parakeet_encode_stored_mel`: the encoder alone over the stored mel at the production
+    /// thread count, preparing this mel's shape inside the one call exactly as `parakeet_full`
+    /// does with no samples — the `no_context` reset, this mel's audio context, the scheduler's
+    /// high-water-mark reservation and the encoder-begin callback. Unlike `encodeStoredMel` it
+    /// needs no earlier full decode, so successive calls may change shape in either direction.
+    /// It stops before the tail; `copyEncoderStates(into:)` reads what it stored.
+    public func encodeStoredMelPreparingShape() throws {
+        let status = try withDecodeParams(
+            threadCount: threadCount,
+            isCancelled: { false },
+            latticeBridge: nil,
+            body: { params in
+                parakeet_encode_stored_mel(context, params)
+            }
+        )
+        guard status == 0 else {
+            throw ParakeetContextError.benchStageFailed("parakeet_encode_stored_mel returned \(status)")
+        }
+    }
+
+    /// Copies the encoder output the last encode or injection stored into `destination`,
+    /// frame-major `[frames, encoderStateWidth]`, and returns its frame count. The buffer's
+    /// capacity is `destination.count / encoderStateWidth` frames; a smaller one is refused, never
+    /// truncated.
+    public func copyEncoderStates(into destination: UnsafeMutableBufferPointer<Float>) throws -> Int {
+        let capacity = destination.count / Self.encoderStateWidth
+        guard capacity > 0, let base = destination.baseAddress else {
+            throw ParakeetContextError.benchStageFailed("encoder state buffer holds no whole frame")
+        }
+        let copied = parakeet_copy_encoder_states(
+            context,
+            base,
+            Int32(capacity),
+            Int32(Self.encoderStateWidth)
+        )
+        guard copied > 0 else {
+            throw ParakeetContextError.benchStageFailed(
+                "parakeet_copy_encoder_states returned \(copied) for a \(capacity)-frame buffer"
+            )
+        }
+        return Int(copied)
+    }
+}
+
+/// One token a TDT tail other than the native one emitted, in the fields every tail reports.
+public struct ParakeetTailToken: Equatable, Sendable {
+    public var id: Int32
+    public var frameIndex: Int32
+    /// The duration value, in encoder frames, as `parakeet_token_data.duration_value` stores it.
+    public var duration: Int32
+    public var probability: Float
+
+    public init(id: Int32, frameIndex: Int32, duration: Int32, probability: Float) {
+        self.id = id
+        self.frameIndex = frameIndex
+        self.duration = duration
+        self.probability = probability
+    }
+}
+
+extension ParakeetContext {
+    /// The native tail's result construction for tokens another tail emitted: the same
+    /// SentencePiece mapping (`parakeet_token_to_str`, then `parakeet_token_to_text` with
+    /// `is_first` true until the segment text is non-empty), the same `t0`/`t1` mel-frame bounds
+    /// (`frame_index` and `frame_index + duration`, times the subsampling factor), the same
+    /// punctuation collapse as `refine_timestamps_tdt`, the same word-start rule, and the same
+    /// single segment with the same per-token fields `collectSegments` builds. The segment text
+    /// is accumulated as bytes and decoded once, as `parakeet_full_get_segment_text` is read, so
+    /// a multi-byte character split across pieces survives. Empty text yields no segment. A token
+    /// id outside the vocabulary is refused rather than looked up.
+    public func assembleSegments(from tokens: [ParakeetTailToken]) throws -> [ParakeetSegmentRaw] {
+        guard !tokens.isEmpty else { return [] }
+        let vocabularySize = Int(parakeet_model_n_vocab(context))
+        let spaceMarker: [UInt8] = [0xE2, 0x96, 0x81]
+        let punctuation = Set(".,!?;:'\"-()[]{}".utf8)
+
+        struct Staged {
+            var piece: String
+            var isWordStart: Bool
+            var isPunctuation: Bool
+            var t0: Int64
+            var t1: Int64
+            var probability: Float
+        }
+        var staged: [Staged] = []
+        staged.reserveCapacity(tokens.count)
+        var segmentText: [UInt8] = []
+        var scratch = [CChar](repeating: 0, count: 64)
+
+        for token in tokens {
+            guard token.id >= 0, Int(token.id) < vocabularySize, let raw = parakeet_token_to_str(context, token.id)
+            else {
+                throw ParakeetContextError.benchStageFailed(
+                    "tail token id \(token.id) is outside the \(vocabularySize)-piece vocabulary"
+                )
+            }
+            let byteCount = Int(strlen(raw))
+            if scratch.count < byteCount + 2 {
+                scratch = [CChar](repeating: 0, count: byteCount + 2)
+            }
+            let written = Int(parakeet_token_to_text(raw, segmentText.isEmpty, &scratch, Int32(scratch.count)))
+            let rendered = min(written, scratch.count - 1)
+            scratch.withUnsafeBytes { segmentText.append(contentsOf: $0.prefix(rendered)) }
+
+            let piece = UnsafeBufferPointer(
+                start: UnsafeRawPointer(raw).assumingMemoryBound(to: UInt8.self),
+                count: byteCount
+            )
+            let startsWithMarker = piece.starts(with: spaceMarker)
+            var stripped = piece[...]
+            if startsWithMarker {
+                stripped = stripped.dropFirst(spaceMarker.count)
+            } else if piece.first == 0x5F {
+                stripped = stripped.dropFirst()
+            }
+            let frameIndex = Int64(token.frameIndex)
+            staged.append(
+                Staged(
+                    piece: String(cString: raw),
+                    isWordStart: startsWithMarker || piece.first == 0x5F,
+                    isPunctuation: stripped.count == 1 && stripped.first.map(punctuation.contains) == true,
+                    t0: frameIndex * Int64(Self.melSubsamplingFactor),
+                    t1: (frameIndex + Int64(token.duration)) * Int64(Self.melSubsamplingFactor),
+                    probability: token.probability
+                )
+            )
+        }
+        guard !segmentText.isEmpty else { return [] }
+
+        var lastNonPunctuationEnd: Int64 = -1
+        for index in staged.indices {
+            if staged[index].isPunctuation {
+                if lastNonPunctuationEnd >= 0 {
+                    staged[index].t0 = lastNonPunctuationEnd
+                    staged[index].t1 = lastNonPunctuationEnd
+                }
+            } else {
+                lastNonPunctuationEnd = staged[index].t1
+            }
+        }
+
+        let segmentTokens = staged.enumerated().map { index, token in
+            ParakeetToken(
+                piece: token.piece,
+                text: Self.renderText(piece: token.piece, isFirst: index == 0),
+                probability: token.probability,
+                startMs: Int(token.t0) * Self.msPerFrame,
+                endMs: Int(token.t1) * Self.msPerFrame,
+                isWordStart: token.isWordStart
+            )
+        }
+        return [
+            ParakeetSegmentRaw(
+                startMs: segmentTokens.first?.startMs ?? 0,
+                endMs: segmentTokens.last?.endMs ?? 0,
+                text: String(decoding: segmentText, as: UTF8.self),
+                tokens: segmentTokens
+            )
+        ]
     }
 }
 

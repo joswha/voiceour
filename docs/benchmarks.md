@@ -322,3 +322,12 @@ CPU smokes (10–48 s per clip) because the dynamic decoder graph triggered per-
 compilation that exhausted disk and the fixed 448-token graph failed ANE program load; their
 failure records sit beside the report's run directory. Private Cloud Compute was hardware
 available but blocked by the missing entitlement, and no cloud request was sent.
+
+## Selective Rust rewrite experiments
+
+[Rust rewrite evaluation](rust-evaluation.md) records the benchmark-only mel, decoder, encoder,
+text and renderer implementations, their C/Swift controls, and the directly measured combined
+PCM-to-cleaned-text path. `voiceour-bench combined-bench` recomputes every stage from PCM and
+checks token, text and segment identity; isolated stage speedups are not app-latency predictions.
+`bench/rust/run_official.sh` serializes measurements and enforces power/completion checks.
+Rust and MLX remain development dependencies, not requirements for building the shipping app.

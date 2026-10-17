@@ -1,0 +1,33 @@
+[package]
+name = "mel-frontend"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+description = "Benchmark-only Rust ports of parakeet.cpp's log-mel frontend (bet B2) behind the vm_* C ABI."
+
+[lib]
+name = "mel_frontend"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "mel-bench"
+path = "src/bin/mel-bench.rs"
+
+[dependencies]
+parakeet-model = { path = "../parakeet-model" }
+# The `realfft` arm's modern real FFT (rustfft underneath, NEON on aarch64).
+realfft = "3"
+# index.jsonl in, timing rows out (mel-bench only).
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+# The C ABI catches panics and reports them through `err`; that needs unwinding.
+panic = "unwind"
+debug = "line-tables-only"
+
+# Own workspace: bench crates never join a parent workspace.
+[workspace]

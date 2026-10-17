@@ -12,6 +12,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 
 - **macOS 27 baseline.** Voiceour requires macOS 27 on Apple Silicon; building from source requires Xcode 27 and Swift 6.4.
 - **Native console and menu.** The console uses native tabs and system glass, with an opaque ground under Reduce Transparency. The menu popover uses the system's own chrome.
+- **Reproducible rewrite benchmarks.** Added isolated Rust experiments, C/Swift controls and a paired raw-audio-to-text benchmark with output-identity and completion gates. Shipping recognition and runtime selection are unchanged; measured results and limitations live in `docs/rust-evaluation.md`.
 
 ### Fixed
 

@@ -1,0 +1,42 @@
+[package]
+name = "encoder-candle"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+description = "Benchmark-only FastConformer encoder of the pinned parakeet-tdt-0.6b-v3 on candle-metal (bet B4a)."
+
+[lib]
+name = "encoder_candle"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "encoder-bench"
+path = "src/bin/encoder-bench.rs"
+
+[dependencies]
+candle-core = { version = "=0.11.0", features = ["metal"] }
+candle-nn = { version = "=0.11.0", features = ["metal"] }
+# candle-core's own Metal backend crates, at the exact versions candle-core 0.11.0 already
+# depends on (no new packages in Cargo.lock). Named directly only to compile and dispatch this
+# crate's custom Metal kernels and to call the steel attention kernel with explicit strides.
+candle-metal-kernels = "=0.11.0"
+objc2-metal = "=0.3.2"
+parakeet-model = { path = "../parakeet-model" }
+
+# candle-metal-kernels compiles its Metal libraries with the host process's default Metal
+# Shading Language version, which failed inside the macOS 27 voiceour-bench host (see README.md,
+# "Metal toolchain"). vendor/ holds crates.io candle-metal-kernels 0.11.0 plus
+# patches/candle-metal-kernels-0.11.0-msl-language-version.patch, which pins the version. It is
+# untracked: on a clean checkout run `patches/vendor-candle-metal-kernels.sh` before `cargo build`.
+[patch.crates-io]
+candle-metal-kernels = { path = "vendor/candle-metal-kernels" }
+
+# Own workspace: every crate under bench/rust/ is built on its own.
+[workspace]
+
+[profile.release]
+opt-level = 3
+# The C ABI catches panics and reports them through `err`; that needs unwinding.
+panic = "unwind"
+debug = "line-tables-only"

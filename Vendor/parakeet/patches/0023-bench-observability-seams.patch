@@ -1,0 +1,121 @@
+diff --git a/include/parakeet.h b/include/parakeet.h
+index 4496df1..0a971e1 100644
+--- a/include/parakeet.h
++++ b/include/parakeet.h
+@@ -224,6 +224,25 @@ extern "C" {
+     PARAKEET_API void parakeet_print_timings(struct parakeet_context * ctx);
+     PARAKEET_API void parakeet_reset_timings(struct parakeet_context * ctx);
+ 
++    // VOICEOUR PATCH: Benchmark observability. Totals of the default state's existing stage
++    // counters since the last parakeet_reset_timings(); reading them adds no timer anywhere.
++    // t_decode_us/n_decode cover every greedy step graph (joint, plus a merged prediction when
++    // the previous step emitted); t_predict_us covers standalone prediction graphs only, while
++    // n_predict counts both kinds; t_sample_us/n_sample cover emitted (non-blank) tokens only.
++    struct parakeet_stage_timings {
++        int64_t t_mel_us;
++        int64_t t_encode_us;
++        int64_t t_decode_us;
++        int64_t t_sample_us;
++        int64_t t_predict_us;
++        int32_t n_encode;
++        int32_t n_decode;
++        int32_t n_predict;
++        int32_t n_sample;
++    };
++    // Returns 0 and fills `out`, or -1 when the context has no default state or `out` is NULL.
++    PARAKEET_API int parakeet_get_stage_timings(struct parakeet_context * ctx, struct parakeet_stage_timings * out);
++
+     // Print system information
+     PARAKEET_API const char * parakeet_print_system_info(void);
+ 
+@@ -343,6 +362,17 @@ extern "C" {
+                                     int   n_encoder_frames,
+                                     int   n_encoder_state);
+ 
++    // VOICEOUR PATCH: Benchmark observability. Copies the default state's encoder output
++    // `enc_out` - frame-major [n_frames, n_state] F32, the exact buffer the TDT tail reads -
++    // into `dst`, for either tail placement. Returns n_frames, or -1 when no encoder output is
++    // stored, n_state is not the model width, or max_frames < n_frames. dst=NULL with
++    // max_frames=0 reports n_frames without copying.
++    PARAKEET_API int parakeet_copy_encoder_states(
++                struct parakeet_context * ctx,
++                                  float * dst,
++                                    int   max_frames,
++                                    int   n_state);
++
+     // Process a single chunk of audio data that fits within the model's audio context window.
+     // This is more efficient than parakeet_full() for short audio clips.
+     PARAKEET_API int parakeet_chunk(
+diff --git a/src/parakeet.cpp b/src/parakeet.cpp
+index 8d2dad6..d760bc7 100644
+--- a/src/parakeet.cpp
++++ b/src/parakeet.cpp
+@@ -6011,6 +6011,25 @@ void parakeet_reset_timings(struct parakeet_context * ctx) {
+     }
+ }
+ 
++// VOICEOUR PATCH: benchmark stage profile over the counters the stages already keep.
++int parakeet_get_stage_timings(struct parakeet_context * ctx, struct parakeet_stage_timings * out) {
++    if (!ctx || !ctx->state || !out) {
++        return -1;
++    }
++
++    const struct parakeet_state * state = ctx->state;
++    out->t_mel_us     = state->t_mel_us;
++    out->t_encode_us  = state->t_encode_us;
++    out->t_decode_us  = state->t_decode_us;
++    out->t_sample_us  = state->t_sample_us;
++    out->t_predict_us = state->t_predict_us;
++    out->n_encode     = state->n_encode;
++    out->n_decode     = state->n_decode;
++    out->n_predict    = state->n_predict;
++    out->n_sample     = state->n_sample;
++    return 0;
++}
++
+ const char * parakeet_print_system_info(void) {
+     static std::string s;
+ 
+@@ -6323,6 +6342,42 @@ int parakeet_full_with_external_encoder(
+     return 0;
+ }
+ 
++// VOICEOUR PATCH: benchmark read-back of the encoder output the TDT tail consumes. Read-only:
++// no state transition, and ggml_backend_tensor_get serves Metal and CPU tail buffers alike.
++// The ordinary parakeet_full path never calls this entry point.
++int parakeet_copy_encoder_states(
++        struct parakeet_context * ctx,
++                          float * dst,
++                            int   max_frames,
++                            int   n_state) {
++    if (!ctx || !ctx->state) {
++        return -1;
++    }
++
++    const struct parakeet_state * state = ctx->state;
++    const int n_frames = state->n_frames;
++    if (!state->enc_out ||
++            n_state != ctx->model.hparams.n_audio_state ||
++            state->enc_out->ne[0] != n_state ||
++            n_frames <= 0 ||
++            n_frames > state->enc_out->ne[1]) {
++        return -1;
++    }
++    if (dst == nullptr) {
++        return max_frames == 0 ? n_frames : -1;
++    }
++    if (max_frames < n_frames) {
++        return -1;
++    }
++
++    ggml_backend_tensor_get(
++        state->enc_out,
++        dst,
++        0,
++        (size_t) n_frames * (size_t) n_state * sizeof(float));
++    return n_frames;
++}
++
+ int parakeet_full(
+         struct parakeet_context * ctx,
+     struct parakeet_full_params   params,

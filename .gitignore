@@ -33,6 +33,9 @@ __pycache__/
 .pytest_cache/
 .cache/
 
+# Benchmark-only Rust crates under bench/rust/ are each their own cargo workspace.
+bench/rust/*/target/
+
 # Local launch environment sourced by the Makefile's `run` and `dev` targets; the app itself holds no credential
 .env
 .env.*

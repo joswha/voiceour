@@ -1,0 +1,35 @@
+[package]
+name = "voiceour-text"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+description = "Benchmark-only Rust port of Voiceour's post-ASR text path (LiteralComposition, CleanupEngine, VocabularyRepairEngine) with a Swift-identical output contract."
+
+[lib]
+name = "voiceour_text"
+path = "src/lib.rs"
+# rlib for `text-bench`; cdylib (`libvoiceour_text.dylib`, C ABI in src/ffi.rs) for the Swift
+# harness's in-process `rust-ffi` arm.
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "text-bench"
+path = "src/bin/text-bench.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# Both pinned at Unicode 17.0.0, the version of the Swift 6.4 stdlib and of the
+# system ICU 78.1 the production path runs on (see README).
+unicode-normalization = "=0.1.25"
+unicode-segmentation = "=1.13.3"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+debug = "line-tables-only"
+
+# Own workspace: bench crates never join a parent workspace.
+[workspace]

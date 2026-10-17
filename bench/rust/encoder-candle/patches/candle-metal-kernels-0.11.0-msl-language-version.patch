@@ -1,0 +1,46 @@
+VOICEOUR PATCH for candle-metal-kernels 0.11.0 (crates.io sha256 242e83c6acf639bb273c929d73c67a882bb4dd08a140f121096e19ba2f213d3e).
+Apply with `patch -p1` inside the extracted crate; patches/vendor-candle-metal-kernels.sh does this.
+
+Pin MTLCompileOptions.languageVersion for every library candle compiles at run time. The
+unpinned default follows the host binary; see bench/rust/encoder-candle/README.md.
+
+--- a/src/kernel.rs
++++ b/src/kernel.rs
+@@ -9,6 +9,7 @@
+ };
+ use objc2::available;
+ use objc2::rc::Retained;
++use objc2_metal::MTLLanguageVersion;
+ use std::collections::HashMap;
+ use std::sync::RwLock;
+ 
+@@ -187,6 +188,13 @@
+     // Ref availability:
+     // https://developer.apple.com/documentation/metal/mtlcompileoptions/mathmode
+     if available!(macos = 15, ios = 18) {
++        // VOICEOUR PATCH (bench/rust/encoder-candle): pin the Metal Shading Language version.
++        // Left unset, the version follows the host process: a host binary built for macOS 27
++        // fails to compile mlx_gemm.metal's `BlockMMA` ("must explicitly initialize the member
++        // 'Asimd'"), while a binary with an old deployment target compiles the same source.
++        // 3.2 is the language of macOS 15, the release this source and the math-mode API
++        // below target.
++        compile_options.setLanguageVersion(pinned_language_version());
+         if fast_math_enabled {
+             compile_options.setMathMode(MTLMathMode::Fast);
+             compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Fast);
+@@ -201,3 +209,15 @@
+     }
+     compile_options
+ }
++
++/// VOICEOUR PATCH: `CANDLE_METAL_LANGUAGE_VERSION` (3.0, 3.1, 3.2 or 4.0) overrides the pinned
++/// version, to bisect a toolchain break without rebuilding. An unknown value panics.
++fn pinned_language_version() -> MTLLanguageVersion {
++    match std::env::var("CANDLE_METAL_LANGUAGE_VERSION").as_deref() {
++        Err(_) | Ok("3.2") => MTLLanguageVersion::Version3_2,
++        Ok("3.1") => MTLLanguageVersion::Version3_1,
++        Ok("3.0") => MTLLanguageVersion::Version3_0,
++        Ok("4.0") => MTLLanguageVersion::Version4_0,
++        Ok(other) => panic!("CANDLE_METAL_LANGUAGE_VERSION={other:?}: expected 3.0, 3.1, 3.2 or 4.0"),
++    }
++}

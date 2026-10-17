@@ -1,0 +1,25 @@
+[package]
+name = "mercury-raster"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Benchmark-only Rust port of Voiceour's production mercury rasterizer (bet B6)."
+
+[lib]
+name = "mercury_raster"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "mercury-replay"
+path = "src/bin/mercury-replay.rs"
+
+# Own workspace: every crate under bench/rust/ is built on its own.
+[workspace]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+# The C ABI catches panics and reports them through `err`; that needs unwinding.
+panic = "unwind"
+debug = "line-tables-only"
