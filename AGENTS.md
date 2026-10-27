@@ -12,7 +12,7 @@ README.md owns the product contract. AGENTS.md owns engineering invariants and e
 - Only `.normalText` may paste. Secure delivery: concealed, host-only copy; no History or ledger entry.
 - NEVER read, save, or restore the user's previous clipboard. NEVER retain recorded audio.
 - Default verification MUST stay offscreen and silent. Window activation, live keystrokes, speaker playback, or microphone capture require agreement to that specific interruption. “Test end-to-end” is not permission.
-- MUST preserve unrelated user work. NEVER push, tag, or publish without authorization.
+- MUST preserve unrelated user work. Small verified changes get separate scoped commits and push directly to `origin/main` by default.
 - MUST use tools to verify claims. Keep working until the requested result is verified or a concrete blocker is established. NEVER report unrun checks as passing.
 </critical>
 
@@ -24,7 +24,7 @@ Lead with the result. State changes, evidence, risks, blockers. Use exact paths,
 1. Inspect relevant code, tests, contracts, and existing changes. Resolve repo-answerable questions with tools. Plan multi-file changes before editing.
 2. Fix the cause. Reuse existing patterns. Change only requested behavior; migrate affected callers; remove obsolete code. NEVER hide failures or add compatibility shims for internal APIs.
 3. Run the smallest meaningful check, then required gates. Exercise changed behavior; compilation alone is not runtime proof. Use external results to fix failures, not self-assessment.
-4. Update the owning contract and affected tests. Report actual verification and remaining blockers. Commit only completed, verified, related work; preserve user changes.
+4. Update the owning contract and affected tests. Commit each completed, verified concern separately; push directly to `origin/main`. Preserve unrelated user changes; report verification and blockers.
 </workflow>
 
 ## Architecture boundaries
@@ -395,7 +395,8 @@ Binary substitutes `scripts/release.sh --binary --dry-run`, then `scripts/releas
 
 ## Git and collaboration
 
-- Default branch: `main`. MUST commit completed, verified related changes with a scoped message; NEVER push unless asked.
+- Small changes MUST use separate, scoped commits and push straight to `origin/main` after verification. This is standing authorization; NEVER stop at “committed, not pushed” or create a PR unless requested or branch protection requires it.
+- MUST fetch before pushing and preserve remote commits. NEVER force-push, bypass protection, or publish unverified work. If direct push is blocked, report the exact blocker.
 - NEVER discard, rewrite, stage, or commit unrelated user work.
 - Generated data/build artifacts stay uncommitted unless their artifact type is explicitly tracked.
 - Intended AX/digest/flow goldens MUST accompany the behavior change requiring them.
@@ -412,5 +413,5 @@ Binary substitutes `scripts/release.sh --binary --dry-run`, then `scripts/releas
 - Finish the requested work; verify with tools; report exact blockers instead of invented success.
 - Preserve fail-closed delivery, secure-history exclusion, local-only processing, explicit learning, and user work.
 - No desktop/audio/microphone interruption without specific agreement.
-- Git pushes require explicit authorization. Release tags/publication require current-session authorization and passing release gates. NEVER publish an unnotarized binary.
+- Small verified changes: commit separately, push directly to `origin/main`. Release tags/publication still require current-session authorization and passing release gates. NEVER publish an unnotarized binary.
 </critical>
