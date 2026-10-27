@@ -720,7 +720,8 @@ static bool parakeet_sched_graph_init(struct parakeet_sched & allocr, std::vecto
     auto & sched = allocr.sched;
     auto & meta  = allocr.meta;
 
-    sched = ggml_backend_sched_new(backends.data(), nullptr, backends.size(), PARAKEET_MAX_NODES, false, true);
+    // VOICEOUR PATCH: the scheduler ABI takes an int; this list contains the selected CPU/Metal backends.
+    sched = ggml_backend_sched_new(backends.data(), nullptr, (int) backends.size(), PARAKEET_MAX_NODES, false, true);
 
     if (!sched) {
         PARAKEET_LOG_ERROR("%s: failed to create scheduler\n", __func__);
@@ -2864,7 +2865,7 @@ static bool parakeet_model_load(
 
     // The legacy/non-seekable global path keeps its K-quant fallback for the 640-wide
     // prediction/joint tensors. A seekable record directory overrides only allowlisted weights.
-    const int blck         = ggml_blck_size(wtype);
+    const int64_t blck     = ggml_blck_size(wtype); // VOICEOUR PATCH: retain ggml's block-size type.
     const ggml_type pred_wtype = (blck > 1 && dec_hidden % blck != 0) ? GGML_TYPE_F32 : wtype;
     const ggml_type join_wtype = pred_wtype;
 
@@ -3607,9 +3608,10 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
     // [freq, chan, time]
     cur = ggml_cont(ctx0, cur);
 
-    const int n_freq   = cur->ne[0]; // 16
-    const int n_chan   = cur->ne[1]; // 256
-    const int n_frames = cur->ne[2]; // time
+    // VOICEOUR PATCH: reshape dimensions retain ggml's 64-bit shape type.
+    const int64_t n_freq   = cur->ne[0]; // 16
+    const int64_t n_chan   = cur->ne[1]; // 256
+    const int64_t n_frames = cur->ne[2]; // time
 
     // [freq, time, chan, batch] -> [(freq * chan), time]
     cur = ggml_reshape_2d(ctx0, cur, n_freq * n_chan, n_frames);
@@ -3646,7 +3648,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
     // Encoder
     // cur: [n_state, n_enc_time]
 
-    const int  n_time      = cur->ne[1];
+    // VOICEOUR PATCH: encoder time is bounded by the model's int audio-context size.
+    const int  n_time      = (int) cur->ne[1];
     const bool local_attn  = n_time > PARAKEET_LOCAL_ATTN_THRESHOLD;
     const int  att_left    = local_attn ? PARAKEET_LOCAL_ATTN_WINDOW : n_time - 1;
     const int  att_right   = local_attn ? PARAKEET_LOCAL_ATTN_WINDOW : n_time - 1;
@@ -3788,7 +3791,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
 
                 // pad time axis to match n_kv_dense if needed.
                 if (n_kv_dense > K_padded->ne[1]) {
-                    K_padded = ggml_pad_ext(ctx0, K_padded, 0, 0, 0, n_kv_dense - K_padded->ne[1], 0, 0, 0, 0);
+                    // VOICEOUR PATCH: nonnegative padding is bounded by int n_kv_dense.
+                    K_padded = ggml_pad_ext(ctx0, K_padded, 0, 0, 0, (int) (n_kv_dense - K_padded->ne[1]), 0, 0, 0, 0);
                 }
 
                 // Create a 4d tensor where each group spans a wide window of
@@ -3857,7 +3861,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
 
                 // pad time axis to match n_kv_dense if needed.
                 if (n_kv_dense > V_padded->ne[1]) {
-                    V_padded = ggml_pad_ext(ctx0, V_padded, 0, 0, 0, n_kv_dense - V_padded->ne[1], 0, 0, 0, 0);
+                    // VOICEOUR PATCH: nonnegative padding is bounded by int n_kv_dense.
+                    V_padded = ggml_pad_ext(ctx0, V_padded, 0, 0, 0, (int) (n_kv_dense - V_padded->ne[1]), 0, 0, 0, 0);
                 }
 
                 V_padded = ggml_cont(ctx0, ggml_transpose(ctx0, V_padded));
@@ -3916,7 +3921,7 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
                     rel_pos_scores = ggml_reshape_3d(ctx0, rel_pos_scores, n_frame, pos_window + 1, n_head_cur);
                     ggml_format_name(rel_pos_scores, "enc_%d_attn_rel_pos_reshaped", il);
 
-                    const int center = pos_window / 2;
+                    const int64_t center = pos_window / 2; // VOICEOUR PATCH: preserve the view-offset width.
 
                     // VOICEOUR PATCH: fold the shift's `ggml_roll` into this view's offset.
                     //
@@ -4105,7 +4110,8 @@ static struct ggml_cgraph * parakeet_build_graph_encode(parakeet_context & pctx,
     }
 
     ggml_set_name(cur, "encoder_out");
-    pstate.n_frames = cur->ne[1];
+    // VOICEOUR PATCH: frames are bounded by the model's int audio-context size.
+    pstate.n_frames = (int) cur->ne[1];
 
     struct ggml_tensor * enc_out_view = ggml_view_2d(ctx0, pstate.enc_out, n_state, pstate.n_frames, pstate.enc_out->nb[1], 0);
     ggml_build_forward_expand(gf, ggml_cpy(ctx0, cur, enc_out_view));
@@ -4159,8 +4165,9 @@ static bool parakeet_encode_internal(
     // set attention mask
     {
         struct ggml_tensor * attn_mask = ggml_graph_get_tensor(gf, "attn_mask");
-        const int n_q = attn_mask->ne[1];
-        const int n_k = attn_mask->ne[0];
+        // VOICEOUR PATCH: mask dimensions come from the int-bounded encoder context.
+        const int n_q = (int) attn_mask->ne[1];
+        const int n_k = (int) attn_mask->ne[0];
 
         // VOICEOUR PATCH: causal downsampling emits `floor(L / 2) + 1` frames
         // per stage, one more than the non-causal `ceil(L / factor)`; the pad
@@ -4200,8 +4207,9 @@ static bool parakeet_encode_internal(
 
     // set local attention skew mask
     if (struct ggml_tensor * local_mask = ggml_graph_get_tensor(gf, "local_mask")) {
-        const int n_k = local_mask->ne[0];
-        const int n_q = local_mask->ne[1];
+        // VOICEOUR PATCH: local mask dimensions are bounded by PARAKEET_LOCAL_ATTN_WINDOW.
+        const int n_k = (int) local_mask->ne[0];
+        const int n_q = (int) local_mask->ne[1];
 
         std::vector<float> mask_data(n_q * n_k);
         const int window_size = n_k - n_q + 1;
@@ -4217,7 +4225,7 @@ static bool parakeet_encode_internal(
     // set positional frequency
     {
         struct ggml_tensor * pos_freqs_t = ggml_graph_get_tensor(gf, "pos_freqs");
-        const int d_half      = pos_freqs_t->ne[0];
+        const int64_t d_half  = pos_freqs_t->ne[0]; // VOICEOUR PATCH: preserve the tensor dimension.
         const int n_state     = pctx.model.hparams.n_audio_state;
         const float log_10000 = logf(10000.0f);
         std::vector<float> freqs(d_half);
@@ -4230,7 +4238,8 @@ static bool parakeet_encode_internal(
     // set relative position offsets
     {
         struct ggml_tensor * rel_pos_t = ggml_graph_get_tensor(gf, "rel_positions");
-        const int window_size = rel_pos_t->ne[1];
+        // VOICEOUR PATCH: this window was constructed from the int encoder-context size.
+        const int window_size = (int) rel_pos_t->ne[1];
         std::vector<float> pos(window_size);
         if (window_size == PARAKEET_LOCAL_ATTN_WINDOW * 2 + 1) {
             for (int t = 0; t < window_size; ++t) {
@@ -4348,7 +4357,7 @@ static struct ggml_tensor * parakeet_build_graph_lstm_layer(
     struct ggml_tensor * gates = ggml_add(ctx0, inp_gates, hid_gates);
     ggml_format_name(gates, "lstm_layer_%d_gates", li);
 
-    const int h_dim = h_state->ne[0];
+    const int64_t h_dim = h_state->ne[0]; // VOICEOUR PATCH: preserve ggml view dimensions.
     const size_t row_size = ggml_row_size(gates->type, h_dim);
 
     // The gates are packed as [i, f, o, c] (reordered at convert time, see
@@ -5118,7 +5127,8 @@ static bool log_mel_spectrogram(
     const int64_t t_start_us = ggml_time_us();
 
     const float * window_func = cache.window.empty() ? cache.hann_window.data() : cache.window.data();
-    const int window_size = cache.window.empty() ? cache.n_fft : cache.window.size();
+    // VOICEOUR PATCH: the model FFT/window size is already represented by int in mel_worker_params.
+    const int window_size = cache.window.empty() ? cache.n_fft : (int) cache.window.size();
 
     std::vector<float> samples_preprocessed(samples, samples + n_samples);
 
@@ -5136,7 +5146,8 @@ static bool log_mel_spectrogram(
     std::copy(samples_preprocessed.begin(), samples_preprocessed.end(), samples_padded.begin() + pad);
 
     mel.n_mel = n_mel;
-    mel.n_len = (samples_padded.size() - frame_size) / frame_step + 1;
+    // VOICEOUR PATCH: padding cancels frame_size; the frame count is bounded by int n_samples.
+    mel.n_len = (int) ((samples_padded.size() - frame_size) / frame_step + 1);
     mel.n_len_org = mel.n_len;
     mel.data.resize(mel.n_mel * mel.n_len);
 
@@ -5862,7 +5873,7 @@ int parakeet_tokenize(struct parakeet_context * ctx, const char * text, parakeet
         tokens[i] = res[i];
     }
 
-    return res.size();
+    return (int) res.size(); // VOICEOUR PATCH: match the int token-count API and capacity check above.
 }
 
 int parakeet_token_count(struct parakeet_context * ctx, const char * text) {
@@ -5929,7 +5940,7 @@ int parakeet_token_to_text(const char * token_str, bool is_first, char * output,
     std::string text = sentencepiece_piece_to_text(token_str, is_first);
 
     if (output == nullptr) {
-        return text.size();
+        return (int) text.size(); // VOICEOUR PATCH: token text lengths use the int buffer-size API.
     }
 
     int bytes_to_copy = std::min((int)text.size(), max_len - 1);
@@ -5940,7 +5951,7 @@ int parakeet_token_to_text(const char * token_str, bool is_first, char * output,
         output[0] = '\0';
     }
 
-    return text.size();
+    return (int) text.size(); // VOICEOUR PATCH: match the sizing-query return above.
 }
 
 parakeet_token parakeet_token_bos(struct parakeet_context * ctx) {
@@ -6561,11 +6572,11 @@ int parakeet_chunk(
 }
 
 int parakeet_full_n_segments_from_state(struct parakeet_state * state) {
-    return state->result_all.size();
+    return (int) state->result_all.size(); // VOICEOUR PATCH: preserve the int-indexed segment API.
 }
 
 int parakeet_full_n_segments(struct parakeet_context * ctx) {
-    return ctx->state->result_all.size();
+    return (int) ctx->state->result_all.size(); // VOICEOUR PATCH: preserve the int-indexed segment API.
 }
 
 int64_t parakeet_full_get_segment_t0_from_state(struct parakeet_state * state, int i_segment) {
@@ -6593,11 +6604,11 @@ const char * parakeet_full_get_segment_text(struct parakeet_context * ctx, int i
 }
 
 int parakeet_full_n_tokens_from_state(struct parakeet_state * state, int i_segment) {
-    return state->result_all[i_segment].tokens.size();
+    return (int) state->result_all[i_segment].tokens.size(); // VOICEOUR PATCH: preserve the int-indexed token API.
 }
 
 int parakeet_full_n_tokens(struct parakeet_context * ctx, int i_segment) {
-    return ctx->state->result_all[i_segment].tokens.size();
+    return (int) ctx->state->result_all[i_segment].tokens.size(); // VOICEOUR PATCH: preserve the int-indexed token API.
 }
 
 const char * parakeet_full_get_token_text_from_state(struct parakeet_context * ctx, struct parakeet_state * state, int i_segment, int i_token) {

@@ -398,9 +398,10 @@ struct ggml_backend_meta_simple_tensor_container {
     std::vector<ggml_context_ptr> ctxs;
     std::map<const ggml_tensor *, std::vector<ggml_tensor *>> simple_tensors;
 
-    ggml_backend_meta_simple_tensor_container(const ggml_init_params & params, const int n_simple) {
+    // VOICEOUR PATCH: take the simple-buffer count as size_t, matching ggml_backend_meta_buft_n_bufts() and ctxs.size().
+    ggml_backend_meta_simple_tensor_container(const ggml_init_params & params, const size_t n_simple) {
         ctxs.reserve(n_simple);
-        for (int i = 0; i < n_simple; i++) {
+        for (size_t i = 0; i < n_simple; i++) {
             ctxs.emplace_back(ggml_init(params));
         }
     }
@@ -2031,7 +2032,8 @@ static enum ggml_status ggml_backend_meta_graph_compute(ggml_backend_t backend, 
                 ggml_cgraph * cgraph_ij = bcj.cgraphs[i_graph].cgraph_main;
                 const size_t i_node_start = bcj.cgraphs[i_graph].offset;
                 const size_t i_node_stop = i_graph + 1 < n_subgraphs ? bcj.cgraphs[i_graph + 1].offset : cgraph->n_nodes;
-                cgraph_ij->n_nodes = i_node_stop - i_node_start;
+                // VOICEOUR PATCH: the subgraph node range lies within [0, cgraph->n_nodes], so its length fits ggml_cgraph::n_nodes (int).
+                cgraph_ij->n_nodes = (int) (i_node_stop - i_node_start);
                 ggml_hash_set_reset(&cgraph_ij->visited_hash_set);
                 for (size_t i_node = i_node_start; i_node < i_node_stop; i_node++) {
                     ggml_tensor * node_ij = bcj.nodes[i_node];

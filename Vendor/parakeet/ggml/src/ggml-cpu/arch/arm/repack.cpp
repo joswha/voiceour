@@ -51,7 +51,8 @@ static inline void decode_q_Kx8_6bit_scales(const uint8_t * scales_in, int16x8_t
 void ggml_quantize_mat_q8_0_4x4(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK8_0 == 32);
     assert(k % QK8_0 == 0);
-    const int nb = k / QK8_0;
+    // VOICEOUR PATCH: keep the block count/index at the int64_t width of k.
+    const int64_t nb = k / QK8_0;
 
     block_q8_0x4 * GGML_RESTRICT y = (block_q8_0x4 *) vy;
 
@@ -59,7 +60,7 @@ void ggml_quantize_mat_q8_0_4x4(const float * GGML_RESTRICT x, void * GGML_RESTR
     float32x4_t srcv[4][8];
     float id[4];
 
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         float32x4_t asrcv[8];
         float32x4_t amaxv[8];
 
@@ -119,7 +120,8 @@ void ggml_quantize_mat_q8_0_4x4(const float * GGML_RESTRICT x, void * GGML_RESTR
 void ggml_quantize_mat_q8_0_4x8(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK8_0 == 32);
     assert(k % QK8_0 == 0);
-    const int nb = k / QK8_0;
+    // VOICEOUR PATCH: keep the block count/index at the int64_t width of k.
+    const int64_t nb = k / QK8_0;
 
     block_q8_0x4 * GGML_RESTRICT y = (block_q8_0x4 *) vy;
 
@@ -127,7 +129,7 @@ void ggml_quantize_mat_q8_0_4x8(const float * GGML_RESTRICT x, void * GGML_RESTR
     float32x4_t srcv[4][8];
     float id[4];
 
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         float32x4_t asrcv[8];
         float32x4_t amaxv[8];
 
@@ -3509,7 +3511,8 @@ void ggml_gemm_q4_K_8x4_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const vo
                 int row = y * q8_k_blocklen + i;
                 for (int j = 0; j < 2; j++) {
                     int col    = x * ncols_interleaved + j * 4;
-                    int offset = row * bs + col;
+                    // VOICEOUR PATCH: row * bs is size_t; keep the store offset at that width.
+                    size_t offset = row * bs + col;
                     vst1q_f32(s + offset, acc_f32[2 * i + j]);
                 }
             }
@@ -3738,7 +3741,8 @@ void ggml_gemm_q5_K_8x4_q8_K(int                        n,
                 int row = y * q8_k_blocklen + i;
                 for (int j = 0; j < 2; j++) {
                     int col    = x * ncols_interleaved + j * 4;
-                    int offset = row * bs + col;
+                    // VOICEOUR PATCH: row * bs is size_t; keep the store offset at that width.
+                    size_t offset = row * bs + col;
                     vst1q_f32(s + offset, acc_f32[2 * i + j]);
                 }
             }
@@ -4707,7 +4711,8 @@ void ggml_gemm_q6_K_8x4_q8_K(int                        n,
                 int row = y * q8_k_blocklen + i;
                 for (int j = 0; j < 2; j++) {
                     int col    = x * ncols_interleaved + j * 4;
-                    int offset = row * bs + col;
+                    // VOICEOUR PATCH: row * bs is size_t; keep the store offset at that width.
+                    size_t offset = row * bs + col;
                     vst1q_f32(s + offset, acc_f32[2 * i + j]);
                 }
             }

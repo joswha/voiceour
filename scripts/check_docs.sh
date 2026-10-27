@@ -78,7 +78,7 @@ done <<EOF
 $variant_shas
 EOF
 
-for doc in README.md NOTICE AGENTS.md docs/architecture.md docs/developer-setup.md; do
+for doc in README.md NOTICE AGENTS.md; do
   if [ ! -f "$ROOT/$doc" ]; then
     fail "$doc is missing"
     continue
@@ -94,7 +94,7 @@ done
 # The docs that describe the artifacts themselves must name and digest every one of them. Model id
 # and revision cannot catch this drift: each variant shares both, so only the file name and the
 # digest distinguish the set the docs claim from the set the app ships.
-for doc in AGENTS.md docs/architecture.md; do
+for doc in README.md AGENTS.md; do
   [ -f "$ROOT/$doc" ] || continue
   while read -r file sha; do
     [ -n "$file" ] || continue
@@ -107,8 +107,7 @@ done
 
 # NOTICE is attribution rather than contract, so it must credit every artifact a reader can
 # actually be served — both conversions of the pinned revision, not just the default. The digests
-# stay out of it: they are the integrity check the two documents above describe, and restating
-# them in a licence notice would only be a fourth copy to drift.
+# stay out of it: they are the integrity check the two canonical documents above describe.
 if [ -f "$ROOT/NOTICE" ]; then
   while read -r file _sha; do
     [ -n "$file" ] || continue
@@ -253,4 +252,4 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
-printf '%s\n' "check_docs.sh: OK: README.md, NOTICE, AGENTS.md, docs/architecture.md, docs/developer-setup.md match $model_id@$revision; AGENTS.md and docs/architecture.md name and digest $artifact_names; NOTICE credits $artifact_names; retired revision absent from README.md, NOTICE and AGENTS.md"
+printf '%s\n' "check_docs.sh: OK: README.md, NOTICE and AGENTS.md match $model_id@$revision; README.md and AGENTS.md name and digest $artifact_names; NOTICE credits $artifact_names; retired revision absent from README.md, NOTICE and AGENTS.md"

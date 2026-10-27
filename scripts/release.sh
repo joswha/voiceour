@@ -136,8 +136,8 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
-# The full local gate runs in both modes: a release points at a commit, and that commit has
-# to be green whether or not anything is being signed.
+# The release verification gate runs in both modes, whether or not a binary is signed.
+# The broader developer gate remains `make check`.
 gate() {
   note "gate: $*"
   if ! "$@"; then

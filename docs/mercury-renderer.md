@@ -1,14 +1,16 @@
 # Procedural mercury renderer
 
-This document is the durable design record for Voiceour's recording island. It captures the physical model, geometry, optics, display mapping, performance work, rejected alternatives, and measured gates behind the implementation introduced by commits `5be9404` and `f9ac3ca`.
+This document is the durable design record for Voiceour's recording island. It captures the physical model, geometry, optics, display mapping, performance work, rejected alternatives, and measured gates behind the implementation introduced by commits `5be9404` and `f9ac3ca` (2026-08-29).
+
+It is a technical appendix, not a second product specification. [README.md](../README.md#product-contract) states what the island does for the user, and [README.md](../README.md#architecture) and [AGENTS.md](../AGENTS.md) state the binding UI, runtime, and harness invariants it satisfies. This file explains how the renderer meets them and why each alternative was rejected.
 
 The implementation is physically motivated rather than a general fluid solver. It uses exact solutions where they buy determinism or stability, measured calibration where the visual target is product-specific, and bounded approximations where dense oracle tests prove that the displayed result cannot move by more than one 8-bit code value.
 
 The island is also not Apple's system Liquid Glass. It is a private, CPU-rasterized liquid-metal organism rendered into one `CGImage`. It samples no desktop pixels, adds no screen-capture permission, and uses no authored highlight, rim, gradient, glyph, or moving light.
 
-## Product contract
+## Renderer contract
 
-The renderer has these non-negotiable properties:
+The renderer holds these properties; the tests and hard gates under [Measured gates](#measured-gates) verify the measurable ones:
 
 - One procedural body conveys warming, listening, speaking, processing, copy-only delivery, paste failure, and error.
 - `MercuryField` is the sole silhouette for raster coverage, drag hit-testing, and cursor routing.
@@ -267,7 +269,7 @@ $$
 The field is regularized only for the crown:
 
 $$
- \tilde\phi=rac{\phi+\sqrt{\phi^2+4\varepsilon^2}}{2},
+ \tilde\phi=\frac{\phi+\sqrt{\phi^2+4\varepsilon^2}}{2},
  \qquad \varepsilon=0.25\ \text{device pixel}.
 $$
 
@@ -337,6 +339,8 @@ $$
 A smooth conductor has no useful colour or structure without something to reflect. Perceptual work by Fleming, Dror, and Adelson shows that natural illumination statistics strongly affect whether an image reads as a material instead of painted shading. Dror, Willsky, and Adelson further measured the heavy-tailed directional structure of real illumination.
 
 Voiceour therefore reflects a generated room rather than painting a highlight. The production room is static for the session. Moving the room was tested and rejected: even slow motion reads as lights rotating around an object instead of a liquid deforming under fixed illumination.
+
+`RecordingOverlayController` draws one fresh random seed for the room and body and latches the persisted `MercuryWorld` when a session begins, so a Settings change applies to the next dictation, never mid-utterance; the harness pins `MercuryMetrics.defaultSeed`. Two worlds share the same prefiltered linear-RGB tables, exact Fresnel, and bounded response path. Room of Ten, below, is the default and the compiled fallback for an unknown persisted value. Spectral Weather, a static lognormal spherical-harmonic room, is a debug comparison selectable only from the `--debug` Settings pane and rendered by the `overlay.island.weather` scene. The room equations and every `make ui-mercury-bench` corpus below use Room of Ten; the octahedral, optical, and response sections apply to both worlds.
 
 ### Room of Ten
 
@@ -593,7 +597,7 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 
 ## Measured gates
 
-`make ui-mercury-bench` is permanent and production-backed. On the M4 Pro used for the final release:
+`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column is the release measurement of 2026-08-29 (`f9ac3ca`) on the development M4 Pro; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
 
 | measurement | result | hard gate |
 | --- | ---: | ---: |
@@ -608,7 +612,9 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 | engine + layer p50 / p99 | 0.5639 / 0.6978 ms | ≤0.65 / 0.85 ms |
 | engine + layer CPU at 120 Hz | 0.0653 core | ≤0.08 core |
 
-The visual companion is `make ui-mercury`, which writes state, world, motion, outcome, accessibility, room-sweep, and chroma-sweep contact sheets under `.build/ui-harness/mercury/`.
+A seed fails the 4,096-seed distribution screen when, for either the listening or the speaking reflection manifold, mapped luminance has a median outside `[0.18, 0.55]`, a p95 outside `[0.60, 0.92]`, a p05–p95 span below `0.30`, or less than `1.5` contrast ratio against any of the near-black, mid-grey, and near-white grounds (`0.075`, `0.45`, `0.95`); it also fails when crushed-black area exceeds `0.25`, near-ceiling area `0.02`, p95 local saturation `0.12`, or whole-body colour cast `0.06`. The 64-seed raster corpus additionally fails an Increase Contrast near-white area above `0.02`.
+
+The visual companion is `make ui-mercury`, which writes the contact sheets listed in [ui-harness.md](ui-harness.md#artifacts-and-goldens) under `.build/ui-harness/mercury/`. It is an inspection tool, not a gate.
 
 The relevant automated contracts include:
 
@@ -619,8 +625,9 @@ The relevant automated contracts include:
 - `MercuryDisplayResponseTests`: anchor solve, monotonicity, unreachable ceiling, Rec.709 gamut handling;
 - `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation, octahedral round trip, 60/75/120/144 Hz pacing;
 - `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster;
-- `make ui-snap`: 38 scene raster and accessibility contracts;
-- `make ui-flow`: 23 semantic flows and 187 expectations.
+- `MercuryCalibrationTests`: crest-prominence target, independent voice-driven edges, per-room response median for every `MercuryWorld`;
+- `make ui-snap`: island and recording-panel scene rasters and accessibility dumps (`make ui-list` is the inventory);
+- `make ui-flow`: overlay journeys among the semantic flows (`make ui-flow-list` is the inventory).
 
 ## Privacy and accessibility boundaries
 
@@ -633,17 +640,21 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | concern | source |
 | --- | --- |
 | physical constants and measured targets | `Sources/Voiceour/MercuryMetrics.swift` |
+| world selection and persisted fallback | `Sources/VoiceCore/MercuryWorld.swift` |
 | deterministic random streams | `Sources/Voiceour/MercuryNoise.swift` |
+| pose ladder and targets | `Sources/Voiceour/MercuryPose.swift` |
 | two-family exact mode solver | `Sources/Voiceour/MercurySimulation.swift` |
 | calibrated gains and room metering | `Sources/Voiceour/MercuryCalibration.swift` |
 | signed silhouette | `Sources/Voiceour/MercuryField.swift` |
 | crown and total derivative | `Sources/Voiceour/MercuryCrown.swift` |
 | static generated rooms and octahedral chart | `Sources/Voiceour/MercuryEnvironment.swift` |
 | exact-source optical LUTs | `Sources/Voiceour/MercuryOptics.swift` |
+| bounded Naka–Rushton display response | `Sources/Voiceour/MercuryDisplayResponse.swift` |
 | production CPU shading | `Sources/Voiceour/MercuryRasterizer.swift` |
-| fixed-step engine and image cache | `Sources/Voiceour/MercuryRibbon.swift` |
-| display link and layer presentation | `Sources/Voiceour/MercuryDisplayLink.swift` |
+| fixed-step engine, image cache, and hit region | `Sources/Voiceour/MercuryRibbon.swift` |
+| frame pacer, display link, and layer presentation | `Sources/Voiceour/MercuryDisplayLink.swift` |
 | material/performance corpus | `Sources/Voiceour/UIHarness/MercuryChromeBenchmark.swift` |
+| contact sheets | `Sources/Voiceour/UIHarness/MercurySheet.swift` |
 
 ## References
 
@@ -659,4 +670,4 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 
 ## Maintenance rule
 
-This document describes the shipping renderer, not a menu of optional effects. A future change to the field, mode law, crown, room distribution, optics, response, cadence, or hard benchmark must update this document in the same commit. Raw brainstorm artifacts are disposable; this file, production code, tests, and committed benchmark contracts are the permanent record.
+This document describes the shipping renderer, not a menu of optional effects. A future change to the field, mode law, crown, room distribution, optics, response, cadence, or hard benchmark must update this document in the same commit. Raw brainstorm artifacts are disposable. Production code, tests, and the benchmark gates are the enforced contract; this file is their derivation and rationale, and README.md and AGENTS.md remain the authority for what the island must do.

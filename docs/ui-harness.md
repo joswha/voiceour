@@ -2,6 +2,8 @@
 
 Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI views in process, dumps the accessibility hierarchy, lints the semantic and raster output, and compares both with committed goldens. It never puts a window on a display, never changes the frontmost app, and needs no Screen Recording or Accessibility permission.
 
+This file is the harness's operational reference: commands, artifacts, scene and flow rules, and capture procedures. [README.md](../README.md#verification) owns which gates a change must pass, and [AGENTS.md](../AGENTS.md#offscreen-ui-harness) owns the binding harness invariants together with the measurements behind them.
+
 ## Commands
 
 | command | purpose |
@@ -15,7 +17,9 @@ Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI 
 | `make ui-mercury` | Render isolated shipping/prototype material contact sheets. Not a gate. |
 | `make ui-mercury-bench` | Gate 4,096 room seeds, 64 production rasters, 30 seconds of motion, and 1,200 raster plus engine-and-layer frames at represented 120 Hz. |
 
-`scripts/ui_harness.sh` builds with `-DUI_HARNESS` and forwards these flags:
+Scene PNG digests and AX dumps are host-sensitive: the committed goldens come from the maintainer's Apple Silicon Mac, so hosted CI runs `make ui-snap` only as an advisory job, while flow journals are host-independent and required. Bless scene goldens from a local render, never from CI output.
+
+`scripts/ui_harness.sh` builds a debug binary with `-DUI_HARNESS` and forwards these flags. `make ui-mercury-bench` instead builds the release configuration with the same flag and runs `.build/release/Voiceour --ui-harness --repo-root . --mode mercury-benchmark` directly, so its timings measure optimized code.
 
 | flag | meaning |
 | --- | --- |
@@ -24,7 +28,7 @@ Compiled only under `-DUI_HARNESS`, the harness renders Voiceour's real SwiftUI 
 | `--out DIR`, `--golden DIR` | Artifact and golden directories; default `.build/ui-harness` and `fixtures/ui`. |
 | `--repo-root DIR` | Root for both defaults, or set `VOICEOUR_REPO_ROOT`. |
 | `--scale 1\|2` | Raster scale; default 1. |
-| `--no-sheet`, `--stdout` | Skip the contact sheet; emit the NDJSON manifest to stdout. |
+| `--no-sheet`, `--stdout` | Skip the contact sheet; also print the NDJSON manifest to stdout. |
 
 An unfiltered run includes the full catalog. Exit status is 0 when clean or updated, 1 for a changed, missing, or failed artifact or an error-severity lint finding, 2 for bad arguments.
 
@@ -65,6 +69,8 @@ The full PNG is for inspection; the committed raster golden is its SHA-256 diges
 
 Read the generated `.ax.diff` or `.flow.diff` before any update; update mode writes only changed payloads. A scene with an error-severity lint finding cannot be blessed, and neither can a failing flow.
 
+`manifest.jsonl` starts with one `ui_run` row — mode, filter, scale, scene count, `ok`/`changed`/`missing_golden`/`written`/`failed` tallies, error and warning finding counts, timing, directories, and contact-sheet path — followed by one `ui_scene` row per rendered scene. A scene row carries its overall `status`, `pixel_status` and `ax_status` (`ok`, `changed`, `missing-golden`, `written`, or `failed`), `png_sha256` beside `golden_png_sha256`, `ax_node_count`, lint `findings` (`rule`, `severity`, `message`), warnings, and any error. `flows/manifest.jsonl` starts with a `ui_flow_run` row carrying flow and expectation tallies, then one `ui_flow` row per flow and one `ui_expectation` row per checked expectation with its expected and observed text. `make ui-list` and `make ui-flow-list` print one `ui_catalog` or `ui_flow_catalog` JSON object.
+
 On macOS 27 the native `console.home.populated.png` capture is 99.936% opaque and 0.047% fully transparent, measured from its alpha channel. The native ground passes error-severity lint; base scenes retain Reduce Transparency off, and the dedicated accessibility scenes exercise it on.
 
 Native accessibility titles may be attributed strings. The walker prefers a control's explicit title over its glyph/selected-text label. Dynamic state marks remain nonselectable because macOS 27's grouped-form text-selection wrapper retains its initial accessibility value; selectable History evidence supplies one plain-text accessibility representation to avoid duplicate narration.
@@ -81,7 +87,7 @@ Native accessibility titles may be attributed strings. The walker prefers a cont
 
 The two harness captures are copied straight from `.build/ui-harness/*.png` after `scripts/ui_harness.sh --only console.sessions.selection,console.glossary.populated`.
 
-`home-sample.png` cannot come from the harness, because it is the one documentation capture that shows the console *window*. `cacheDisplay` cannot capture composited desktop glass, and the offscreen window has no title bar. It is photographed onscreen instead:
+`home-sample.png` cannot come from the harness, because it is the one documentation capture that shows the console *window*. `cacheDisplay` cannot capture composited desktop glass, and the offscreen window has no title bar. It is photographed onscreen instead, which — unlike the harness — puts a real window on the display and needs Screen Recording permission for the controlling terminal, plus Accessibility trust for the resize:
 
 ```sh
 CONSOLE_SHOT_SAMPLE_DATA=1 CONSOLE_SHOT_ACTIVATE=1 \
@@ -89,7 +95,7 @@ CONSOLE_SHOT_SAMPLE_DATA=1 CONSOLE_SHOT_ACTIVATE=1 \
   scripts/console_shot.sh home docs/media/home-sample.png
 ```
 
-All three variables are load-bearing. `CONSOLE_SHOT_SAMPLE_DATA=1` points the app at a scratch support directory seeded from `fixtures/media/console-sample`; without it the capture publishes the maintainer's own transcripts and the apps they dictate into. `CONSOLE_SHOT_ACTIVATE=1` lets the window become key, so the traffic lights and tab labels photograph at full strength instead of their inactive greys. `CONSOLE_SHOT_SIZE` overrides the default 800×980 window, which clips the activity grid.
+The first three variables are load-bearing; `CONSOLE_SHOT_SETTLE` only lengthens the pre-capture settle from its 0.6 s default. `CONSOLE_SHOT_SAMPLE_DATA=1` points the app at a scratch support directory seeded from `fixtures/media/console-sample`; without it the capture publishes the maintainer's own transcripts and the apps they dictate into. `CONSOLE_SHOT_ACTIVATE=1` lets the window become key, so the traffic lights and tab labels photograph at full strength instead of their inactive greys. `CONSOLE_SHOT_SIZE` overrides the default 800×980 window, which clips the activity grid.
 
 The seeded directory is not the fixture copied verbatim. `scripts/seed_console_data.swift` rebases every day key, every app's `lastDay` and every transcript stamp by one offset, so the newest day lands today: the ledger prunes day buckets past 400 days, and a fixture frozen at its authored dates would eventually photograph an empty grid and a zero streak. `console.home.full-page` remains the harness golden for the same page's layout — the offscreen render is what gates a layout change; this capture only illustrates it.
 
@@ -104,6 +110,8 @@ A scene is an id, size, tags, and a closure building the real view. `make ui-lis
 Home's first-run card needs no seam of its own. Whether it is owed is computed from three real inputs a fixture already owns — the persisted `has_completed_first_run` flag, the seeded transcript journal, and the seeded lifetime ledger — so the `firstRunDownloading`, `firstRunReady`, `firstRunAcquisitionFailed` and `erasedFigures` fixtures reach their states the way a real install does. Adding a `RenderOverrides` field for it would be a branch that exists only to make a golden pass.
 
 `menu.sidecar-error` drives the actual coordinator through a wrapped sidecar model failure before capturing the menu. It locks the specific cause and recovery controls, rather than assigning an error state directly.
+
+`overlay.island.weather` renders the island against the debug-only Spectral Weather room through a scoped `RenderOverrides.mercuryWorld`, restoring the previous value when the hierarchy disappears; every other overlay scene uses the default Room of Ten.
 
 Scene rules:
 
@@ -120,6 +128,8 @@ A flow hosts a real menu, overlay, or console view with an inert fixture, then d
 Failure journeys inject the same `SidecarASRClientError.protocolError` wrapper the real client throws. `dictation.asr-error` checks the engine-specific cause and zero delivery/history; `dictation.asr-recovery` presses the real Try Again control and completes a later utterance; `overlay.asr-error` checks the actionable failure announcement without a delivery confirmation. Process-level malformed JSON/schema/UTF-8 rejection and respawn are exercised separately through `ASRSidecarStub`, including a client-to-coordinator integration path.
 
 ## Load-bearing constraints
+
+This is the mechanism summary; [AGENTS.md](../AGENTS.md#offscreen-ui-harness) records the measured invariants behind it — park origin, pump counts, activation-policy and AX-node measurements.
 
 - `UIHarnessRuntime.prepareProcess()` sets activation policy `.prohibited` before hosting any view, and reasserts it around hosting.
 - `OffscreenWindow` parks far offscreen, and its `constrainFrameRect(_:to:)` returns the requested rect without calling `super`; otherwise AppKit pulls it onscreen.

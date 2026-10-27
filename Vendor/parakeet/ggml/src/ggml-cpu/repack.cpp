@@ -132,10 +132,12 @@ void ggml_quantize_mat_q8_K_4x1_generic(const float * GGML_RESTRICT x, void * GG
 }
 #endif
 
+// VOICEOUR PATCH: the compiled ggml_quantize_mat_*_generic() quantizers below keep the
+// per-row block count and block index at the int64_t width of k.
 void ggml_quantize_mat_q8_0_4x4_generic(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK8_0 == 32);
     assert(k % QK8_0 == 0);
-    const int nb = k / QK8_0;
+    const int64_t nb = k / QK8_0;
 
     block_q8_0x4 * GGML_RESTRICT y = (block_q8_0x4 *) vy;
 
@@ -144,7 +146,7 @@ void ggml_quantize_mat_q8_0_4x4_generic(const float * GGML_RESTRICT x, void * GG
     float srcv[4][QK8_0];
     float id[4];
 
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         for (int row_iter = 0; row_iter < 4; row_iter++) {
             float amax = 0.0f; // absolute max
 
@@ -173,7 +175,7 @@ void ggml_quantize_mat_q8_0_4x4_generic(const float * GGML_RESTRICT x, void * GG
 void ggml_quantize_mat_q8_0_4x8_generic(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK8_0 == 32);
     assert(k % QK8_0 == 0);
-    const int nb = k / QK8_0;
+    const int64_t nb = k / QK8_0;
 
     block_q8_0x4 * GGML_RESTRICT y = (block_q8_0x4 *) vy;
 
@@ -182,7 +184,7 @@ void ggml_quantize_mat_q8_0_4x8_generic(const float * GGML_RESTRICT x, void * GG
     float srcv[4][QK8_0];
     float id[4];
 
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         for (int row_iter = 0; row_iter < 4; row_iter++) {
             float amax = 0.0f; // absolute max
 
@@ -211,7 +213,7 @@ void ggml_quantize_mat_q8_0_4x8_generic(const float * GGML_RESTRICT x, void * GG
 void ggml_quantize_mat_q8_K_4x4_generic(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK_K == 256);
     assert(k % QK_K == 0);
-    const int nb = k / QK_K;
+    const int64_t nb = k / QK_K;
 
     block_q8_Kx4 * GGML_RESTRICT y = (block_q8_Kx4 *) vy;
 
@@ -220,7 +222,7 @@ void ggml_quantize_mat_q8_K_4x4_generic(const float * GGML_RESTRICT x, void * GG
     float srcv[4][QK_K];
     float iscale[4];
 
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         for (int row_iter = 0; row_iter < 4; row_iter++) {
             float amax = 0.0f; // absolute max
             float max = 0;
@@ -262,7 +264,7 @@ void ggml_quantize_mat_q8_K_4x4_generic(const float * GGML_RESTRICT x, void * GG
 void ggml_quantize_mat_q8_K_4x8_generic(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK_K == 256);
     assert(k % QK_K == 0);
-    const int nb = k / QK_K;
+    const int64_t nb = k / QK_K;
 
     block_q8_Kx4 * GGML_RESTRICT y = (block_q8_Kx4 *) vy;
 
@@ -271,7 +273,7 @@ void ggml_quantize_mat_q8_K_4x8_generic(const float * GGML_RESTRICT x, void * GG
     float srcv[4][QK_K];
     float iscale[4];
 
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         for (int row_iter = 0; row_iter < 4; row_iter++) {
             float amax = 0.0f; // absolute max
             float max = 0;
@@ -3197,6 +3199,9 @@ static block_q2_Kx16 make_block_q2_Kx16(const block_q2_K * in, unsigned int blck
     return out;
 }
 
+// VOICEOUR PATCH: the repack_*_bl() helpers below keep nrow/nblocks and the row-group
+// loop at the int64_t width of ggml_nrows()/ne[0], so their data_size checks and source
+// offsets are computed in 64 bits instead of int.
 static int repack_q4_0_to_q4_0_4_bl(struct ggml_tensor * t, int interleave_block, const void * GGML_RESTRICT data, size_t data_size) {
     GGML_ASSERT(t->type == GGML_TYPE_Q4_0);
     GGML_ASSERT(interleave_block == 4 || interleave_block == 8);
@@ -3205,8 +3210,8 @@ static int repack_q4_0_to_q4_0_4_bl(struct ggml_tensor * t, int interleave_block
     block_q4_0x4 * dst = (block_q4_0x4 *)t->data;
     const block_q4_0 * src = (const block_q4_0 *)data;
     block_q4_0 dst_tmp[4];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK4_0;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK4_0;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q4_0));
 
@@ -3214,7 +3219,7 @@ static int repack_q4_0_to_q4_0_4_bl(struct ggml_tensor * t, int interleave_block
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3236,8 +3241,8 @@ static int repack_q4_K_to_q4_K_8_bl(struct ggml_tensor * t, int interleave_block
     block_q4_Kx8 * dst = (block_q4_Kx8*)t->data;
     const block_q4_K * src = (const block_q4_K*) data;
     block_q4_K dst_tmp[8];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK_K;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK_K;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q4_K));
 
@@ -3245,7 +3250,7 @@ static int repack_q4_K_to_q4_K_8_bl(struct ggml_tensor * t, int interleave_block
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i  = 0; i < nrows_interleaved; i++ ) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3266,8 +3271,8 @@ static int repack_q4_K_to_q4_K_16_bl(struct ggml_tensor * t, int interleave_bloc
     block_q4_Kx16 * dst = (block_q4_Kx16*)t->data;
     const block_q4_K * src = (const block_q4_K*) data;
     block_q4_K dst_tmp[16];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK_K;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK_K;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q4_K));
 
@@ -3275,7 +3280,7 @@ static int repack_q4_K_to_q4_K_16_bl(struct ggml_tensor * t, int interleave_bloc
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i  = 0; i < nrows_interleaved; i++ ) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3297,8 +3302,8 @@ static int repack_q2_K_to_q2_K_8_bl(struct ggml_tensor * t, int interleave_block
     block_q2_Kx8 * dst = (block_q2_Kx8*)t->data;
     const block_q2_K * src = (const block_q2_K*) data;
     block_q2_K dst_tmp[8];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK_K;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK_K;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q2_K));
 
@@ -3306,7 +3311,7 @@ static int repack_q2_K_to_q2_K_8_bl(struct ggml_tensor * t, int interleave_block
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3329,8 +3334,8 @@ static int repack_q2_K_to_q2_K_16_bl(struct ggml_tensor * t, int interleave_bloc
 
     block_q2_K dst_tmp[nrows_interleaved];
 
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK_K;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK_K;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q2_K));
 
@@ -3338,7 +3343,7 @@ static int repack_q2_K_to_q2_K_16_bl(struct ggml_tensor * t, int interleave_bloc
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             // This loop gathers 16 separate blocks (one from each column)
             // that correspond to the same K-dimension chunk.
@@ -3362,8 +3367,8 @@ static int repack_q4_0_to_q4_0_16_bl(struct ggml_tensor * t, int interleave_bloc
     block_q4_0x16 * dst = (block_q4_0x16*)t->data;
     const block_q4_0 * src = (const block_q4_0*) data;
     block_q4_0 dst_tmp[16];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK4_0;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK4_0;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q4_0));
 
@@ -3371,7 +3376,7 @@ static int repack_q4_0_to_q4_0_16_bl(struct ggml_tensor * t, int interleave_bloc
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i  = 0; i < nrows_interleaved; i++ ) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3396,8 +3401,8 @@ static int repack_q5_K_to_q5_K_8_bl(struct ggml_tensor *       t,
     block_q5_Kx8 *     dst = (block_q5_Kx8 *) t->data;
     const block_q5_K * src = (const block_q5_K *) data;
     block_q5_K         dst_tmp[8];
-    int                nrow    = ggml_nrows(t);
-    int                nblocks = t->ne[0] / QK_K;
+    int64_t            nrow    = ggml_nrows(t);
+    int64_t            nblocks = t->ne[0] / QK_K;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q5_K));
 
@@ -3405,7 +3410,7 @@ static int repack_q5_K_to_q5_K_8_bl(struct ggml_tensor *       t,
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3425,8 +3430,8 @@ static int repack_q6_K_to_q6_K_8_bl(struct ggml_tensor * t, int interleave_block
     block_q6_Kx8 * dst = (block_q6_Kx8 *)t->data;
     const block_q6_K * src = (const block_q6_K *) data;
     block_q6_K dst_tmp[8];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK_K;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK_K;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q6_K));
 
@@ -3434,7 +3439,7 @@ static int repack_q6_K_to_q6_K_8_bl(struct ggml_tensor * t, int interleave_block
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3454,8 +3459,8 @@ static int repack_q4_0_to_q4_0_8_bl(struct ggml_tensor * t, int interleave_block
     block_q4_0x8 * dst = (block_q4_0x8*)t->data;
     const block_q4_0 * src = (const block_q4_0*) data;
     block_q4_0 dst_tmp[8];
-    int nrow = ggml_nrows(t);
-    int nblocks = t->ne[0] / QK4_0;
+    int64_t nrow = ggml_nrows(t);
+    int64_t nblocks = t->ne[0] / QK4_0;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q4_0));
 
@@ -3463,7 +3468,7 @@ static int repack_q4_0_to_q4_0_8_bl(struct ggml_tensor * t, int interleave_block
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i  = 0; i < nrows_interleaved; i++ ) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3488,8 +3493,8 @@ static int repack_q8_0_to_q8_0_4_bl(struct ggml_tensor *       t,
     block_q8_0x4 *     dst = (block_q8_0x4 *) t->data;
     const block_q8_0 * src = (const block_q8_0 *) data;
     block_q8_0         dst_tmp[4];
-    int                nrow    = ggml_nrows(t);
-    int                nblocks = t->ne[0] / QK8_0;
+    int64_t            nrow    = ggml_nrows(t);
+    int64_t            nblocks = t->ne[0] / QK8_0;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q8_0));
 
@@ -3497,7 +3502,7 @@ static int repack_q8_0_to_q8_0_4_bl(struct ggml_tensor *       t,
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3542,8 +3547,8 @@ static int repack_q8_0_to_q8_0_16_bl(struct ggml_tensor *       t,
     block_q8_0x16 *     dst = (block_q8_0x16 *) t->data;
     const block_q8_0 * src = (const block_q8_0 *) data;
     block_q8_0         dst_tmp[16];
-    int                nrow    = ggml_nrows(t);
-    int                nblocks = t->ne[0] / QK8_0;
+    int64_t            nrow    = ggml_nrows(t);
+    int64_t            nblocks = t->ne[0] / QK8_0;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_q8_0));
 
@@ -3551,7 +3556,7 @@ static int repack_q8_0_to_q8_0_16_bl(struct ggml_tensor *       t,
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3607,9 +3612,9 @@ static int repack_iq4_nl_to_iq4_nl_4_bl(struct ggml_tensor * t, int interleave_b
 
     block_iq4_nl dst_tmp[4];
 
-    int nrow = ggml_nrows(t);
+    int64_t nrow = ggml_nrows(t);
     int nrows_interleaved = 4;
-    int nblocks = t->ne[0] / QK4_NL;
+    int64_t nblocks = t->ne[0] / QK4_NL;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_iq4_nl));
 
@@ -3617,7 +3622,7 @@ static int repack_iq4_nl_to_iq4_nl_4_bl(struct ggml_tensor * t, int interleave_b
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3664,9 +3669,9 @@ static int repack_iq4_nl_to_iq4_nl_8_bl(struct ggml_tensor * t, int interleave_b
 
     block_iq4_nl dst_tmp[8];
 
-    int nrow = ggml_nrows(t);
+    int64_t nrow = ggml_nrows(t);
     int nrows_interleaved = 8;
-    int nblocks = t->ne[0] / QK4_NL;
+    int64_t nblocks = t->ne[0] / QK4_NL;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_iq4_nl));
 
@@ -3674,7 +3679,7 @@ static int repack_iq4_nl_to_iq4_nl_8_bl(struct ggml_tensor * t, int interleave_b
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3721,9 +3726,9 @@ static int repack_iq4_nl_to_iq4_nl_16_bl(struct ggml_tensor * t, int interleave_
 
     block_iq4_nl dst_tmp[16];
 
-    int nrow = ggml_nrows(t);
+    int64_t nrow = ggml_nrows(t);
     int nrows_interleaved = 16;
-    int nblocks = t->ne[0] / QK4_NL;
+    int64_t nblocks = t->ne[0] / QK4_NL;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_iq4_nl));
 
@@ -3731,7 +3736,7 @@ static int repack_iq4_nl_to_iq4_nl_16_bl(struct ggml_tensor * t, int interleave_
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3778,9 +3783,9 @@ static int repack_mxfp4_to_mxfp4_4_bl(struct ggml_tensor * t, int interleave_blo
 
     block_mxfp4 dst_tmp[4];
 
-    int nrow = ggml_nrows(t);
+    int64_t nrow = ggml_nrows(t);
     int nrows_interleaved = 4;
-    int nblocks = t->ne[0] / QK_MXFP4;
+    int64_t nblocks = t->ne[0] / QK_MXFP4;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_mxfp4));
 
@@ -3788,7 +3793,7 @@ static int repack_mxfp4_to_mxfp4_4_bl(struct ggml_tensor * t, int interleave_blo
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -3835,9 +3840,9 @@ static int repack_mxfp4_to_mxfp4_8_bl(struct ggml_tensor * t, int interleave_blo
 
     block_mxfp4 dst_tmp[8];
 
-    int nrow = ggml_nrows(t);
+    int64_t nrow = ggml_nrows(t);
     int nrows_interleaved = 8;
-    int nblocks = t->ne[0] / QK_MXFP4;
+    int64_t nblocks = t->ne[0] / QK_MXFP4;
 
     GGML_ASSERT(data_size == nrow * nblocks * sizeof(block_mxfp4));
 
@@ -3845,7 +3850,7 @@ static int repack_mxfp4_to_mxfp4_8_bl(struct ggml_tensor * t, int interleave_blo
         return -1;
     }
 
-    for (int b = 0; b < nrow; b += nrows_interleaved) {
+    for (int64_t b = 0; b < nrow; b += nrows_interleaved) {
         for (int64_t x = 0; x < nblocks; x++) {
             for (int i = 0; i < nrows_interleaved; i++) {
                 dst_tmp[i] = src[x + i * nblocks];
@@ -4238,15 +4243,17 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
         GGML_ASSERT(src1_ptr + src1_col_stride * nrows <= (const char *) params->wdata + params->wsize);
 
         // If there are more than three rows in src1, use gemm; otherwise, use gemv.
+        // VOICEOUR PATCH: the repack gemm/gemv kernels take int n/nr/nc (repack.h ABI):
+        // ne00 is one weight row and nrows/ncols are chunk extents within ne11/ne01.
         if (nrows > 3) {
-            gemm<BLOC_TYPE, INTER_SIZE, NB_COLS, PARAM_TYPE>(ne00, (float *) (dst_ptr) + src0_start, nb1 / nb0,
+            gemm<BLOC_TYPE, INTER_SIZE, NB_COLS, PARAM_TYPE>((int) ne00, (float *) (dst_ptr) + src0_start, nb1 / nb0,
                                                              src0_ptr + src0_start * nb01, src1_ptr,
-                                                             nrows - (nrows % 4), ncols);
+                                                             (int) (nrows - (nrows % 4)), (int) ncols);
         }
-        for (int iter = nrows - (nrows % 4); iter < nrows; iter++) {
-            gemv<BLOC_TYPE, INTER_SIZE, NB_COLS, PARAM_TYPE>(ne00, (float *) (dst_ptr + (iter * nb1)) + src0_start,
+        for (int64_t iter = nrows - (nrows % 4); iter < nrows; iter++) {
+            gemv<BLOC_TYPE, INTER_SIZE, NB_COLS, PARAM_TYPE>((int) ne00, (float *) (dst_ptr + (iter * nb1)) + src0_start,
                                                              ne01, src0_ptr + src0_start * nb01,
-                                                             src1_ptr + (src1_col_stride * iter), 1 /* nrows */, ncols);
+                                                             src1_ptr + (src1_col_stride * iter), 1 /* nrows */, (int) ncols);
         }
     }
 
@@ -4413,8 +4420,10 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
         GGML_ASSERT(src1->type == GGML_TYPE_F32);
 
         // row groups
-        const int n_ids = ids->ne[0]; // n_expert_used
-        const int n_as  = ne02;       // n_expert
+        // VOICEOUR PATCH: keep expert counts at tensor-dimension width; the expert slot
+        // and token row stored in mmid_row_mapping stay int32 below.
+        const int64_t n_ids = ids->ne[0]; // n_expert_used
+        const int64_t n_as  = ne02;       // n_expert
 
         const size_t nbw1 = ggml_row_size(PARAM_TYPE, ne10);
         const size_t nbw2 = nbw1*ne11;
@@ -4469,7 +4478,7 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
         ggml_barrier(params->threadpool);
 
         // compute each matrix multiplication in sequence
-        for (int cur_a = 0; cur_a < n_as; ++cur_a) {
+        for (int64_t cur_a = 0; cur_a < n_as; ++cur_a) {
             const int64_t cne1 = matrix_row_counts[cur_a];
 
             if (cne1 == 0) {
@@ -4508,9 +4517,11 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
 
                 const auto * src1_col = (const char *) wdata + (i11 * nbw1 + i12 * nbw2);
 
+                // VOICEOUR PATCH: int gemv ABI, as in forward_mul_mat_one_chunk(); the
+                // column span is bounded by ne01.
                 gemv<BLOC_TYPE, INTER_SIZE, NB_COLS, PARAM_TYPE>(
-                    ne00, (float *) ((char *) dst->data + (i1 * nb1 + i2 * nb2)) + src0_cur_start, ne01,
-                    src0_cur + src0_cur_start * nb01, src1_col, 1, src0_cur_end - src0_cur_start);
+                    (int) ne00, (float *) ((char *) dst->data + (i1 * nb1 + i2 * nb2)) + src0_cur_start, ne01,
+                    src0_cur + src0_cur_start * nb01, src1_col, 1, (int) (src0_cur_end - src0_cur_start));
             }
         }
 #undef MMID_MATRIX_ROW

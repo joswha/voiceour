@@ -404,7 +404,8 @@ static fs::path get_executable_path() {
     std::vector<char> path;
     uint32_t size;
     while (true) {
-        size = path.size();
+        // VOICEOUR PATCH: path only ever grows to a size reported by _NSGetExecutablePath (uint32_t), so it fits its uint32_t bufsize.
+        size = (uint32_t) path.size();
         if (_NSGetExecutablePath(path.data(), &size) == 0) {
             break;
         }

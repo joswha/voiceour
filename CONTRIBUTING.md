@@ -2,7 +2,7 @@
 
 Development is fake-first: you can build, test, and run the app without downloading the model or granting system permissions. `make dev` runs the fake backend in this terminal; `make self-test` is the launch-path check on that same path.
 
-Setup instructions are in [docs/developer-setup.md](docs/developer-setup.md). [AGENTS.md](AGENTS.md) holds the full engineering rules, including the [complete command matrix](AGENTS.md#developer-commands).
+[README.md](README.md#development) owns setup and the product's technical contract. [AGENTS.md](AGENTS.md) owns engineering invariants, verification and release workflows, including the [complete command matrix](AGENTS.md#developer-commands).
 
 ## Before you open a PR
 
@@ -12,7 +12,7 @@ Run `make check` on macOS 27 with Xcode 27 and Swift 6.4. It is the local gate, 
 make check
 ```
 
-Everyone runs `make check`. The real-model and real-microphone suites need a downloaded model or a physical input device, so run them only when your change touches those paths; [docs/developer-setup.md](docs/developer-setup.md) names their flags.
+Everyone runs `make check`. The real-model and real-microphone suites need a downloaded model or a physical input device; [verification](README.md#verification) names their opt-in flags and what they prove.
 
 If you changed the UI, also run `make ui-snap`. Read the generated `.ax.diff` or `.flow.diff` before you bless a golden with `make ui-update` or `make ui-flow-update`. A scene with an error-severity lint finding cannot be blessed; [docs/ui-harness.md](docs/ui-harness.md) explains the artifacts.
 
@@ -23,7 +23,7 @@ CI uses the `xcode-27` preview runner and asserts macOS 27, Xcode 27, SDK 27, Sw
 - Keep the change narrow. Say which observable behavior changes and why.
 - Name the smallest verification that proves the change works.
 - Do not add compatibility shims for internal APIs. Update every caller instead.
-- Update the one document that owns the topic rather than describing it twice.
+- Update `README.md` for the product contract and `AGENTS.md` for engineering invariants. Specialist docs hold supporting derivations, measurement records and harness details, not competing specifications.
 - Add a bullet to [CHANGELOG.md](CHANGELOG.md) under `Unreleased` when the change is user-visible.
 - Do not bump the version or add a release heading to the changelog in a PR. Releasing is a local maintainer operation; [AGENTS.md](AGENTS.md#release-procedure) has the procedure.
 - Commit intended UI goldens and flow journals together with the behavior change that requires them.

@@ -13,12 +13,14 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 - **macOS 27 baseline.** Voiceour requires macOS 27 on Apple Silicon; building from source requires Xcode 27 and Swift 6.4.
 - **Native console and menu.** The console uses native tabs and system glass, with an opaque ground under Reduce Transparency. The menu popover uses the system's own chrome.
 - **Reproducible rewrite benchmarks.** Added isolated Rust experiments, C/Swift controls and a paired raw-audio-to-text benchmark with output-identity and completion gates. Shipping recognition and runtime selection are unchanged; measured results and limitations live in `docs/rust-evaluation.md`.
+- **Canonical technical documentation.** `README.md` owns the product and architecture contract; `AGENTS.md` owns engineering invariants and workflows. Redundant architecture, setup, safety, non-goal and UI-policy pages are consolidated; specialist guides retain derivations and measured evidence.
 
 ### Fixed
 
 - **Actionable transcription failures.** Sidecar model, protocol and timeout errors keep their specific cause and recovery action instead of appearing as a generic internal error. A failed utterance is not delivered or saved, and a later dictation can recover normally.
 - **Strict sidecar response handling.** Malformed JSON, invalid response schemas, unknown frame types and invalid UTF-8 fail pending requests and retire the bad process. A valid reply after corrupt bytes cannot be mistaken for a successful transcript; the next request starts a clean helper.
 - **Swift 6.4 builds.** The recording overlay's animation completion handler explicitly preserves its existing capture ownership, keeping warnings-as-errors builds compatible with the newer compiler.
+- **Warning-clean native dependencies.** Parakeet/ggml preserves wide tensor dimensions and strides, makes existing fixed-width kernel conversions explicit, and avoids conflicting C macros and deprecated macOS 27 Metal queries. `make build` treats Swift, C and C++ warnings as errors; bundle entitlement checks use current `codesign` output syntax.
 - **Persistent local signing selection.** Bundling accepts signing identity and keychain pins from the ignored `.env`, while explicit signing overrides still win. An existing alternative identity can be used without replacing an inaccessible development keychain.
 - **Portable vocabulary resources.** Packaged apps resolve their ordinary-word list through Foundation's bundle lookup, supporting both flat and macOS-style SwiftPM resource bundles without depending on the build directory.
 - **Delivery failures stay truthful.** Clipboard writes must succeed before paste or copied feedback. Secure copies are host-only, and privacy markers are published with the transcript.

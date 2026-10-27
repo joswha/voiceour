@@ -4,6 +4,8 @@
 #ifndef GGML_COMMON_DECL
 
 #if defined(GGML_COMMON_DECL_C)
+// VOICEOUR PATCH: import the C library's static_assert before considering the fallback.
+#include <assert.h>
 #include <stdint.h>
 
 typedef uint16_t ggml_half;

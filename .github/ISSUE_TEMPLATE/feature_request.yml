@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Read [docs/non-goals.md](https://github.com/joswha/voiceour/blob/main/docs/non-goals.md) first. Live transcripts, model-based rewriting, background listening, saved audio, telemetry, a second recognizer, a language picker, and a control socket are decided product positions, not gaps.
+        Read the [non-goals](https://github.com/joswha/voiceour/blob/main/README.md#non-goals) first. These are decided product positions, not gaps.
   - type: textarea
     id: problem
     attributes:

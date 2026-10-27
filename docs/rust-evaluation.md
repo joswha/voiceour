@@ -9,9 +9,11 @@ unchanged. The equivalent C decoder performs essentially the same. This is evide
 implementation changes, **not an intrinsic Rust-over-C++ advantage**.
 
 The app's shipping path is unchanged. These are executable experiments under `bench/rust/` and
-`voiceour-bench`, not a new production backend. This study does not establish that Voiceour is the
-fastest or most accurate app on macOS. It establishes a reproducible improvement over this
-repository's current default on the tested hardware and inputs.
+`voiceour-bench`, not a new production backend; the shipping recognizer and its runtime remain
+those in [README.md](../README.md#architecture), and building the app needs neither Rust nor MLX.
+This study does not establish that Voiceour is the fastest or most accurate app on macOS. It
+establishes a reproducible improvement over this repository's default at commit `24f1172`
+(2026-10-17) on the tested hardware and inputs; every number below is a dated measurement record.
 
 ## Primary evidence: complete warm computation
 
@@ -44,11 +46,12 @@ The C-control arm uses the same Rust mel and replaces only the Rust decoder with
 implementation. Its total-time ratios were 0.7008, 0.7782 and 0.6967. Thus the decoder's gain does not
 require adopting Rust. There is no C control for the optimized mel implementation.
 
-Raw primary evidence is under `.build/rust-bench/official/20261017-combined/`. Every file carries the
-native executable hash, Rust library hashes, model digest checked against its pin, dump/audio
-provenance, source-state digests, host metadata, and a checked completion footer.
-The [committed proof packet](../benchmarks/results/20261017-rust-combined-proof.json) preserves the
-per-corpus analyses, A/A and C controls, completed-grid counts, runtime provenance and raw-file hashes.
+Raw primary evidence stayed on the measuring Mac under `.build/rust-bench/official/20261017-combined/`
+and is not committed. Every file carries the native executable hash, Rust library hashes, model
+digest checked against its pin, dump/audio provenance, source-state digests, host metadata, and a
+checked completion footer. The [committed proof packet](../benchmarks/results/20261017-rust-combined-proof.json)
+preserves the per-corpus analyses, A/A and C controls, completed-grid counts, runtime provenance and
+raw-file hashes.
 
 ### What this does not measure
 
@@ -76,8 +79,9 @@ existing recognition errors on these inputs; the rewrite does not improve jargon
 
 The text differential suite compares composition, cleanup, final text, compiled vocabulary and repair
 events including score bits. The renderer suite compares pixels across seeds, motion, poses and
-accessibility states. Each crate's README records its algorithms, ABI, controls and development
-measurements; development measurements are not substitutes for the qualified runs.
+accessibility states. The crate READMEs, and the `mercury-raster` crate's module documentation,
+record algorithms, ABI, controls and development measurements; development measurements are not
+substitutes for the qualified runs.
 
 ### Component results
 
@@ -128,12 +132,13 @@ The renderer's 1,264-row, ten-pass timing run measured ratios of 0.778 for the l
 control. All four controls remained pixel-identical on the separate 1,552-state verification.
 These are renderer CPU costs, not dictation latency savings.
 
-### Verification
+### Verification at the time
 
-`make check` passed: 766 Swift tests, 132 Python tests, 26 semantic UI flows with 234 expectations,
-the mercury performance gate, app self-test and fake-sidecar benchmark smoke. All seven Rust
-experiment crates passed their release test commands, and the renderer equivalence check passed.
-The full upstream vendor reapplication check reproduced all 72 manifest files.
+At `24f1172`, `make check` passed: 766 Swift tests, 132 Python tests, 26 semantic UI flows with 234
+expectations, the mercury performance gate, app self-test and fake-sidecar benchmark smoke. All seven
+Rust experiment crates passed their release test commands, and the renderer equivalence check
+passed. The full upstream vendor reapplication check reproduced all 72 manifest files. These counts
+describe that commit, not the current tree.
 
 ## Measurement decisions
 
@@ -167,11 +172,11 @@ rows may share speakers, and no population or multiple-comparison-adjusted super
 
 ## Reproduction
 
-Prerequisites: Apple Silicon, the repository's macOS/Swift baseline, Rust 1.97 or later, the verified
-model cache, and the frozen corpus audio matching the manifests. The committed General manifest is
-`bench/autoresearch/corpus.manifest.jsonl`; the measured jargon and LibriSpeech manifests/audio live
-under `benchmarks/data/`. Regenerated public data or synthesized audio is a **new measurement**, not
-a guarantee of reproducing the original audio hashes.
+Prerequisites: Apple Silicon, the toolchain in [README.md](../README.md#development), Rust 1.97 or
+later, the verified model cache, and the frozen corpus audio matching the manifests. The committed
+General manifest is `bench/autoresearch/corpus.manifest.jsonl`; the measured jargon and LibriSpeech
+manifests and audio are local, gitignored data under `benchmarks/data/`. Regenerated public data or
+synthesized audio is a **new measurement**, not a guarantee of reproducing the original audio hashes.
 
 Build the shipping benchmark and standalone experiments before measuring:
 
@@ -207,7 +212,8 @@ uv --no-config run --project bench python bench/rust/analysis/paired_stats.py \
     --check .build/rust-bench/reproduction/b7.jargon456.jsonl --all-vs native
 ```
 
-The same runner exposes `ledger`, `cold`, `tail`, `mel`, `encoder`, `text` and `mercury` sections.
+Besides `combined`, the same runner exposes `ledger`, `cold`, `tail`, `mel`, `encoder`, `text`,
+`mercury` and `analyze` sections; with no arguments it runs all nine, ending with `combined` and `analyze`.
 Prepare text cases with `bench/rust/voiceour-text/target/release/text-bench gen-inputs` and run
 the [text parity script](../bench/rust/voiceour-text/scripts/b3-parity.sh) before its timing section. Renderer verification is
 `bench/rust/swift-mercury-harness/.build/release/swift-mercury-harness verify`.

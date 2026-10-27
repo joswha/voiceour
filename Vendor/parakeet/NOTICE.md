@@ -431,7 +431,20 @@ captured under `patches/`.
     this call produced, and its token sequence and transcript are compared with the same row's
     native `ParakeetContext.transcribe` and the dump's reference.
 
-
+- `patches/0025-macos27-warning-clean-build.patch` makes the vendored targets warning-clean
+  under Swift 6.4's default Swift Build engine and the macOS 27 SDK.
+  Tensor dimensions, byte strides, block counts and loop indices retain their source widths;
+  conversions to existing fixed-width vector, scheduler and Metal kernel interfaces are explicit.
+  `GGML_TENSOR_LOCALS` honors its caller-selected type without an implicit narrowing conversion.
+  C library assertion and Darwin MIN/MAX macros are imported before local fallback definitions.
+  Metal device setup uses unified-memory capability rather than the unsupported Apple Silicon
+  eGPU-location query, and logs Apple/Metal GPU families without the deprecated Common family.
+  No warning is disabled, no kernel argument layout changes, and no per-element validation is added.
+  - Upstream status: not reported upstream; re-check these compiler/SDK compatibility changes
+    when updating the vendor pin.
+  - Verification: `make build` passes with Swift, C and C++ warnings as errors. A before/after
+    production-sidecar comparison of 24 LibriSpeech, FLEURS and TechTerms clips (1.39–34.96 s)
+    has zero errors and identical transcripts, cleanup output and confidence values.
 
 Upstream already defaults both loggers to stderr (`src/parakeet.cpp:4894-4931` routes through
 `g_state.log_callback`, and `ggml_log_callback_default` in `ggml/src/ggml.c:313-320` writes to

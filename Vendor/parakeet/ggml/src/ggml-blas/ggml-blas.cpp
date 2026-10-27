@@ -185,12 +185,14 @@ static void ggml_backend_blas_out_prod(ggml_backend_blas_context * ctx, struct g
     // src1->data already contains a transposed version, so sgemm mustn't
     // transpose it further.
 
-    int n = src0->ne[0];
-    int k = src0->ne[1];
-    int m = src1->ne[0];
+    // VOICEOUR PATCH: keep the dimensions int64_t like ggml_backend_blas_mul_mat; with ACCELERATE_LAPACK_ILP64
+    // cblas_sgemm takes 64-bit __LAPACK_int, so no truncation happens on the way to BLAS.
+    const int64_t n = src0->ne[0];
+    const int64_t k = src0->ne[1];
+    const int64_t m = src1->ne[0];
 
     CBLAS_TRANSPOSE transposeA;
-    int lda;
+    int64_t lda;
 
     if (!ggml_is_transposed(src1)) {
         transposeA = CblasTrans;

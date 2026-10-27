@@ -17,9 +17,9 @@ public enum ASRModelContract {
 ///
 /// Every case is the same checkpoint at the same revision converted at a different precision:
 /// same vocabulary, same TDT decoder, same wire protocol, and the same transcripts to within
-/// the accuracy the committed corpus can resolve. Only the footprint differs, so the choice
-/// offered to a reader is a disk and memory trade and never a quality claim. `f16` stays the
-/// default because it is also the faster of the two on that corpus.
+/// the accuracy the committed corpus can resolve. The selection is a disk and memory
+/// trade, never a quality claim. `f16` remains the default; measured decode-speed ordering
+/// depends on the OS and toolchain, as recorded in README.md.
 ///
 /// The raw value is the artifact's quantization tag: it is the only part of the file name that
 /// varies, and it keeps a persisted choice readable.

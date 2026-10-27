@@ -2,17 +2,16 @@ import Foundation
 
 /// The three things listening can do, and the only sounds the app makes.
 ///
-/// Synthesized rather than shipped: no target declares `resources:`, so an asset
-/// would add resource handling to `Package.swift` and to `scripts/bundle_app.sh`
-/// for three tones whose parameters fit in a table.
+/// Synthesized rather than shipped: three tones whose parameters fit in a table
+/// need no audio assets or bundle resource lookup.
 public enum SessionCue: String, Sendable, CaseIterable {
     /// Capture has opened: a rising glide.
     case listeningStarted
     /// Capture has closed and the transcript is coming: the same glide, mirrored
     /// in pitch.
     case listeningEnded
-    /// The user discarded the utterance with Escape or the island's X: two
-    /// clipped tones falling a fourth, nothing delivered.
+    /// The user discarded the utterance with Escape or the island's Cancel action:
+    /// two clipped tones falling a fourth, nothing delivered.
     case listeningCancelled
 
     /// Length of one shaped tone. Matches `VoiceourMotion.quickDuration` (0.14 s)

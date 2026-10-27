@@ -26,7 +26,8 @@ ARGS ?=
 
 # One debug configuration for every debug target, so alternating `make build`,
 # `make dev` and `make self-test` never invalidates SwiftPM's incremental state.
-SWIFT_FLAGS := -Xswiftc -warnings-as-errors
+# Keep Swift and the vendored C/C++ warning-clean on the current SDK.
+SWIFT_FLAGS := -Xswiftc -warnings-as-errors -Xcc -Werror -Xcxx -Werror
 
 # `pgrep -x` matches the process name exactly, which is what both the bundled app and
 # the debug binary are called. The obvious `pgrep -f <bundle path>` would also match
@@ -125,8 +126,8 @@ status:
 
 ## logs: stream Voiceour's unified-log output until interrupted
 #
-# `hotkey` is the only category the app logs today (VoiceMac/KeyboardShortcutsBinder.swift).
-# The stop-path signposts are not log messages and need xctrace, not this.
+# `hotkey` and `audio` are the app's log categories.
+# The stop-path signposts need xctrace rather than the message stream.
 logs:
 	log stream --style compact --predicate 'subsystem == "com.voiceour.app"'
 
@@ -210,7 +211,7 @@ notarize:
 release:
 	scripts/release.sh
 
-## fixture: regenerate the committed audio fixture
+## fixture: generate the local audio fixture
 fixture:
 	scripts/make_fixture.sh
 

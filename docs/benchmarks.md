@@ -2,6 +2,8 @@
 
 These benchmarks measure local speech recognition, deterministic cleanup, technical-term behavior, and latency through the production Swift path. The Python package under `bench/` prepares datasets, invokes `voiceour-bench`, scores rows, and writes reports under `benchmarks/results/`. It never ships.
 
+This file is a supporting measurement appendix, not a product specification. [README.md](../README.md#model-and-network-contract) owns the shipping model, its variants, and the network contract; [README.md](../README.md#verification) owns which gates a change must pass; [AGENTS.md](../AGENTS.md#developer-commands) owns command conventions. The tier, command, row-identity, metric, and gate sections describe the current tooling. Every dated section is a measurement record bound to its corpus, model pin, hardware, and OS: it is neither a product claim nor a promise about another Mac, and no experiment route described here changes the shipping recognizer.
+
 Preparation is deterministic first-N selection: two runs with the same `--tier` and `--n` cover the same rows. Latency measurements live in [performance-roadmap.md](performance-roadmap.md).
 
 ## Tiers
@@ -9,9 +11,11 @@ Preparation is deterministic first-N selection: two runs with the same `--tier` 
 | tier | source | default size | purpose |
 | --- | --- | ---: | --- |
 | `smoke` | local macOS `say` synthesis | fixed fixture | Offline plumbing check. |
-| `librispeech` | LibriSpeech `test.clean` + `test.other` | 200 rows per split | Content accuracy and latency; `--n` applies per split. |
+| `librispeech` | LibriSpeech `test.clean` + `test.other` from `hf-audio/open-asr-leaderboard` | 200 rows per split | Content accuracy and latency; `--n` applies per split. |
 | `fleurs` | `google/fleurs`, `en_us`, `test` | 100 rows | Content plus human punctuation and casing references. |
 | `techterms` | local macOS `say` synthesis | fixed fixture | Technical terms, acronyms, symbols, digits, hard negatives. Smoke evidence only. |
+
+Those defaults apply to a direct `voiceour_bench.run` call. `make bench-stt` and `make bench-e2e` always pass `--n $(N)` with `N ?= 200`, so pass `N=100` to reproduce the FLEURS default through Make.
 
 ## Commands
 
@@ -24,6 +28,8 @@ make bench-e2e N=100
 make bench-techterms
 make bench-gate BASELINE=benchmarks/results/<baseline>.json CANDIDATE=benchmarks/results/<candidate>.json
 ```
+
+`BACKEND=fake` measures the fake path; the default is `parakeet`, and `make bench-smoke` always uses `fake`. `VOICEOUR_MODEL_VARIANT=f16` or `q8_0` selects the Parakeet artifact for a run, and the runner records the loaded file as `model_file`.
 
 Direct calls must pass `--no-config` so uv ignores user configuration:
 
@@ -52,7 +58,7 @@ artifact.
 
 ## Metrics
 
-Let $N(\cdot)$ be the published English text normalizer and $d$ Levenshtein distance.
+Let $N(\cdot)$ be the Whisper English text normalizer and $d$ Levenshtein distance.
 
 - **U-WER**: word error rate after normalization, $d(N(r),N(h))/|N(r)|$.
 - **CER**: character edit rate over normalized text.
@@ -92,9 +98,9 @@ The gate deliberately refuses population claims. `--frozen-row-conditional` is a
 acknowledgement: `pass` applies only to those byte-pinned rows. Generalization requires a separately
 sealed speaker/session-clustered design and a calibrated population analysis.
 
-## Current Parakeet baselines — 2026-08-15
+## Committed Parakeet baselines — 2026-08-15
 
-Hardware: Apple M4 Pro, macOS 26.5.2. Both runs used the default f16 artifact, identical deterministic row selection, and zero error rows. Select another artifact with `VOICEOUR_MODEL_VARIANT`, which the runner records as `model_file`.
+Recorded by the maintainer on an Apple M4 Pro under macOS 26.5.2, before the macOS 27 / Swift 6.4 migration. Both runs used the default f16 artifact, identical deterministic row selection, and zero error rows.
 
 | tier | rows | U-WER | CER | case F1 | punctuation micro F1 | ASR p50 / p95 | RTFx |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -103,18 +109,33 @@ Hardware: Apple M4 Pro, macOS 26.5.2. Both runs used the default f16 artifact, i
 
 Reports: `benchmarks/results/20260815T172106Z-librispeech-parakeet-stt.json` and `benchmarks/results/20260815T172117Z-fleurs-parakeet-stt.json`.
 
-Corpus baselines, not universal product claims: corpus, size, model pin, hardware, and OS are part of the result.
+Corpus baselines, not universal product claims: corpus, size, model pin, hardware, and OS are part of the result. The reports carry no host metadata, and they predate the `model_file`, manifest, and audio-manifest pins. `compare.py` therefore reads their artifact as `unknown`, and a current report, which names its artifact, does not compare against them. Gate a change against a fresh baseline of the same tier and `N` on the same Mac.
 
 ## Noise robustness
 
-`bench/src/voiceour_bench/noise.py` writes additive-Gaussian-noise copies of a 64-utterance LibriSpeech subset at 20, 10, 5, and 0 dB SNR. Seed `20260718` is hashed with each file through SHA-256, so regeneration is stable.
+`bench/src/voiceour_bench/noise.py` writes additive-Gaussian-noise copies of a 64-utterance LibriSpeech subset — rows `000001` through `000032` of each split — at 20, 10, 5, and 0 dB SNR. It reads the prepared `benchmarks/data/librispeech/manifest.jsonl`, so prepare LibriSpeech with at least 32 rows per split first. Seed `20260718` is hashed with each row id and SNR through SHA-256, so regeneration is stable.
 
 ```sh
 cd bench
 uv --no-config run python -m voiceour_bench.noise
 ```
 
-It writes WAVs and manifests only; run those through the release `voiceour-bench` pipeline runner and score with `voiceour_bench.report`. Compare SNR levels only when row ids match.
+It writes WAVs and one manifest per level under `benchmarks/data/librispeech-noise/snrNN/`; it runs no recognition. Run each manifest through the release runner from the repository root, then score it:
+
+```sh
+swift build -c release --product voiceour-bench
+swift build -c release --product voiceour-asr
+mkdir -p .build/noise
+.build/release/voiceour-bench pipeline --backend parakeet \
+  --input benchmarks/data/librispeech-noise/snr10/manifest.jsonl \
+  --output .build/noise/snr10.results.jsonl
+cd bench
+uv --no-config run python -m voiceour_bench.report \
+  ../.build/noise/snr10.results.jsonl ../benchmarks/data/librispeech-noise/snr10/manifest.jsonl \
+  --tier librispeech-noise --mode stt
+```
+
+Compare SNR levels only when row ids match.
 
 Digital noise added after capture isolates recognition robustness; it does not model microphone directivity, room reverberation, AGC, Bluetooth routes, or clipping.
 
@@ -160,8 +181,9 @@ swift build -c release --product voiceour-bench
 `VOICEOUR_COREML_ENCODER_SHORT`, or `VOICEOUR_COREML_ENCODER_TINY` compiled `.mlmodelc`.
 Multiple tiers are refused because one metadata row cannot identify several routed artifacts.
 The experiment uses the standard 15 s, 6-bit palettized tier; Core AI weights are unquantized.
-All candidates must receive the same manifest filtered to `audio_s <= 15.0`; the runner also
-refuses actual sample counts above 240,000.
+All candidates must receive the same manifest filtered to `audio_s <= 15.0`; the `jq` commands in
+the next section write `.build/coreai/fleurs.le15.manifest.jsonl` and its LibriSpeech sibling. The
+runner also refuses actual sample counts above 240,000.
 
 Each external run emits `bench_meta`, `encoder_meta`, then ordinary rows with an optional
 `encoder` timing/digest object. Core AI `encode_ms` includes its array bridge but not native mel;
@@ -187,8 +209,8 @@ report with no model measurements, not a synthetic substitute for the Parakeet e
 `conversion blocked`: the NeMo export stage lives on the devbox and that host was intentionally
 unreachable. The Core AI measurement that did land came through a different conversion path —
 Apple's `coreai-models` Transformers recipe, exercised end to end in the section below — so the
-`voiceour-bench external-encoder --engine coreai` route and its `CoreAIEncoder` adapter are
-unit-tested but have not yet run against a real artifact.
+`voiceour-bench external-encoder --engine coreai` route and its `CoreAIEncoder` adapter are, as of
+this record, unit-tested but not yet run against a real artifact.
 
 ## macOS 27 native model prototypes — 2026-09-16
 
@@ -323,11 +345,12 @@ compilation that exhausted disk and the fixed 448-token graph failed ANE program
 failure records sit beside the report's run directory. Private Cloud Compute was hardware
 available but blocked by the missing entitlement, and no cloud request was sent.
 
-## Selective Rust rewrite experiments
+## Selective Rust rewrite experiments — 2026-10-17
 
 [Rust rewrite evaluation](rust-evaluation.md) records the benchmark-only mel, decoder, encoder,
 text and renderer implementations, their C/Swift controls, and the directly measured combined
 PCM-to-cleaned-text path. `voiceour-bench combined-bench` recomputes every stage from PCM and
 checks token, text and segment identity; isolated stage speedups are not app-latency predictions.
 `bench/rust/run_official.sh` serializes measurements and enforces power/completion checks.
-Rust and MLX remain development dependencies, not requirements for building the shipping app.
+Rust and MLX are needed only to reproduce those experiments; building the shipping app requires
+neither.

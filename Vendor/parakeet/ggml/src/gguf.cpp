@@ -610,7 +610,8 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
         }
         GGML_ASSERT(int64_t(ctx->kv.size()) == n_kv);
 
-        const int alignment_idx = gguf_find_key(ctx, GGUF_KEY_GENERAL_ALIGNMENT);
+        // VOICEOUR PATCH: keep the key id as int64_t, the type gguf_find_key returns and gguf_get_val_u32 takes.
+        const int64_t alignment_idx = gguf_find_key(ctx, GGUF_KEY_GENERAL_ALIGNMENT);
         ctx->alignment = alignment_idx == -1 ? GGUF_DEFAULT_ALIGNMENT : gguf_get_val_u32(ctx, alignment_idx);
 
         if (ctx->alignment == 0 || (ctx->alignment & (ctx->alignment - 1)) != 0) {

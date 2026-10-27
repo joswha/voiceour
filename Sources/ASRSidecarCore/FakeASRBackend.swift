@@ -3,9 +3,9 @@ import VoiceCore
 
 /// Deterministic backend used by tests, smoke runs and fake development.
 ///
-/// It needs no model, no microphone and no network, which is why it is the registry default.
-/// Its transcript text is asserted verbatim by Swift tests, the bench harness and
-/// `make self-test`, so the strings below are a contract, not a placeholder.
+/// It needs no model, microphone or network. The standalone sidecar defaults to it;
+/// the app defaults to Parakeet. Swift protocol tests and the benchmark smoke assert
+/// its deterministic transcript contract.
 public final class FakeASRBackend: SidecarBackend {
     public let backendId = "fake"
 

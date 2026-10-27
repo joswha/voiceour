@@ -92,7 +92,8 @@ void ggml_metal_pipeline_free(ggml_metal_pipeline_t pipeline) {
 }
 
 int ggml_metal_pipeline_max_theads_per_threadgroup(struct ggml_metal_pipeline_with_params pipeline) {
-    return pipeline.pipeline->obj.maxTotalThreadsPerThreadgroup;
+    // VOICEOUR PATCH: Metal's hardware threadgroup limit fits the backend's int ABI.
+    return (int) pipeline.pipeline->obj.maxTotalThreadsPerThreadgroup;
 }
 
 struct ggml_metal_library {
@@ -864,11 +865,8 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
             dev->props.use_residency_sets = getenv("GGML_METAL_NO_RESIDENCY") == nil;
 #endif
 
+            // VOICEOUR PATCH: Apple Silicon has no external GPU location; use its memory capability.
             dev->props.use_shared_buffers = dev->props.has_unified_memory;
-#if TARGET_OS_OSX
-            // In case of eGPU, shared memory may be preferable.
-            dev->props.use_shared_buffers |= [dev->mtl_device location] == MTLDeviceLocationExternal;
-#endif
             if (getenv("GGML_METAL_SHARED_BUFFERS_DISABLE") != NULL) {
                 dev->props.use_shared_buffers = false;
             }
@@ -918,12 +916,8 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
                     }
                 }
 
-                for (int i = MTLGPUFamilyCommon1 + 5; i >= MTLGPUFamilyCommon1; --i) {
-                    if ([dev->mtl_device supportsFamily:i]) {
-                        GGML_LOG_INFO("%s: GPU family: MTLGPUFamilyCommon%d (%d)\n", __func__, i - (int) MTLGPUFamilyCommon1 + 1, i);
-                        break;
-                    }
-                }
+                // VOICEOUR PATCH: Common GPU families are deprecated on macOS 27.
+                // Apple and Metal families above/below describe the supported hardware.
 
                 for (int i = MTLGPUFamilyMetal3_GGML + 5; i >= MTLGPUFamilyMetal3_GGML; --i) {
                     if ([dev->mtl_device supportsFamily:i]) {

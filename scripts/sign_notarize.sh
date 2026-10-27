@@ -42,7 +42,7 @@ APP=$(VOICEOUR_CODESIGN_IDENTITY="$IDENTITY" "$ROOT/scripts/bundle.sh")
 codesign --force --options runtime --sign "$IDENTITY" "$APP/Contents/MacOS/voiceour-asr"
 codesign --force --options runtime --entitlements "$ROOT/Resources/Voiceour.entitlements" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
-codesign --display --entitlements :- "$APP"
+codesign --display --entitlements - --xml "$APP"
 "$ROOT/scripts/verify_bundle.sh"
 for binary in "$APP/Contents/MacOS/voiceour-asr" "$APP"; do
   codesign --display --verbose=4 "$binary" 2>&1 | grep -Eq 'flags=0x[0-9a-f]+\(.*runtime' || {

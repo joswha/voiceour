@@ -41,12 +41,13 @@ static const uint64_t table_b2b_1[1 << 8] = { B8(10, 00) }; // (!b) << 4
 void quantize_row_q8_0(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(QK8_0 == 32);
     assert(k % QK8_0 == 0);
-    const int nb = k / QK8_0;
+    // VOICEOUR PATCH: keep the block count/index at the int64_t width of k.
+    const int64_t nb = k / QK8_0;
 
     block_q8_0 * GGML_RESTRICT y = vy;
 
 #if defined(__ARM_NEON)
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         float32x4_t srcv [8];
         float32x4_t asrcv[8];
         float32x4_t amaxv[8];
@@ -84,11 +85,12 @@ void quantize_row_q8_0(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, i
 
 void quantize_row_q8_1(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(k % QK8_1 == 0);
-    const int nb = k / QK8_1;
+    // VOICEOUR PATCH: keep the block count/index at the int64_t width of k.
+    const int64_t nb = k / QK8_1;
 
     block_q8_1 * GGML_RESTRICT y = vy;
 #if defined(__ARM_NEON)
-    for (int i = 0; i < nb; i++) {
+    for (int64_t i = 0; i < nb; i++) {
         float32x4_t srcv [8];
         float32x4_t asrcv[8];
         float32x4_t amaxv[8];

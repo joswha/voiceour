@@ -710,7 +710,8 @@ void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
     }
 
     ctx->encode_async = Block_copy(^(size_t iter) {
-        const int cb_idx = iter;
+        // VOICEOUR PATCH: dispatch iterations are bounded by GGML_METAL_MAX_COMMAND_BUFFERS.
+        const int cb_idx = (int) iter;
         const int n_cb_l = ctx->n_cb;
 
         const int n_nodes_0 = ctx->n_nodes_0;

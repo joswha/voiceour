@@ -103,6 +103,7 @@ LOCAL_FILES=(
     'patches/0022-multitalker-streaming-encoder-support.patch'
     'patches/0023-bench-observability-seams.patch'
     'patches/0024-bench-encode-stored-mel-seam.patch'
+    'patches/0025-macos27-warning-clean-build.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'

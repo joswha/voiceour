@@ -2189,7 +2189,9 @@ static struct ggml_tensor * ggml_acc_impl(
 
     struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
-    int32_t params[] = { nb1, nb2, nb3, offset, inplace ? 1 : 0 };
+    // VOICEOUR PATCH: GGML_OP_ACC op_params ABI stores byte strides/offset as int32_t
+    // (backends read them back as int32_t); make that existing narrowing explicit.
+    int32_t params[] = { (int32_t) nb1, (int32_t) nb2, (int32_t) nb3, (int32_t) offset, inplace ? 1 : 0 };
     ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = GGML_OP_ACC;
@@ -3448,7 +3450,9 @@ static struct ggml_tensor * ggml_set_impl(
     struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
     GGML_ASSERT(offset < (size_t)(1 << 30));
-    int32_t params[] = { nb1, nb2, nb3, offset, inplace ? 1 : 0 };
+    // VOICEOUR PATCH: GGML_OP_SET op_params ABI stores byte strides/offset as int32_t
+    // (backends read them back as int32_t); make that existing narrowing explicit.
+    int32_t params[] = { (int32_t) nb1, (int32_t) nb2, (int32_t) nb3, (int32_t) offset, inplace ? 1 : 0 };
     ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = GGML_OP_SET;
@@ -3834,8 +3838,10 @@ struct ggml_tensor * ggml_permute(
     struct ggml_tensor * result = ggml_view_tensor(ctx, a);
     ggml_format_name(result, "%s (permuted)", a->name);
 
-    int ne[GGML_MAX_DIMS];
-    int nb[GGML_MAX_DIMS];
+    // VOICEOUR PATCH: keep permuted extents/strides at their tensor field widths
+    // (int64_t / size_t) instead of round-tripping them through int.
+    int64_t ne[GGML_MAX_DIMS];
+    size_t  nb[GGML_MAX_DIMS];
 
     ne[axis0] = a->ne[0];
     ne[axis1] = a->ne[1];
@@ -4545,7 +4551,9 @@ struct ggml_tensor* ggml_conv_1d_ph(
         struct ggml_tensor  * b,
         int                   s,
         int                   d) {
-    return ggml_conv_1d(ctx, a, b, s, a->ne[0] / 2, d);
+    // VOICEOUR PATCH: ggml_conv_1d takes int padding (stored as int32 im2col op_params);
+    // half the kernel width is a small kernel extent, so the conversion is explicit.
+    return ggml_conv_1d(ctx, a, b, s, (int) (a->ne[0] / 2), d);
 }
 
 // ggml_conv_1d_dw
@@ -4576,7 +4584,9 @@ struct ggml_tensor * ggml_conv_1d_dw_ph(
         struct ggml_tensor  * b,
         int                   s0,
         int                   d0) {
-    return ggml_conv_1d_dw(ctx, a, b, s0, a->ne[0] / 2, d0);
+    // VOICEOUR PATCH: ggml_conv_1d_dw takes int padding (stored as int32 im2col op_params);
+    // half the kernel width is a small kernel extent, so the conversion is explicit.
+    return ggml_conv_1d_dw(ctx, a, b, s0, (int) (a->ne[0] / 2), d0);
 }
 
 // ggml_col2im_1d
@@ -4770,7 +4780,9 @@ struct ggml_tensor * ggml_conv_2d_sk_p0(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         struct ggml_tensor  * b) {
-    return ggml_conv_2d(ctx, a, b, a->ne[0], a->ne[1], 0, 0, 1, 1);
+    // VOICEOUR PATCH: ggml_conv_2d takes int strides (stored as int32 im2col op_params);
+    // stride == kernel extent here, so the conversion is explicit.
+    return ggml_conv_2d(ctx, a, b, (int) a->ne[0], (int) a->ne[1], 0, 0, 1, 1);
 }
 
 // ggml_conv_2d_s1_ph
@@ -4779,7 +4791,9 @@ struct ggml_tensor * ggml_conv_2d_s1_ph(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
         struct ggml_tensor  * b) {
-    return ggml_conv_2d(ctx, a, b, 1, 1, a->ne[0] / 2, a->ne[1] / 2, 1, 1);
+    // VOICEOUR PATCH: ggml_conv_2d takes int padding (stored as int32 im2col op_params);
+    // half the kernel extent is small, so the conversion is explicit.
+    return ggml_conv_2d(ctx, a, b, 1, 1, (int) (a->ne[0] / 2), (int) (a->ne[1] / 2), 1, 1);
 }
 
 // ggml_conv_2d_dw
@@ -5656,8 +5670,10 @@ struct ggml_tensor * ggml_win_part(
     const int px = (w - a->ne[1]%w)%w;
     const int py = (w - a->ne[2]%w)%w;
 
-    const int npx = (px + a->ne[1])/w;
-    const int npy = (py + a->ne[2])/w;
+    // VOICEOUR PATCH: window counts are stored as int32 op_params (GGML_OP_WIN_PART ABI);
+    // make the existing int64_t -> int conversion explicit.
+    const int npx = (int) ((px + a->ne[1])/w);
+    const int npy = (int) ((py + a->ne[2])/w);
     const int np  = npx*npy;
 
     const int64_t ne[4] = { a->ne[0], w, w, np, };
@@ -7359,7 +7375,7 @@ struct ggml_cgraph * ggml_new_graph_custom(struct ggml_context * ctx, size_t siz
     assert(obj_size == (size_t)((char *)p - (char *)cgraph));
 
     *cgraph = (struct ggml_cgraph) {
-        /*.size         =*/ size,
+        /*.size         =*/ (int) size, // VOICEOUR PATCH: ggml_cgraph.size is int (node capacity); explicit narrowing
         /*.n_nodes      =*/ 0,
         /*.n_leafs      =*/ 0,
         /*.nodes        =*/ nodes_ptr,

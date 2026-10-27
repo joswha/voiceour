@@ -165,6 +165,7 @@ let package = Package(
             name: "ASRSidecarCoreTests",
             dependencies: [
                 "ASRSidecarCore",
+                "CGgml",
                 "VoiceCore"
             ]
         ),

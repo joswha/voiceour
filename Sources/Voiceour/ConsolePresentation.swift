@@ -72,14 +72,10 @@ enum ConsolePresentation {
     ///
     /// * Miniaturizable. A minimized window is clicked back from its Dock tile,
     ///   and this app's tile exists only while the console is open. Nothing else
-    ///   about the window changes: it still closes, zooms, resizes and remembers
-    ///   its frame, and ⌘W plus the menu bar item stay the pair a reader already
-    ///   uses to put it away and bring it back.
+    ///   about the window changes: it still closes, zooms and resizes. ⌘W and the
+    ///   menu bar item remain the way to put it away and bring it back.
     /// * Restorable. AppKit's window restoration is what carried a parked window
     ///   across a quit into a launch that had no Dock icon to rescue it with.
-    ///   The frame is *not* restoration — that is `setFrameAutosaveName`, whose
-    ///   `NSWindow Frame main` entry is written and read independently — so the
-    ///   console still opens where it was left.
     static func harden(_ window: NSWindow) {
         window.styleMask.remove(.miniaturizable)
         window.isRestorable = false

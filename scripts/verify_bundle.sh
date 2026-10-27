@@ -56,7 +56,7 @@ for binary in "$BIN" "$SIDECAR"; do
 done
 
 codesign --display --verbose=4 "$APP"
-entitlements=$(codesign --display --entitlements :- "$APP" 2>&1)
+entitlements=$(codesign --display --entitlements - --xml "$APP" 2>&1)
 printf '%s\n' "$entitlements"
 
 case "$entitlements" in

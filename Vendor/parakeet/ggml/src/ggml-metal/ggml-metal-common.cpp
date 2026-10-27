@@ -290,7 +290,8 @@ static std::vector<int> ggml_metal_graph_optimize_reorder(const std::vector<node
         }
     };
 
-    const int n = nodes.size();
+    // VOICEOUR PATCH: nodes is packed from the int ggml_cgraph::n_nodes, so its size fits the int node indices returned in res.
+    const int n = (int) nodes.size();
 
     std::vector<int> res;
     res.reserve(n);

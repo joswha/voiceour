@@ -13,6 +13,12 @@
 #include <limits>
 #include <cmath>
 
+// VOICEOUR PATCH: -Wshorten-64-to-32 cleanup. ggml_metal_encoder_dispatch_threadgroups()
+// takes int grid/threadgroup sizes and many ggml_metal_kargs_* fields are int32_t; both are
+// fixed Metal ABI. Narrowing from int64_t/uint64_t tensor counts at those boundaries is
+// spelled out below with the bound each site relies on; in-range values and argument
+// layouts are unchanged.
+
 static ggml_metal_buffer_id ggml_metal_get_buffer_id(const ggml_tensor * t) {
     if (!t) {
         return { nullptr, 0 };
@@ -69,7 +75,8 @@ struct ggml_metal_op {
     }
 
     int n_nodes() const {
-        return idxs.size();
+        // VOICEOUR PATCH: idxs holds at most idx_end - idx_start (int) node indices.
+        return (int) idxs.size();
     }
 
     ggml_tensor * node(int i) const {
@@ -845,7 +852,8 @@ int ggml_metal_op_unary(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, bid_dst,  2);
 
     if (pipeline.cnt) {
-        const int n = pipeline.c4 ? ggml_nelements(op)/4 : ggml_nelements(op);
+        // VOICEOUR PATCH: int dispatch grid; explicit form of the previous implicit narrowing.
+        const int n = (int) (pipeline.c4 ? ggml_nelements(op)/4 : ggml_nelements(op));
 
         ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, 1, 1, 1);
     } else {
@@ -912,7 +920,8 @@ int ggml_metal_op_glu(ggml_metal_op_t ctx, int idx) {
     }
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, nrows, 1, 1, nth, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; one threadgroup per row.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) nrows, 1, 1, nth, 1, 1);
 
     return 1;
 }
@@ -1088,7 +1097,8 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
 
         ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
-        ggml_metal_encoder_dispatch_threadgroups(enc, net0*ne01, ne02, ne03, nth, 1, 1);
+        // VOICEOUR PATCH: int dispatch grid; net0 <= ne00 and ne01 are int32_t extents.
+        ggml_metal_encoder_dispatch_threadgroups(enc, (int) (net0*ne01), ne02, ne03, nth, 1, 1);
     }
 
     if (ne00 > nth) {
@@ -1123,7 +1133,8 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
 
             ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
-            ggml_metal_encoder_dispatch_threadgroups(enc, net1, net2, net3, nth, 1, 1);
+            // VOICEOUR PATCH: int dispatch grid; net1..net3 are widened int32_t ne01..ne03.
+            ggml_metal_encoder_dispatch_threadgroups(enc, (int) net1, (int) net2, (int) net3, nth, 1, 1);
         }
 
         ggml_metal_op_concurrency_reset(ctx);
@@ -1155,7 +1166,8 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
             ggml_metal_encoder_set_buffer  (enc, bid_tmp, 1);
             ggml_metal_encoder_set_buffer  (enc, bid_dst, 2);
 
-            ggml_metal_encoder_dispatch_threadgroups(enc, net0*ne01, ne02, ne03, nth, 1, 1);
+            // VOICEOUR PATCH: int dispatch grid, same grid as the first cumsum pass.
+            ggml_metal_encoder_dispatch_threadgroups(enc, (int) (net0*ne01), ne02, ne03, nth, 1, 1);
         }
     }
 
@@ -1369,10 +1381,11 @@ int ggml_metal_op_lightning_indexer(ggml_metal_op_t ctx, int idx) {
     auto pipeline = ggml_metal_library_get_pipeline_lightning_indexer(ctx->lib, op);
     ggml_metal_encoder_set_pipeline(enc, pipeline);
     ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+    // VOICEOUR PATCH: int dispatch grid; the kernel args above already carry these extents as int32_t.
     ggml_metal_encoder_dispatch_threadgroups(enc,
-            (k->ne[2] + nkptg - 1)/nkptg,
-            (q->ne[2] + nbptg - 1)/nbptg,
-            q->ne[3], 32, nsg, 1);
+            (int) ((k->ne[2] + nkptg - 1)/nkptg),
+            (int) ((q->ne[2] + nbptg - 1)/nbptg),
+            (int) q->ne[3], 32, nsg, 1);
 
     return 1;
 }
@@ -1529,7 +1542,8 @@ int ggml_metal_op_soft_max(ggml_metal_op_t ctx, int idx) {
     memcpy(&scale,    ((const int32_t *) op->op_params) + 0, sizeof(scale));
     memcpy(&max_bias, ((const int32_t *) op->op_params) + 1, sizeof(max_bias));
 
-    const uint32_t n_head      = op->src[0]->ne[2];
+    // VOICEOUR PATCH: head count feeds the uint32_t ALiBi log2 setup below.
+    const uint32_t n_head      = (uint32_t) op->src[0]->ne[2];
     const  int32_t n_head_log2 = 1u << (uint32_t) floorf(log2f((float) n_head));
 
     const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
@@ -1764,7 +1778,8 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
 
     ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, d_inner, n_head, n_seqs, d_state, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; these are widened int32_t ne locals (d_state is also asserted <= max threads).
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) d_inner, (int) n_head, (int) n_seqs, (int) d_state, 1, 1);
 
     return 1;
 }
@@ -1805,7 +1820,8 @@ int ggml_metal_op_rwkv(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_bytes   (enc, (void *) &C, sizeof(C), ida++);
     ggml_metal_encoder_set_bytes   (enc, (void *) &H, sizeof(H), ida++);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, B * H, 1, 1, C/H, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; C/H is the per-head thread count.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) (B * H), 1, 1, (int) (C/H), 1, 1);
 
     return 1;
 }
@@ -1880,7 +1896,8 @@ int ggml_metal_op_gated_delta_net(ggml_metal_op_t ctx, int idx) {
 
     const int nsg = pipeline.nsg;
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, op->src[2]->ne[0]/nsg, op->src[2]->ne[1], op->src[2]->ne[3], 32, nsg, 1);
+    // VOICEOUR PATCH: int dispatch grid; same values as the int32_t ne20/ne21/ne23 kernel extents.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) (op->src[2]->ne[0]/nsg), (int) op->src[2]->ne[1], (int) op->src[2]->ne[3], 32, nsg, 1);
 
     return 1;
 }
@@ -2017,7 +2034,8 @@ int ggml_metal_op_set(ggml_metal_op_t ctx, int idx) {
         nk0 = ne10/ggml_blck_size(op->type);
     }
 
-    int nth = std::min<int>(nk0*ne11, 256);
+    // VOICEOUR PATCH: bound the row-batch product in int64_t before narrowing the <= 256 thread count.
+    int nth = (int) std::min<int64_t>(nk0*ne11, 256);
 
     // when rows are small, we can batch them together in a single threadgroup
     int nrptg = 1;
@@ -2025,8 +2043,9 @@ int ggml_metal_op_set(ggml_metal_op_t ctx, int idx) {
     // TODO: relax this constraint in the future
     if (ggml_blck_size(op->src[1]->type) == 1 && ggml_blck_size(op->type) == 1) {
         if (nth > nk0) {
-            nrptg = (nth + nk0 - 1)/nk0;
-            nth   = nk0;
+            // VOICEOUR PATCH: nk0 < nth <= 256 here, so both values fit int.
+            nrptg = (int) ((nth + nk0 - 1)/nk0);
+            nth   = (int) nk0;
 
             if (nrptg*nth > 256) {
                 nrptg--;
@@ -2034,7 +2053,8 @@ int ggml_metal_op_set(ggml_metal_op_t ctx, int idx) {
         }
     }
 
-    nth = std::min<int>(nth, nk0);
+    // VOICEOUR PATCH: nk0 <= ne10, an int32_t extent.
+    nth = std::min<int>(nth, (int) nk0);
 
     ggml_metal_kargs_cpy args = {
         /*.nk0  =*/ nk0,
@@ -2056,7 +2076,8 @@ int ggml_metal_op_set(ggml_metal_op_t ctx, int idx) {
         /*.nb3  =*/ pnb3,
     };
 
-    const int nw0 = nrptg == 1 ? (nk0 + nth - 1)/nth : 1;
+    // VOICEOUR PATCH: int dispatch grid; nk0 <= ne10, an int32_t extent.
+    const int nw0 = nrptg == 1 ? (int) ((nk0 + nth - 1)/nth) : 1;
 
     bid_dst.offs += offs;
 
@@ -2092,7 +2113,8 @@ int ggml_metal_op_cpy(ggml_metal_op_t ctx, int idx) {
         nk0 = ne00/ggml_blck_size(op->type);
     }
 
-    int nth = std::min<int>(nk0*ne01, 256);
+    // VOICEOUR PATCH: bound the row-batch product in int64_t before narrowing the <= 256 thread count.
+    int nth = (int) std::min<int64_t>(nk0*ne01, 256);
 
     // when rows are small, we can batch them together in a single threadgroup
     int nrptg = 1;
@@ -2100,8 +2122,9 @@ int ggml_metal_op_cpy(ggml_metal_op_t ctx, int idx) {
     // TODO: relax this constraint in the future
     if (ggml_blck_size(op->src[0]->type) == 1 && ggml_blck_size(op->type) == 1) {
         if (nth > nk0) {
-            nrptg = (nth + nk0 - 1)/nk0;
-            nth   = nk0;
+            // VOICEOUR PATCH: nk0 < nth <= 256 here, so both values fit int.
+            nrptg = (int) ((nth + nk0 - 1)/nk0);
+            nth   = (int) nk0;
 
             if (nrptg*nth > 256) {
                 nrptg--;
@@ -2109,7 +2132,8 @@ int ggml_metal_op_cpy(ggml_metal_op_t ctx, int idx) {
         }
     }
 
-    nth = std::min<int>(nth, nk0);
+    // VOICEOUR PATCH: nk0 <= ne00, an int32_t extent.
+    nth = std::min<int>(nth, (int) nk0);
 
     ggml_metal_kargs_cpy args = {
         /*.nk0  =*/ nk0,
@@ -2131,7 +2155,8 @@ int ggml_metal_op_cpy(ggml_metal_op_t ctx, int idx) {
         /*.nb3  =*/ nb3,
     };
 
-    const int nw0 = nrptg == 1 ? (nk0 + nth - 1)/nth : 1;
+    // VOICEOUR PATCH: int dispatch grid; nk0 <= ne00, an int32_t extent.
+    const int nw0 = nrptg == 1 ? (int) ((nk0 + nth - 1)/nth) : 1;
 
     ggml_metal_encoder_set_pipeline(enc, pipeline);
     ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
@@ -2178,7 +2203,8 @@ int ggml_metal_op_pool_1d(ggml_metal_op_t ctx, int idx) {
     auto pipeline = ggml_metal_library_get_pipeline_pool_1d(lib, op, op_pool);
 
     const int nth = std::min(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), (int) np);
-    const int ntg = (np + nth - 1) / nth;
+    // VOICEOUR PATCH: int dispatch grid; threadgroup count over np output elements.
+    const int ntg = (int) ((np + nth - 1) / nth);
 
     ggml_metal_encoder_set_pipeline(enc, pipeline);
     ggml_metal_encoder_set_bytes   (enc, &args_pool_1d, sizeof(args_pool_1d),  0);
@@ -2211,7 +2237,8 @@ int ggml_metal_op_fwht(ggml_metal_op_t ctx, int idx) {
         /*.nrows = */ (int32_t) nrows,
     };
 
-    auto pipeline = ggml_metal_library_get_pipeline_fwht(lib, n);
+    // VOICEOUR PATCH: the only caller checks ggml_metal_fwht_supported_size(n), so n <= 512.
+    auto pipeline = ggml_metal_library_get_pipeline_fwht(lib, (int) n);
 
     ggml_metal_encoder_set_pipeline(enc, pipeline);
     ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
@@ -2226,7 +2253,8 @@ int ggml_metal_op_fwht(ggml_metal_op_t ctx, int idx) {
     sg_per_tg = std::max(sg_per_tg, 1);
 
     const int64_t n_tg = (nrows + sg_per_tg - 1) / sg_per_tg;
-    ggml_metal_encoder_dispatch_threadgroups(enc, n_tg, 1, 1, 32*sg_per_tg, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; n_tg <= nrows, which the kernel already takes as int32_t.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) n_tg, 1, 1, 32*sg_per_tg, 1, 1);
 
     return 1;
 }
@@ -2279,7 +2307,8 @@ int ggml_metal_op_pool_2d(ggml_metal_op_t ctx, int idx) {
     auto pipeline = ggml_metal_library_get_pipeline_pool_2d(lib, op, op_pool);
 
     const int nth = std::min(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), (int) np);
-    const int ntg = (np + nth - 1) / nth;
+    // VOICEOUR PATCH: int dispatch grid; threadgroup count over np output elements.
+    const int ntg = (int) ((np + nth - 1) / nth);
 
     ggml_metal_encoder_set_pipeline(enc, pipeline);
     ggml_metal_encoder_set_bytes   (enc, &args_pool_2d, sizeof(args_pool_2d), 0);
@@ -2723,7 +2752,8 @@ int ggml_metal_op_mul_mat_id(ggml_metal_op_t ctx, int idx) {
         ggml_metal_encoder_set_buffer(enc, bid_src2, 4);
 
         const int64_t _ne1 = 1;
-        const int64_t ne123 = ne20*ne21;
+        // VOICEOUR PATCH: ne20*ne21 is already an int product of int32_t locals; keep int for the dispatch grid.
+        const int ne123 = ne20*ne21;
 
         ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
@@ -2959,7 +2989,8 @@ int ggml_metal_op_flash_attn_ext(ggml_metal_op_t ctx, int idx) {
     const bool has_bias  = max_bias != 0.0f;
     const bool has_scap  = logit_softcap != 0.0f;
 
-    const uint32_t n_head      = op->src[0]->ne[2];
+    // VOICEOUR PATCH: head count feeds the uint32_t ALiBi log2 setup below.
+    const uint32_t n_head      = (uint32_t) op->src[0]->ne[2];
     const  int32_t n_head_log2 = 1u << (uint32_t) floorf(log2f((float) n_head));
 
     const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
@@ -3219,7 +3250,8 @@ int ggml_metal_op_flash_attn_ext(ggml_metal_op_t ctx, int idx) {
         //
 #define FATTN_SMEM(nsg) (GGML_PAD(((GGML_PAD(ne00, 128) + 4*ncpsg + 2*GGML_PAD(ne20, 128))*(nsg))*(sizeof(float)/2), 16))
 
-        int64_t nsg = 1;
+        // VOICEOUR PATCH: nsg is 1, 2 or 4; int32_t matches the pipeline and dispatch parameters.
+        int32_t nsg = 1;
 
         // workgroups
         // each workgroup handles nsg*nkpsg cache values
@@ -3531,7 +3563,8 @@ int ggml_metal_op_bin(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, bid_dst,  3);
 
     if (pipeline.cnt) {
-        ggml_metal_encoder_dispatch_threadgroups(enc, args.ne0, ggml_nrows(op), 1, 1, 1, 1);
+        // VOICEOUR PATCH: int dispatch grid; one threadgroup row per tensor row.
+        ggml_metal_encoder_dispatch_threadgroups(enc, args.ne0, (int) ggml_nrows(op), 1, 1, 1, 1);
     } else {
         const int nth_max = MIN(256, ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
 
@@ -3569,10 +3602,11 @@ int ggml_metal_op_silu_back(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), arg_idx++);
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op), arg_idx++);
 
-    const int nth = std::min<int64_t>(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), ne);
+    // VOICEOUR PATCH: nth is bounded by the pipeline's int max threads; n below is the int dispatch grid.
+    const int nth = (int) std::min<int64_t>(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), ne);
     const int64_t n = (ne + nth - 1) / nth;
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, nth, 1, 1);
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) n, 1, 1, nth, 1, 1);
 
     return 1;
 }
@@ -3774,9 +3808,10 @@ int ggml_metal_op_norm(ggml_metal_op_t ctx, int idx) {
 
             bid_fuse[n_fuse] = ggml_metal_get_buffer_id(f1->src[1]);
 
-            args.nef1[n_fuse + 1] = f1->src[1]->ne[1];
-            args.nef2[n_fuse + 1] = f1->src[1]->ne[2];
-            args.nef3[n_fuse + 1] = f1->src[1]->ne[3];
+            // VOICEOUR PATCH: nef* are int32_t kernel args, like nef*[0] from the int32_t ne locals.
+            args.nef1[n_fuse + 1] = (int32_t) f1->src[1]->ne[1];
+            args.nef2[n_fuse + 1] = (int32_t) f1->src[1]->ne[2];
+            args.nef3[n_fuse + 1] = (int32_t) f1->src[1]->ne[3];
 
             args.nbf1[n_fuse + 1] = f1->src[1]->nb[1];
             args.nbf2[n_fuse + 1] = f1->src[1]->nb[2];
@@ -3950,16 +3985,17 @@ int ggml_metal_op_im2col(ggml_metal_op_t ctx, int idx) {
 
     const bool is_2D = ((const int32_t *)(op->op_params))[6] == 1;
 
-    const int32_t N  = op->src[1]->ne[is_2D ? 3 : 2];
-    const int32_t IC = op->src[1]->ne[is_2D ? 2 : 1];
-    const int32_t IH = is_2D ? op->src[1]->ne[1] : 1;
-    const int32_t IW =         op->src[1]->ne[0];
+    // VOICEOUR PATCH: ggml_metal_kargs_im2col and the dispatch grid take int32_t extents.
+    const int32_t N  = (int32_t) op->src[1]->ne[is_2D ? 3 : 2];
+    const int32_t IC = (int32_t) op->src[1]->ne[is_2D ? 2 : 1];
+    const int32_t IH = is_2D ? (int32_t) op->src[1]->ne[1] : 1;
+    const int32_t IW =         (int32_t) op->src[1]->ne[0];
 
-    const int32_t KH = is_2D ? op->src[0]->ne[1] : 1;
-    const int32_t KW =         op->src[0]->ne[0];
+    const int32_t KH = is_2D ? (int32_t) op->src[0]->ne[1] : 1;
+    const int32_t KW =         (int32_t) op->src[0]->ne[0];
 
-    const int32_t OH = is_2D ? op->ne[2] : 1;
-    const int32_t OW =         op->ne[1];
+    const int32_t OH = is_2D ? (int32_t) op->ne[2] : 1;
+    const int32_t OW =         (int32_t) op->ne[1];
 
     const int32_t CHW = IC * KH * KW;
 
@@ -3987,7 +4023,8 @@ int ggml_metal_op_im2col(ggml_metal_op_t ctx, int idx) {
     auto pipeline = ggml_metal_library_get_pipeline_im2col(lib, op);
 
     if (KH*KW <= ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
-        const uint64_t ntptg0 = std::min(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)/(KH*KW), N);
+        // VOICEOUR PATCH: min of two int values; keep int for the int dispatch threadgroup size.
+        const int ntptg0 = std::min(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)/(KH*KW), N);
 
         ggml_metal_encoder_set_pipeline(enc, pipeline);
         ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
@@ -4004,7 +4041,8 @@ int ggml_metal_op_im2col(ggml_metal_op_t ctx, int idx) {
         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 1);
         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         2);
 
-        ggml_metal_encoder_dispatch_threadgroups(enc, quotient * CHW, OH, OW, n_threads, 1, 1);
+        // VOICEOUR PATCH: int dispatch grid; n_threads <= the pipeline's int max threads.
+        ggml_metal_encoder_dispatch_threadgroups(enc, (int) (quotient * CHW), OH, OW, (int) n_threads, 1, 1);
     }
 
     return 1;
@@ -4083,7 +4121,8 @@ int ggml_metal_op_conv_2d(ggml_metal_op_t ctx, int idx) {
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2);
     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, tg, 1, 1, nth, 1, 1);
+    // VOICEOUR PATCH: tg is clamped to INT_MAX above.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) tg, 1, 1, nth, 1, 1);
 
     return 1;
 }
@@ -4223,7 +4262,8 @@ int ggml_metal_op_conv_3d(ggml_metal_op_t ctx, int idx) {
 
     int64_t spatial_volume = args.OW * args.OH * args.OD;
 
-    int ntg0 = (spatial_volume + nth0 - 1) / nth0;
+    // VOICEOUR PATCH: int dispatch grid; spatial_volume is a product of int32_t extents.
+    int ntg0 = (int) ((spatial_volume + nth0 - 1) / nth0);
     int ntg1 = args.OC;
     int ntg2 = args.N;
 
@@ -4254,13 +4294,14 @@ int ggml_metal_op_conv_transpose_1d(ggml_metal_op_t ctx, int idx) {
 
     const int32_t s0 = ((const int32_t *)(op->op_params))[0];
 
-    const int32_t IC = op->src[1]->ne[1];
-    const int32_t IL = op->src[1]->ne[0];
+    // VOICEOUR PATCH: ggml_metal_kargs_conv_transpose_1d and the dispatch grid take int32_t extents.
+    const int32_t IC = (int32_t) op->src[1]->ne[1];
+    const int32_t IL = (int32_t) op->src[1]->ne[0];
 
-    const int32_t K  = op->src[0]->ne[0];
+    const int32_t K  = (int32_t) op->src[0]->ne[0];
 
-    const int32_t OL = op->ne[0];
-    const int32_t OC = op->ne[1];
+    const int32_t OL = (int32_t) op->ne[0];
+    const int32_t OC = (int32_t) op->ne[1];
 
     ggml_metal_kargs_conv_transpose_1d args = {
         /*.IC  =*/ IC,
@@ -4389,16 +4430,17 @@ int ggml_metal_op_conv_transpose_2d(ggml_metal_op_t ctx, int idx) {
 
     const int32_t s0 = ((const int32_t *)(op->op_params))[0];
 
-    const int32_t IC = op->src[1]->ne[2];
-    const int32_t IH = op->src[1]->ne[1];
-    const int32_t IW = op->src[1]->ne[0];
+    // VOICEOUR PATCH: ggml_metal_kargs_conv_transpose_2d and the dispatch grid take int32_t extents.
+    const int32_t IC = (int32_t) op->src[1]->ne[2];
+    const int32_t IH = (int32_t) op->src[1]->ne[1];
+    const int32_t IW = (int32_t) op->src[1]->ne[0];
 
-    const int32_t KH = op->src[0]->ne[1];
-    const int32_t KW = op->src[0]->ne[0];
+    const int32_t KH = (int32_t) op->src[0]->ne[1];
+    const int32_t KW = (int32_t) op->src[0]->ne[0];
 
-    const int32_t OW = op->ne[0];
-    const int32_t OH = op->ne[1];
-    const int32_t OC = op->ne[2];
+    const int32_t OW = (int32_t) op->ne[0];
+    const int32_t OH = (int32_t) op->ne[1];
+    const int32_t OC = (int32_t) op->ne[2];
 
     ggml_metal_kargs_conv_transpose_2d args = {
         /*.IC  =*/ IC,
@@ -4585,8 +4627,9 @@ int ggml_metal_op_pad(ggml_metal_op_t ctx, int idx) {
     }
 
     const int nth_max = MIN(64, ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
-    const int nth = MIN(args.ne0, nth_max);
-    const int nk0 = (args.ne0 + 1024 - 1)/1024; // note: 1024 is hardcoded in the kernel!
+    // VOICEOUR PATCH: args.ne0 comes from the int32_t ne0 local; nth is also <= nth_max.
+    const int nth = (int) MIN(args.ne0, nth_max);
+    const int nk0 = (int) ((args.ne0 + 1024 - 1)/1024); // note: 1024 is hardcoded in the kernel!
 
     ggml_metal_encoder_set_pipeline(enc, pipeline);
     ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
@@ -4746,7 +4789,8 @@ int ggml_metal_op_argmax(ggml_metal_op_t ctx, int idx) {
 
     ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, nrows, 1, 1, nth, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; one threadgroup per row.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) nrows, 1, 1, nth, 1, 1);
 
     return 1;
 }
@@ -5052,7 +5096,8 @@ int ggml_metal_op_opt_step_adamw(ggml_metal_op_t ctx, int idx) {
     const int nth = std::min(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), ne0);
     const int64_t n = (np + nth - 1) / nth;
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, nth, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; threadgroup count over np parameters.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) n, 1, 1, nth, 1, 1);
 
     return 1;
 }
@@ -5086,7 +5131,8 @@ int ggml_metal_op_opt_step_sgd(ggml_metal_op_t ctx, int idx) {
     const int nth = std::min(ggml_metal_pipeline_max_theads_per_threadgroup(pipeline), ne0);
     const int64_t n = (np + nth - 1) / nth;
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, n, 1, 1, nth, 1, 1);
+    // VOICEOUR PATCH: int dispatch grid; threadgroup count over np parameters.
+    ggml_metal_encoder_dispatch_threadgroups(enc, (int) n, 1, 1, nth, 1, 1);
 
     return 1;
 }

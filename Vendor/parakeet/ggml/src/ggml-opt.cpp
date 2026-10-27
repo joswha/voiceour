@@ -1027,11 +1027,12 @@ void ggml_opt_fit(
 
     int64_t epoch = 1;
 
+    // VOICEOUR PATCH: preserve the existing int32_t optimizer-parameter ABI.
     ggml_opt_params params = ggml_opt_default_params(backend_sched, loss_type);
     params.ctx_compute     = ctx_compute;
     params.inputs          = inputs;
     params.outputs         = outputs;
-    params.opt_period      = opt_period;
+    params.opt_period      = (int32_t) opt_period;
     params.get_opt_pars    = get_opt_pars;
     params.get_opt_pars_ud = &epoch;
     params.optimizer       = optimizer;
