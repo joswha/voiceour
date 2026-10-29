@@ -15,6 +15,11 @@ final class RecordingOverlayModel: ObservableObject {
     @Published private(set) var isSpeaking = false
     @Published private(set) var outcome: RecordingOverlayOutcome?
 
+    /// Where the body is laid out on the panel's display: the island, or the collar around a
+    /// camera housing. A property of the display rather than of the session, so `reset()`
+    /// leaves it alone.
+    @Published private(set) var layout: RecordingOverlayLayout = .island
+
     private var attackRun = 0
     private var releaseRun = 0
 
@@ -72,6 +77,12 @@ final class RecordingOverlayModel: ObservableObject {
         if !isListening {
             clearSpeechActivity()
         }
+    }
+
+    /// An unchanged layout is not republished: it would re-render the body for nothing.
+    func update(layout: RecordingOverlayLayout) {
+        guard layout != self.layout else { return }
+        self.layout = layout
     }
 
     /// The mercury drive. The eleven newest levels, oldest first, shifted in place: a

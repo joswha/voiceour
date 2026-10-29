@@ -38,25 +38,6 @@ enum RecordingOverlayMetrics {
 }
 
 extension RecordingOverlayMetrics {
-    /// The island's frame inside the panel's content view, in the hosting view's own
-    /// TOP-DOWN (flipped) space — the space SwiftUI lays the overlay out in, so these
-    /// rects and the published accessibility frames agree by construction.
-    static func islandRect(in bounds: CGRect) -> CGRect {
-        CGRect(
-            x: bounds.midX - islandSize.width / 2,
-            y: bounds.minY + contentTopInset,
-            width: islandSize.width,
-            height: islandSize.height
-        )
-    }
-
-    /// Tracking rect only. Whether a pointer is on the body is answered by the mercury
-    /// field through `MercuryHitRegion`; transparent panel area never becomes clickable.
-    static func islandHitRect(in bounds: CGRect) -> CGRect {
-        islandRect(in: bounds)
-            .insetBy(dx: -VoiceourMetrics.Space.hair, dy: -VoiceourMetrics.Space.hair)
-    }
-
     /// The body's envelope in screen (bottom-up) space. Placement and clamping run on
     /// this rect so `screenPadding` and `topOffset` describe what the user can see.
     static func islandFrame(forWindow frame: NSRect) -> NSRect {
@@ -75,5 +56,166 @@ extension RecordingOverlayMetrics {
             width: windowSize.width,
             height: windowSize.height
         )
+    }
+}
+
+/// Where the body is laid out in its panel, and the line it lies along.
+///
+/// One value carries everything that differs between the two places the body lives, so the
+/// view, the engine, the raster and the hit region all read one description of it:
+///
+/// - The island: a straight 180 pt spine on the 180×34 canvas, centred `contentTopInset` below
+///   the top of the 260×80 panel. It sits below the menu bar, so it has no band.
+/// - The collar: the camera housing's outline as the spine, on a canvas that is the whole
+///   panel and hangs flush from the screen's top edge. The housing fills the canvas's top
+///   centre, and the menu-bar band runs across the panel's top.
+///
+/// Rectangles are in the panel's flipped space: points, origin at its top-left, the space
+/// SwiftUI lays the overlay out in and the hosting view hit-tests in. The spine is
+/// canvas-local: origin at the canvas centre, +y up, the space `MercuryField` is written in.
+struct RecordingOverlayLayout: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case island
+        case collar
+    }
+
+    let kind: Kind
+    /// The panel's content size.
+    let panelSize: NSSize
+    /// The canvas the field is written on and the raster covers. The panel outside it never
+    /// draws.
+    let canvasRect: CGRect
+    /// The fixed frame of the one `Dictation status` accessibility element. It stays still
+    /// while the body breathes, so the VoiceOver cursor does too.
+    let statusRect: CGRect
+    let spine: MercurySpine
+    /// How far the menu-bar band reaches down from the panel's top edge. Menus, menu titles
+    /// and status items own that strip, so the hit region never claims a point in it.
+    let bandHeight: CGFloat
+
+    /// The established island. Its canvas is the 180×34 envelope and its status element
+    /// covers exactly that canvas, so placement, pixels and the accessibility frame are the
+    /// ones the island has always had.
+    static let island: RecordingOverlayLayout = {
+        let panel = RecordingOverlayMetrics.windowSize
+        let envelope = RecordingOverlayMetrics.islandSize
+        let canvas = CGRect(
+            x: (panel.width - envelope.width) / 2,
+            y: RecordingOverlayMetrics.contentTopInset,
+            width: envelope.width,
+            height: envelope.height
+        )
+        return RecordingOverlayLayout(
+            kind: .island,
+            panelSize: panel,
+            canvasRect: canvas,
+            statusRect: canvas,
+            spine: MercurySpine(straightLength: Double(envelope.width)),
+            bandHeight: 0
+        )
+    }()
+
+    /// The collar around a camera housing of `housingSize`, on a display whose menu-bar band
+    /// reaches `bandHeight` down from its top edge.
+    ///
+    /// The canvas reaches the fillet and the ear beyond each wall, `ρe + E`, and `endMargin`
+    /// past each ear's end. Below the housing it holds the deepest chin the body can draw,
+    /// `MercuryMetrics.maxHalfHeight`, and `chinMargin` under that. The status element spans
+    /// the housing's width directly under it, down to the canvas bottom: the chin's own strip.
+    ///
+    /// Nil for a housing that cannot wear a collar. `MercurySpine.init(collar:)` accepts any
+    /// housing taller than its fillet, rounding the corner down to fit. This refuses one no
+    /// taller than `ρe + 6` pt, whose corner would round below the smallest 6 pt, and one no
+    /// wider than its two corners, which leaves the chin no bottom run. Neither is a camera
+    /// housing, and the island serves that display instead.
+    static func collar(housingSize: CGSize, bandHeight: CGFloat) -> RecordingOverlayLayout? {
+        let width = Double(housingSize.width)
+        let height = Double(housingSize.height)
+        guard width.isFinite, height.isFinite, height > Collar.filletRadius + Collar.cornerRadii.lowerBound else {
+            return nil
+        }
+        let cornerRadius = Swift.min(
+            Swift.max(Collar.cornerRatio * height, Collar.cornerRadii.lowerBound),
+            Collar.cornerRadii.upperBound
+        )
+        guard width > 2 * cornerRadius else { return nil }
+
+        let reach = CGFloat(Collar.filletRadius + Collar.earLength) + Collar.endMargin
+        let canvas = CGSize(
+            width: housingSize.width + 2 * reach,
+            height: housingSize.height + MercuryMetrics.maxHalfHeight + Collar.chinMargin
+        )
+        // Flush with the canvas top and centred on it, in the canvas-local space the spine uses.
+        let top = Double(canvas.height) / 2
+        let outline = MercurySpine.Outline(
+            minX: -width / 2,
+            maxX: width / 2,
+            bottom: top - height,
+            top: top,
+            cornerRadius: cornerRadius,
+            filletRadius: Collar.filletRadius,
+            earLength: Collar.earLength,
+            bandFilm: Collar.bandFilm
+        )
+        return RecordingOverlayLayout(
+            kind: .collar,
+            panelSize: canvas,
+            canvasRect: CGRect(origin: .zero, size: canvas),
+            statusRect: CGRect(
+                x: (canvas.width - housingSize.width) / 2,
+                y: housingSize.height,
+                width: housingSize.width,
+                height: canvas.height - housingSize.height
+            ),
+            spine: MercurySpine(collar: outline),
+            bandHeight: bandHeight
+        )
+    }
+
+    /// The layout the body takes on `display`: the collar around its camera housing, or the
+    /// island on a display without one, on a mirrored one (see `OverlayDisplay.hasNotch`) and
+    /// around a housing that cannot wear a collar.
+    static func forDisplay(_ display: OverlayDisplay) -> RecordingOverlayLayout {
+        guard display.hasNotch, let housing = display.housing,
+            let collar = collar(housingSize: housing.size, bandHeight: display.bandHeight)
+        else { return .island }
+        return collar
+    }
+
+    private init(
+        kind: Kind,
+        panelSize: NSSize,
+        canvasRect: CGRect,
+        statusRect: CGRect,
+        spine: MercurySpine,
+        bandHeight: CGFloat
+    ) {
+        self.kind = kind
+        self.panelSize = panelSize
+        self.canvasRect = canvasRect
+        self.statusRect = statusRect
+        self.spine = spine
+        self.bandHeight = bandHeight
+    }
+
+    /// The collar's measures, in points.
+    private enum Collar {
+        /// ρe, the concave fillet that turns each wall into the screen's top edge.
+        static let filletRadius = 4.5
+        /// E, how far the collar runs along the top edge beyond each fillet.
+        static let earLength = 56.0
+        /// The outward thickness the taper leaves the body in the menu-bar band. Thinner than
+        /// the fillet, so each fillet's offsets stay unique (see `MercurySpine`).
+        static let bandFilm = 3.5
+        /// ρ, the housing's convex bottom corners, as a fraction of its depth, held to
+        /// `cornerRadii`. Apple publishes no housing shape; 0.44 of the 32 pt housing is the
+        /// 14 pt bottom radius notch overlays draw, and 6…16 pt bounds it at other depths.
+        static let cornerRatio = 0.44
+        static let cornerRadii: ClosedRange<Double> = 6...16
+        /// Canvas past each ear's end: room for the round end of a body that reaches it, at
+        /// most the band film, and its coverage ramp.
+        static let endMargin: CGFloat = 4
+        /// Canvas below the deepest chin, which holds its `MercuryMetrics.bleed`.
+        static let chinMargin: CGFloat = 3
     }
 }

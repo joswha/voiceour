@@ -1,7 +1,7 @@
 import SwiftUI
 import VoiceCore
 
-/// The recording island.
+/// The recording island, or the collar it becomes around a camera housing.
 ///
 /// One borderless liquid-mercury body and one invisible accessibility element over it.
 /// There is no capsule, no control disc, no waveform, no work mark, and no painted word
@@ -10,6 +10,9 @@ import VoiceCore
 /// doing. What a VoiceOver reader hears is unchanged, because that never came from the
 /// pixels: it comes from this element's label and value, and now from two named actions
 /// where the two discs used to be.
+///
+/// Every measure comes from `model.layout`: the panel, the canvas the body is drawn on, and
+/// the status element's fixed frame.
 ///
 /// Internal rather than private so the offscreen UI harness can render the overlay
 /// without launching the panel controller.
@@ -24,8 +27,8 @@ struct RecordingOverlayView: View {
     /// session's world both arrive without a notification path.
     let world: @MainActor () -> MercuryWorld
     let seed: @MainActor () -> UInt64
-    /// Harness seam: renders the island alone, at its own 180x34 measure, instead of the
-    /// 260x80 panel that frames it. Production never sets this.
+    /// Harness seam: renders the canvas alone, at the layout's `canvasRect` size, instead of
+    /// the panel that frames it. Production never sets this.
     let islandOnly: Bool
 
     @MainActor
@@ -52,40 +55,41 @@ struct RecordingOverlayView: View {
     @ViewBuilder
     var body: some View {
         if islandOnly {
-            island
+            canvas
         } else {
-            VStack(spacing: 0) {
-                island
-            }
-            .padding(.top, RecordingOverlayMetrics.contentTopInset)
-            .frame(
-                width: RecordingOverlayMetrics.windowSize.width,
-                height: RecordingOverlayMetrics.windowSize.height,
-                alignment: .top
-            )
-            .background(Color.clear)
+            let layout = model.layout
+            canvas
+                .padding(.leading, layout.canvasRect.minX)
+                .padding(.top, layout.canvasRect.minY)
+                .frame(
+                    width: layout.panelSize.width,
+                    height: layout.panelSize.height,
+                    alignment: .topLeading
+                )
+                .background(Color.clear)
         }
     }
 
     /// Idle with nothing to report draws nothing and publishes nothing: no body, no
     /// status element, and an emptied hit region, so a click lands on the app underneath.
     @ViewBuilder
-    private var island: some View {
+    private var canvas: some View {
         if model.state.isActive || model.outcome != nil {
             MercuryRibbon(model: model, hitRegion: hitRegion, world: world, seed: seed)
-                .overlay { statusElement }
+                .overlay(alignment: .topLeading) { statusElement }
         } else {
             Color.clear
                 .frame(
-                    width: RecordingOverlayMetrics.islandSize.width,
-                    height: RecordingOverlayMetrics.islandSize.height
+                    width: model.layout.canvasRect.width,
+                    height: model.layout.canvasRect.height
                 )
                 .onAppear { hitRegion.clear() }
         }
     }
 
-    /// One accessibility element for the whole island, at a fixed 180x34 frame so the
-    /// VoiceOver cursor stays still while the body breathes.
+    /// One accessibility element for the whole body, at the layout's fixed status frame so
+    /// the VoiceOver cursor stays still while the body breathes: the island's whole 180×34
+    /// canvas, or the collar's chin strip directly under the housing.
     ///
     /// A state change is a VALUE change on a stable, labelled node instead of a label
     /// change on an unlabelled image that VoiceOver only speaks if the user happens to be
@@ -99,11 +103,9 @@ struct RecordingOverlayView: View {
     /// choices. An outcome publishes neither: the moment is a report, not a prompt, and
     /// the panel is click-through for its duration.
     private var statusElement: some View {
-        Color.clear
-            .frame(
-                width: RecordingOverlayMetrics.islandSize.width,
-                height: RecordingOverlayMetrics.islandSize.height
-            )
+        let layout = model.layout
+        return Color.clear
+            .frame(width: layout.statusRect.width, height: layout.statusRect.height)
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("overlay.status")
             .accessibilityLabel("Dictation status")
@@ -121,6 +123,10 @@ struct RecordingOverlayView: View {
                     Button("Finish recording") { onFinish() }
                 }
             }
+            // Outside the element, so its frame stays the status rect alone: this only
+            // places it inside the canvas it overlays.
+            .padding(.leading, layout.statusRect.minX - layout.canvasRect.minX)
+            .padding(.top, layout.statusRect.minY - layout.canvasRect.minY)
     }
 
     private var accessibilityHint: String {

@@ -25,14 +25,54 @@ The renderer holds these properties; the tests and hard gates under [Measured ga
 
 ## Coordinate system and representation
 
-Coordinates are island-local points at 72 pt/in, with origin at the island centre and `+y` upward. The fixed view is 180×34 pt and the raster is always 2×, or 360×68 device pixels.
-
-The body has exactly 97 top/bottom samples: `MercuryMetrics.columns + 1`, with 96 material intervals. No later stage rebuilds another outline.
-
-For material coordinate
+Coordinates are canvas-local points at 72 pt/in, with origin at the canvas centre and `+y` upward. `RecordingOverlayLayout` supplies the canvas, and the raster always covers it at 2×. The island's canvas is 180×34 pt, inset 40 pt from the left and 16 pt from the top of its 260×80 pt panel: 360×68 device pixels. The collar's canvas is the whole panel, hung flush from the screen's top edge and centred on the camera housing. Around a $w_h\times h_h$ housing it measures
 
 $$
- a \in [0,1], \qquad x = (a - \tfrac12)L,
+ \bigl(w_h+2(\rho_e+E)+8\bigr)\times\bigl(h_h+H_{max}+3\bigr),
+$$
+
+with fillet radius $\rho_e=4.5$ pt, ear length $E=56$ pt, and $H_{max}=17$ pt: 314×52 pt around the 185×32 pt housing and 349×58 pt around the 220×38 pt one. The width reaches each fillet and ear plus 4 pt for a round end; the height holds the deepest chin plus a 3 pt margin for its bleed.
+
+`RecordingOverlayLayout.forDisplay(_:)` lays the collar only around a constructible notch: a camera housing on a display outside any mirror set, deeper than $\rho_e+6$ pt and wider than its two corners. Every other display gets the island. `RecordingOverlayController` does not select the collar, so the panel presents the island on every display.
+
+### Spine and chart
+
+The body's material coordinate lies along a `MercurySpine`: arc length $s\in[0,S]$, unit tangent $\mathbf T$, unit normal $\mathbf N$, and signed curvature $\kappa$, with $d\mathbf T/ds=-\kappa\mathbf N$ and $d\mathbf N/ds=\kappa\mathbf T$. A point's chart $(s,n)$ is the arc length of its nearest spine point and its signed offset along $\mathbf N$.
+
+- **Island**: one straight 180 pt run, so $s=x+90$, $n=y$, and $\mathbf N=+\hat y$.
+- **Collar**: the housing's own outline as a C¹ curve of nine primitives: an ear along the screen's top edge, a concave fillet of radius $\rho_e$, a wall, a convex corner of radius $\rho$, the bottom run, then the same four mirrored. $\kappa$ is $-1/\rho_e$ on the fillets, $1/\rho$ on the corners, and 0 on the straight runs. The layout sets $\rho=\operatorname{clamp}(0.44\,h_h,6,16)$ pt, and `MercurySpine` limits it to $\min(h_h-\rho_e,\,w_h/2)$ so no run is negative. $\mathbf N$ is the right-hand normal of the left-to-right traversal and points out of the housing everywhere: down along the ears and the bottom, outward on the walls.
+
+`chart(at:)` finds the exact nearest spine point in closed form. Each primitive owns a normal domain: a slab for a straight run, a quarter-plane wedge for an arc. The curve is C¹ and the ears continue straight past their ends, so the nearest point always lies in the domain of the primitive that owns it. At most two primitives ever compete, an ear against the wall or corner beside it, and the right half folds onto the left, so the chart needs no search, iteration, or sampling. It returns $s$, $n$, $\mathbf T$, $\mathbf N$, the metric
+
+$$
+ J=1+\kappa n,\qquad \nabla s=\frac{\mathbf T}{J},\qquad \nabla n=\mathbf N,
+$$
+
+and whether the primitive is a horizontal run (the island, the bottom, an ear), where $s$ depends on $x$ alone. The chart is nil strictly inside the housing, including its rounded corners and its continuation into the bezel, and above the screen's top edge.
+
+The collar's inner half, $n<0$, therefore lies under the housing or above the screen, where nothing is drawn or hit. The visible body begins exactly at the hardware's edge: the notch's rim is the liquid's contact line, the way a drop meets a wall it wets, and no rim is drawn.
+
+### Taper
+
+The taper $\Lambda(s)\in(0,1]$, `taper(at:)`, is the fraction of $H_{max}$ a station at $s$ may draw. It is 1 along the whole island and along the collar's bottom run, the chin under the notch. It is $\Lambda_{film}=3.5/17$, a 3.5 pt film, on the walls, fillets, and ears, which lie in the menu-bar band. Across each convex corner it is a smoothstep in the corner angle $\psi$, measured up from the bottom:
+
+$$
+ \Lambda=1-(1-\Lambda_{film})\,u^2(3-2u),
+ \qquad u=\operatorname{clamp}\left(\frac{\psi-30^\circ}{40^\circ},0,1\right).
+$$
+
+Through the lowest 30° the corner is still the chin's shoulder and keeps full thickness, so the chin stays one round piece; by 70° it is the foot of the wall, in the band, and already film. The smoothstep is flat at both ends, so $\Lambda$ is C¹ and the edge has no kink. `taperSlope(at:)` is the analytic $\Lambda'(s)$: on each corner, the smoothstep's derivative in angle divided by $\rho$ and signed by the traversal; zero everywhere else. Beside the notch, nothing thicker than the film rises above the corner centres.
+
+The film must stay thinner than the fillet. A concave arc's offsets converge on its centre and collapse at $n=\rho_e$, where $J$ vanishes and every point of the arc is equally near. With the 3.5 pt film under $\rho_e=4.5$ pt, the drawn film keeps $J\ge1-3.5/4.5\approx0.22$ and a unique nearest point.
+
+### Stations and mean envelope
+
+The body has exactly 97 top/bottom samples: `MercuryMetrics.columns + 1`, with 96 material intervals. No later stage rebuilds another outline. Both edges are normal offsets from the spine; on the collar the top edge is the outer, visible edge and the bottom edge lies under the housing.
+
+The span of length $L$ is centred on $\bar s=S/2+\delta$: the middle of the spine, displaced by the pose's lateral offset $\delta$. For material coordinate
+
+$$
+ a \in [0,1], \qquad s = \bar s + (a - \tfrac12)L,
 $$
 
 the mean envelope is
@@ -199,7 +239,7 @@ Outcome gestures are one-shot velocity impulses: `lurch` kicks the contact-line 
 
 ## Exact containment on the drawn envelope
 
-The body must never escape the 180×34 island. A componentwise amplitude clamp was rejected because it protects against a worst-case phase alignment the eight-mode field does not realise and visibly suppresses the liquid.
+The body must never escape its canvas, and on the collar it must stay a film inside the menu-bar band. A componentwise amplitude clamp was rejected because it protects against a worst-case phase alignment the eight-mode field does not realise and visibly suppresses the liquid.
 
 At each sampled station $j$, the upper edge is
 
@@ -218,33 +258,80 @@ and likewise for the lower edge. The containment gauge is the worst normalized v
 
 Outward radial velocity is removed while tangential velocity survives. This is Moreau-style inelastic contact: the state slides along the constraint instead of striking it on every frame. One scalar rescales both mode families, so containment cannot silently turn an independent two-edge body back into a pill.
 
+The gauge bounds the untapered edges, $y_T\le H_{max}$ and $y_B\ge-H_{max}$ with $H_{max}=17$ pt, and the field scales both by $\Lambda(s)\le1$. The drawn body therefore reaches at most $\Lambda(s)H_{max}$ from the spine: 17 pt on the island and under the notch, 3.5 pt on the walls, fillets, and ears. Each canvas holds that reach. The island's 34 pt is ±17 pt about its spine; the collar's canvas holds the 17 pt chin plus a 3 pt margin for its bleed, and 4 pt past each ear's end for a film-thick round end and its coverage ramp. The field's bounding box is intersected with the canvas, which is the absolute envelope: the bleed keeps the coverage ramp whole and never carries the body past the canvas.
+
 ## One scalar field for pixels and interaction
 
-For a resolved column, let radius and centre be
+`MercuryField` lays the simulated edges on the spine once, and every reader interpolates that one table. Each station keeps its untapered radius and centre
 
 $$
- r=\frac{y_T-y_B}{2},\qquad c=\frac{y_T+y_B}{2}.
+ r_0=\frac{y_T-y_B}{2},\qquad c_0=\frac{y_T+y_B}{2},
 $$
 
-Inside the material span, the signed field is
+and their finite differences per station, central inside and one-sided at the ends. All four interpolate linearly between stations; the interpolated differences, scaled by 96, are $\partial_a r_0$ and $\partial_a c_0$, so the normal stays continuous across station boundaries.
+
+A point $\mathbf x$ is read through its chart. Its material coordinate is
 
 $$
- \phi(x,y)=r(x)-|y-c(x)|.
+ a=\operatorname{clamp}\left(\frac{s-\bar s}{L}+\frac12,\,0,\,1\right),
 $$
 
-Beyond either endpoint it becomes the exact round-cap field
+and the taper is evaluated at the point's own arc length rather than at the stations:
 
 $$
- \phi(x,y)=r-\sqrt{(x-x_c)^2+(y-c)^2}.
+ r=\Lambda(s)\,r_0(a),\qquad c=\Lambda(s)\,c_0(a),
 $$
 
-Positive values are inside. The same `MercuryField.value` decides:
+$$
+ r_s=\Lambda'(s)\,r_0+\Lambda(s)\frac{\partial_a r_0}{L},\qquad
+ c_s=\Lambda'(s)\,c_0+\Lambda(s)\frac{\partial_a c_0}{L}.
+$$
+
+A corner's taper turns from chin to film over about 10 pt of arc, while a collar body's stations sit up to about 4 pt apart. Tapering the stations instead would facet the outline across every corner, and the normal's smoothing term, its departure from the drawn outline's own slope, would reach 0.2–0.32 there.
+
+Inside the span, $|s-\bar s|\le L/2$, the signed field is
+
+$$
+ \phi=r-|n-c|.
+$$
+
+With $\nabla s=\mathbf T/J$ and $\nabla n=\mathbf N$, its gradient and the radius gradient the crown reads are
+
+$$
+ \nabla\phi=\frac{r_s\pm c_s}{J}\,\mathbf T\mp\mathbf N,
+ \qquad
+ \nabla r=\frac{r_s}{J}\,\mathbf T,
+ \qquad
+ \pm=\operatorname{sgn}(n-c).
+$$
+
+The metric belongs in the normal. Offset curves around a convex corner are longer than the corner by $1+n/\rho$, so a crest wrapped around it is stretched and its slope along the body falls by exactly that factor; around a concave fillet they are shorter by $1-n/\rho_e$, and the slope steepens. Using $\mathbf T$ alone would tilt every normal on the curved primitives by the wrong amount and kink the reflection at each join. With $J$, the normal is the true surface normal and stays continuous along the C¹ spine.
+
+Beyond either end of the span the field is the exact Euclidean round cap
+
+$$
+ \phi=r_e-\lVert\mathbf x-P_e\rVert,
+ \qquad
+ P_e=\Gamma(s_e)+c_e\,\mathbf N(s_e),
+$$
+
+where $\Gamma(s_e)$ is the spine point at the end's arc length, and $r_e$ and $c_e$ are the end station's values tapered by $\Lambda(s_e)$. Its gradient is $-(\mathbf x-P_e)/\lVert\mathbf x-P_e\rVert$, and $\nabla r=0$. Both ends are full rounds with no cut, needle, or separately generated cap to seam.
+
+On the island every chart quantity is exact: $s=x+90$, $n=y$, $\mathbf T=\hat x$, $\mathbf N=\hat y$, $J=1$, $\Lambda\equiv1$, and $\Lambda'\equiv0$, and the cap offset is taken in the chart itself. The field there is, bit for bit, the straight ribbon
+
+$$
+ \phi(x,y)=r(x)-|y-c(x)|,
+ \qquad
+ \phi_{cap}(x,y)=r-\sqrt{(x-x_c)^2+(y-c)^2}.
+$$
+
+Positive values are inside. The same `MercuryField` evaluation decides:
 
 - pixel coverage;
 - panel drag eligibility;
 - open-hand cursor routing.
 
-This is a structural safety property, not a visual approximation. Transparent corners of the panel cannot swallow a click.
+This is a structural safety property, not a visual approximation. Transparent corners of the panel cannot swallow a click, and where the spine has no chart there is no body: nothing is drawn and nothing is hit. `MercuryHitRegion` converts panel points into the canvas of the layout last drawn and never claims a point in that layout's menu-bar band, `OverlayDisplay.bandHeight` deep. Menus, menu titles, and status items own that strip, so the collar's film there is drawn but never hit. The island's band is empty.
 
 Coverage is analytic first-order antialiasing:
 
@@ -253,7 +340,9 @@ $$
  \left(\frac12+\frac{\phi}{\|\nabla\phi\|p},0,1\right),
 $$
 
-where $p$ is one device pixel in island points.
+where $p$ is one device pixel in points. On the collar, the walls, corners, and bottom run border the housing. There coverage is also multiplied by $\operatorname{clamp}(\tfrac12+n/p,0,1)$, the same ramp on the distance outside the housing's rim, so the hardware edge is antialiased instead of drawn by pixel centre. The ears and fillets meet the screen's top edge, which is already the canvas edge.
+
+The rasterizer charts every pixel centre. On a horizontal run $s$ depends on $x$ alone, so each pixel column memoizes the station sample at its arc length and the rest of the column reuses it; the memo caches `stationSample(at:)` and is never a second evaluator. A conservative mask skips pixels the body cannot cover. Each frame it marks, row by row, the 8-pixel column blocks touched by a box around every piece of the body: each station interval, split at the spine's primitive joins, and both caps, each grown by its own provable coverage reach, half a pixel times the bound on $\|\nabla\phi\|$ over the piece, plus one pixel. A piece that reaches a concave fillet contributes the whole $\rho_e$ square instead, because $\|\nabla\phi\|$ has no bound near the fillet's centre. The marked blocks are visited in the same row-major order as a loop over every canvas pixel, so the image, and even the calibration's radiance sample sequence, is bit-identical to that loop.
 
 ## Half-elliptic crown
 
@@ -319,14 +408,14 @@ $$
  q=x'^2+y'^2,\quad d=1400-z.
 $$
 
-Across the complete island $q<0.0044$. Voiceour uses
+Across the island $q<0.0044$; across the widest collar canvas, 349×58 pt, $q<0.0163$. Voiceour uses
 
 $$
  (1+q)^{-1/2}\approx
  1-\frac12q+\frac38q^2-\frac5{16}q^3.
 $$
 
-Dense tests bound vector error below $10^{-8}$.
+The series alternates, so its first omitted term, $\tfrac{35}{128}q^4$, bounds the direction error: below $10^{-10}$ on the island and $1.9\times10^{-8}$ on the widest collar canvas, far below one 8-bit code value. Dense tests check both canvases against the exact normalization.
 
 With incidence $\mu=N\cdot V$, the mirror direction is
 
@@ -561,25 +650,37 @@ A 4,096-entry interpolation table handles antialiased pixels. A 16,384-entry byt
 
 ## Display-synchronized 120 Hz presentation
 
-The old renderer held each image for 33.3 ms. The physical mode ladder is band-limited well below 15 Hz, so 30 fps did not violate Nyquist; the perceptual defect was zero-order hold of high-contrast specular bands under smooth pursuit. The body looked quantized despite stable physics.
+Presentation follows the display because the visible defect of a slow raster is zero-order hold, not aliasing. The physical mode ladder is band-limited well below 15 Hz, so even 30 fps satisfies Nyquist, but holding high-contrast specular bands for 33.3 ms under smooth pursuit still makes a stable body look quantized.
 
-`NSView.displayLink(target:selector:)` is tied to the display containing the view. AppKit stops callbacks while the view is hidden or off-display. Voiceour requests
-
-$$
- f_p=\min(f_{screen,max},120).
-$$
-
-The simulation clock never changes. The frame pacer accumulates the display callback interval and consumes
+`NSView.displayLink(target:selector:)` is tied to the display containing the view, and AppKit stops callbacks while the view is hidden or off-display. `MercurySurfaceView` requests
 
 $$
- n=\left\lfloor\frac{r+\Delta t}{1/120}\right\rfloor
+ f_p=\min(f_{screen,max},120),
 $$
 
-fixed substeps, retaining the fractional remainder $r$. A 120 Hz callback consumes one; a 60 Hz callback consumes two; 75 Hz alternates as needed and totals exactly 120 substeps per second.
+or 60 fps from a screen that reports no maximum, and rebuilds the link whenever its window changes screen.
 
-`CADisplayLink.targetTimestamp - timestamp` outranks the hardware-reported duration because preferred callback rate can differ from panel refresh. Stalls are capped at four substeps and excess elapsed time is discarded: an old body must resume, not fast-forward through unseen motion.
+The physics step never changes. `MercuryClock` counts fixed substeps of $h=1/120$ s from an epoch $t_0$: the `targetTimestamp` of the first callback, which presents nothing. A frame that will be shown at $t$ presents the substep nearest to it,
 
-The renderer writes `CGImage` directly to `CALayer.contents` with implicit actions disabled. No frame index, timestamp, or image is published into SwiftUI. `MercuryEngine` returns the same image identity when committed geometry and appearance have not changed, avoiding a layer upload on a zero-step or Reduce Motion callback.
+$$
+ \nu(t)=\left\lfloor\frac{t-t_0}{h}+\frac12\right\rfloor,
+$$
+
+advancing by $\nu(t)-\nu_p$ substeps from the $\nu_p$ already presented, or by none when that difference is not positive. Every frame is counted from the one epoch rather than accumulated from callback intervals, so each wall-clock second holds exactly 120 substeps at any cadence: one per frame at 120 Hz, two at 60 Hz, the cycle 2, 1, 2, 1, 2 at 75 Hz, two or three at 48 Hz, and never more than one at 144 Hz. An accumulated remainder would round a little on every frame and would have to be discarded whenever the link is rebuilt, losing part of a substep at each display hand-off. The clock reads only target timestamps, never a callback interval or the hardware-reported duration, because the preferred callback rate can differ from panel refresh.
+
+Rounding, not flooring, is load-bearing. The epoch is a real frame's target, so at an integer cadence every later frame lands exactly on a substep boundary, where a floor has no margin. Measured on the development Mac, a floor broke both ways: three and a half days after boot, the rounding of real `CACurrentMediaTime` values alone turned two 120 Hz frames in three into 0s and 2s, and ±10 µs of vsync jitter does the same at any uptime. Rounding centres each frame in a ±4.17 ms cell, so the presented body is never more than half a substep from the moment it is shown.
+
+More than four substeps due at once, `MercuryMetrics.maxSubstepsPerFrame`, means the link stalled, the panel was hidden, or a new display's link started late. The clock then presents the cap and re-anchors its epoch on the current frame:
+
+$$
+ \nu_p\leftarrow\nu_p+4,\qquad t_0\leftarrow t-\nu_p\,h.
+$$
+
+The frame sits exactly on the substep it presents, so an old body resumes instead of fast-forwarding through unseen motion, and the new cadence starts centred in its cells.
+
+`MercurySurfaceView` owns one clock and never resets it, even when the link is rebuilt for another display. The new display's frames count from the same epoch, so a hand-off below the cap neither drops a substep nor presents one twice, and a new link whose first target precedes the last presented substep presents nothing until time catches up. A non-finite timestamp presents nothing and leaves the epoch untouched.
+
+The renderer writes `CGImage` directly to `CALayer.contents` with implicit actions disabled. No frame index, timestamp, or image is published into SwiftUI. `MercuryEngine` returns the same image identity when committed geometry, appearance, and layout have not changed, avoiding a layer upload on a zero-step or Reduce Motion callback.
 
 A native probe on the development M4 Pro measured a 120 Hz screen at exactly 121 callbacks over one second: `120.0 Hz`, with both target interval and reported duration at `1/120 s`.
 
@@ -655,12 +756,15 @@ The relevant automated contracts include:
 
 - `MercurySimulationTests`: exact stepping, containment, asymmetry, voice prominence, Reduce Motion;
 - `MercuryCrownTests`: analytic derivatives, full crown, limb regularization;
-- `MercuryFieldTests`: connected body and pixel/hit identity;
+- `MercurySpineTests`: the island axis; collar regions, clamped corners, C¹ joins with exact curvature, and mirror symmetry; chart round trips, the brute-force nearest point, the curvilinear metric, and no chart exactly inside the housing and above the screen; unique fillet offsets; ears continued past their ends; one station per column on horizontal runs; taper plateaus, bounds, C¹ continuity, and analytic slope; a film-only upper band;
+- `MercuryFieldTests`: pixel/hit identity on the island and both fixture collars; the island bit for bit as the closed-form straight ribbon; island containment; one connected body; the hit region's panel-to-field conversion; one evaluation behind value, gradient, and sample; the analytic gradient against central differences on every collar primitive and both caps; housing exclusion; a film-only menu-bar band; housing-rim antialiasing; the sparse raster against the full loop;
 - `MercuryEnvironmentTests`: positivity, seed replay, power conservation, chroma neutrality, octahedral seam continuity;
 - `MercurySpectralTests`: colour-matching and D65 tables against their published integrals and chromaticity, white mapping, sampled-constant provenance, neutral normal incidence, complex-amplitude Fresnel cross-check;
 - `MercuryDisplayResponseTests`: anchor solve, monotonicity, unreachable ceiling, Rec.709 gamut handling;
-- `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation, octahedral round trip, 60/75/120/144 Hz pacing;
-- `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster;
+- `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation on the island and the widest collar canvas, octahedral round trip, 60/75/120/144 Hz presentation rate;
+- `MercuryClockTests`: epoch anchoring; exactly 120 substeps per second at 48, 60, 75, 120, and 144 Hz, with each frame's share; exact counts from 24 MHz tick timestamps with ±20 µs of jitter at 3.5 and 30 days of uptime; the stall cap and re-anchor; display hand-offs that drop and repeat nothing; non-finite timestamps;
+- `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster, collar frames sized to their canvas with no pixel inside the housing, the hit region answering in the layout last drawn;
+- `RecordingOverlayLayoutTests` (in `MercuryEngineTests.swift`): the island's established frames; both fixture collars rebuilt from their housings; the island for notchless, mirrored, and unwearable housings; a collar hit region that rejects the menu-bar band and accepts the chin;
 - `MercuryCalibrationTests`: crest-prominence target, independent voice-driven edges, per-room response median for every `MercuryWorld`;
 - `make ui-snap`: island and recording-panel scene rasters and accessibility dumps (`make ui-list` is the inventory);
 - `make ui-flow`: overlay journeys among the semantic flows (`make ui-flow-list` is the inventory).
@@ -681,7 +785,8 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | pose ladder and targets | `Sources/Voiceour/MercuryPose.swift` |
 | two-family exact mode solver | `Sources/Voiceour/MercurySimulation.swift` |
 | calibrated gains and room metering | `Sources/Voiceour/MercuryCalibration.swift` |
-| signed silhouette | `Sources/Voiceour/MercuryField.swift` |
+| spine, exact curvilinear chart, and taper | `Sources/Voiceour/MercurySpine.swift` |
+| signed silhouette on the spine | `Sources/Voiceour/MercuryField.swift` |
 | crown and total derivative | `Sources/Voiceour/MercuryCrown.swift` |
 | static generated rooms and octahedral chart | `Sources/Voiceour/MercuryEnvironment.swift` |
 | spectral conductor reflectance (CIE 1931 observer, D65, liquid-mercury n and k) | `Sources/Voiceour/MercurySpectral.swift` |
@@ -689,7 +794,10 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | bounded Naka–Rushton display response | `Sources/Voiceour/MercuryDisplayResponse.swift` |
 | production CPU shading | `Sources/Voiceour/MercuryRasterizer.swift` |
 | fixed-step engine, image cache, and hit region | `Sources/Voiceour/MercuryRibbon.swift` |
-| frame pacer, display link, and layer presentation | `Sources/Voiceour/MercuryDisplayLink.swift` |
+| fixed 120 Hz clock on display target timestamps | `Sources/Voiceour/MercuryClock.swift` |
+| frame-rate request, display link, and layer presentation | `Sources/Voiceour/MercuryDisplayLink.swift` |
+| island and collar layouts: panel, canvas, status frame, spine, menu-bar band | `Sources/Voiceour/RecordingOverlayLayout.swift` |
+| display description: camera housing, menu-bar band, mirror set, frame-rate ceiling | `Sources/Voiceour/RecordingOverlayDisplay.swift` |
 | material/performance corpus | `Sources/Voiceour/UIHarness/MercuryChromeBenchmark.swift` |
 | contact sheets | `Sources/Voiceour/UIHarness/MercurySheet.swift` |
 

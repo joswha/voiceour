@@ -418,7 +418,8 @@
                 simulation.advance(steps: 9, drive: drive)
                 let field = MercuryField(
                     geometry: simulation.geometry,
-                    lateralOffset: drive.pose.lateralOffset
+                    spine: RecordingOverlayLayout.island.spine,
+                    canvas: RecordingOverlayLayout.island.canvasRect.size
                 )
                 let samples = rasterizer.sampleSceneRadiance(
                     field: field,
@@ -520,7 +521,8 @@
                 seed: seed,
                 world: .roomOfTen,
                 drive: drive,
-                appearance: .standard
+                appearance: .standard,
+                layout: .island
             )
             MercuryLayerPresenter.present(initialImage, on: presentationLayer)
             var engineLayerDurations: [Double] = []
@@ -532,7 +534,8 @@
                     seed: seed,
                     world: .roomOfTen,
                     drive: drive,
-                    appearance: .standard
+                    appearance: .standard,
+                    layout: .island
                 )
                 MercuryLayerPresenter.present(image, on: presentationLayer)
                 engineLayerDurations.append(
@@ -548,7 +551,8 @@
                     seed: seed,
                     world: .roomOfTen,
                     drive: drive,
-                    appearance: .standard
+                    appearance: .standard,
+                    layout: .island
                 )
                 MercuryLayerPresenter.present(image, on: presentationLayer)
                 sink &+= image?.width ?? 0
@@ -614,7 +618,8 @@
             simulation.advance(steps: 600, drive: drive)
             return MercuryField(
                 geometry: simulation.geometry,
-                lateralOffset: drive.pose.lateralOffset
+                spine: RecordingOverlayLayout.island.spine,
+                canvas: RecordingOverlayLayout.island.canvasRect.size
             )
         }
 

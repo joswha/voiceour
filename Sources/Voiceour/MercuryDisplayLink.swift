@@ -3,19 +3,18 @@ import QuartzCore
 import SwiftUI
 import VoiceCore
 
-/// Converts an attached display's cadence into the simulation's fixed 120 Hz clock.
+/// The rate the display link asks the attached display for.
 ///
 /// Presentation follows the screen, capped at 120 fps. Physics never changes step size:
-/// a 120 Hz display advances once before each image; a 60 Hz display advances twice.
-/// Other fixed rates carry the fractional remainder so one wall-clock second always
-/// contains exactly 120 closed-form substeps.
-struct MercuryFramePacer {
-    private var remainder = 0.0
-
+/// `MercuryClock` counts fixed 120 Hz substeps against each frame's target timestamp, so
+/// past 120 fps some frames would carry no new substep and only repeat the image before
+/// them. A screen that reports no maximum gets 60.
+enum MercuryFrameRate {
     static func presentationFramesPerSecond(screenMaximum: Int) -> Int {
         guard screenMaximum > 0 else { return 60 }
         return Swift.min(screenMaximum, 120)
     }
+
     static func preferredFrameRateRange(screenMaximum: Int) -> CAFrameRateRange {
         let target = Float(
             presentationFramesPerSecond(screenMaximum: screenMaximum)
@@ -25,45 +24,6 @@ struct MercuryFramePacer {
             maximum: target,
             preferred: target
         )
-    }
-
-    static func callbackInterval(
-        timestamp: Double,
-        targetTimestamp: Double,
-        reportedDuration: Double,
-        fallback: Double
-    ) -> Double {
-        let targetInterval = targetTimestamp - timestamp
-        if targetInterval.isFinite, targetInterval > 0 {
-            return targetInterval
-        }
-        if reportedDuration.isFinite, reportedDuration > 0 {
-            return reportedDuration
-        }
-        return fallback.isFinite && fallback > 0 ? fallback : MercuryMetrics.substep
-    }
-
-    mutating func simulationSteps(frameDuration: Double) -> Int {
-        guard frameDuration.isFinite, frameDuration > 0 else { return 0 }
-        let maximumDuration =
-            Double(MercuryMetrics.maxSubstepsPerFrame) * MercuryMetrics.substep
-        remainder += Swift.min(frameDuration, maximumDuration)
-        let available = Int(
-            (remainder + MercuryMetrics.substep * 1e-9) / MercuryMetrics.substep
-        )
-        let steps = Swift.min(
-            Swift.max(available, 0),
-            MercuryMetrics.maxSubstepsPerFrame
-        )
-        remainder -= Double(steps) * MercuryMetrics.substep
-        if available > MercuryMetrics.maxSubstepsPerFrame {
-            remainder = 0
-        }
-        return steps
-    }
-
-    mutating func reset() {
-        remainder = 0
     }
 }
 
@@ -86,6 +46,8 @@ final class MercurySurfaceView: NSView {
         var world: MercuryWorld
         var drive: MercurySimulation.Drive
         var appearance: MercuryAppearance
+        /// The canvas the image covers and the spine the body lies along.
+        var layout: RecordingOverlayLayout
         var pinnedStep: Int?
     }
 
@@ -93,7 +55,11 @@ final class MercurySurfaceView: NSView {
     private var configuration: Configuration?
     private var screenLink: CADisplayLink?
     private var screenObserver: NSObjectProtocol?
-    private var pacer = MercuryFramePacer()
+    /// Never reset, least of all when the link is rebuilt for a new screen. The new display's
+    /// frames are counted from the epoch the old one's were, so the hand-off neither drops a
+    /// substep nor presents one twice, and a new link that starts late is a stall the clock
+    /// absorbs without fast-forwarding the body.
+    private var clock = MercuryClock()
     private var currentImage: CGImage?
 
     override var isFlipped: Bool { true }
@@ -147,7 +113,8 @@ final class MercurySurfaceView: NSView {
                     seed: configuration.seed,
                     world: configuration.world,
                     drive: configuration.drive,
-                    appearance: configuration.appearance
+                    appearance: configuration.appearance,
+                    layout: configuration.layout
                 )
             )
             return
@@ -173,7 +140,6 @@ final class MercurySurfaceView: NSView {
     private func rebuildDisplayLink() {
         screenLink?.invalidate()
         screenLink = nil
-        pacer.reset()
         guard window != nil, let configuration, configuration.pinnedStep == nil else {
             return
         }
@@ -183,7 +149,7 @@ final class MercurySurfaceView: NSView {
             selector: #selector(displayLinkDidFire(_:))
         )
         let maximum = window?.screen?.maximumFramesPerSecond ?? 60
-        link.preferredFrameRateRange = MercuryFramePacer.preferredFrameRateRange(
+        link.preferredFrameRateRange = MercuryFrameRate.preferredFrameRateRange(
             screenMaximum: maximum
         )
         link.add(to: .main, forMode: .common)
@@ -191,21 +157,7 @@ final class MercurySurfaceView: NSView {
     }
 
     @objc private func displayLinkDidFire(_ link: CADisplayLink) {
-        let fallback =
-            1
-            / Double(
-                MercuryFramePacer.presentationFramesPerSecond(
-                    screenMaximum: window?.screen?.maximumFramesPerSecond ?? 60
-                )
-            )
-        let interval = MercuryFramePacer.callbackInterval(
-            timestamp: link.timestamp,
-            targetTimestamp: link.targetTimestamp,
-            reportedDuration: link.duration,
-            fallback: fallback
-        )
-        let steps = pacer.simulationSteps(frameDuration: interval)
-        renderLive(steps: steps)
+        renderLive(steps: clock.steps(forTargetTimestamp: link.targetTimestamp))
     }
 
     private func renderLive(steps: Int) {
@@ -216,7 +168,8 @@ final class MercurySurfaceView: NSView {
                 seed: configuration.seed,
                 world: configuration.world,
                 drive: configuration.drive,
-                appearance: configuration.appearance
+                appearance: configuration.appearance,
+                layout: configuration.layout
             )
         )
     }

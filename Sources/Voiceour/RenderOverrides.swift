@@ -101,6 +101,13 @@ enum RenderOverrides {
     static var mercuryStep: Int?
     static var mercuryWorld: MercuryWorld?
 
+    /// Pins the display the recording island lays itself out on: its frame, visible frame,
+    /// camera housing, menu-bar band, refresh ceiling and mirroring. Non-nil replaces the live
+    /// `NSScreen` read wholesale, so a golden never encodes the rendering Mac's monitors and a
+    /// notched scene renders the same on a Mac without a notch. Production reads this as nil,
+    /// which is the live read of the screen the island is on.
+    static var overlayDisplay: OverlayDisplay?
+
     /// Harness-only ledger populated by `.roleStyle(_:)`. Nil in production, so
     /// shipping views do not install geometry probes or allocate samples.
     static var textRoleRecorder: TextRoleRecorder?

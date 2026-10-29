@@ -17,10 +17,13 @@ final class RecordingOverlayPanel: NSPanel {
 @MainActor
 final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     private let hitRegion: MercuryHitRegion
+    /// Owns the layout, and with it the canvas the drag cursor is asked over.
+    private let model: RecordingOverlayModel
     private var dragCursorArea: NSTrackingArea?
 
-    init(rootView: Content, hitRegion: MercuryHitRegion) {
+    init(rootView: Content, hitRegion: MercuryHitRegion, model: RecordingOverlayModel) {
         self.hitRegion = hitRegion
+        self.model = model
         super.init(rootView: rootView)
     }
 
@@ -42,7 +45,7 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
         // `point` arrives in the SUPERVIEW's space, which is not flipped; the hit region
         // is written in this view's own flipped space. Convert before testing.
         let local = superview.map { convert(point, from: $0) } ?? point
-        guard hitRegion.contains(local, in: bounds, slop: MercuryMetrics.dragSlop) else {
+        guard hitRegion.contains(local, slop: MercuryMetrics.dragSlop) else {
             return nil
         }
         return self
@@ -60,17 +63,19 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     /// undiscoverable without a cursor contract: on the body, the pointer says "you can
     /// pick this up".
     ///
-    /// One tracking area over the island rect rather than over the body, because the body
+    /// One tracking area over the layout's canvas rather than over the body, because the body
     /// changes shape every display frame and rebuilding a tracking area at up to 120 Hz is
     /// churn AppKit does not need. The rect decides where the cursor is *asked*; the
-    /// field decides what the answer is.
+    /// field decides what the answer is. The canvas is read from the model's layout each
+    /// time AppKit asks, which it does whenever the view is resized.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let dragCursorArea {
             removeTrackingArea(dragCursorArea)
         }
         let area = NSTrackingArea(
-            rect: RecordingOverlayMetrics.islandHitRect(in: bounds),
+            rect: model.layout.canvasRect
+                .insetBy(dx: -VoiceourMetrics.Space.hair, dy: -VoiceourMetrics.Space.hair),
             options: [.cursorUpdate, .activeAlways],
             owner: self,
             userInfo: nil
@@ -83,7 +88,7 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
         // `locationInWindow` converts into this view's own flipped space, which is the
         // space the hit region is written in.
         let point = convert(event.locationInWindow, from: nil)
-        if hitRegion.contains(point, in: bounds, slop: MercuryMetrics.dragSlop) {
+        if hitRegion.contains(point, slop: MercuryMetrics.dragSlop) {
             NSCursor.openHand.set()
         } else {
             super.cursorUpdate(with: event)

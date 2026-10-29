@@ -136,7 +136,8 @@
                         }
                         let field = MercuryField(
                             geometry: simulation.geometry,
-                            lateralOffset: transition.pose.lateralOffset
+                            spine: RecordingOverlayLayout.island.spine,
+                            canvas: RecordingOverlayLayout.island.canvasRect.size
                         )
                         return Cell(
                             ground: .dark,
@@ -288,7 +289,8 @@
             simulation.advance(steps: 600, drive: speakingDrive)
             let field = MercuryField(
                 geometry: simulation.geometry,
-                lateralOffset: speakingDrive.pose.lateralOffset
+                spine: RecordingOverlayLayout.island.spine,
+                canvas: RecordingOverlayLayout.island.canvasRect.size
             )
             let rasterizer = MercuryPrototypeRasterizer()
             let sharpnesses: [(Double, Double)] = [(12, 180), (20, 600), (40, 1200)]
@@ -598,7 +600,8 @@
             private var field: MercuryField {
                 MercuryField(
                     geometry: simulation.geometry,
-                    lateralOffset: drive.pose.lateralOffset
+                    spine: RecordingOverlayLayout.island.spine,
+                    canvas: RecordingOverlayLayout.island.canvasRect.size
                 )
             }
 
@@ -613,7 +616,8 @@
                     simulation.advance(steps: 600, drive: drive)
                     return MercuryField(
                         geometry: simulation.geometry,
-                        lateralOffset: drive.pose.lateralOffset
+                        spine: RecordingOverlayLayout.island.spine,
+                        canvas: RecordingOverlayLayout.island.canvasRect.size
                     )
                 }
             }

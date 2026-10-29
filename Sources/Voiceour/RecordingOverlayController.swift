@@ -266,7 +266,8 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                 world: { [weak self] in self?.mercuryWorld ?? .default },
                 seed: { [weak self] in self?.mercurySeed ?? MercuryMetrics.defaultSeed }
             ),
-            hitRegion: hitRegion
+            hitRegion: hitRegion,
+            model: model
         )
         hostingView.frame = NSRect(origin: .zero, size: RecordingOverlayMetrics.windowSize)
         hostingView.autoresizingMask = [.width, .height]

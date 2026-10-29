@@ -10,30 +10,37 @@ import VoiceCore
 /// from the same geometry, rather than two descriptions of it.
 @MainActor
 final class MercuryHitRegion {
-    private var field: MercuryField?
+    /// The field last drawn and the layout it was drawn in. They travel together because the
+    /// field is written in that layout's canvas: a point converted through any other canvas
+    /// would ask the right field about the wrong place.
+    private var drawn: (field: MercuryField, layout: RecordingOverlayLayout)?
 
     /// Empty: every click passes straight through to whatever is underneath.
     func clear() {
-        field = nil
+        drawn = nil
     }
 
-    func update(_ field: MercuryField) {
-        self.field = field
+    func update(_ field: MercuryField, layout: RecordingOverlayLayout) {
+        drawn = (field, layout)
     }
 
-    /// `point` is in the hosting view's own flipped, panel-local space — the space
-    /// `RecordingOverlayMetrics.islandRect(in:)` is written in.
-    func contains(_ point: CGPoint, in bounds: CGRect, slop: CGFloat) -> Bool {
-        guard let field else { return false }
-        let island = RecordingOverlayMetrics.islandRect(in: bounds)
-        let local = CGPoint(x: point.x - island.midX, y: island.midY - point.y)
-        return field.value(at: local) >= -slop
+    /// `point` is in the hosting view's own flipped, panel-local space, the space
+    /// `RecordingOverlayLayout.canvasRect` is written in.
+    ///
+    /// A point in the menu-bar band is never the body's, whatever the field says there. Menus,
+    /// menu titles and status items own that strip, and the collar keeps only a film in it
+    /// beside the housing, which is drawn but never claimed. The island's band is empty.
+    func contains(_ point: CGPoint, slop: CGFloat) -> Bool {
+        guard let drawn, point.y >= drawn.layout.bandHeight else { return false }
+        let canvas = drawn.layout.canvasRect
+        let local = CGPoint(x: point.x - canvas.midX, y: canvas.midY - point.y)
+        return drawn.field.value(at: local) >= -slop
     }
 }
 
 /// Owns the exact 120 Hz body simulation, static room and process-built optical tables.
-/// The display-link view supplies an integer substep count and consumes the returned
-/// `CGImage` directly; no animation tick is published through SwiftUI.
+/// The display-link view supplies an integer substep count and the layout to draw in, and
+/// consumes the returned `CGImage` directly; no animation tick is published through SwiftUI.
 @MainActor
 final class MercuryEngine {
     private struct PinnedFrame: Equatable {
@@ -42,14 +49,15 @@ final class MercuryEngine {
         var world: MercuryWorld
         var drive: MercurySimulation.Drive
         var appearance: MercuryAppearance
+        var layout: RecordingOverlayLayout
     }
 
     private struct RenderedFrame: Equatable {
         var geometry: MercurySimulation.Geometry
-        var lateralOffset: CGFloat
         var seed: UInt64
         var world: MercuryWorld
         var appearance: MercuryAppearance
+        var layout: RecordingOverlayLayout
     }
 
     private struct Lighting {
@@ -81,14 +89,16 @@ final class MercuryEngine {
         seed: UInt64,
         world: MercuryWorld,
         drive: MercurySimulation.Drive,
-        appearance: MercuryAppearance
+        appearance: MercuryAppearance,
+        layout: RecordingOverlayLayout
     ) -> CGImage? {
         let key = PinnedFrame(
             step: step,
             seed: seed,
             world: world,
             drive: drive,
-            appearance: appearance
+            appearance: appearance,
+            layout: layout
         )
         guard key != pinned else { return pinnedImage }
         pinned = key
@@ -99,26 +109,29 @@ final class MercuryEngine {
         simulation.advance(steps: step, drive: drive)
         pinnedImage = image(
             geometry: simulation.geometry,
-            lateralOffset: drive.pose.lateralOffset,
-            appearance: appearance
+            appearance: appearance,
+            layout: layout
         )
         return pinnedImage
     }
 
     /// One display-linked frame. `steps` is already expressed in the immutable 120 Hz
-    /// physics clock by `MercuryFramePacer`; no wall clock enters the simulation.
+    /// physics clock by `MercuryClock`; no wall clock enters the simulation.
     func frame(
         advancing steps: Int,
         seed: UInt64,
         world: MercuryWorld,
         drive: MercurySimulation.Drive,
-        appearance: MercuryAppearance
+        appearance: MercuryAppearance,
+        layout: RecordingOverlayLayout
     ) -> CGImage? {
         reseedIfNeeded(seed: seed, world: world)
         if !started {
             simulation.reset(to: drive)
             started = true
-        } else if steps > 0 {
+        } else {
+            // Advanced even when no substep is due: that still copies the drive's lateral
+            // offset, so every frame is drawn at the offset its own drive asks for.
             simulation.advance(
                 steps: Swift.min(steps, MercuryMetrics.maxSubstepsPerFrame),
                 drive: drive
@@ -128,32 +141,36 @@ final class MercuryEngine {
         let geometry = simulation.geometry
         let key = RenderedFrame(
             geometry: geometry,
-            lateralOffset: drive.pose.lateralOffset,
             seed: seed,
             world: world,
-            appearance: appearance
+            appearance: appearance,
+            layout: layout
         )
         guard key != rendered else { return renderedImage }
         rendered = key
         renderedImage = image(
             geometry: geometry,
-            lateralOffset: drive.pose.lateralOffset,
-            appearance: appearance
+            appearance: appearance,
+            layout: layout
         )
         return renderedImage
     }
 
     private func image(
         geometry: MercurySimulation.Geometry,
-        lateralOffset: CGFloat,
-        appearance: MercuryAppearance
+        appearance: MercuryAppearance,
+        layout: RecordingOverlayLayout
     ) -> CGImage? {
-        let field = MercuryField(geometry: geometry, lateralOffset: lateralOffset)
+        let field = MercuryField(
+            geometry: geometry,
+            spine: layout.spine,
+            canvas: layout.canvasRect.size
+        )
         guard field.boundingBox.width > 0, field.boundingBox.height > 0 else {
             hitRegion.clear()
             return nil
         }
-        hitRegion.update(field)
+        hitRegion.update(field, layout: layout)
         return rasterizer.image(
             field: field,
             environment: lighting.environment,
@@ -185,7 +202,8 @@ final class MercuryEngine {
     }
 }
 
-/// The recording island's whole visible surface: one procedural mercury body.
+/// The body's whole visible surface: one procedural mercury body on the layout's canvas,
+/// the island's 180×34 or the collar around the camera housing.
 ///
 /// The body renders below SwiftUI on a view-bound display link: 120 fps on ProMotion,
 /// 60 fps on a 60 Hz screen, and no callbacks while hidden or off-display.
@@ -210,6 +228,7 @@ struct MercuryRibbon: View {
     }
 
     var body: some View {
+        let layout = model.layout
         MercurySurface(
             configuration: MercurySurfaceView.Configuration(
                 seed: seed(),
@@ -222,14 +241,12 @@ struct MercuryRibbon: View {
                 appearance: MercuryAppearance(
                     increasedContrast: a11y.contrast == .increased
                 ),
+                layout: layout,
                 pinnedStep: RenderOverrides.mercuryStep
             ),
             hitRegion: hitRegion
         )
-        .frame(
-            width: RecordingOverlayMetrics.islandSize.width,
-            height: RecordingOverlayMetrics.islandSize.height
-        )
+        .frame(width: layout.canvasRect.width, height: layout.canvasRect.height)
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)
         .accessibilityHidden(true)

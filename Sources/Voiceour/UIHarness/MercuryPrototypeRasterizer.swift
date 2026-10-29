@@ -31,7 +31,6 @@
         }
 
         private var context: CGContext?
-        private var scale: CGFloat = 0
 
         /// One response for a session's room, measured over both live poses.
         func response(
@@ -65,7 +64,9 @@
             response: MercuryDisplayResponse,
             scale: CGFloat
         ) -> CGImage? {
-            guard let context = context(for: scale), let data = context.data else { return nil }
+            guard let context = context(for: field.canvasBounds, scale: scale), let data = context.data else {
+                return nil
+            }
             let width = context.width
             let height = context.height
             let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
@@ -124,36 +125,28 @@
             environment: any MercuryRadianceSource,
             scale: CGFloat
         ) -> [Pixel] {
-            let width = Int((RecordingOverlayMetrics.islandSize.width * scale).rounded())
-            let height = Int((RecordingOverlayMetrics.islandSize.height * scale).rounded())
-            let bounds = MercuryField.islandBounds
+            let canvas = field.canvasBounds
+            let width = Int((canvas.width * scale).rounded())
+            let height = Int((canvas.height * scale).rounded())
             let pixelSize = 1 / Double(scale)
             let epsilon = 0.25 * pixelSize
-            let length = Swift.max(field.length, 1)
             var result = [Pixel](
                 repeating: Pixel(scene: .zero, coverage: 0, reflection: .zero),
                 count: width * height
             )
 
             for row in 0..<height {
-                let vertical = Double(bounds.maxY) - (Double(row) + 0.5) * pixelSize
+                let vertical = Double(canvas.maxY) - (Double(row) + 0.5) * pixelSize
                 for columnIndex in 0..<width {
-                    let horizontal = Double(bounds.minX) + (Double(columnIndex) + 0.5) * pixelSize
-                    let bodyX = horizontal - field.lateralOffset
-                    let column = field.column(atX: bodyX)
-                    guard column.radius > 0 else { continue }
-                    let offset = vertical - column.center
-                    let distance =
-                        column.inSpan
-                        ? abs(offset)
-                        : (column.capOffset * column.capOffset + offset * offset).squareRoot()
-                    let signedDistance = column.radius - distance
-                    let (fieldX, fieldY) = MercuryField.gradient(
-                        column: column,
-                        vertical: offset,
-                        length: length
-                    )
-                    let fieldGradient = SIMD2<Double>(fieldX, fieldY)
+                    let horizontal = Double(canvas.minX) + (Double(columnIndex) + 0.5) * pixelSize
+                    // The shipping evaluator, one pixel at a time: a candidate's shading may
+                    // differ, its silhouette may not.
+                    guard
+                        let sample = field.sample(at: SIMD2(horizontal, vertical)),
+                        sample.radius > 0
+                    else { continue }
+                    let signedDistance = sample.value
+                    let fieldGradient = sample.gradient
                     let gradientLength = (fieldGradient * fieldGradient).sum().squareRoot()
                     guard gradientLength > 1e-9 else { continue }
                     let coverage = Swift.min(
@@ -164,17 +157,13 @@
 
                     let crown = MercuryCrown.evaluate(
                         field: signedDistance,
-                        radius: column.radius,
+                        radius: sample.radius,
                         aspect: 0.78,
                         epsilon: epsilon
                     )
-                    let radiusGradient =
-                        column.inSpan
-                        ? SIMD2<Double>(column.radiusSlope / length, 0)
-                        : .zero
                     let crownGradient = crown.gradient(
                         fieldGradient: fieldGradient,
-                        radiusGradient: radiusGradient
+                        radiusGradient: sample.radiusGradient
                     )
                     let normal = Self.normalize(
                         SIMD3(-crownGradient.x, -crownGradient.y, 1)
@@ -210,10 +199,11 @@
 
         // MARK: - Storage and optics
 
-        private func context(for scale: CGFloat) -> CGContext? {
-            if let context, self.scale == scale { return context }
-            let width = Int((RecordingOverlayMetrics.islandSize.width * scale).rounded())
-            let height = Int((RecordingOverlayMetrics.islandSize.height * scale).rounded())
+        private func context(for canvas: CGRect, scale: CGFloat) -> CGContext? {
+            let width = Int((canvas.width * scale).rounded())
+            let height = Int((canvas.height * scale).rounded())
+            if let context, context.width == width, context.height == height { return context }
+            guard width > 0, height > 0 else { return nil }
             guard
                 let context = CGContext(
                     data: nil,
@@ -226,7 +216,6 @@
                 )
             else { return nil }
             self.context = context
-            self.scale = scale
             return context
         }
 

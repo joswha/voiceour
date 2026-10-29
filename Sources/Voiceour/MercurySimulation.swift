@@ -55,6 +55,9 @@ final class MercurySimulation {
     struct Geometry: Equatable {
         var length: CGFloat
         var halfHeight: CGFloat
+        /// Points along the spine, from its rest centre to the body's centre: the drive's
+        /// lateral offset, copied as is by the latest `reset(to:)` or `advance(steps:drive:)`.
+        var lateralOffset: CGFloat
         /// `columns + 1` samples of the top edge.
         var top: [Float]
         /// `columns + 1` samples of the bottom edge, all negative.
@@ -82,6 +85,7 @@ final class MercurySimulation {
 
     private var length: Double
     private var halfHeight: Double
+    private var lateralOffset: CGFloat = 0
     private var substepIndex: UInt64 = 0
     private var lastReduceMotion: Bool
     private var lastGesture: MercuryOutcomeGesture?
@@ -90,7 +94,13 @@ final class MercurySimulation {
     private var bottom: [Float]
 
     var geometry: Geometry {
-        Geometry(length: CGFloat(length), halfHeight: CGFloat(halfHeight), top: top, bottom: bottom)
+        Geometry(
+            length: CGFloat(length),
+            halfHeight: CGFloat(halfHeight),
+            lateralOffset: lateralOffset,
+            top: top,
+            bottom: bottom
+        )
     }
 
     init(seed: UInt64, gains: MercuryGains) {
@@ -118,6 +128,7 @@ final class MercurySimulation {
     func reset(to drive: Drive) {
         length = Double(drive.pose.length)
         halfHeight = Double(drive.pose.halfHeight)
+        lateralOffset = drive.pose.lateralOffset
         substepIndex = 0
         lastReduceMotion = drive.reduceMotion
         lastGesture = drive.pose.gesture
@@ -129,6 +140,9 @@ final class MercurySimulation {
     }
 
     func advance(steps: Int, drive: Drive) {
+        // An instant copy rather than relaxed state, so it is taken even when no substep is
+        // due: a frame shows the drive's offset the moment the drive changes.
+        lateralOffset = drive.pose.lateralOffset
         guard steps > 0 else { return }
         refreshVoice(drive: drive)
         applyGestureImpulse(drive: drive)

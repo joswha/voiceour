@@ -238,6 +238,7 @@ final class MercuryCalibration {
     ) -> [SIMD3<Float>] {
 
         let rasterizer = MercuryRasterizer()
+        let island = RecordingOverlayLayout.island
         var samples: [SIMD3<Float>] = []
         for speaking in [false, true] {
             let pose = pose(speaking: speaking)
@@ -247,7 +248,11 @@ final class MercuryCalibration {
             simulation.reset(to: drive)
             simulation.advance(steps: settleSteps, drive: drive)
             let collected = rasterizer.sampleSceneRadiance(
-                field: MercuryField(geometry: simulation.geometry, lateralOffset: pose.lateralOffset),
+                field: MercuryField(
+                    geometry: simulation.geometry,
+                    spine: island.spine,
+                    canvas: island.canvasRect.size
+                ),
                 environment: environment,
                 scale: MercuryMetrics.rasterScale
             )

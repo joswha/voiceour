@@ -76,27 +76,14 @@ struct MercuryPresentationPerformanceTests {
             }
         }
     }
-    @Test func finiteEyeApproximationIsSubpixelExactAcrossTheIsland() {
-        for horizontal in stride(from: -90.0, through: 90.0, by: 1.0) {
-            for vertical in stride(from: -17.0, through: 17.0, by: 1.0) {
-                for crownHeight in stride(from: 0.0, through: 14.0, by: 1.0) {
-                    let exact = MercuryOptics.exactViewDirection(
-                        horizontal: horizontal,
-                        vertical: vertical,
-                        crownHeight: crownHeight
-                    )
-                    let approximate = MercuryOptics.viewDirection(
-                        horizontal: horizontal,
-                        vertical: vertical,
-                        crownHeight: crownHeight
-                    )
-                    let difference = exact - approximate
-                    #expect(abs(difference.x) < 1e-8)
-                    #expect(abs(difference.y) < 1e-8)
-                    #expect(abs(difference.z) < 1e-8)
-                }
-            }
-        }
+
+    /// The binomial view direction against the exact one, over every point the island or the
+    /// largest collar canvas can shade (349×58 pt, around the wide notch) and every crown
+    /// height up to 14 pt. The first omitted term is `35q⁴/128`: about 1e-10 on the island,
+    /// where `q < 0.0044`, and just under 2e-8 at the collar's far corners, where `q < 0.0163`.
+    @Test func finiteEyeApproximationIsSubpixelExactAcrossEveryCanvas() {
+        #expect(Self.worstViewDirectionError(halfWidth: 90, halfHeight: 17) < 1e-8)
+        #expect(Self.worstViewDirectionError(halfWidth: 174.5, halfHeight: 29) < 2e-8)
     }
 
     @Test func octahedralRoomMapRoundTripsTheSphereAndExtendsItsBorder() {
@@ -129,54 +116,44 @@ struct MercuryPresentationPerformanceTests {
     }
 
     @Test func displayCadenceUsesTheAttachedScreensNativeRateUpTo120Hz() {
-        #expect(MercuryFramePacer.presentationFramesPerSecond(screenMaximum: 120) == 120)
-        #expect(MercuryFramePacer.presentationFramesPerSecond(screenMaximum: 60) == 60)
-        #expect(MercuryFramePacer.presentationFramesPerSecond(screenMaximum: 75) == 75)
-        #expect(MercuryFramePacer.presentationFramesPerSecond(screenMaximum: 144) == 120)
-        #expect(MercuryFramePacer.presentationFramesPerSecond(screenMaximum: 0) == 60)
-        let promotion = MercuryFramePacer.preferredFrameRateRange(screenMaximum: 120)
+        #expect(MercuryFrameRate.presentationFramesPerSecond(screenMaximum: 120) == 120)
+        #expect(MercuryFrameRate.presentationFramesPerSecond(screenMaximum: 60) == 60)
+        #expect(MercuryFrameRate.presentationFramesPerSecond(screenMaximum: 75) == 75)
+        #expect(MercuryFrameRate.presentationFramesPerSecond(screenMaximum: 144) == 120)
+        #expect(MercuryFrameRate.presentationFramesPerSecond(screenMaximum: 0) == 60)
+        let promotion = MercuryFrameRate.preferredFrameRateRange(screenMaximum: 120)
         #expect(promotion.minimum == 120)
         #expect(promotion.maximum == 120)
-        let standard = MercuryFramePacer.preferredFrameRateRange(screenMaximum: 60)
+        let standard = MercuryFrameRate.preferredFrameRateRange(screenMaximum: 60)
         #expect(standard.minimum == 60)
         #expect(standard.maximum == 60)
-        let capped = MercuryFramePacer.preferredFrameRateRange(screenMaximum: 144)
+        let capped = MercuryFrameRate.preferredFrameRateRange(screenMaximum: 144)
         #expect(capped.minimum == 120)
         #expect(capped.maximum == 120)
         #expect(capped.preferred == 120)
     }
-    @Test func callbackTargetIntervalOutranksTheHardwareRefreshDuration() {
-        let interval = MercuryFramePacer.callbackInterval(
-            timestamp: 10,
-            targetTimestamp: 10 + 1.0 / 120.0,
-            reportedDuration: 1.0 / 144.0,
-            fallback: 1.0 / 60.0
-        )
-        #expect(abs(interval - 1.0 / 120.0) < 1e-12)
 
-        var pacer = MercuryFramePacer()
-        let steps = (0..<120).reduce(0) { total, _ in
-            total + pacer.simulationSteps(frameDuration: interval)
+    private static func worstViewDirectionError(halfWidth: Double, halfHeight: Double) -> Double {
+        var worst = 0.0
+        for horizontal in stride(from: -halfWidth, through: halfWidth, by: 1.0) {
+            for vertical in stride(from: -halfHeight, through: halfHeight, by: 1.0) {
+                for crownHeight in stride(from: 0.0, through: 14.0, by: 1.0) {
+                    let exact = MercuryOptics.exactViewDirection(
+                        horizontal: horizontal,
+                        vertical: vertical,
+                        crownHeight: crownHeight
+                    )
+                    let approximate = MercuryOptics.viewDirection(
+                        horizontal: horizontal,
+                        vertical: vertical,
+                        crownHeight: crownHeight
+                    )
+                    let difference = exact - approximate
+                    worst = Swift.max(worst, abs(difference.x), abs(difference.y), abs(difference.z))
+                }
+            }
         }
-        #expect(steps == 120)
-    }
-
-    @Test func displayCadenceAdvancesThe120HzPhysicsWithoutChangingItsClock() {
-        var promotion = MercuryFramePacer()
-        #expect(
-            (0..<120).map { _ in promotion.simulationSteps(frameDuration: 1.0 / 120.0) }
-                == Array(repeating: 1, count: 120))
-
-        var standard = MercuryFramePacer()
-        #expect(
-            (0..<60).map { _ in standard.simulationSteps(frameDuration: 1.0 / 60.0) }
-                == Array(repeating: 2, count: 60))
-
-        var seventyFive = MercuryFramePacer()
-        let steps = (0..<75).reduce(0) { total, _ in
-            total + seventyFive.simulationSteps(frameDuration: 1.0 / 75.0)
-        }
-        #expect(steps == 120)
+        return worst
     }
 
     private static func byte(_ value: Double) -> UInt8 {
