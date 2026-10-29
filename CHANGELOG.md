@@ -14,6 +14,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 - **Native console and menu.** The console uses native tabs and system glass, with an opaque ground under Reduce Transparency. The menu popover uses the system's own chrome.
 - **Reproducible rewrite benchmarks.** Added isolated Rust experiments, C/Swift controls and a paired raw-audio-to-text benchmark with output-identity and completion gates. Shipping recognition and runtime selection are unchanged; measured results and limitations live in `docs/rust-evaluation.md`.
 - **Canonical technical documentation.** `README.md` owns the product and architecture contract; `AGENTS.md` owns engineering invariants and workflows. Redundant architecture, setup, safety, non-goal and UI-policy pages are consolidated; specialist guides retain derivations and measured evidence.
+- **Spectral mercury.** The recording island's liquid-metal reflectance is integrated over the visible spectrum (CIE 1931 observer, D65, measured liquid-mercury optical constants) instead of being sampled at three wavelengths. Normal incidence stays neutral; grazing reflections are measurably more accurate.
 
 ### Fixed
 

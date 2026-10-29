@@ -20,7 +20,7 @@
     }
 
     /// Isolated candidate renderer. It shares the shipping field, simulation,
-    /// environment and conductor constants, but none of its shading reaches the app.
+    /// environment and spectral conductor table, but none of its shading reaches the app.
     /// `make ui-mercury` compares it beside the shipping rasterizer before any cutover.
     @MainActor
     final class MercuryPrototypeRasterizer {
@@ -199,7 +199,7 @@
                         Double(room.x), Double(room.y), Double(room.z)
                     )
                     result[row * width + columnIndex] = Pixel(
-                        scene: roomRGB * Self.fresnel(cosine: incidence),
+                        scene: roomRGB * MercuryOptics.fresnel(cosine: incidence),
                         coverage: coverage,
                         reflection: reflected
                     )
@@ -228,46 +228,6 @@
             self.context = context
             self.scale = scale
             return context
-        }
-
-        @inline(__always)
-        private static func fresnel(cosine: Double) -> SIMD3<Double> {
-            let cosineSquared = cosine * cosine
-            let sineSquared = Swift.max(0, 1 - cosineSquared)
-            let refraction = SIMD3(
-                MercuryMetrics.mercuryN.r,
-                MercuryMetrics.mercuryN.g,
-                MercuryMetrics.mercuryN.b
-            )
-            let extinction = SIMD3(
-                MercuryMetrics.mercuryK.r,
-                MercuryMetrics.mercuryK.g,
-                MercuryMetrics.mercuryK.b
-            )
-            let base =
-                refraction * refraction
-                - extinction * extinction
-                - SIMD3<Double>(repeating: sineSquared)
-            let squares = SIMD3(
-                (base.x * base.x + 4 * refraction.x * refraction.x * extinction.x * extinction.x)
-                    .squareRoot(),
-                (base.y * base.y + 4 * refraction.y * refraction.y * extinction.y * extinction.y)
-                    .squareRoot(),
-                (base.z * base.z + 4 * refraction.z * refraction.z * extinction.z * extinction.z)
-                    .squareRoot()
-            )
-            let real = SIMD3(
-                Swift.max(0, (squares.x + base.x) / 2).squareRoot(),
-                Swift.max(0, (squares.y + base.y) / 2).squareRoot(),
-                Swift.max(0, (squares.z + base.z) / 2).squareRoot()
-            )
-            let first = squares + SIMD3<Double>(repeating: cosineSquared)
-            let second = 2 * real * cosine
-            let perpendicular = (first - second) / (first + second)
-            let third = cosineSquared * squares + SIMD3<Double>(repeating: sineSquared * sineSquared)
-            let fourth = second * sineSquared
-            let parallel = perpendicular * (third - fourth) / (third + fourth)
-            return (perpendicular + parallel) / 2
         }
 
         @inline(__always)

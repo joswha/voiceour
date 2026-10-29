@@ -155,12 +155,12 @@ enum MercuryMetrics {
 
     /// Atomic mercury is effectively smooth at this scale. The generated room tables
     /// carry the fixed pixel-footprint band limit; no second material-roughness model is
-    /// mixed into the exact smooth-conductor Fresnel path.
+    /// mixed into the exact spectral smooth-conductor Fresnel path.
     static let baseRoughness: Double = 0.03
 
-    /// Liquid mercury's optical constants at sRGB primaries.
-    static let mercuryN = (r: 1.85901, g: 1.55229, b: 1.11003)
-    static let mercuryK = (r: 5.0793, g: 4.65101, b: 3.94276)
+    // Mercury's optical constants are spectra, not three numbers: `MercurySpectral` holds
+    // Inagaki's liquid-mercury `n + ik` at 5 nm from 380 to 780 nm and integrates the exact
+    // Fresnel reflectance over the CIE 1931 observer under D65.
 
     /// Fixed vertical aspect of the half-elliptic crown. Independent capillarity and
     /// reflected-coverage derivations both land inside 0.75...0.80; the 4,096-seed

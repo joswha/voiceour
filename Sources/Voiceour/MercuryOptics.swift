@@ -8,6 +8,9 @@ enum MercuryOptics {
     private static let transferCount = 4_096
     private static let opaqueTransferCount = 16_384
 
+    /// Mercury's conductor response over `μ ∈ [1e-4, 1]`, built once on first use from the
+    /// spectral oracle: 1,024 × 81 exact Fresnel evaluations, about a millisecond in a release
+    /// build. A pixel still pays one lerp.
     private static let fresnelTable: [SIMD3<Float>] = (0..<fresnelCount).map { index in
         let cosine =
             fresnelMinimum
@@ -39,45 +42,13 @@ enum MercuryOptics {
         return SIMD3(Double(value.x), Double(value.y), Double(value.z))
     }
 
+    /// The conductor oracle the table is built from and tested against: mercury's exact
+    /// Fresnel reflectance integrated over the CIE observer under D65, in linear sRGB
+    /// (`MercurySpectral`). The clamp at 0 is the gamut boundary, since the XYZ → sRGB matrix
+    /// has negative lobes and an arbitrary physical spectrum can land outside it. It never
+    /// binds for mercury, whose channels stay above 0.70 at every cosine.
     static func exactFresnel(cosine: Double) -> SIMD3<Double> {
-        let cosineSquared = cosine * cosine
-        let sineSquared = Swift.max(0, 1 - cosineSquared)
-        let refraction = SIMD3(
-            MercuryMetrics.mercuryN.r,
-            MercuryMetrics.mercuryN.g,
-            MercuryMetrics.mercuryN.b
-        )
-        let extinction = SIMD3(
-            MercuryMetrics.mercuryK.r,
-            MercuryMetrics.mercuryK.g,
-            MercuryMetrics.mercuryK.b
-        )
-        let base =
-            refraction * refraction
-            - extinction * extinction
-            - SIMD3<Double>(repeating: sineSquared)
-        let squares = SIMD3(
-            (base.x * base.x + 4 * refraction.x * refraction.x * extinction.x * extinction.x)
-                .squareRoot(),
-            (base.y * base.y + 4 * refraction.y * refraction.y * extinction.y * extinction.y)
-                .squareRoot(),
-            (base.z * base.z + 4 * refraction.z * refraction.z * extinction.z * extinction.z)
-                .squareRoot()
-        )
-        let real = SIMD3(
-            Swift.max(0, (squares.x + base.x) / 2).squareRoot(),
-            Swift.max(0, (squares.y + base.y) / 2).squareRoot(),
-            Swift.max(0, (squares.z + base.z) / 2).squareRoot()
-        )
-        let first = squares + SIMD3<Double>(repeating: cosineSquared)
-        let second = 2 * real * cosine
-        let perpendicular = (first - second) / (first + second)
-        let third =
-            cosineSquared * squares
-            + SIMD3<Double>(repeating: sineSquared * sineSquared)
-        let fourth = second * sineSquared
-        let parallel = perpendicular * (third - fourth) / (third + fourth)
-        return (perpendicular + parallel) / 2
+        pointwiseMax(MercurySpectral.linearSRGBReflectance(cosine: cosine), .zero)
     }
 
     @inline(__always)

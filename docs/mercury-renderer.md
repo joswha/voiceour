@@ -413,15 +413,9 @@ Octahedral mapping was chosen over a cubemap because it gives one 2D lookup and 
 
 ## Exact liquid-mercury Fresnel
 
-The conductor uses complex index of refraction $\eta=n+ik$. Voiceour samples the liquid-mercury data of Inagaki, Arakawa, and Williams at the sRGB primary wavelengths:
+The conductor is liquid mercury, with complex index of refraction $\eta(\lambda)=n(\lambda)+ik(\lambda)$ from the optical constants of Inagaki, Arakawa, and Williams. Their data, tabulated in 0.2 eV steps across the visible, is resampled linearly in wavelength onto a 5 nm grid shared with the colorimetric tables: 81 samples from 380 to 780 nm, across which $n$ rises from 0.770 to 2.773 and $k$ from 3.222 to 6.077.
 
-| channel | $n$ | $k$ |
-| --- | ---: | ---: |
-| red | 1.85901 | 5.0793 |
-| green | 1.55229 | 4.65101 |
-| blue | 1.11003 | 3.94276 |
-
-For each channel and cosine $\mu$, let
+For wavelength $\lambda$ and cosine $\mu$, with $n=n(\lambda)$ and $k=k(\lambda)$, let
 
 $$
  s^2=1-\mu^2,
@@ -453,12 +447,53 @@ $$
 $$
 
 $$
- F(\mu)=\frac{R_s+R_p}{2}.
+ F(\lambda,\mu)=\frac{R_s+R_p}{2}.
 $$
 
-This is the smooth-conductor Fresnel used by PBRT and the Lagarde/Born–Wolf derivation. Schlick's five-term approximation was measured against these mercury constants and reached `0.155` absolute error, so it was rejected.
+This is the exact unpolarized smooth-conductor Fresnel used by PBRT and the Lagarde/Born–Wolf derivation, evaluated at every wavelength sample. It gives $F(\lambda,1)=\frac{(n-1)^2+k^2}{(n+1)^2+k^2}$ at normal incidence and $F(\lambda,0)=1$ at grazing. Between them $R_p$ dips through the principal angle, so $F$ is not monotone in $\mu$.
 
-Because $n$ and $k$ are fixed, $F$ is one-dimensional. A 1,024-entry process-built table over $\mu\in[10^{-4},1]$ replaces the per-pixel square roots and divisions. The exact function remains in source as the oracle; tests sweep 10,001 cosines and require maximum error below `1e-4`.
+A pixel has to reproduce what an observer integrates, not three point samples of the spectrum. With the CIE 1931 2° colour-matching functions $\bar{\mathbf c}=(\bar x,\bar y,\bar z)^{\mathsf T}$ and $S(\lambda)$ the relative spectral power of CIE illuminant D65, the linear-sRGB reflectance is
+
+$$
+ F_{\mathrm{rgb}}(\mu)=W^{-1}M\,
+ \frac{\int F(\lambda,\mu)\,S(\lambda)\,\bar{\mathbf c}(\lambda)\,d\lambda}
+ {\int S(\lambda)\,\bar y(\lambda)\,d\lambda}.
+$$
+
+Both integrals run over 380–780 nm as trapezoid sums of the 81 samples. Numerator and denominator share the weights, so the rule's error cancels exactly for a spectrally flat reflector. $M$ is the IEC 61966-2-1 XYZ-to-linear-sRGB matrix, as published to four decimals:
+
+$$
+ M=\begin{pmatrix}
+ 3.2406 & -1.5372 & -0.4986\\
+ -0.9689 & 1.8758 & 0.0415\\
+ 0.0557 & -0.2040 & 1.0570
+ \end{pmatrix}.
+$$
+
+$M$ is derived for the four-decimal white chromaticity $(0.3127,0.3290)$ and is itself rounded to four decimals, so it maps the integrated D65 white point $\mathbf X_{\mathrm{D65}}=(0.95041,1,1.08873)$, chromaticity $(0.312725,0.329041)$, to $(0.99987,1.00013,0.99972)$ rather than $(1,1,1)$. The per-channel normalization
+
+$$
+ W=\operatorname{diag}(M\mathbf X_{\mathrm{D65}}),\qquad
+ \mathbf X_{\mathrm{D65}}=\frac{\int S\,\bar{\mathbf c}\,d\lambda}{\int S\,\bar y\,d\lambda},
+$$
+
+maps a perfect reflector, $F\equiv1$, to exactly $(1,1,1)$ instead of tinting it with that residual. Every gain is within $2.8\times10^{-4}$ of 1, so $W$ corrects rounding and cannot hide a wrong matrix. D65 is the sRGB white point, so equal room RGB stands for D65 light; the rasterizer multiplies the room's linear-RGB radiance by $F_{\mathrm{rgb}}(\mu)$ channel by channel.
+
+Sampling $n$ and $k$ only at the dominant wavelengths of the sRGB primaries, 611, 549, and 464 nm rounded to 610, 550, and 460 nm, treats each channel as a delta function. That holds only while $F$ is flat across each colour-matching lobe, and the lobes are roughly 50–100 nm wide at half maximum. At normal incidence mercury is nearly flat: $F(\lambda,1)$ spans 0.772–0.783 across 380–780 nm, and the integral gives $F_{\mathrm{rgb}}(1)=(0.78143,0.77949,0.77844)$, neutral within 0.003, against $(0.78112,0.77940,0.77797)$ from three samples. Toward the principal angle the spectrum fans out, by 0.153 across the visible at $\mu=0.1$. The largest difference is near grazing: at $\mu=0.089$ the integral is 0.0127 lower in red and 0.0090 higher in blue, a slightly bluer limb. The lowest value of any channel is 0.7076, red at $\mu=0.20$; from each channel's minimum, reflectance climbs monotonically to exactly 1 at $\mu=0$. The oracle clamps negative channels at 0, the gamut boundary that $M$'s negative entries let an arbitrary spectrum cross; for mercury the clamp never binds.
+
+Schlick's approximation $F_0+(1-F_0)(1-\mu)^5$, with $F_0=F_{\mathrm{rgb}}(1)$, never falls below $F_0$, so it cannot follow the principal-angle dip. Its maximum absolute error against the spectral reflectance is `0.167` (red, $\mu\approx0.13$), so it was rejected.
+
+Because the spectra and the observer are fixed, $F_{\mathrm{rgb}}$ depends on $\mu$ alone. A 1,024-entry table over $\mu\in[10^{-4},1]$, built once per process from 1,024×81 exact evaluations (about 1.1 ms in a release build), replaces the per-pixel integral with one linear interpolation. The spectral integral remains in source as the oracle. `MercuryPresentationPerformanceTests` sweeps 10,001 cosines and requires maximum error below `1e-4`; the measured maximum is `4.46e-6`.
+
+`MercurySpectralTests` pins the data and the colorimetry:
+
+- the trapezoid integrals of $\bar x$, $\bar y$, and $\bar z$ agree within 0.5% (measured 0.014%), as the CIE's equal-energy normalization requires;
+- integrated D65 lands within $10^{-3}$ of the published chromaticity $(0.3127,0.3290)$;
+- $M$ alone leaves D65 within $3\times10^{-4}$ of white, and with $W$ a perfect reflector is white to $10^{-12}$;
+- the resampled table reproduces the three-wavelength samples: red and green within $10^{-5}$, blue within 0.25%;
+- normal-incidence reflectance stays a neutral grey near 0.78, and past the principal angle every channel rises monotonically to 1 at grazing;
+- the real-valued algebra matches an independent complex-amplitude evaluation, $r_s=(\mu-w)/(\mu+w)$ and $r_p=(\eta^2\mu-w)/(\eta^2\mu+w)$ with $w=\sqrt{\eta^2-s^2}$, to $6.7\times10^{-16}$;
+- `MercuryOptics.exactFresnel` equals this integral, so the table bound above is a bound against the spectrum.
 
 ## Bounded display response
 
@@ -585,7 +620,7 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 | --- | --- |
 | Authored rim/highlight/gradient | Rejected. It decouples light from deformation and makes the surface read as illustrated chrome. |
 | Moving environment | Rejected. It produces a mechanical rotating-light sweep. |
-| Schlick Fresnel | Rejected. Maximum absolute error was `0.155` for the shipped mercury constants. |
+| Schlick Fresnel | Rejected. It never falls below normal-incidence reflectance, so it misses the principal-angle dip; maximum absolute error is `0.167` against the spectral mercury reflectance. |
 | Metal shader | Rejected. The optimized CPU path fits the budget without shader resources, extra packaging, or a second rendering oracle. |
 | 1× raster | Rejected. It trades away the accepted limb and text-ground quality instead of fixing the mathematics. |
 | Precomputed per-pixel view vectors | Rejected. The table was about 294 KB, larger than M4 Pro L1D, and would evict the room chart to save one normalization. |
@@ -622,6 +657,7 @@ The relevant automated contracts include:
 - `MercuryCrownTests`: analytic derivatives, full crown, limb regularization;
 - `MercuryFieldTests`: connected body and pixel/hit identity;
 - `MercuryEnvironmentTests`: positivity, seed replay, power conservation, chroma neutrality, octahedral seam continuity;
+- `MercurySpectralTests`: colour-matching and D65 tables against their published integrals and chromaticity, white mapping, sampled-constant provenance, neutral normal incidence, complex-amplitude Fresnel cross-check;
 - `MercuryDisplayResponseTests`: anchor solve, monotonicity, unreachable ceiling, Rec.709 gamut handling;
 - `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation, octahedral round trip, 60/75/120/144 Hz pacing;
 - `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster;
@@ -648,6 +684,7 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | signed silhouette | `Sources/Voiceour/MercuryField.swift` |
 | crown and total derivative | `Sources/Voiceour/MercuryCrown.swift` |
 | static generated rooms and octahedral chart | `Sources/Voiceour/MercuryEnvironment.swift` |
+| spectral conductor reflectance (CIE 1931 observer, D65, liquid-mercury n and k) | `Sources/Voiceour/MercurySpectral.swift` |
 | exact-source optical LUTs | `Sources/Voiceour/MercuryOptics.swift` |
 | bounded Naka–Rushton display response | `Sources/Voiceour/MercuryDisplayResponse.swift` |
 | production CPU shading | `Sources/Voiceour/MercuryRasterizer.swift` |
@@ -660,9 +697,11 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 
 - Fleming, Dror, and Adelson, [“Real-world illumination and the perception of surface reflectance properties”](https://doi.org/10.1167/3.5.3), *Journal of Vision* 3(5), 2003.
 - Dror, Willsky, and Adelson, [“Statistical characterization of real-world illumination”](https://doi.org/10.1167/4.9.11), *Journal of Vision* 4(9), 2004.
-- Inagaki, Arakawa, and Williams, [“Optical properties of liquid mercury”](https://doi.org/10.1103/PhysRevB.23.5246), *Physical Review B* 23, 1981. The tabulated dataset is mirrored by [refractiveindex.info](https://refractiveindex.info/?shelf=main&book=Hg&page=Inagaki).
+- Inagaki, Arakawa, and Williams, [“Optical properties of liquid mercury”](https://doi.org/10.1103/PhysRevB.23.5246), *Physical Review B* 23, 1981, for mercury's $n(\lambda)$ and $k(\lambda)$. Voiceour resamples the CC0 tabulation at [refractiveindex.info](https://refractiveindex.info/?shelf=main&book=Hg&page=Inagaki) (`database/data/main/Hg/nk/Inagaki.yml`) linearly in wavelength onto the 5 nm grid.
 - Pharr, Jakob, and Humphreys, [PBRT v4: Conductor BRDF](https://www.pbr-book.org/4ed/Reflection_Models/Conductor_BRDF), for smooth-conductor complex Fresnel and reflection conventions.
 - Lagarde, [“Memo on Fresnel equations”](https://seblagarde.wordpress.com/2013/04/29/memo-on-fresnel-equations/), 2013, for the real-valued air–conductor form used as the table oracle.
+- CIE, [“Colour-matching functions of CIE 1931 standard colorimetric observer”](https://doi.org/10.25039/CIE.DS.xvudnb9b), dataset, 2019, from CIE 018:2019 Table 6, for $\bar x$, $\bar y$, and $\bar z$. Voiceour embeds every fifth 1 nm row from 380 to 780 nm, identical to CVRL's 5 nm `ciexyz31` table.
+- CIE, [“CIE standard illuminant D65”](https://doi.org/10.25039/CIE.DS.hjfjmt59), dataset, 2019, from ISO/CIE 11664-2:2022 Table B.1, for the daylight spectrum $S$. Voiceour embeds every fifth 1 nm row from 380 to 780 nm.
 - Cigolle et al., [“Survey of Efficient Representations for Independent Unit Vectors”](https://jcgt.org/published/0003/02/01/), *JCGT* 3(2), 2014, for octahedral unit-vector mapping.
 - Naka and Rushton, [“S-potentials from colour units in the retina of fish”](https://doi.org/10.1113/jphysiol.1966.sp008001), *Journal of Physiology* 185(3), 1966, for the bounded response family.
 - Apple, [`NSView.displayLink(target:selector:)`](https://developer.apple.com/documentation/appkit/nsview/displaylink(target:selector:)), for view-bound, hidden-aware display synchronization on macOS 14+.
