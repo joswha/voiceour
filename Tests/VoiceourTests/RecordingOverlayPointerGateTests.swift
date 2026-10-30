@@ -102,15 +102,15 @@ struct RecordingOverlayPointerGateTests {
             housing: housing,
             displayFrame: display.frame
         )
-        #expect(panel == CGRect(x: 707, y: 1_054, width: 314, height: 63))
+        #expect(panel == CGRect(x: 707, y: 1_058, width: 314, height: 59))
 
         #expect(
             RecordingOverlayPointerGate.pointInPanel(CGPoint(x: 864, y: 1_077), panelFrame: panel)
                 == CGPoint(x: 157, y: 40)
         )
         #expect(
-            RecordingOverlayPointerGate.pointInPanel(CGPoint(x: 707, y: 1_054), panelFrame: panel)
-                == CGPoint(x: 0, y: 63)
+            RecordingOverlayPointerGate.pointInPanel(CGPoint(x: 707, y: 1_058), panelFrame: panel)
+                == CGPoint(x: 0, y: 59)
         )
         #expect(RecordingOverlayPointerGate.pointInPanel(CGPoint(x: 1_021, y: 1_100), panelFrame: panel) == nil)
         #expect(RecordingOverlayPointerGate.pointInPanel(CGPoint(x: 600, y: 1_100), panelFrame: panel) == nil)

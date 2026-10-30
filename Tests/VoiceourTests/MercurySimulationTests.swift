@@ -564,29 +564,34 @@ struct MercurySimulationTests {
         #expect(renewed.geometry != body(handedOver: [nil]).geometry)
     }
 
-    /// The collar's ladder climbs the housing. Speaking reaches nine tenths up both walls
-    /// unless the pointer is in the menu-bar band; over a full-screen app it also runs out
-    /// along the ears; and no pose is longer than the spine. Every rung is the island-ceiling
-    /// rung deepened by the collar's ceiling over the island's, and none is held by the height
-    /// wall at rest. The drive the ribbon builds lets a collar body grow as long as its spine
-    /// and as deep as its ceiling, and keeps the island's at 168 × 17 pt.
+    /// The collar's ladder frames the housing. Listening and speaking both take the bottom, the
+    /// corners, the walls and the fillets unless the pointer is in the menu-bar band, where they
+    /// keep the chin; over a full-screen app speaking also runs out along the ears; and no pose
+    /// is longer than the spine. Every rung is the island-ceiling rung deepened by the collar's
+    /// ceiling over the island's, and none is held by the height wall at rest. The drive the
+    /// ribbon builds lets a collar body grow as long as its spine and as deep as its ceiling, and
+    /// keeps the island's at 168 × 17 pt.
     @Test func theCollarLadderClimbsTheHousing() throws {
         let layout = try #require(
             RecordingOverlayLayout.collar(housingSize: CGSize(width: 185, height: 32), bandHeight: 33)
         )
         let regions = layout.spine.regions
         let speaking = Self.model(Self.speaking)
-        func length(_ context: MercuryPoseContext) -> Double {
-            Double(MercuryPose.target(for: speaking, collar: layout.spine, context: context).length)
+        let listening = Self.model(Self.quiet)
+        func length(_ context: MercuryPoseContext, of model: RecordingOverlayModel? = nil) -> Double {
+            Double(MercuryPose.target(for: model ?? speaking, collar: layout.spine, context: context).length)
         }
         let chin = regions.bottom + 2 * regions.corner
+        let frame = chin + 2 * regions.wall + 2 * regions.fillet
         let open = length(MercuryPoseContext())
         let retracted = length(MercuryPoseContext(pointerInBand: true))
         let spread = length(MercuryPoseContext(fullScreen: true))
-        #expect(abs(open - (chin + 1.8 * regions.wall)) < 1e-9)
-        #expect(open > chin)
+        #expect(abs(open - frame) < 1e-9)
+        #expect(abs(length(MercuryPoseContext(), of: listening) - frame) < 1e-9)
+        #expect(abs(length(MercuryPoseContext(fullScreen: true), of: listening) - frame) < 1e-9)
         #expect(abs(retracted - chin) < 1e-9)
-        #expect(abs(spread - (open + 2 * regions.fillet + 1.4 * regions.ear)) < 1e-9)
+        #expect(abs(length(MercuryPoseContext(pointerInBand: true), of: listening) - chin) < 1e-9)
+        #expect(abs(spread - (frame + 1.4 * regions.ear)) < 1e-9)
         #expect(length(MercuryPoseContext(pointerInBand: true, fullScreen: true)) == retracted)
 
         let processing = RecordingOverlayModel()

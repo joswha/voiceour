@@ -56,8 +56,9 @@ struct MercuryArrival: Equatable, Sendable {
 ///
 /// Because `y_T` and `y_B` are exponentials of a sum linear in the amplitudes, the drawn body
 /// is bounded *exactly* rather than clamped: the containment gauge holds every station the
-/// field reads inside the drive's ceiling, `maxHalfHeight`, which is a proof, not a hope, and
-/// it is the only limiter in the geometry path. The body shape holds `H` to
+/// field reads inside the drive's ceiling, `maxHalfHeight`, and on a collar every station
+/// beside a wall short of that wall's bisector with the screen's top edge, which is a proof,
+/// not a hope, and it is the only limiter in the geometry path. The body shape holds `H` to
 /// ``maxBodyHalfHeight(ceiling:)``, a crest headroom under that ceiling, so every station keeps
 /// room for a crest and the gauge never has to erase the body to honour one.
 @MainActor
@@ -87,6 +88,9 @@ final class MercurySimulation {
         /// Points: the ceiling every drawn edge stays inside, the layout spine's
         /// `maxHalfHeight`. The island's 17, or the collar's deeper chin ceiling.
         var maxHalfHeight: Double = Double(MercuryMetrics.maxHalfHeight)
+        /// The collar's spine, whose walls hold the stations beside them short of the screen's top
+        /// edge (`MercurySpine.reach(at:under:)`). Nil on the island, which only has its ceiling.
+        var spine: MercurySpine?
         /// The hand-off's arrival kick: applied once, and only for a token newer than every one
         /// applied since the last reset.
         var arrival: MercuryArrival?
@@ -129,7 +133,7 @@ final class MercurySimulation {
         }
 
         /// Scaled toward the origin, with the outward parts of the velocity and of the arm's
-        /// push `−σ` removed. See ``MercurySimulation/contain(depth:ceiling:)``.
+        /// push `−σ` removed. See ``MercurySimulation/contain(depth:drive:)``.
         mutating func retract(scale: Double) {
             value *= scale
             let size = (value.x * value.x + value.y * value.y).squareRoot()
@@ -299,7 +303,7 @@ final class MercurySimulation {
             snake[index].velocity += deviation * snakeKick
         }
 
-        contain(depth: effectiveHalf, ceiling: drive.maxHalfHeight)
+        contain(depth: effectiveHalf, drive: drive)
         substepIndex &+= 1
     }
 
@@ -371,8 +375,8 @@ final class MercurySimulation {
     /// re-clamped every substep, which would read as a stutter. The arm's push `−σ` gives
     /// up its outward part for the same reason: stress a mode stored on its way into the
     /// boundary would otherwise press it straight back out through it.
-    private func contain(depth: Double, ceiling: Double) {
-        let gauge = envelopeGauge(depth: depth, ceiling: ceiling)
+    private func contain(depth: Double, drive: Drive) {
+        let gauge = envelopeGauge(depth: depth, drive: drive)
         guard gauge > 1 else { return }
         let scale = 1 / gauge
         for index in 0..<MercuryMetrics.modeCount {
@@ -385,23 +389,35 @@ final class MercurySimulation {
     ///
     /// Every station has a budget: the body shape holds `H` a crest headroom of 0.25 under the
     /// ceiling, and the widest skew lifts `G_s` at most 13 % above `G`'s peak of 1, spending
-    /// `ln 1.133 = 0.125` of it, so `cap_j ≥ 0.125` everywhere. A station without one would be a
-    /// mean envelope already at the ceiling, where no retraction makes room: erasing every mode
-    /// leaves the envelope where it stands. The gauge leaves such a station to the body shape's
-    /// limit and honours the rest, rather than answer it with an unbounded gauge, which is how a
-    /// body pressed against the ceiling, before the headroom, lost every mode for a substep and
-    /// grew them back.
-    private func envelopeGauge(depth: Double, ceiling: Double) -> Double {
+    /// `ln 1.133 = 0.125` of it, so `cap_j ≥ 0.125` everywhere under the ceiling. A collar holds
+    /// the stations beside its walls to less, the reach their bisector with the screen's top edge
+    /// leaves (``reach(at:drive:)``), which stands above the frame's mean envelope there. A station
+    /// without a budget would be a mean envelope already at its reach, where no retraction makes
+    /// room: erasing every mode leaves the envelope where it stands. The gauge leaves such a
+    /// station to the body shape's limit and honours the rest, rather than answer it with an
+    /// unbounded gauge, which is how a body pressed against the ceiling, before the headroom,
+    /// lost every mode for a substep and grew them back.
+    private func envelopeGauge(depth: Double, drive: Drive) -> Double {
         var worst = 0.0
         for station in 0...MercuryMetrics.columns {
             let envelope = depth * shapedEnvelope[station]
             guard envelope > 1e-9 else { continue }
-            let cap = log(ceiling / envelope)
+            let cap = log(reach(at: station, drive: drive) / envelope)
             guard cap > 0 else { continue }
             let exponents = edgeExponents(at: station)
             worst = Swift.max(worst, Swift.max(exponents.upper, exponents.lower) / cap)
         }
         return worst
+    }
+
+    /// The largest untapered edge `station` may draw: the drive's ceiling, or what a collar's
+    /// spine leaves it at the arc length the field lays the station at, `restCenter + sway +
+    /// (j/96 − ½)·L`.
+    private func reach(at station: Int, drive: Drive) -> Double {
+        guard let spine = drive.spine else { return drive.maxHalfHeight }
+        let position = Double(station) / Double(MercuryMetrics.columns) - 0.5
+        let arcLength = spine.restCenter + body.sway + position * body.length
+        return spine.reach(at: arcLength, under: drive.maxHalfHeight)
     }
 
     // MARK: - Body shape
@@ -567,7 +583,7 @@ final class MercurySimulation {
             varicose[index] = Mode(value: target.varicose)
             snake[index] = Mode(value: target.snake)
         }
-        contain(depth: Swift.max(depth, 0.25), ceiling: drive.maxHalfHeight)
+        contain(depth: Swift.max(depth, 0.25), drive: drive)
     }
 
     // MARK: - Geometry
@@ -671,6 +687,7 @@ extension MercurySimulation.Drive {
             lean: model.lean,
             maxLength: collar ? layout.spine.length : Double(MercuryMetrics.maxLength),
             maxHalfHeight: layout.spine.maxHalfHeight,
+            spine: collar ? layout.spine : nil,
             arrival: model.arrival
         )
     }

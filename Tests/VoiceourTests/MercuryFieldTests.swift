@@ -867,28 +867,19 @@ struct MercuryFieldTests {
         }
     }
 
-    /// Menus, menu titles and status items own the band beside the notch, so the collar
-    /// may only lay a film there.
-    ///
-    /// - Above the corner centres everything is wall, fillet or ear, which the taper holds
-    ///   to the band film: no drawn pixel lies farther than `bandFilm` and one pixel from
-    ///   the housing.
-    /// - Lower in the band the corners still carry the chin's shoulder. Measured across the
-    ///   menu bar, which is how its items are laid out, everything there except the ears and
-    ///   fillets stays within one fillet radius of the housing's walls. The ears are the
-    ///   exception by design: they only exist once the pose runs the body along the top edge.
-    @Test func theMenuBarBandHoldsOnlyFilm() throws {
+    /// Menus, menu titles and status items own the band beside the notch, and past the frame's
+    /// sides the collar lays only a film there. A pixel drawn in the band farther from the
+    /// housing than the ceiling charts onto a fillet or an ear, within the band film and a pixel
+    /// of the spine.
+    @Test func pastTheFramesSidesTheBandHoldsOnlyFilm() throws {
         let pixel = 1 / Double(Self.scale)
         for collar in try Self.requireCollars() {
             let spine = collar.layout.spine
             let outline = try #require(Self.outline(of: spine))
-            let cornerCenters = outline.bottom + outline.cornerRadius
-            let wallReach = (outline.maxX - outline.minX) / 2 + outline.filletRadius
+            let reach = (outline.maxX - outline.minX) / 2 + spine.maxHalfHeight + pixel
             let earAndFillet = spine.regions.ear + spine.regions.fillet
-            var thickest = 0.0
-            var widest = 0.0
-            var aboveCorners = 0
-            var inBand = 0
+            var past = 0
+            var thick = 0
             for body in collar.bodies {
                 let bounds = body.field.canvasBounds
                 let bandBottom = Double(bounds.maxY) - Double(collar.layout.bandHeight)
@@ -897,21 +888,71 @@ struct MercuryFieldTests {
                     guard vertical >= bandBottom else { continue }
                     for column in 0..<body.image.width where body.alpha[row * body.image.width + column] > 0 {
                         let horizontal = Double(bounds.minX) + (Double(column) + 0.5) * pixel
-                        guard let chart = spine.chart(at: SIMD2(horizontal, vertical)) else { continue }
-                        if vertical > cornerCenters {
-                            thickest = Swift.max(thickest, chart.normalOffset)
-                            aboveCorners += 1
+                        guard abs(horizontal) > reach, let chart = spine.chart(at: SIMD2(horizontal, vertical)) else {
+                            continue
                         }
-                        if Swift.min(chart.arcLength, spine.length - chart.arcLength) >= earAndFillet {
-                            widest = Swift.max(widest, abs(horizontal))
-                            inBand += 1
-                        }
+                        past += 1
+                        let local = Swift.min(chart.arcLength, spine.length - chart.arcLength)
+                        if local >= earAndFillet || chart.normalOffset > outline.bandFilm + pixel { thick += 1 }
                     }
                 }
             }
-            #expect(thickest <= outline.bandFilm + pixel, "\(collar.name): \(thickest) pt above the corner centres")
-            #expect(widest <= wallReach, "\(collar.name): \(widest) pt from the centre, walls at \(wallReach)")
-            #expect(aboveCorners > 100 && inBand > 100, "\(collar.name): the band was barely reached")
+            #expect(thick == 0, "\(collar.name): \(thick) pixels past the frame's sides were more than film")
+            #expect(past > 100, "\(collar.name): the band past the frame's sides was barely reached")
+        }
+    }
+
+    /// The live frame's sides stay nearer their walls than the screen's top edge. A wall's offsets
+    /// chart onto it only up to the bisector of the wall and the edge, `h/(1 − |N_y|)` for a foot
+    /// `h` below the edge, so a side that reached it would be cut off there, and the containment
+    /// gauge holds every station beside a wall short of it. The ladder's listening and speaking
+    /// frames on both fixture housings keep there under the syllable, a meter pinned at full
+    /// scale, one that alternates and a quiet room, at a deliberately strong drive, at every
+    /// fifth of 600 substeps, measured every quarter point of arc rather than only at stations.
+    @Test func theLiveFrameStaysNearerItsWallsThanTheBezel() throws {
+        let meters: [[Float]] = [
+            Self.speaking, [Float](repeating: 1, count: 11), [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+            MercurySpeechMeter.quietRoom,
+        ]
+        for display in [OverlayDisplay.fixtureNotch, .fixtureWideNotch] {
+            let layout = RecordingOverlayLayout.forDisplay(display)
+            let spine = layout.spine
+            let outline = try #require(Self.outline(of: spine))
+            let wallStart = spine.regions.ear + spine.regions.fillet
+            let cornerEnd = wallStart + spine.regions.wall + spine.regions.corner
+            var closest = Double.infinity
+            var measured = 0
+            for levels in meters {
+                let model = RecordingOverlayModel()
+                model.update(.recording)
+                model.updateCaptureLive(true)
+                for level in levels { model.record(level) }
+                model.update(layout: layout)
+                let drive = MercurySimulation.Drive.target(for: model, reduceMotion: false)
+                let simulation = MercurySimulation(seed: 29, gains: Self.gains)
+                simulation.reset(to: drive)
+                for step in 1...600 {
+                    simulation.advance(steps: 1, drive: drive)
+                    guard step % 5 == 0 else { continue }
+                    let field = MercuryField(
+                        geometry: simulation.geometry, spine: spine, canvas: layout.canvasRect.size)
+                    var s = Swift.max(field.spanStart, 0)
+                    let end = Swift.min(field.spanStart + field.length, spine.length)
+                    while s <= end {
+                        let local = Swift.min(s, spine.length - s)
+                        let normal = spine.frame(at: s).normal
+                        if local >= wallStart, local < cornerEnd, abs(normal.y) < 1 {
+                            let sample = field.stationSample(at: s)
+                            let bisector = (outline.top - spine.point(at: s).y) / (1 - abs(normal.y))
+                            closest = Swift.min(closest, bisector - (sample.center + sample.radius))
+                            measured += 1
+                        }
+                        s += 0.25
+                    }
+                }
+            }
+            #expect(measured > 1_000, "\(display.id): the frame's sides were barely measured")
+            #expect(closest > 0, "\(display.id): a side reached \(-closest) pt past its bisector")
         }
     }
 

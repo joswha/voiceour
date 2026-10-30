@@ -52,7 +52,7 @@ struct RecordingOverlayPlacementTests {
     @Test func dockedAndFreeArrangeEachFixtureDisplay() throws {
         let collar = RecordingOverlayPlacement.docked.arrangement(on: .fixtureNotch)
         #expect(collar.layout.kind == .collar)
-        #expect(collar.panelFrame == CGRect(x: 707, y: 1_054, width: 314, height: 63))
+        #expect(collar.panelFrame == CGRect(x: 707, y: 1_058, width: 314, height: 59))
         #expect(collar.centre == CGPoint(x: 864, y: 1_085))
         #expect(RecordingOverlayPlacement.dockAnchor(on: .fixtureNotch) == .collar(CGPoint(x: 864, y: 1_085)))
 

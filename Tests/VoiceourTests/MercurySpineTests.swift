@@ -11,9 +11,9 @@ import Testing
 /// finite differences of the chart itself.
 struct MercurySpineTests {
     /// A camera housing as the collar layout hangs it: centred on x = 0 and flush with the top
-    /// of a canvas `height + 28 + 3` pt tall, under the collar's 28 pt chin ceiling.
+    /// of a canvas `height + 24 + 3` pt tall, under the collar's 24 pt ceiling.
     private struct Housing {
-        static let ceiling = 28.0
+        static let ceiling = 24.0
 
         var width: Double
         var height: Double
@@ -293,9 +293,10 @@ struct MercurySpineTests {
 
     // MARK: - The chart
 
-    /// Every offset the body can draw, `0 < n ≤ 17·T(s)`, charts back to the `(s, n)` it was
-    /// laid at: the drawn film has a unique nearest point everywhere, corners and fillets
-    /// included.
+    /// Every offset the body can draw, `0 < n ≤ T(s)·reach(s)`, charts back to the `(s, n)` it
+    /// was laid at: the drawn film has a unique nearest point everywhere, corners and fillets
+    /// included. Beside a wall or a corner the reach stops short of the bisector with the
+    /// screen's top edge, past which a point charts onto the bezel instead.
     @Test func chartRoundTripsEveryOffsetTheBodyCanDraw() {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
@@ -304,7 +305,7 @@ struct MercurySpineTests {
             var misses = 0
             for k in 0...4000 {
                 let s = spine.length * Double(k) / 4000
-                let reach = spine.maxHalfHeight * spine.taper(at: s)
+                let reach = spine.reach(at: s, under: spine.maxHalfHeight) * spine.taper(at: s)
                 let normal = spine.frame(at: s).normal
                 for fraction in [1.0 / 64, 0.25, 0.5, 0.75, 1] {
                     let offset = reach * fraction
@@ -672,57 +673,51 @@ struct MercurySpineTests {
 
     // MARK: - The taper
 
-    /// The taper is full along the bottom run, and is the band film on the walls, fillets and
-    /// ears. Across each corner it is full through 30° above the bottom, half-way at 50°, and
-    /// film from 70°.
-    @Test func taperIsFullUnderTheNotchAndAFilmInTheBand() throws {
+    /// The taper frames the notch: full along the bottom run, around both corners and down each
+    /// wall, and the band film along the fillets and the ears. Across the top 12 pt of each wall
+    /// it swells from the film to full, half-way at the blend's middle.
+    @Test func taperFramesTheNotchAndThinsOnlyIntoTheBezel() throws {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let joins = Self.joins(of: spine)
             let film = outline.bandFilm / outline.maxHalfHeight
+            let span = Self.taperBlendSpan(of: spine)
             #expect(spine.taper(at: spine.restCenter) == 1)
 
             var wrong = 0
             for k in 0...200 {
                 let fraction = Double(k) / 200
-                if spine.taper(at: joins[4] + (joins[5] - joins[4]) * fraction) != 1 { wrong += 1 }
-                let thin = joins[0] + (joins[3] - joins[0]) * fraction
+                let full = joins[2] + span + (spine.restCenter - joins[2] - span) * fraction
+                if spine.taper(at: full) != 1 || spine.taper(at: spine.length - full) != 1 { wrong += 1 }
+                let thin = joins[2] * fraction
                 if spine.taper(at: thin) != film || spine.taper(at: spine.length - thin) != film { wrong += 1 }
             }
             #expect(wrong == 0)
 
-            // The corner's tangent turns `θ_q` along its first ramp, then at `1/R_p` on its plateau.
-            let ramp = 0.15 * spine.regions.corner
-            let plateauRadius = EasedBend.plateauRadius(radius: outline.cornerRadius)
-            func cornerArc(degreesAboveBottom degrees: Double) -> Double {
-                joins[3] + ramp + plateauRadius * ((90 - degrees) * Double.pi / 180 - EasedBend.rampTurn)
-            }
             let blends: [(s: Double, label: String, taper: Double)] = [
-                (joins[4], "0°", 1), (cornerArc(degreesAboveBottom: 15), "15°", 1),
-                (cornerArc(degreesAboveBottom: 30), "30°", 1),
-                (cornerArc(degreesAboveBottom: 50), "50°", (1 + film) / 2),
-                (cornerArc(degreesAboveBottom: 70), "70°", film), (joins[3] + ramp / 2, "the wall's ramp", film),
-                (joins[3], "90°", film),
+                (joins[2], "the fillet's end", film),
+                (joins[2] + span / 2, "half-way down", (1 + film) / 2),
+                (joins[2] + span, "the blend's end", 1),
             ]
             for blend in blends {
-                #expect(abs(spine.taper(at: blend.s) - blend.taper) <= 1e-12, "left corner at \(blend.label)")
+                #expect(abs(spine.taper(at: blend.s) - blend.taper) <= 1e-12, "left wall at \(blend.label)")
                 #expect(
                     abs(spine.taper(at: spine.length - blend.s) - blend.taper) <= 1e-12,
-                    "right corner at \(blend.label)")
+                    "right wall at \(blend.label)")
             }
         }
     }
 
-    /// The taper stays in `[bandFilm/17, 1] ⊂ (0, 1]`. Its first and second differences never
+    /// The taper stays in `[bandFilm/ceiling, 1] ⊂ (0, 1]`. Its first and second differences never
     /// exceed the smoothstep's own slope and bend, so it is C¹ with no kink at any join.
     @Test func taperIsBoundedAndContinuouslyDifferentiable() throws {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let film = outline.bandFilm / outline.maxHalfHeight
-            // The 30°…70° blend's arc length, and the smoothstep's largest slope and bend over it.
-            let span = 40 * Double.pi / 180 * EasedBend.plateauRadius(radius: outline.cornerRadius)
+            // The blend's arc length, and the smoothstep's largest slope and bend over it.
+            let span = Self.taperBlendSpan(of: spine)
             let slope = 1.5 * (1 - film) / span
             let bend = 6 * (1 - film) / (span * span)
             let step = 5e-3
@@ -747,18 +742,16 @@ struct MercurySpineTests {
     /// `taperSlope` is the taper's own derivative. Central differences of `taper(at:)` agree
     /// with it to their own truncation error everywhere, past both ends included. It is
     /// exactly zero off the two blends, steepest where they are half done, at
-    /// `3/2 · (1 − film)` per 40° of corner, and odd about the housing's axis.
+    /// `3/2 · (1 − film)` per blend length, and odd about the housing's axis.
     @Test func taperSlopeIsTheTapersDerivative() throws {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let joins = Self.joins(of: spine)
             let film = outline.bandFilm / outline.maxHalfHeight
-            // The left blend runs from 70° up the corner, 20° of turn past its wall end, down to 30°.
-            let plateauRadius = EasedBend.plateauRadius(radius: outline.cornerRadius)
-            let plateauStart = joins[3] + 0.15 * spine.regions.corner - plateauRadius * EasedBend.rampTurn
-            let blendStart = plateauStart + plateauRadius * 20 * Double.pi / 180
-            let blendEnd = plateauStart + plateauRadius * 60 * Double.pi / 180
+            let span = Self.taperBlendSpan(of: spine)
+            let blendStart = joins[2]
+            let blendEnd = joins[2] + span
             let step = 1e-6
             var worst = 0.0
             var worstMirror = 0.0
@@ -777,7 +770,7 @@ struct MercurySpineTests {
             #expect(strayOffTheBlends == 0)
 
             let peak = (blendStart + blendEnd) / 2
-            let steepest = 1.5 * (1 - film) / (40 * Double.pi / 180 * plateauRadius)
+            let steepest = 1.5 * (1 - film) / span
             #expect(abs(spine.taperSlope(at: peak) - steepest) <= 1e-12 * steepest)
             #expect(abs(spine.taperSlope(at: spine.length - peak) + steepest) <= 1e-12 * steepest)
         }
@@ -791,7 +784,7 @@ struct MercurySpineTests {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let film = outline.bandFilm / outline.maxHalfHeight
-            let span = 40 * Double.pi / 180 * EasedBend.plateauRadius(radius: outline.cornerRadius)
+            let span = Self.taperBlendSpan(of: spine)
             let steepestSlope = 1.5 * (1 - film) / span
             let sharpestBend = 6 * (1 - film) / (span * span)
             let noise = MercuryNoise(seed: 0x5441_5045_5200_0000 | UInt64(index))
@@ -826,27 +819,27 @@ struct MercurySpineTests {
         }
     }
 
-    /// Beside the notch, the upper half of the menu-bar band, where menu titles and status
-    /// items sit, is only ever covered by the band film. Full thickness lives below the corner
-    /// centres, which sit below the band's middle on both fixture housings.
-    @Test func upperHalfOfTheBandBesideTheNotchOnlyEverHoldsTheFilm() throws {
+    /// The frame's sides stand beside the notch, and past their reach the menu-bar band is only
+    /// ever covered by the band film. A point in the band farther from the notch than the ceiling
+    /// either charts onto a fillet or an ear, whose taper is the film, or lies farther from the
+    /// spine than the body may draw there.
+    @Test func pastTheFramesSidesTheBandOnlyEverHoldsTheFilm() throws {
         for housing in Self.realistic {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let film = outline.bandFilm / outline.maxHalfHeight
-            let bandMiddle = outline.top - housing.band / 2
-            #expect(outline.bottom + outline.cornerRadius < bandMiddle)
+            let bandBottom = outline.top - housing.band
 
             var sampled = 0
             var thick = 0
             let reach = outline.filletRadius + outline.earLength
-            for beside in stride(from: 0.125, through: reach, by: 0.25) {
+            for beside in stride(from: outline.maxHalfHeight + 0.125, through: reach, by: 0.25) {
                 for x in [outline.minX - beside, outline.maxX + beside] {
-                    for y in stride(from: bandMiddle, through: outline.top, by: 0.25) {
+                    for y in stride(from: bandBottom, through: outline.top, by: 0.25) {
                         sampled += 1
-                        if let chart = spine.chart(at: SIMD2(x, y)), spine.taper(at: chart.arcLength) == film {
-                            continue
-                        }
+                        guard let chart = spine.chart(at: SIMD2(x, y)) else { continue }
+                        let taper = spine.taper(at: chart.arcLength)
+                        if taper == film || abs(chart.normalOffset) > taper * outline.maxHalfHeight { continue }
                         thick += 1
                     }
                 }
@@ -989,6 +982,12 @@ struct MercurySpineTests {
     private static func laidOutline(of spine: MercurySpine) -> MercurySpine.Outline? {
         guard case .collar(let outline) = spine.kind else { return nil }
         return outline
+    }
+
+    /// The arc length over which each wall's taper swells from the film to full: the top 12 pt
+    /// below the fillet's end, or less where the half reaches its middle sooner.
+    private static func taperBlendSpan(of spine: MercurySpine) -> Double {
+        min(12, spine.restCenter - joins(of: spine)[2])
     }
 
     /// The ten arc lengths at which one primitive hands over to the next, from the start of

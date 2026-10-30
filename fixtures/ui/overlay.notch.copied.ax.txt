@@ -1,2 +1,2 @@
-AXGroup subrole=AXHostingView [0,0 314x63]
-  AXStaticText "Dictation status" value="The transcript is on the clipboard." id=overlay.status [65,32 185x31]
+AXGroup subrole=AXHostingView [0,0 314x59]
+  AXStaticText "Dictation status" value="The transcript is on the clipboard." id=overlay.status [65,32 185x27]

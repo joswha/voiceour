@@ -244,15 +244,16 @@ struct RecordingOverlayLayout: Sendable, Equatable {
         static let filletRadius = 4.5
         /// E, how far the collar runs along the top edge beyond each fillet.
         static let earLength = 56.0
-        /// The outward thickness the taper leaves the body in the menu-bar band. Thinner than
-        /// the fillet, so each fillet's offsets stay unique (see `MercurySpine`).
+        /// The outward thickness the taper leaves the body where it meets the screen's top edge:
+        /// along the fillets and the ears, and at the top of each wall. Thinner than the fillet's
+        /// plateau, so each fillet's offsets stay unique (see `MercurySpine`).
         static let bandFilm = 3.5
-        /// H_c, the deepest half-height the chin may draw below the housing. Only the body's outer
-        /// half shows there, the inner half lying under the hardware, so at the island's 17 pt the
-        /// speaking chin hung 11.5 pt below a 32 pt notch, a sliver beside it. At 28 pt every collar
-        /// pose is 28/17 as deep, and the speaking chin hangs about 19 pt, as thick as the island's
-        /// whole speaking body.
-        static let maxHalfHeight = 28.0
+        /// H_c, the deepest half-height the body may draw below the housing and beside it. Only
+        /// the body's outer half shows, the inner half lying under the hardware, so at the island's
+        /// 17 pt the speaking chin hung 11.5 pt below a 32 pt notch, a sliver under it. At 24 pt
+        /// every collar pose is 24/17 as deep: the speaking frame hangs about 16 pt below the notch
+        /// and stands about 9 pt beside it, and the raster budget still holds its sides.
+        static let maxHalfHeight = 24.0
         /// ρ, the housing's convex bottom corners, as a fraction of its depth, held to
         /// `cornerRadii`. Apple publishes no housing shape; 0.44 of the 32 pt housing is the
         /// 14 pt bottom radius notch overlays draw, and 6…16 pt bounds it at other depths.

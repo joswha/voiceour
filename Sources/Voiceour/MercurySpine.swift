@@ -57,9 +57,9 @@ import Foundation
 /// **The fillet's plateau bounds the band film.** Offsets of a concave arc converge on its
 /// centre and collapse there at `n = R_p`: the metric vanishes, the whole plateau is equally
 /// near, and `∇s` diverges. Anything drawn over a fillet must stay thinner than the fillet's
-/// `0.87690ρe` to keep a unique nearest point. The taper holds walls, fillets and ears to
-/// `bandFilm` below it, so the drawn film's metric never falls below `1 − bandFilm/R_p`,
-/// 0.113 for the 3.5 pt film on the 4.5 pt fillet.
+/// `0.87690ρe` to keep a unique nearest point. The taper holds the fillets, the ears and the
+/// top of each wall to `bandFilm` below it, so the drawn film's metric never falls below
+/// `1 − bandFilm/R_p`, 0.113 for the 3.5 pt film on the 4.5 pt fillet.
 struct MercurySpine: Sendable, Equatable {
     /// The camera housing, in canvas-local points.
     ///
@@ -200,15 +200,17 @@ struct MercurySpine: Sendable, Equatable {
     /// body.
     let maxHalfHeight: Double
 
-    /// Where the corner taper starts and finishes thinning, as the corner's tangent angle
-    /// measured up from the bottom.
+    /// How far down each wall the taper swells from the band film to the full body, from the
+    /// fillet's end.
     ///
-    /// Through the lowest 30° the corner is still the chin's shoulder, so it keeps full
-    /// thickness and the chin stays one round piece. By 70° it is the foot of the wall, in the
-    /// band beside the notch, so it is already film. Both lie on the plateau, which spans
-    /// `θ_q…90° − θ_q`, 7.94°…82.06°.
-    private static let taperStartAngle = Double.pi / 6
-    private static let taperEndAngle = 7 * Double.pi / 18
+    /// The collar frames the notch, so its sides are the full body: a film there read as no frame
+    /// at all, a lozenge under the notch. Only where the walls meet the screen's top edge must
+    /// the body thin, to the film a fillet's plateau can hold, and to stay nearer its wall than
+    /// the top edge: a wall's offsets chart onto the wall only up to the bisector of the two,
+    /// as far out as the point lies below the edge. The blend therefore runs over the top 12 pt
+    /// of each wall, a smoothstep in arc length, slow enough that the deepest live wall keeps
+    /// inside that bisector. A wall shorter than that hands the rest of the blend to its corner.
+    private static let taperBlendLength = 12.0
 
     /// The ramps' Newton step limit, and the step under which the foot has converged.
     private static let newtonStepLimit = 4
@@ -397,55 +399,46 @@ struct MercurySpine: Sendable, Equatable {
 
     /// The fraction of ``maxHalfHeight`` that the body may draw at arc length `s`, in `(0, 1]`.
     ///
-    /// - It is 1 along the bottom run, which is the chin under the notch, and along the whole
-    ///   straight spine.
-    /// - It is `bandFilm/maxHalfHeight` on the walls, the fillets and the ears, which lie in
-    ///   the menu-bar band beside the notch.
-    /// - Across each convex corner it is a smoothstep in the corner's tangent angle. It is
-    ///   full at 30° above the bottom and film at 70°, and flat at both ends, so the taper is
-    ///   C¹ and the edge has no kink. Both ends lie on the plateau, which turns at the constant
-    ///   rate `1/R_p`, so the angle there runs linearly with arc length.
+    /// - It is 1 along the bottom run, which is the chin under the notch, around both corners
+    ///   and up each wall, and along the whole straight spine.
+    /// - It is `bandFilm/maxHalfHeight` on the fillets and the ears, which turn into the screen's
+    ///   top edge.
+    /// - Across the top ``taperBlendLength`` of each wall it is a smoothstep in arc length from
+    ///   the film to the full body, flat at both ends, so the taper is C¹ and the edge has no
+    ///   kink.
     ///
-    /// So beside the notch, nothing thicker than the film rises above the corner centres.
+    /// So the body frames the notch on three sides and thins only where it meets the bezel.
     func taper(at s: Double) -> Double {
         guard case .collar(let outline) = kind else { return 1 }
-        let joins = leftJoins
         let local = s > restCenter ? length - s : s
         let film = outline.bandFilm / outline.maxHalfHeight
-        if local < joins.corner { return film }
-        if local >= joins.bottom { return 1 }
-        let fraction = blendFraction(atLocal: local, cornerStart: joins.corner)
-        let clamped = Swift.min(Swift.max(fraction, 0), 1)
-        let blend = clamped * clamped * (3 - 2 * clamped)
-        // A convex combination keeps both plateaus exact: 1 through 30°, the film itself from 70°.
-        return (1 - blend) + blend * film
+        let fraction = (local - leftJoins.wall) / taperBlendSpan
+        if fraction <= 0 { return film }
+        if fraction >= 1 { return 1 }
+        let blend = fraction * fraction * (3 - 2 * fraction)
+        // A convex combination keeps both plateaus exact: the film itself above the blend, 1 below.
+        return (1 - blend) * film + blend
     }
 
     /// `dT/ds`, the taper's exact rate along the spine.
     ///
-    /// It is zero along every straight run, on the fillets, on both plateaus of each corner's
-    /// taper and along the whole straight spine. Across a corner's blend it is the
-    /// smoothstep's derivative in the corner angle, `(film − 1) · 6f(1 − f) / (70° − 30°)`,
-    /// times the angle's own rate along the spine, `∓1/R_p` on the corner's plateau. So the
-    /// taper rises toward the bottom run on the left half and falls away from it on the right.
+    /// It is zero everywhere but across each wall's blend, where it is the smoothstep's
+    /// derivative in arc length, `(1 − film) · 6f(1 − f) / ℓ` over the blend's length `ℓ`. So
+    /// the taper rises toward the bottom run on the left half and falls away from it on the
+    /// right.
     ///
     /// The field tapers the body at the very arc length it evaluates, never at its stations
-    /// alone, and this is the slope its normals read. A corner's blend is only about 9 pt
-    /// long, so a taper sampled every few points of arc would draw it as facets.
+    /// alone, and this is the slope its normals read. A blend is only 12 pt long, so a taper
+    /// sampled every few points of arc would draw it as facets.
     func taperSlope(at s: Double) -> Double {
         guard case .collar(let outline) = kind else { return 0 }
-        let joins = leftJoins
         let mirrored = s > restCenter
         let local = mirrored ? length - s : s
-        guard local >= joins.corner, local < joins.bottom else { return 0 }
-        let fraction = blendFraction(atLocal: local, cornerStart: joins.corner)
+        let span = taperBlendSpan
+        let fraction = (local - leftJoins.wall) / span
         guard fraction > 0, fraction < 1 else { return 0 }
         let film = outline.bandFilm / outline.maxHalfHeight
-        // On the left half, where the arc length is `local` itself, the blend runs against the
-        // angle and the angle against the arc length, so the two signs cancel.
-        let rate =
-            (1 - film) * 6 * fraction * (1 - fraction)
-            / ((Self.taperEndAngle - Self.taperStartAngle) * corners.plateauRadius)
+        let rate = (1 - film) * 6 * fraction * (1 - fraction) / span
         return mirrored ? -rate : rate
     }
 
@@ -454,18 +447,13 @@ struct MercurySpine: Sendable, Equatable {
     ///
     /// The taper only ever rises toward the bottom run. Over any range it is least at one end
     /// and greatest at the point nearest ``restCenter``. Its slope is one smoothstep bump per
-    /// corner, steepest where the blend is half done, 50° up the corner, and falling away to
-    /// either side. Over any range it is steepest at the point nearest a bump's peak. So
-    /// these are exact extremes, and the field bounds each piece of the body by them without
-    /// sampling the taper.
+    /// wall, steepest where the blend is half done, and falling away to either side. Over any
+    /// range it is steepest at the point nearest a bump's peak. So these are exact extremes,
+    /// and the field bounds each piece of the body by them without sampling the taper.
     func taperBounds(from start: Double, to end: Double) -> (least: Double, greatest: Double, steepest: Double) {
         guard case .collar = kind else { return (1, 1, 0) }
         func nearest(_ s: Double) -> Double { Swift.min(Swift.max(s, start), end) }
-        // 50° up from the bottom is 40° of turn past the wall, `θ_q` of it on the first ramp.
-        let peak =
-            leftJoins.corner + corners.ramp
-            + corners.plateauRadius
-            * (Double.pi / 2 - (Self.taperStartAngle + Self.taperEndAngle) / 2 - BendShape.rampAngle)
+        let peak = leftJoins.wall + taperBlendSpan / 2
         return (
             Swift.min(taper(at: start), taper(at: end)),
             taper(at: nearest(restCenter)),
@@ -473,17 +461,37 @@ struct MercurySpine: Sendable, Equatable {
         )
     }
 
-    /// The smoothstep's argument at the left-half arc length `local`, unclamped: 0 at 30°
-    /// above the bottom, where the taper is still full, and 1 at 70°, where it is the film.
-    ///
-    /// The corner is laid wall first, and its plateau's angle from the bottom falls linearly
-    /// from `90° − θ_q` to `θ_q`. Over the ramps this runs on past that range, where the true
-    /// angle stays beyond the blend too, so the clamp makes the taper exact there as well.
-    private func blendFraction(atLocal local: Double, cornerStart: Double) -> Double {
-        let angle =
-            Double.pi / 2 - BendShape.rampAngle - (local - cornerStart - corners.ramp) / corners.plateauRadius
-        return (angle - Self.taperStartAngle) / (Self.taperEndAngle - Self.taperStartAngle)
+    /// The length of each wall's blend: ``taperBlendLength``, or less where the half reaches its
+    /// middle sooner, so the body's centre is always full.
+    private var taperBlendSpan: Double {
+        Swift.min(Self.taperBlendLength, restCenter - leftJoins.wall)
     }
+
+    /// The largest untapered edge the body may lay at arc length `s` under `ceiling`: the
+    /// ceiling itself, except beside a wall or a corner.
+    ///
+    /// There the screen's top edge, which the ears lie along, competes for every point. An
+    /// offset `d` out from a foot `h` below the edge stays nearer that foot only while
+    /// `d(1 − |N_y|) < h`: past the bisector it charts onto the bezel, where the body is film, and
+    /// a side that reached it would be cut off there. So the drawn edge, the taper times this
+    /// reach, stops ``bisectorMargin`` short of the bisector, which also covers the rise of the
+    /// edge between two of the body's stations. The simulation's containment gauge holds every
+    /// station to the reach at the arc length the field lays it, so this is a proof, as the
+    /// ceiling is.
+    func reach(at s: Double, under ceiling: Double) -> Double {
+        guard case .collar(let outline) = kind else { return ceiling }
+        let local = s > restCenter ? length - s : s
+        let joins = leftJoins
+        guard local >= joins.wall, local < joins.bottom else { return ceiling }
+        let rise = 1 - abs(frame(at: s).normal.y)
+        guard rise > 0 else { return ceiling }
+        let bisector = (outline.top - point(at: s).y) / rise
+        return Swift.min(ceiling, (bisector - Self.bisectorMargin) / taper(at: s))
+    }
+
+    /// Points the drawn edge keeps short of a wall's bisector. One point covers the edge's rise
+    /// between two stations across the steepest blend, and the coverage ramp beyond it.
+    private static let bisectorMargin = 1.0
 
     // MARK: - The left half
 

@@ -19,8 +19,8 @@ import CoreGraphics
 /// **The taper is applied where the field is read.** The stations keep the simulation's own
 /// half-thickness `r₀` and centre `c₀`. A point at arc length `s` reads `r = T(s)·r₀(a)` and
 /// `c = T(s)·c₀(a)`, with `T` the spine's taper at `s` itself, so along the body
-/// `r_s = T′·r₀ + T·r₀_a/L`, and likewise for `c`. A convex corner blends from the chin to
-/// the band film over 8.6–9.8 pt of arc, which is only a few stations. A taper sampled at
+/// `r_s = T′·r₀ + T·r₀_a/L`, and likewise for `c`. Each collar wall blends from the band film to
+/// the full body over its top 12 pt of arc, which is only a few stations. A taper sampled at
 /// the stations would draw that blend as straight facets and tilt every normal between them.
 /// Read continuously, the outline and its normals follow the true taper.
 ///

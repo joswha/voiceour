@@ -76,19 +76,20 @@ struct MercuryPose: Equatable {
     ///
     /// Those collar depths are on the island's 17 pt ceiling. A collar's own ceiling is deeper,
     /// because only the body's outer half shows below the housing, and every collar rung is
-    /// deepened by the ratio of the two: under the 28 pt ceiling the lip is 14.2 pt deep and the
-    /// speaking chin 18.9. Each rung keeps its containment budget `ln(ceiling / H0)` exactly, so its
+    /// deepened by the ratio of the two: under the 24 pt ceiling the lip is 12.1 pt deep and the
+    /// speaking chin 16.2. Each rung keeps its containment budget `ln(ceiling / H0)` exactly, so its
     /// crests stand the same share of its depth: the same ladder, larger.
     ///
     /// The collar takes its lengths from the outline's bottom run `B` and, per side, its
     /// corner `C`, wall `W`, fillet `F` and ear `E`:
     ///
-    /// - Listening lies along the bottom and most of both corners, `B + 1.7 C`.
-    /// - Speaking takes both corners and nine tenths of each wall, `B + 2 C + 1.8 W`. With the
-    ///   pointer in the menu-bar band it gives the walls back, `B + 2 C`. Over a full-screen app,
-    ///   where the band beside the notch is empty black, it also turns both fillets and runs
-    ///   seven tenths along each ear, `+ 2 F + 1.4 E`. On the 185x32 notch these are 196, 227,
-    ///   202 and 320 of the spine's 356 pt.
+    /// - Listening and speaking frame the notch: they take the bottom, both corners, both walls
+    ///   and both fillets, `B + 2 C + 2 W + 2 F`, so the body wraps the housing on three sides and
+    ///   meets the screen's top edge on either side of it. The taper keeps the frame's sides the
+    ///   full body and thins it only where it turns into the bezel. With the pointer in the
+    ///   menu-bar band either gives the walls back, `B + 2 C`. Over a full-screen app, where the
+    ///   band beside the notch is empty black, speaking also runs seven tenths along each ear,
+    ///   `+ 1.4 E`. On the 185x32 notch these are 244, 203 and 322 of the spine's 356 pt.
     /// - The error collapse spans eight tenths of the bottom, so both of its drips hang under the
     ///   housing. The copy-only bead is a little shorter and taller than the island's, a drop
     ///   under the notch for its gesture's kick to jiggle. Warming, processing and the lurch
@@ -165,7 +166,7 @@ struct MercuryPose: Equatable {
             let speaking =
                 regions.map {
                     MercuryPose(
-                        length: speakingLength(along: $0, context: context),
+                        length: frameLength(along: $0, context: context, spreading: true),
                         halfHeight: 11.5,
                         lateralOffset: 0,
                         driveScale: 1,
@@ -175,7 +176,7 @@ struct MercuryPose: Equatable {
             let listening =
                 regions.map {
                     MercuryPose(
-                        length: CGFloat($0.bottom + 1.7 * $0.corner),
+                        length: frameLength(along: $0, context: context, spreading: false),
                         halfHeight: 8.6,
                         lateralOffset: 0,
                         driveScale: 1,
@@ -190,13 +191,19 @@ struct MercuryPose: Equatable {
         return .idle
     }
 
-    /// The collar's speaking length: the chin, both corners, and as much of the walls, fillets
-    /// and ears as the pointer and the frontmost window leave it.
-    private static func speakingLength(along regions: MercurySpine.Regions, context: MercuryPoseContext) -> CGFloat {
-        let reach: Double = context.pointerInBand ? 0 : 0.9
-        var length = regions.bottom + 2 * regions.corner + 2 * reach * regions.wall
-        if context.fullScreen, !context.pointerInBand {
-            length += 2 * regions.fillet + 1.4 * regions.ear
+    /// The live collar's length: the frame around the notch, the chin and both corners alone while
+    /// the pointer is in the menu-bar band, and, for a `spreading` speaking body over a full-screen
+    /// app, seven tenths of each ear as well.
+    private static func frameLength(
+        along regions: MercurySpine.Regions,
+        context: MercuryPoseContext,
+        spreading: Bool
+    ) -> CGFloat {
+        let chin = regions.bottom + 2 * regions.corner
+        guard !context.pointerInBand else { return CGFloat(chin) }
+        var length = chin + 2 * regions.wall + 2 * regions.fillet
+        if spreading, context.fullScreen {
+            length += 1.4 * regions.ear
         }
         return CGFloat(length)
     }

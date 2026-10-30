@@ -84,13 +84,13 @@ import Foundation
 /// time, so the outflow aims past empty and the floor stops it exactly at `V = 0`: from rest at `V`,
 /// on the first substep at which `(1 + ω_V t) e^(−ω_V t) ≤ R² / (V + R²)`. The speaking body empties
 /// on the 40th substep, 0.333 s; the largest island body, 168 × 13.24 pt, on the 45th, 0.375 s; and
-/// the largest collar body, the 220×38 pt housing's whole 401 pt spine at the 21.81 pt its 28 pt
-/// ceiling allows, on the 50th, 0.417 s. With no target shape, an idle aspect holds where it is.
+/// the largest collar body, the 220×38 pt housing's whole 401 pt spine at the 18.69 pt its 24 pt
+/// ceiling allows, on the 52nd, 0.433 s. With no target shape, an idle aspect holds where it is.
 /// Reduce Motion drains its extent into the same reservoir at the held aspect: `L` aims at
 /// `−R e^(α/2)` and `H` at `−R e^(−α/2)`, both below empty and in proportion, so the body keeps its
 /// proportions and both reach zero on the same substep, the first at which
 /// `(1 + ω_V t) e^(−ω_V t) ≤ R / (√V + R)`: the speaking body's 30th, 0.250 s, and the largest
-/// collar body's 34th, 0.283 s.
+/// collar body's 35th, 0.292 s.
 ///
 /// `R` is the containment ceiling the body is drawn under, `Limits.reservoir`: the island's 17 pt,
 /// or the collar's deeper chin ceiling. It is not the height limit a body is handed. The

@@ -388,41 +388,41 @@ struct RecordingOverlayLayoutTests {
     }
 
     /// The canvas reaches the 4.5 pt fillet, the 56 pt ear and 4 pt more beyond each wall,
-    /// and the collar's 28 pt ceiling + 3 pt below the housing, which hangs centred from its top
+    /// and the collar's 24 pt ceiling + 3 pt below the housing, which hangs centred from its top
     /// edge. The status element is the chin's strip directly under the housing.
     @Test func notchedDisplaysWearACollarHungFromTheTopEdge() throws {
         let expectations: [(display: OverlayDisplay, canvas: CGSize, status: CGRect, outline: MercurySpine.Outline)] = [
             (
                 .fixtureNotch,
-                CGSize(width: 314, height: 63),
-                CGRect(x: 64.5, y: 32, width: 185, height: 31),
+                CGSize(width: 314, height: 59),
+                CGRect(x: 64.5, y: 32, width: 185, height: 27),
                 MercurySpine.Outline(
                     minX: -92.5,
                     maxX: 92.5,
-                    bottom: -0.5,
-                    top: 31.5,
+                    bottom: -2.5,
+                    top: 29.5,
                     cornerRadius: 0.44 * 32,
                     filletRadius: 4.5,
                     earLength: 56,
                     bandFilm: 3.5,
-                    maxHalfHeight: 28
+                    maxHalfHeight: 24
                 )
             ),
             (
                 .fixtureWideNotch,
-                CGSize(width: 349, height: 69),
-                CGRect(x: 64.5, y: 38, width: 220, height: 31),
+                CGSize(width: 349, height: 65),
+                CGRect(x: 64.5, y: 38, width: 220, height: 27),
                 // 0.44 × 38 = 16.72 rounds to the largest corner, 16 pt.
                 MercurySpine.Outline(
                     minX: -110,
                     maxX: 110,
-                    bottom: -3.5,
-                    top: 34.5,
+                    bottom: -5.5,
+                    top: 32.5,
                     cornerRadius: 16,
                     filletRadius: 4.5,
                     earLength: 56,
                     bandFilm: 3.5,
-                    maxHalfHeight: 28
+                    maxHalfHeight: 24
                 )
             ),
         ]
