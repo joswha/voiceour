@@ -102,6 +102,23 @@ struct RecordingOverlayConductorTests {
         )
     }
 
+    /// A relayout siphons the body on the display it rests on: drained straight up, re-framed empty
+    /// there, emerging with the landing squash and no sway. A body already moving is left alone.
+    @Test func aRelayoutSiphonsTheBodyOnItsOwnDisplay() {
+        var conductor = RecordingOverlayConductor(display: Self.builtIn)
+        conductor.relayout(step: 10)
+        #expect(conductor.phase == .draining(from: Self.builtIn, to: Self.builtIn, startStep: 10, exitSign: 0))
+        #expect(conductor.drainSign == 0)
+        #expect(conductor.retarget(to: Self.builtIn, exitSign: 1, step: 11, instant: false) == nil)
+        #expect(conductor.frame(volume: Self.full, step: 12) == nil)
+        #expect(conductor.frame(volume: 0.5, step: 40) == .reframe(to: Self.builtIn, arrivalSign: 0))
+        #expect(conductor.phase == .emerging(display: Self.builtIn, startStep: 40))
+        conductor.relayout(step: 41)
+        #expect(conductor.phase == .emerging(display: Self.builtIn, startStep: 40))
+        #expect(conductor.frame(volume: Self.full, step: 40 + Self.emergence) == .settled)
+        #expect(conductor.isResting)
+    }
+
     private static let builtIn: UInt32 = 1
     private static let external: UInt32 = 2
     private static let projector: UInt32 = 3
@@ -300,7 +317,7 @@ struct RecordingOverlayHandOffGeometryTests {
             Issue.record("a notched display wears the collar")
             return
         }
-        let frame = RecordingOverlayController.collarFrame(
+        let frame = RecordingOverlayFramePlacement.collarFrame(
             panelSize: layout.panelSize,
             housing: housing,
             displayFrame: display.frame

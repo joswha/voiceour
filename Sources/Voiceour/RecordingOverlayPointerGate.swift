@@ -8,7 +8,8 @@ import AppKit
 /// not, which made the whole 260×80 panel a click sink around a 180×34 body; set `true`, it takes
 /// none. Neither reading of the alpha is the silhouette the field draws, so the flag is driven
 /// explicitly: the panel takes the mouse only while the pointer is on the body itself, within the
-/// drag slop and below the menu-bar band, and it ignores the mouse everywhere else.
+/// drag slop and below the menu-bar band, or while a press on the body is being dragged, and it
+/// ignores the mouse everywhere else.
 ///
 /// The predicate is the hit region's, so it is the same field the rasterizer drew and the same
 /// band rule the hosting view's hit test applies. It is re-asked on every presented frame and on
@@ -30,13 +31,20 @@ struct RecordingOverlayPointerGate {
     /// Whether the panel ignores a pointer at `pointerInPanel`: everywhere but on the drawn body,
     /// within `MercuryMetrics.dragSlop` of it and below the band. Nil is a pointer outside the
     /// panel. `forcedClickThrough` ignores it everywhere: an outcome dwell, a hand-off between
-    /// displays and a hidden or fading panel report the session rather than offer the body.
+    /// displays and a hidden or fading panel report the session rather than offer the body, and an
+    /// island gliding home is not yet where it can be picked up. `dragging`, a press on the body
+    /// still held, takes it everywhere else: the pointer leaves the body as it stretches it or
+    /// outruns it, and the window server delivers a drag's moves and its release only to a panel
+    /// that takes the mouse.
     static func ignoresMouse(
         pointerInPanel: CGPoint?,
         hitRegion: MercuryHitRegion,
-        forcedClickThrough: Bool
+        forcedClickThrough: Bool,
+        dragging: Bool
     ) -> Bool {
-        guard !forcedClickThrough, let pointerInPanel else { return true }
+        guard !forcedClickThrough else { return true }
+        guard !dragging else { return false }
+        guard let pointerInPanel else { return true }
         return !hitRegion.contains(pointerInPanel, slop: MercuryMetrics.dragSlop)
     }
 

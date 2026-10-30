@@ -210,6 +210,7 @@
                             model: bridge.model,
                             onCancel: { context.coordinator.cancel() },
                             onFinish: { context.coordinator.stopAndProcess() },
+                            onDock: {},
                             hitRegion: hitRegion
                         )
                     )

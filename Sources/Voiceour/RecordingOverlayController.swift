@@ -3,17 +3,18 @@ import Combine
 import VoiceCore
 
 @MainActor
-final class RecordingOverlayController: NSObject, NSWindowDelegate {
+final class RecordingOverlayController {
     private weak var coordinator: DictationCoordinator?
     private var stateCancellable: AnyCancellable?
     private var inputLevelCancellable: AnyCancellable?
     private var captureLiveCancellable: AnyCancellable?
     private let model = RecordingOverlayModel()
     private var panel: RecordingOverlayPanel?
-    private var isApplyingPosition = false
     private var visibilityToken = 0
     private var outcomeDismissal: Task<Void, Never>?
     private let hitRegion = MercuryHitRegion()
+    /// What the body feels of its panel: shared with the surface, which reads it every live frame.
+    private let panelMotion = MercuryPanelMotion()
     /// The world this session's body reflects. A fresh one is installed on every
     /// transition from hidden to visible — a state change inside one session must not
     /// re-seed, or the room would change under the reader mid-utterance.
@@ -40,8 +41,16 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     /// A move the policy deferred: a click waiting for the activation it may cause, a return
     /// holding, or a reconfiguration settling.
     private var reevaluation: Task<Void, Never>?
-    /// The user dragged the panel this session. It stays where it was put until the session ends.
-    private var userDragged = false
+    /// The user put the body somewhere this session, by hand or by the Dock island action. It stays
+    /// where it was put until the session ends.
+    private var userPlaced = false
+    /// Docked, or a free island where the user let go of it; persisted in `UserDefaults.standard`
+    /// under `RecordingOverlayPlacement.DefaultsKey`. Every layout the panel takes follows it.
+    private var placement: RecordingOverlayPlacement
+    /// The press on the body in progress, from its mouse-down to its mouse-up.
+    private var drag: RecordingOverlayDrag?
+    /// An island gliding onto its dock, on the substep clock.
+    private var glide: RecordingOverlayGlide?
     private var pointerGate = RecordingOverlayPointerGate()
     /// −1…1 toward the frontmost window, from the body's anchor. See ``lean(towardWindow:anchorX:displayFrame:)``.
     private var windowLean = 0.0
@@ -54,9 +63,14 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         self?.consider(screen, cause: cause)
     }
 
+    /// Deletes the absolute island origin earlier builds persisted, a clean cutover to docked, and
+    /// reads the placement the user left. Constructed once, at launch.
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
-        super.init()
+        let defaults = UserDefaults.standard
+        RecordingOverlayPlacement.removeLegacyOrigin(from: defaults)
+        placement = RecordingOverlayPlacement(defaults: defaults)
+        model.update(isFree: placement.isFree)
     }
 
     func bind(to statePublisher: AnyPublisher<SessionState, Never>) {
@@ -204,6 +218,7 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     private func hide(token: Int) {
         focusTracker.stop()
         cancelReevaluation()
+        abandonDrag()
         guard let panel, panel.isVisible else {
             finishHide()
             return
@@ -232,12 +247,13 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     }
 
     /// After `orderOut`, so the fade's last frame is still the swallowing body or the dwell's
-    /// outcome. The session's hand-off goes with it, and the hidden panel ignores the mouse.
+    /// outcome. The session's hand-off and glide go with it, and the hidden panel ignores the mouse.
     private func finishHide() {
         model.reset()
         outcomeDismissal = nil
         conductor = RecordingOverlayConductor(display: display?.id ?? kCGNullDirectDisplay)
         handOffDestination = nil
+        glide = nil
         presentedStep = nil
         applyPoseContext()
         updatePointerGate()
@@ -255,6 +271,7 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     /// dwell must not `orderOut` a live dictation.
     private func beginOutcomeDwell() {
         cancelOutcomeDismissal()
+        abandonDrag()
         setVisible(true)
         let token = visibilityToken
         outcomeDismissal = Task { @MainActor [weak self] in
@@ -286,7 +303,9 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
-        panel.isMovable = true
+        // Only the controller moves the panel, under the hand or toward a dock, so the gel feels
+        // every move. A movable window could also be dragged by a system gesture behind its back.
+        panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
@@ -297,7 +316,6 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.delegate = self
 
         let hostingView = RecordingOverlayHostingView(
             rootView: RecordingOverlayView(
@@ -312,7 +330,13 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
                         self?.finish()
                     }
                 },
+                onDock: { [weak self] in
+                    Task { @MainActor in
+                        self?.dockIsland()
+                    }
+                },
                 hitRegion: hitRegion,
+                panelMotion: panelMotion,
                 // Session-latched closures: Settings remains the persisted authority, but
                 // changing the debug picker cannot replace lighting mid-utterance.
                 world: { [weak self] in self?.mercuryWorld ?? .default },
@@ -321,7 +345,8 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
             ),
             hitRegion: hitRegion,
             model: model,
-            onPointerEvent: { [weak self] in self?.updatePointerGate() }
+            onPointerEvent: { [weak self] in self?.updatePointerGate() },
+            onDrag: { [weak self] event in self?.handle(event) }
         )
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.autoresizingMask = [.width, .height]
@@ -336,77 +361,32 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     // MARK: - Layout
 
     /// The panel is hidden, so the session is laid out on the focused display at once, and it
-    /// starts with no hand-off, no drag and a surface whose clock has not presented yet.
+    /// starts with no hand-off, no drag, no glide and a surface whose clock has not presented yet.
     private func beginSession(in panel: NSPanel) {
         let display = OverlayDisplayGeometry.display(for: focusTracker.currentScreen())
+        drag = nil
+        glide = nil
+        panelMotion.band = .none
         place(panel, on: display)
         conductor = RecordingOverlayConductor(display: display.id)
         handOffDestination = nil
         presentedStep = nil
-        userDragged = false
+        userPlaced = false
         refreshWindowContext()
         refreshPointerContext()
     }
 
-    /// Lays the panel out on `display`: the layout its housing allows, at the frame that layout
-    /// takes there. The model's layout changes first, so the tracking area AppKit rebuilds as the
-    /// panel resizes already covers the new canvas.
+    /// Lays the panel out on `display` as the placement has it there: docked, the collar around a
+    /// housing that can wear one or the island at its default spot; free, the island at its `(u, v)`.
+    /// The model's layout changes first, so the tracking area AppKit rebuilds as the panel resizes
+    /// already covers the new canvas. A jump the body does not feel: it is laid out afresh.
     private func place(_ panel: NSPanel, on display: OverlayDisplay) {
-        let layout = RecordingOverlayLayout.forDisplay(display)
-        model.update(layout: layout)
+        let arrangement = placement.arrangement(on: display)
+        model.update(layout: arrangement.layout)
         self.display = display
-        let frame: NSRect
-        if layout.kind == .collar, let housing = display.housing {
-            frame = Self.collarFrame(panelSize: layout.panelSize, housing: housing, displayFrame: display.frame)
-        } else {
-            frame = islandFrame(on: display.visibleFrame)
-        }
-        guard panel.frame != frame else { return }
-        isApplyingPosition = true
-        defer { isApplyingPosition = false }
-        panel.setFrame(frame, display: true)
-    }
-
-    /// The collar's panel is its canvas, which centres the housing's outline: centred on the
-    /// housing and flush with the display's top edge, the outline lies on the housing itself.
-    nonisolated static func collarFrame(panelSize: NSSize, housing: CGRect, displayFrame: CGRect) -> NSRect {
-        NSRect(
-            x: housing.midX - panelSize.width / 2,
-            y: displayFrame.maxY - panelSize.height,
-            width: panelSize.width,
-            height: panelSize.height
-        )
-    }
-
-    /// Placement is computed on the ISLAND, never on the window. `screenPadding` and
-    /// `topOffset` used to be applied to the 260x80 transparent box, so one 14pt
-    /// constant produced four different observable clearances (54 left, 54 right,
-    /// 28 top, 46 bottom) and the pill could never be parked near a screen edge.
-    private func islandFrame(on visibleFrame: NSRect) -> NSRect {
-        let size = RecordingOverlayMetrics.islandSize
-        if let origin = storedOrigin() {
-            let savedWindow = NSRect(origin: origin, size: RecordingOverlayMetrics.windowSize)
-            if let sourceScreen = screen(containing: savedWindow) {
-                return RecordingOverlayMetrics.windowFrame(
-                    forIsland: RecordingOverlayFramePlacement.translatedFrame(
-                        RecordingOverlayMetrics.islandFrame(forWindow: savedWindow),
-                        from: sourceScreen.visibleFrame,
-                        to: visibleFrame,
-                        size: size,
-                        padding: RecordingOverlayMetrics.screenPadding
-                    )
-                )
-            }
-        }
-
-        return RecordingOverlayMetrics.windowFrame(
-            forIsland: RecordingOverlayFramePlacement.defaultFrame(
-                on: visibleFrame,
-                size: size,
-                padding: RecordingOverlayMetrics.screenPadding,
-                topOffset: RecordingOverlayMetrics.topOffset
-            )
-        )
+        panelMotion.restart(at: arrangement.centre)
+        guard panel.frame != arrangement.panelFrame else { return }
+        panel.setFrame(arrangement.panelFrame, display: true)
     }
 
     // MARK: - Hand-off
@@ -431,10 +411,12 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         )
         switch decision {
         case .stay:
-            if candidate.id == current.id, candidate != current, conductor.isResting, !userDragged {
+            if candidate.id == current.id, candidate != current, conductor.isResting, !userPlaced, drag == nil,
+                glide == nil
+            {
                 // The display itself changed — a resolution, a mirror set, an auto-hidden menu
-                // bar — so the body is laid out on it afresh, where it is. A body the user
-                // dragged stays where they put it.
+                // bar — so the body is laid out on it afresh, where its placement puts it. A body
+                // the user put somewhere this session, or is holding, stays where it is.
                 place(panel, on: candidate)
             }
             if conductor.drainSign == nil {
@@ -449,10 +431,10 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
         updatePointerGate()
     }
 
-    /// An outcome dwell shows its result where it is, and a session the user dragged has been put
-    /// where they want it.
+    /// An outcome dwell shows its result where it is, a body under the hand goes nowhere else, and a
+    /// session the user put somewhere has been put where they want it.
     private var isFrozen: Bool {
-        outcomeDismissal != nil || userDragged
+        outcomeDismissal != nil || userPlaced || drag != nil
     }
 
     private func hand(to destination: OverlayDisplay, instant: Bool) {
@@ -484,14 +466,17 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     }
 
     /// Moves the empty panel to the conductor's destination and kicks the body that emerges there.
-    /// The policy hears of the move now, as the body leaves.
+    /// The policy hears of a move to another display now, as the body leaves; a relayout on the
+    /// display the body is on is no move of the policy's.
     private func reframe(to id: UInt32, arrivalSign: Double?) {
         guard let panel, let source = display, let destination = handOffDestination, destination.id == id else {
             return
         }
         handOffDestination = nil
         place(panel, on: destination)
-        movePolicy.didMove(now: CACurrentMediaTime(), from: source.id, to: destination.id)
+        if destination.id != source.id {
+            movePolicy.didMove(now: CACurrentMediaTime(), from: source.id, to: destination.id)
+        }
         if let arrivalSign {
             arrivalCount += 1
             model.present(arrival: RecordingOverlayConductor.arrival(id: arrivalCount, sign: arrivalSign))
@@ -524,10 +509,18 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
 
     // MARK: - Presented frames
 
-    /// One live frame: the conductor's clock, the pointer's place in the band, and the gate.
+    /// One live frame: the glide's next position, the conductor's clock, the pointer's place in the
+    /// band, and the gate.
     private func didPresent(_ report: MercuryFrameReport) {
         guard let panel, panel.isVisible else { return }
         presentedStep = report.step
+        if let glide {
+            moveIsland(panel, centredAt: glide.centre(atStep: report.step))
+            if glide.isOver(atStep: report.step) {
+                self.glide = nil
+                refreshWindowContext()
+            }
+        }
         if let action = conductor.frame(volume: report.volume, step: report.step) {
             perform(action)
             if case .reframe = action {
@@ -539,20 +532,20 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     }
 
     /// Re-asks the pointer gate where the pointer is now. The panel is forced click-through while
-    /// it is hidden or fading, through an outcome dwell, and through a hand-off. A collar is always
-    /// click-through: it hangs from the housing, and a drag would carry the housing's outline away
-    /// from it.
+    /// it is hidden or fading, through an outcome dwell, through a hand-off and through a glide, and
+    /// it keeps the mouse wherever the pointer goes while a press on the body is held.
     private func updatePointerGate() {
         guard let panel else { return }
         let forced =
             !panel.isVisible || model.isDismissing || outcomeDismissal != nil || !conductor.isResting
-            || model.layout.kind == .collar
+            || glide != nil
         let pointer = RecordingOverlayPointerGate.pointInPanel(NSEvent.mouseLocation, panelFrame: panel.frame)
         pointerGate.set(
             ignoresMouse: RecordingOverlayPointerGate.ignoresMouse(
                 pointerInPanel: pointer,
                 hitRegion: hitRegion,
-                forcedClickThrough: forced
+                forcedClickThrough: forced,
+                dragging: drag != nil
             ),
             on: panel
         )
@@ -561,7 +554,8 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     // MARK: - Pose context
 
     /// The lean toward the frontmost window and whether it fills the display. A window-list walk,
-    /// so it runs when a session starts and on focus events, never per frame.
+    /// so it runs when a session starts, on focus events and when the body lands somewhere new,
+    /// never per frame.
     private func refreshWindowContext() {
         guard let display else { return }
         let window = focusTracker.frontmostWindowFrame()
@@ -677,61 +671,190 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
 
     // MARK: - Drag
 
-    private func screen(containing frame: NSRect) -> NSScreen? {
-        let center = NSPoint(x: frame.midX, y: frame.midY)
-        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(center) }) {
-            return screen
-        }
-        return NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) })
-    }
-
-    func windowDidMove(_ notification: Notification) {
-        guard !isApplyingPosition,
-            let movedPanel = notification.object as? NSPanel,
-            let currentPanel = panel,
-            movedPanel === currentPanel,
-            movedPanel.isVisible
-        else {
-            return
-        }
-        // A move the controller did not make, with the primary button held, is the user's drag,
-        // and the session stays where it was put. AppKit relocating the panel off a display that
-        // went away is not a placement.
-        if NSEvent.pressedMouseButtons & 1 != 0 {
-            userDragged = true
-        }
-        // Stored placement is the island's. A collar's frame is its housing's, and its panel is
-        // not the island's 260×80 that the stored origin measures.
-        if model.layout.kind == .island {
-            savePosition(of: movedPanel)
+    /// A press on the body, a move of it or its release, from the hosting view.
+    private func handle(_ event: RecordingOverlayDrag.Event) {
+        switch event {
+        case .began(let point): beginDrag(at: point)
+        case .moved(let point): continueDrag(to: point)
+        case .ended(let point): finishDrag(at: point)
         }
     }
 
-    private func savePosition(of panel: NSPanel) {
-        let screen = screen(containing: panel.frame) ?? focusTracker.currentScreen()
-        let frame = RecordingOverlayMetrics.windowFrame(
-            forIsland: RecordingOverlayFramePlacement.clamped(
-                RecordingOverlayMetrics.islandFrame(forWindow: panel.frame),
-                to: screen.visibleFrame,
-                padding: RecordingOverlayMetrics.screenPadding
+    /// A press lands on the body: a docked body goes on its tether, a free island under the hand.
+    /// Only a body the gate offers takes one, never while the panel is hidden or fading, through a
+    /// dwell, a hand-off or a glide; the gate then keeps the mouse until the release.
+    private func beginDrag(at point: CGPoint) {
+        guard drag == nil, glide == nil, let panel, panel.isVisible, !model.isDismissing,
+            outcomeDismissal == nil, conductor.isResting, let display
+        else { return }
+        let body: RecordingOverlayDrag.Body =
+            placement.isFree
+            ? .free(centre: RecordingOverlayFramePlacement.islandCentre(ofPanel: panel.frame))
+            : .docked(anchor: RecordingOverlayPlacement.dockAnchor(on: display).point, axes: model.layout.bodyAxes)
+        drag = RecordingOverlayDrag(grab: point, body: body, reduceMotion: prefersReducedMotion)
+        updatePointerGate()
+    }
+
+    /// The pointer moved with the press held, at event rate: the docked body stretches on its
+    /// tether, or tears off into an island under the hand, or the island follows the hand.
+    private func continueDrag(to point: CGPoint) {
+        guard var drag, let panel, let display = display(under: point) else { return }
+        let step = drag.drag(to: point, within: RecordingOverlayFramePlacement.islandCentres(on: display.visibleFrame))
+        self.drag = drag
+        switch step {
+        case .stretch(let pull):
+            panelMotion.band = RecordingOverlayDrag.bandForcing(
+                pull: model.layout.bodyAxes.resolve(SIMD2(Double(pull.dx), Double(pull.dy)))
             )
-        )
-        let defaults = UserDefaults.standard
-        defaults.set(Double(frame.minX), forKey: RecordingOverlayDefaults.originXKey)
-        defaults.set(Double(frame.minY), forKey: RecordingOverlayDefaults.originYKey)
+        case .tearOff(let centre, let snap):
+            userPlaced = true
+            panelMotion.band = .none
+            land(on: display)
+            // The live body is re-anchored on the island's layout, as an instant hand-off re-anchors
+            // it: never emptied or grown again under the hand.
+            model.update(layout: .island)
+            panel.setFrame(RecordingOverlayFramePlacement.islandPanelFrame(centredAt: centre), display: true)
+            // The snap is the jump to the hand, so the body does not feel the jump as panel motion too.
+            panelMotion.restart(at: centre)
+            if let snap {
+                arrivalCount += 1
+                model.present(
+                    arrival: MercuryArrival(id: arrivalCount, swayRate: snap.swayRate, aspectRate: snap.aspectRate)
+                )
+            }
+            refreshWindowContext()
+        case .carry(let centre):
+            userPlaced = true
+            moveIsland(panel, centredAt: centre)
+        }
     }
 
-    private func storedOrigin() -> NSPoint? {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: RecordingOverlayDefaults.originXKey) != nil,
-            defaults.object(forKey: RecordingOverlayDefaults.originYKey) != nil
-        else {
-            return nil
+    /// The press let go. A docked body still on its tether snaps back where it is; an island docks,
+    /// gliding or siphoning home, or stays free where it was let go, and the placement persists.
+    private func finishDrag(at point: CGPoint) {
+        guard let drag else { return }
+        self.drag = nil
+        panelMotion.band = .none
+        defer { updatePointerGate() }
+        guard let panel, let display = display(under: point) else { return }
+        switch drag.release(
+            at: point,
+            within: RecordingOverlayFramePlacement.islandCentres(on: display.visibleFrame),
+            anchor: RecordingOverlayPlacement.dockAnchor(on: display)
+        ) {
+        case .snapBack:
+            break
+        case .free(let centre):
+            land(on: display)
+            moveIsland(panel, centredAt: centre)
+            persist(.free(centredAt: centre, on: display.visibleFrame))
+            refreshWindowContext()
+        case .dock(let docking):
+            land(on: display)
+            persist(.docked)
+            dock(panel, by: docking, on: display)
         }
-        return NSPoint(
-            x: defaults.double(forKey: RecordingOverlayDefaults.originXKey),
-            y: defaults.double(forKey: RecordingOverlayDefaults.originYKey)
+    }
+
+    /// A press the session's end or an outcome dwell cuts short. The panel is about to ignore the
+    /// mouse, and the window server delivers no release to a panel that does, so the press is let go
+    /// here, where the pointer is, without the motion a release would start: the body stays where
+    /// the hand left it, and the placement it would have released to is kept for the next session.
+    private func abandonDrag() {
+        guard let drag else { return }
+        self.drag = nil
+        panelMotion.band = .none
+        let point = NSEvent.mouseLocation
+        guard let display = display(under: point) else { return }
+        switch drag.release(
+            at: point,
+            within: RecordingOverlayFramePlacement.islandCentres(on: display.visibleFrame),
+            anchor: RecordingOverlayPlacement.dockAnchor(on: display)
+        ) {
+        case .snapBack:
+            break
+        case .free(let centre):
+            land(on: display)
+            persist(.free(centredAt: centre, on: display.visibleFrame))
+        case .dock:
+            land(on: display)
+            persist(.docked)
+        }
+    }
+
+    /// The status element's Dock island: docks a free island as releasing it onto its dock anchor
+    /// would, and persists docked. A body on its way to another display docks there as it arrives.
+    private func dockIsland() {
+        guard placement.isFree, drag == nil else { return }
+        persist(.docked)
+        userPlaced = true
+        guard let panel, panel.isVisible, !model.isDismissing, outcomeDismissal == nil, conductor.isResting,
+            let display
+        else { return }
+        dock(
+            panel,
+            by: RecordingOverlayDrag.docking(
+                from: RecordingOverlayFramePlacement.islandCentre(ofPanel: panel.frame),
+                to: RecordingOverlayPlacement.dockAnchor(on: display),
+                reduceMotion: prefersReducedMotion
+            ),
+            on: display
         )
+        updatePointerGate()
+    }
+
+    /// Sends the island home on `display`: a glide or a jump onto the island's dock, or a siphon or
+    /// an instant re-frame into the docked layout.
+    private func dock(_ panel: NSPanel, by docking: RecordingOverlayDrag.Docking, on display: OverlayDisplay) {
+        switch docking {
+        case .glide(let from, let to):
+            glide = RecordingOverlayGlide(from: from, to: to, startStep: presentedStep ?? 0)
+        case .jump(let to):
+            moveIsland(panel, centredAt: to)
+            refreshWindowContext()
+        case .siphon:
+            handOffDestination = display
+            conductor.relayout(step: presentedStep ?? 0)
+            applyPoseContext()
+        case .reframe:
+            place(panel, on: display)
+            refreshWindowContext()
+        }
+    }
+
+    /// Moves the island's panel so its envelope is centred at `centre`: a move the body feels.
+    private func moveIsland(_ panel: NSPanel, centredAt centre: CGPoint) {
+        let origin = RecordingOverlayFramePlacement.islandPanelFrame(centredAt: centre).origin
+        if panel.frame.origin != origin {
+            panel.setFrameOrigin(origin)
+        }
+        panelMotion.move(to: centre)
+    }
+
+    /// The hand put the body on `display`, where it now rests.
+    private func land(on display: OverlayDisplay) {
+        if display.id != self.display?.id {
+            conductor = RecordingOverlayConductor(display: display.id)
+        }
+        self.display = display
+    }
+
+    private func persist(_ placement: RecordingOverlayPlacement) {
+        self.placement = placement
+        placement.save(to: .standard)
+        model.update(isFree: placement.isFree)
+    }
+
+    /// The display under `point`, as it reads now: the panel's own while the point lies on it, so a
+    /// drag reads a screen only as it crosses onto another. Nil only before any session.
+    private func display(under point: CGPoint) -> OverlayDisplay? {
+        if let display, display.frame.contains(point) {
+            return display
+        }
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }) else {
+            return display
+        }
+        return OverlayDisplayGeometry.display(for: screen)
     }
 
     private func cancel() {
@@ -741,8 +864,4 @@ final class RecordingOverlayController: NSObject, NSWindowDelegate {
     private func finish() {
         coordinator?.stopAndProcess()
     }
-}
-private enum RecordingOverlayDefaults {
-    static let originXKey = "Voiceour.RecordingOverlay.origin.x"
-    static let originYKey = "Voiceour.RecordingOverlay.origin.y"
 }

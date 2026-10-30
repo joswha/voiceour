@@ -246,6 +246,8 @@ final class MercuryEngine {
 struct MercuryRibbon: View {
     @ObservedObject var model: RecordingOverlayModel
     let hitRegion: MercuryHitRegion
+    /// What the body feels of its panel; see `MercurySurfaceView.Configuration.panelMotion`.
+    let panelMotion: MercuryPanelMotion?
     let world: @MainActor () -> MercuryWorld
     let seed: @MainActor () -> UInt64
     /// Told what each live frame shows; see `MercurySurfaceView.Configuration.onFrame`.
@@ -256,12 +258,14 @@ struct MercuryRibbon: View {
     init(
         model: RecordingOverlayModel,
         hitRegion: MercuryHitRegion,
+        panelMotion: MercuryPanelMotion?,
         world: @escaping @MainActor () -> MercuryWorld,
         seed: @escaping @MainActor () -> UInt64,
         onFrame: (@MainActor (MercuryFrameReport) -> Void)?
     ) {
         self.model = model
         self.hitRegion = hitRegion
+        self.panelMotion = panelMotion
         self.world = world
         self.seed = seed
         self.onFrame = onFrame
@@ -279,7 +283,8 @@ struct MercuryRibbon: View {
                 ),
                 layout: layout,
                 pinnedStep: RenderOverrides.mercuryStep,
-                onFrame: onFrame
+                onFrame: onFrame,
+                panelMotion: panelMotion
             ),
             hitRegion: hitRegion
         )

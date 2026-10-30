@@ -9,11 +9,11 @@ final class RecordingOverlayPanel: NSPanel {
 /// Routes the mouse against the mercury body's own silhouette.
 ///
 /// There are no child controls left, so there is nothing to forward a press to and
-/// `super.hitTest` is never called: a press either lands on the body and starts a window
-/// drag, or it is not this window's press at all and falls through to whatever is
-/// underneath. The predicate is the same scalar field the rasterizer drew, so a click ten
-/// points outside the visible mercury reaches the app below rather than a transparent
-/// rectangle the user cannot see.
+/// `super.hitTest` is never called: a press either lands on the body and picks it up, or it
+/// is not this window's press at all and falls through to whatever is underneath. The
+/// predicate is the same scalar field the rasterizer drew, so a click ten points outside the
+/// visible mercury reaches the app below rather than a transparent rectangle the user cannot
+/// see.
 @MainActor
 final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     private let hitRegion: MercuryHitRegion
@@ -22,17 +22,21 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     /// Re-asks the controller's pointer gate. The gate itself reads the pointer: this only says
     /// that it has moved over the canvas, entered it or left it.
     private let onPointerEvent: @MainActor () -> Void
+    /// Tells the controller of a press on the body, each move it makes and its release.
+    private let onDrag: @MainActor (RecordingOverlayDrag.Event) -> Void
     private var dragCursorArea: NSTrackingArea?
 
     init(
         rootView: Content,
         hitRegion: MercuryHitRegion,
         model: RecordingOverlayModel,
-        onPointerEvent: @escaping @MainActor () -> Void
+        onPointerEvent: @escaping @MainActor () -> Void,
+        onDrag: @escaping @MainActor (RecordingOverlayDrag.Event) -> Void
     ) {
         self.hitRegion = hitRegion
         self.model = model
         self.onPointerEvent = onPointerEvent
+        self.onDrag = onDrag
         super.init(rootView: rootView)
         // The controller sizes the panel from the layout. A hosting view that held the window to
         // its content's size would clamp a re-frame onto another display to the layout it is
@@ -64,17 +68,28 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
         return self
     }
 
+    /// A press on the body is direct manipulation: the press, every move and the release go to the
+    /// controller, which pulls the docked body on its tether or carries the island itself, so the
+    /// gel feels every move. `performDrag(with:)` would hand the move to the window server, where
+    /// the body cannot feel it, and a `nextEvent` tracking loop would hold the main thread between
+    /// frames; each event arrives on its own pass of the run loop instead, between the display
+    /// link's frames. The pointer is read in global coordinates as it is when the event is handled:
+    /// a location in the window is measured against a frame the drag itself keeps moving.
     override func mouseDown(with event: NSEvent) {
-        guard let window else {
-            super.mouseDown(with: event)
-            return
-        }
-        window.performDrag(with: event)
+        onDrag(.began(NSEvent.mouseLocation))
     }
 
-    /// The island is repositionable and its position is remembered, which is
-    /// undiscoverable without a cursor contract: on the body, the pointer says "you can
-    /// pick this up".
+    override func mouseDragged(with event: NSEvent) {
+        onDrag(.moved(NSEvent.mouseLocation))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onDrag(.ended(NSEvent.mouseLocation))
+    }
+
+    /// The body can be picked up, torn off its dock or carried as a free island, which is
+    /// undiscoverable without a cursor contract: on the body, collar or island, the pointer
+    /// says "you can pick this up".
     ///
     /// One tracking area over the layout's canvas rather than over the body, because the body
     /// changes shape every display frame and rebuilding a tracking area at up to 120 Hz is

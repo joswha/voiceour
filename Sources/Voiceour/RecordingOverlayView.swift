@@ -8,8 +8,8 @@ import VoiceCore
 /// or symbol: every state the island reports — warming, listening, speaking, working, and
 /// the three unclean deliveries — is carried by how much mercury there is and what it is
 /// doing. What a VoiceOver reader hears is unchanged, because that never came from the
-/// pixels: it comes from this element's label and value, and now from two named actions
-/// where the two discs used to be.
+/// pixels: it comes from this element's label and value, and from named actions: Finish and
+/// Cancel where the two discs used to be, and Dock island while the island is free.
 ///
 /// Every measure comes from `model.layout`: the panel, the canvas the body is drawn on, and
 /// the status element's fixed frame.
@@ -20,9 +20,14 @@ struct RecordingOverlayView: View {
     @ObservedObject var model: RecordingOverlayModel
     let onCancel: () -> Void
     let onFinish: () -> Void
+    /// Docks a free island, as releasing it onto its dock anchor would.
+    let onDock: () -> Void
     /// The silhouette the panel routes the mouse against. The harness renders this view
     /// directly and never instantiates the hosting view, so it owns one of its own.
     let hitRegion: MercuryHitRegion
+    /// What the body feels of its panel, read by the surface once per live frame. The harness
+    /// moves no panel and leaves it nil.
+    let panelMotion: MercuryPanelMotion?
     /// Read per frame rather than passed as a value, so the debug picker and a new
     /// session's world both arrive without a notification path.
     let world: @MainActor () -> MercuryWorld
@@ -39,7 +44,9 @@ struct RecordingOverlayView: View {
         model: RecordingOverlayModel,
         onCancel: @escaping () -> Void,
         onFinish: @escaping () -> Void,
+        onDock: @escaping () -> Void,
         hitRegion: MercuryHitRegion? = nil,
+        panelMotion: MercuryPanelMotion? = nil,
         world: @escaping @MainActor () -> MercuryWorld = { RenderOverrides.mercuryWorld ?? .default },
         seed: @escaping @MainActor () -> UInt64 = { RenderOverrides.mercurySeed ?? MercuryMetrics.defaultSeed },
         onFrame: (@MainActor (MercuryFrameReport) -> Void)? = nil,
@@ -48,9 +55,11 @@ struct RecordingOverlayView: View {
         self.model = model
         self.onCancel = onCancel
         self.onFinish = onFinish
+        self.onDock = onDock
         // The harness renders this view directly and never instantiates the hosting
         // view, so it gets a region of its own rather than a nil one to special-case.
         self.hitRegion = hitRegion ?? MercuryHitRegion()
+        self.panelMotion = panelMotion
         self.world = world
         self.seed = seed
         self.onFrame = onFrame
@@ -85,12 +94,19 @@ struct RecordingOverlayView: View {
     private var canvas: some View {
         let reports = model.state.isActive || model.outcome != nil
         if reports || model.isDismissing {
-            MercuryRibbon(model: model, hitRegion: hitRegion, world: world, seed: seed, onFrame: onFrame)
-                .overlay(alignment: .topLeading) {
-                    if reports {
-                        statusElement
-                    }
+            MercuryRibbon(
+                model: model,
+                hitRegion: hitRegion,
+                panelMotion: panelMotion,
+                world: world,
+                seed: seed,
+                onFrame: onFrame
+            )
+            .overlay(alignment: .topLeading) {
+                if reports {
+                    statusElement
                 }
+            }
         } else {
             Color.clear
                 .frame(
@@ -117,6 +133,9 @@ struct RecordingOverlayView: View {
     /// also publishes one hint that distinguishes the affirmative and destructive
     /// choices. An outcome publishes neither: the moment is a report, not a prompt, and
     /// the panel is click-through for its duration.
+    ///
+    /// A free island adds "Dock island" after them, the one way to send it home without
+    /// dragging it there: a session's own actions come first, and an outcome offers none.
     private var statusElement: some View {
         let layout = model.layout
         return Color.clear
@@ -127,10 +146,14 @@ struct RecordingOverlayView: View {
             .accessibilityValue(model.accessibilityStatus)
             .accessibilityAddTraits([.updatesFrequently, .isStaticText])
             .accessibilityHint(accessibilityHint)
-            // Declared cancel-first because SwiftUI publishes custom actions in reverse
-            // declaration order, and a VoiceOver reader should reach the affirmative
-            // action first. `overlay.recording.actions` locks the published order.
+            // Declared in reverse because SwiftUI publishes custom actions in reverse
+            // declaration order: a VoiceOver reader reaches the affirmative action first,
+            // then cancel, then docking. `overlay.recording.actions` locks the published
+            // order of the first two, and `RecordingOverlayDockActionTests` all three.
             .accessibilityActions {
+                if model.isFree, model.state.isActive {
+                    Button("Dock island") { onDock() }
+                }
                 if model.state.isActive {
                     Button(model.isRecording ? "Cancel recording" : "Cancel dictation") { onCancel() }
                 }

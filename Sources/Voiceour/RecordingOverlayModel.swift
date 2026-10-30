@@ -20,6 +20,11 @@ final class RecordingOverlayModel: ObservableObject {
     /// leaves it alone.
     @Published private(set) var layout: RecordingOverlayLayout = .island
 
+    /// The body is a free island rather than docked, so the status element offers to dock it. A
+    /// property of the placement rather than of the session, so `reset()` leaves it alone, and it
+    /// changes only when the placement does.
+    @Published private(set) var isFree = false
+
     /// What the controller knows about the pointer, the frontmost window and a hand-off between
     /// displays that changes how far the collar reaches, or whether the body is asked for anything
     /// at all. Read from the screen and the hand-off rather than from the session, so `reset()`
@@ -103,6 +108,11 @@ final class RecordingOverlayModel: ObservableObject {
         self.layout = layout
     }
 
+    func update(isFree: Bool) {
+        guard isFree != self.isFree else { return }
+        self.isFree = isFree
+    }
+
     /// An unchanged context is not republished: the controller reads the pointer every frame.
     func update(poseContext: MercuryPoseContext) {
         guard poseContext != self.poseContext else { return }
@@ -154,7 +164,7 @@ final class RecordingOverlayModel: ObservableObject {
     }
 
     /// The session's end: its state, meter, outcome, arrival and dismissal go, and the layout, the
-    /// pose context and the lean, which describe the screen, stay.
+    /// placement, the pose context and the lean, which describe the screen, stay.
     func reset() {
         state = .idle
         samples = Array(repeating: 0, count: Self.sampleCount)

@@ -5,9 +5,9 @@ import SwiftUI
 /// Pixel and click agreement does not depend on these rectangles: `MercuryField` is the
 /// single silhouette and `MercuryHitRegion` converts panel points back into it.
 enum RecordingOverlayMetrics {
-    /// Transparent panel retained at its established measure so stored placement,
-    /// cross-display translation and the fixed accessibility frame do not migrate with
-    /// the visual cutover. Only the island's canvas draws or accepts a hit: the centred
+    /// Transparent panel retained at its established measure so placement, which is measured
+    /// on the envelope inside it, and the fixed accessibility frame do not migrate with the
+    /// visual cutover. Only the island's canvas draws or accepts a hit: the centred
     /// 180×34 envelope and the room its round ends need beyond it (see
     /// `RecordingOverlayLayout.island`).
     static let windowSize = NSSize(width: 260, height: 80)
@@ -191,6 +191,26 @@ struct RecordingOverlayLayout: Sendable, Equatable {
             let collar = collar(housingSize: housing.size, bandHeight: display.bandHeight)
         else { return .island }
         return collar
+    }
+
+    /// The spine's unit tangent and normal where a body with no sway is centred: the island's straight
+    /// axis, +x and +y, or the collar's bottom run, +x and −y, out of the housing. The body shape's sway
+    /// and aspect answer along these, so a pull on the body and its panel's acceleration are resolved
+    /// into them. Canvas-local axes share AppKit's global orientation, +y up, so a global vector
+    /// resolves as it is.
+    struct BodyAxes: Sendable, Equatable {
+        var tangent: SIMD2<Double>
+        var normal: SIMD2<Double>
+
+        /// `vector`'s components along the tangent and along the normal.
+        func resolve(_ vector: SIMD2<Double>) -> SIMD2<Double> {
+            SIMD2((vector * tangent).sum(), (vector * normal).sum())
+        }
+    }
+
+    var bodyAxes: BodyAxes {
+        let frame = spine.frame(at: spine.restCenter)
+        return BodyAxes(tangent: frame.tangent, normal: frame.normal)
     }
 
     private init(

@@ -357,7 +357,8 @@
                         RecordingOverlayView(
                             model: listeningOverlayModel(),
                             onCancel: {},
-                            onFinish: {}
+                            onFinish: {},
+                            onDock: {}
                         )
                     )
                 },
@@ -372,6 +373,7 @@
                             model: listeningOverlayModel(),
                             onCancel: {},
                             onFinish: {},
+                            onDock: {},
                             islandOnly: true
                         )
                     )
@@ -387,6 +389,7 @@
                             model: quietOverlayModel(),
                             onCancel: {},
                             onFinish: {},
+                            onDock: {},
                             islandOnly: true
                         )
                     )
@@ -402,6 +405,7 @@
                             model: outcomeOverlayModel(.copiedOnly(reason: "target_terminal")),
                             onCancel: {},
                             onFinish: {},
+                            onDock: {},
                             islandOnly: true
                         )
                     )
@@ -417,6 +421,7 @@
                             model: warmingOverlayModel(),
                             onCancel: {},
                             onFinish: {},
+                            onDock: {},
                             islandOnly: true
                         )
                     )
@@ -432,6 +437,7 @@
                             model: processingOverlayModel(),
                             onCancel: {},
                             onFinish: {},
+                            onDock: {},
                             islandOnly: true
                         )
                     )
@@ -448,6 +454,7 @@
                             model: listeningOverlayModel(),
                             onCancel: {},
                             onFinish: {},
+                            onDock: {},
                             islandOnly: true
                         )
                     )
@@ -465,6 +472,7 @@
                                     model: listeningOverlayModel(),
                                     onCancel: {},
                                     onFinish: {},
+                                    onDock: {},
                                     islandOnly: true
                                 )
                             )
@@ -683,6 +691,7 @@
                         model: model,
                         onCancel: {},
                         onFinish: {},
+                        onDock: {},
                         islandOnly: true
                     )
                 )

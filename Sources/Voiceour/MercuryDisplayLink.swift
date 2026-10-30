@@ -66,6 +66,10 @@ final class MercurySurfaceView: NSView {
         /// pass, where what the controller does with a report — re-frame, re-gate, re-pose — would
         /// publish model changes from within a view update.
         var onFrame: (@MainActor (MercuryFrameReport) -> Void)?
+        /// What the body feels of the panel it is drawn in, read once per live frame for the forcing
+        /// that frame advances under, in place of the drive's own. Never for a pinned harness frame,
+        /// and nil in the harness, which moves no panel.
+        var panelMotion: MercuryPanelMotion?
     }
 
     private let engine: MercuryEngine
@@ -201,12 +205,16 @@ final class MercurySurfaceView: NSView {
 
     private func renderLive(steps: Int) {
         guard let configuration, configuration.pinnedStep == nil else { return }
+        var drive = configuration.drive
+        if let panelMotion = configuration.panelMotion {
+            drive.forcing = panelMotion.forcing(advancing: steps, layout: configuration.layout)
+        }
         setImage(
             engine.frame(
                 advancing: steps,
                 seed: configuration.seed,
                 world: configuration.world,
-                drive: configuration.drive,
+                drive: drive,
                 appearance: configuration.appearance,
                 layout: configuration.layout
             )

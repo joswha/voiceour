@@ -97,7 +97,7 @@ struct RecordingOverlayPointerGateTests {
         let display = OverlayDisplay.fixtureNotch
         let housing = try #require(display.housing)
         let layout = RecordingOverlayLayout.forDisplay(display)
-        let panel = RecordingOverlayController.collarFrame(
+        let panel = RecordingOverlayFramePlacement.collarFrame(
             panelSize: layout.panelSize,
             housing: housing,
             displayFrame: display.frame
@@ -169,10 +169,32 @@ struct RecordingOverlayPointerGateTests {
         #expect(!inBand(housing.midX, top - 10, on: .fixtureNotchless))
     }
 
+    /// A press held on the body keeps the mouse wherever the pointer goes, off the body and out of
+    /// the panel, so the drag's moves and release still arrive; a forced click-through still wins.
+    @Test func aHeldPressKeepsTheMouseEverywhereButThroughAForcedClickThrough() {
+        let layout = RecordingOverlayLayout.island
+        let (region, _) = Self.drawn(Self.speaking(on: layout))
+        for point in [CGPoint(x: 1, y: 1), CGPoint(x: layout.canvasRect.midX, y: layout.canvasRect.midY), nil] {
+            #expect(!Self.ignoresMouse(point, region: region, dragging: true))
+            #expect(Self.ignoresMouse(point, region: region, forced: true, dragging: true))
+        }
+        #expect(Self.ignoresMouse(CGPoint(x: 1, y: 1), region: region))
+    }
+
     // MARK: - Helpers
 
-    private static func ignoresMouse(_ point: CGPoint?, region: MercuryHitRegion, forced: Bool = false) -> Bool {
-        RecordingOverlayPointerGate.ignoresMouse(pointerInPanel: point, hitRegion: region, forcedClickThrough: forced)
+    private static func ignoresMouse(
+        _ point: CGPoint?,
+        region: MercuryHitRegion,
+        forced: Bool = false,
+        dragging: Bool = false
+    ) -> Bool {
+        RecordingOverlayPointerGate.ignoresMouse(
+            pointerInPanel: point,
+            hitRegion: region,
+            forcedClickThrough: forced,
+            dragging: dragging
+        )
     }
 
     /// A speaking session on `layout`: live capture past the voice-activity hysteresis.

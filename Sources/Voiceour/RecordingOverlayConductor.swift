@@ -20,6 +20,9 @@ import CoreGraphics
 ///   and no arrival kick. The live body is re-anchored on the destination's layout, and its pose
 ///   flows there through the gel: the siphon is motion that carries no information, and a user
 ///   moving faster than a siphon can read is better served by a body that is simply there.
+/// - A relayout is a hand-off to the display the body is already on: a torn-off island docking
+///   back into the collar changes its layout, and only an empty panel may be re-framed. It drains
+///   straight up, with no lean, and emerges with the landing squash and no sway.
 struct RecordingOverlayConductor: Sendable, Equatable {
     enum Phase: Sendable, Equatable {
         /// The body is on `display`, in whatever pose the session asks for.
@@ -112,6 +115,14 @@ struct RecordingOverlayConductor: Sendable, Equatable {
             guard display != current else { return nil }
             return begin(from: current, to: display, exitSign: exitSign, step: step, instant: instant)
         }
+    }
+
+    /// Re-lays the resting body out on its own display by the siphon: it drains, the empty panel
+    /// re-frames, and it emerges docked. `step` is the last substep presented. A body already on its
+    /// way somewhere is left to that hand-off, whose re-frame lays it out afresh anyway.
+    mutating func relayout(step: Int) {
+        guard case .resting(let display) = phase else { return }
+        phase = .draining(from: display, to: display, startStep: step, exitSign: 0)
     }
 
     /// One presented frame: the body's volume `L·H`, in pt², at substep `step`.
