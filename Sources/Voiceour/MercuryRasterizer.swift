@@ -32,6 +32,17 @@ struct MercuryAppearance: Equatable {
 /// the bends' charts are dear: a convex corner's plateau takes an arctangent, and a ramp's foot
 /// a few Newton steps. So every pixel around the collar's four bends keeps the chart the first
 /// frame to visit it computed, and every other pixel, a few multiplies, is charted afresh.
+///
+/// **A row is shaded in stages.** A pixel's shading is one chain of dependent square roots,
+/// divides and table reads, and the processor overlaps successive pixels' chains only as far
+/// as its instruction window reaches, which across one long loop body is barely past the next
+/// pixel. So each row takes four short passes instead: cover charts, samples and covers each
+/// marked pixel and queues those the body covers; reflect finds where each queued pixel's
+/// reflection leaves the crown; light reads the room there through the conductor's Fresnel;
+/// and write takes each through the display response into the bitmap, or hands it to
+/// calibration. Within a pass the pixels are independent, so their chains overlap. Every
+/// pixel takes exactly the steps of ``sceneRadiance(of:at:epsilon:environment:)``, in the
+/// same order, and calibration's samples arrive in the same order.
 @MainActor
 final class MercuryRasterizer {
     private var context: CGContext?
@@ -40,7 +51,13 @@ final class MercuryRasterizer {
     /// evaluator: a key that does not match is simply recomputed.
     private var stationKeys: UnsafeMutablePointer<UInt64>?
     private var stationSamples: UnsafeMutablePointer<MercuryField.StationSample>?
-    private var stationCapacity = 0
+    /// One row's covered pixels, then their reflections and their scene radiance, as each
+    /// stage hands them to the next. A row never queues more pixels than the canvas is wide.
+    private var queue: UnsafeMutablePointer<QueuedPixel>?
+    private var reflections: UnsafeMutablePointer<Reflection>?
+    private var radiances: UnsafeMutablePointer<SIMD3<Double>>?
+    /// The canvas width the per-column and per-row storage above holds.
+    private var columnCapacity = 0
     /// The sparse mask: per pixel row, one bit per block of ``blockWidth`` columns that an
     /// extent reaches, in `wordsPerRow` words. Rebuilt every frame.
     private var mask: UnsafeMutablePointer<UInt64>?
@@ -69,6 +86,23 @@ final class MercuryRasterizer {
         var base: Int
     }
 
+    /// A pixel the body covers, as the cover stage leaves it for the stages that shade it.
+    private struct QueuedPixel {
+        var column: Int
+        var point: SIMD2<Double>
+        var sample: MercuryField.Sample
+        var coverage: Double
+    }
+
+    /// Where a covered point's reflection leaves the crown: what the reflect stage hands the
+    /// light stage.
+    private struct Reflection {
+        /// The reflected ray, as the room reads it.
+        var direction: SIMD3<Float>
+        /// `max(N·V, 1e-4)`, the cosine the conductor's Fresnel reads.
+        var incidence: Double
+    }
+
     /// No chart's arc length has this bit pattern: it is finite for every finite pixel.
     private static let unsetStationKey = Double.nan.bitPattern
     /// Columns per mask bit. A block's spare columns cost a few rejected pixels at each end of
@@ -78,6 +112,9 @@ final class MercuryRasterizer {
     isolated deinit {
         stationKeys?.deallocate()
         stationSamples?.deallocate()
+        queue?.deallocate()
+        reflections?.deallocate()
+        radiances?.deallocate()
         mask?.deallocate()
         bendCharts?.deallocate()
         bendChartStates?.deallocate()
@@ -143,13 +180,29 @@ final class MercuryRasterizer {
         let fieldGradient = sample.gradient
         let gradientLength = (fieldGradient * fieldGradient).sum().squareRoot()
         guard gradientLength > 1e-9 else { return 0 }
-        let body = Swift.min(Swift.max(0.5 + sample.value / (gradientLength * pixelSize), 0), 1)
+        let body = ramp(sample.value, width: gradientLength * pixelSize)
         guard chart.bordersHousing else { return body }
-        return body * Swift.min(Swift.max(0.5 + chart.rimDistance / pixelSize, 0), 1)
+        return body * ramp(chart.rimDistance, width: pixelSize)
+    }
+
+    /// `min(max(½ + d/w, 0), 1)`, the share of a pixel whose centre lies `d` inside an edge
+    /// whose ramp is `w` wide.
+    ///
+    /// From `d = ½w` on it is exactly 1: the quotient rounds to at least ½, and the sum to at
+    /// least 1. Most covered pixels lie that deep, so they skip the divide. That holds for any
+    /// positive `w` whose half is exact, as every width here is. A `d` that is not a number
+    /// fails the test and divides.
+    @inline(__always)
+    private static func ramp(_ distance: Double, width: Double) -> Double {
+        if distance >= 0.5 * width { return 1 }
+        return Swift.min(Swift.max(0.5 + distance / width, 0), 1)
     }
 
     /// The linear scene radiance a covered point reflects: the room, seen off the crown the
     /// sample lifts from the finite eye, times the conductor's Fresnel.
+    ///
+    /// The pixel loop runs its two halves as separate stages: ``reflection(of:at:epsilon:)``
+    /// for every covered pixel of a row, then ``radiance(of:environment:optics:)``.
     @inline(__always)
     static func sceneRadiance(
         of sample: MercuryField.Sample,
@@ -157,6 +210,20 @@ final class MercuryRasterizer {
         epsilon: Double,
         environment: MercuryEnvironment
     ) -> SIMD3<Double> {
+        radiance(
+            of: reflection(of: sample, at: point, epsilon: epsilon),
+            environment: environment,
+            optics: MercuryOptics.tables
+        )
+    }
+
+    /// Where the reflection of the finite eye leaves the crown the sample lifts at `point`.
+    @inline(__always)
+    private static func reflection(
+        of sample: MercuryField.Sample,
+        at point: SIMD2<Double>,
+        epsilon: Double
+    ) -> Reflection {
         let crown = MercuryCrown.evaluate(
             field: sample.value,
             radius: sample.radius,
@@ -177,16 +244,27 @@ final class MercuryRasterizer {
         )
         let incidence = Swift.max((normal * view).sum(), 1e-4)
         let reflected = 2 * incidence * normal - view
-        let room = environment.radiance(
-            SIMD3<Float>(
+        return Reflection(
+            direction: SIMD3<Float>(
                 Float(reflected.x),
                 Float(reflected.y),
                 Float(reflected.z)
-            )
+            ),
+            incidence: incidence
         )
+    }
+
+    /// The room along a reflection, times the conductor's Fresnel at its incidence.
+    @inline(__always)
+    private static func radiance(
+        of reflection: Reflection,
+        environment: MercuryEnvironment,
+        optics: MercuryOptics.Tables
+    ) -> SIMD3<Double> {
+        let room = environment.radiance(reflection.direction)
         return SIMD3<Double>(
             Double(room.x), Double(room.y), Double(room.z)
-        ) * MercuryOptics.fresnel(cosine: incidence)
+        ) * optics.fresnel(cosine: reflection.incidence)
     }
 
     /// The alpha byte of a pixel the body covers by `coverage`. Its colour bytes are
@@ -217,12 +295,18 @@ final class MercuryRasterizer {
             )
         else { return nil }
         context = created
-        if stationCapacity < width {
+        if columnCapacity < width {
             stationKeys?.deallocate()
             stationSamples?.deallocate()
+            queue?.deallocate()
+            reflections?.deallocate()
+            radiances?.deallocate()
             stationKeys = UnsafeMutablePointer<UInt64>.allocate(capacity: width)
             stationSamples = UnsafeMutablePointer<MercuryField.StationSample>.allocate(capacity: width)
-            stationCapacity = width
+            queue = UnsafeMutablePointer<QueuedPixel>.allocate(capacity: width)
+            reflections = UnsafeMutablePointer<Reflection>.allocate(capacity: width)
+            radiances = UnsafeMutablePointer<SIMD3<Double>>.allocate(capacity: width)
+            columnCapacity = width
         }
         let maskWords = height * Self.wordsPerRow(width: width)
         if maskCapacity < maskWords {
@@ -249,7 +333,9 @@ final class MercuryRasterizer {
         scale: CGFloat,
         samples: inout [SIMD3<Float>]?
     ) {
-        guard let data = context.data, let stationKeys, let stationSamples, let mask else { return }
+        guard let data = context.data, let stationKeys, let stationSamples, let queue, let reflections, let radiances,
+            let mask
+        else { return }
         let width = context.width
         let height = context.height
         let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
@@ -295,6 +381,8 @@ final class MercuryRasterizer {
             selectedResponse = nil
         }
         let displayLookup = selectedResponse.map { lookup(for: $0) }
+        // Taken once: a lazy global would check its initializer at every one of a pixel's reads.
+        let optics = MercuryOptics.tables
         for row in rows {
             let vertical = canvasMaxY - (Double(row) + 0.5) * pixelSize
             let words = mask + row * wordsPerRow
@@ -310,6 +398,8 @@ final class MercuryRasterizer {
                 )
                 if near.low > near.high { near = entry } else { far = entry }
             }
+            // Cover: chart, sample and cover each marked pixel, and queue those the body covers.
+            var queued = 0
             for word in 0..<wordsPerRow {
                 var blocks = words[word]
                 while blocks != 0 {
@@ -359,27 +449,34 @@ final class MercuryRasterizer {
                         let coverage = Self.coverage(of: sample, chart: chart, pixelSize: pixelSize)
                         guard coverage > 0 else { continue }
                         if collecting, coverage <= 0.5 { continue }
-
-                        let scene = Self.sceneRadiance(
-                            of: sample,
-                            at: point,
-                            epsilon: epsilon,
-                            environment: environment
-                        )
-                        if collecting {
-                            samples?.append(
-                                SIMD3<Float>(Float(scene.x), Float(scene.y), Float(scene.z))
-                            )
-                            continue
-                        }
-                        guard let displayLookup else { continue }
-                        let display = displayLookup.map(scene)
-                        let index = (row * width + columnIndex) * 4
-                        bytes[index] = MercuryOptics.encodedByte(display.x, coverage: coverage)
-                        bytes[index + 1] = MercuryOptics.encodedByte(display.y, coverage: coverage)
-                        bytes[index + 2] = MercuryOptics.encodedByte(display.z, coverage: coverage)
-                        bytes[index + 3] = Self.alphaByte(coverage)
+                        queue[queued] = QueuedPixel(
+                            column: columnIndex, point: point, sample: sample, coverage: coverage)
+                        queued += 1
                     }
+                }
+            }
+            // Reflect, then light: each its own pass over the row. See the type's discussion.
+            for entry in 0..<queued {
+                reflections[entry] = Self.reflection(of: queue[entry].sample, at: queue[entry].point, epsilon: epsilon)
+            }
+            for entry in 0..<queued {
+                radiances[entry] = Self.radiance(of: reflections[entry], environment: environment, optics: optics)
+            }
+            // Write.
+            if collecting {
+                for entry in 0..<queued {
+                    let scene = radiances[entry]
+                    samples?.append(SIMD3<Float>(Float(scene.x), Float(scene.y), Float(scene.z)))
+                }
+            } else if let displayLookup {
+                for entry in 0..<queued {
+                    let display = displayLookup.map(radiances[entry])
+                    let coverage = queue[entry].coverage
+                    let index = (row * width + queue[entry].column) * 4
+                    bytes[index] = optics.encodedByte(display.x, coverage: coverage)
+                    bytes[index + 1] = optics.encodedByte(display.y, coverage: coverage)
+                    bytes[index + 2] = optics.encodedByte(display.z, coverage: coverage)
+                    bytes[index + 3] = Self.alphaByte(coverage)
                 }
             }
         }

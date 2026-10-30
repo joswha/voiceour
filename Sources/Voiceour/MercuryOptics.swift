@@ -8,38 +8,94 @@ enum MercuryOptics {
     private static let transferCount = 4_096
     private static let opaqueTransferCount = 16_384
 
-    /// Mercury's conductor response over `μ ∈ [1e-4, 1]`, built once on first use from the
-    /// spectral oracle: 1,024 × 81 exact Fresnel evaluations, about a millisecond in a release
-    /// build. A pixel still pays one lerp.
-    private static let fresnelTable: [SIMD3<Float>] = (0..<fresnelCount).map { index in
-        let cosine =
-            fresnelMinimum
-            + (1 - fresnelMinimum) * Double(index) / Double(fresnelCount - 1)
-        let value = exactFresnel(cosine: cosine)
-        return SIMD3(Float(value.x), Float(value.y), Float(value.z))
+    /// The three tables a pixel reads, built once on first use and never written again.
+    ///
+    /// Raw storage, as the room's texels are: a pixel makes up to nine reads here, and an
+    /// array would check its bounds and a lazy global its initializer on every one. The
+    /// rasterizer takes ``tables`` once per frame and reads through it; every other reader
+    /// goes through `MercuryOptics`'s static functions, which read the same value.
+    ///
+    /// `@unchecked Sendable`: the storage is filled before the value exists and is never
+    /// written or freed after, so every thread reads the same immutable bytes.
+    struct Tables: @unchecked Sendable {
+        /// Mercury's conductor response over `μ ∈ [1e-4, 1]`, from the spectral oracle:
+        /// 1,024 × 81 exact Fresnel evaluations, about a millisecond in a release build. A
+        /// pixel still pays one lerp.
+        private let fresnelTable: UnsafePointer<SIMD3<Float>>
+        private let transferTable: UnsafePointer<Float>
+        private let opaqueTransferTable: UnsafePointer<UInt8>
+
+        fileprivate init() {
+            fresnelTable = Self.tabulate(count: fresnelCount) { index in
+                let cosine =
+                    fresnelMinimum
+                    + (1 - fresnelMinimum) * Double(index) / Double(fresnelCount - 1)
+                let value = exactFresnel(cosine: cosine)
+                return SIMD3(Float(value.x), Float(value.y), Float(value.z))
+            }
+            transferTable = Self.tabulate(count: transferCount) { index in
+                Float(exactEncodeSRGB(Double(index) / Double(transferCount - 1)))
+            }
+            opaqueTransferTable = Self.tabulate(count: opaqueTransferCount) { index in
+                let encoded = exactEncodeSRGB(Double(index) / Double(opaqueTransferCount - 1))
+                return UInt8(Swift.min(255, Swift.max(0, Int(encoded * 255 + 0.5))))
+            }
+        }
+
+        /// `entry(i)` for every `i` in `0..<count`, in storage the process keeps.
+        private static func tabulate<Entry>(count: Int, _ entry: (Int) -> Entry) -> UnsafePointer<Entry> {
+            let storage = UnsafeMutablePointer<Entry>.allocate(capacity: count)
+            for index in 0..<count {
+                (storage + index).initialize(to: entry(index))
+            }
+            return UnsafePointer(storage)
+        }
+
+        @inline(__always)
+        func fresnel(cosine: Double) -> SIMD3<Double> {
+            let clamped = Swift.min(Swift.max(cosine, fresnelMinimum), 1)
+            let scaled =
+                (clamped - fresnelMinimum)
+                * Double(fresnelCount - 1)
+                / (1 - fresnelMinimum)
+            let lower = Int(scaled)
+            let upper = Swift.min(lower + 1, fresnelCount - 1)
+            let fraction = Float(scaled - Double(lower))
+            let value = fresnelTable[lower] + (fresnelTable[upper] - fresnelTable[lower]) * fraction
+            return SIMD3(Double(value.x), Double(value.y), Double(value.z))
+        }
+
+        @inline(__always)
+        func encodeSRGB(_ value: Double) -> Double {
+            let clamped = Swift.min(Swift.max(value, 0), 1)
+            let scaled = clamped * Double(transferCount - 1)
+            let lower = Int(scaled)
+            let upper = Swift.min(lower + 1, transferCount - 1)
+            let fraction = Float(scaled - Double(lower))
+            return Double(
+                transferTable[lower]
+                    + (transferTable[upper] - transferTable[lower]) * fraction
+            )
+        }
+
+        @inline(__always)
+        func encodedByte(_ value: Double, coverage: Double) -> UInt8 {
+            let clamped = Swift.min(Swift.max(value, 0), 1)
+            if coverage >= 1 {
+                let index = Int(clamped * Double(opaqueTransferCount - 1) + 0.5)
+                return opaqueTransferTable[index]
+            }
+            let encoded = encodeSRGB(clamped) * coverage
+            return UInt8(Swift.min(255, Swift.max(0, Int(encoded * 255 + 0.5))))
+        }
     }
 
-    private static let transferTable: [Float] = (0..<transferCount).map { index in
-        Float(exactEncodeSRGB(Double(index) / Double(transferCount - 1)))
-    }
-
-    private static let opaqueTransferTable: [UInt8] = (0..<opaqueTransferCount).map { index in
-        let encoded = exactEncodeSRGB(Double(index) / Double(opaqueTransferCount - 1))
-        return UInt8(Swift.min(255, Swift.max(0, Int(encoded * 255 + 0.5))))
-    }
+    /// The tables, built on first use.
+    static let tables = Tables()
 
     @inline(__always)
     static func fresnel(cosine: Double) -> SIMD3<Double> {
-        let clamped = Swift.min(Swift.max(cosine, fresnelMinimum), 1)
-        let scaled =
-            (clamped - fresnelMinimum)
-            * Double(fresnelCount - 1)
-            / (1 - fresnelMinimum)
-        let lower = Int(scaled)
-        let upper = Swift.min(lower + 1, fresnelCount - 1)
-        let fraction = Float(scaled - Double(lower))
-        let value = fresnelTable[lower] + (fresnelTable[upper] - fresnelTable[lower]) * fraction
-        return SIMD3(Double(value.x), Double(value.y), Double(value.z))
+        tables.fresnel(cosine: cosine)
     }
 
     /// The conductor oracle the table is built from and tested against: mercury's exact
@@ -53,26 +109,12 @@ enum MercuryOptics {
 
     @inline(__always)
     static func encodeSRGB(_ value: Double) -> Double {
-        let clamped = Swift.min(Swift.max(value, 0), 1)
-        let scaled = clamped * Double(transferCount - 1)
-        let lower = Int(scaled)
-        let upper = Swift.min(lower + 1, transferCount - 1)
-        let fraction = Float(scaled - Double(lower))
-        return Double(
-            transferTable[lower]
-                + (transferTable[upper] - transferTable[lower]) * fraction
-        )
+        tables.encodeSRGB(value)
     }
 
     @inline(__always)
     static func encodedByte(_ value: Double, coverage: Double) -> UInt8 {
-        let clamped = Swift.min(Swift.max(value, 0), 1)
-        if coverage >= 1 {
-            let index = Int(clamped * Double(opaqueTransferCount - 1) + 0.5)
-            return opaqueTransferTable[index]
-        }
-        let encoded = encodeSRGB(clamped) * coverage
-        return UInt8(Swift.min(255, Swift.max(0, Int(encoded * 255 + 0.5))))
+        tables.encodedByte(value, coverage: coverage)
     }
 
     static func exactViewDirection(
@@ -130,20 +172,31 @@ final class MercuryDisplayLookup {
     private static let count = 2_048
 
     let response: MercuryDisplayResponse
-    private let table: [SIMD2<Float>]
+    /// Raw storage, as the room's texels are: every covered pixel reads two entries, and an
+    /// array would check bounds and hold a reference on each.
+    private let table: UnsafeMutablePointer<SIMD2<Float>>
 
     init(response: MercuryDisplayResponse) {
         self.response = response
-        table = (0..<Self.count).map { index in
-            guard index > 0 else { return .zero }
-            guard index < Self.count - 1 else {
-                return SIMD2(Float(response.ceiling.nextDown), 0)
-            }
-            let unit = Double(index) / Double(Self.count - 1)
-            let scene = response.halfSaturation * unit / (1 - unit)
-            let mapped = response.map(scene)
-            return SIMD2(Float(mapped), Float(mapped / scene))
+        table = UnsafeMutablePointer<SIMD2<Float>>.allocate(capacity: Self.count)
+        for index in 0..<Self.count {
+            (table + index).initialize(to: Self.entry(index, of: response))
         }
+    }
+
+    deinit {
+        table.deallocate()
+    }
+
+    private static func entry(_ index: Int, of response: MercuryDisplayResponse) -> SIMD2<Float> {
+        guard index > 0 else { return .zero }
+        guard index < count - 1 else {
+            return SIMD2(Float(response.ceiling.nextDown), 0)
+        }
+        let unit = Double(index) / Double(count - 1)
+        let scene = response.halfSaturation * unit / (1 - unit)
+        let mapped = response.map(scene)
+        return SIMD2(Float(mapped), Float(mapped / scene))
     }
 
     @inline(__always)
@@ -178,6 +231,14 @@ final class MercuryDisplayLookup {
         {
             return raw
         }
+        return desaturated(raw, toward: mappedLuminance)
+    }
+
+    /// `raw` pulled toward its neutral `mappedLuminance` until every channel lies within
+    /// `0…ceiling`. Kept out of line: almost no pixel leaves the gamut, and inlined, this would
+    /// weigh on every pixel's path through ``map(_:)-(SIMD3<Double>)``.
+    @inline(never)
+    private func desaturated(_ raw: SIMD3<Double>, toward mappedLuminance: Double) -> SIMD3<Double> {
         let neutral = SIMD3<Double>(repeating: mappedLuminance)
         let difference = raw - neutral
         let upper = response.ceiling - mappedLuminance

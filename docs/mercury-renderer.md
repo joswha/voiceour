@@ -999,6 +999,8 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 6. direct AppKit display link and layer presentation;
 7. deletion of the 30 fps hold only after measurement passed.
 
+Each raster row is shaded in stages. A pixel's shading is one chain of dependent square roots, divides, and table reads, and the core overlaps consecutive pixels' chains only as far as its instruction window reaches, which across one long loop body is barely past the next pixel. So each row runs four passes over the pixels it covers: cover charts, samples, and covers each marked pixel and queues those the body covers; reflect finds where each queued pixel's reflection leaves the crown; light reads the room there through the conductor's Fresnel; write maps each through the display response into the bitmap, or hands it to calibration. Pixels within a pass are independent, so their chains overlap. Every pixel takes the same operations in the same order as `sceneRadiance(of:at:epsilon:environment:)`, so the output is byte-identical and calibration's samples arrive in the same order. The Fresnel, sRGB, and display-response tables live in raw storage read once per frame, the rare gamut pull-back sits out of line, and a pixel at least half a ramp inside an edge takes coverage exactly 1 without the divide. Against the single-pass loop, seven interleaved pairs on 2026-10-30 put the island raster p50 at 0.344 ms instead of 0.542 ms, and the collar's at 0.308 ms instead of 0.490 ms.
+
 ### Rejected alternatives
 
 | alternative | decision |
@@ -1017,7 +1019,7 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 
 ## Measured gates
 
-`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column is the measurement of 2026-10-30 on the development M4 Pro, four runs on an idle machine, with the range where the runs differ; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
+`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column is the measurement of 2026-10-30 on the development M4 Pro, three runs on an idle machine, with the range where the runs differ; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
 
 | measurement | result | hard gate |
 | --- | ---: | ---: |
@@ -1025,16 +1027,16 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 | near-white body area | 0.0016 | ≤0.02 |
 | reflected-direction coverage | 3.6983 sr | ≥2.0 sr |
 | 30 s median luminance drift | 0.8976 stops | ≤1.0 stop |
-| launch calibration | 113–125 ms | ≤200 ms |
-| cold room + first raster | 9.2–9.4 ms | ≤25 ms |
-| raster p50 / p99 | 0.527–0.533 / 0.543–0.582 ms | ≤0.55 / 0.70 ms |
-| raster CPU at 120 Hz | 0.0630–0.0639 core | ≤0.066 core |
-| engine + layer p50 / p99 | 0.533–0.550 / 0.586–0.599 ms | ≤0.65 / 0.85 ms |
-| engine + layer CPU at 120 Hz | 0.0633–0.0654 core | ≤0.08 core |
+| launch calibration | 114–126 ms | ≤200 ms |
+| cold room + first raster | 8.9–9.0 ms | ≤25 ms |
+| raster p50 / p99 | 0.325–0.326 / 0.342–0.346 ms | ≤0.55 / 0.70 ms |
+| raster CPU at 120 Hz | 0.0389–0.0396 core | ≤0.066 core |
+| engine + layer p50 / p99 | 0.330–0.335 / 0.370–0.378 ms | ≤0.65 / 0.85 ms |
+| engine + layer CPU at 120 Hz | 0.0395–0.0396 core | ≤0.08 core |
 | collar sessions | 64/64 pass | zero failures |
 | collar near-white area, standard / Increase Contrast | 0.0039 / 0.0147 | ≤0.02 |
-| collar raster p50 / p99 | 0.476–0.485 / 0.499–0.529 ms | ≤0.55 / 0.70 ms |
-| collar raster CPU at 120 Hz | 0.0571–0.0576 core | ≤0.066 core |
+| collar raster p50 / p99 | 0.294–0.298 / 0.320–0.347 ms | ≤0.55 / 0.70 ms |
+| collar raster CPU at 120 Hz | 0.0358–0.0361 core | ≤0.066 core |
 
 A seed fails the 4,096-seed distribution screen when, for either the listening or the speaking reflection manifold, mapped luminance has a median outside `[0.18, 0.55]`, a p95 outside `[0.60, 0.92]`, a p05–p95 span below `0.30`, or less than `1.5` contrast ratio against any of the near-black, mid-grey, and near-white grounds (`0.075`, `0.45`, `0.95`); it also fails when crushed-black area exceeds `0.25`, near-ceiling area `0.02`, p95 local saturation `0.12`, or whole-body colour cast `0.06`. The 64-seed raster corpus additionally fails an Increase Contrast near-white area above `0.02`.
 
