@@ -8,8 +8,9 @@
     import UniformTypeIdentifiers
     import VoiceCore
 
-    /// A bench for the recording island's mercury body, rendered straight through the
-    /// production rasterizer with no window, no SwiftUI and no session.
+    /// A bench for the recording island's mercury body, and the collar it becomes around a
+    /// camera housing, rendered straight through the production rasterizer with no window, no
+    /// SwiftUI and no session.
     ///
     /// The scene catalog can only ever pin one frame of one state at a time, and driving
     /// the real app to look at the body is slow, non-reproducible and only ever shows the
@@ -30,11 +31,14 @@
             }
 
             let calibration = MercuryCalibration.shared
+            let collar = UIFixtures.collarLayout(on: .fixtureNotch)
             var written: [String] = []
             for sheet in [
-                states(), motion(), outcomeMotion(), worlds(), adaptations(),
+                states(named: "states", on: .island), motion(named: "motion", on: .island),
+                outcomeMotion(), worlds(), adaptations(),
                 comparison(), candidateMotion(), candidateWorlds(),
                 roomSweep(), selectedRoomWorlds(), chromaSweep(),
+                states(named: "collar-states", on: collar), motion(named: "collar-motion", on: collar),
             ] {
                 guard let image = compose(sheet) else {
                     fputs("mercury-sheet: \(sheet.name) produced no image\n", stderr)
@@ -63,27 +67,38 @@
 
         // MARK: - Sheets
 
-        private static func states() -> Sheet {
+        /// Every state on four grounds, laid out on `layout`: the island, or the collar with
+        /// the island's seed and room, so a collar row and its island row share the room and
+        /// the session's noise and differ only by the layout: the spine, the canvas, the pose
+        /// ladder that layout selects, and the response metered on that layout's bodies.
+        private static func states(named name: String, on layout: RecordingOverlayLayout) -> Sheet {
             Sheet(
-                name: "states",
+                name: name,
                 columns: Ground.allCases.map(\.title),
                 rows: Pose.allCases.map { pose in
                     // One body, four grounds: the ground is a composite, not a re-render.
-                    let image = body(pose: pose)
+                    let image = body(pose: pose, layout: layout)
                     return Row(
                         title: pose.title,
                         cells: Ground.allCases.map { Cell(ground: $0, body: image) }
                     )
-                }
+                },
+                layout: layout
             )
         }
 
         /// Consecutive frames of the speaking body, so the travelling crest train and the
-        /// specular sweep are visible as motion rather than inferred from one still.
-        private static func motion() -> Sheet {
+        /// specular sweep are visible as motion rather than inferred from one still. On the
+        /// collar the same train runs around the chin and into the walls.
+        private static func motion(named name: String, on layout: RecordingOverlayLayout) -> Sheet {
             let frames = 8
             let stride = 9
-            let state = State(pose: .speaking, world: .roomOfTen, seed: MercuryMetrics.defaultSeed)
+            let state = State(
+                pose: .speaking,
+                world: .roomOfTen,
+                seed: MercuryMetrics.defaultSeed,
+                layout: layout
+            )
             let session = Session(state: state)
             var rows: [Row] = []
             for frame in 0..<frames {
@@ -96,7 +111,7 @@
                     )
                 )
             }
-            return Sheet(name: "motion", columns: ["dark", "light"], rows: rows)
+            return Sheet(name: name, columns: ["dark", "light"], rows: rows, layout: layout)
         }
 
         /// Transition frames for the two outcome poses with one-shot impulses. The settled
@@ -108,14 +123,15 @@
             let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
             let response = MercuryCalibration.shared.displayResponse(
                 for: room,
-                bodySeed: seed
+                bodySeed: seed,
+                layout: .island
             )
             let rasterizer = MercuryRasterizer()
             return Sheet(
                 name: "outcome-motion",
                 columns: ["before", "+2 steps", "+8 steps", "+20 steps"],
                 rows: [Pose.lurch, .collapse].map { pose in
-                    let transition = pose.drive
+                    let transition = pose.drive(on: .island)
                     var neutralPose = transition.pose
                     neutralPose.gesture = nil
                     let neutral = MercurySimulation.Drive(
@@ -283,7 +299,7 @@
             let seed = MercuryMetrics.defaultSeed
             let gains = MercuryCalibration.shared.gains
             let meterFields = Session.meterFields(seed: seed, gains: gains)
-            let speakingDrive = Pose.speaking.drive
+            let speakingDrive = Pose.speaking.drive(on: .island)
             let simulation = MercurySimulation(seed: seed, gains: gains)
             simulation.reset(to: speakingDrive)
             simulation.advance(steps: 600, drive: speakingDrive)
@@ -465,9 +481,10 @@
             pose: Pose,
             world: MercuryWorld = .roomOfTen,
             seed: UInt64 = MercuryMetrics.defaultSeed,
-            appearance: MercuryAppearance = .standard
+            appearance: MercuryAppearance = .standard,
+            layout: RecordingOverlayLayout = .island
         ) -> CGImage? {
-            let session = Session(state: State(pose: pose, world: world, seed: seed))
+            let session = Session(state: State(pose: pose, world: world, seed: seed, layout: layout))
             session.advance(steps: 600)
             return session.render(appearance: appearance)
         }
@@ -501,6 +518,9 @@
             var pose: Pose
             var world: MercuryWorld
             var seed: UInt64
+            /// Where the body is laid out. The response is metered on this layout's own
+            /// bodies, as the engine meters it, so a collar row is lit as the collar is.
+            var layout: RecordingOverlayLayout = .island
         }
 
         /// One body plus the room it reflects, advanced together exactly as the engine
@@ -514,6 +534,7 @@
             private let prototypeRasterizer: MercuryPrototypeRasterizer
             private let prototypeResponse: MercuryDisplayResponse?
             private let drive: MercurySimulation.Drive
+            private let layout: RecordingOverlayLayout
             private var started = false
 
             init(state: State) {
@@ -527,9 +548,11 @@
                 environment = generatedRoom
                 shippingResponse = calibration.displayResponse(
                     for: generatedRoom,
-                    bodySeed: state.seed
+                    bodySeed: state.seed,
+                    layout: state.layout
                 )
-                drive = state.pose.drive
+                drive = state.pose.drive(on: state.layout)
+                layout = state.layout
                 let prototype = MercuryPrototypeRasterizer()
                 prototypeRasterizer = prototype
                 prototypeResponse = prototype.response(
@@ -600,8 +623,8 @@
             private var field: MercuryField {
                 MercuryField(
                     geometry: simulation.geometry,
-                    spine: RecordingOverlayLayout.island.spine,
-                    canvas: RecordingOverlayLayout.island.canvasRect.size
+                    spine: layout.spine,
+                    canvas: layout.canvasRect.size
                 )
             }
 
@@ -610,7 +633,7 @@
                 gains: MercuryGains
             ) -> [MercuryField] {
                 [Pose.listening, .speaking].map { pose in
-                    let drive = pose.drive
+                    let drive = pose.drive(on: .island)
                     let simulation = MercurySimulation(seed: seed, gains: gains)
                     simulation.reset(to: drive)
                     simulation.advance(steps: 600, drive: drive)
@@ -647,21 +670,25 @@
                 }
             }
 
-            /// Built from the production ladder, never from copied numbers.
-            var drive: MercurySimulation.Drive {
+            /// Built from the production ladder, never from copied numbers: the model carries
+            /// `layout`, and the drive is the one `MercuryRibbon` asks of the engine for it,
+            /// so a collar state gets the collar's pose and length limit exactly as the panel
+            /// would.
+            func drive(on layout: RecordingOverlayLayout) -> MercurySimulation.Drive {
                 let model = RecordingOverlayModel()
+                model.update(layout: layout)
                 switch self {
                 case .warming:
                     model.update(.recording)
-                    feed(model, Self.speech)
+                    feed(model, MercurySpeechMeter.syllable)
                 case .listening:
                     model.update(.recording)
                     model.updateCaptureLive(true)
-                    feed(model, Self.quiet)
+                    feed(model, MercurySpeechMeter.quietRoom)
                 case .speaking:
                     model.update(.recording)
                     model.updateCaptureLive(true)
-                    feed(model, Self.speech)
+                    feed(model, MercurySpeechMeter.syllable)
                 case .processing:
                     model.update(.transcribing)
                 case .gathered:
@@ -671,11 +698,7 @@
                 case .collapse:
                     latch(model, .error(.inferenceFailed))
                 }
-                return MercurySimulation.Drive(
-                    pose: MercuryPose.target(for: model),
-                    samples: model.samples,
-                    reduceMotion: false
-                )
+                return .target(for: model, reduceMotion: false)
             }
 
             private func feed(_ model: RecordingOverlayModel, _ levels: [Float]) {
@@ -688,9 +711,6 @@
                     model.present(outcome)
                 }
             }
-
-            static let speech: [Float] = [0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46]
-            static let quiet: [Float] = [0.0, 0.02, 0.01, 0.03, 0.0, 0.04, 0.02, 0.0, 0.01, 0.05, 0.02]
         }
 
         /// What the island is floating over. The body is transparent mercury, so what it
@@ -767,14 +787,23 @@
             var name: String
             var columns: [String]
             var rows: [Row]
+            /// What every cell's body is laid out on. Its canvas sets the cell, and a collar's
+            /// cells also carry the hardware the collar is worn on.
+            var layout: RecordingOverlayLayout = .island
         }
 
         private static let labelWidth: CGFloat = 110
         private static let headerHeight: CGFloat = 18
-        private static let cellSize = CGSize(width: 200, height: 56)
+        /// Ground around the canvas in each cell: the island's 196×34 canvas in a 216×56 cell.
+        private static let cellMargin = CGSize(width: 20, height: 22)
         private static let scale: CGFloat = 2
 
         private static func compose(_ sheet: Sheet) -> CGImage? {
+            let canvasSize = sheet.layout.canvasRect.size
+            let cellSize = CGSize(
+                width: canvasSize.width + cellMargin.width,
+                height: canvasSize.height + cellMargin.height
+            )
             let width = labelWidth + cellSize.width * CGFloat(sheet.columns.count)
             let height = headerHeight + cellSize.height * CGFloat(sheet.rows.count)
             guard
@@ -816,22 +845,68 @@
                         width: cellSize.width,
                         height: cellSize.height
                     )
+                    let canvas = CGRect(
+                        x: frame.midX - canvasSize.width / 2,
+                        y: frame.midY - canvasSize.height / 2,
+                        width: canvasSize.width,
+                        height: canvasSize.height
+                    )
                     context.saveGState()
                     context.clip(to: frame.insetBy(dx: 1, dy: 1))
                     cell.ground.fill(context, rect: frame)
+                    drawHardware(of: sheet.layout, canvas: canvas, cell: frame, in: context)
                     if let body = cell.body {
-                        let island = CGRect(
-                            x: frame.midX - RecordingOverlayMetrics.islandSize.width / 2,
-                            y: frame.midY - RecordingOverlayMetrics.islandSize.height / 2,
-                            width: RecordingOverlayMetrics.islandSize.width,
-                            height: RecordingOverlayMetrics.islandSize.height
-                        )
-                        context.draw(body, in: island)
+                        context.draw(body, in: canvas)
                     }
                     context.restoreGState()
                 }
             }
             return context.makeImage()
+        }
+
+        /// The hardware a collar is worn on, in its own black: the camera housing, which hangs
+        /// from the screen's top edge between its walls with its two rounded bottom corners,
+        /// and the bezel above that edge.
+        ///
+        /// A composite like the ground, never part of the render. The body is drawn exactly as
+        /// the panel draws it, with nothing inside the housing; this only puts back what a real
+        /// display has there, so a cell shows the liquid against the edge it actually meets.
+        private static func drawHardware(
+            of layout: RecordingOverlayLayout,
+            canvas: CGRect,
+            cell: CGRect,
+            in context: CGContext
+        ) {
+            guard case .collar(let outline) = layout.spine.kind else { return }
+            // Canvas-local points have their origin at the canvas centre and +y up, as the
+            // sheet's own axes do.
+            func point(_ x: Double, _ y: Double) -> CGPoint {
+                CGPoint(x: canvas.midX + CGFloat(x), y: canvas.midY + CGFloat(y))
+            }
+            let corner = outline.cornerRadius
+            let housing = CGMutablePath()
+            housing.move(to: point(outline.minX, outline.top))
+            // Each arc adds the straight run before it: down the left wall, then the bottom.
+            housing.addArc(
+                center: point(outline.minX + corner, outline.bottom + corner),
+                radius: CGFloat(corner),
+                startAngle: .pi,
+                endAngle: 3 * .pi / 2,
+                clockwise: false
+            )
+            housing.addArc(
+                center: point(outline.maxX - corner, outline.bottom + corner),
+                radius: CGFloat(corner),
+                startAngle: 3 * .pi / 2,
+                endAngle: 2 * .pi,
+                clockwise: false
+            )
+            housing.addLine(to: point(outline.maxX, outline.top))
+            housing.closeSubpath()
+            context.setFillColor(gray: 0, alpha: 1)
+            context.addPath(housing)
+            context.fillPath()
+            context.fill(CGRect(x: cell.minX, y: canvas.maxY, width: cell.width, height: cell.maxY - canvas.maxY))
         }
 
         private static func label(_ text: String, in context: CGContext, at point: CGPoint, white: CGFloat) {

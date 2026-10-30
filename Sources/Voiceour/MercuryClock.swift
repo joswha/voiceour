@@ -18,14 +18,22 @@
 /// Rounding centres those frames in a ±4.17 ms cell instead, and the body on glass is never
 /// more than half a substep from the moment it is shown.
 ///
+/// That centring belongs to the display whose frame set the epoch. Another display's vsyncs
+/// keep their own phase: half a substep off the old grid, a 60 Hz display puts every frame on
+/// a rounding boundary, where microseconds of jitter split its steady 2s into 1s and 3s for as
+/// long as the panel stays there. So a new link's first frame `rephase`s the clock: the epoch
+/// moves by that frame's own rounding, at most half a substep, so the frame sits exactly on the
+/// substep it rounds to. The new cadence starts centred in its cells, and the count runs on
+/// from that frame without skipping a substep or repeating one.
+///
 /// More than `maxSubstepsPerFrame` due at once means the link stalled, the panel was hidden, or
 /// a new display's link started late. The clock presents the cap and slides its epoch so this
 /// frame sits exactly on the substep it presents: an old body resumes instead of fast-forwarding
 /// through the gap, and the new cadence starts centred in its cells. It never resets, so
 /// `presentedStep` only ever grows.
 struct MercuryClock: Sendable, Equatable {
-    /// The first frame's target timestamp, slid forward past every stall since. Nil until a
-    /// display link has called.
+    /// The moment of substep 0: the first frame's target timestamp, moved by every re-phase and
+    /// slid forward past every stall since. Nil until a display link has called.
     private var epoch: Double?
     /// Substeps presented since the first frame.
     private(set) var presentedStep = 0
@@ -35,6 +43,21 @@ struct MercuryClock: Sendable, Equatable {
     /// timestamp that is not finite presents nothing and changes nothing: one bad callback must
     /// not poison the epoch every later frame is counted from.
     mutating func steps(forTargetTimestamp t: Double) -> Int {
+        advance(to: t, rephasing: false)
+    }
+
+    /// `steps(forTargetTimestamp:)` for the first frame of a new display link. It presents
+    /// exactly the substeps `steps` would, then moves the epoch so `t` sits exactly on the
+    /// substep it rounds to. The move is that frame's own rounding, at most half a substep, so
+    /// the frames after it count on from what it showed, centred on the new display's vsync. A
+    /// frame behind the last one presented still presents nothing, and the count resumes once
+    /// time reaches it. The first call, a stall and a timestamp that is not finite are handled
+    /// exactly as `steps` handles them.
+    mutating func rephase(forTargetTimestamp t: Double) -> Int {
+        advance(to: t, rephasing: true)
+    }
+
+    private mutating func advance(to t: Double, rephasing: Bool) -> Int {
         guard t.isFinite else { return 0 }
         guard let epoch else {
             self.epoch = t
@@ -42,13 +65,16 @@ struct MercuryClock: Sendable, Equatable {
         }
         let nearest = ((t - epoch) / MercuryMetrics.substep + 0.5).rounded(.down)
         let due = nearest - Double(presentedStep)
-        guard due > 0 else { return 0 }
         let cap = MercuryMetrics.maxSubstepsPerFrame
         guard due <= Double(cap) else {
             presentedStep += cap
             self.epoch = t - Double(presentedStep) * MercuryMetrics.substep
             return cap
         }
+        if rephasing {
+            self.epoch = t - nearest * MercuryMetrics.substep
+        }
+        guard due > 0 else { return 0 }
         let steps = Int(due)
         presentedStep += steps
         return steps

@@ -90,9 +90,9 @@ enum MercuryOptics {
 
     /// Binomial normalization around the finite eye axis, with `q = (x² + y²) / depth²`.
     /// The series alternates, so its first omitted term, `35q⁴/128`, bounds the direction
-    /// error. Across the island `q < 0.0044` and the error stays below 1e-10; across the
-    /// largest collar canvas, 349×58 pt, `q < 0.0163` and it stays below 2e-8. Retaining the
-    /// cubic term replaces one square root and three divides with one scalar divide.
+    /// error. Across the island's 196×34 pt canvas `q < 0.0052` and the error is about 2e-10;
+    /// across the widest collar canvas, 349×58 pt, `q < 0.0163` and it is 1.9e-8. Retaining
+    /// the cubic term replaces one square root and three divides with one scalar divide.
     @inline(__always)
     static func viewDirection(
         horizontal: Double,

@@ -323,6 +323,27 @@
             RenderOverrides.mercurySeed = MercuryMetrics.defaultSeed
             RenderOverrides.mercuryStep = 600
             RenderOverrides.mercuryWorld = .roomOfTen
+            // The overlay's display is machine state too: resolved from the rendering Mac's own
+            // screen, its layout would be the collar on a notched MacBook and the island on a
+            // desktop display. The notchless fixture is the island's display; collar scenes set
+            // their layout from `collarLayout(on:)` instead.
+            RenderOverrides.overlayDisplay = .fixtureNotchless
+        }
+
+        // MARK: Overlay displays
+
+        /// The collar the camera housing of `display` wears, laid out by
+        /// `RecordingOverlayLayout.forDisplay(_:)`, the resolution the panel makes, so a collar
+        /// scene, sheet or corpus shows exactly the housing its display fixture describes
+        /// rather than a restatement of its numbers.
+        ///
+        /// Traps rather than falling back: `forDisplay` answers the island for a display that
+        /// cannot wear a collar, and a collar golden or gate that silently drew the island
+        /// would pass while asserting nothing about the collar.
+        static func collarLayout(on display: OverlayDisplay) -> RecordingOverlayLayout {
+            let layout = RecordingOverlayLayout.forDisplay(display)
+            precondition(layout.kind == .collar, "overlay display \(display.id) wears no collar")
+            return layout
         }
 
         // MARK: Pinned storage paths

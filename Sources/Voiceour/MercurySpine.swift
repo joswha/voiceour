@@ -22,19 +22,44 @@ import Foundation
 /// **The metric belongs in the normal.** The field is written in chart coordinates,
 /// `φ = r(s) − |n − c(s)|`, so its gradient is `φ_s ∇s + φ_n ∇n`, with `∇n = N` and
 /// `∇s = T / (1 + κn)`.
-/// - Offset curves around a convex corner are longer than the corner (`1 + n/ρ`). A crest
+/// - Offset curves around a convex corner are longer than the corner (`1 + κn`). A crest
 ///   wrapped around it is stretched, and its slope along the body falls by exactly that factor.
-/// - Around a concave fillet they are shorter (`1 − n/ρe`), and the slope steepens.
+/// - Around a concave fillet they are shorter (`1 − |κ|n`), and the slope steepens.
 ///
-/// Using `T` alone would tilt every normal on the curved primitives by the wrong amount and
-/// kink the reflection at each join. With the metric, the normal is the true surface normal
-/// and stays continuous along the C¹ curve.
+/// Using `T` alone would tilt every normal on the curved primitives by the wrong amount. With
+/// the metric, the normal is the true surface normal, and it is continuous wherever `κ` is.
 ///
-/// **The fillet radius bounds the band film.** Offsets of a concave arc converge on its
-/// centre and collapse there at `n = ρe`: the metric vanishes, the whole arc is equally near,
-/// and `∇s` diverges. Anything drawn over a fillet must stay thinner than `ρe` to keep a
-/// unique nearest point. The taper holds walls, fillets and ears to `bandFilm < ρe`, so the
-/// drawn film's metric never falls below `1 − bandFilm/ρe`.
+/// **Every bend eases into its turn.** A circular arc's curvature jumps from `±1/ρ` to 0
+/// where it meets a straight run. The metric jumps with it, and so does the field's gradient
+/// wherever the body's edges slope along it. On a mirror that kink draws a seam down the
+/// reflection: up to 10.2 8-bit codes at the chin's ends and 4.5 at an ear's, measured on the
+/// fixture housings' speaking bodies. So each bend of arc length `S`, convex corner and
+/// concave fillet alike, turns with continuous curvature and continuous curvature slope (G³):
+/// - Over its first and last `qS`, `q = 0.15`, a ramp eases `|κ|` up from 0 as
+///   `κ_p·sin²(πu/2qS)`, turning the tangent through `θ_q = πq/4(1 − q) = 7.94°`.
+/// - Between the ramps it holds the plateau's `κ_p`: an exact circular arc of radius `R_p`.
+///
+/// The turn `θ(u)` has a closed form throughout. Each bend keeps the housing's footprint: it
+/// runs its radius `r` (`ρ` or `ρe`) across and `r` down, so it begins and ends exactly at
+/// the circle's tangent points, and the walls, ears and bottom run keep their lengths. That
+/// fixes `S = 1.62051r` (a circle's is `1.57080r`) and `κ_p = 1.14038/r`, so
+/// `R_p = 0.87690r`, centred `0.12150r` from the circle's centre along each axis, toward the
+/// bend's corner. The bend is squarer than the circle, by `0.04873r` at its middle: 0.69 pt
+/// at the 185×32 pt housing's `ρ = 14.08`, 0.78 pt at `ρ = 16`, and 0.22 pt on a fillet.
+///
+/// **The housing keeps its circular corners.** The spine's convex corner stands outside the
+/// hardware's rim by up to that much, ``rimGap``. The housing alone decides where the chart is
+/// nil, and the rim's antialiasing reads the distance outside it, ``Chart/rimDistance``, not
+/// the spine's offset. The sliver between the rim and the spine charts to offsets down to
+/// `−rimGap`. The body's inner half covers it, so the liquid still meets the hardware, and its
+/// visible lip at each corner's middle is that much thicker.
+///
+/// **The fillet's plateau bounds the band film.** Offsets of a concave arc converge on its
+/// centre and collapse there at `n = R_p`: the metric vanishes, the whole plateau is equally
+/// near, and `∇s` diverges. Anything drawn over a fillet must stay thinner than the fillet's
+/// `0.87690ρe` to keep a unique nearest point. The taper holds walls, fillets and ears to
+/// `bandFilm` below it, so the drawn film's metric never falls below `1 − bandFilm/R_p`,
+/// 0.113 for the 3.5 pt film on the 4.5 pt fillet.
 struct MercurySpine: Sendable, Equatable {
     /// The camera housing, in canvas-local points.
     ///
@@ -49,15 +74,17 @@ struct MercurySpine: Sendable, Equatable {
         var bottom: Double
         /// The screen's top edge, which is also the canvas top.
         var top: Double
-        /// ρ, the housing's convex bottom corners. Use 0.44 × the housing height, clamped to
-        /// 6…16 pt. ``MercurySpine/init(collar:)`` clamps it further so no run is negative.
+        /// ρ, the radius of the housing's circular convex bottom corners, and the footprint of
+        /// the spine's eased corners. Use 0.44 × the housing height, clamped to 6…16 pt.
+        /// ``MercurySpine/init(collar:)`` clamps it further so no run is negative.
         var cornerRadius: Double
-        /// ρe, the concave fillet that turns each wall into the screen's top edge: 4.5 pt.
+        /// ρe, the footprint of the concave fillet that turns each wall into the screen's top
+        /// edge: 4.5 pt.
         var filletRadius: Double
         /// E, how far the collar runs along the top edge beyond each fillet: 56 pt.
         var earLength: Double
-        /// The outward thickness cap inside the menu-bar band: 3.5 pt. It must stay below
-        /// `filletRadius`; see the type's discussion.
+        /// The outward thickness cap inside the menu-bar band: 3.5 pt. It must stay below the
+        /// fillet's plateau radius, `0.87690 × filletRadius`; see the type's discussion.
         var bandFilm: Double
     }
 
@@ -72,7 +99,7 @@ struct MercurySpine: Sendable, Equatable {
 
     /// The arc length of each primitive. The corner, wall, fillet and ear values are per side,
     /// so a collar is `bottom + 2 (corner + wall + fillet + ear)` long. A straight spine is all
-    /// bottom.
+    /// bottom. A corner or a fillet is its eased bend's `1.62051` times its radius.
     struct Regions: Sendable, Equatable {
         var bottom: Double
         var corner: Double
@@ -108,11 +135,40 @@ struct MercurySpine: Sendable, Equatable {
         /// The nearest primitive is the camera housing's own edge: a wall, a convex corner or
         /// the bottom run.
         ///
-        /// Its inner side is the black housing, which has no chart, so ``normalOffset`` is
-        /// the distance outside the hardware's rim, and a pixel straddling that rim is only
-        /// partly the body's. The ears and the fillets meet the screen's top edge instead, which
-        /// is the canvas edge, and the straight spine meets nothing.
+        /// Its inner side is the black housing, which has no chart, so a pixel straddling the
+        /// hardware's rim is only partly the body's, by ``rimDistance``. The ears and the
+        /// fillets meet the screen's top edge instead, which is the canvas edge, and the
+        /// straight spine meets nothing.
         var bordersHousing: Bool
+        /// The signed distance outside the camera housing's rounded outline, positive outside.
+        ///
+        /// A pixel centred this far outside the rim keeps only the share of itself that lies
+        /// outside, so the rim's antialiasing reads this. On the walls and the bottom run it is
+        /// ``normalOffset``. On a convex corner it is the distance outside the housing's own
+        /// circular corner, which the eased spine stands up to ``MercurySpine/rimGap``
+        /// outside. Infinite exactly where the chart does not border the housing, since no rim
+        /// clips a pixel there.
+        var rimDistance: Double
+    }
+
+    /// The foot of a point on a bend's curvature ramp, in the ramp's own frame.
+    ///
+    /// Every ramp is one curve, the left corner's wall-end ramp, reflected and scaled. Its
+    /// frame starts at the straight run the ramp eases out of: `across` runs out along that
+    /// run's normal, to the side the bend turns away from, and `along` runs on along the run's
+    /// own direction, past its end.
+    struct RampFoot: Sendable, Equatable {
+        /// `τ ∈ [0, 1]`, how far along the ramp the foot lies, from its straight end.
+        var fraction: Double
+        /// The point's signed distance from the foot, positive on the `across` side.
+        var normalOffset: Double
+        /// `(sin θ, cos θ)` of the ramp's turn at the foot.
+        var turn: SIMD2<Double>
+        /// `|κ|` at the foot.
+        var curvature: Double
+        /// The Newton steps the foot took, the last being the step under 1e-10 pt. Nil when
+        /// four did not converge and the safeguarded bisection found it instead.
+        var newtonSteps: Int?
     }
 
     let kind: Kind
@@ -122,20 +178,36 @@ struct MercurySpine: Sendable, Equatable {
     /// or the middle of the straight spine.
     let restCenter: Double
     let regions: Regions
+    /// How far the spine's convex corners stand outside the housing's circular rim at most,
+    /// `√2·c_p + R_p − ρ = 0.04873ρ`, at the middle of each corner. A corner's chart reaches
+    /// this far below the spine, into the sliver between the two. Zero on the island.
+    let rimGap: Double
+    /// The least metric `1 + κn` a convex corner's chart reaches: its offsets go down to
+    /// `−rimGap`, where `κ` is at most the plateau's `1/R_p`, so `1 − rimGap/R_p = 0.94443` at
+    /// every radius. 1 on the island, which has no corners.
+    let leastCornerMetric: Double
+    /// The laid convex corners and concave fillets. All zero on the island.
+    private let corners: Bend
+    private let fillets: Bend
 
     /// The taper's unit: the largest half-height a station may draw. On the collar it is the
     /// chin's 17 pt below the notch. The simulation's containment gauge proves the same bound,
     /// so a taper of 1 is exactly the full body.
     static let maxHalfHeight = Double(MercuryMetrics.maxHalfHeight)
 
-    /// Where the corner taper starts and finishes thinning, as the corner angle measured up
-    /// from the bottom.
+    /// Where the corner taper starts and finishes thinning, as the corner's tangent angle
+    /// measured up from the bottom.
     ///
     /// Through the lowest 30° the corner is still the chin's shoulder, so it keeps full
     /// thickness and the chin stays one round piece. By 70° it is the foot of the wall, in the
-    /// band beside the notch, so it is already film.
+    /// band beside the notch, so it is already film. Both lie on the plateau, which spans
+    /// `θ_q…90° − θ_q`, 7.94°…82.06°.
     private static let taperStartAngle = Double.pi / 6
     private static let taperEndAngle = 7 * Double.pi / 18
+
+    /// The ramps' Newton step limit, and the step under which the foot has converged.
+    private static let newtonStepLimit = 4
+    private static let footTolerance = 1e-10
 
     /// The island: along `y = 0` from `x = −length/2` to `+length/2`, with `N = +y`.
     init(straightLength: Double) {
@@ -143,6 +215,10 @@ struct MercurySpine: Sendable, Equatable {
         length = straightLength
         restCenter = straightLength / 2
         regions = Regions(bottom: straightLength, corner: 0, wall: 0, fillet: 0, ear: 0)
+        rimGap = 0
+        leastCornerMetric = 1
+        corners = .none
+        fillets = .none
     }
 
     /// The collar laid along a housing outline.
@@ -150,30 +226,37 @@ struct MercurySpine: Sendable, Equatable {
     /// The corner radius is clamped to `min(ρ, (top − bottom) − ρe, (maxX − minX)/2)`. Then
     /// the wall `(top − ρe) − (bottom + ρ)` and the bottom `width − 2ρ` are never negative. A
     /// housing too short or too narrow for its nominal corner gets the roundest corner that
-    /// still meets its fillet and its twin, and the curve stays C¹.
+    /// still meets its fillet and its twin, and the curve stays G³.
     ///
     /// Traps unless the housing has width, stands taller than its fillet, has a positive
-    /// corner, and carries a band film thinner than the fillet and no thicker than
-    /// ``maxHalfHeight``. The layout must only lay a collar on such a housing.
+    /// corner, and carries a band film thinner than the fillet's plateau radius and no thicker
+    /// than ``maxHalfHeight``. The layout must only lay a collar on such a housing.
     init(collar outline: Outline) {
         let width = outline.maxX - outline.minX
         let height = outline.top - outline.bottom
         precondition(
             width > 0 && height > outline.filletRadius && outline.cornerRadius > 0
                 && outline.earLength >= 0 && outline.bandFilm > 0
-                && outline.bandFilm < outline.filletRadius && outline.bandFilm <= Self.maxHalfHeight,
-            "a collar needs a housing taller than its fillet and a band film thinner than the fillet"
+                && outline.bandFilm < BendShape.plateauRadius * outline.filletRadius
+                && outline.bandFilm <= Self.maxHalfHeight,
+            "a collar needs a housing taller than its fillet and a band film thinner than the fillet's plateau"
         )
         // The height left for the wall and the corner once the fillet has turned.
         let wallSpan = height - outline.filletRadius
         var laid = outline
         laid.cornerRadius = Swift.min(outline.cornerRadius, wallSpan, width / 2)
-        let quarterTurn = Double.pi / 2
+        let corners = Bend(radius: laid.cornerRadius)
+        let fillets = Bend(radius: outline.filletRadius)
+        let rimGap = 2.0.squareRoot() * corners.plateauInset + corners.plateauRadius - laid.cornerRadius
+        self.corners = corners
+        self.fillets = fillets
+        self.rimGap = rimGap
+        leastCornerMetric = 1 - rimGap / corners.plateauRadius
         let regions = Regions(
             bottom: width - 2 * laid.cornerRadius,
-            corner: quarterTurn * laid.cornerRadius,
+            corner: corners.arc,
             wall: wallSpan - laid.cornerRadius,
-            fillet: quarterTurn * outline.filletRadius,
+            fillet: fillets.arc,
             ear: outline.earLength
         )
         kind = .collar(laid)
@@ -196,8 +279,9 @@ struct MercurySpine: Sendable, Equatable {
     /// tangent turns counter-clockwise.
     ///
     /// `dT/ds = −κN` and `dN/ds = κT`, so the offset curve at `n` runs at speed `1 + κn`.
-    /// `κ` is `1/ρ` on the convex corners, `−1/ρe` on the concave fillets and 0 on straight
-    /// runs.
+    /// Across a convex corner `κ` rises from 0 along its first ramp to the plateau's `1/R_p`,
+    /// holds it, and falls back to 0 along its last ramp; across a concave fillet it does the
+    /// same below zero. It is 0 on straight runs.
     func frame(at s: Double) -> (tangent: SIMD2<Double>, normal: SIMD2<Double>, curvature: Double) {
         guard case .collar(let outline) = kind else {
             return (SIMD2(1, 0), SIMD2(0, 1), 0)
@@ -208,22 +292,25 @@ struct MercurySpine: Sendable, Equatable {
         return (oriented, SIMD2(oriented.y, -oriented.x), curvature)
     }
 
-    /// The exact nearest spine point to `p`, in closed form.
+    /// The exact nearest spine point to `p`.
     ///
-    /// Each primitive owns a normal domain: a slab for a straight run, or a quarter-plane
-    /// wedge from the centre for an arc. The curve is C¹, and the ears continue straight past
-    /// their ends, so it has no free endpoint. Therefore the nearest point always lies in the
-    /// domain of the primitive that owns it.
+    /// Each primitive owns a normal domain: a slab for a straight run, or for a bend the
+    /// quadrant between the normals at its two ends, which meet at its circle's centre. A
+    /// bend's plateau has its own wedge, between the normals at its two ends, which meet at
+    /// its centre; its foot is radial there. The curve is G³, and the ears continue straight
+    /// past their ends, so it has no free endpoint. Therefore the nearest point always lies in
+    /// the domain of the primitive that owns it.
     ///
     /// A point only needs the primitives whose domains contain it, and the nearest of those.
     /// At most two ever compete: an ear against the wall or the lower corner beside it. Every
-    /// other case is decided by its slab or wedge alone, with no iteration and no sampling.
-    /// The right half is folded onto the left, so both sides run the same arithmetic.
+    /// other case is decided by its slab or wedge alone, in closed form, except where the foot
+    /// lies on a bend's ramp; there ``rampFoot(across:along:concave:)`` finds it. The right
+    /// half is folded onto the left, so both sides run the same arithmetic.
     ///
-    /// Returns nil strictly inside the housing (including its rounded corners, and extending
-    /// up into the bezel) and above the screen's top edge. A fillet's offsets are unique for
-    /// `|n| < ρe`. The fillet centre is `ρe` from every point of the arc, and charts onto one
-    /// end of the arc at `n = ρe`. The straight spine never answers nil.
+    /// Returns nil strictly inside the housing (including its circular corners, and extending
+    /// up into the bezel) and above the screen's top edge. A fillet's offsets are unique below
+    /// its plateau's radius. Deeper, toward the circle's centre, the nearest point is still
+    /// found, even where it is not unique. The straight spine never answers nil.
     func chart(at p: SIMD2<Double>) -> Chart? {
         guard case .collar(let outline) = kind else {
             return Chart(
@@ -233,7 +320,8 @@ struct MercurySpine: Sendable, Equatable {
                 normal: SIMD2(0, 1),
                 metric: 1,
                 isHorizontal: true,
-                bordersHousing: false
+                bordersHousing: false,
+                rimDistance: .infinity
             )
         }
         guard p.y <= outline.top else { return nil }
@@ -250,15 +338,66 @@ struct MercurySpine: Sendable, Equatable {
         return reflected(half)
     }
 
+    /// The foot of a point on a convex corner's ramp, or with `concave`, a fillet's, in the
+    /// ramp's own frame. See ``RampFoot``.
+    ///
+    /// Newton's method on the tangent-orthogonality `f(u) = (p − C(u))·T(u)`, whose rate along
+    /// the arc is `−(1 + κn)`, so each step is `f/(1 + κn)`. It starts from the foot itself,
+    /// tabulated over the ramp's region, and stops at the first step under 1e-10 pt, within
+    /// four. The foot is the point that step reaches, with its frame carried along the step to
+    /// first order, which is exact to rounding at that size. On the dense grids of the tests,
+    /// every corner's ramp, and a fillet's anywhere in the drawn film, needs at most four.
+    ///
+    /// Otherwise a safeguarded bisection on `f` finishes it, from where Newton stopped.
+    /// `f(0) = along ≥ 0`, and `f(1)` is the point's side of the plateau's end normal, which
+    /// is negative on the ramp's own side, so `[0, 1]` brackets the foot.
+    func rampFoot(across: Double, along: Double, concave: Bool) -> RampFoot {
+        Self.rampFoot(across: across, along: along, bend: concave ? fillets : corners)
+    }
+
+    /// Kept out of line: a few hundred pixels a frame reach a ramp, and inlined into
+    /// ``chart(at:)`` its loop would weigh on the closed-form path every other pixel takes.
+    @inline(never)
+    private static func rampFoot(across: Double, along: Double, bend: Bend) -> RampFoot {
+        let seed = BendShape.seed(across: across * bend.inverseRamp, along: along * bend.inverseRamp)
+        return solveRamp(across: across, along: along, bend: bend, from: seed)
+    }
+
+    /// Newton from `seed`, then the safeguarded bisection if four steps do not converge.
+    private static func solveRamp(across: Double, along: Double, bend: Bend, from seed: Double) -> RampFoot {
+        var fraction = seed
+        for step in 1...Self.newtonStepLimit {
+            let probe = Self.probeRamp(at: fraction, across: across, along: along, bend: bend)
+            let rate = 1 + probe.curvature * probe.normalOffset
+            // Past the ramp's centre of curvature `f` rises again, and Newton points away.
+            guard rate > 0 else { break }
+            let next = Swift.min(Swift.max(fraction + probe.orthogonality / rate * bend.inverseRamp, 0), 1)
+            let moved = (next - fraction) * bend.ramp
+            guard abs(moved) > Self.footTolerance else {
+                let turned = probe.curvature * moved
+                return RampFoot(
+                    fraction: next,
+                    normalOffset: probe.normalOffset,
+                    turn: SIMD2(probe.turn.x + turned * probe.turn.y, probe.turn.y - turned * probe.turn.x),
+                    curvature: probe.curvature + probe.curvatureSlope * moved,
+                    newtonSteps: step
+                )
+            }
+            fraction = next
+        }
+        return Self.bracketedRampFoot(across: across, along: along, bend: bend, from: fraction)
+    }
+
     /// The fraction of ``maxHalfHeight`` that the body may draw at arc length `s`, in `(0, 1]`.
     ///
     /// - It is 1 along the bottom run, which is the chin under the notch, and along the whole
     ///   straight spine.
     /// - It is `bandFilm/maxHalfHeight` on the walls, the fillets and the ears, which lie in
     ///   the menu-bar band beside the notch.
-    /// - Across each convex corner it is a smoothstep in the corner angle. It is full at 30°
-    ///   above the bottom and film at 70°, and flat at both ends, so the taper is C¹ and the
-    ///   edge has no kink.
+    /// - Across each convex corner it is a smoothstep in the corner's tangent angle. It is
+    ///   full at 30° above the bottom and film at 70°, and flat at both ends, so the taper is
+    ///   C¹ and the edge has no kink. Both ends lie on the plateau, which turns at the constant
+    ///   rate `1/R_p`, so the angle there runs linearly with arc length.
     ///
     /// So beside the notch, nothing thicker than the film rises above the corner centres.
     func taper(at s: Double) -> Double {
@@ -268,7 +407,7 @@ struct MercurySpine: Sendable, Equatable {
         let film = outline.bandFilm / Self.maxHalfHeight
         if local < joins.corner { return film }
         if local >= joins.bottom { return 1 }
-        let fraction = blendFraction(atLocal: local, cornerStart: joins.corner, outline: outline)
+        let fraction = blendFraction(atLocal: local, cornerStart: joins.corner)
         let clamped = Swift.min(Swift.max(fraction, 0), 1)
         let blend = clamped * clamped * (3 - 2 * clamped)
         // A convex combination keeps both plateaus exact: 1 through 30°, the film itself from 70°.
@@ -277,14 +416,14 @@ struct MercurySpine: Sendable, Equatable {
 
     /// `dT/ds`, the taper's exact rate along the spine.
     ///
-    /// It is zero along every straight run, on the fillets, on both plateaus of each corner
-    /// and along the whole straight spine. Across a corner's blend it is the smoothstep's
-    /// derivative in the corner angle, `(film − 1) · 6f(1 − f) / (70° − 30°)`, times the
-    /// angle's own rate along the spine, `∓1/ρ`. So the taper rises toward the bottom run on
-    /// the left half and falls away from it on the right.
+    /// It is zero along every straight run, on the fillets, on both plateaus of each corner's
+    /// taper and along the whole straight spine. Across a corner's blend it is the
+    /// smoothstep's derivative in the corner angle, `(film − 1) · 6f(1 − f) / (70° − 30°)`,
+    /// times the angle's own rate along the spine, `∓1/R_p` on the corner's plateau. So the
+    /// taper rises toward the bottom run on the left half and falls away from it on the right.
     ///
     /// The field tapers the body at the very arc length it evaluates, never at its stations
-    /// alone, and this is the slope its normals read. A corner's blend is only about 10 pt
+    /// alone, and this is the slope its normals read. A corner's blend is only about 9 pt
     /// long, so a taper sampled every few points of arc would draw it as facets.
     func taperSlope(at s: Double) -> Double {
         guard case .collar(let outline) = kind else { return 0 }
@@ -292,14 +431,14 @@ struct MercurySpine: Sendable, Equatable {
         let mirrored = s > restCenter
         let local = mirrored ? length - s : s
         guard local >= joins.corner, local < joins.bottom else { return 0 }
-        let fraction = blendFraction(atLocal: local, cornerStart: joins.corner, outline: outline)
+        let fraction = blendFraction(atLocal: local, cornerStart: joins.corner)
         guard fraction > 0, fraction < 1 else { return 0 }
         let film = outline.bandFilm / Self.maxHalfHeight
         // On the left half, where the arc length is `local` itself, the blend runs against the
         // angle and the angle against the arc length, so the two signs cancel.
         let rate =
             (1 - film) * 6 * fraction * (1 - fraction)
-            / ((Self.taperEndAngle - Self.taperStartAngle) * outline.cornerRadius)
+            / ((Self.taperEndAngle - Self.taperStartAngle) * corners.plateauRadius)
         return mirrored ? -rate : rate
     }
 
@@ -313,11 +452,13 @@ struct MercurySpine: Sendable, Equatable {
     /// these are exact extremes, and the field bounds each piece of the body by them without
     /// sampling the taper.
     func taperBounds(from start: Double, to end: Double) -> (least: Double, greatest: Double, steepest: Double) {
-        guard case .collar(let outline) = kind else { return (1, 1, 0) }
+        guard case .collar = kind else { return (1, 1, 0) }
         func nearest(_ s: Double) -> Double { Swift.min(Swift.max(s, start), end) }
+        // 50° up from the bottom is 40° of turn past the wall, `θ_q` of it on the first ramp.
         let peak =
-            leftJoins.corner
-            + outline.cornerRadius * (Double.pi / 2 - (Self.taperStartAngle + Self.taperEndAngle) / 2)
+            leftJoins.corner + corners.ramp
+            + corners.plateauRadius
+            * (Double.pi / 2 - (Self.taperStartAngle + Self.taperEndAngle) / 2 - BendShape.rampAngle)
         return (
             Swift.min(taper(at: start), taper(at: end)),
             taper(at: nearest(restCenter)),
@@ -327,9 +468,13 @@ struct MercurySpine: Sendable, Equatable {
 
     /// The smoothstep's argument at the left-half arc length `local`, unclamped: 0 at 30°
     /// above the bottom, where the taper is still full, and 1 at 70°, where it is the film.
-    private func blendFraction(atLocal local: Double, cornerStart: Double, outline: Outline) -> Double {
-        // The corner is laid wall first: its angle from the bottom falls from π/2 to 0.
-        let angle = Double.pi / 2 - (local - cornerStart) / outline.cornerRadius
+    ///
+    /// The corner is laid wall first, and its plateau's angle from the bottom falls linearly
+    /// from `90° − θ_q` to `θ_q`. Over the ramps this runs on past that range, where the true
+    /// angle stays beyond the blend too, so the clamp makes the taper exact there as well.
+    private func blendFraction(atLocal local: Double, cornerStart: Double) -> Double {
+        let angle =
+            Double.pi / 2 - BendShape.rampAngle - (local - cornerStart - corners.ramp) / corners.plateauRadius
         return (angle - Self.taperStartAngle) / (Self.taperEndAngle - Self.taperStartAngle)
     }
 
@@ -346,7 +491,8 @@ struct MercurySpine: Sendable, Equatable {
     /// The left half's point at arc length `s ≤ restCenter`. Returns its distance outside
     /// the left wall (negative under the housing) and its canvas `y`.
     ///
-    /// Arcs turn from their own start, so each primitive meets its predecessor's end.
+    /// Each bend is laid from its ends: a ramp from the straight run it eases out of, the
+    /// plateau from its own centre, so every piece meets its neighbours.
     private func halfPoint(at s: Double, outline: Outline) -> (outside: Double, y: Double) {
         let joins = leftJoins
         let fillet = outline.filletRadius
@@ -355,15 +501,45 @@ struct MercurySpine: Sendable, Equatable {
             return (fillet + (joins.fillet - s), outline.top)
         }
         if s < joins.wall {
-            let turn = (s - joins.fillet) / fillet
-            return (fillet * (1 - sin(turn)), outline.top - fillet * (1 - cos(turn)))
+            // From the ear's end: the ear-end ramp, the plateau, then the wall-end ramp.
+            let along = s - joins.fillet
+            if along < fillets.ramp {
+                let position = Self.rampPoint(at: along, of: fillets)
+                return (fillet - position.y, outline.top - position.x)
+            }
+            let back = joins.wall - s
+            if back < fillets.ramp {
+                let position = Self.rampPoint(at: back, of: fillets)
+                return (position.x, outline.top - fillet + position.y)
+            }
+            let turn = BendShape.rampAngle + (along - fillets.ramp) / fillets.plateauRadius
+            let inset = fillets.plateauInset
+            return (
+                fillet - inset - fillets.plateauRadius * sin(turn),
+                outline.top - fillet + inset + fillets.plateauRadius * cos(turn)
+            )
         }
         if s < joins.corner {
             return (0, outline.top - fillet - (s - joins.wall))
         }
         if s < joins.bottom {
-            let turn = (s - joins.corner) / corner
-            return (-corner * (1 - cos(turn)), outline.bottom + corner * (1 - sin(turn)))
+            // From the wall's end: the wall-end ramp, the plateau, then the bottom-end ramp.
+            let along = s - joins.corner
+            if along < corners.ramp {
+                let position = Self.rampPoint(at: along, of: corners)
+                return (-position.x, outline.bottom + corner - position.y)
+            }
+            let back = joins.bottom - s
+            if back < corners.ramp {
+                let position = Self.rampPoint(at: back, of: corners)
+                return (position.y - corner, outline.bottom + position.x)
+            }
+            let turn = BendShape.rampAngle + (along - corners.ramp) / corners.plateauRadius
+            let inset = corners.plateauInset
+            return (
+                inset + corners.plateauRadius * cos(turn) - corner,
+                outline.bottom + corner - inset - corners.plateauRadius * sin(turn)
+            )
         }
         return (-corner - (s - joins.bottom), outline.bottom)
     }
@@ -373,13 +549,33 @@ struct MercurySpine: Sendable, Equatable {
         let joins = leftJoins
         if s < joins.fillet { return (SIMD2(1, 0), 0) }
         if s < joins.wall {
-            let turn = (s - joins.fillet) / outline.filletRadius
-            return (SIMD2(cos(turn), -sin(turn)), -1 / outline.filletRadius)
+            let along = s - joins.fillet
+            if along < fillets.ramp {
+                let ramp = Self.rampFrame(at: along, of: fillets)
+                return (SIMD2(ramp.turn.y, -ramp.turn.x), -ramp.curvature)
+            }
+            let back = joins.wall - s
+            if back < fillets.ramp {
+                let ramp = Self.rampFrame(at: back, of: fillets)
+                return (SIMD2(ramp.turn.x, -ramp.turn.y), -ramp.curvature)
+            }
+            let turn = BendShape.rampAngle + (along - fillets.ramp) / fillets.plateauRadius
+            return (SIMD2(cos(turn), -sin(turn)), -1 / fillets.plateauRadius)
         }
         if s < joins.corner { return (SIMD2(0, -1), 0) }
         if s < joins.bottom {
-            let turn = (s - joins.corner) / outline.cornerRadius
-            return (SIMD2(sin(turn), -cos(turn)), 1 / outline.cornerRadius)
+            let along = s - joins.corner
+            if along < corners.ramp {
+                let ramp = Self.rampFrame(at: along, of: corners)
+                return (SIMD2(ramp.turn.x, -ramp.turn.y), ramp.curvature)
+            }
+            let back = joins.bottom - s
+            if back < corners.ramp {
+                let ramp = Self.rampFrame(at: back, of: corners)
+                return (SIMD2(ramp.turn.y, -ramp.turn.x), ramp.curvature)
+            }
+            let turn = BendShape.rampAngle + (along - corners.ramp) / corners.plateauRadius
+            return (SIMD2(sin(turn), -cos(turn)), 1 / corners.plateauRadius)
         }
         return (SIMD2(1, 0), 0)
     }
@@ -404,46 +600,53 @@ struct MercurySpine: Sendable, Equatable {
             )
         }
         if outside >= 0, outside < fillet, depth < fillet {
-            // Up and toward the wall from the fillet centre, which is excluded, only the
-            // fillet's wedge reaches, so its foot is unique.
-            let lateral = fillet - outside
-            let vertical = fillet - depth
-            let distance = (lateral * lateral + vertical * vertical).squareRoot()
-            return Self.quarterArc(
-                arcLength: joins.fillet + fillet * atan2(lateral, vertical),
-                normalOffset: fillet - distance,
-                lateral: lateral,
-                vertical: vertical,
-                distance: distance,
-                radius: fillet,
-                bordersHousing: false
+            // Up and toward the wall from the fillet's circle centre, which is excluded, only
+            // the fillet's quadrant reaches. It is laid from the wall's end, toward the ear, and
+            // its offsets run toward its centre, against its frame's.
+            let foot = Self.bendFoot(lateral: fillet - outside, vertical: fillet - depth, radius: fillet, bend: fillets)
+            return Chart(
+                arcLength: joins.wall - foot.along,
+                normalOffset: -foot.offset,
+                tangent: foot.tangent,
+                normal: SIMD2(foot.tangent.y, -foot.tangent.x),
+                metric: foot.metric,
+                isHorizontal: false,
+                bordersHousing: false,
+                rimDistance: .infinity
             )
         }
         // Past the fillet centre's column only the ear's slab reaches. It competes with
         // whichever of the corner and the wall owns this height.
         let earDistance = outside >= fillet ? depth : Double.infinity
         if rise < corner {
-            // Below the corner centre lies the corner's wedge.
+            // Below the corner centre lies the corner's quadrant.
             let lateral = outside + corner
             let vertical = corner - rise
             let distance = (lateral * lateral + vertical * vertical).squareRoot()
-            // Inside the rounded corner, which only a point between the walls can reach.
+            // Inside the housing's circular corner, which only a point between the walls can reach.
             guard distance >= corner else { return nil }
-            guard earDistance > distance - corner else {
-                return Self.horizontalRun(
-                    arcLength: joins.fillet + (fillet - outside),
-                    normalOffset: depth,
-                    bordersHousing: false
-                )
+            let rim = distance - corner
+            // The spine never stands more than `rimGap` outside the rim, so an ear nearer than
+            // that is decided before the corner's own foot is sought.
+            if earDistance > rim - rimGap {
+                let foot = Self.bendFoot(lateral: lateral, vertical: vertical, radius: corner, bend: corners)
+                if earDistance > foot.offset {
+                    return Chart(
+                        arcLength: joins.corner + foot.along,
+                        normalOffset: foot.offset,
+                        tangent: foot.tangent,
+                        normal: SIMD2(foot.tangent.y, -foot.tangent.x),
+                        metric: foot.metric,
+                        isHorizontal: false,
+                        bordersHousing: true,
+                        rimDistance: rim
+                    )
+                }
             }
-            return Self.quarterArc(
-                arcLength: joins.corner + corner * atan2(vertical, lateral),
-                normalOffset: distance - corner,
-                lateral: lateral,
-                vertical: vertical,
-                distance: distance,
-                radius: corner,
-                bordersHousing: true
+            return Self.horizontalRun(
+                arcLength: joins.fillet + (fillet - outside),
+                normalOffset: depth,
+                bordersHousing: false
             )
         }
         // At or above the corner centre, between the walls is the housing; beside them is the
@@ -463,7 +666,8 @@ struct MercurySpine: Sendable, Equatable {
             normal: SIMD2(-1, 0),
             metric: 1,
             isHorizontal: false,
-            bordersHousing: true
+            bordersHousing: true,
+            rimDistance: outside
         )
     }
 
@@ -477,33 +681,8 @@ struct MercurySpine: Sendable, Equatable {
             normal: SIMD2(0, -1),
             metric: 1,
             isHorizontal: true,
-            bordersHousing: bordersHousing
-        )
-    }
-
-    /// A left-half quarter arc, from the point's non-negative offsets from the arc centre in
-    /// its own wedge. For a corner these run outward and down; for a fillet they run toward
-    /// the wall and up. Either way the tangent is `(vertical, −lateral)/distance`, and the
-    /// metric is `distance/radius`, which is `1 + κn` without the cancellation. Only a corner
-    /// borders the housing.
-    private static func quarterArc(
-        arcLength: Double,
-        normalOffset: Double,
-        lateral: Double,
-        vertical: Double,
-        distance: Double,
-        radius: Double,
-        bordersHousing: Bool
-    ) -> Chart {
-        let tangent = SIMD2(vertical, -lateral) / distance
-        return Chart(
-            arcLength: arcLength,
-            normalOffset: normalOffset,
-            tangent: tangent,
-            normal: SIMD2(tangent.y, -tangent.x),
-            metric: distance / radius,
-            isHorizontal: false,
-            bordersHousing: bordersHousing
+            bordersHousing: bordersHousing,
+            rimDistance: bordersHousing ? normalOffset : .infinity
         )
     }
 
@@ -520,7 +699,451 @@ struct MercurySpine: Sendable, Equatable {
             normal: SIMD2(-chart.normal.x, chart.normal.y),
             metric: chart.metric,
             isHorizontal: chart.isHorizontal,
-            bordersHousing: chart.bordersHousing
+            bordersHousing: chart.bordersHousing,
+            rimDistance: chart.rimDistance
         )
+    }
+
+    // MARK: - Bends
+
+    /// An eased bend as laid: the convex corners at `ρ`, or the concave fillets at `ρe`.
+    ///
+    /// In its own frame a bend runs from `(r, 0)` to `(0, r)`, bulging toward `(r, r)`, with
+    /// its circle's centre at the origin. A corner's frame measures `(lateral, vertical)` out
+    /// of the housing from the corner's circle centre, a fillet's into the screen's corner
+    /// from its own, so the one shape serves both.
+    private struct Bend: Sendable, Equatable {
+        /// `S`, the bend's whole arc length.
+        var arc: Double
+        /// `L = qS`, each curvature ramp's arc length.
+        var ramp: Double
+        /// `R_p`, the plateau arc's radius.
+        var plateauRadius: Double
+        /// `c`, how far the plateau's centre sits from the circle's centre along each axis,
+        /// toward the bend's corner.
+        var plateauInset: Double
+        /// `(sin θ_q, cos θ_q)`, where each ramp hands over to the plateau. The same for every
+        /// bend; kept here so the chart's wedge test reads no global.
+        var edge: SIMD2<Double>
+        /// `1/L`, which every Newton step divides by.
+        var inverseRamp: Double
+        /// `1/2R_p`: a ramp's `|κ|` is this times `1 − cos πτ`.
+        var rampCurvature: Double
+
+        /// The island's, which has no bends.
+        static let none = Bend(
+            arc: 0,
+            ramp: 0,
+            plateauRadius: 0,
+            plateauInset: 0,
+            edge: .zero,
+            inverseRamp: 0,
+            rampCurvature: 0
+        )
+
+        init(
+            arc: Double,
+            ramp: Double,
+            plateauRadius: Double,
+            plateauInset: Double,
+            edge: SIMD2<Double>,
+            inverseRamp: Double,
+            rampCurvature: Double
+        ) {
+            self.arc = arc
+            self.ramp = ramp
+            self.plateauRadius = plateauRadius
+            self.plateauInset = plateauInset
+            self.edge = edge
+            self.inverseRamp = inverseRamp
+            self.rampCurvature = rampCurvature
+        }
+
+        /// The bend that keeps a circle of radius `radius`'s footprint.
+        ///
+        /// The wall-end ramp ends `L·â(1)` across and `L·b̂(1)` down, and the plateau's centre
+        /// lies `R_p` back along its normal there. The plateau then reaches the bottom-end
+        /// ramp, the same curve mirrored across the diagonal, exactly when the footprint holds.
+        init(radius: Double) {
+            let arc = radius / BendShape.footprint
+            let ramp = BendShape.rampShare * arc
+            let plateauRadius = arc / BendShape.plateauTurnRate
+            let end = BendShape.rampTable[BendShape.rampIntervals]
+            self.init(
+                arc: arc,
+                ramp: ramp,
+                plateauRadius: plateauRadius,
+                plateauInset: radius - ramp * end.position.x - plateauRadius * end.tangent.y,
+                edge: end.tangent,
+                inverseRamp: 1 / ramp,
+                rampCurvature: 1 / (2 * plateauRadius)
+            )
+        }
+    }
+
+    /// A point's nearest point on a bend, in the bend's own frame, mapped back to canvas axes.
+    private struct BendFoot {
+        /// The foot's arc length from the bend's `(r, 0)` end.
+        var along: Double
+        /// The signed distance, positive toward the bend's corner `(r, r)`.
+        var offset: Double
+        /// The canvas tangent of the left half's traversal. A corner's frame is the canvas
+        /// turned half round and walked from `(r, 0)`; a fillet's is the canvas itself, walked
+        /// toward `(r, 0)`. Either way it is the frame's tangent reversed.
+        var tangent: SIMD2<Double>
+        /// `1 + κn`, the same in either orientation.
+        var metric: Double
+    }
+
+    /// The foot on `bend` of the point `(lateral, vertical)` in its frame, which must lie in
+    /// the bend's quadrant.
+    ///
+    /// The plateau's end normals meet at its centre and split the quadrant. Between them its
+    /// foot is radial. Beyond either lies that ramp's region; a point behind the centre lies
+    /// beyond both, and the nearer of the two ramps' feet is its own. The bottom-end ramp is
+    /// the wall-end one reflected across the diagonal, so its frame swaps the axes.
+    private static func bendFoot(lateral: Double, vertical: Double, radius: Double, bend: Bend) -> BendFoot {
+        let fromCentre = SIMD2(lateral - bend.plateauInset, vertical - bend.plateauInset)
+        // Each side's value is `(p − C)·T` at that end of the plateau: negative past it.
+        let wallSide = bend.edge.y * fromCentre.y - bend.edge.x * fromCentre.x
+        let bottomSide = bend.edge.y * fromCentre.x - bend.edge.x * fromCentre.y
+        guard wallSide < 0 || bottomSide < 0 else {
+            let distance = (fromCentre * fromCentre).sum().squareRoot()
+            // The centre itself is equally near the whole plateau; it takes the middle.
+            let direction = distance > 0 ? fromCentre / distance : SIMD2(1, 1) / 2.0.squareRoot()
+            return BendFoot(
+                along: bend.ramp
+                    + bend.plateauRadius * (atan2(direction.y, direction.x) - BendShape.rampAngle),
+                offset: distance - bend.plateauRadius,
+                tangent: SIMD2(direction.y, -direction.x),
+                metric: distance / bend.plateauRadius
+            )
+        }
+        var nearest: BendFoot?
+        if wallSide < 0 {
+            let foot = Self.rampFoot(across: lateral - radius, along: vertical, bend: bend)
+            nearest = BendFoot(
+                along: bend.ramp * foot.fraction,
+                offset: foot.normalOffset,
+                tangent: SIMD2(foot.turn.x, -foot.turn.y),
+                metric: 1 + foot.curvature * foot.normalOffset
+            )
+        }
+        if bottomSide < 0 {
+            let foot = Self.rampFoot(across: vertical - radius, along: lateral, bend: bend)
+            if nearest.map({ abs(foot.normalOffset) < abs($0.offset) }) ?? true {
+                nearest = BendFoot(
+                    along: bend.arc - bend.ramp * foot.fraction,
+                    offset: foot.normalOffset,
+                    tangent: SIMD2(foot.turn.y, -foot.turn.x),
+                    metric: 1 + foot.curvature * foot.normalOffset
+                )
+            }
+        }
+        // One side is negative, so one ramp was solved.
+        return nearest!
+    }
+
+    /// The wall-end ramp's point `arc` along it from its straight end, in points: inward
+    /// and on along the run, in the ramp's own frame.
+    private static func rampPoint(at arc: Double, of bend: Bend) -> SIMD2<Double> {
+        BendShape.ramp(at: arc / bend.ramp).position * bend.ramp
+    }
+
+    /// The wall-end ramp's turn and `|κ|`, `arc` along it from its straight end.
+    private static func rampFrame(at arc: Double, of bend: Bend) -> (turn: SIMD2<Double>, curvature: Double) {
+        let state = BendShape.state(at: arc / bend.ramp)
+        return (state.turn, rampCurvature(of: state, bend: bend).curvature)
+    }
+
+    /// A ramp's `|κ|` and `d|κ|/du` from its phase: `|κ| = (1 − cos πτ)/2R_p`, the
+    /// `κ_p·sin²(πτ/2)` that turns it through `θ_q(τ − sin(πτ)/π)`.
+    @inline(__always)
+    private static func rampCurvature(
+        of state: BendShape.RampState,
+        bend: Bend
+    ) -> (curvature: Double, slope: Double) {
+        ((1 - state.phase.y) * bend.rampCurvature, Double.pi * state.phase.x * bend.rampCurvature * bend.inverseRamp)
+    }
+
+    /// Everything one Newton step reads at `τ`: `f`, the point's offset from the ramp
+    /// there, and the ramp's frame.
+    private struct RampProbe {
+        var orthogonality: Double
+        var normalOffset: Double
+        var turn: SIMD2<Double>
+        var curvature: Double
+        var curvatureSlope: Double
+    }
+
+    @inline(__always)
+    private static func probeRamp(at fraction: Double, across: Double, along: Double, bend: Bend) -> RampProbe {
+        let sample = BendShape.ramp(at: fraction)
+        let curvature = rampCurvature(of: sample.state, bend: bend)
+        let turn = sample.state.turn
+        let position = sample.position * bend.ramp
+        // `p − C(τ)`, with the ramp curling away from `across` and running on along `along`.
+        let offset = SIMD2(across + position.x, along - position.y)
+        return RampProbe(
+            orthogonality: offset.y * turn.y - offset.x * turn.x,
+            normalOffset: offset.x * turn.y + offset.y * turn.x,
+            turn: turn,
+            curvature: curvature.curvature,
+            curvatureSlope: curvature.slope
+        )
+    }
+
+    /// The foot by safeguarded bisection, from where Newton stopped: a Newton step whenever
+    /// it stays inside the bracket and at least halves the step before it, and a bisection
+    /// otherwise, so the bracket always closes.
+    @inline(never)
+    private static func bracketedRampFoot(across: Double, along: Double, bend: Bend, from start: Double) -> RampFoot {
+        var low = 0.0
+        var high = 1.0
+        var fraction = start
+        var previousStep = 1.0
+        for _ in 0..<64 {
+            let probe = probeRamp(at: fraction, across: across, along: along, bend: bend)
+            if probe.orthogonality > 0 { low = fraction } else { high = fraction }
+            let rate = (1 + probe.curvature * probe.normalOffset) * bend.ramp
+            let newton = rate > 0 ? probe.orthogonality / rate : .infinity
+            let step: Double
+            if abs(2 * newton) <= previousStep, fraction + newton > low, fraction + newton < high {
+                step = newton
+            } else {
+                step = (low + high) / 2 - fraction
+            }
+            previousStep = abs(step)
+            fraction += step
+            guard abs(step) * bend.ramp > footTolerance else { break }
+        }
+        let probe = probeRamp(at: fraction, across: across, along: along, bend: bend)
+        return RampFoot(
+            fraction: fraction,
+            normalOffset: probe.normalOffset,
+            turn: probe.turn,
+            curvature: probe.curvature,
+            newtonSteps: nil
+        )
+    }
+
+    /// The eased bend, the same shape at every radius.
+    private enum BendShape {
+        /// `q`, each curvature ramp's share of the bend's arc length.
+        static let rampShare = 0.15
+        /// `κ̂ = π/2(1 − q)`, the plateau's turn per unit of the bend's arc length. Each ramp
+        /// turns as much as half its length of plateau would, so the plateau turns a quarter
+        /// turn's worth over `(1 − q)` of the arc.
+        static let plateauTurnRate = Double.pi / (2 * (1 - rampShare))
+        /// `θ_q = κ̂q/2 = 7.94°`, each ramp's whole turn.
+        static let rampAngle = plateauTurnRate * rampShare / 2
+        /// Intervals in ``rampTable``.
+        static let rampIntervals = 256
+
+        /// The wall-end ramp at one table node `τ = k/256`.
+        struct RampNode {
+            /// `(â, b̂)`, the ramp's position from the wall's end, in towards the bend's centre
+            /// and on along the wall, in units of the ramp's length.
+            var position: SIMD2<Double>
+            /// `(sin θ, cos θ)` of its turn, which is also `d(â, b̂)/dτ`.
+            var tangent: SIMD2<Double>
+            /// `(sin πτ, cos πτ)`, which the turn and the curvature are made of.
+            var phase: SIMD2<Double>
+        }
+
+        /// The wall-end ramp, node by node.
+        ///
+        /// Integrated once, by eight-point Gauss–Legendre on each interval, which is exact to
+        /// rounding at this spacing. Cubic Hermite on the exact tangents then interpolates it
+        /// to 3e-12 pt on the largest corner, `ρ = 16`.
+        static let rampTable: [RampNode] = {
+            // Gauss–Legendre on [−1, 1], by symmetric pairs.
+            let abscissae = [
+                0.183_434_642_495_649_8, 0.525_532_409_916_329_0, 0.796_666_477_413_626_7, 0.960_289_856_497_536_3,
+            ]
+            let weights = [
+                0.362_683_783_378_362_0, 0.313_706_645_877_887_3, 0.222_381_034_453_374_5, 0.101_228_536_290_376_3,
+            ]
+            let width = 1 / Double(rampIntervals)
+            var table: [RampNode] = []
+            table.reserveCapacity(rampIntervals + 1)
+            var position = SIMD2<Double>.zero
+            for index in 0...rampIntervals {
+                let start = Double(index) * width
+                let turn = turnAngle(at: start)
+                table.append(
+                    RampNode(
+                        position: position,
+                        tangent: SIMD2(sin(turn), cos(turn)),
+                        phase: SIMD2(sin(Double.pi * start), cos(Double.pi * start))
+                    )
+                )
+                guard index < rampIntervals else { break }
+                var step = SIMD2<Double>.zero
+                for (abscissa, weight) in zip(abscissae, weights) {
+                    for side in [-1.0, 1.0] {
+                        let turn = turnAngle(at: start + width * (1 + side * abscissa) / 2)
+                        step += weight * SIMD2(sin(turn), cos(turn))
+                    }
+                }
+                position += step * (width / 2)
+            }
+            return table
+        }()
+        /// `r/S = 0.61709`, a bend's footprint per unit of its arc length. The wall-end ramp
+        /// runs `L·â(1)` across and `L·b̂(1)` down, the plateau `R_p(cos θ_q − sin θ_q)` each
+        /// way, and the bottom-end ramp mirrors the wall-end one.
+        static let footprint: Double = {
+            let end = rampTable[rampIntervals]
+            return rampShare * (end.position.x + end.position.y) + (end.tangent.y - end.tangent.x) / plateauTurnRate
+        }()
+        /// `R_p/r = 0.87690`.
+        static let plateauRadius = 1 / (footprint * plateauTurnRate)
+
+        /// The wall-end ramp's own foot `τ` over its region, in units of the ramp's length:
+        /// the Newton seed. Every ramp is this one curve at some scale, so one grid serves all.
+        struct SeedGrid {
+            /// `τ`, column by column of `across` and row by row of how far along the region.
+            var feet: [Double]
+            /// `(b̂(1) + â(1)·tan θ_q, tan θ_q)`: the plateau's start normal, where the region
+            /// ends, runs along `edge.x + across·edge.y`.
+            var edge: SIMD2<Double>
+        }
+
+        /// The grid's columns run `across` from −3.5 to 16.5 in halves, which holds a fillet's
+        /// drawn film inside its turn and a corner's chin out to the ears. Its rows run in
+        /// sixteenths from the straight run's end normal, `along = 0`, to the plateau's start
+        /// normal.
+        static let seedColumns = 41
+        static let seedRows = 17
+        static let seedAcrossStart = -3.5
+        static let seedAcrossStep = 0.5
+
+        /// Solved once, column by column, each foot seeded by the one before it, from `τ = 0`
+        /// on the end normal. Bilinear between them the seed lands close enough that Newton's
+        /// quadratic steps converge within four.
+        static let seeds: SeedGrid = {
+            let end = rampTable[rampIntervals]
+            let slope = end.tangent.x / end.tangent.y
+            let edge = SIMD2(end.position.y + end.position.x * slope, slope)
+            let plateauRadius = 1 / (plateauTurnRate * rampShare)
+            let unit = Bend(
+                arc: 1 / rampShare,
+                ramp: 1,
+                plateauRadius: plateauRadius,
+                plateauInset: 0,
+                edge: end.tangent,
+                inverseRamp: 1,
+                rampCurvature: 1 / (2 * plateauRadius)
+            )
+            var feet = [Double](repeating: 0, count: seedColumns * seedRows)
+            for column in 0..<seedColumns {
+                let across = seedAcrossStart + Double(column) * seedAcrossStep
+                let reach = edge.x + across * edge.y
+                var fraction = 0.0
+                for row in 0..<seedRows {
+                    let along = reach * Double(row) / Double(seedRows - 1)
+                    fraction = solveRamp(across: across, along: along, bend: unit, from: fraction).fraction
+                    feet[column * seedRows + row] = fraction
+                }
+            }
+            return SeedGrid(feet: feet, edge: edge)
+        }()
+
+        /// The seed for a point `across` and `along` in units of the ramp's length: the grid's
+        /// feet, bilinear, clamped to its edges.
+        @inline(__always)
+        static func seed(across: Double, along: Double) -> Double {
+            let grid = seeds
+            let reach = Swift.max(grid.edge.x + across * grid.edge.y, 1e-9)
+            let column = Swift.min(
+                Swift.max((across - seedAcrossStart) / seedAcrossStep, 0),
+                Double(seedColumns - 1)
+            )
+            let row = Swift.min(Swift.max(along / reach * Double(seedRows - 1), 0), Double(seedRows - 1))
+            let left = Swift.min(Int(column), seedColumns - 2)
+            let low = Swift.min(Int(row), seedRows - 2)
+            let sideways = column - Double(left)
+            let upward = row - Double(low)
+            let base = left * seedRows + low
+            let lower = grid.feet[base] + (grid.feet[base + seedRows] - grid.feet[base]) * sideways
+            let upper = grid.feet[base + 1] + (grid.feet[base + seedRows + 1] - grid.feet[base + 1]) * sideways
+            return lower + (upper - lower) * upward
+        }
+
+        /// A ramp's turn at `τ`: `θ_q(τ − sin(πτ)/π)`, whose rate is `θ_q(1 − cos πτ)`.
+        static func turnAngle(at fraction: Double) -> Double {
+            rampAngle * (fraction - sin(Double.pi * fraction) / Double.pi)
+        }
+
+        /// The wall-end ramp's phase `(sin πτ, cos πτ)` and turn `(sin θ, cos θ)` at one `τ`.
+        struct RampState {
+            var phase: SIMD2<Double>
+            var turn: SIMD2<Double>
+        }
+
+        /// The wall-end ramp at `τ ∈ [0, 1]`: its position in units of its length, by cubic
+        /// Hermite between the table's nodes on their exact tangents, exact at both ends; and
+        /// its phase and turn.
+        @inline(__always)
+        static func ramp(at fraction: Double) -> (position: SIMD2<Double>, state: RampState) {
+            let (index, offset) = node(at: fraction)
+            let start = rampTable[index]
+            let end = rampTable[index + 1]
+            let squared = offset * offset
+            let cubed = squared * offset
+            let tangentScale = 1 / Double(rampIntervals)
+            let startWeight = 2 * cubed - 3 * squared + 1
+            let endWeight = 3 * squared - 2 * cubed
+            let startTangent = (cubed - 2 * squared + offset) * tangentScale
+            let endTangent = (cubed - squared) * tangentScale
+            return (
+                startWeight * start.position + endWeight * end.position + startTangent * start.tangent
+                    + endTangent * end.tangent,
+                state(from: start, offset: offset)
+            )
+        }
+
+        /// The ramp's phase and turn at `τ ∈ [0, 1]`.
+        @inline(__always)
+        static func state(at fraction: Double) -> RampState {
+            let (index, offset) = node(at: fraction)
+            return state(from: rampTable[index], offset: offset)
+        }
+
+        /// The table node at or below `τ ∈ [0, 1]`, and how far past it `τ` lies, in intervals.
+        @inline(__always)
+        private static func node(at fraction: Double) -> (index: Int, offset: Double) {
+            let scaled = fraction * Double(rampIntervals)
+            let index = Swift.min(Int(scaled), rampIntervals - 1)
+            return (index, scaled - Double(index))
+        }
+
+        /// The phase and turn `offset` of an interval past `node`, each the node's own turned
+        /// on by a small angle, so neither needs a transcendental call.
+        ///
+        /// The phase turns by `δ = π·offset/256 ≤ 0.0123`, whose sine and `cos δ − 1` Taylor
+        /// gives to under 1e-17 by `δ⁵` and `δ⁶`. That also gives `sin πτ − sin πτ_k` without
+        /// cancelling, so the turn's own step, `θ_q((τ − τ_k) − (sin πτ − sin πτ_k)/π)`, at
+        /// most `2θ_q/256 = 1.1e-3`, is exact too; its sine and `cos − 1` need only its cube
+        /// and fourth power.
+        @inline(__always)
+        private static func state(from node: RampNode, offset: Double) -> RampState {
+            let delta = Double.pi / Double(rampIntervals) * offset
+            let deltaSquared = delta * delta
+            let deltaSine = delta * (1 - deltaSquared / 6 * (1 - deltaSquared / 20))
+            let deltaDrop = -deltaSquared / 2 * (1 - deltaSquared / 12 * (1 - deltaSquared / 30))
+            let rise = node.phase.x * deltaDrop + node.phase.y * deltaSine
+            let phase = SIMD2(node.phase.x + rise, node.phase.y + node.phase.y * deltaDrop - node.phase.x * deltaSine)
+            let step = rampAngle * (offset / Double(rampIntervals) - rise * (1 / Double.pi))
+            let stepSquared = step * step
+            let stepSine = step * (1 - stepSquared / 6)
+            let stepDrop = -stepSquared / 2 * (1 - stepSquared / 12)
+            let turn = SIMD2(
+                node.tangent.x + node.tangent.x * stepDrop + node.tangent.y * stepSine,
+                node.tangent.y + node.tangent.y * stepDrop - node.tangent.x * stepSine
+            )
+            return RampState(phase: phase, turn: turn)
+        }
     }
 }

@@ -88,8 +88,9 @@ struct RecordingOverlayView: View {
     }
 
     /// One accessibility element for the whole body, at the layout's fixed status frame so
-    /// the VoiceOver cursor stays still while the body breathes: the island's whole 180×34
-    /// canvas, or the collar's chin strip directly under the housing.
+    /// the VoiceOver cursor stays still while the body breathes: the island's 180×34
+    /// envelope, centred in its wider canvas, or the collar's chin strip directly under the
+    /// housing.
     ///
     /// A state change is a VALUE change on a stable, labelled node instead of a label
     /// change on an unlabelled image that VoiceOver only speaks if the user happens to be

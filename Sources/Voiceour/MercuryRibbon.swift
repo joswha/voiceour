@@ -60,27 +60,38 @@ final class MercuryEngine {
         var layout: RecordingOverlayLayout
     }
 
+    /// The session's room and the response it is shown through, metered on the bodies
+    /// `layout` draws.
     private struct Lighting {
         var environment: MercuryEnvironment
         var response: MercuryDisplayResponse
+        var layout: RecordingOverlayLayout
     }
 
     private let hitRegion: MercuryHitRegion
     private var simulation: MercurySimulation
     private let rasterizer = MercuryRasterizer()
-    private var lighting: Lighting
     private var seed: UInt64
+    private var world: MercuryWorld
+    /// Built for the first layout a session draws, so a session that starts on a collar
+    /// never meters the island's bodies. See ``lighting(for:)``.
+    private var lighting: Lighting?
     private var started = false
     private var pinned: PinnedFrame?
     private var pinnedImage: CGImage?
     private var rendered: RenderedFrame?
     private var renderedImage: CGImage?
 
+    /// How many responses this engine has metered. Each settles two bodies and rasters them,
+    /// so it is paid once for each seed, world and layout a session draws and never per
+    /// frame; the tests hold the engine to that.
+    private(set) var meteredResponses = 0
+
     init(seed: UInt64, world: MercuryWorld, hitRegion: MercuryHitRegion) {
         self.hitRegion = hitRegion
         self.seed = seed
+        self.world = world
         simulation = MercurySimulation(seed: seed, gains: MercuryCalibration.shared.gains)
-        lighting = Self.makeLighting(world: world, seed: seed)
     }
 
     /// Harness frame after exactly `step` closed-form substeps from rest.
@@ -102,9 +113,12 @@ final class MercuryEngine {
         )
         guard key != pinned else { return pinnedImage }
         pinned = key
-        self.seed = seed
+        if seed != self.seed || world != self.world {
+            self.seed = seed
+            self.world = world
+            lighting = nil
+        }
         simulation = MercurySimulation(seed: seed, gains: MercuryCalibration.shared.gains)
-        lighting = Self.makeLighting(world: world, seed: seed)
         simulation.reset(to: drive)
         simulation.advance(steps: step, drive: drive)
         pinnedImage = image(
@@ -127,11 +141,11 @@ final class MercuryEngine {
     ) -> CGImage? {
         reseedIfNeeded(seed: seed, world: world)
         if !started {
-            simulation.reset(to: drive)
+            // A live body grows out of the notch or the top edge. Reduce Motion shows it at rest on
+            // its pose instead: an emergence is motion that carries no information.
+            simulation.reset(to: drive, emerging: !drive.reduceMotion)
             started = true
         } else {
-            // Advanced even when no substep is due: that still copies the drive's lateral
-            // offset, so every frame is drawn at the offset its own drive asks for.
             simulation.advance(
                 steps: Swift.min(steps, MercuryMetrics.maxSubstepsPerFrame),
                 drive: drive
@@ -171,6 +185,7 @@ final class MercuryEngine {
             return nil
         }
         hitRegion.update(field, layout: layout)
+        let lighting = self.lighting(for: layout)
         return rasterizer.image(
             field: field,
             environment: lighting.environment,
@@ -180,30 +195,46 @@ final class MercuryEngine {
         )
     }
 
+    /// The session's room, shown through a response metered on the bodies `layout` draws.
+    ///
+    /// A room is metered against the body it will light, and a collar, which shows only the
+    /// outer half of a chin and walls, sweeps a different part of the room than the island's
+    /// whole crown. So the first layout a session draws is metered, and a frame on another
+    /// layout meters again, in the same room. A session's layout changes only when the body
+    /// moves to another display, so that is paid once per hand-off and never per frame.
+    private func lighting(for layout: RecordingOverlayLayout) -> Lighting {
+        if let lighting, lighting.layout == layout { return lighting }
+        let environment = lighting?.environment ?? MercuryEnvironment(world: world, seed: seed)
+        let metered = Lighting(
+            environment: environment,
+            response: MercuryCalibration.shared.displayResponse(
+                for: environment,
+                bodySeed: seed,
+                layout: layout
+            ),
+            layout: layout
+        )
+        lighting = metered
+        meteredResponses += 1
+        return metered
+    }
+
+    /// A new seed or world is a new session: a new body, grown afresh, in a room that has not
+    /// been metered yet.
     private func reseedIfNeeded(seed: UInt64, world: MercuryWorld) {
-        guard seed != self.seed || world != lighting.environment.world else { return }
+        guard seed != self.seed || world != self.world else { return }
         self.seed = seed
+        self.world = world
         simulation = MercurySimulation(seed: seed, gains: MercuryCalibration.shared.gains)
-        lighting = Self.makeLighting(world: world, seed: seed)
+        lighting = nil
         started = false
         rendered = nil
         renderedImage = nil
     }
-
-    private static func makeLighting(world: MercuryWorld, seed: UInt64) -> Lighting {
-        let environment = MercuryEnvironment(world: world, seed: seed)
-        return Lighting(
-            environment: environment,
-            response: MercuryCalibration.shared.displayResponse(
-                for: environment,
-                bodySeed: seed
-            )
-        )
-    }
 }
 
 /// The body's whole visible surface: one procedural mercury body on the layout's canvas,
-/// the island's 180×34 or the collar around the camera housing.
+/// the island's 196×34 or the collar around the camera housing.
 ///
 /// The body renders below SwiftUI on a view-bound display link: 120 fps on ProMotion,
 /// 60 fps on a 60 Hz screen, and no callbacks while hidden or off-display.
@@ -233,11 +264,7 @@ struct MercuryRibbon: View {
             configuration: MercurySurfaceView.Configuration(
                 seed: seed(),
                 world: world(),
-                drive: MercurySimulation.Drive(
-                    pose: MercuryPose.target(for: model),
-                    samples: model.samples,
-                    reduceMotion: a11y.reduceMotion
-                ),
+                drive: MercurySimulation.Drive.target(for: model, reduceMotion: a11y.reduceMotion),
                 appearance: MercuryAppearance(
                     increasedContrast: a11y.contrast == .increased
                 ),

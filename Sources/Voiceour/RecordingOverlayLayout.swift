@@ -7,7 +7,9 @@ import SwiftUI
 enum RecordingOverlayMetrics {
     /// Transparent panel retained at its established measure so stored placement,
     /// cross-display translation and the fixed accessibility frame do not migrate with
-    /// the visual cutover. Only the centered 180×34 envelope draws or accepts a hit.
+    /// the visual cutover. Only the island's canvas draws or accepts a hit: the centred
+    /// 180×34 envelope and the room its round ends need beyond it (see
+    /// `RecordingOverlayLayout.island`).
     static let windowSize = NSSize(width: 260, height: 80)
     static let islandSize = NSSize(width: 180, height: 34)
 
@@ -64,8 +66,9 @@ extension RecordingOverlayMetrics {
 /// One value carries everything that differs between the two places the body lives, so the
 /// view, the engine, the raster and the hit region all read one description of it:
 ///
-/// - The island: a straight 180 pt spine on the 180×34 canvas, centred `contentTopInset` below
-///   the top of the 260×80 panel. It sits below the menu bar, so it has no band.
+/// - The island: a straight 196 pt spine on a 196×34 canvas, centred on the 180×34 envelope
+///   `contentTopInset` below the top of the 260×80 panel. It sits below the menu bar, so it
+///   has no band.
 /// - The collar: the camera housing's outline as the spine, on a canvas that is the whole
 ///   panel and hangs flush from the screen's top edge. The housing fills the canvas's top
 ///   centre, and the menu-bar band runs across the panel's top.
@@ -93,24 +96,32 @@ struct RecordingOverlayLayout: Sendable, Equatable {
     /// and status items own that strip, so the hit region never claims a point in it.
     let bandHeight: CGFloat
 
-    /// The established island. Its canvas is the 180×34 envelope and its status element
-    /// covers exactly that canvas, so placement, pixels and the accessibility frame are the
-    /// ones the island has always had.
+    /// The established island: the 260×80 panel, and a status element covering exactly the
+    /// 180×34 envelope placement measures, so stored placement and the accessibility frame
+    /// are the ones the island has always had.
+    ///
+    /// The canvas runs `Island.endMargin` past each end of that envelope. The body rides a
+    /// track `MercuryMetrics.maxLength` long, so its span ends at most 84 pt from the centre,
+    /// and a round end reaches past that by its own half-thickness. The speaking body at full
+    /// lean, or under the hardest drag, rounds off up to 93.5 pt out, 94 on an adversarial
+    /// meter, and a canvas cut at the envelope's 90 pt cut its cap. At rest it stays inside
+    /// 88 pt, so the body draws the pixels it always did, laid about the same centre, and the
+    /// margins are transparent until a round end reaches into them.
     static let island: RecordingOverlayLayout = {
         let panel = RecordingOverlayMetrics.windowSize
-        let envelope = RecordingOverlayMetrics.islandSize
-        let canvas = CGRect(
-            x: (panel.width - envelope.width) / 2,
+        let envelope = CGRect(
+            x: (panel.width - RecordingOverlayMetrics.islandSize.width) / 2,
             y: RecordingOverlayMetrics.contentTopInset,
-            width: envelope.width,
-            height: envelope.height
+            width: RecordingOverlayMetrics.islandSize.width,
+            height: RecordingOverlayMetrics.islandSize.height
         )
+        let canvas = envelope.insetBy(dx: -Island.endMargin, dy: 0)
         return RecordingOverlayLayout(
             kind: .island,
             panelSize: panel,
             canvasRect: canvas,
-            statusRect: canvas,
-            spine: MercurySpine(straightLength: Double(envelope.width)),
+            statusRect: envelope,
+            spine: MercurySpine(straightLength: Double(canvas.width)),
             bandHeight: 0
         )
     }()
@@ -196,6 +207,13 @@ struct RecordingOverlayLayout: Sendable, Equatable {
         self.statusRect = statusRect
         self.spine = spine
         self.bandHeight = bandHeight
+    }
+
+    /// The island's measures, in points.
+    private enum Island {
+        /// Canvas past each end of the 180×34 envelope: room for the round end of a body at
+        /// the end of its track, with its bleed. See ``RecordingOverlayLayout/island``.
+        static let endMargin: CGFloat = 8
     }
 
     /// The collar's measures, in points.

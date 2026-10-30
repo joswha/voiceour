@@ -20,7 +20,7 @@ import CoreGraphics
 /// half-thickness `r₀` and centre `c₀`. A point at arc length `s` reads `r = T(s)·r₀(a)` and
 /// `c = T(s)·c₀(a)`, with `T` the spine's taper at `s` itself, so along the body
 /// `r_s = T′·r₀ + T·r₀_a/L`, and likewise for `c`. A convex corner blends from the chin to
-/// the band film over about 10 pt of arc, which is only a few stations. A taper sampled at
+/// the band film over 8.6–9.8 pt of arc, which is only a few stations. A taper sampled at
 /// the stations would draw that blend as straight facets and tilt every normal between them.
 /// Read continuously, the outline and its normals follow the true taper.
 ///
@@ -314,22 +314,29 @@ struct MercuryField {
     ///
     /// Over a piece the edges are `T·e₊` and `T·e₋`. The untapered edges `e±` are linear
     /// between the piece's two stations, and the taper is bounded by its own exact extremes
-    /// there, so one normal range `n₋…n₊` holds both edges. A piece lies on one primitive, so
-    /// the region `P(s) + n·N(s)` over its arc lengths and that range is a rectangle on a
-    /// straight run, or an annular sector inside one quadrant of a corner's centre. Either
-    /// way its extremes in `x` and in `y` lie at its four corners, and their box holds all of
-    /// it, with no sampling and no margin.
+    /// there, so one normal range `n₋…n₊` holds both edges. A piece lies on one primitive. On
+    /// a straight run the region `P(s) + n·N(s)` over its arc lengths and that range is a
+    /// rectangle. On a corner it is swept by a normal that never leaves one quadrant, moving
+    /// at the positive speed `1 + κn` along the spine. Either way the region runs one way in
+    /// `x` and one way in `y` along both `s` and `n`, so its extremes lie at its four corners,
+    /// and their box holds all of it, with no sampling and no margin.
     ///
-    /// On a collar the inner half lies under the housing or above the screen. Only a fillet
-    /// charts an offset below zero, into the crescent against the hardware's concave corner.
-    /// So elsewhere a piece's range starts at the spine, and a piece on a fillet gives way to
-    /// the fillet's whole square, which holds every point the fillet charts. That includes the
-    /// points near the fillet's centre, where the metric vanishes and no bound on `|∇φ|`
-    /// exists.
+    /// On a collar the inner half lies under the housing or above the screen. Only the bends
+    /// chart offsets below zero:
+    /// - A fillet charts them into the crescent against the hardware's concave corner. A piece
+    ///   on a fillet gives way to the fillet's whole square, which holds every point the
+    ///   fillet charts. That includes the points near its plateau's centre, where the metric
+    ///   vanishes and no bound on `|∇φ|` exists.
+    /// - A convex corner charts them into the sliver between the housing's circular rim and
+    ///   its own squarer spine, at most `spine.rimGap` deep, so a corner piece's range starts
+    ///   there.
+    ///
+    /// Everywhere else a piece's range starts at the spine.
     ///
     /// The ramp's reach comes from the steepest climb the edges can make along the piece,
-    /// `|φ_s| ≤ T·|e_a|/max(L, 1) + |T′|·|e|`. Off the fillets the metric is at least 1, so
-    /// `|∇φ| = √(1 + (φ_s/metric)²)` is never steeper than `√(1 + φ_s²)`.
+    /// `|φ_s| ≤ T·|e_a|/max(L, 1) + |T′|·|e|`, and `|∇φ| = √(1 + (φ_s/metric)²)`. Off the
+    /// bends the metric is 1. On a corner it is never below `spine.leastCornerMetric`, which
+    /// the sliver's deepest offsets reach against the plateau's curvature.
     private static func pieces(
         of stations: [Station],
         spine: MercurySpine,
@@ -367,7 +374,8 @@ struct MercuryField {
             /// Lays the piece from `start` to `finish`, which lie on one primitive.
             func lay(from start: Double, _ startFoot: Foot, to finish: Double, _ finishFoot: Foot) {
                 let halfway = (start + finish) / 2
-                if outline != nil, spine.frame(at: halfway).curvature < 0 {
+                let curvature = spine.frame(at: halfway).curvature
+                if outline != nil, curvature < 0 {
                     if halfway < spine.restCenter {
                         reachesLeftFillet = true
                     } else {
@@ -380,7 +388,7 @@ struct MercuryField {
                 var inner = innerEdge >= 0 ? taper.least * innerEdge : taper.greatest * innerEdge
                 if outline != nil {
                     outer = Swift.max(outer, 0)
-                    inner = Swift.max(inner, 0)
+                    inner = Swift.max(inner, curvature > 0 ? -spine.rimGap : 0)
                 }
                 let corners = (
                     startFoot.point + inner * startFoot.normal,
@@ -389,11 +397,12 @@ struct MercuryField {
                     finishFoot.point + outer * finishFoot.normal
                 )
                 let climb = taper.greatest * rate + taper.steepest * size
+                let steepest = curvature > 0 ? climb / spine.leastCornerMetric : climb
                 extents.append(
                     Extent(
                         lower: pointwiseMin(pointwiseMin(corners.0, corners.1), pointwiseMin(corners.2, corners.3)),
                         upper: pointwiseMax(pointwiseMax(corners.0, corners.1), pointwiseMax(corners.2, corners.3)),
-                        rampReach: 0.5 * (1 + climb * climb).squareRoot()
+                        rampReach: 0.5 * (1 + steepest * steepest).squareRoot()
                     )
                 )
             }

@@ -55,11 +55,16 @@ final class MercurySurfaceView: NSView {
     private var configuration: Configuration?
     private var screenLink: CADisplayLink?
     private var screenObserver: NSObjectProtocol?
-    /// Never reset, least of all when the link is rebuilt for a new screen. The new display's
-    /// frames are counted from the epoch the old one's were, so the hand-off neither drops a
-    /// substep nor presents one twice, and a new link that starts late is a stall the clock
-    /// absorbs without fast-forwarding the body.
+    /// Never reset, least of all when the link is rebuilt for a new screen; the new link's first
+    /// frame re-phases it instead. Counted on the old display's grid, a display whose vsyncs fall
+    /// half a substep off it puts its frames on rounding boundaries, where jitter splits an even
+    /// cadence into 1s and 3s for as long as the panel stays there. The re-phase moves the epoch
+    /// by at most half a substep, so the hand-off neither drops a substep nor presents one twice,
+    /// and a new link that starts late is a stall the clock absorbs without fast-forwarding the
+    /// body.
     private var clock = MercuryClock()
+    /// True from a link's creation until its first callback, which re-phases the clock.
+    private var linkIsNew = false
     private var currentImage: CGImage?
 
     override var isFlipped: Bool { true }
@@ -154,10 +159,17 @@ final class MercurySurfaceView: NSView {
         )
         link.add(to: .main, forMode: .common)
         screenLink = link
+        linkIsNew = true
     }
 
     @objc private func displayLinkDidFire(_ link: CADisplayLink) {
-        renderLive(steps: clock.steps(forTargetTimestamp: link.targetTimestamp))
+        let target = link.targetTimestamp
+        if linkIsNew {
+            linkIsNew = false
+            renderLive(steps: clock.rephase(forTargetTimestamp: target))
+        } else {
+            renderLive(steps: clock.steps(forTargetTimestamp: target))
+        }
     }
 
     private func renderLive(steps: Int) {

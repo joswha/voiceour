@@ -72,7 +72,8 @@ struct MercurySpineTests {
                     normal: SIMD2(0, 1),
                     metric: 1,
                     isHorizontal: true,
-                    bordersHousing: false
+                    bordersHousing: false,
+                    rimDistance: .infinity
                 )
                 if spine.chart(at: SIMD2(x, y)) != expected { mismatches += 1 }
             }
@@ -90,8 +91,8 @@ struct MercurySpineTests {
 
     // MARK: - The collar curve
 
-    /// The primitives tile the spine: `bottom + 2 (corner + wall + fillet + ear) = S`, each
-    /// at its closed-form arc length.
+    /// The primitives tile the spine: `bottom + 2 (corner + wall + fillet + ear) = S`, the
+    /// straight runs at their closed-form lengths and each bend at the eased arc its footprint fixes.
     @Test func regionsTileTheSpine() throws {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
@@ -103,9 +104,9 @@ struct MercurySpineTests {
             #expect(abs(sum - spine.length) <= 1e-12 * spine.length)
             #expect(spine.restCenter == spine.length / 2)
             #expect(abs(regions.bottom - (outline.maxX - outline.minX - 2 * corner)) <= 1e-12)
-            #expect(abs(regions.corner - Double.pi / 2 * corner) <= 1e-12)
+            #expect(abs(regions.corner - EasedBend.arc(radius: corner)) <= 1e-9 * corner)
             #expect(abs(regions.wall - ((outline.top - fillet) - (outline.bottom + corner))) <= 1e-12)
-            #expect(abs(regions.fillet - Double.pi / 2 * fillet) <= 1e-12)
+            #expect(abs(regions.fillet - EasedBend.arc(radius: fillet)) <= 1e-9 * fillet)
             #expect(regions.ear == outline.earLength)
             #expect(regions.bottom >= 0 && regions.wall >= 0)
         }
@@ -165,10 +166,10 @@ struct MercurySpineTests {
         }
     }
 
-    /// The curve is C¹ at every join, and its frame is the curve's own: `dP/ds = T`,
-    /// `dT/ds = −κN` and `dN/ds = κT`, with `N = (T.y, −T.x)` and κ equal to `1/ρ`, `−1/ρe`
-    /// or 0, primitive by primitive.
-    @Test func collarIsC1WithExactCurvature() throws {
+    /// The curve is G² at every join, and its frame is the curve's own: `dP/ds = T`,
+    /// `dT/ds = −κN` and `dN/ds = κT`, with `N = (T.y, −T.x)` and κ, at each primitive's
+    /// middle, the plateau's `1/R_p` on a corner, `−1/R_p` on a fillet, or 0.
+    @Test func collarIsG2WithExactCurvature() throws {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
@@ -178,7 +179,8 @@ struct MercurySpineTests {
 
             // Across each join: no gap, and no more turn than the sharper neighbour allows.
             let step = 1e-7
-            let sharpest = 1 / Swift.min(corner, fillet)
+            let sharpest =
+                1 / Swift.min(EasedBend.plateauRadius(radius: corner), EasedBend.plateauRadius(radius: fillet))
             var worstGap = 0.0
             var worstTurn = 0.0
             for join in joins.dropFirst().dropLast() {
@@ -190,10 +192,14 @@ struct MercurySpineTests {
             #expect(worstGap <= 1e-12, "join gap \(worstGap) pt beyond the arc between samples")
             #expect(worstTurn <= 1e-12, "join turn \(worstTurn) beyond the curvature bound")
 
-            let curvatures = [0, -1 / fillet, 0, 1 / corner, 0, 1 / corner, 0, -1 / fillet, 0]
+            let cornerCurvature = 1 / EasedBend.plateauRadius(radius: corner)
+            let filletCurvature = 1 / EasedBend.plateauRadius(radius: fillet)
+            let curvatures = [0, -filletCurvature, 0, cornerCurvature, 0, cornerCurvature, 0, -filletCurvature, 0]
             var wrongCurvature = 0
             for (index, curvature) in curvatures.enumerated() where joins[index + 1] > joins[index] {
-                if spine.frame(at: (joins[index] + joins[index + 1]) / 2).curvature != curvature {
+                if abs(spine.frame(at: (joins[index] + joins[index + 1]) / 2).curvature - curvature) > 1e-9
+                    * abs(curvature)
+                {
                     wrongCurvature += 1
                 }
             }
@@ -247,7 +253,8 @@ struct MercurySpineTests {
                 worstTangent = max(
                     worstTangent, Self.norm(mirrored.tangent - SIMD2(frame.tangent.x, -frame.tangent.y)))
                 worstTaper = max(worstTaper, abs(spine.taper(at: s) - spine.taper(at: opposite)))
-                if joins.allSatisfy({ abs($0 - s) > 1e-9 }), frame.curvature != mirrored.curvature {
+                // The ramps' curvature is read at `s` and `S − s`, which round apart.
+                if joins.allSatisfy({ abs($0 - s) > 1e-9 }), abs(frame.curvature - mirrored.curvature) > 1e-12 {
                     curvatureBreaks += 1
                 }
             }
@@ -442,32 +449,50 @@ struct MercurySpineTests {
 
     /// The inner half of the ribbon falls under the black housing, or above the screen along
     /// the ears. Nothing there is drawn or hit, so the hardware's edge is the visible contact
-    /// line. Only the fillets' inner side lies outside the housing, in the crescent against
-    /// the hardware's own concave corner.
-    @Test func innerHalfLiesUnderTheHousing() {
+    /// line. Only two slivers lie outside the housing: a fillet's inner side, in the crescent
+    /// against the hardware's own concave corner, and the strip, at most ``MercurySpine/rimGap``
+    /// deep, between a corner's circular rim and the squarer spine laid along it. That strip
+    /// charts back to its own foot, so the body still meets the hardware.
+    @Test func innerHalfLiesUnderTheHousing() throws {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
+            let outline = try #require(Self.laidOutline(of: spine))
             let joins = Self.joins(of: spine)
             var sampled = 0
             var drawn = 0
+            var sliver = 0
+            var strays = 0
             for k in 0...2000 {
                 let s = spine.length * Double(k) / 2000
                 let onFillet = (joins[1] < s && s < joins[2]) || (joins[7] < s && s < joins[8])
                 guard !onFillet else { continue }
+                let onCorner = (joins[3] < s && s < joins[4]) || (joins[5] < s && s < joins[6])
                 let normal = spine.frame(at: s).normal
-                for depth in [0.25, 2, 8] {
+                for depth in [0.05, 0.25, 2, 8] {
+                    let point = spine.point(at: s) - depth * normal
                     sampled += 1
-                    if spine.chart(at: spine.point(at: s) - depth * normal) != nil { drawn += 1 }
+                    guard let chart = spine.chart(at: point) else { continue }
+                    if Self.isInsideHousing(point, outline) || point.y > outline.top {
+                        drawn += 1
+                    } else if onCorner, depth <= spine.rimGap, abs(chart.arcLength - s) <= 1e-9,
+                        abs(chart.normalOffset + depth) <= 1e-9
+                    {
+                        sliver += 1
+                    } else {
+                        strays += 1
+                    }
                 }
             }
             #expect(sampled > 3000)
             #expect(drawn == 0)
+            #expect(strays == 0)
+            #expect(sliver > 0)
         }
     }
 
-    /// A fillet's offsets toward its centre are unique for every `n < ρe`, where the metric
-    /// `1 − n/ρe` is still positive. The centre itself is equidistant from the whole arc and
-    /// charts onto one end of it. The band film keeps the drawn body far short of the centre.
+    /// A fillet's offsets toward its centre are unique past the drawn film, here to `0.85ρe`,
+    /// short of its plateau's `0.877ρe` where the metric `1 + κn` vanishes. The circle's
+    /// centre is nearest the fillet's two ends and charts onto one of them.
     @Test func filletOffsetsAreUniqueInsideTheFilletRadius() throws {
         for housing in Self.realistic {
             let spine = MercurySpine(collar: housing.outline)
@@ -483,14 +508,14 @@ struct MercurySpineTests {
                 for s in [along, spine.length - along] {
                     let normal = spine.frame(at: s).normal
                     for step in 0..<64 {
-                        let offset = fillet * Double(step) / 64
+                        let offset = 0.85 * fillet * Double(step) / 64
                         guard let chart = spine.chart(at: spine.point(at: s) + offset * normal) else {
                             misses += 1
                             continue
                         }
                         worstArc = max(worstArc, abs(chart.arcLength - s))
                         worstOffset = max(worstOffset, abs(chart.normalOffset - offset))
-                        worstMetric = max(worstMetric, abs(chart.metric - (1 - offset / fillet)))
+                        worstMetric = max(worstMetric, abs(chart.metric - (1 + spine.frame(at: s).curvature * offset)))
                     }
                 }
             }
@@ -664,14 +689,24 @@ struct MercurySpineTests {
             }
             #expect(wrong == 0)
 
-            let blends: [(degrees: Double, taper: Double)] = [
-                (0, 1), (15, 1), (30, 1), (50, (1 + film) / 2), (70, film), (85, film), (90, film),
+            // The corner's tangent turns `θ_q` along its first ramp, then at `1/R_p` on its plateau.
+            let ramp = 0.15 * spine.regions.corner
+            let plateauRadius = EasedBend.plateauRadius(radius: outline.cornerRadius)
+            func cornerArc(degreesAboveBottom degrees: Double) -> Double {
+                joins[3] + ramp + plateauRadius * ((90 - degrees) * Double.pi / 180 - EasedBend.rampTurn)
+            }
+            let blends: [(s: Double, label: String, taper: Double)] = [
+                (joins[4], "0°", 1), (cornerArc(degreesAboveBottom: 15), "15°", 1),
+                (cornerArc(degreesAboveBottom: 30), "30°", 1),
+                (cornerArc(degreesAboveBottom: 50), "50°", (1 + film) / 2),
+                (cornerArc(degreesAboveBottom: 70), "70°", film), (joins[3] + ramp / 2, "the wall's ramp", film),
+                (joins[3], "90°", film),
             ]
             for blend in blends {
-                let s = joins[3] + outline.cornerRadius * (Double.pi / 2 - blend.degrees * Double.pi / 180)
-                #expect(abs(spine.taper(at: s) - blend.taper) <= 1e-12, "left corner at \(blend.degrees)°")
+                #expect(abs(spine.taper(at: blend.s) - blend.taper) <= 1e-12, "left corner at \(blend.label)")
                 #expect(
-                    abs(spine.taper(at: spine.length - s) - blend.taper) <= 1e-12, "right corner at \(blend.degrees)°")
+                    abs(spine.taper(at: spine.length - blend.s) - blend.taper) <= 1e-12,
+                    "right corner at \(blend.label)")
             }
         }
     }
@@ -684,7 +719,7 @@ struct MercurySpineTests {
             let outline = try #require(Self.laidOutline(of: spine))
             let film = outline.bandFilm / MercurySpine.maxHalfHeight
             // The 30°…70° blend's arc length, and the smoothstep's largest slope and bend over it.
-            let span = 40 * Double.pi / 180 * outline.cornerRadius
+            let span = 40 * Double.pi / 180 * EasedBend.plateauRadius(radius: outline.cornerRadius)
             let slope = 1.5 * (1 - film) / span
             let bend = 6 * (1 - film) / (span * span)
             let step = 5e-3
@@ -717,8 +752,10 @@ struct MercurySpineTests {
             let joins = Self.joins(of: spine)
             let film = outline.bandFilm / MercurySpine.maxHalfHeight
             // The left blend runs from 70° up the corner, 20° of turn past its wall end, down to 30°.
-            let blendStart = joins[3] + outline.cornerRadius * 20 * Double.pi / 180
-            let blendEnd = joins[3] + outline.cornerRadius * 60 * Double.pi / 180
+            let plateauRadius = EasedBend.plateauRadius(radius: outline.cornerRadius)
+            let plateauStart = joins[3] + 0.15 * spine.regions.corner - plateauRadius * EasedBend.rampTurn
+            let blendStart = plateauStart + plateauRadius * 20 * Double.pi / 180
+            let blendEnd = plateauStart + plateauRadius * 60 * Double.pi / 180
             let step = 1e-6
             var worst = 0.0
             var worstMirror = 0.0
@@ -737,7 +774,7 @@ struct MercurySpineTests {
             #expect(strayOffTheBlends == 0)
 
             let peak = (blendStart + blendEnd) / 2
-            let steepest = 1.5 * (1 - film) / (40 * Double.pi / 180 * outline.cornerRadius)
+            let steepest = 1.5 * (1 - film) / (40 * Double.pi / 180 * plateauRadius)
             #expect(abs(spine.taperSlope(at: peak) - steepest) <= 1e-12 * steepest)
             #expect(abs(spine.taperSlope(at: spine.length - peak) + steepest) <= 1e-12 * steepest)
         }
@@ -751,7 +788,7 @@ struct MercurySpineTests {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let film = outline.bandFilm / MercurySpine.maxHalfHeight
-            let span = 40 * Double.pi / 180 * outline.cornerRadius
+            let span = 40 * Double.pi / 180 * EasedBend.plateauRadius(radius: outline.cornerRadius)
             let steepestSlope = 1.5 * (1 - film) / span
             let sharpestBend = 6 * (1 - film) / (span * span)
             let noise = MercuryNoise(seed: 0x5441_5045_5200_0000 | UInt64(index))
@@ -816,6 +853,134 @@ struct MercurySpineTests {
         }
     }
 
+    // MARK: - The eased bends
+
+    /// Every bend eases in and out: `κ` is continuous across every join and across each
+    /// ramp's hand-over to its plateau, to 1e-9. Each bend keeps its circle's footprint, `r`
+    /// across and `r` down, and squares the circle off by `0.04873r` at its middle, which for
+    /// a corner is ``MercurySpine/rimGap``. Its arc is `1.62051r` and its plateau turns at
+    /// `1.14038/r`.
+    @Test func bendsAreCurvatureContinuousAndKeepTheirFootprint() throws {
+        for housing in Self.everyHousing {
+            let spine = MercurySpine(collar: housing.outline)
+            let outline = try #require(Self.laidOutline(of: spine))
+            let joins = Self.joins(of: spine)
+            let cornerRamp = 0.15 * spine.regions.corner
+            let filletRamp = 0.15 * spine.regions.fillet
+            var handOvers = Array(joins.dropFirst().dropLast())
+            for (start, end, ramp) in [(joins[1], joins[2], filletRamp), (joins[3], joins[4], cornerRamp)] {
+                handOvers += [start + ramp, end - ramp, spine.length - start - ramp, spine.length - end + ramp]
+            }
+            var worstJump = 0.0
+            for s in handOvers {
+                worstJump = max(
+                    worstJump, abs(spine.frame(at: s + 1e-9).curvature - spine.frame(at: s - 1e-9).curvature))
+            }
+            #expect(worstJump <= 1e-9, "curvature jumps by \(worstJump)")
+
+            let corner = outline.cornerRadius
+            let fillet = outline.filletRadius
+            #expect(Self.norm(spine.point(at: joins[4]) - spine.point(at: joins[3]) - SIMD2(corner, -corner)) <= 1e-12)
+            #expect(Self.norm(spine.point(at: joins[2]) - spine.point(at: joins[1]) - SIMD2(fillet, -fillet)) <= 1e-12)
+            #expect(abs(spine.regions.corner / corner - 1.62051) <= 1e-5)
+            #expect(abs(spine.frame(at: (joins[3] + joins[4]) / 2).curvature * corner - 1.14038) <= 1e-5)
+
+            // The corner's widest gap to the housing's circle, sampled, against `rimGap`.
+            let centre = SIMD2(outline.minX + corner, outline.bottom + corner)
+            var gap = -Double.infinity
+            for k in 0...4000 {
+                gap = max(
+                    gap,
+                    Self.norm(spine.point(at: joins[3] + spine.regions.corner * Double(k) / 4000) - centre) - corner)
+            }
+            #expect(abs(gap - spine.rimGap) <= 1e-9)
+            #expect(abs(spine.rimGap - EasedBend.middleGap(radius: corner)) <= 1e-9)
+            #expect(abs(spine.rimGap / corner - 0.04873) <= 1e-5)
+        }
+    }
+
+    /// On the walls, the corners and the bottom run, `rimDistance` is the point's distance
+    /// outside the housing's own circular-cornered outline, rebuilt here from its rect. Where
+    /// the chart does not border the housing it is infinite.
+    @Test func rimDistanceIsTheDistanceOutsideTheCircularHousing() throws {
+        for (index, housing) in Self.everyHousing.enumerated() {
+            let spine = MercurySpine(collar: housing.outline)
+            let outline = try #require(Self.laidOutline(of: spine))
+            let noise = MercuryNoise(seed: 0x5249_4D44_4953_5400 | UInt64(index))
+            let box = Self.canvasBox(outline)
+            var bordering = 0
+            var wrong = 0
+            var worst = 0.0
+            for counter in UInt64(0)..<20_000 {
+                let point = Self.draw(noise, counter: counter, in: box)
+                guard let chart = spine.chart(at: point) else { continue }
+                guard chart.bordersHousing else {
+                    if chart.rimDistance != .infinity { wrong += 1 }
+                    continue
+                }
+                bordering += 1
+                worst = max(worst, abs(chart.rimDistance - Self.distanceOutsideHousing(point, outline)))
+            }
+            #expect(wrong == 0)
+            #expect(bordering > 2_000)
+            #expect(worst <= 1e-12, "rimDistance off by \(worst)")
+        }
+    }
+
+    /// Newton finds every ramp's foot within four steps: a corner's anywhere within 20 pt of
+    /// its curve, a fillet's anywhere in the film the band can draw. These are the steps the
+    /// chart itself takes, and their feet are the chart's.
+    @Test func rampFeetConvergeWithinFourNewtonSteps() throws {
+        for housing in Self.everyHousing {
+            let spine = MercurySpine(collar: housing.outline)
+            let outline = try #require(Self.laidOutline(of: spine))
+            let joins = Self.joins(of: spine)
+            let corner = outline.cornerRadius
+            let fillet = outline.filletRadius
+            let cornerRamp = 0.15 * spine.regions.corner
+            let filletRamp = 0.15 * spine.regions.fillet
+            var steps: [Int: Int] = [:]
+            var mismatched = 0
+            func record(_ foot: MercurySpine.RampFoot, chart: MercurySpine.Chart, at expected: Double) {
+                steps[foot.newtonSteps ?? 0, default: 0] += 1
+                if abs(chart.arcLength - expected) > 1e-9 { mismatched += 1 }
+            }
+            for x in stride(from: outline.minX - 20, through: outline.minX + corner, by: 0.1) {
+                for y in stride(from: outline.bottom - 20, through: outline.bottom + corner, by: 0.1) {
+                    guard let chart = spine.chart(at: SIMD2(x, y)) else { continue }
+                    if chart.arcLength > joins[3], chart.arcLength < joins[3] + cornerRamp {
+                        let foot = spine.rampFoot(
+                            across: outline.minX - x, along: outline.bottom + corner - y, concave: false)
+                        record(foot, chart: chart, at: joins[3] + cornerRamp * foot.fraction)
+                    } else if chart.arcLength > joins[4] - cornerRamp, chart.arcLength < joins[4] {
+                        let foot = spine.rampFoot(
+                            across: outline.bottom - y, along: outline.minX + corner - x, concave: false)
+                        record(foot, chart: chart, at: joins[4] - cornerRamp * foot.fraction)
+                    }
+                }
+            }
+            for x in stride(from: outline.minX - fillet + 0.005, to: outline.minX, by: 0.02) {
+                for y in stride(from: outline.top - fillet + 0.005, to: outline.top, by: 0.02) {
+                    guard let chart = spine.chart(at: SIMD2(x, y)), chart.normalOffset <= outline.bandFilm else {
+                        continue
+                    }
+                    if chart.arcLength > joins[1], chart.arcLength < joins[1] + filletRamp {
+                        let foot = spine.rampFoot(
+                            across: y - outline.top, along: x - outline.minX + fillet, concave: true)
+                        record(foot, chart: chart, at: joins[1] + filletRamp * foot.fraction)
+                    } else if chart.arcLength > joins[2] - filletRamp, chart.arcLength < joins[2] {
+                        let foot = spine.rampFoot(
+                            across: x - outline.minX, along: y - outline.top + fillet, concave: true)
+                        record(foot, chart: chart, at: joins[2] - filletRamp * foot.fraction)
+                    }
+                }
+            }
+            #expect(steps.values.reduce(0, +) > 1_000)
+            #expect(steps.keys.allSatisfy { (1...4).contains($0) }, "Newton steps \(steps.sorted { $0.key < $1.key })")
+            #expect(mismatched == 0)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func laidOutline(of spine: MercurySpine) -> MercurySpine.Outline? {
@@ -847,6 +1012,16 @@ struct MercurySpineTests {
         return hypot(point.x - centreX, point.y - centreY) < corner
     }
 
+    /// How far a point lies outside the housing's own outline: its circular-cornered rect,
+    /// extended up into the bezel.
+    private static func distanceOutsideHousing(_ point: SIMD2<Double>, _ outline: MercurySpine.Outline) -> Double {
+        let corner = outline.cornerRadius
+        if point.y >= outline.bottom + corner { return Swift.max(outline.minX - point.x, point.x - outline.maxX) }
+        if point.x >= outline.minX + corner, point.x <= outline.maxX - corner { return outline.bottom - point.y }
+        let centreX = Swift.min(Swift.max(point.x, outline.minX + corner), outline.maxX - corner)
+        return hypot(point.x - centreX, point.y - (outline.bottom + corner)) - corner
+    }
+
     private static func mirror(_ point: SIMD2<Double>, _ outline: MercurySpine.Outline) -> SIMD2<Double> {
         SIMD2(outline.minX + outline.maxX - point.x, point.y)
     }
@@ -871,12 +1046,13 @@ struct MercurySpineTests {
     }
 }
 
-/// The housing outline rebuilt from its own rect and resampled every `spacing` of arc, with a
-/// brute-force nearest point over every segment.
+/// The spine's outline rebuilt from the housing's rect and resampled every `spacing` of arc,
+/// with a brute-force nearest point over every segment.
 ///
-/// Nothing here reads the spine's evaluators. Arcs come from their centres and angles, and arc
-/// length comes from each primitive's own length. Segments of a straight run lie on it, so
-/// distances there are exact, while a chord sags at most `spacing²/8ρ` off its arc.
+/// Nothing here reads the spine's evaluators. Each bend comes from its curvature profile alone
+/// (``EasedBend``), its points integrated here by Simpson's rule, and arc length comes from
+/// each primitive's own length. Segments of a straight run lie on it, so distances there are
+/// exact, while a chord sags at most `spacing²κ/8` off a bend.
 ///
 /// The scan prunes by bounding boxes, groups of blocks first and then blocks of segments, and
 /// skips one only when its box is already farther away than some point of the curve. So it
@@ -895,7 +1071,9 @@ private struct ResampledOutline {
 
     private enum Piece {
         case line(SIMD2<Double>, SIMD2<Double>)
-        case arc(center: SIMD2<Double>, radius: Double, from: Double, to: Double)
+        /// A bend of footprint `radius` from `start`, leaving along `direction` and turning
+        /// counter-clockwise when `turning` is +1, clockwise when −1.
+        case bend(start: SIMD2<Double>, direction: SIMD2<Double>, turning: Double, radius: Double)
     }
 
     private typealias Box = (minX: Double, maxX: Double, minY: Double, maxY: Double)
@@ -918,43 +1096,48 @@ private struct ResampledOutline {
         let (left, right, top, bottom) = (outline.minX, outline.maxX, outline.top, outline.bottom)
         let pieces: [Piece] = [
             .line(SIMD2(left - fillet - outline.earLength, top), SIMD2(left - fillet, top)),
-            .arc(center: SIMD2(left - fillet, top - fillet), radius: fillet, from: .pi / 2, to: 0),
+            .bend(start: SIMD2(left - fillet, top), direction: SIMD2(1, 0), turning: -1, radius: fillet),
             .line(SIMD2(left, top - fillet), SIMD2(left, bottom + corner)),
-            .arc(center: SIMD2(left + corner, bottom + corner), radius: corner, from: .pi, to: 1.5 * .pi),
+            .bend(start: SIMD2(left, bottom + corner), direction: SIMD2(0, -1), turning: 1, radius: corner),
             .line(SIMD2(left + corner, bottom), SIMD2(right - corner, bottom)),
-            .arc(center: SIMD2(right - corner, bottom + corner), radius: corner, from: 1.5 * .pi, to: 2 * .pi),
+            .bend(start: SIMD2(right - corner, bottom), direction: SIMD2(1, 0), turning: 1, radius: corner),
             .line(SIMD2(right, bottom + corner), SIMD2(right, top - fillet)),
-            .arc(center: SIMD2(right + fillet, top - fillet), radius: fillet, from: .pi, to: .pi / 2),
+            .bend(start: SIMD2(right, top - fillet), direction: SIMD2(0, 1), turning: -1, radius: fillet),
             .line(SIMD2(right + fillet, top), SIMD2(right + fillet + outline.earLength, top)),
         ]
         var start = 0.0
         for piece in pieces {
             let pieceLength: Double
-            let isArc: Bool
+            let isBend: Bool
             switch piece {
             case .line(let from, let to):
                 pieceLength = hypot(to.x - from.x, to.y - from.y)
-                isArc = false
-            case .arc(_, let radius, let from, let to):
-                pieceLength = radius * abs(to - from)
-                isArc = true
+                isBend = false
+            case .bend(_, _, _, let radius):
+                pieceLength = EasedBend.arc(radius: radius)
+                isBend = true
             }
             guard pieceLength > 0 else { continue }
             let count = Int((pieceLength / spacing).rounded(.up))
+            // A bend's drift `∫(sin θ, cos θ)`, accumulated interval by interval.
+            var drift = SIMD2<Double>.zero
             for index in (xs.isEmpty ? 0 : 1)...count {
                 let fraction = Double(index) / Double(count)
                 let point: SIMD2<Double>
                 switch piece {
                 case .line(let from, let to):
                     point = from + fraction * (to - from)
-                case .arc(let center, let radius, let from, let to):
-                    let angle = from + fraction * (to - from)
-                    point = center + radius * SIMD2(cos(angle), sin(angle))
+                case .bend(let origin, let direction, let turning, _):
+                    if index > 0 {
+                        drift += EasedBend.drift(from: Double(index - 1) / Double(count), to: fraction, steps: 8)
+                    }
+                    let across = turning * SIMD2(-direction.y, direction.x)
+                    point = origin + pieceLength * (drift.y * direction + drift.x * across)
                 }
                 xs.append(point.x)
                 ys.append(point.y)
                 arcLengths.append(start + fraction * pieceLength)
-                if index > 0 { onArc.append(isArc) }
+                if index > 0 { onArc.append(isBend) }
             }
             start += pieceLength
         }
@@ -1039,5 +1222,55 @@ private struct ResampledOutline {
         let dx = Swift.max(Swift.max(box.minX - point.x, point.x - box.maxX), 0)
         let dy = Swift.max(Swift.max(box.minY - point.y, point.y - box.maxY), 0)
         return dx * dx + dy * dy
+    }
+}
+
+/// The eased bend rebuilt from its curvature profile alone, as the spine is specified: over
+/// the first and last `q = 0.15` of its arc the curvature rises as `sin²` from 0 to the
+/// plateau's, which holds between them; the whole turns a quarter turn and keeps the footprint
+/// of a circle of radius `r`. Nothing here reads the spine: the turn is closed form, and every
+/// position is integrated here by composite Simpson.
+private enum EasedBend {
+    static let rampShare = 0.15
+    /// The plateau's turn per unit of the bend's arc fraction, `π/2(1 − q)`.
+    static let plateauTurn = Double.pi / (2 * (1 - rampShare))
+    /// Each ramp's whole turn, `θ_q`.
+    static let rampTurn = plateauTurn * rampShare / 2
+
+    /// The turn at the arc fraction `t`.
+    static func turn(at t: Double) -> Double {
+        let q = rampShare
+        if t <= q { return plateauTurn * (t / 2 - q / (2 * Double.pi) * sin(Double.pi * t / q)) }
+        if t >= 1 - q { return Double.pi / 2 - turn(at: 1 - t) }
+        return plateauTurn * (t - q / 2)
+    }
+
+    /// `∫(sin θ, cos θ)` over the arc fractions `from…to`, by composite Simpson in `steps` panels.
+    static func drift(from start: Double, to end: Double, steps: Int) -> SIMD2<Double> {
+        let width = (end - start) / Double(steps)
+        var sum = SIMD2<Double>.zero
+        for index in 0...steps {
+            let weight: Double = index == 0 || index == steps ? 1 : (index % 2 == 1 ? 4 : 2)
+            let angle = turn(at: start + Double(index) * width)
+            sum += weight * SIMD2(sin(angle), cos(angle))
+        }
+        return sum * (width / 3)
+    }
+
+    /// `r/S`, the footprint per unit of arc.
+    static let footprint = drift(from: 0, to: 1, steps: 40_000).y
+
+    static func arc(radius: Double) -> Double { radius / footprint }
+
+    static func plateauRadius(radius: Double) -> Double { arc(radius: radius) / plateauTurn }
+
+    /// How far the bend's middle stands outside its circle: the plateau's centre lies `R_p`
+    /// back along the normal where the first ramp ends, `c` from the circle's centre on each
+    /// axis, so the middle is `√2·c + R_p` from it.
+    static func middleGap(radius: Double) -> Double {
+        let arc = arc(radius: radius)
+        let rampEnd = arc * drift(from: 0, to: rampShare, steps: 4_000)
+        let inset = radius - rampEnd.x - plateauRadius(radius: radius) * cos(rampTurn)
+        return 2.0.squareRoot() * inset + plateauRadius(radius: radius) - radius
     }
 }

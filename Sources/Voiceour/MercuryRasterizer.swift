@@ -26,6 +26,12 @@ struct MercuryAppearance: Equatable {
 /// its coverage ramp and one more pixel, and visits only those, in the same row-major order a
 /// scan of every pixel takes. The extents hold every pixel the field can cover, so the image,
 /// and the order calibration collects its samples in, are exactly what that scan produces.
+///
+/// **A bend's pixels are charted once.** A chart depends on the spine and the pixel alone,
+/// never on the body, so it holds for as long as the spine, the canvas and its scale do. Only
+/// the bends' charts are dear: a convex corner's plateau takes an arctangent, and a ramp's foot
+/// a few Newton steps. So every pixel around the collar's four bends keeps the chart the first
+/// frame to visit it computed, and every other pixel, a few multiplies, is charted afresh.
 @MainActor
 final class MercuryRasterizer {
     private var context: CGContext?
@@ -41,6 +47,27 @@ final class MercuryRasterizer {
     private var maskCapacity = 0
     private var responseKey: MercuryDisplayResponse?
     private var responseLookup: MercuryDisplayLookup?
+    /// The charts kept for the pixels around a collar's bends, and per pixel whether it is
+    /// charted yet: 0 not yet, 1 charted, 2 no chart. Laid out box by box, see ``BendBox``.
+    private var bendCharts: UnsafeMutablePointer<MercurySpine.Chart>?
+    private var bendChartStates: UnsafeMutablePointer<UInt8>?
+    private var bendChartCapacity = 0
+    /// What the kept charts were charted on. Any change forgets them all.
+    private var bendChartKey: BendChartKey?
+    private var bendBoxes: [BendBox] = []
+
+    private struct BendChartKey: Equatable {
+        var spine: MercurySpine
+        var canvas: CGRect
+        var pixelSize: Double
+    }
+
+    /// The pixel rows and columns around one bend, and where its kept charts start.
+    private struct BendBox {
+        var rows: ClosedRange<Int>
+        var columns: ClosedRange<Int>
+        var base: Int
+    }
 
     /// No chart's arc length has this bit pattern: it is finite for every finite pixel.
     private static let unsetStationKey = Double.nan.bitPattern
@@ -52,6 +79,8 @@ final class MercuryRasterizer {
         stationKeys?.deallocate()
         stationSamples?.deallocate()
         mask?.deallocate()
+        bendCharts?.deallocate()
+        bendChartStates?.deallocate()
     }
 
     func image(
@@ -103,9 +132,12 @@ final class MercuryRasterizer {
     ///
     /// The field's own ramp is `½ + φ/(|∇φ|·h)`, clamped. On the housing's own edge the
     /// hardware takes its share too. The chart ends at the rim, so a pixel whose centre lies
-    /// `n` outside it keeps only the `½ + n/h` of itself that lies outside, and the rim is
-    /// antialiased rather than drawn by centre. The ears and fillets meet the screen's top
-    /// edge, which is the canvas edge, and the island meets nothing.
+    /// `d` outside it keeps only the `½ + d/h` of itself that lies outside, and the rim is
+    /// antialiased rather than drawn by centre. That `d` is the chart's
+    /// ``MercurySpine/Chart/rimDistance``, the housing's own distance: on a convex corner the
+    /// eased spine stands up to ``MercurySpine/rimGap`` outside the circular rim, so its
+    /// offset is not. The ears and fillets meet the screen's top edge, which is the canvas
+    /// edge, and the island meets nothing.
     @inline(__always)
     static func coverage(of sample: MercuryField.Sample, chart: MercurySpine.Chart, pixelSize: Double) -> Double {
         let fieldGradient = sample.gradient
@@ -113,7 +145,7 @@ final class MercuryRasterizer {
         guard gradientLength > 1e-9 else { return 0 }
         let body = Swift.min(Swift.max(0.5 + sample.value / (gradientLength * pixelSize), 0), 1)
         guard chart.bordersHousing else { return body }
-        return body * Swift.min(Swift.max(0.5 + chart.normalOffset / pixelSize, 0), 1)
+        return body * Swift.min(Swift.max(0.5 + chart.rimDistance / pixelSize, 0), 1)
     }
 
     /// The linear scene radiance a covered point reflects: the room, seen off the crown the
@@ -245,6 +277,10 @@ final class MercuryRasterizer {
         }
 
         let spine = field.spine
+        prepareBendCharts(spine: spine, canvas: canvas, pixelSize: pixelSize, width: width, height: height)
+        let boxes = bendBoxes
+        let keptCharts = bendCharts
+        let keptStates = bendChartStates
         let collecting = samples != nil
         let selectedResponse: MercuryDisplayResponse?
         if let response {
@@ -262,6 +298,18 @@ final class MercuryRasterizer {
         for row in rows {
             let vertical = canvasMaxY - (Double(row) + 0.5) * pixelSize
             let words = mask + row * wordsPerRow
+            // The kept charts' columns on this row: one box on each side of the housing at most,
+            // and each `base` already offset so a column indexes it directly.
+            var near = (low: 1, high: 0, base: 0)
+            var far = (low: 1, high: 0, base: 0)
+            for box in boxes where box.rows.contains(row) {
+                let entry = (
+                    low: box.columns.lowerBound,
+                    high: box.columns.upperBound,
+                    base: box.base + (row - box.rows.lowerBound) * box.columns.count - box.columns.lowerBound
+                )
+                if near.low > near.high { near = entry } else { far = entry }
+            }
             for word in 0..<wordsPerRow {
                 var blocks = words[word]
                 while blocks != 0 {
@@ -271,7 +319,30 @@ final class MercuryRasterizer {
                         let horizontal =
                             canvasMinX + (Double(columnIndex) + 0.5) * pixelSize
                         let point = SIMD2(horizontal, vertical)
-                        guard let chart = spine.chart(at: point) else { continue }
+                        let slot =
+                            columnIndex >= near.low && columnIndex <= near.high
+                            ? near.base + columnIndex
+                            : columnIndex >= far.low && columnIndex <= far.high ? far.base + columnIndex : -1
+                        let chart: MercurySpine.Chart
+                        if slot >= 0, let keptCharts, let keptStates {
+                            switch keptStates[slot] {
+                            case 1:
+                                chart = keptCharts[slot]
+                            case 2:
+                                continue
+                            default:
+                                guard let fresh = spine.chart(at: point) else {
+                                    keptStates[slot] = 2
+                                    continue
+                                }
+                                (keptCharts + slot).initialize(to: fresh)
+                                keptStates[slot] = 1
+                                chart = fresh
+                            }
+                        } else {
+                            guard let fresh = spine.chart(at: point) else { continue }
+                            chart = fresh
+                        }
                         let station: MercuryField.StationSample
                         if chart.isHorizontal {
                             let key = chart.arcLength.bitPattern
@@ -312,6 +383,56 @@ final class MercuryRasterizer {
                 }
             }
         }
+    }
+
+    /// Lays out the kept charts for `spine` on this canvas, forgetting the old ones, unless
+    /// they were charted on exactly these.
+    ///
+    /// Each bend gets the box of pixels around it: a convex corner's quadrant, out to the
+    /// farthest the body can reach past it, 17 pt and its ramp; a fillet's square. A pixel
+    /// outside every box is simply charted afresh, so the boxes decide only what is kept.
+    private func prepareBendCharts(spine: MercurySpine, canvas: CGRect, pixelSize: Double, width: Int, height: Int) {
+        let key = BendChartKey(spine: spine, canvas: canvas, pixelSize: pixelSize)
+        guard key != bendChartKey else { return }
+        bendChartKey = key
+        bendBoxes = []
+        guard case .collar(let outline) = spine.kind else { return }
+        let canvasMinX = Double(canvas.minX)
+        let canvasMaxY = Double(canvas.maxY)
+        let reach = MercurySpine.maxHalfHeight + 5
+        let corner = outline.cornerRadius
+        let fillet = outline.filletRadius
+        let regions = [
+            (outline.minX - reach, outline.minX + corner, outline.bottom - reach, outline.bottom + corner),
+            (outline.maxX - corner, outline.maxX + reach, outline.bottom - reach, outline.bottom + corner),
+            (outline.minX - fillet, outline.minX, outline.top - fillet, outline.top),
+            (outline.maxX, outline.maxX + fillet, outline.top - fillet, outline.top),
+        ]
+        var total = 0
+        for (minX, maxX, minY, maxY) in regions {
+            guard
+                let columns = Self.centres(
+                    from: (minX - canvasMinX) / pixelSize,
+                    through: (maxX - canvasMinX) / pixelSize,
+                    count: width
+                ),
+                let rows = Self.centres(
+                    from: (canvasMaxY - maxY) / pixelSize,
+                    through: (canvasMaxY - minY) / pixelSize,
+                    count: height
+                )
+            else { continue }
+            bendBoxes.append(BendBox(rows: rows, columns: columns, base: total))
+            total += rows.count * columns.count
+        }
+        if bendChartCapacity < total {
+            bendCharts?.deallocate()
+            bendChartStates?.deallocate()
+            bendCharts = UnsafeMutablePointer<MercurySpine.Chart>.allocate(capacity: total)
+            bendChartStates = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
+            bendChartCapacity = total
+        }
+        bendChartStates?.update(repeating: 0, count: total)
     }
 
     /// Marks, row by row, the blocks of columns any of `field`'s extents reaches, and returns

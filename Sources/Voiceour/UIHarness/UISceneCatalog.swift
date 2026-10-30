@@ -364,7 +364,7 @@
                 UISceneDescriptor(
                     id: "overlay.island.recording",
                     title: "Recording overlay island, speaking",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
@@ -379,7 +379,7 @@
                 UISceneDescriptor(
                     id: "overlay.island.listening",
                     title: "Recording overlay island, live microphone hearing nothing",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
@@ -394,12 +394,12 @@
                 UISceneDescriptor(
                     id: "overlay.island.copied",
                     title: "Recording overlay island, copy-only outcome",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: copiedOverlayModel(),
+                            model: outcomeOverlayModel(.copiedOnly(reason: "target_terminal")),
                             onCancel: {},
                             onFinish: {},
                             islandOnly: true
@@ -409,7 +409,7 @@
                 UISceneDescriptor(
                     id: "overlay.island.warmup",
                     title: "Recording overlay island, microphone still warming up",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
@@ -424,7 +424,7 @@
                 UISceneDescriptor(
                     id: "overlay.island.processing",
                     title: "Recording overlay island, transcribing",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
@@ -439,7 +439,7 @@
                 UISceneDescriptor(
                     id: "overlay.island.reduced-motion",
                     title: "Recording overlay island with Reduce Motion enabled",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay", "a11y"],
                     accessibilityAdaptation: .reduceMotion
                 ) {
@@ -455,7 +455,7 @@
                 UISceneDescriptor(
                     id: "overlay.island.weather",
                     title: "Recording overlay island reflecting the debug Spectral Weather world",
-                    size: RecordingOverlayMetrics.islandSize,
+                    size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
@@ -471,6 +471,59 @@
                         }
                     )
                 },
+                // The collar around the 16-inch MacBook Pro's camera housing, `.fixtureNotch`:
+                // the island's states on the island's own model builders, laid along the
+                // housing's outline. `wide` is the same panel at More Space, whose housing spans
+                // more points. Canvas alone like the island scenes; the collar's canvas is its
+                // whole panel, hung flush from the screen's top edge around the housing.
+                collar(
+                    "overlay.notch.recording",
+                    "Recording overlay collar around the camera housing, speaking",
+                    model: listeningOverlayModel
+                ),
+                collar(
+                    "overlay.notch.listening",
+                    "Recording overlay collar, live microphone hearing nothing",
+                    model: quietOverlayModel
+                ),
+                collar(
+                    "overlay.notch.warmup",
+                    "Recording overlay collar, microphone still warming up",
+                    model: warmingOverlayModel
+                ),
+                collar(
+                    "overlay.notch.processing",
+                    "Recording overlay collar, transcribing",
+                    model: processingOverlayModel
+                ),
+                collar(
+                    "overlay.notch.copied",
+                    "Recording overlay collar, copy-only outcome",
+                    model: { outcomeOverlayModel(.copiedOnly(reason: "target_terminal")) }
+                ),
+                collar(
+                    "overlay.notch.lurch",
+                    "Recording overlay collar, failed delivery",
+                    model: { outcomeOverlayModel(.insertFailed(reason: "no focused element")) }
+                ),
+                collar(
+                    "overlay.notch.error",
+                    "Recording overlay collar, transcription error",
+                    model: { outcomeOverlayModel(.error(.inferenceFailed)) }
+                ),
+                collar(
+                    "overlay.notch.reduced-motion",
+                    "Recording overlay collar with Reduce Motion enabled",
+                    tags: ["a11y"],
+                    accessibilityAdaptation: .reduceMotion,
+                    model: listeningOverlayModel
+                ),
+                collar(
+                    "overlay.notch.wide",
+                    "Recording overlay collar around a wider camera housing, speaking",
+                    display: .fixtureWideNotch,
+                    model: listeningOverlayModel
+                ),
             ]
         }
 
@@ -592,6 +645,39 @@
             }
         }
 
+        /// The collar around the camera housing of `display`, its canvas alone like the island
+        /// scenes. The scene measures the layout's canvas, which for the collar is the whole
+        /// panel, and the model carries the layout, so the body, its pose ladder and the status
+        /// element's frame all read the collar the panel would lay out on that display.
+        private static func collar(
+            _ identifier: String,
+            _ title: String,
+            display: OverlayDisplay = .fixtureNotch,
+            tags: [String] = [],
+            accessibilityAdaptation: UIHarnessAccessibilityAdaptation? = nil,
+            model makeModel: @escaping @MainActor () -> RecordingOverlayModel
+        ) -> UISceneDescriptor {
+            let layout = UIFixtures.collarLayout(on: display)
+            return UISceneDescriptor(
+                id: identifier,
+                title: title,
+                size: layout.canvasRect.size,
+                tags: ["overlay"] + tags,
+                accessibilityAdaptation: accessibilityAdaptation
+            ) {
+                let model = makeModel()
+                model.update(layout: layout)
+                return AnyView(
+                    RecordingOverlayView(
+                        model: model,
+                        onCancel: {},
+                        onFinish: {},
+                        islandOnly: true
+                    )
+                )
+            }
+        }
+
         /// Literal fills, not `NSColor` system colours: a dynamic system colour
         /// resolves against this Mac's accent and appearance settings and would not
         /// port between machines.
@@ -601,12 +687,9 @@
 
         // MARK: - Overlay state
 
-        /// Eleven fixed drive levels, oldest first — the same shape the live meter
-        /// produces, minus the microphone. They are the mercury body's forcing now, not
-        /// bar heights: the body reads them as a travelling crest train.
-        private static let driveLevels: [Float] = [
-            0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46,
-        ]
+        /// The live meter's syllable, oldest first: the mercury body's forcing, which it
+        /// reads as a travelling crest train.
+        private static let driveLevels = MercurySpeechMeter.syllable
 
         /// A capture that is live and receiving buffers. These levels also carry it past
         /// the voice-activity hysteresis — two consecutive samples at or above 0.10 — so
@@ -630,19 +713,16 @@
             let model = RecordingOverlayModel()
             model.update(.recording)
             model.updateCaptureLive(true)
-            for level in [0.0, 0.02, 0.01, 0.03, 0.0, 0.04, 0.02, 0.0, 0.01, 0.05, 0.02]
-                as [Float]
-            {
+            for level in MercurySpeechMeter.quietRoom {
                 model.record(level)
             }
             return model
         }
 
-        /// One unclean delivery at its stable endpoint: the gathered gesture, no control
-        /// of any kind, and one safe status value.
-        private static func copiedOverlayModel() -> RecordingOverlayModel {
+        /// One unclean delivery at its stable endpoint: the outcome's gesture, no control of
+        /// any kind, and one safe status value.
+        private static func outcomeOverlayModel(_ state: SessionState) -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
-            let state = SessionState.copiedOnly(reason: "target_terminal")
             model.update(state)
             if let outcome = RecordingOverlayOutcome(state: state) {
                 model.present(outcome)

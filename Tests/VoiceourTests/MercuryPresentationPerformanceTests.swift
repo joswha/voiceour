@@ -77,12 +77,13 @@ struct MercuryPresentationPerformanceTests {
         }
     }
 
-    /// The binomial view direction against the exact one, over every point the island or the
-    /// largest collar canvas can shade (349×58 pt, around the wide notch) and every crown
-    /// height up to 14 pt. The first omitted term is `35q⁴/128`: about 1e-10 on the island,
-    /// where `q < 0.0044`, and just under 2e-8 at the collar's far corners, where `q < 0.0163`.
+    /// The binomial view direction against the exact one, over every point the island's
+    /// 196×34 pt canvas or the largest collar canvas can shade (349×58 pt, around the wide
+    /// notch) and every crown height up to 14 pt. The first omitted term is `35q⁴/128`: about
+    /// 2e-10 on the island, where `q < 0.0052`, and just under 2e-8 at the collar's far
+    /// corners, where `q < 0.0163`.
     @Test func finiteEyeApproximationIsSubpixelExactAcrossEveryCanvas() {
-        #expect(Self.worstViewDirectionError(halfWidth: 90, halfHeight: 17) < 1e-8)
+        #expect(Self.worstViewDirectionError(halfWidth: 98, halfHeight: 17) < 1e-8)
         #expect(Self.worstViewDirectionError(halfWidth: 174.5, halfHeight: 29) < 2e-8)
     }
 

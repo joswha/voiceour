@@ -58,16 +58,7 @@ struct MercuryEngineTests {
             world: .roomOfTen,
             hitRegion: MercuryHitRegion()
         )
-        let first = try #require(
-            engine.frame(
-                advancing: 0,
-                seed: 7,
-                world: .roomOfTen,
-                drive: drive,
-                appearance: .standard,
-                layout: .island
-            )
-        )
+        let first = try Self.emerged(engine, seed: 7, drive: drive, appearance: .standard, layout: .island)
         let duplicate = try #require(
             engine.frame(
                 advancing: 0,
@@ -100,16 +91,7 @@ struct MercuryEngineTests {
             world: .roomOfTen,
             hitRegion: MercuryHitRegion()
         )
-        let standard = try #require(
-            engine.frame(
-                advancing: 0,
-                seed: 9,
-                world: .roomOfTen,
-                drive: drive,
-                appearance: .standard,
-                layout: .island
-            )
-        )
+        let standard = try Self.emerged(engine, seed: 9, drive: drive, appearance: .standard, layout: .island)
         let increased = try #require(
             engine.frame(
                 advancing: 0,
@@ -188,16 +170,7 @@ struct MercuryEngineTests {
         let collar = RecordingOverlayLayout.forDisplay(.fixtureNotch)
         let region = MercuryHitRegion()
         let engine = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: region)
-        let island = try #require(
-            engine.frame(
-                advancing: 0,
-                seed: 7,
-                world: .roomOfTen,
-                drive: drive,
-                appearance: .standard,
-                layout: .island
-            )
-        )
+        let island = try Self.emerged(engine, seed: 7, drive: drive, appearance: .standard, layout: .island)
         // 3 pt above the island's centre: on the island's body, and in the collar's band.
         let raised = CGPoint(x: 130, y: 30)
         #expect(region.contains(raised, slop: MercuryMetrics.dragSlop))
@@ -276,6 +249,78 @@ struct MercuryEngineTests {
         #expect(pinnedIsland !== pinned)
     }
 
+    /// A room is metered against the bodies of the layout it lights. An engine meters once
+    /// for the first layout it draws and keeps that response for every frame on it, whatever
+    /// the appearance or the step; a frame on another layout meters again, in the same room.
+    /// So a collar the engine reaches from the island is lit exactly as a collar it started
+    /// on, and never by the island's response.
+    @Test func lightingIsMeteredOnTheLayoutItLightsAndKeptUntilTheLayoutChanges() throws {
+        let drive = Drives.speaking()
+        let collar = RecordingOverlayLayout.forDisplay(.fixtureNotch)
+        let room = MercuryEnvironment(world: .roomOfTen, seed: 7)
+        let calibration = MercuryCalibration.shared
+        // Two different responses, or nothing below could tell which one lit a frame.
+        #expect(
+            calibration.displayResponse(for: room, bodySeed: 7, layout: .island)
+                != calibration.displayResponse(for: room, bodySeed: 7, layout: collar)
+        )
+
+        let engine = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
+        func frame(
+            advancing steps: Int,
+            on layout: RecordingOverlayLayout,
+            appearance: MercuryAppearance = .standard
+        ) -> CGImage? {
+            engine.frame(
+                advancing: steps,
+                seed: 7,
+                world: .roomOfTen,
+                drive: drive,
+                appearance: appearance,
+                layout: layout
+            )
+        }
+        // The emerging body's first frame is empty, and an empty frame lights nothing.
+        #expect(frame(advancing: 0, on: .island) == nil)
+        #expect(engine.meteredResponses == 0)
+        for _ in 0..<60 {
+            _ = frame(advancing: 2, on: .island)
+        }
+        _ = try #require(frame(advancing: 1, on: .island, appearance: MercuryAppearance(increasedContrast: true)))
+        #expect(engine.meteredResponses == 1)
+
+        _ = try #require(frame(advancing: 1, on: collar))
+        #expect(engine.meteredResponses == 2)
+        for _ in 0..<60 {
+            _ = frame(advancing: 2, on: collar)
+        }
+        #expect(engine.meteredResponses == 2)
+        _ = try #require(frame(advancing: 1, on: .island))
+        #expect(engine.meteredResponses == 3)
+
+        let travelled = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
+        let fresh = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
+        func pinned(_ engine: MercuryEngine, step: Int, on layout: RecordingOverlayLayout) throws -> CGImage {
+            try #require(
+                engine.pinnedFrame(
+                    step: step,
+                    seed: 7,
+                    world: .roomOfTen,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+        }
+        _ = try pinned(travelled, step: 120, on: .island)
+        let relit = try pinned(travelled, step: 120, on: collar)
+        let collarFromTheStart = try pinned(fresh, step: 120, on: collar)
+        #expect(Self.bytes(relit) == Self.bytes(collarFromTheStart))
+        _ = try pinned(travelled, step: 240, on: collar)
+        #expect(travelled.meteredResponses == 2)
+        #expect(fresh.meteredResponses == 1)
+    }
+
     /// Strictly inside the camera housing: between its walls and above its bottom edge, less
     /// the two rounded bottom corners.
     private static func housing(_ outline: MercurySpine.Outline, contains point: SIMD2<Double>) -> Bool {
@@ -292,19 +337,53 @@ struct MercuryEngineTests {
     private static func bytes(_ image: CGImage) -> Data {
         image.dataProvider!.data! as Data
     }
+
+    /// A fresh engine's emergence. Its first live frame is the empty body about to grow out of
+    /// the top edge, which draws nothing; 0.6 s of full frames later the body is in its pose.
+    private static func emerged(
+        _ engine: MercuryEngine,
+        seed: UInt64,
+        drive: MercurySimulation.Drive,
+        appearance: MercuryAppearance,
+        layout: RecordingOverlayLayout
+    ) throws -> CGImage {
+        func frame(advancing steps: Int) -> CGImage? {
+            engine.frame(
+                advancing: steps,
+                seed: seed,
+                world: .roomOfTen,
+                drive: drive,
+                appearance: appearance,
+                layout: layout
+            )
+        }
+        #expect(frame(advancing: 0) == nil)
+        var image: CGImage?
+        for _ in 0..<18 {
+            image = frame(advancing: MercuryMetrics.maxSubstepsPerFrame)
+        }
+        return try #require(image)
+    }
 }
 
 /// The two layouts, held to the numbers they are built from: the island's established
 /// frames, and each notch fixture's collar rebuilt here from its housing rect.
 @MainActor
 struct RecordingOverlayLayoutTests {
+    /// The panel and the status element keep the island's established frames: the element is
+    /// exactly the envelope placement measures, turned into the panel's flipped space. The
+    /// canvas runs 8 pt past it at each end, centred on it, and the spine runs the canvas.
     @Test func theIslandKeepsItsEstablishedFrames() {
         let island = RecordingOverlayLayout.island
         #expect(island.kind == .island)
         #expect(island.panelSize == NSSize(width: 260, height: 80))
-        #expect(island.canvasRect == CGRect(x: 40, y: 16, width: 180, height: 34))
-        #expect(island.statusRect == island.canvasRect)
-        #expect(island.spine == MercurySpine(straightLength: 180))
+        #expect(island.statusRect == CGRect(x: 40, y: 16, width: 180, height: 34))
+        let panel = NSRect(origin: .zero, size: RecordingOverlayMetrics.windowSize)
+        let envelope = RecordingOverlayMetrics.islandFrame(forWindow: panel)
+        #expect(island.statusRect == CGRect(x: envelope.minX, y: panel.maxY - envelope.maxY, width: 180, height: 34))
+        #expect(island.canvasRect == CGRect(x: 32, y: 16, width: 196, height: 34))
+        #expect(island.canvasRect.midX == island.statusRect.midX)
+        #expect(island.spine == MercurySpine(straightLength: 196))
         #expect(island.bandHeight == 0)
     }
 
@@ -444,10 +523,7 @@ private enum Drives {
         let model = RecordingOverlayModel()
         model.update(.recording)
         model.updateCaptureLive(true)
-        for level in [
-            0.08, 0.19, 0.34, 0.52, 0.71, 0.88,
-            0.64, 0.41, 0.27, 0.15, 0.46,
-        ] as [Float] {
+        for level in MercurySpeechMeter.syllable {
             model.record(level)
         }
         return MercurySimulation.Drive(
@@ -457,11 +533,13 @@ private enum Drives {
         )
     }
 
-    /// The speaking drive on a body nine tenths of the spine long: it covers the bottom and
-    /// both corners, climbs the walls, turns the fillets and runs out along both ears.
+    /// The speaking drive on a body nine tenths of the spine long, which the collar's whole
+    /// spine lets it grow to: it covers the bottom and both corners, climbs the walls, turns
+    /// the fillets and runs out along both ears.
     static func collar(spine: MercurySpine) -> MercurySimulation.Drive {
         var drive = speaking()
         drive.pose.length = CGFloat(0.9 * spine.length)
+        drive.maxLength = spine.length
         return drive
     }
 }

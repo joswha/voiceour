@@ -1,0 +1,2 @@
+AXGroup subrole=AXHostingView [0,0 314x52]
+  AXStaticText "Dictation status" value="Microphone starting" id=overlay.status help="Use the named actions to finish recording or cancel this dictation." [65,32 185x20]

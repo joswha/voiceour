@@ -7,48 +7,331 @@ import VoiceCore
 ///
 /// Typed-in gains are how a procedural surface rots: the law changes, the number stays,
 /// and the body quietly stops meaning what its constants claim. Each value here is
-/// bisected against a measurement of the real thing, and each measurement is asserted by
+/// solved against a measurement of the real thing, and each measurement is asserted by
 /// a test rather than trusted.
 ///
 /// **Why the two geometry solves difference two runs.** The body has autonomous life —
-/// a static rest asymmetry plus an Ornstein-Uhlenbeck shimmer — whose amplitude at the
-/// speaking pose is comparable to the crest train the voice paints. Measuring the total
+/// a static rest asymmetry plus a shimmer of randomly kicked gel modes — whose amplitude at
+/// the speaking pose is comparable to the crest train the voice paints. Measuring the total
 /// would therefore be very nearly independent of the gain being solved for, and the
-/// bisection would return a meaningless number. So each measurement runs two simulations
-/// from the *same* seed with Reduce Motion on, one driven and one with `driveScale` at
-/// zero, and takes the difference. Below the containment gauge the mode law is linear, so
-/// that difference is exactly the voice's own contribution — the quantity these two gains
-/// actually control.
+/// solve would return a meaningless number. So each measurement runs two simulations
+/// from the *same* seed on the same meter with Reduce Motion on, one driven and one with
+/// its voice disconnected, and takes the difference. Below the containment gauge the mode
+/// law is linear, so that difference is exactly the voice's own contribution — the quantity
+/// these two gains actually control.
+///
+/// **Why the two solves hear different meters.** The drive gain sets how large a crest a
+/// speaking user sees, so it is solved under live speech: a ``MercurySpeechMeter`` shifting
+/// a new level into the buffer every 40 ms, as a session's meter does and as the chrome
+/// benchmark's speaking bodies hear. One buffer held still under-reads it. The gel draws the
+/// voice quasi-statically, and a frozen buffer's crest train spends half of every 0.88 s in
+/// its band-limited extension's thin, smooth trough, so at one gain the median live crest
+/// stands 14 % above the frozen one, and a gain solved frozen drew live crests that pressed
+/// the speaking body against its ceiling. The contact-line gain sets whether the two edges
+/// move independently: a structural property of the law, solved at the listening pose, which
+/// speech never reaches. There the meter hears the quiet room held still, as the benchmark's
+/// listening bodies do, and a stationary periodic input is the right probe: one crest period
+/// measures the correlation exactly. Played on a loop instead, the quiet room's correlation is
+/// already −0.19 at zero contact line, the solve has no root, and it returns a degenerate zero.
 @MainActor
 final class MercuryCalibration {
     static let shared = MercuryCalibration()
 
     let gains: MercuryGains
 
-    /// What the solved constants actually achieved, for the tests to hold them to.
+    /// What the solved constants actually achieved, with both gains on, for the tests to hold
+    /// them to: the crest prominence under live speech and the correlation in the quiet room.
     let crestProminence: Double
     let mirrorCorrelation: Double
 
     private init() {
-        let drive = Self.solveDriveGain()
-        let snake = Self.solveSnakeGain(drive: drive)
+        let speech = Probe(speaking: true, frames: Self.speechFrames, stepsPerFrame: Self.speechStepsPerFrame)
+        let quietRoom = Probe(
+            speaking: false,
+            frames: Self.crestPeriodFrames,
+            stepsPerFrame: Self.crestPeriodStepsPerFrame
+        )
+        let drive = Self.solveDriveGain(on: speech)
+        let snake = Self.solveSnakeGain(drive: drive, on: quietRoom)
         gains = MercuryGains(drive: drive, snake: snake)
-        crestProminence = Self.crestProminence(gains: gains)
-        mirrorCorrelation = Self.mirrorCorrelation(gains: gains)
+        crestProminence = speech.crestProminence(gains: gains)
+        mirrorCorrelation = quietRoom.mirrorCorrelation(gains: gains)
     }
 
-    /// The bounded display response for one generated room, metered over both live poses.
-    /// Two scene anchors solve its two parameters; no bisection and no runtime clamp can
-    /// turn a different seed into a different material.
+    /// The bounded display response for one generated room, metered over both live poses of
+    /// the bodies `layout` draws. Two scene anchors solve its two parameters; no bisection
+    /// and no runtime clamp can turn a different seed into a different material.
     func displayResponse(
         for environment: MercuryEnvironment,
-        bodySeed: UInt64
+        bodySeed: UInt64,
+        layout: RecordingOverlayLayout
     ) -> MercuryDisplayResponse {
+        Self.response(
+            metering: Self.sceneRadianceSamples(
+                gains: gains,
+                environment: environment,
+                seed: bodySeed,
+                layout: layout
+            )
+        )
+    }
+
+    /// The metered median after the bounded response, for the calibration tests.
+    func displayLuminance(
+        for environment: MercuryEnvironment,
+        bodySeed: UInt64,
+        layout: RecordingOverlayLayout
+    ) -> Double {
         let samples = Self.sceneRadianceSamples(
             gains: gains,
             environment: environment,
-            seed: bodySeed
+            seed: bodySeed,
+            layout: layout
         )
+        let response = Self.response(metering: samples)
+        return Self.median(
+            samples.map {
+                MercuryDisplayResponse.luminance(
+                    response.map(SIMD3(Double($0.x), Double($0.y), Double($0.z)))
+                )
+            }
+        )
+    }
+
+    // MARK: - Fixed measurement conditions
+
+    /// The bodies both geometry solves measure.
+    private static let seeds: [UInt64] = [0x5155_4943_4B53_4C56, 0x1d3a_7f21_9c4e_b806]
+
+    /// Substeps between the reset and the first measured frame. A reset leaves the body at
+    /// rest on its pose, which under Reduce Motion it never leaves, so the body shape has no
+    /// transient at all. The modes start at the equilibrium of the voice at that instant, and
+    /// the voice moves on at once; the gel's slowest answer to that is the arm's creep, at
+    /// 2.1 s⁻¹ for the speaking fundamental. After 1.5 s it is gone: measured over one voice
+    /// period, the prominence after 180 substeps agrees with the prominence after 1,440 to
+    /// 0.01 %, and the correlation to 0.001. Under live speech, the median prominence pooled
+    /// over 48 seeds shows no trend from the first second after the reset on.
+    private static let settleSteps = 180
+
+    /// One period of the quiet room's crest train. Every mode advects through whole turns in
+    /// `2 * bufferPeriod`, 0.88 s, so 53 frames of 2 substeps span it to within 0.4 of a
+    /// substep, and the correlation cannot depend on where in the period the window starts. A
+    /// 48-frame window left out an eleventh of the period, and which eleventh moved the median
+    /// prominence of the speaking body, frozen, at one gain between 4.3 and 5.2 pt.
+    private static let crestPeriodStepsPerFrame = 2
+    private static let crestPeriodFrames = Int(
+        (2 * MercuryMetrics.bufferPeriod / MercuryMetrics.substep / Double(crestPeriodStepsPerFrame)).rounded()
+    )
+
+    /// Five seconds of speech per seed, a frame every 50 ms. Live speech never repeats, so no
+    /// window spans a period of it; this one is long enough that where it starts stops
+    /// mattering. Over six starts from 1.5 s to 9 s after the reset, the gain solved on these
+    /// two seeds moves by 2 % (one standard deviation); over six pairs of other seeds, by 3 %.
+    /// Frames closer than 50 ms add almost nothing to the median, and each costs a copy of
+    /// both edges.
+    private static let speechStepsPerFrame = 6
+    private static let speechFrames = 100
+
+    private static let bisectionSteps = 18
+    /// The drive solve stops when the prominence is within this fraction of its target.
+    private static let proportionTolerance = 1e-3
+    private static let proportionSteps = 12
+
+    /// The drive `MercuryRibbon` hands the engine for a microphone on `layout` hearing the
+    /// syllable or the quiet room held still, built through the pose ladder itself, not a copy
+    /// of it: building the model the ladder reads also proves the voice-activity hysteresis lands
+    /// on the pose this measurement names.
+    private static func drive(
+        speaking: Bool,
+        layout: RecordingOverlayLayout,
+        reduceMotion: Bool
+    ) -> MercurySimulation.Drive {
+        let model = RecordingOverlayModel()
+        model.update(layout: layout)
+        model.update(.recording)
+        model.updateCaptureLive(true)
+        for level in speaking ? MercurySpeechMeter.syllable : MercurySpeechMeter.quietRoom {
+            model.record(level)
+        }
+        return .target(for: model, reduceMotion: reduceMotion)
+    }
+
+    // MARK: - Solves
+
+    /// The drive gain whose live crests reach the target prominence, with the contact line off.
+    /// Both gains are the body law's, not the lighting's, so both are solved on the island's
+    /// canonical bodies, whatever layout a session goes on to draw.
+    ///
+    /// Solved by proportion rather than bisection. Below the containment gauge the voice's
+    /// amplitudes are linear in the gain, and the drawn edge's exponential and the gauge bend
+    /// the prominence away from proportional by a few percent, so scaling the gain by target
+    /// over measured converges geometrically. Measured from a unit gain: four to six
+    /// measurements land within 0.1 % of the target and agree with the bisected root to
+    /// 0.04 %, where bisection takes twenty. That is what affords a window of live speech long
+    /// enough to be stationary: bisected, the same window alone took 190 ms.
+    private static func solveDriveGain(on speech: Probe) -> Double {
+        // Snake is zero here and solved next, against the drive this returns. The two
+        // are mildly coupled and the order is the one the design fixes.
+        let target = MercuryMetrics.targetCrestProminence
+        var gain = 1.0
+        for _ in 0..<proportionSteps {
+            let prominence = speech.crestProminence(gains: MercuryGains(drive: gain, snake: 0))
+            // A law whose voice moves no edge has no gain to solve; the drawable answer is
+            // returned, and the calibration tests reject it.
+            guard prominence > 0, abs(prominence - target) > proportionTolerance * target else { break }
+            gain *= target / prominence
+        }
+        return gain
+    }
+
+    /// Solved so the two edges are *independent*, which is the point the plan's
+    /// `<= 0.2` gate is aiming at, rather than solved against that gate directly.
+    ///
+    /// Measured: at zero snake the correlation is already 0.11, because the varicose
+    /// family's group lag inverts the phase of the higher modes on its own — so bisecting
+    /// against "reach 0.2" has no root and returns a degenerate zero, deleting the
+    /// contact-line family from the voice response entirely. The correlation runs from
+    /// +0.11 at zero snake to -1 as snake dominates (rigidly counter-moving edges, which
+    /// is a snake and not a liquid), so zero is the interior point that means what the
+    /// gate wants. The gate itself is then a consequence, and the calibration test holds
+    /// the achieved correlation to it.
+    private static func solveSnakeGain(drive: Double, on quietRoom: Probe) -> Double {
+        bisect(low: 0, high: 100) { candidate in
+            quietRoom.mirrorCorrelation(gains: MercuryGains(drive: drive, snake: candidate))
+        }
+    }
+
+    // MARK: - Measurements
+
+    /// The voice's own contribution to the island's canonical body on one meter, frame by frame.
+    ///
+    /// Each seed runs on its meter with the candidate gains and is differenced against the same
+    /// body with its voice disconnected: zero gains, which is exactly `driveScale` zero, since
+    /// the voice reaches the modes through the gains alone. No candidate reaches that quiet
+    /// body, so it runs once, here, rather than once per candidate, which was half of every
+    /// solve's simulation.
+    @MainActor
+    private struct Probe {
+        private let speaking: Bool
+        private let frames: Int
+        private let stepsPerFrame: Int
+        /// The quiet body's geometry, per seed, per frame.
+        private var quiet: [[MercurySimulation.Geometry]] = []
+
+        init(speaking: Bool, frames: Int, stepsPerFrame: Int) {
+            self.speaking = speaking
+            self.frames = frames
+            self.stepsPerFrame = stepsPerFrame
+            quiet = MercuryCalibration.seeds.map { seed in
+                var geometries: [MercurySimulation.Geometry] = []
+                geometries.reserveCapacity(frames)
+                forEachFrame(seed: seed, gains: MercuryGains(drive: 0, snake: 0)) { _, geometry in
+                    geometries.append(geometry)
+                }
+                return geometries
+            }
+        }
+
+        /// Median peak-to-trough excursion of the voice-driven top edge, in points.
+        func crestProminence(gains: MercuryGains) -> Double {
+            var excursions: [Double] = []
+            excursions.reserveCapacity(MercuryCalibration.seeds.count * frames)
+            for (index, seed) in MercuryCalibration.seeds.enumerated() {
+                forEachFrame(seed: seed, gains: gains) { frame, driven in
+                    let quiet = quiet[index][frame].top
+                    var highest = -Double.infinity
+                    var lowest = Double.infinity
+                    for station in driven.top.indices {
+                        let offset = Double(driven.top[station]) - Double(quiet[station])
+                        highest = Swift.max(highest, offset)
+                        lowest = Swift.min(lowest, offset)
+                    }
+                    excursions.append(highest - lowest)
+                }
+            }
+            return MercuryCalibration.median(excursions)
+        }
+
+        /// Mean Pearson correlation between the voice-driven top edge and the negated
+        /// voice-driven bottom edge. A pill is exactly +1.
+        func mirrorCorrelation(gains: MercuryGains) -> Double {
+            var total = 0.0
+            var count = 0
+            for (index, seed) in MercuryCalibration.seeds.enumerated() {
+                forEachFrame(seed: seed, gains: gains) { frame, driven in
+                    let quiet = quiet[index][frame]
+                    let top = zip(driven.top, quiet.top).map { Double($0) - Double($1) }
+                    let mirrored = zip(driven.bottom, quiet.bottom).map { Double($1) - Double($0) }
+                    total += MercuryCalibration.correlation(top, mirrored)
+                    count += 1
+                }
+            }
+            return count > 0 ? total / Double(count) : 1
+        }
+
+        /// `seed`'s body on its own meter, placed at rest on the meter's first drive and settled,
+        /// handed to `body` once per frame.
+        private func forEachFrame(
+            seed: UInt64,
+            gains: MercuryGains,
+            _ body: (_ frame: Int, _ geometry: MercurySimulation.Geometry) -> Void
+        ) {
+            let meter = MercurySpeechMeter(speaking: speaking, seed: seed, layout: .island, reduceMotion: true)
+            let simulation = MercurySimulation(seed: seed, gains: gains)
+            simulation.reset(to: meter.drive)
+            meter.advance(simulation, steps: MercuryCalibration.settleSteps)
+            for frame in 0..<frames {
+                meter.advance(simulation, steps: stepsPerFrame)
+                body(frame, simulation.geometry)
+            }
+        }
+    }
+
+    /// In-body `radiance * Fresnel` triples for one room, pooled over the two poses the
+    /// body actually spends its time in, laid out as `layout` draws them.
+    ///
+    /// Both, not one: metering only the listening body landed *its* median on target and
+    /// left the speaking body — the one a reader watches — anywhere from 0.04 to 0.46
+    /// across four rooms, because a taller ridge with deeper crests sweeps a different
+    /// part of the room. The body carries the session's own seed and its own layout, so the
+    /// room is metered against the body it will light rather than against a stand-in. The
+    /// layout matters as much as the pose: a collar shows only the outer half of a chin and
+    /// walls, which sweeps a different part of the room than the island's whole crown.
+    ///
+    /// Sampled once through the shipping crown and conductor path, then solved in closed
+    /// form. The room is static, so the response remains valid for as long as the layout is.
+    private static func sceneRadianceSamples(
+        gains: MercuryGains,
+        environment: MercuryEnvironment,
+        seed: UInt64,
+        layout: RecordingOverlayLayout
+    ) -> [SIMD3<Float>] {
+        let rasterizer = MercuryRasterizer()
+        var samples: [SIMD3<Float>] = []
+        for speaking in [false, true] {
+            let drive = drive(speaking: speaking, layout: layout, reduceMotion: false)
+            let simulation = MercurySimulation(seed: seed, gains: gains)
+            simulation.reset(to: drive)
+            simulation.advance(steps: settleSteps, drive: drive)
+            let collected = rasterizer.sampleSceneRadiance(
+                field: MercuryField(
+                    geometry: simulation.geometry,
+                    spine: layout.spine,
+                    canvas: layout.canvasRect.size
+                ),
+                environment: environment,
+                scale: MercuryMetrics.rasterScale
+            )
+            // Every fourth pixel: the median of a stride is the median, and the full set
+            // would make this the slowest thing that happens when a session starts.
+            samples.append(contentsOf: stride(from: 0, to: collected.count, by: 4).map { collected[$0] })
+        }
+        return samples
+    }
+
+    /// The response whose two anchors put the pooled samples' median and highlight on
+    /// their targets.
+    private static func response(metering samples: [SIMD3<Float>]) -> MercuryDisplayResponse {
         let values = samples.map {
             MercuryDisplayResponse.luminance(
                 SIMD3(Double($0.x), Double($0.y), Double($0.z))
@@ -67,200 +350,6 @@ final class MercuryCalibration {
             preconditionFailure("generated mercury room has no solvable luminance spread")
         }
         return response
-    }
-
-    /// The metered median after the bounded response, for the calibration tests.
-    func displayLuminance(for environment: MercuryEnvironment, bodySeed: UInt64) -> Double {
-        let samples = Self.sceneRadianceSamples(
-            gains: gains,
-            environment: environment,
-            seed: bodySeed
-        )
-        let response = displayResponse(for: environment, bodySeed: bodySeed)
-        return Self.median(
-            samples.map {
-                MercuryDisplayResponse.luminance(
-                    response.map(SIMD3(Double($0.x), Double($0.y), Double($0.z)))
-                )
-            }
-        )
-    }
-
-    // MARK: - Fixed measurement conditions
-
-    /// A speech-like meter buffer, oldest first. The same shape the live meter produces.
-    private static let speakingSamples: [Float] = [
-        0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46,
-    ]
-    /// A live microphone in a quiet room: every level at or below the release threshold,
-    /// so the voice-activity hysteresis never starts and the pose is the listening one.
-    private static let listeningSamples: [Float] = [
-        0.0, 0.02, 0.01, 0.03, 0.0, 0.04, 0.02, 0.0, 0.01, 0.05, 0.02,
-    ]
-
-    private static let seeds: [UInt64] = [
-        0x5155_4943_4B53_4C56, 0x1d3a_7f21_9c4e_b806, 0xa07b_5514_ee92_3fd1,
-        0x6c19_e83d_402f_a75b, 0xf24d_0b6a_9137_5ce8, 0x3e85_c9f0_71ab_2d64,
-    ]
-
-    private static let settleSteps = 180
-    private static let measuredFrames = 48
-    private static let stepsPerFrame = 2
-    private static let bisectionSteps = 18
-
-    /// The pose ladder itself, not a copy of it: building the model the ladder reads also
-    /// proves the voice-activity hysteresis lands on the pose this measurement names.
-    private static func pose(speaking: Bool) -> MercuryPose {
-        let model = RecordingOverlayModel()
-        model.update(.recording)
-        model.updateCaptureLive(true)
-        for level in speaking ? speakingSamples : listeningSamples {
-            model.record(level)
-        }
-        return MercuryPose.target(for: model)
-    }
-
-    // MARK: - Solves
-
-    private static func solveDriveGain() -> Double {
-        // Snake is zero here and solved next, against the drive this returns. The two
-        // are mildly coupled and the order is the one the design fixes.
-        bisect(low: 0, high: 50) { candidate in
-            crestProminence(gains: MercuryGains(drive: candidate, snake: 0))
-                - MercuryMetrics.targetCrestProminence
-        }
-    }
-
-    /// Solved so the two edges are *independent*, which is the point the plan's
-    /// `<= 0.2` gate is aiming at, rather than solved against that gate directly.
-    ///
-    /// Measured: at zero snake the correlation is already 0.11, because the varicose
-    /// family's group lag inverts the phase of the higher modes on its own — so bisecting
-    /// against "reach 0.2" has no root and returns a degenerate zero, deleting the
-    /// contact-line family from the voice response entirely. The correlation runs from
-    /// +0.11 at zero snake to -1 as snake dominates (rigidly counter-moving edges, which
-    /// is a snake and not a liquid), so zero is the interior point that means what the
-    /// gate wants. The gate itself is then a consequence, and the calibration test holds
-    /// the achieved correlation to it.
-    private static func solveSnakeGain(drive: Double) -> Double {
-        bisect(low: 0, high: 100) { candidate in
-            mirrorCorrelation(gains: MercuryGains(drive: drive, snake: candidate))
-        }
-    }
-
-    // MARK: - Measurements
-
-    /// Median peak-to-trough excursion of the voice-driven top edge, in points.
-    static func crestProminence(gains: MercuryGains) -> Double {
-        var values: [Double] = []
-        for seed in seeds.prefix(2) {
-            for frame in voiceResponse(pose: pose(speaking: true), samples: speakingSamples, gains: gains, seed: seed) {
-                let highest = frame.top.max() ?? 0
-                let lowest = frame.top.min() ?? 0
-                values.append(highest - lowest)
-            }
-        }
-        return median(values)
-    }
-
-    /// Mean Pearson correlation between the voice-driven top edge and the negated
-    /// voice-driven bottom edge. A pill is exactly +1.
-    static func mirrorCorrelation(gains: MercuryGains) -> Double {
-        var total = 0.0
-        var count = 0
-        for seed in seeds.prefix(2) {
-            for frame in voiceResponse(
-                pose: pose(speaking: false),
-                samples: listeningSamples,
-                gains: gains,
-                seed: seed
-            ) {
-                let mirrored = frame.bottom.map { -$0 }
-                total += correlation(frame.top, mirrored)
-                count += 1
-            }
-        }
-        return count > 0 ? total / Double(count) : 1
-    }
-
-    /// One frame of the body's response to the voice alone, top and bottom, in points.
-    private static func voiceResponse(
-        pose: MercuryPose,
-        samples: [Float],
-        gains: MercuryGains,
-        seed: UInt64
-    ) -> [(top: [Double], bottom: [Double])] {
-        var quietPose = pose
-        quietPose.driveScale = 0
-        let drivenDrive = MercurySimulation.Drive(pose: pose, samples: samples, reduceMotion: true)
-        let quietDrive = MercurySimulation.Drive(pose: quietPose, samples: samples, reduceMotion: true)
-
-        let driven = MercurySimulation(seed: seed, gains: gains)
-        let quiet = MercurySimulation(seed: seed, gains: gains)
-        driven.reset(to: drivenDrive)
-        quiet.reset(to: quietDrive)
-        driven.advance(steps: settleSteps, drive: drivenDrive)
-        quiet.advance(steps: settleSteps, drive: quietDrive)
-
-        var frames: [(top: [Double], bottom: [Double])] = []
-        frames.reserveCapacity(measuredFrames)
-        for _ in 0..<measuredFrames {
-            driven.advance(steps: stepsPerFrame, drive: drivenDrive)
-            quiet.advance(steps: stepsPerFrame, drive: quietDrive)
-            let drivenGeometry = driven.geometry
-            let quietGeometry = quiet.geometry
-            var top = [Double](repeating: 0, count: drivenGeometry.top.count)
-            var bottom = [Double](repeating: 0, count: drivenGeometry.bottom.count)
-            for index in 0..<top.count {
-                top[index] = Double(drivenGeometry.top[index]) - Double(quietGeometry.top[index])
-                bottom[index] = Double(drivenGeometry.bottom[index]) - Double(quietGeometry.bottom[index])
-            }
-            frames.append((top, bottom))
-        }
-        return frames
-    }
-
-    /// In-body `radiance * Fresnel` triples for one room, pooled over the two poses the
-    /// island actually spends its time in.
-    ///
-    /// Both, not one: metering only the listening body landed *its* median on target and
-    /// left the speaking body — the one a reader watches — anywhere from 0.04 to 0.46
-    /// across four rooms, because a taller ridge with deeper crests sweeps a different
-    /// part of the room. The body carries the session's own seed, so the room is metered
-    /// against the body it will light rather than against a stand-in.
-    ///
-    /// Sampled once through the shipping crown and conductor path, then solved in closed
-    /// form. The room is static, so the response remains valid for the whole session.
-    private static func sceneRadianceSamples(
-        gains: MercuryGains,
-        environment: MercuryEnvironment,
-        seed: UInt64
-    ) -> [SIMD3<Float>] {
-
-        let rasterizer = MercuryRasterizer()
-        let island = RecordingOverlayLayout.island
-        var samples: [SIMD3<Float>] = []
-        for speaking in [false, true] {
-            let pose = pose(speaking: speaking)
-            let levels = speaking ? speakingSamples : listeningSamples
-            let drive = MercurySimulation.Drive(pose: pose, samples: levels, reduceMotion: false)
-            let simulation = MercurySimulation(seed: seed, gains: gains)
-            simulation.reset(to: drive)
-            simulation.advance(steps: settleSteps, drive: drive)
-            let collected = rasterizer.sampleSceneRadiance(
-                field: MercuryField(
-                    geometry: simulation.geometry,
-                    spine: island.spine,
-                    canvas: island.canvasRect.size
-                ),
-                environment: environment,
-                scale: MercuryMetrics.rasterScale
-            )
-            // Every fourth pixel: the median of a stride is the median, and the full set
-            // would make this the slowest thing that happens when a session starts.
-            samples.append(contentsOf: stride(from: 0, to: collected.count, by: 4).map { collected[$0] })
-        }
-        return samples
     }
 
     // MARK: - Numerics

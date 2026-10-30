@@ -33,16 +33,17 @@ struct MercuryFieldTests {
     private static let gains = MercuryGains(drive: 1, snake: 0.011)
     private static let island = RecordingOverlayLayout.island
     private static let scale = MercuryMetrics.rasterScale
-    private static let speaking: [Float] = [0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46]
+    private static let speaking = MercurySpeechMeter.syllable
     private static let environment = MercuryEnvironment(world: .roomOfTen, seed: 3)
-    private static let response = MercuryCalibration.shared.displayResponse(for: environment, bodySeed: 3)
+    private static let response = MercuryCalibration.shared.displayResponse(
+        for: environment, bodySeed: 3, layout: island)
 
     /// The collar on both measured housings: the 185×32 pt notch of the default 14-inch
     /// panel and the 220×38 pt one the same panel shows at More Space. Each wears speaking
     /// bodies at the speaking half-height and a deeper one: a chin that wraps the corners,
     /// one that climbs the walls, and one that runs the whole spine to the far ends of both
-    /// ears, which is also swayed 8 pt so one end runs past its ear. The pose ladder stops at
-    /// the island's 168 pt, so these poses are built here.
+    /// ears, which is also swayed 8 pt so one end runs past its ear. The pose ladder's
+    /// longest collar body stops short of the ears' ends, so these poses are built here.
     private static let collars: [Collar] = {
         let rasterizer = MercuryRasterizer()
         let displays = [("notch", OverlayDisplay.fixtureNotch), ("wide notch", OverlayDisplay.fixtureWideNotch)]
@@ -62,7 +63,7 @@ struct MercuryFieldTests {
                             driveScale: 1,
                             gesture: nil
                         )
-                        let geometry = Self.geometry(pose: pose, samples: speaking, seed: 29)
+                        let geometry = Self.geometry(pose: pose, samples: speaking, seed: 29, layout: layout)
                         let field = MercuryField(
                             geometry: geometry,
                             spine: layout.spine,
@@ -130,6 +131,13 @@ struct MercuryFieldTests {
             failed.present(outcome)
         }
 
+        let errored = RecordingOverlayModel()
+        let erroredState = SessionState.error(.inferenceFailed)
+        errored.update(erroredState)
+        if let outcome = RecordingOverlayOutcome(state: erroredState) {
+            errored.present(outcome)
+        }
+
         return [
             ("speaking", MercuryPose.target(for: model(speaking, live: true)), speaking),
             ("listening", MercuryPose.target(for: model(quiet, live: true)), quiet),
@@ -141,11 +149,24 @@ struct MercuryFieldTests {
             ),
             ("lurch", MercuryPose.target(for: failed), [Float](repeating: 0, count: 11)),
             ("gathered", MercuryPose.target(for: copied), [Float](repeating: 0, count: 11)),
+            ("collapse", MercuryPose.target(for: errored), [Float](repeating: 0, count: 11)),
         ]
     }
 
-    private static func geometry(pose: MercuryPose, samples: [Float], seed: UInt64) -> MercurySimulation.Geometry {
-        let drive = MercurySimulation.Drive(pose: pose, samples: samples, reduceMotion: false)
+    /// The body after 600 substeps at rest on `pose`, on a drive that lets it grow as long as
+    /// the ribbon's own drive does on `layout`: the whole spine on a collar, 168 pt on the island.
+    private static func geometry(
+        pose: MercuryPose,
+        samples: [Float],
+        seed: UInt64,
+        layout: RecordingOverlayLayout = island
+    ) -> MercurySimulation.Geometry {
+        let drive = MercurySimulation.Drive(
+            pose: pose,
+            samples: samples,
+            reduceMotion: false,
+            maxLength: layout.kind == .collar ? layout.spine.length : Double(MercuryMetrics.maxLength)
+        )
         let simulation = MercurySimulation(seed: seed, gains: gains)
         simulation.reset(to: drive)
         simulation.advance(steps: 600, drive: drive)
@@ -159,7 +180,7 @@ struct MercuryFieldTests {
         layout: RecordingOverlayLayout = island
     ) -> MercuryField {
         MercuryField(
-            geometry: geometry(pose: pose, samples: samples, seed: seed),
+            geometry: geometry(pose: pose, samples: samples, seed: seed, layout: layout),
             spine: layout.spine,
             canvas: layout.canvasRect.size
         )
@@ -254,24 +275,147 @@ struct MercuryFieldTests {
         #expect(checked > 500, "\(name) sampled too few points to mean anything")
     }
 
-    /// The 180x34 envelope is absolute. Adversarial drives included, because the meter
-    /// buffer is whatever the room hands it.
-    @Test func everyBodyStaysInsideTheIsland() {
+    /// No island body reaches either end of its canvas. Its track ends 84 pt from the centre
+    /// and a round end rounds off past that by its own half-thickness, so the canvas runs on
+    /// to 98 pt. Every rung of the ladder leans fully either way with its sway asked past its
+    /// wall, so it rides the end of its track, and is dragged by the panel at the clamp's
+    /// acceleration along and across the spine, reversing several times a second; the voiced
+    /// rungs also take adversarial meters, because the buffer is whatever the room hands it.
+    ///
+    /// At every frame no extent, grown by its coverage ramp, reaches the centre of a pixel in
+    /// either outermost column: `theSparseRasterIsTheDenseRaster` holds every pixel the raster
+    /// can draw to those boxes. The frame that reaches farthest is then rasterized, and both
+    /// columns are clear. It reaches past the envelope's own 90 pt, where the canvas used to end.
+    @Test func noIslandBodyReachesTheEndsOfItsCanvas() throws {
+        let pixel = 1 / Double(Self.scale)
+        let canvas = Self.island.canvasRect.size
+        let outermost = Double(canvas.width) / 2 - pixel / 2
+        let clamp = MercuryBodyShape.maxFrameAcceleration
         let adversarial: [[Float]] = [
             [Float](repeating: 1, count: 11),
             [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
         ]
+        var farthest: (reach: Double, field: MercuryField?) = (0, nil)
         for seed in [UInt64(3), 29] {
             for entry in Self.poses() where entry.pose.length > 0 {
-                for samples in adversarial + [entry.samples] {
-                    let field = Self.field(pose: entry.pose, samples: samples, seed: seed)
-                    let bounds = field.canvasBounds
-                    let box = field.boundingBox
-                    #expect(box.minX >= bounds.minX - 0.001)
-                    #expect(box.maxX <= bounds.maxX + 0.001)
-                    #expect(box.minY >= bounds.minY - 0.001)
-                    #expect(box.maxY <= bounds.maxY + 0.001)
+                for samples in [entry.samples] + (entry.pose.driveScale > 0 ? adversarial : []) {
+                    for lean in [-1.0, 1.0] {
+                        for dragged in [false, true] {
+                            var drive = MercurySimulation.Drive(pose: entry.pose, samples: samples, reduceMotion: false)
+                            let simulation = MercurySimulation(seed: seed, gains: Self.gains)
+                            simulation.reset(to: drive)
+                            drive.lean = lean
+                            drive.pose.lateralOffset = CGFloat(lean * MercuryMetrics.maxSway)
+                            for frame in 0..<120 {
+                                if dragged {
+                                    drive.forcing = MercuryBodyShape.Forcing(
+                                        tangentialAcceleration: (frame / 15) % 2 == 0 ? clamp : -clamp,
+                                        normalAcceleration: (frame / 21) % 2 == 0 ? clamp : -clamp
+                                    )
+                                }
+                                simulation.advance(steps: 2, drive: drive)
+                                let field = MercuryField(
+                                    geometry: simulation.geometry,
+                                    spine: Self.island.spine,
+                                    canvas: canvas
+                                )
+                                let reach =
+                                    field.extents.map {
+                                        Swift.max(-$0.lower.x, $0.upper.x) + $0.rampReach * pixel
+                                    }.max() ?? 0
+                                #expect(reach < outermost, "\(entry.name) seed \(seed) lean \(lean) frame \(frame)")
+                                if reach > farthest.reach { farthest = (reach, field) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #expect(farthest.reach > 90)
+        let field = try #require(farthest.field)
+        let image = try #require(
+            MercuryRasterizer().image(
+                field: field,
+                environment: Self.environment,
+                response: Self.response,
+                appearance: .standard,
+                scale: Self.scale
+            )
+        )
+        let alpha = try #require(Self.alphaChannel(of: image))
+        for row in 0..<image.height {
+            #expect(alpha[row * image.width] == 0 && alpha[row * image.width + image.width - 1] == 0, "row \(row)")
+        }
+    }
+
+    /// The island's canvas grew from the envelope's 180 pt to 196 pt about the same centre,
+    /// and nothing else about the island moved. Every rung of the ladder, settled on its pose
+    /// as calibration meters it and as the harness pins it, draws on the wider canvas exactly
+    /// the bytes it drew on the envelope, in the same columns 8 pt in, with both margins
+    /// clear. The samples a room is metered with are the same samples in the same order, so
+    /// every island response is the one it was.
+    @Test func theWiderIslandCanvasOnlyAddsTransparentMargins() throws {
+        let wideRasterizer = MercuryRasterizer()
+        let narrowRasterizer = MercuryRasterizer()
+        let narrowSpine = MercurySpine(straightLength: 180)
+        let narrowCanvas = CGSize(width: 180, height: 34)
+        let margin = Int(8 * Self.scale)
+        for seed in [UInt64(3), 29, MercuryMetrics.defaultSeed] {
+            for entry in Self.poses() where entry.pose.length > 0 {
+                for steps in [180, 600] {
+                    let drive = MercurySimulation.Drive(pose: entry.pose, samples: entry.samples, reduceMotion: false)
+                    let simulation = MercurySimulation(seed: seed, gains: Self.gains)
+                    simulation.reset(to: drive)
+                    simulation.advance(steps: steps, drive: drive)
+                    let wide = MercuryField(
+                        geometry: simulation.geometry,
+                        spine: Self.island.spine,
+                        canvas: Self.island.canvasRect.size
+                    )
+                    let narrow = MercuryField(geometry: simulation.geometry, spine: narrowSpine, canvas: narrowCanvas)
+                    func render(_ field: MercuryField, _ rasterizer: MercuryRasterizer) throws -> (
+                        CGImage, [SIMD4<UInt8>]
+                    ) {
+                        let image = try #require(
+                            rasterizer.image(
+                                field: field,
+                                environment: Self.environment,
+                                response: Self.response,
+                                appearance: .standard,
+                                scale: Self.scale
+                            )
+                        )
+                        return (image, try #require(Self.pixels(of: image)))
+                    }
+                    let (wideImage, widePixels) = try render(wide, wideRasterizer)
+                    let (narrowImage, narrowPixels) = try render(narrow, narrowRasterizer)
+                    #expect(wideImage.width == narrowImage.width + 2 * margin)
+                    var moved = 0
+                    var marginDrawn = 0
+                    for row in 0..<wideImage.height {
+                        for column in 0..<wideImage.width {
+                            let pixel = widePixels[row * wideImage.width + column]
+                            let inner = column - margin
+                            if inner >= 0, inner < narrowImage.width {
+                                if pixel != narrowPixels[row * narrowImage.width + inner] { moved += 1 }
+                            } else if pixel != .zero {
+                                marginDrawn += 1
+                            }
+                        }
+                    }
+                    let label = "\(entry.name) seed \(seed) after \(steps) substeps"
+                    #expect(moved == 0, "\(label): \(moved) pixels moved")
+                    #expect(marginDrawn == 0, "\(label): \(marginDrawn) margin pixels drawn")
+                    #expect(
+                        wideRasterizer.sampleSceneRadiance(
+                            field: wide, environment: Self.environment, scale: Self.scale)
+                            == narrowRasterizer.sampleSceneRadiance(
+                                field: narrow,
+                                environment: Self.environment,
+                                scale: Self.scale
+                            ),
+                        "\(label) metered different samples"
+                    )
                 }
             }
         }
@@ -321,7 +465,7 @@ struct MercuryFieldTests {
         let island = Self.island.canvasRect
         let slop = MercuryMetrics.dragSlop
 
-        for horizontal in stride(from: -88.0, through: 88.0, by: 8) {
+        for horizontal in stride(from: -96.0, through: 96.0, by: 8) {
             for vertical in stride(from: -16.0, through: 16.0, by: 4) {
                 let local = CGPoint(x: horizontal, y: vertical)
                 let panel = CGPoint(
@@ -480,6 +624,49 @@ struct MercuryFieldTests {
         }
     }
 
+    /// The surface normal does not kink where the spine hands over from one primitive to the
+    /// next. Every bend eases its curvature in from 0, so the metric `1 + κn`, and with it the
+    /// gradient, is continuous across each join, convex and concave. Wherever the body's edges
+    /// slope along the spine, points 1e-6 pt apart on either side of a join's normal have
+    /// gradients within 1e-4; circular bends jumped there by up to 0.04.
+    @Test func theGradientIsContinuousAcrossEveryJoin() throws {
+        for collar in try Self.requireCollars() {
+            let spine = collar.layout.spine
+            let regions = spine.regions
+            let filletStart = regions.ear
+            let wallStart = filletStart + regions.fillet
+            let cornerStart = wallStart + regions.wall
+            let bottomStart = cornerStart + regions.corner
+            let joins = [filletStart, wallStart, cornerStart, bottomStart].flatMap { [$0, spine.length - $0] }
+            var checked: Set<Double> = []
+            var worst = 0.0
+            for body in collar.bodies {
+                let field = body.field
+                for join in joins {
+                    let station = field.stationSample(at: join)
+                    let outer = station.center + station.radius
+                    // Only where the edges slope along the spine does the metric reach the normal.
+                    guard abs(station.radiusSlope) + abs(station.centerSlope) > 0.1, outer > 0 else { continue }
+                    let frame = spine.frame(at: join)
+                    let base = spine.point(at: join)
+                    for k in 1..<16 {
+                        let point = base + outer * Double(k) / 16 * frame.normal
+                        guard
+                            let before = field.sample(at: point - 5e-7 * frame.tangent),
+                            let after = field.sample(at: point + 5e-7 * frame.tangent),
+                            before.value > 0, after.value > 0
+                        else { continue }
+                        let jump = after.gradient - before.gradient
+                        worst = Swift.max(worst, (jump * jump).sum().squareRoot())
+                        checked.insert(join)
+                    }
+                }
+            }
+            #expect(worst < 1e-4, "\(collar.name): the gradient jumps by \(worst) across a join")
+            #expect(checked.count == joins.count, "\(collar.name) checked \(checked.count) of \(joins.count) joins")
+        }
+    }
+
     /// The sparse raster is the dense one, byte for byte: skipping the pixels no extent
     /// reaches never drops a pixel the body covers.
     ///
@@ -488,7 +675,8 @@ struct MercuryFieldTests {
     /// Then every pixel of the canvas is drawn again here, one at a time: charted, sampled
     /// through `field.sample(at:)`, and shaded by the rasterizer's own per-pixel steps. Every
     /// byte must agree. Every pixel the scan covers must also lie inside some extent grown by
-    /// its ramp, the guarantee the mask is built on.
+    /// its ramp, the guarantee the mask is built on. On a collar that includes the sliver
+    /// between a corner's circular rim and the squarer spine, which charts below the spine.
     @Test func theSparseRasterIsTheDenseRaster() throws {
         let rasterizer = MercuryRasterizer()
         let lookup = MercuryDisplayLookup(response: Self.response)
@@ -506,6 +694,7 @@ struct MercuryFieldTests {
         }
         for (name, layout) in layouts {
             let straight = layout.kind == .island
+            var sliver = 0
             for body in 0..<10 {
                 let length =
                     straight
@@ -521,7 +710,7 @@ struct MercuryFieldTests {
                 let levels = (0..<11).map { _ in Float(uniform()) }
                 let seed = UInt64(uniform() * 1e12)
                 let field = MercuryField(
-                    geometry: Self.geometry(pose: pose, samples: levels, seed: seed),
+                    geometry: Self.geometry(pose: pose, samples: levels, seed: seed, layout: layout),
                     spine: layout.spine,
                     canvas: layout.canvasRect.size
                 )
@@ -550,6 +739,7 @@ struct MercuryFieldTests {
                             let coverage = MercuryRasterizer.coverage(of: sample, chart: chart, pixelSize: pixelSize)
                             if coverage > 0 {
                                 covered += 1
+                                if chart.bordersHousing, chart.normalOffset < 0 { sliver += 1 }
                                 let scene = MercuryRasterizer.sceneRadiance(
                                     of: sample,
                                     at: point,
@@ -578,6 +768,9 @@ struct MercuryFieldTests {
                 #expect(unbounded == 0, "\(label): \(unbounded) covered pixels lie outside every extent")
                 #expect(covered > 300, "\(label) covered too little to mean anything")
             }
+            if !straight {
+                #expect(sliver > 0, "\(name): no covered pixel lay in a corner's sliver")
+            }
         }
     }
 
@@ -605,7 +798,7 @@ struct MercuryFieldTests {
                 gesture: nil
             )
             let field = MercuryField(
-                geometry: Self.geometry(pose: pose, samples: Self.speaking, seed: 29),
+                geometry: Self.geometry(pose: pose, samples: Self.speaking, seed: 29, layout: layout),
                 spine: layout.spine,
                 canvas: layout.canvasRect.size
             )

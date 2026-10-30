@@ -15,7 +15,7 @@ This file is the harness's operational reference: commands, artifacts, scene and
 | `make ui-list`, `make ui-flow-list` | Print the scene or flow catalog as JSON. |
 | `make ui-all` | All scenes and semantic flows. |
 | `make ui-mercury` | Render isolated shipping/prototype material contact sheets. Not a gate. |
-| `make ui-mercury-bench` | Gate 4,096 room seeds, 64 production rasters, 30 seconds of motion, and 1,200 raster plus engine-and-layer frames at represented 120 Hz. |
+| `make ui-mercury-bench` | Gate 4,096 room seeds, 64 production rasters, 64 collar sessions, 30 seconds of motion, and 1,200 island and collar raster plus island engine-and-layer frames at represented 120 Hz. |
 
 Scene PNG digests and AX dumps are host-sensitive: the committed goldens come from the maintainer's Apple Silicon Mac, so hosted CI runs `make ui-snap` only as an advisory job, while flow journals are host-independent and required. Bless scene goldens from a local render, never from CI output.
 
@@ -57,6 +57,8 @@ An unfiltered run includes the full catalog. Exit status is 0 when clean or upda
     room-sweep.png                # source-count/scale/bounce search
     selected-room-worlds.png      # accepted scalar/chromatic room over eight seeds
     chroma-sweep.png              # accepted room at four chroma strengths
+    collar-states.png             # every shipping state on the 185×32 collar, four grounds
+    collar-motion.png             # consecutive shipping speaking collar frames
     benchmark.json                # hard-gate material/motion/120 Hz performance report
 
 fixtures/ui/
@@ -66,6 +68,8 @@ fixtures/ui/
 ```
 
 The full PNG is for inspection; the committed raster golden is its SHA-256 digest, keeping binary churn out of history.
+
+The collar sheets lay the body on the collar around `.fixtureNotch`'s 185×32 pt camera housing, with the island sheets' seed and room, so each collar row differs from its island row by the layout alone. They composite the housing and the bezel above the screen's top edge in black, as a display has them; the body itself draws nothing inside the housing.
 
 Read the generated `.ax.diff` or `.flow.diff` before any update; update mode writes only changed payloads. A scene with an error-severity lint finding cannot be blessed, and neither can a failing flow.
 
@@ -105,13 +109,17 @@ Because the window is real, the Top-apps rows resolve icons through LaunchServic
 
 ## Scenes
 
-A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, first-run, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel and island; accessibility adaptations. Every scene follows the shipping macOS 27 path.
+A scene is an id, size, tags, and a closure building the real view. `make ui-list` is the authoritative inventory: the console tabs and their empty, first-run, search, filtered, teach, permission and confirmation states; the menu popover; the recording panel, island and collar; accessibility adaptations. Every scene follows the shipping macOS 27 path.
 
 Home's first-run card needs no seam of its own. Whether it is owed is computed from three real inputs a fixture already owns — the persisted `has_completed_first_run` flag, the seeded transcript journal, and the seeded lifetime ledger — so the `firstRunDownloading`, `firstRunReady`, `firstRunAcquisitionFailed` and `erasedFigures` fixtures reach their states the way a real install does. Adding a `RenderOverrides` field for it would be a branch that exists only to make a golden pass.
 
 `menu.sidecar-error` drives the actual coordinator through a wrapped sidecar model failure before capturing the menu. It locks the specific cause and recovery controls, rather than assigning an error state directly.
 
 `overlay.island.weather` renders the island against the debug-only Spectral Weather room through a scoped `RenderOverrides.mercuryWorld`, restoring the previous value when the hierarchy disappears; every other overlay scene uses the default Room of Ten.
+
+`overlay.notch.recording`, `.listening`, `.warmup`, `.processing`, `.copied`, `.lurch`, `.error` and `.reduced-motion` render the collar around `.fixtureNotch`'s 185×32 pt camera housing on its 33 pt menu-bar band, and `overlay.notch.wide` the speaking collar around `.fixtureWideNotch`'s 220×38 pt housing on its 39 pt band. Each is the canvas alone, as the island scenes are: 314×52 and 349×58 pt, the collar's whole panel. The island scenes' model builders supply the states, and the model carries the layout `UIFixtures.collarLayout(on:)` resolves through `RecordingOverlayLayout.forDisplay(_:)`, the resolution the panel makes; it traps on a display that would fall back to the island.
+
+`UIFixtures.pinProcessSeams()` pins `RenderOverrides.overlayDisplay` to `.fixtureNotchless`, beside the mercury pins, so anything that resolves the overlay's display reads the island's notchless display instead of the rendering Mac's screen. The collar scenes set their layout on the model rather than through that seam.
 
 Scene rules:
 

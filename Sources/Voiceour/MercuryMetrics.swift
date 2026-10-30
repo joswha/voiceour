@@ -12,12 +12,24 @@ import CoreGraphics
 enum MercuryMetrics {
     // MARK: Envelope
 
-    /// The longest the body may ever draw, inside the 180 pt island. The 6 pt each side
-    /// is the margin the island's own rounded ends used to occupy.
+    /// The longest island body, and the track every island body rides, centred on the
+    /// 180 pt envelope: the 6 pt each side is the margin the island's own rounded ends used
+    /// to occupy. A round end reaches past its track by its own half-thickness, which is why
+    /// the island's canvas runs 8 pt past the envelope (see `RecordingOverlayLayout.island`).
+    /// A collar's track is its whole spine.
     static let maxLength: CGFloat = 168
     /// Half the island's height. `MercurySimulation` proves the drawn body stays inside
     /// this through an exact containment gauge rather than a per-frame clamp.
     static let maxHalfHeight: CGFloat = 17
+    /// Containment budget, in nats of `ln(maxHalfHeight / H)`, that the body's own depth never
+    /// spends: `MercurySimulation` holds the body shape to `maxHalfHeight · e^−crestHeadroom`,
+    /// 13.24 pt, and the crests keep the rest. Held to `maxHalfHeight` itself, a speaking body
+    /// collapsing into processing overshot its aspect to the full 17 pt, the budget at its centre
+    /// reached zero, and the containment gauge erased every mode: the body lost its shape for a
+    /// substep and grew it back. 0.25 clamps no pose on either ladder at rest, the deepest being
+    /// processing's 12.5 pt, and covers the widest skew's 13 % lift, `ln 1.133 = 0.125`, with as
+    /// much again to spare.
+    static let crestHeadroom: Double = 0.25
     /// Stations the edges are sampled at. The field reads `columns + 1` samples with
     /// linear interpolation, so this is the only geometry representation that exists.
     static let columns = 96
@@ -26,7 +38,7 @@ enum MercuryMetrics {
     static let modeCount = 8
 
     /// How far outside the body the rasterized rect reaches, so the coverage ramp is
-    /// never cut. Always intersected with the island rect: the envelope is absolute.
+    /// never cut. Always intersected with the canvas: the canvas is the absolute envelope.
     static let bleed: CGFloat = 1.5
 
     /// Extra reach around the silhouette for the drag predicate, in points. Small on
@@ -44,6 +56,11 @@ enum MercuryMetrics {
     /// Without it the thickness mode arrives at both edges at once and the body reads
     /// as a breathing pill.
     static let snakeLag: Double = 0.11
+    /// `w` in the error collapse's waist pinch `1 − neck · exp(−((a − 0.5) / w)²)`, in material
+    /// coordinate. The pinch is a fifth of the body wide at half depth, about 18 of its 97 stations: wide
+    /// enough that the field draws the waist as a smooth thread rather than a kink, narrow enough that
+    /// both halves keep their full thickness and read as two drips.
+    static let neckWidth: Double = 0.11
     /// Global slow-down applied to every mode frequency. Real capillary-gravity waves
     /// on a 27 pt-deep pool are far too fast to read at this size.
     static let tempo: Double = 0.32
@@ -54,14 +71,6 @@ enum MercuryMetrics {
     static let gravity: Double = 27798
     /// Mercury's surface tension over its density, at 72 pt/inch.
     static let surfaceTensionOverDensity: Double = 818_700
-    /// `sqrt((sigma/rho) / g)`. The wavelength where capillarity takes over from
-    /// gravity, and the scale the contact-line damping law is written against.
-    static let capillaryLength: Double = 5.4262
-
-    /// Contact-line drag at zero wavenumber. `zeta_m = zeta0 / (1 + (k_m * l_c)^2)`:
-    /// the drag dies once the line is pinned, so long waves are damped and the visible
-    /// band is free. A flat or `sqrt(m)` law deletes the lobes.
-    static let zeta0: Double = 0.42
 
     /// Stationary rms of one autonomous mode component, in points of edge displacement
     /// at the fundamental. Also the rms of the body's own static rest asymmetry, which
@@ -77,8 +86,17 @@ enum MercuryMetrics {
     /// continuously instead of stepping.
     static let bufferPeriod: Double = 0.44
 
-    /// Single pole the length and half-height follow their target pose through.
-    static let poseTau: Double = 0.26
+    // MARK: Body shape
+
+    /// Points of sway along the spine that a full lean asks for. The controller leans the body toward
+    /// the window it will deliver into, `lean` in −1…1, and the body shape carries the sway as a gel: a
+    /// lean arrives with the jelly's wobble and, held, creeps rather than snaps. Six points is under a
+    /// third of the 20 pt crest spacing at the speaking pose: attention, not travel.
+    static let leanSway: Double = 6
+    /// The sway's wall, in points from the spine's rest centre. The lurch's 8 pt and a full lean's 6 pt
+    /// can ask for 14 together; the wall holds them to 12, so a lurch stays a lean of a body that is
+    /// still where it was rather than a body moving away.
+    static let maxSway: Double = 12
 
     // MARK: Integration
 
@@ -95,6 +113,15 @@ enum MercuryMetrics {
     /// `collapse` kicks the varicose fundamental: a damped vertical tremor.
     static let lurchImpulse: Double = 1.1
     static let collapseImpulse: Double = 1.0
+    /// The same gestures' kicks to the body shape, latched with the mode kicks above: `swayRate` in
+    /// points per second along the spine, `aspectRate` in s⁻¹ on `α = ln(L/H)`. Reduce Motion drops
+    /// them, so a gesture under it still moves to its pose, once and without the whole body bouncing.
+    ///
+    /// The copy-only bead squashes and jiggles back; the lurch is thrown toward its 8 pt offset, past it
+    /// and back; the collapse stretches as it thins into its pinched waist.
+    static let gatheredAspectRate: Double = -2.0
+    static let lurchSwayRate: Double = 60
+    static let collapseAspectRate: Double = 1.5
 
     // MARK: Environment
 
@@ -127,9 +154,15 @@ enum MercuryMetrics {
     /// crushed-black failures in the 4,096-seed material corpus while preserving real
     /// black-card bands.
     static let roomBounceFraction: Double = 0.30
-    /// Maximum luminance-free source tint. Seven percent is visible in reflections but
-    /// remains below the benchmark's 12% local-saturation and 6% whole-body-cast bounds.
-    static let roomChromaStrength: Double = 0.07
+    /// Maximum luminance-free source tint. Six and a half percent is visible in reflections and
+    /// keeps every body below the benchmark's 12% local-saturation and 6% whole-body-cast bounds.
+    /// At seven percent the collar corpus's seed-20 room cast both of its collars past 6%,
+    /// whatever the collar's pose: its listening collar 0.0627–0.0649 over lip lengths of
+    /// `B + 1.2C`…`B + 2C` and depths of 7–9 pt, its speaking collar 0.0602–0.0604. At six and a
+    /// half the worst collar cast is 0.0590 and the worst of the 4,096-room island screen 0.0406.
+    /// The tint carries no luminance, so the screen's median, highlight, ground and crushed
+    /// verdicts are the same at either strength.
+    static let roomChromaStrength: Double = 0.065
 
     // MARK: Spectral Weather
 

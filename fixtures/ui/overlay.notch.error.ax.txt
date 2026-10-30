@@ -1,0 +1,2 @@
+AXGroup subrole=AXHostingView [0,0 314x52]
+  AXStaticText "Dictation status" value="The engine could not transcribe that recording." id=overlay.status [65,32 185x20]

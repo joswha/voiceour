@@ -7,10 +7,15 @@
 
     /// Distribution and temporal benchmark for the selected isolated chrome candidate.
     ///
-    /// Two corpora on purpose. The 4,096-seed screen samples a fixed reflection manifold
+    /// Three corpora on purpose. The 4,096-seed screen samples a fixed reflection manifold
     /// cheaply enough to bound the random room. The 64-seed raster corpus then verifies
-    /// the real body, Fresnel, coverage, tone response and 8-bit output. Neither is a
-    /// substitute for the contact sheets; both reject failure modes an eye can miss.
+    /// the real body, Fresnel, coverage, tone response and 8-bit output. The 64-seed collar
+    /// corpus holds the collar around the 185×32 housing to the same per-seed bounds, lit by
+    /// the response each seed's own collar bodies solve, as the engine lights them. None is a
+    /// substitute for the contact sheets; each rejects failure modes an eye can miss.
+    ///
+    /// Every speaking body hears a live microphone, whose meter shifts a new level into the buffer
+    /// every 40 ms as a session's does, rather than one buffer held still. See ``MercurySpeechMeter``.
     @MainActor
     enum MercuryChromeBenchmark {
         private static let distributionSeeds = 4_096
@@ -61,11 +66,37 @@
             var engineLayerP99Milliseconds: Double
             var engineLayerCoreFractionAt120Hz: Double
         }
+
+        /// The collar around the 185×32 housing: its 64-seed corpus under the distribution
+        /// screen's per-seed bounds, and the speaking collar's raster cost.
+        struct CollarSummary: Codable {
+            /// The canvas the collar is drawn on, points, width then height.
+            var canvas: [Double]
+            var seeds: Int
+            var listeningMedianRange: [Double]
+            var speakingMedianRange: [Double]
+            var darkTailRange: [Double]
+            var highlightTailRange: [Double]
+            var nearWhiteFraction: Double
+            var increasedContrastNearWhiteFraction: Double
+            var worstCrushedFraction: Double
+            var worstSaturationP95: Double
+            var worstCast: Double
+            var worstGroundSeparation: Double
+            var failedSeeds: Int
+            var failureCounts: [String: Int]
+            var rasterP50Milliseconds: Double
+            var rasterP95Milliseconds: Double
+            var rasterP99Milliseconds: Double
+            var rasterCoreFractionAt120Hz: Double
+        }
+
         struct Report: Codable {
             var candidate: String
             var distribution: DistributionSummary
             var raster: RasterSummary
             var performance: PerformanceSummary
+            var collar: CollarSummary
             var passed: Bool
             var failures: [String]
         }
@@ -76,8 +107,8 @@
             let gains = MercuryCalibration.shared.gains
             let calibrationMilliseconds =
                 calibrationStarted.duration(to: ContinuousClock().now).milliseconds
-            let listening = field(speaking: false, seed: MercuryMetrics.defaultSeed, gains: gains)
-            let speaking = field(speaking: true, seed: MercuryMetrics.defaultSeed, gains: gains)
+            let listening = field(speaking: false, seed: MercuryMetrics.defaultSeed, gains: gains, layout: .island)
+            let speaking = field(speaking: true, seed: MercuryMetrics.defaultSeed, gains: gains, layout: .island)
             let rasterizer = MercuryPrototypeRasterizer()
             let listeningDirections = subsample(
                 rasterizer.reflectedDirections(field: listening, scale: scale),
@@ -101,6 +132,7 @@
                 field: speaking,
                 calibrationMilliseconds: calibrationMilliseconds
             )
+            let collar = collarScreen(gains: gains)
             var failures: [String] = []
             if distribution.failedSeeds > 0 {
                 failures.append("distribution failures: \(distribution.failedSeeds)/\(distribution.seeds)")
@@ -160,11 +192,39 @@
                     "engine+layer CPU \(format(performance.engineLayerCoreFractionAt120Hz)) > 0.08 core"
                 )
             }
+            if collar.failedSeeds > 0 {
+                failures.append("collar distribution failures: \(collar.failedSeeds)/\(collar.seeds)")
+            }
+            if collar.nearWhiteFraction > 0.02 {
+                failures.append("collar near-white area \(format(collar.nearWhiteFraction)) > 0.02")
+            }
+            if collar.increasedContrastNearWhiteFraction > 0.02 {
+                failures.append(
+                    "collar Increase Contrast near-white area "
+                        + "\(format(collar.increasedContrastNearWhiteFraction)) > 0.02"
+                )
+            }
+            if collar.rasterP50Milliseconds > 0.55 {
+                failures.append(
+                    "collar raster p50 \(format(collar.rasterP50Milliseconds))ms > 0.55ms"
+                )
+            }
+            if collar.rasterP99Milliseconds > 0.70 {
+                failures.append(
+                    "collar raster p99 \(format(collar.rasterP99Milliseconds))ms > 0.70ms"
+                )
+            }
+            if collar.rasterCoreFractionAt120Hz > 0.066 {
+                failures.append(
+                    "collar 120 Hz raster CPU \(format(collar.rasterCoreFractionAt120Hz)) > 0.066 core"
+                )
+            }
             let report = Report(
                 candidate: productionCandidateLabel,
                 distribution: distribution,
                 raster: raster,
                 performance: performance,
+                collar: collar,
                 passed: failures.isEmpty,
                 failures: failures
             )
@@ -177,6 +237,13 @@
                 fputs("mercury-benchmark: cannot write report: \(error)\n", stderr)
                 return false
             }
+            let collarFields =
+                " collarFailed=\(collar.failedSeeds)/\(collar.seeds)"
+                + " collarWhite=\(format(collar.nearWhiteFraction))/"
+                + "\(format(collar.increasedContrastNearWhiteFraction))"
+                + " collarRaster=\(format(collar.rasterP50Milliseconds))/"
+                + "\(format(collar.rasterP99Milliseconds))ms"
+                + " collarCPU@120=\(format(collar.rasterCoreFractionAt120Hz))core"
             print(
                 "mercury-benchmark: seeds=\(distribution.seeds)"
                     + " failed=\(distribution.failedSeeds)"
@@ -193,6 +260,7 @@
                     + " frame=\(format(performance.engineLayerP50Milliseconds))/"
                     + "\(format(performance.engineLayerP99Milliseconds))ms"
                     + " engineLayerCPU@120=\(format(performance.engineLayerCoreFractionAt120Hz))core"
+                    + collarFields
                     + " time=\(format(raster.milliseconds / 1000))s"
             )
             for failure in failures { fputs("mercury-benchmark: FAIL: \(failure)\n", stderr) }
@@ -205,17 +273,7 @@
             listeningDirections: [SIMD3<Double>],
             speakingDirections: [SIMD3<Double>]
         ) -> DistributionSummary {
-            var listeningMedians: [Double] = []
-            var speakingMedians: [Double] = []
-            var darkTails: [Double] = []
-            var highlightTails: [Double] = []
-            var worstCrushed = 0.0
-            var worstCeiling = 0.0
-            var worstSaturation = 0.0
-            var worstGround = Double.infinity
-            var worstCast = 0.0
-            var failed = 0
-            var failureCounts: [String: Int] = [:]
+            var tally = DistributionTally()
             for index in 0..<distributionSeeds {
                 let seed = benchmarkSeed(index)
                 let room = RoomOfTenWorld(seed: seed)
@@ -231,56 +289,78 @@
                         speaking: speakingScene
                     )
                 else {
-                    failed += 1
-                    failureCounts["solve", default: 0] += 1
+                    tally.reject("solve")
                     continue
                 }
-                let listeningDisplay = listeningScene.map(response.map)
-                let speakingDisplay = speakingScene.map(response.map)
-                let listeningLuminance =
-                    listeningDisplay
-                    .map(MercuryDisplayResponse.luminance).sorted()
-                let speakingLuminance =
-                    speakingDisplay
-                    .map(MercuryDisplayResponse.luminance).sorted()
-                let listeningStats = percentiles(listeningLuminance)
-                let speakingStats = percentiles(speakingLuminance)
+                tally.screen(
+                    listening: listeningScene.map(response.map),
+                    speaking: speakingScene.map(response.map)
+                )
+            }
+            return DistributionSummary(
+                seeds: distributionSeeds,
+                listeningMedianRange: range(tally.listeningMedians),
+                speakingMedianRange: range(tally.speakingMedians),
+                darkTailRange: range(tally.darkTails),
+                highlightTailRange: range(tally.highlightTails),
+                worstCrushedFraction: tally.worstCrushed,
+                worstNearCeilingFraction: tally.worstCeiling,
+                worstSaturationP95: tally.worstSaturation,
+                worstCast: tally.worstCast,
+                failedSeeds: tally.failed,
+                failureCounts: tally.failureCounts,
+                worstGroundSeparation: tally.worstGround
+            )
+        }
+
+        /// The distribution screen's per-seed bounds and their running verdict over a corpus:
+        /// one definition of a failed seed, which the 4,096-room screen and the collar corpus
+        /// both apply.
+        @MainActor
+        private struct DistributionTally {
+            private(set) var listeningMedians: [Double] = []
+            private(set) var speakingMedians: [Double] = []
+            private(set) var darkTails: [Double] = []
+            private(set) var highlightTails: [Double] = []
+            private(set) var worstCrushed = 0.0
+            private(set) var worstCeiling = 0.0
+            private(set) var worstSaturation = 0.0
+            private(set) var worstCast = 0.0
+            private(set) var worstGround = Double.infinity
+            private(set) var failed = 0
+            private(set) var failureCounts: [String: Int] = [:]
+
+            /// Holds one seed's displayed listening and speaking samples to every bound. A
+            /// violation is tallied per body for the median, highlight and span bounds, per body
+            /// and ground for the ground bound, and once per seed for the area, saturation and
+            /// cast bounds.
+            mutating func screen(listening: [SIMD3<Double>], speaking: [SIMD3<Double>]) {
+                let listeningStats = percentiles(listening.map(MercuryDisplayResponse.luminance).sorted())
+                let speakingStats = percentiles(speaking.map(MercuryDisplayResponse.luminance).sorted())
                 listeningMedians.append(listeningStats.p50)
                 speakingMedians.append(speakingStats.p50)
                 darkTails.append(contentsOf: [listeningStats.p05, speakingStats.p05])
                 highlightTails.append(contentsOf: [listeningStats.p95, speakingStats.p95])
 
-                let crushed = Swift.max(
-                    crushedFraction(listeningDisplay),
-                    crushedFraction(speakingDisplay)
-                )
-                let ceiling = Swift.max(
-                    nearCeilingFraction(listeningDisplay),
-                    nearCeilingFraction(speakingDisplay)
-                )
-                let saturation = Swift.max(
-                    saturationP95(listeningDisplay),
-                    saturationP95(speakingDisplay)
-                )
-                let roomCast = Swift.max(cast(listeningDisplay), cast(speakingDisplay))
+                let crushed = Swift.max(crushedFraction(listening), crushedFraction(speaking))
+                let ceiling = Swift.max(nearCeilingFraction(listening), nearCeilingFraction(speaking))
+                let saturation = Swift.max(saturationP95(listening), saturationP95(speaking))
+                let roomCast = Swift.max(cast(listening), cast(speaking))
                 worstCrushed = Swift.max(worstCrushed, crushed)
                 worstCeiling = Swift.max(worstCeiling, ceiling)
                 worstSaturation = Swift.max(worstSaturation, saturation)
                 worstCast = Swift.max(worstCast, roomCast)
 
-                var seedFailed = false
+                var violations: [String] = []
                 for stats in [listeningStats, speakingStats] {
                     if stats.p50 < 0.18 || stats.p50 > 0.55 {
-                        failureCounts["median", default: 0] += 1
-                        seedFailed = true
+                        violations.append("median")
                     }
                     if stats.p95 < 0.60 || stats.p95 > 0.92 {
-                        failureCounts["highlight", default: 0] += 1
-                        seedFailed = true
+                        violations.append("highlight")
                     }
                     if stats.p95 - stats.p05 < 0.30 {
-                        failureCounts["flat", default: 0] += 1
-                        seedFailed = true
+                        violations.append("flat")
                     }
                     for ground in [0.075, 0.45, 0.95] {
                         let separation = Swift.max(
@@ -289,8 +369,7 @@
                         )
                         worstGround = Swift.min(worstGround, separation)
                         if separation < 1.5 {
-                            failureCounts["ground", default: 0] += 1
-                            seedFailed = true
+                            violations.append("ground")
                         }
                     }
                 }
@@ -298,37 +377,28 @@
                 // more than a quarter of the body; the earlier 10% bound mislabeled the
                 // material cue itself as a failure.
                 if crushed > 0.25 {
-                    failureCounts["crushed", default: 0] += 1
-                    seedFailed = true
+                    violations.append("crushed")
                 }
                 if ceiling > 0.02 {
-                    failureCounts["ceiling", default: 0] += 1
-                    seedFailed = true
+                    violations.append("ceiling")
                 }
                 if saturation > 0.12 {
-                    failureCounts["saturation", default: 0] += 1
-                    seedFailed = true
+                    violations.append("saturation")
                 }
                 if roomCast > 0.06 {
-                    failureCounts["cast", default: 0] += 1
-                    seedFailed = true
+                    violations.append("cast")
                 }
-                if seedFailed { failed += 1 }
+                for violation in violations {
+                    failureCounts[violation, default: 0] += 1
+                }
+                if !violations.isEmpty { failed += 1 }
             }
-            return DistributionSummary(
-                seeds: distributionSeeds,
-                listeningMedianRange: range(listeningMedians),
-                speakingMedianRange: range(speakingMedians),
-                darkTailRange: range(darkTails),
-                highlightTailRange: range(highlightTails),
-                worstCrushedFraction: worstCrushed,
-                worstNearCeilingFraction: worstCeiling,
-                worstSaturationP95: worstSaturation,
-                worstCast: worstCast,
-                failedSeeds: failed,
-                failureCounts: failureCounts,
-                worstGroundSeparation: worstGround
-            )
+
+            /// Counts a seed that never reached the bounds.
+            mutating func reject(_ reason: String) {
+                failed += 1
+                failureCounts[reason, default: 0] += 1
+            }
         }
 
         // MARK: - Raster and temporal screen
@@ -349,7 +419,7 @@
             for index in 0..<rasterSeeds {
                 let seed = benchmarkSeed(index)
                 let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
-                let response = calibration.displayResponse(for: room, bodySeed: seed)
+                let response = calibration.displayResponse(for: room, bodySeed: seed, layout: .island)
                 let increased = response.remapped(
                     medianTarget: MercuryMetrics.increasedContrastMedian,
                     highlightTarget: MercuryMetrics.increasedContrastHighlight
@@ -402,20 +472,21 @@
         private static func motionMetrics() -> (step: Double, drift: Double) {
             let seed = MercuryMetrics.defaultSeed
             let gains = MercuryCalibration.shared.gains
-            let drive = drive(speaking: true)
+            let microphone = MercurySpeechMeter(speaking: true, seed: seed, layout: .island)
             let simulation = MercurySimulation(seed: seed, gains: gains)
-            simulation.reset(to: drive)
-            simulation.advance(steps: 600, drive: drive)
+            simulation.reset(to: microphone.drive)
+            microphone.advance(simulation, steps: 600)
             let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
             let response = MercuryCalibration.shared.displayResponse(
                 for: room,
-                bodySeed: seed
+                bodySeed: seed,
+                layout: .island
             )
             let rasterizer = MercuryRasterizer()
             var centroids: [Double] = []
             var medians: [Double] = []
             for _ in 0..<400 {  // 30 seconds at 75 ms per sample.
-                simulation.advance(steps: 9, drive: drive)
+                microphone.advance(simulation, steps: 9)
                 let field = MercuryField(
                     geometry: simulation.geometry,
                     spine: RecordingOverlayLayout.island.spine,
@@ -462,7 +533,8 @@
             let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
             let response = MercuryCalibration.shared.displayResponse(
                 for: room,
-                bodySeed: seed
+                bodySeed: seed,
+                layout: .island
             )
             let rasterizer = MercuryRasterizer()
             _ = rasterizer.image(
@@ -474,42 +546,14 @@
             )
             let cold =
                 coldStarted.duration(to: ContinuousClock().now).milliseconds
+            let raster = rasterTiming(
+                field: field,
+                environment: room,
+                response: response,
+                rasterizer: rasterizer
+            )
 
-            var durations: [Double] = []
-            durations.reserveCapacity(240)
-            for _ in 0..<240 {
-                let frameStarted = ContinuousClock().now
-                _ = rasterizer.image(
-                    field: field,
-                    environment: room,
-                    response: response,
-                    appearance: .standard,
-                    scale: scale
-                )
-                durations.append(
-                    frameStarted.duration(to: ContinuousClock().now).milliseconds
-                )
-            }
-            durations.sort()
-
-            let representedSeconds = 10.0
-            let cpuStarted = processCPUSeconds()
-            var sink = 0
-            for _ in 0..<1_200 {
-                sink &+=
-                    rasterizer.image(
-                        field: field,
-                        environment: room,
-                        response: response,
-                        appearance: .standard,
-                        scale: scale
-                    )?.width ?? 0
-            }
-            let rasterCoreFraction =
-                (processCPUSeconds() - cpuStarted) / representedSeconds
-            _ = sink
-
-            let drive = drive(speaking: true)
+            let microphone = MercurySpeechMeter(speaking: true, seed: seed, layout: .island)
             let engine = MercuryEngine(
                 seed: seed,
                 world: .roomOfTen,
@@ -520,11 +564,28 @@
                 advancing: 0,
                 seed: seed,
                 world: .roomOfTen,
-                drive: drive,
+                drive: microphone.drive,
                 appearance: .standard,
                 layout: .island
             )
             MercuryLayerPresenter.present(initialImage, on: presentationLayer)
+            // The first live frame starts the body empty, and it grows into its pose. The timing is of
+            // a steady body, so the emergence plays out first, untimed, at the timed frames' one
+            // substep each. The meter ticks between frames, as a level reaches the model between two
+            // display-link callbacks: the engine meets each new buffer inside the next frame, as one
+            // voice refresh, and the timed span is the frame alone.
+            for _ in 0..<emergenceFrames {
+                let image = engine.frame(
+                    advancing: 1,
+                    seed: seed,
+                    world: .roomOfTen,
+                    drive: microphone.drive,
+                    appearance: .standard,
+                    layout: .island
+                )
+                MercuryLayerPresenter.present(image, on: presentationLayer)
+                microphone.elapse(1)
+            }
             var engineLayerDurations: [Double] = []
             engineLayerDurations.reserveCapacity(240)
             for _ in 0..<240 {
@@ -533,7 +594,7 @@
                     advancing: 1,
                     seed: seed,
                     world: .roomOfTen,
-                    drive: drive,
+                    drive: microphone.drive,
                     appearance: .standard,
                     layout: .island
                 )
@@ -541,21 +602,24 @@
                 engineLayerDurations.append(
                     frameStarted.duration(to: ContinuousClock().now).milliseconds
                 )
+                microphone.elapse(1)
             }
             engineLayerDurations.sort()
 
+            var sink = 0
             let engineLayerCPUStarted = processCPUSeconds()
             for _ in 0..<1_200 {
                 let image = engine.frame(
                     advancing: 1,
                     seed: seed,
                     world: .roomOfTen,
-                    drive: drive,
+                    drive: microphone.drive,
                     appearance: .standard,
                     layout: .island
                 )
                 MercuryLayerPresenter.present(image, on: presentationLayer)
                 sink &+= image?.width ?? 0
+                microphone.elapse(1)
             }
             let engineLayerCoreFraction =
                 (processCPUSeconds() - engineLayerCPUStarted) / representedSeconds
@@ -563,10 +627,10 @@
             return PerformanceSummary(
                 launchCalibrationMilliseconds: calibrationMilliseconds,
                 coldFirstFrameMilliseconds: cold,
-                rasterP50Milliseconds: durations[durations.count / 2],
-                rasterP95Milliseconds: durations[durations.count * 95 / 100],
-                rasterP99Milliseconds: durations[durations.count * 99 / 100],
-                rasterCoreFractionAt120Hz: rasterCoreFraction,
+                rasterP50Milliseconds: raster.p50,
+                rasterP95Milliseconds: raster.p95,
+                rasterP99Milliseconds: raster.p99,
+                rasterCoreFractionAt120Hz: raster.coreFractionAt120Hz,
                 engineLayerP50Milliseconds:
                     engineLayerDurations[engineLayerDurations.count / 2],
                 engineLayerP99Milliseconds:
@@ -575,10 +639,158 @@
             )
         }
 
+        /// What the 120 Hz CPU fractions divide by: 1,200 frames at 120 Hz represent ten seconds.
+        private static let representedSeconds = 10.0
+
+        /// Untimed frames of one substep each, 0.75 s, before the engine's timing starts. A body
+        /// emerging from empty then holds 99.5 % of its pose's volume and 99.8 % of its length.
+        private static let emergenceFrames = 90
+
+        /// Wall time per frame over 240 rasters of one body, then the CPU 1,200 more cost
+        /// as a fraction of one core at 120 Hz. `rasterizer` must already have drawn this
+        /// canvas once, so neither measure carries its context allocation.
+        private static func rasterTiming(
+            field: MercuryField,
+            environment: MercuryEnvironment,
+            response: MercuryDisplayResponse,
+            rasterizer: MercuryRasterizer
+        ) -> (p50: Double, p95: Double, p99: Double, coreFractionAt120Hz: Double) {
+            var durations: [Double] = []
+            durations.reserveCapacity(240)
+            for _ in 0..<240 {
+                let frameStarted = ContinuousClock().now
+                _ = rasterizer.image(
+                    field: field,
+                    environment: environment,
+                    response: response,
+                    appearance: .standard,
+                    scale: scale
+                )
+                durations.append(
+                    frameStarted.duration(to: ContinuousClock().now).milliseconds
+                )
+            }
+            durations.sort()
+
+            let cpuStarted = processCPUSeconds()
+            var sink = 0
+            for _ in 0..<1_200 {
+                sink &+=
+                    rasterizer.image(
+                        field: field,
+                        environment: environment,
+                        response: response,
+                        appearance: .standard,
+                        scale: scale
+                    )?.width ?? 0
+            }
+            let coreFraction = (processCPUSeconds() - cpuStarted) / representedSeconds
+            _ = sink
+            return (
+                durations[durations.count / 2],
+                durations[durations.count * 95 / 100],
+                durations[durations.count * 99 / 100],
+                coreFraction
+            )
+        }
+
         private static func processCPUSeconds() -> Double {
             var value = timespec()
             clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &value)
             return Double(value.tv_sec) + Double(value.tv_nsec) / 1_000_000_000
+        }
+
+        // MARK: - Collar corpus
+
+        /// The raster corpus on the collar around the 185×32 housing, and the speaking
+        /// collar's raster cost.
+        ///
+        /// Each of the 64 seeds is a session: its own listening and speaking collar bodies, the
+        /// speaking one hearing that seed's own speech, settled 600 substeps in its own room and
+        /// lit through the shipping response the engine lights them with, which
+        /// `MercuryCalibration` meters on that seed's collar bodies. The collar shows only its
+        /// outer half, below and beside the housing, so it reflects a different part of the room
+        /// than the island's whole crown, and a response metered on the island's body is not the
+        /// collar's. The distribution screen's per-seed bounds apply unchanged, to the shipping
+        /// raster's own samples rather than to a reflection manifold, and near-white is bounded
+        /// in both bodies under both contrast settings.
+        private static func collarScreen(gains: MercuryGains) -> CollarSummary {
+            let layout = UIFixtures.collarLayout(on: .fixtureNotch)
+            let calibration = MercuryCalibration.shared
+            let rasterizer = MercuryRasterizer()
+            var tally = DistributionTally()
+            var worstIncreasedWhite = 0.0
+            for index in 0..<rasterSeeds {
+                let seed = benchmarkSeed(index)
+                let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
+                let response = calibration.displayResponse(for: room, bodySeed: seed, layout: layout)
+                let increased = response.remapped(
+                    medianTarget: MercuryMetrics.increasedContrastMedian,
+                    highlightTarget: MercuryMetrics.increasedContrastHighlight
+                )!
+                let listening = rasterizer.sampleSceneRadiance(
+                    field: field(speaking: false, seed: seed, gains: gains, layout: layout),
+                    environment: room,
+                    scale: scale
+                ).map(\.double)
+                let speaking = rasterizer.sampleSceneRadiance(
+                    field: field(speaking: true, seed: seed, gains: gains, layout: layout),
+                    environment: room,
+                    scale: scale
+                ).map(\.double)
+                tally.screen(
+                    listening: listening.map(response.map),
+                    speaking: speaking.map(response.map)
+                )
+                worstIncreasedWhite = Swift.max(
+                    worstIncreasedWhite,
+                    nearCeilingFraction(listening.map(increased.map)),
+                    nearCeilingFraction(speaking.map(increased.map))
+                )
+            }
+
+            // Timed on the island performance screen's seed and room, so the two raster costs
+            // differ by the body alone.
+            let timingSeed = MercuryMetrics.defaultSeed
+            let timingRoom = MercuryEnvironment(world: .roomOfTen, seed: timingSeed)
+            let timingResponse = calibration.displayResponse(for: timingRoom, bodySeed: timingSeed, layout: layout)
+            let timedBody = field(speaking: true, seed: timingSeed, gains: gains, layout: layout)
+            let timingRasterizer = MercuryRasterizer()
+            // The first frame allocates this canvas's context. The island's cold frame already
+            // gates that cost, so the collar's timing starts warm, as the island's does.
+            _ = timingRasterizer.image(
+                field: timedBody,
+                environment: timingRoom,
+                response: timingResponse,
+                appearance: .standard,
+                scale: scale
+            )
+            let timing = rasterTiming(
+                field: timedBody,
+                environment: timingRoom,
+                response: timingResponse,
+                rasterizer: timingRasterizer
+            )
+            return CollarSummary(
+                canvas: [Double(layout.canvasRect.width), Double(layout.canvasRect.height)],
+                seeds: rasterSeeds,
+                listeningMedianRange: range(tally.listeningMedians),
+                speakingMedianRange: range(tally.speakingMedians),
+                darkTailRange: range(tally.darkTails),
+                highlightTailRange: range(tally.highlightTails),
+                nearWhiteFraction: tally.worstCeiling,
+                increasedContrastNearWhiteFraction: worstIncreasedWhite,
+                worstCrushedFraction: tally.worstCrushed,
+                worstSaturationP95: tally.worstSaturation,
+                worstCast: tally.worstCast,
+                worstGroundSeparation: tally.worstGround,
+                failedSeeds: tally.failed,
+                failureCounts: tally.failureCounts,
+                rasterP50Milliseconds: timing.p50,
+                rasterP95Milliseconds: timing.p95,
+                rasterP99Milliseconds: timing.p99,
+                rasterCoreFractionAt120Hz: timing.coreFractionAt120Hz
+            )
         }
 
         // MARK: - Metrics and fixtures
@@ -607,35 +819,23 @@
             )
         }
 
+        /// The body `seed` grows on `layout` under a live microphone, placed at rest on its pose and
+        /// settled 600 substeps. It never emerges, so the raster timings drawn from it, the island's
+        /// and the collar's, time a steady body with no warm-up of their own.
         private static func field(
             speaking: Bool,
             seed: UInt64,
-            gains: MercuryGains
+            gains: MercuryGains,
+            layout: RecordingOverlayLayout
         ) -> MercuryField {
-            let drive = drive(speaking: speaking)
+            let microphone = MercurySpeechMeter(speaking: speaking, seed: seed, layout: layout)
             let simulation = MercurySimulation(seed: seed, gains: gains)
-            simulation.reset(to: drive)
-            simulation.advance(steps: 600, drive: drive)
+            simulation.reset(to: microphone.drive)
+            microphone.advance(simulation, steps: 600)
             return MercuryField(
                 geometry: simulation.geometry,
-                spine: RecordingOverlayLayout.island.spine,
-                canvas: RecordingOverlayLayout.island.canvasRect.size
-            )
-        }
-
-        private static func drive(speaking: Bool) -> MercurySimulation.Drive {
-            let model = RecordingOverlayModel()
-            model.update(.recording)
-            model.updateCaptureLive(true)
-            let samples: [Float] =
-                speaking
-                ? [0.08, 0.19, 0.34, 0.52, 0.71, 0.88, 0.64, 0.41, 0.27, 0.15, 0.46]
-                : [0.0, 0.02, 0.01, 0.03, 0.0, 0.04, 0.02, 0.0, 0.01, 0.05, 0.02]
-            for value in samples { model.record(value) }
-            return MercurySimulation.Drive(
-                pose: MercuryPose.target(for: model),
-                samples: model.samples,
-                reduceMotion: false
+                spine: layout.spine,
+                canvas: layout.canvasRect.size
             )
         }
 
