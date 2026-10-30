@@ -518,6 +518,17 @@
                     accessibilityAdaptation: .reduceMotion,
                     model: listeningOverlayModel
                 ),
+                // Over a full-screen app the band beside the housing is empty black, and the
+                // speaking collar turns both fillets and runs out along the ears into it.
+                collar(
+                    "overlay.notch.fullscreen",
+                    "Recording overlay collar over a full-screen app, speaking",
+                    model: {
+                        let model = listeningOverlayModel()
+                        model.update(poseContext: MercuryPoseContext(fullScreen: true))
+                        return model
+                    }
+                ),
                 collar(
                     "overlay.notch.wide",
                     "Recording overlay collar around a wider camera housing, speaking",

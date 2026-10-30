@@ -17,6 +17,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 - **Spectral mercury.** The recording island's liquid-metal reflectance is integrated over the visible spectrum (CIE 1931 observer, D65, measured liquid-mercury optical constants) instead of being sampled at three wavelengths. Normal incidence stays neutral; grazing reflections are measurably more accurate.
 - **Gel mercury.** The recording island now moves like a gummy liquid-metal gel: it wobbles elastically, remembers how long it was held, and squashes and stretches at constant volume. Its surface and its overall shape follow exact viscoelastic physics. Its speaking crests are calibrated against live speech rather than a held meter snapshot, its speaking body is slimmer, and its reflections carry slightly less room colour.
 - **Lighter mercury rendering.** Drawing the recording island at 120 fps takes about 40% less CPU, with identical pixels.
+- **Notch collar.** On a MacBook display with a camera notch, the recording island hangs from the notch as a liquid collar that hugs the camera housing, gives the menu bar back when the pointer reaches for it, and spreads along the empty band over a full-screen app. Moving to another display drains the body into the old edge and grows it out of the new one, unless Reduce Motion is on. The overlay now passes every click through except on the island's own body, and paste, cancel, and the end of an outcome swallow the body as it fades.
 
 ### Fixed
 

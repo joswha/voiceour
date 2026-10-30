@@ -37,6 +37,18 @@ enum MercuryLayerPresenter {
     }
 }
 
+/// What one presented live frame shows: how much mercury, and on which substep of the clock.
+///
+/// The controller conducts hand-offs between displays on the substep clock, against the body's
+/// volume, and each report is its cue to re-read the pointer against the field the frame just
+/// handed the hit region.
+struct MercuryFrameReport: Equatable, Sendable {
+    /// `L·H` of the presented geometry, pt².
+    var volume: Double
+    /// `MercuryClock.presentedStep`: substeps presented since the surface's first frame.
+    var step: Int
+}
+
 /// The AppKit edge that binds mercury presentation to the display containing the view.
 /// SwiftUI updates only its drive configuration; no frame index enters the view graph.
 @MainActor
@@ -49,6 +61,11 @@ final class MercurySurfaceView: NSView {
         /// The canvas the image covers and the spine the body lies along.
         var layout: RecordingOverlayLayout
         var pinnedStep: Int?
+        /// Called after each frame the display link presents. Never for a pinned harness frame,
+        /// which has no clock, and never for the image a new surface draws inside SwiftUI's update
+        /// pass, where what the controller does with a report — re-frame, re-gate, re-pose — would
+        /// publish model changes from within a view update.
+        var onFrame: (@MainActor (MercuryFrameReport) -> Void)?
     }
 
     private let engine: MercuryEngine
@@ -170,6 +187,16 @@ final class MercurySurfaceView: NSView {
         } else {
             renderLive(steps: clock.steps(forTargetTimestamp: target))
         }
+        reportLiveFrame()
+    }
+
+    /// Last in the callback: a report can re-frame the panel onto another display, and the screen
+    /// change rebuilds the link that is calling.
+    private func reportLiveFrame() {
+        guard let configuration, configuration.pinnedStep == nil, let onFrame = configuration.onFrame else {
+            return
+        }
+        onFrame(MercuryFrameReport(volume: engine.liveVolume, step: clock.presentedStep))
     }
 
     private func renderLive(steps: Int) {

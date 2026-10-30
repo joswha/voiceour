@@ -87,6 +87,10 @@ final class MercuryEngine {
     /// frame; the tests hold the engine to that.
     private(set) var meteredResponses = 0
 
+    /// `L·H` of the body the last live frame drew, pt²: how much mercury it shows, and what a
+    /// hand-off drains before the panel may move to another display.
+    private(set) var liveVolume = 0.0
+
     init(seed: UInt64, world: MercuryWorld, hitRegion: MercuryHitRegion) {
         self.hitRegion = hitRegion
         self.seed = seed
@@ -153,6 +157,7 @@ final class MercuryEngine {
         }
 
         let geometry = simulation.geometry
+        liveVolume = Double(geometry.length) * Double(geometry.halfHeight)
         let key = RenderedFrame(
             geometry: geometry,
             seed: seed,
@@ -243,6 +248,8 @@ struct MercuryRibbon: View {
     let hitRegion: MercuryHitRegion
     let world: @MainActor () -> MercuryWorld
     let seed: @MainActor () -> UInt64
+    /// Told what each live frame shows; see `MercurySurfaceView.Configuration.onFrame`.
+    let onFrame: (@MainActor (MercuryFrameReport) -> Void)?
     private var a11y = A11y()
 
     @MainActor
@@ -250,12 +257,14 @@ struct MercuryRibbon: View {
         model: RecordingOverlayModel,
         hitRegion: MercuryHitRegion,
         world: @escaping @MainActor () -> MercuryWorld,
-        seed: @escaping @MainActor () -> UInt64
+        seed: @escaping @MainActor () -> UInt64,
+        onFrame: (@MainActor (MercuryFrameReport) -> Void)?
     ) {
         self.model = model
         self.hitRegion = hitRegion
         self.world = world
         self.seed = seed
+        self.onFrame = onFrame
     }
 
     var body: some View {
@@ -269,7 +278,8 @@ struct MercuryRibbon: View {
                     increasedContrast: a11y.contrast == .increased
                 ),
                 layout: layout,
-                pinnedStep: RenderOverrides.mercuryStep
+                pinnedStep: RenderOverrides.mercuryStep,
+                onFrame: onFrame
             ),
             hitRegion: hitRegion
         )

@@ -582,6 +582,93 @@ struct MercurySimulationTests {
         #expect(island.maxLength == Double(MercuryMetrics.maxLength))
     }
 
+    /// A body handed to another display drains before the panel moves, and one whose panel fades
+    /// out swallows: both ladders ask for nothing, whatever the session holds — an outcome's
+    /// gesture included — and a speaking island leaning toward its destination empties through the
+    /// outflow, monotonely, before the hand-off's drain limit.
+    @Test func drainingAndDismissingAskBothLaddersForNothing() throws {
+        let layout = try #require(
+            RecordingOverlayLayout.collar(housingSize: CGSize(width: 185, height: 32), bandHeight: 33)
+        )
+        let processing = RecordingOverlayModel()
+        processing.update(.transcribing)
+        let models = [
+            Self.model(Self.speaking, live: false), Self.model(Self.quiet), Self.model(Self.speaking), processing,
+            Self.outcome(.copiedOnly(reason: "target_terminal")),
+            Self.outcome(.insertFailed(reason: "no focused element")),
+            Self.outcome(.error(.inferenceFailed)),
+        ]
+        let ladders: [MercurySpine.Regions?] = [nil, layout.spine.regions]
+        let drains = [
+            MercuryPoseContext(draining: true),
+            MercuryPoseContext(pointerInBand: true, fullScreen: true, draining: true),
+        ]
+        for model in models {
+            for regions in ladders {
+                #expect(MercuryPose.target(for: model, regions: regions) != .idle)
+                for context in drains {
+                    #expect(MercuryPose.target(for: model, regions: regions, context: context) == .idle)
+                }
+                model.beginDismissal()
+                #expect(MercuryPose.target(for: model, regions: regions) == .idle)
+                model.endDismissal()
+                #expect(MercuryPose.target(for: model, regions: regions) != .idle)
+            }
+        }
+
+        let island = Self.model(Self.speaking)
+        let resting = MercurySimulation.Drive.target(for: island, reduceMotion: false)
+        island.update(poseContext: MercuryPoseContext(draining: true))
+        island.update(lean: -1)
+        let draining = MercurySimulation.Drive.target(for: island, reduceMotion: false)
+        #expect(draining.pose == .idle)
+        #expect(draining.lean == -1)
+        let simulation = MercurySimulation(seed: 7, gains: Self.gains)
+        simulation.reset(to: resting)
+        var volume = Double(simulation.geometry.length * simulation.geometry.halfHeight)
+        var substeps = 0
+        while volume > 0, substeps < RecordingOverlayConductor.drainLimit {
+            simulation.advance(steps: 1, drive: draining)
+            let next = Double(simulation.geometry.length * simulation.geometry.halfHeight)
+            #expect(next <= volume, "substep \(substeps)")
+            volume = next
+            substeps += 1
+        }
+        #expect(volume == 0)
+    }
+
+    /// The drive the ribbon builds carries everything the controller tells the model: the pose
+    /// context its ladder reads, the lean and the arrival kick. A reset ends the session's arrival
+    /// and dismissal and keeps what describes the screen.
+    @Test func theDriveCarriesTheControllersContextLeanAndArrival() throws {
+        let layout = try #require(
+            RecordingOverlayLayout.collar(housingSize: CGSize(width: 185, height: 32), bandHeight: 33)
+        )
+        let model = Self.model(Self.speaking)
+        model.update(layout: layout)
+        let fullScreen = MercuryPoseContext(fullScreen: true)
+        model.update(poseContext: fullScreen)
+        model.update(lean: -0.5)
+        let arrival = MercuryArrival(id: 3, swayRate: -60, aspectRate: -1.2)
+        model.present(arrival: arrival)
+
+        let drive = MercurySimulation.Drive.target(for: model, reduceMotion: false)
+        let spread = MercuryPose.target(for: model, regions: layout.spine.regions, context: fullScreen)
+        #expect(drive.pose == spread)
+        #expect(drive.pose.length > MercuryPose.target(for: model, regions: layout.spine.regions).length)
+        #expect(drive.lean == -0.5)
+        #expect(drive.arrival == arrival)
+
+        model.beginDismissal()
+        model.reset()
+        #expect(model.arrival == nil)
+        #expect(!model.isDismissing)
+        #expect(model.layout == layout)
+        #expect(model.poseContext == fullScreen)
+        #expect(model.lean == -0.5)
+        #expect(MercurySimulation.Drive.target(for: model, reduceMotion: false).arrival == nil)
+    }
+
     /// Pearson correlation of the top edge against the negated bottom edge, with the
     /// shared even envelope removed. Exactly what a capsule scores +1 on.
     static func mirrorCorrelation(_ geometry: MercurySimulation.Geometry) -> Double {

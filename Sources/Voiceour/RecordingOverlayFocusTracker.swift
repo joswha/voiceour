@@ -1,26 +1,38 @@
 import AppKit
 
+/// Proposes the screen the recording island belongs on, and reads the window it leans toward.
+///
+/// Every proposal carries its cause, because the move policy weighs them differently: a click is
+/// a hint that waits for the activation it may cause, focus is an answer, and a reconfiguration
+/// describes displays that are still changing.
 @MainActor
 final class RecordingOverlayFocusTracker {
-    private let onScreenChange: (NSScreen) -> Void
+    private let onCandidate: (NSScreen, RecordingOverlayMovePolicy.Cause) -> Void
     private var isRunning = false
     private var globalMouseMonitor: Any?
     private var workspaceActivationObserver: NSObjectProtocol?
     private var activeSpaceObserver: NSObjectProtocol?
     private var screenParametersObserver: NSObjectProtocol?
 
-    init(onScreenChange: @escaping (NSScreen) -> Void) {
-        self.onScreenChange = onScreenChange
+    init(onCandidate: @escaping (NSScreen, RecordingOverlayMovePolicy.Cause) -> Void) {
+        self.onCandidate = onCandidate
     }
 
     func currentScreen() -> NSScreen {
-        if let focused = frontmostWindowScreen() {
+        if let focused = frontmostWindow()?.screen {
             return focused
         }
         if let pointed = screen(containing: NSEvent.mouseLocation) {
             return pointed
         }
         return NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    /// The frontmost app's frontmost on-screen window, in AppKit global coordinates: the window the
+    /// body leans toward, and the one whose filling its display makes that display full screen.
+    func frontmostWindowFrame() -> CGRect? {
+        guard let bounds = frontmostWindow()?.bounds else { return nil }
+        return Self.appKitFrame(quartz: bounds, primaryDisplayHeight: CGDisplayBounds(CGMainDisplayID()).height)
     }
 
     func start() {
@@ -31,7 +43,7 @@ final class RecordingOverlayFocusTracker {
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.followPointerScreen()
+                self?.proposePointerScreen()
             }
         }
 
@@ -41,7 +53,7 @@ final class RecordingOverlayFocusTracker {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.followFocusedScreen()
+                self?.proposeFocusedScreen(cause: .focus)
             }
         }
 
@@ -51,7 +63,7 @@ final class RecordingOverlayFocusTracker {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.followFocusedScreen()
+                self?.proposeFocusedScreen(cause: .focus)
             }
         }
 
@@ -61,7 +73,7 @@ final class RecordingOverlayFocusTracker {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.followFocusedScreen()
+                self?.proposeFocusedScreen(cause: .reconfiguration)
             }
         }
     }
@@ -88,16 +100,25 @@ final class RecordingOverlayFocusTracker {
         }
     }
 
-    private func followPointerScreen() {
+    /// A Quartz window rectangle — global, origin at the primary display's top-left, +y down, as
+    /// `CGWindowListCopyWindowInfo` reports it — in AppKit global coordinates, whose origin is the
+    /// same display's bottom-left, +y up.
+    nonisolated static func appKitFrame(quartz: CGRect, primaryDisplayHeight: CGFloat) -> CGRect {
+        CGRect(x: quartz.minX, y: primaryDisplayHeight - quartz.maxY, width: quartz.width, height: quartz.height)
+    }
+
+    private func proposePointerScreen() {
         guard let destinationScreen = screen(containing: NSEvent.mouseLocation) else { return }
-        onScreenChange(destinationScreen)
+        onCandidate(destinationScreen, .pointerClick)
     }
 
-    private func followFocusedScreen() {
-        onScreenChange(currentScreen())
+    private func proposeFocusedScreen(cause: RecordingOverlayMovePolicy.Cause) {
+        onCandidate(currentScreen(), cause)
     }
 
-    private func frontmostWindowScreen() -> NSScreen? {
+    /// The frontmost app's frontmost layer-0 window that lies on a screen: its Quartz bounds, and
+    /// the screen holding most of it.
+    private func frontmostWindow() -> (bounds: CGRect, screen: NSScreen)? {
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
             pid > 0,
             let windows = CGWindowListCopyWindowInfo(
@@ -119,7 +140,7 @@ final class RecordingOverlayFocusTracker {
                 continue
             }
             if let screen = screen(containingQuartzFrame: frame) {
-                return screen
+                return (frame, screen)
             }
         }
         return nil

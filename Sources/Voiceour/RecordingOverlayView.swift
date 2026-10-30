@@ -27,6 +27,9 @@ struct RecordingOverlayView: View {
     /// session's world both arrive without a notification path.
     let world: @MainActor () -> MercuryWorld
     let seed: @MainActor () -> UInt64
+    /// Told what each live frame shows, for the controller's hand-offs and pointer gate. The
+    /// harness renders pinned frames, which report nothing, and leaves it nil.
+    let onFrame: (@MainActor (MercuryFrameReport) -> Void)?
     /// Harness seam: renders the canvas alone, at the layout's `canvasRect` size, instead of
     /// the panel that frames it. Production never sets this.
     let islandOnly: Bool
@@ -39,6 +42,7 @@ struct RecordingOverlayView: View {
         hitRegion: MercuryHitRegion? = nil,
         world: @escaping @MainActor () -> MercuryWorld = { RenderOverrides.mercuryWorld ?? .default },
         seed: @escaping @MainActor () -> UInt64 = { RenderOverrides.mercurySeed ?? MercuryMetrics.defaultSeed },
+        onFrame: (@MainActor (MercuryFrameReport) -> Void)? = nil,
         islandOnly: Bool = false
     ) {
         self.model = model
@@ -49,6 +53,7 @@ struct RecordingOverlayView: View {
         self.hitRegion = hitRegion ?? MercuryHitRegion()
         self.world = world
         self.seed = seed
+        self.onFrame = onFrame
         self.islandOnly = islandOnly
     }
 
@@ -72,11 +77,20 @@ struct RecordingOverlayView: View {
 
     /// Idle with nothing to report draws nothing and publishes nothing: no body, no
     /// status element, and an emptied hit region, so a click lands on the app underneath.
+    ///
+    /// A dismissal keeps the body — the same surface, so the same simulation — while the panel
+    /// fades, for it to swallow itself in the idle pose. It publishes the status element only for
+    /// an outcome still latched there: a paste or a cancel has nothing left to report.
     @ViewBuilder
     private var canvas: some View {
-        if model.state.isActive || model.outcome != nil {
-            MercuryRibbon(model: model, hitRegion: hitRegion, world: world, seed: seed)
-                .overlay(alignment: .topLeading) { statusElement }
+        let reports = model.state.isActive || model.outcome != nil
+        if reports || model.isDismissing {
+            MercuryRibbon(model: model, hitRegion: hitRegion, world: world, seed: seed, onFrame: onFrame)
+                .overlay(alignment: .topLeading) {
+                    if reports {
+                        statusElement
+                    }
+                }
         } else {
             Color.clear
                 .frame(

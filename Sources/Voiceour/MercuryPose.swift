@@ -1,7 +1,7 @@
 import CoreGraphics
 
-/// What the controller knows about the pointer and the frontmost window that changes how far the
-/// collar reaches. The island's ladder never reads it.
+/// What the controller knows about the pointer, the frontmost window and a hand-off between displays
+/// that changes how far the collar reaches. The island's ladder reads only `draining`.
 struct MercuryPoseContext: Equatable, Sendable {
     /// The pointer is in the menu-bar band beside the housing. The speaking body gives the walls back,
     /// so no film lies in the band the user is reaching into for a menu or a status item.
@@ -9,6 +9,9 @@ struct MercuryPoseContext: Equatable, Sendable {
     /// The frontmost window fills the display, so the band beside the notch is empty black. The
     /// speaking body spreads its film along the ears into it.
     var fullScreen = false
+    /// The body is being handed to another display, and the panel moves only once it is empty. Both
+    /// ladders ask for nothing, so the body swallows itself into the edge it is leaving.
+    var draining = false
 }
 
 /// Where the body is asked to be, as a function of the session alone.
@@ -88,12 +91,20 @@ struct MercuryPose: Equatable {
     ///
     /// On both ladders the lurch also carries `skew` 0.4, a lopsided 70/30 lean, and the
     /// collapse `neck` 0.7, which pinches it into two drips joined by a thread.
+    ///
+    /// Both ladders ask for nothing while the body drains toward another display and while the
+    /// panel fades out, whatever the session holds, an outcome's gesture included. Either way the
+    /// body swallows itself into the notch or the top edge, so a panel that moves or vanishes never
+    /// carries a whole body with it.
     @MainActor
     static func target(
         for model: RecordingOverlayModel,
         regions: MercurySpine.Regions? = nil,
         context: MercuryPoseContext = .init()
     ) -> MercuryPose {
+        if context.draining || model.isDismissing {
+            return .idle
+        }
         if let gesture = model.outcome?.gesture {
             switch gesture {
             case .gathered:

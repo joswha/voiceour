@@ -643,8 +643,9 @@ final class MercurySimulation {
 }
 
 extension MercurySimulation.Drive {
-    /// The drive the session hands the body: the model's pose on the ladder its layout climbs,
-    /// its meter buffer, and how long a body that layout can draw.
+    /// The drive the session hands the body: the model's pose on the ladder its layout climbs, in
+    /// the pose context the controller keeps, its meter buffer, how long a body that layout can
+    /// draw, the lean and a hand-off's arrival kick.
     ///
     /// The one place a live drive is built from the model, so the ribbon, the harness sheets
     /// and the benchmark cannot disagree about a layout's ladder or its longest body.
@@ -653,10 +654,16 @@ extension MercurySimulation.Drive {
         let layout = model.layout
         let collar = layout.kind == .collar
         return MercurySimulation.Drive(
-            pose: MercuryPose.target(for: model, regions: collar ? layout.spine.regions : nil),
+            pose: MercuryPose.target(
+                for: model,
+                regions: collar ? layout.spine.regions : nil,
+                context: model.poseContext
+            ),
             samples: model.samples,
             reduceMotion: reduceMotion,
-            maxLength: collar ? layout.spine.length : Double(MercuryMetrics.maxLength)
+            lean: model.lean,
+            maxLength: collar ? layout.spine.length : Double(MercuryMetrics.maxLength),
+            arrival: model.arrival
         )
     }
 }

@@ -19,12 +19,25 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     private let hitRegion: MercuryHitRegion
     /// Owns the layout, and with it the canvas the drag cursor is asked over.
     private let model: RecordingOverlayModel
+    /// Re-asks the controller's pointer gate. The gate itself reads the pointer: this only says
+    /// that it has moved over the canvas, entered it or left it.
+    private let onPointerEvent: @MainActor () -> Void
     private var dragCursorArea: NSTrackingArea?
 
-    init(rootView: Content, hitRegion: MercuryHitRegion, model: RecordingOverlayModel) {
+    init(
+        rootView: Content,
+        hitRegion: MercuryHitRegion,
+        model: RecordingOverlayModel,
+        onPointerEvent: @escaping @MainActor () -> Void
+    ) {
         self.hitRegion = hitRegion
         self.model = model
+        self.onPointerEvent = onPointerEvent
         super.init(rootView: rootView)
+        // The controller sizes the panel from the layout. A hosting view that held the window to
+        // its content's size would clamp a re-frame onto another display to the layout it is
+        // leaving, until SwiftUI next laid the new one out.
+        sizingOptions = []
     }
 
     @available(*, unavailable)
@@ -68,6 +81,11 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     /// churn AppKit does not need. The rect decides where the cursor is *asked*; the
     /// field decides what the answer is. The canvas is read from the model's layout each
     /// time AppKit asks, which it does whenever the view is resized.
+    ///
+    /// The same area reports the pointer moving over the canvas, entering it and leaving it, so
+    /// the controller's pointer gate answers at once rather than on the next presented frame. The
+    /// frames re-ask the gate either way, so nothing depends on AppKit delivering these to a panel
+    /// that is ignoring the mouse.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let dragCursorArea {
@@ -76,7 +94,7 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
         let area = NSTrackingArea(
             rect: model.layout.canvasRect
                 .insetBy(dx: -VoiceourMetrics.Space.hair, dy: -VoiceourMetrics.Space.hair),
-            options: [.cursorUpdate, .activeAlways],
+            options: [.cursorUpdate, .mouseMoved, .mouseEnteredAndExited, .activeAlways],
             owner: self,
             userInfo: nil
         )
@@ -85,13 +103,38 @@ final class RecordingOverlayHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        // `locationInWindow` converts into this view's own flipped space, which is the
-        // space the hit region is written in.
-        let point = convert(event.locationInWindow, from: nil)
-        if hitRegion.contains(point, slop: MercuryMetrics.dragSlop) {
+        if isOnBody(event) {
             NSCursor.openHand.set()
         } else {
             super.cursorUpdate(with: event)
         }
+        onPointerEvent()
+    }
+
+    /// Moves set the cursor too, not only entries: the pointer gate hands the panel the mouse once
+    /// the pointer is on the body, which can be after the pointer entered the canvas, and a panel
+    /// that ignored the mouse then heard no entry to answer.
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        if isOnBody(event) {
+            NSCursor.openHand.set()
+        }
+        onPointerEvent()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onPointerEvent()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onPointerEvent()
+    }
+
+    /// `locationInWindow` converts into this view's own flipped space, which is the space the hit
+    /// region is written in.
+    private func isOnBody(_ event: NSEvent) -> Bool {
+        hitRegion.contains(convert(event.locationInWindow, from: nil), slop: MercuryMetrics.dragSlop)
     }
 }

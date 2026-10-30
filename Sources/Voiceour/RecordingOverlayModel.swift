@@ -20,6 +20,24 @@ final class RecordingOverlayModel: ObservableObject {
     /// leaves it alone.
     @Published private(set) var layout: RecordingOverlayLayout = .island
 
+    /// What the controller knows about the pointer, the frontmost window and a hand-off between
+    /// displays that changes how far the collar reaches, or whether the body is asked for anything
+    /// at all. Read from the screen and the hand-off rather than from the session, so `reset()`
+    /// leaves it to the controller.
+    @Published private(set) var poseContext = MercuryPoseContext()
+
+    /// Toward the window the text will land in, −1…1, or, while a hand-off drains the body, toward
+    /// the display it is leaving for. The controller's to keep, like the pose context.
+    @Published private(set) var lean: Double = 0
+
+    /// The kick the body takes as it emerges on the display it was handed to. A session's tokens
+    /// end with it, so `reset()` clears it.
+    @Published private(set) var arrival: MercuryArrival?
+
+    /// The panel is fading out. The body stays drawn while it does, asked for the idle pose, so it
+    /// swallows itself into the notch or the top edge instead of vanishing under the fade.
+    @Published private(set) var isDismissing = false
+
     private var attackRun = 0
     private var releaseRun = 0
 
@@ -85,6 +103,33 @@ final class RecordingOverlayModel: ObservableObject {
         self.layout = layout
     }
 
+    /// An unchanged context is not republished: the controller reads the pointer every frame.
+    func update(poseContext: MercuryPoseContext) {
+        guard poseContext != self.poseContext else { return }
+        self.poseContext = poseContext
+    }
+
+    func update(lean: Double) {
+        guard lean != self.lean else { return }
+        self.lean = lean
+    }
+
+    func present(arrival: MercuryArrival) {
+        guard arrival != self.arrival else { return }
+        self.arrival = arrival
+    }
+
+    func beginDismissal() {
+        guard !isDismissing else { return }
+        isDismissing = true
+    }
+
+    /// A new session reversed the fade before it finished.
+    func endDismissal() {
+        guard isDismissing else { return }
+        isDismissing = false
+    }
+
     /// The mercury drive. The eleven newest levels, oldest first, shifted in place: a
     /// 25 Hz tick must not allocate, and the previous copy-and-append did twice.
     func record(_ rawLevel: Float) {
@@ -108,11 +153,15 @@ final class RecordingOverlayModel: ObservableObject {
         clearSpeechActivity()
     }
 
+    /// The session's end: its state, meter, outcome, arrival and dismissal go, and the layout, the
+    /// pose context and the lean, which describe the screen, stay.
     func reset() {
         state = .idle
         samples = Array(repeating: 0, count: Self.sampleCount)
         captureLive = false
         outcome = nil
+        arrival = nil
+        isDismissing = false
         clearSpeechActivity()
     }
 
