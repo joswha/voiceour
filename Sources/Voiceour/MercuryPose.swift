@@ -49,8 +49,8 @@ struct MercuryPose: Equatable {
 
     static let idle = MercuryPose(length: 0, halfHeight: 0, lateralOffset: 0, driveScale: 0, gesture: nil)
 
-    /// The exact ladder: on the island when `regions` is nil, every pose inside the 180x34
-    /// envelope; on the collar, measured along the housing outline `regions` describes.
+    /// The exact ladder: on the island when `collar` is nil, every pose inside the 180x34
+    /// envelope; on the collar, measured along the housing outline `collar` is laid on.
     ///
     /// Warming is a small calm bead rather than a flat capsule, because the state it
     /// reports — capture requested, no audio yet — held for 1422 ms on a cold AirPods
@@ -72,8 +72,13 @@ struct MercuryPose: Equatable {
     /// instant; the benchmark's gate at 600 substeps is the designed single draw from it, and it
     /// draws none. The collar's lip is 8.6 pt deep, which brought its darkest room's listening
     /// collar from 26 % crushed to 23 %, under the 25 % bound, and its speaking body keeps 11.5 pt:
-    /// a collar raster already costs 0.46 ms, and shallower collars darkened their medians below
-    /// the 0.18 bound.
+    /// shallower collars darkened their medians below the 0.18 bound.
+    ///
+    /// Those collar depths are on the island's 17 pt ceiling. A collar's own ceiling is deeper,
+    /// because only the body's outer half shows below the housing, and every collar rung is
+    /// deepened by the ratio of the two: under the 28 pt ceiling the lip is 14.2 pt deep and the
+    /// speaking chin 18.9. Each rung keeps its containment budget `ln(ceiling / H0)` exactly, so its
+    /// crests stand the same share of its depth: the same ladder, larger.
     ///
     /// The collar takes its lengths from the outline's bottom run `B` and, per side, its
     /// corner `C`, wall `W`, fillet `F` and ear `E`:
@@ -99,8 +104,22 @@ struct MercuryPose: Equatable {
     @MainActor
     static func target(
         for model: RecordingOverlayModel,
-        regions: MercurySpine.Regions? = nil,
+        collar: MercurySpine? = nil,
         context: MercuryPoseContext = .init()
+    ) -> MercuryPose {
+        let pose = ladderPose(for: model, regions: collar?.regions, context: context)
+        guard let collar else { return pose }
+        var deepened = pose
+        deepened.halfHeight *= CGFloat(collar.maxHalfHeight) / MercuryMetrics.maxHalfHeight
+        return deepened
+    }
+
+    /// The ladder's rung at the island's 17 pt ceiling: lengths along `regions` on the collar.
+    @MainActor
+    private static func ladderPose(
+        for model: RecordingOverlayModel,
+        regions: MercurySpine.Regions?,
+        context: MercuryPoseContext
     ) -> MercuryPose {
         if context.draining || model.isDismissing {
             return .idle

@@ -18,17 +18,18 @@ enum MercuryMetrics {
     /// the island's canvas runs 8 pt past the envelope (see `RecordingOverlayLayout.island`).
     /// A collar's track is its whole spine.
     static let maxLength: CGFloat = 168
-    /// Half the island's height. `MercurySimulation` proves the drawn body stays inside
-    /// this through an exact containment gauge rather than a per-frame clamp.
+    /// Half the island's height: the island's ceiling. `MercurySimulation` proves the drawn body
+    /// stays inside its layout's ceiling through an exact containment gauge rather than a per-frame
+    /// clamp; a collar's ceiling is its spine's own, deeper one.
     static let maxHalfHeight: CGFloat = 17
-    /// Containment budget, in nats of `ln(maxHalfHeight / H)`, that the body's own depth never
-    /// spends: `MercurySimulation` holds the body shape to `maxHalfHeight · e^−crestHeadroom`,
-    /// 13.24 pt, and the crests keep the rest. Held to `maxHalfHeight` itself, a speaking body
+    /// Containment budget, in nats of `ln(ceiling / H)`, that the body's own depth never spends:
+    /// `MercurySimulation` holds the body shape to `ceiling · e^−crestHeadroom`, 13.24 pt under the
+    /// island's 17, and the crests keep the rest. Held to the ceiling itself, a speaking body
     /// collapsing into processing overshot its aspect to the full 17 pt, the budget at its centre
     /// reached zero, and the containment gauge erased every mode: the body lost its shape for a
     /// substep and grew it back. 0.25 clamps no pose on either ladder at rest, the deepest being
-    /// processing's 12.5 pt, and covers the widest skew's 13 % lift, `ln 1.133 = 0.125`, with as
-    /// much again to spare.
+    /// processing's 12.5 pt on the island and its 28/17 deepening on the collar, and covers the
+    /// widest skew's 13 % lift, `ln 1.133 = 0.125`, with as much again to spare.
     static let crestHeadroom: Double = 0.25
     /// Stations the edges are sampled at. The field reads `columns + 1` samples with
     /// linear interpolation, so this is the only geometry representation that exists.
@@ -224,6 +225,14 @@ enum MercuryMetrics {
     /// speaking. Two anchors solve its two parameters exactly.
     static let targetDisplayLuminance: Double = 0.32
     static let targetHighlightLuminance: Double = 0.87
+    /// The pooled percentile the highlight anchor lands on: the island's 98th.
+    static let highlightPercentile = 98
+    /// The collar's highlight anchor lands on the 99th instead. Its crown is deeper than the
+    /// island's under its 28 pt ceiling, so each bright source of the room reflects over more of
+    /// its pixels, and the tail above the 98th percentile is heavier: anchored there, the 28 pt
+    /// collar drew 3.3 % of its body at the ceiling under Increase Contrast, past the 2 % bound.
+    /// On the 99th it draws 1.9 %, and 0.7 % under the standard response.
+    static let collarHighlightPercentile = 99
     /// Strict linear-light ceiling. Finite radiance approaches but never reaches it.
     static let displayCeiling: Double = 0.94
 

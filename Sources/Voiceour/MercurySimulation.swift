@@ -56,10 +56,10 @@ struct MercuryArrival: Equatable, Sendable {
 ///
 /// Because `y_T` and `y_B` are exponentials of a sum linear in the amplitudes, the drawn body
 /// is bounded *exactly* rather than clamped: the containment gauge holds every station the
-/// field reads inside `maxHalfHeight`, which is a proof, not a hope, and it is the only limiter
-/// in the geometry path. The body shape holds `H` to ``maxBodyHalfHeight``, a crest headroom
-/// under that ceiling, so every station keeps room for a crest and the gauge never has to erase
-/// the body to honour one.
+/// field reads inside the drive's ceiling, `maxHalfHeight`, which is a proof, not a hope, and
+/// it is the only limiter in the geometry path. The body shape holds `H` to
+/// ``maxBodyHalfHeight(ceiling:)``, a crest headroom under that ceiling, so every station keeps
+/// room for a crest and the gauge never has to erase the body to honour one.
 @MainActor
 final class MercurySimulation {
     /// Everything the session tells the body.
@@ -84,6 +84,9 @@ final class MercurySimulation {
         /// Points: the longest body the layout can draw. The island's 168, or the collar's
         /// whole spine.
         var maxLength: Double = Double(MercuryMetrics.maxLength)
+        /// Points: the ceiling every drawn edge stays inside, the layout spine's
+        /// `maxHalfHeight`. The island's 17, or the collar's deeper chin ceiling.
+        var maxHalfHeight: Double = Double(MercuryMetrics.maxHalfHeight)
         /// The hand-off's arrival kick: applied once, and only for a token newer than every one
         /// applied since the last reset.
         var arrival: MercuryArrival?
@@ -126,7 +129,7 @@ final class MercurySimulation {
         }
 
         /// Scaled toward the origin, with the outward parts of the velocity and of the arm's
-        /// push `−σ` removed. See ``MercurySimulation/contain(depth:)``.
+        /// push `−σ` removed. See ``MercurySimulation/contain(depth:ceiling:)``.
         mutating func retract(scale: Double) {
             value *= scale
             let size = (value.x * value.x + value.y * value.y).squareRoot()
@@ -296,7 +299,7 @@ final class MercurySimulation {
             snake[index].velocity += deviation * snakeKick
         }
 
-        contain(depth: effectiveHalf)
+        contain(depth: effectiveHalf, ceiling: drive.maxHalfHeight)
         substepIndex &+= 1
     }
 
@@ -368,8 +371,8 @@ final class MercurySimulation {
     /// re-clamped every substep, which would read as a stutter. The arm's push `−σ` gives
     /// up its outward part for the same reason: stress a mode stored on its way into the
     /// boundary would otherwise press it straight back out through it.
-    private func contain(depth: Double) {
-        let gauge = envelopeGauge(depth: depth)
+    private func contain(depth: Double, ceiling: Double) {
+        let gauge = envelopeGauge(depth: depth, ceiling: ceiling)
         guard gauge > 1 else { return }
         let scale = 1 / gauge
         for index in 0..<MercuryMetrics.modeCount {
@@ -388,8 +391,7 @@ final class MercurySimulation {
     /// limit and honours the rest, rather than answer it with an unbounded gauge, which is how a
     /// body pressed against the ceiling, before the headroom, lost every mode for a substep and
     /// grew them back.
-    private func envelopeGauge(depth: Double) -> Double {
-        let ceiling = Double(MercuryMetrics.maxHalfHeight)
+    private func envelopeGauge(depth: Double, ceiling: Double) -> Double {
         var worst = 0.0
         for station in 0...MercuryMetrics.columns {
             let envelope = depth * shapedEnvelope[station]
@@ -416,22 +418,27 @@ final class MercurySimulation {
         )
     }
 
-    /// The body shape's height limit: `maxHalfHeight · e^−crestHeadroom`, 13.24 pt. The drawn edges
-    /// may still reach `maxHalfHeight`; the room between is the crests'.
-    static let maxBodyHalfHeight = Double(MercuryMetrics.maxHalfHeight) * exp(-MercuryMetrics.crestHeadroom)
+    /// The body shape's height limit under `ceiling`: `ceiling · e^−crestHeadroom`, 13.24 pt under
+    /// the island's 17. The drawn edges may still reach the ceiling; the room between is the crests'.
+    static func maxBodyHalfHeight(ceiling: Double) -> Double {
+        ceiling * exp(-MercuryMetrics.crestHeadroom)
+    }
 
+    /// The body shape's bounds under this drive's layout. Its outflow drains into a reservoir the
+    /// ceiling's size, so a deeper collar swallows in the island's time rather than slower.
     private static func bodyLimits(for drive: Drive) -> MercuryBodyShape.Limits {
         MercuryBodyShape.Limits(
             maxLength: drive.maxLength,
-            maxHalfHeight: maxBodyHalfHeight,
-            maxSway: MercuryMetrics.maxSway
+            maxHalfHeight: maxBodyHalfHeight(ceiling: drive.maxHalfHeight),
+            maxSway: MercuryMetrics.maxSway,
+            reservoir: drive.maxHalfHeight
         )
     }
 
     /// `H0`, the depth the shaped envelope is drawn at: the body's own `H`.
     ///
-    /// It needs no cap of its own. The body shape holds `H` to ``maxBodyHalfHeight`` and `G_s`
-    /// peaks at most 1.133, at the widest skew, so `ln(maxHalfHeight / (H0 G_s))` is at least
+    /// It needs no cap of its own. The body shape holds `H` to ``maxBodyHalfHeight(ceiling:)``
+    /// and `G_s` peaks at most 1.133, at the widest skew, so `ln(ceiling / (H0 G_s))` is at least
     /// 0.125 at every station. Held to the ceiling itself, a skewed body's peak could pass it,
     /// which no retraction scales back, and the depth used to give way instead.
     private var depth: Double {
@@ -560,7 +567,7 @@ final class MercurySimulation {
             varicose[index] = Mode(value: target.varicose)
             snake[index] = Mode(value: target.snake)
         }
-        contain(depth: Swift.max(depth, 0.25))
+        contain(depth: Swift.max(depth, 0.25), ceiling: drive.maxHalfHeight)
     }
 
     // MARK: - Geometry
@@ -644,8 +651,8 @@ final class MercurySimulation {
 
 extension MercurySimulation.Drive {
     /// The drive the session hands the body: the model's pose on the ladder its layout climbs, in
-    /// the pose context the controller keeps, its meter buffer, how long a body that layout can
-    /// draw, the lean and a hand-off's arrival kick.
+    /// the pose context the controller keeps, its meter buffer, how long and how deep a body that
+    /// layout can draw, the lean and a hand-off's arrival kick.
     ///
     /// The one place a live drive is built from the model, so the ribbon, the harness sheets
     /// and the benchmark cannot disagree about a layout's ladder or its longest body.
@@ -656,13 +663,14 @@ extension MercurySimulation.Drive {
         return MercurySimulation.Drive(
             pose: MercuryPose.target(
                 for: model,
-                regions: collar ? layout.spine.regions : nil,
+                collar: collar ? layout.spine : nil,
                 context: model.poseContext
             ),
             samples: model.samples,
             reduceMotion: reduceMotion,
             lean: model.lean,
             maxLength: collar ? layout.spine.length : Double(MercuryMetrics.maxLength),
+            maxHalfHeight: layout.spine.maxHalfHeight,
             arrival: model.arrival
         )
     }

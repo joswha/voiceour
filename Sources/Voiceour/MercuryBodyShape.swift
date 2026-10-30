@@ -84,18 +84,21 @@ import Foundation
 /// time, so the outflow aims past empty and the floor stops it exactly at `V = 0`: from rest at `V`,
 /// on the first substep at which `(1 + ω_V t) e^(−ω_V t) ≤ R² / (V + R²)`. The speaking body empties
 /// on the 40th substep, 0.333 s; the largest island body, 168 × 13.24 pt, on the 45th, 0.375 s; and
-/// the largest collar body, the 220×38 pt housing's whole 401 pt spine at 13.24 pt, on the 57th,
-/// 0.475 s. With no target shape, an idle aspect holds where it is. Reduce Motion drains its extent
-/// into the same reservoir at the held aspect: `L` aims at `−R e^(α/2)` and `H` at `−R e^(−α/2)`,
-/// both below empty and in proportion, so the body keeps its proportions and both reach zero on the
-/// same substep, the first at which `(1 + ω_V t) e^(−ω_V t) ≤ R / (√V + R)`: the speaking body's
-/// 30th, 0.250 s, and the largest collar body's 37th, 0.308 s.
+/// the largest collar body, the 220×38 pt housing's whole 401 pt spine at the 21.81 pt its 28 pt
+/// ceiling allows, on the 50th, 0.417 s. With no target shape, an idle aspect holds where it is.
+/// Reduce Motion drains its extent into the same reservoir at the held aspect: `L` aims at
+/// `−R e^(α/2)` and `H` at `−R e^(−α/2)`, both below empty and in proportion, so the body keeps its
+/// proportions and both reach zero on the same substep, the first at which
+/// `(1 + ω_V t) e^(−ω_V t) ≤ R / (√V + R)`: the speaking body's 30th, 0.250 s, and the largest
+/// collar body's 34th, 0.283 s.
 ///
-/// `R` is the containment ceiling's 17 pt, not the height limit a body is handed. The simulation holds
-/// bodies below the ceiling to leave the crests headroom, and a reservoir that shrank with that limit
-/// would slow every swallow: at 13.24 pt the speaking body would empty on the 47th substep, 0.392 s,
-/// and on the 33rd, 0.275 s, under Reduce Motion. How deep a body may be is the crests' business; how
-/// fast it swallows is not.
+/// `R` is the containment ceiling the body is drawn under, `Limits.reservoir`: the island's 17 pt,
+/// or the collar's deeper chin ceiling. It is not the height limit a body is handed. The
+/// simulation holds bodies below the ceiling to leave the crests headroom, and a reservoir that
+/// shrank with that limit would slow every swallow: at 13.24 pt the speaking body would empty on
+/// the 47th substep, 0.392 s, and on the 33rd, 0.275 s, under Reduce Motion. How deep a body may
+/// be is the crests' business; how fast it swallows is not. A reservoir that kept the island's
+/// size under a deeper collar would slow the collar's swallows the same way.
 ///
 /// An empty body has no shape to remember. While `V = 0` its aspect, sway, skew and neck sit on their
 /// targets with no stress, so the body grows out of the notch already in its pose. Velocities are
@@ -123,6 +126,9 @@ struct MercuryBodyShape: Sendable, Equatable {
         var maxHalfHeight: Double
         /// Points either way from the rest centre, where the track's ends leave that much room.
         var maxSway: Double
+        /// Points: `R`, the outflow reservoir's scale, the containment ceiling the body is drawn
+        /// under. The island's 17 unless a layout says otherwise.
+        var reservoir = Double(MercuryMetrics.maxHalfHeight)
 
         /// `Lmax·Hmax`, the volume's ceiling.
         fileprivate var maxVolume: Double { max(0, maxLength) * max(0, maxHalfHeight) }
@@ -171,8 +177,6 @@ struct MercuryBodyShape: Sendable, Equatable {
     /// shortens and thickens the body at constant volume, a negative one stretches it.
     static let aspectCoupling: Double = -1.4e-3
 
-    /// Points: `R`, the outflow reservoir's scale.
-    private static let reservoir = Double(MercuryMetrics.maxHalfHeight)
     private static let volumeLaw = CriticalDamping(frequency: volumeFrequency)
     private static let aspectLaw = MercuryZener(parameters: aspectGel, step: MercuryMetrics.substep)
     private static let swayLaw = GelLaw(swayGel)
@@ -241,14 +245,14 @@ struct MercuryBodyShape: Sendable, Equatable {
                 goal = (pose.length, pose.halfHeight)
             } else {
                 let stretch = exp(0.5 * pose.aspect)
-                goal = (-Self.reservoir * stretch, -Self.reservoir / stretch)
+                goal = (-limits.reservoir * stretch, -limits.reservoir / stretch)
             }
             // With no rates of its own yet, Reduce Motion takes over from the gel or a kick.
             let takingOver = extentRate == nil
             settleExtent(toward: goal, aspectTarget: pose.aspect, limits: limits)
             lateral.settle(toward: pose.sway, force: swayForce, law: Self.swayLaw, takingOver: takingOver)
         } else {
-            let fill = pose.volume > 0 ? pose.volume : -Self.reservoir * Self.reservoir
+            let fill = pose.volume > 0 ? pose.volume : -limits.reservoir * limits.reservoir
             volumeCoordinate.step(toward: fill, law: Self.volumeLaw)
             volumeCoordinate.clamp(lower: 0, upper: limits.maxVolume)
             aspect.step(toward: pose.aspect, force: aspectForce, law: Self.aspectLaw)

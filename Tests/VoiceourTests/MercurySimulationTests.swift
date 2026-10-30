@@ -149,6 +149,39 @@ struct MercurySimulationTests {
         }
     }
 
+    /// A collar draws under its own ceiling, its spine's: no meter pushes its edges past it, and
+    /// its speaking chin hangs deeper than the island's ceiling lets any body draw.
+    @Test func theCollarDrawsUnderItsOwnCeiling() throws {
+        let layout = try #require(
+            RecordingOverlayLayout.collar(housingSize: CGSize(width: 185, height: 32), bandHeight: 33)
+        )
+        let ceiling = layout.spine.maxHalfHeight
+        #expect(ceiling > Double(MercuryMetrics.maxHalfHeight))
+        let meters: [[Float]] = [
+            Self.speaking, [Float](repeating: 1, count: 11), [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1], Self.quiet,
+        ]
+        for levels in meters {
+            let model = Self.model(levels)
+            model.update(layout: layout)
+            let drive = MercurySimulation.Drive.target(for: model, reduceMotion: false)
+            #expect(drive.maxHalfHeight == ceiling)
+            let simulation = MercurySimulation(seed: 7, gains: Self.gains)
+            simulation.reset(to: drive)
+            var deepest = 0.0
+            for _ in 0..<600 {
+                simulation.advance(steps: 1, drive: drive)
+                let geometry = simulation.geometry
+                let top = Double(geometry.top.max() ?? 0)
+                #expect(top <= ceiling)
+                #expect(Double(geometry.bottom.min() ?? 0) >= -ceiling)
+                deepest = Swift.max(deepest, top)
+            }
+            if levels == Self.speaking {
+                #expect(deepest > Double(MercuryMetrics.maxHalfHeight), "the speaking chin reached \(deepest) pt")
+            }
+        }
+    }
+
     /// A speaking body collapsing into processing overshoots its aspect into its height wall,
     /// which stands a crest headroom under the ceiling, so the body meets it with its crests.
     /// Held to the ceiling itself, the budget at its centre reached zero and the containment
@@ -185,7 +218,7 @@ struct MercurySimulationTests {
             }
         }
         #expect(sharpestFall.share >= 0.5, "the shape fell to \(sharpestFall.share) of itself at \(sharpestFall.at)")
-        let wall = MercurySimulation.maxBodyHalfHeight
+        let wall = MercurySimulation.maxBodyHalfHeight(ceiling: Double(MercuryMetrics.maxHalfHeight))
         #expect(deepest <= wall, "the body drew \(deepest) pt deep against its \(wall) pt wall")
         #expect(deepest > wall - 1e-9, "the overshoot stopped at \(deepest) pt, short of the \(wall) pt wall")
     }
@@ -533,8 +566,10 @@ struct MercurySimulationTests {
 
     /// The collar's ladder climbs the housing. Speaking reaches nine tenths up both walls
     /// unless the pointer is in the menu-bar band; over a full-screen app it also runs out
-    /// along the ears; and no pose is longer than the spine. The drive the ribbon builds
-    /// lets a collar body grow as long as its spine, and keeps the island's at 168 pt.
+    /// along the ears; and no pose is longer than the spine. Every rung is the island-ceiling
+    /// rung deepened by the collar's ceiling over the island's, and none is held by the height
+    /// wall at rest. The drive the ribbon builds lets a collar body grow as long as its spine
+    /// and as deep as its ceiling, and keeps the island's at 168 × 17 pt.
     @Test func theCollarLadderClimbsTheHousing() throws {
         let layout = try #require(
             RecordingOverlayLayout.collar(housingSize: CGSize(width: 185, height: 32), bandHeight: 33)
@@ -542,7 +577,7 @@ struct MercurySimulationTests {
         let regions = layout.spine.regions
         let speaking = Self.model(Self.speaking)
         func length(_ context: MercuryPoseContext) -> Double {
-            Double(MercuryPose.target(for: speaking, regions: regions, context: context).length)
+            Double(MercuryPose.target(for: speaking, collar: layout.spine, context: context).length)
         }
         let chin = regions.bottom + 2 * regions.corner
         let open = length(MercuryPoseContext())
@@ -562,24 +597,37 @@ struct MercurySimulationTests {
             Self.outcome(.insertFailed(reason: "no focused element")),
             Self.outcome(.error(.inferenceFailed)),
         ]
+        let wall = MercurySimulation.maxBodyHalfHeight(ceiling: layout.spine.maxHalfHeight)
         for model in models {
             for context in [
                 MercuryPoseContext(), MercuryPoseContext(pointerInBand: true),
                 MercuryPoseContext(fullScreen: true), MercuryPoseContext(pointerInBand: true, fullScreen: true),
             ] {
-                let pose = MercuryPose.target(for: model, regions: regions, context: context)
+                let pose = MercuryPose.target(for: model, collar: layout.spine, context: context)
                 #expect(pose.length > 0)
                 #expect(Double(pose.length) <= layout.spine.length)
+                #expect(Double(pose.halfHeight) <= wall)
             }
+        }
+        // Warming, processing and the lurch keep the island's lengths, so their depths show the
+        // deepening alone.
+        let deepening = CGFloat(layout.spine.maxHalfHeight) / MercuryMetrics.maxHalfHeight
+        for model in [Self.model(Self.speaking, live: false), processing, models[5]] {
+            let island = MercuryPose.target(for: model)
+            let collared = MercuryPose.target(for: model, collar: layout.spine)
+            #expect(collared.length == island.length)
+            #expect(abs(collared.halfHeight - island.halfHeight * deepening) < 1e-9)
         }
 
         speaking.update(layout: layout)
         let collared = MercurySimulation.Drive.target(for: speaking, reduceMotion: false)
         #expect(Double(collared.pose.length) == open)
         #expect(collared.maxLength == layout.spine.length)
+        #expect(collared.maxHalfHeight == layout.spine.maxHalfHeight)
         let island = MercurySimulation.Drive.target(for: Self.model(Self.speaking), reduceMotion: false)
         #expect(island.pose == MercuryPose.target(for: Self.model(Self.speaking)))
         #expect(island.maxLength == Double(MercuryMetrics.maxLength))
+        #expect(island.maxHalfHeight == Double(MercuryMetrics.maxHalfHeight))
     }
 
     /// A body handed to another display drains before the panel moves, and one whose panel fades
@@ -598,21 +646,21 @@ struct MercurySimulationTests {
             Self.outcome(.insertFailed(reason: "no focused element")),
             Self.outcome(.error(.inferenceFailed)),
         ]
-        let ladders: [MercurySpine.Regions?] = [nil, layout.spine.regions]
+        let ladders: [MercurySpine?] = [nil, layout.spine]
         let drains = [
             MercuryPoseContext(draining: true),
             MercuryPoseContext(pointerInBand: true, fullScreen: true, draining: true),
         ]
         for model in models {
-            for regions in ladders {
-                #expect(MercuryPose.target(for: model, regions: regions) != .idle)
+            for collar in ladders {
+                #expect(MercuryPose.target(for: model, collar: collar) != .idle)
                 for context in drains {
-                    #expect(MercuryPose.target(for: model, regions: regions, context: context) == .idle)
+                    #expect(MercuryPose.target(for: model, collar: collar, context: context) == .idle)
                 }
                 model.beginDismissal()
-                #expect(MercuryPose.target(for: model, regions: regions) == .idle)
+                #expect(MercuryPose.target(for: model, collar: collar) == .idle)
                 model.endDismissal()
-                #expect(MercuryPose.target(for: model, regions: regions) != .idle)
+                #expect(MercuryPose.target(for: model, collar: collar) != .idle)
             }
         }
 
@@ -653,9 +701,9 @@ struct MercurySimulationTests {
         model.present(arrival: arrival)
 
         let drive = MercurySimulation.Drive.target(for: model, reduceMotion: false)
-        let spread = MercuryPose.target(for: model, regions: layout.spine.regions, context: fullScreen)
+        let spread = MercuryPose.target(for: model, collar: layout.spine, context: fullScreen)
         #expect(drive.pose == spread)
-        #expect(drive.pose.length > MercuryPose.target(for: model, regions: layout.spine.regions).length)
+        #expect(drive.pose.length > MercuryPose.target(for: model, collar: layout.spine).length)
         #expect(drive.lean == -0.5)
         #expect(drive.arrival == arrival)
 

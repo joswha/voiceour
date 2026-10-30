@@ -11,8 +11,10 @@ import Testing
 /// finite differences of the chart itself.
 struct MercurySpineTests {
     /// A camera housing as the collar layout hangs it: centred on x = 0 and flush with the top
-    /// of a canvas `height + 17 + 3` pt tall.
+    /// of a canvas `height + 28 + 3` pt tall, under the collar's 28 pt chin ceiling.
     private struct Housing {
+        static let ceiling = 28.0
+
         var width: Double
         var height: Double
         /// The menu-bar band on that display.
@@ -20,7 +22,7 @@ struct MercurySpineTests {
         var cornerRadius: Double
 
         var outline: MercurySpine.Outline {
-            let top = (height + 17 + 3) / 2
+            let top = (height + Self.ceiling + 3) / 2
             return MercurySpine.Outline(
                 minX: -width / 2,
                 maxX: width / 2,
@@ -29,7 +31,8 @@ struct MercurySpineTests {
                 cornerRadius: cornerRadius,
                 filletRadius: 4.5,
                 earLength: 56,
-                bandFilm: 3.5
+                bandFilm: 3.5,
+                maxHalfHeight: Self.ceiling
             )
         }
     }
@@ -301,7 +304,7 @@ struct MercurySpineTests {
             var misses = 0
             for k in 0...4000 {
                 let s = spine.length * Double(k) / 4000
-                let reach = MercurySpine.maxHalfHeight * spine.taper(at: s)
+                let reach = spine.maxHalfHeight * spine.taper(at: s)
                 let normal = spine.frame(at: s).normal
                 for fraction in [1.0 / 64, 0.25, 0.5, 0.75, 1] {
                     let offset = reach * fraction
@@ -540,7 +543,7 @@ struct MercurySpineTests {
                 #expect(landsOnAnEnd)
             }
 
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             var thickOnFillet = 0
             for k in 0...64 {
                 let along = regions.ear + regions.fillet * Double(k) / 64
@@ -559,7 +562,7 @@ struct MercurySpineTests {
         for housing in Self.realistic {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             let start = outline.minX - outline.filletRadius - outline.earLength
             let end = outline.maxX + outline.filletRadius + outline.earLength
             var worst = 0.0
@@ -677,7 +680,7 @@ struct MercurySpineTests {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let joins = Self.joins(of: spine)
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             #expect(spine.taper(at: spine.restCenter) == 1)
 
             var wrong = 0
@@ -717,7 +720,7 @@ struct MercurySpineTests {
         for housing in Self.everyHousing {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             // The 30°…70° blend's arc length, and the smoothstep's largest slope and bend over it.
             let span = 40 * Double.pi / 180 * EasedBend.plateauRadius(radius: outline.cornerRadius)
             let slope = 1.5 * (1 - film) / span
@@ -750,7 +753,7 @@ struct MercurySpineTests {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
             let joins = Self.joins(of: spine)
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             // The left blend runs from 70° up the corner, 20° of turn past its wall end, down to 30°.
             let plateauRadius = EasedBend.plateauRadius(radius: outline.cornerRadius)
             let plateauStart = joins[3] + 0.15 * spine.regions.corner - plateauRadius * EasedBend.rampTurn
@@ -787,7 +790,7 @@ struct MercurySpineTests {
         for (index, housing) in Self.everyHousing.enumerated() {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             let span = 40 * Double.pi / 180 * EasedBend.plateauRadius(radius: outline.cornerRadius)
             let steepestSlope = 1.5 * (1 - film) / span
             let sharpestBend = 6 * (1 - film) / (span * span)
@@ -830,7 +833,7 @@ struct MercurySpineTests {
         for housing in Self.realistic {
             let spine = MercurySpine(collar: housing.outline)
             let outline = try #require(Self.laidOutline(of: spine))
-            let film = outline.bandFilm / MercurySpine.maxHalfHeight
+            let film = outline.bandFilm / outline.maxHalfHeight
             let bandMiddle = outline.top - housing.band / 2
             #expect(outline.bottom + outline.cornerRadius < bandMiddle)
 

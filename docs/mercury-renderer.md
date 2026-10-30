@@ -29,10 +29,10 @@ The renderer holds these properties; the tests and hard gates under [Measured ga
 Coordinates are canvas-local points at 72 pt/in, with origin at the canvas centre and `+y` upward. `RecordingOverlayLayout` supplies the canvas, and the raster always covers it at 2×. The island's canvas is 196×34 pt, inset 32 pt from the left and 16 pt from the top of its 260×80 pt panel: 392×68 device pixels. It runs 8 pt past each end of the 180×34 pt envelope that placement and the `Dictation status` element measure, so the panel and the status frame stay where they are while a round end swayed to the end of its track is never cut ([Exact containment](#exact-containment-on-the-drawn-envelope)). The collar's canvas is the whole panel, hung flush from the screen's top edge and centred on the camera housing. Around a $w_h\times h_h$ housing it measures
 
 $$
- \bigl(w_h+2(\rho_e+E)+8\bigr)\times\bigl(h_h+H_{max}+3\bigr),
+ \bigl(w_h+2(\rho_e+E)+8\bigr)\times\bigl(h_h+H_c+3\bigr),
 $$
 
-with fillet radius $\rho_e=4.5$ pt, ear length $E=56$ pt, and $H_{max}=17$ pt: 314×52 pt around the 185×32 pt housing and 349×58 pt around the 220×38 pt one. The width reaches each fillet and ear plus 4 pt for a round end; the height holds the deepest chin plus a 3 pt margin for its bleed.
+with fillet radius $\rho_e=4.5$ pt, ear length $E=56$ pt, and the collar's chin ceiling $H_c=28$ pt: 314×63 pt around the 185×32 pt housing and 349×69 pt around the 220×38 pt one. The width reaches each fillet and ear plus 4 pt for a round end; the height holds the deepest chin plus a 3 pt margin for its bleed. The collar's ceiling is deeper than the island's $H_{max}=17$ pt because only the body's outer half shows below the housing, the inner half lying under the hardware: under a 17 pt ceiling the speaking chin hung 11.5 pt below a 32 pt notch, a sliver beside it, and under 28 pt it hangs 18.9 pt, as thick as the island's whole speaking body. `MercurySpine.maxHalfHeight` carries each layout's ceiling, 17 pt on the island and $H_c$ on the collar, and every ceiling below is the layout's own.
 
 `RecordingOverlayLayout.forDisplay(_:)` lays the collar only around a constructible notch: a camera housing on a display outside any mirror set, deeper than $\rho_e+6$ pt and wider than its two corners. Every other display gets the island. `RecordingOverlayController` lays the panel out with it on whichever display the body is on, so a notched built-in display shows the collar and every other display the island.
 
@@ -109,7 +109,7 @@ Across the same joins the field's gradient jumps by at most $8\times10^{-9}$, wh
 
 ### Taper
 
-The taper $\Lambda(s)\in(0,1]$, `taper(at:)`, is the fraction of $H_{max}$ a station at $s$ may draw. It is 1 along the whole island and along the collar's bottom run, the chin under the notch. It is $\Lambda_{film}=3.5/17$, a 3.5 pt film, on the walls, fillets, and ears, which lie in the menu-bar band. Across each convex corner it is a smoothstep in the corner's tangent angle $\psi$, measured up from the bottom:
+The taper $\Lambda(s)\in(0,1]$, `taper(at:)`, is the fraction of the spine's ceiling a station at $s$ may draw. It is 1 along the whole island and along the collar's bottom run, the chin under the notch. It is $\Lambda_{film}=3.5/H_c$, a 3.5 pt film, on the walls, fillets, and ears, which lie in the menu-bar band. Across each convex corner it is a smoothstep in the corner's tangent angle $\psi$, measured up from the bottom:
 
 $$
  \Lambda=1-(1-\Lambda_{film})\,u^2(3-2u),
@@ -419,15 +419,15 @@ Every target is first projected into these bounds, by `reset(to:limits:)` exactl
 
 ### Swallow and emergence
 
-An idle target is an outflow through the notch into a reservoir $R^2$ below empty, with $R=H_{max}=17$ pt. Aimed at empty itself, the critically damped volume would only approach it: the island's speaking body would still hold 26 pt² at 0.6 s and need 0.97 s to fall below 1 pt². An orifice drains in finite time, so the outflow aims past empty and the Moreau floor stops it exactly at $V=0$. From rest at volume $V$ the exact law gives $V(t)=(V+R^2)(1+\omega_Vt)e^{-\omega_Vt}-R^2$, so the body is empty from the first substep, $t=nh$, at which
+An idle target is an outflow through the notch into a reservoir $R^2$ below empty, with $R$ the layout's ceiling: 17 pt on the island, $H_c=28$ pt on the collar. Aimed at empty itself, the critically damped volume would only approach it: the island's speaking body would still hold 26 pt² at 0.6 s and need 0.97 s to fall below 1 pt². An orifice drains in finite time, so the outflow aims past empty and the Moreau floor stops it exactly at $V=0$. From rest at volume $V$ the exact law gives $V(t)=(V+R^2)(1+\omega_Vt)e^{-\omega_Vt}-R^2$, so the body is empty from the first substep, $t=nh$, at which
 
 $$
  (1+\omega_Vt)\,e^{-\omega_Vt}\le\frac{R^2}{V+R^2}.
 $$
 
-The island's 160 × 9.5 pt speaking body empties on the 40th substep, 0.333 s into the swallow; the largest island body, 168 × 13.24 pt, on the 45th, 0.375 s; and the largest collar body, the 220×38 pt housing's whole 401 pt spine at 13.24 pt, on the 57th, 0.475 s. With no target shape, the aspect holds, so the body keeps its proportions while it drains.
+The island's 160 × 9.5 pt speaking body empties on the 40th substep, 0.333 s into the swallow; the largest island body, 168 × 13.24 pt, on the 45th, 0.375 s; the 185×32 pt collar's speaking body, 227 × 18.9 pt, on the 41st, 0.342 s; and the largest collar body, the 220×38 pt housing's whole 401 pt spine at the 21.81 pt its ceiling allows, on the 50th, 0.417 s. With no target shape, the aspect holds, so the body keeps its proportions while it drains.
 
-The reservoir is the containment ceiling, not the height wall. How deep a body may be is the crests' business; how fast it swallows is not. A reservoir that shrank with the wall would slow every swallow: the island's speaking body would empty on the 47th substep, 0.392 s, and on the 33rd, 0.275 s, under Reduce Motion.
+The reservoir is the containment ceiling, not the height wall. How deep a body may be is the crests' business; how fast it swallows is not. A reservoir that shrank with the wall would slow every swallow: the island's speaking body would empty on the 47th substep, 0.392 s, and on the 33rd, 0.275 s, under Reduce Motion. One that kept the island's 17 pt under the collar's deeper ceiling would slow the collar's the same way: its speaking body would empty on the 54th substep instead of the 41st, past the hand-off's 48-substep drain.
 
 An empty body has no shape to remember. While $V=0$, its aspect, sway, skew, and neck sit on their targets with no stress, so the body grows out of the notch already in its pose. Velocities are kept, so an arrival kick handed to an empty body becomes the first motion of the mercury that emerges.
 
@@ -455,25 +455,27 @@ So on taking over, Reduce Motion projects each rate once into its law's monotone
 
 The projection is made once, on taking over. A pose that changes while Reduce Motion is already moving the body can still carry it past the new pose, by up to 48 pt on a collar sequence the app never makes. The app's own sequences do not: a toggle between listening and speaking only reverses smoothly, and speaking → processing → outcome never overshoots.
 
-A swallow under Reduce Motion drains the extent into the same reservoir at the held aspect: $L$ aims at $-Re^{\alpha/2}$ and $H$ at $-Re^{-\alpha/2}$, so the body keeps its proportions, and both reach zero on the same substep, the first at which $(1+\omega_Vt)e^{-\omega_Vt}\le R/(\sqrt V+R)$: the 30th, 0.250 s, for the island's speaking body and the 37th, 0.308 s, for the largest collar body. A body that reaches the floor along either extent is empty, and an empty body starts from rest: its extent, sway, skew, and neck. The sway is critically damped at its rubbery frequency with its stress zeroed; the panel's acceleration still leans it but never squashes the extent. Gesture and arrival kicks to the body shape are spent without being applied, so they cannot land later either.
+A swallow under Reduce Motion drains the extent into the same reservoir at the held aspect: $L$ aims at $-Re^{\alpha/2}$ and $H$ at $-Re^{-\alpha/2}$, so the body keeps its proportions, and both reach zero on the same substep, the first at which $(1+\omega_Vt)e^{-\omega_Vt}\le R/(\sqrt V+R)$: the 30th, 0.250 s, for the island's speaking body and the 34th, 0.283 s, for the largest collar body. A body that reaches the floor along either extent is empty, and an empty body starts from rest: its extent, sway, skew, and neck. The sway is critically damped at its rubbery frequency with its stress zeroed; the panel's acceleration still leans it but never squashes the extent. Gesture and arrival kicks to the body shape are spent without being applied, so they cannot land later either.
 
 ### Pose ladder
 
 `MercuryPose` is the only channel from session state to shape: there is no glyph, word, or hue. Each state asks for a length and half-height, a voice drive scale, and, for the outcome gestures, an offset, skew, or neck:
 
-| state | island $L\times H$ (pt) | collar $L\times H$ (pt) | voice | reads as |
+| state | island $L\times H$ (pt) | collar $L\times H$ (pt), at $H_c=28$ | voice | reads as |
 | --- | --- | --- | --- | --- |
-| warming | 58 × 8.5 | 58 × 8.5 | off | a small calm bead |
-| listening | 140 × 9.3 | $(B+1.7C)$ × 8.6 | on | a lip: long, thin, and alive to the voice |
-| speaking | 160 × 9.5 | $(B+2C+1.8W)$ × 11.5 | on | the longest live body, deeper than the lip; on the collar it climbs the walls |
-| processing | 84 × 12.5 | 84 × 12.5 | off | a held gathered pose, not a working mark |
-| copy-only, `gathered` | 70 × 11 | 64 × 12 | off | a squashed bead |
-| paste failure, `lurch` | 78 × 11; offset 8 pt; skew 0.4 | as the island | off | a lopsided 70/30 lean |
-| error, `collapse` | 92 × 6.6; neck 0.7 | $0.8B$ × 6.6; neck 0.7 | off | two drips joined by a thread |
+| warming | 58 × 8.5 | 58 × 14.0 | off | a small calm bead |
+| listening | 140 × 9.3 | $(B+1.7C)$ × 14.2 | on | a lip: long, thin, and alive to the voice |
+| speaking | 160 × 9.5 | $(B+2C+1.8W)$ × 18.9 | on | the longest live body, deeper than the lip; on the collar it climbs the walls |
+| processing | 84 × 12.5 | 84 × 20.6 | off | a held gathered pose, not a working mark |
+| copy-only, `gathered` | 70 × 11 | 64 × 19.8 | off | a squashed bead |
+| paste failure, `lurch` | 78 × 11; offset 8 pt; skew 0.4 | 78 × 18.1; offset 8 pt; skew 0.4 | off | a lopsided 70/30 lean |
+| error, `collapse` | 92 × 6.6; neck 0.7 | $0.8B$ × 10.9; neck 0.7 | off | two drips joined by a thread |
+
+The collar ladder is written on the island's 17 pt ceiling, 8.5, 8.6, 11.5, 12.5, 12, 11, and 6.6 pt deep, and every rung is deepened by $H_c/H_{max}=28/17$. Each keeps its containment budget $\ln(H_c/H_0)$ exactly, so its crests stand the same share of its depth: the same ladder, larger. The deepest rung, processing at 20.6 pt, stays under the 21.81 pt height wall that ceiling leaves.
 
 Warming is a bead rather than a flat capsule because the state it reports, capture requested with no audio yet, held for 1,422 ms on a cold AirPods Max link, and a body that looks like a listening body during it is how a user speaks into the hole.
 
-The speaking body is deliberately not the tallest it could be. The containment budget is $\ln(H_{max}/H_0)$, so every point of mean thickness is amplitude the crests cannot have; at 11.5 pt the budget is 0.39, and the body necks and swells the way a driven liquid ridge does. The collar's speaking body keeps that depth: shallower speaking collars darkened their rooms' medians below the screen's 0.18 bound. The island's is 9.5 pt, a budget of 0.58, because its raster cost follows the body's area, not its crests. At 11.5 pt its live crests held it against the island's 34 pt height, where a raster cost 0.58–0.63 ms against the 0.55 ms gate; cutting the drive gain from 0.79 to 0.45 moved the cost only from 0.603 to 0.585 ms, and a 10 pt body still cost 0.569 ms. At 9.5 pt it costs 0.527–0.533 ms ([Measured gates](#measured-gates)).
+The speaking body is deliberately not the tallest it could be. The containment budget is $\ln(H_{max}/H_0)$, so every point of mean thickness is amplitude the crests cannot have; at 11.5 pt under 17 the budget is 0.39, and the body necks and swells the way a driven liquid ridge does. The collar's speaking body keeps that budget, 18.9 pt under its 28 pt ceiling: shallower speaking collars darkened their rooms' medians below the screen's 0.18 bound. The island's is 9.5 pt, a budget of 0.58, because its raster cost follows the body's area, not its crests. At 11.5 pt its live crests held it against the island's 34 pt height, where a raster cost 0.58–0.63 ms against the 0.55 ms gate; cutting the drive gain from 0.79 to 0.45 moved the cost only from 0.603 to 0.585 ms, and a 10 pt body still cost 0.569 ms. At 9.5 pt it cost 0.527–0.533 ms before the staged raster ([Measured gates](#measured-gates)).
 
 The island's listening lip is 140 × 9.3. In rooms that are one uniform wall but for a few sources, a thin lip's reflections can miss every source, and its 95th percentile then falls short of separating it from a mid-grey ground. Scanning the 4,096-room screen at twelve instants of the crest cycle counts such listening failures:
 
@@ -483,11 +485,11 @@ The island's listening lip is 140 × 9.3. In rooms that are one uniform wall but
 | 130 × 8.6 | 16 |
 | 140 × 9.3 | 14 |
 
-A tail of these uniform-room failures remains, about 1.2 per instant across the crest cycle. The benchmark's screen at 600 substeps is the designed single draw from it, and it draws none. The collar's lip is 8.6 pt deep, which brings the darkest room's listening collar from 0.2596 crushed area to 0.234, under the 0.25 bound. On both ladders speaking stays longer and deeper than listening, and warming stays a bead.
+A tail of these uniform-room failures remains, about 1.2 per instant across the crest cycle. The benchmark's screen at 600 substeps is the designed single draw from it, and it draws none. The collar's lip is 8.6 pt deep on the island's ceiling, which brought the darkest room's listening collar from 0.2596 crushed area to 0.234, under the 0.25 bound. On both ladders speaking stays longer and deeper than listening, and warming stays a bead.
 
 The collar measures its ladder along the housing outline: the bottom run $B$ and, per side, the corner $C$, wall $W$, fillet $F$, and ear $E$. Listening lies along the bottom and most of both corners; speaking takes both corners and nine tenths of each wall. `MercuryPoseContext` changes the speaking reach. With the pointer in the menu-bar band, the body gives the walls back, $B+2C$, so no film lies where the user is reaching for a menu or a status item. Over a full-screen app, where the band beside the notch is empty black, it also turns both fillets and runs seven tenths along each ear, $B+2C+1.8W+2F+1.4E$. Around the 185×32 pt housing, listening is 196 pt long and speaking 227 pt, 202 pt with the pointer in the band, or 320 pt over a full-screen app, of the spine's 356 pt. The collapse spans eight tenths of the bottom so both drips hang under the housing, and the copy-only bead is a drop under the notch; warming, processing, and the lurch keep the island's lengths, which already fit inside the bottom run.
 
-`MercurySimulation.Drive.target(for:reduceMotion:)` is the one place a live drive is built: the pose on the ladder its layout climbs, the meter buffer, and $L_{max}$.
+`MercurySimulation.Drive.target(for:reduceMotion:)` is the one place a live drive is built: the pose on the ladder its layout climbs, the meter buffer, $L_{max}$, and the layout's ceiling.
 
 ### Gestures and arrivals
 
@@ -554,7 +556,7 @@ and likewise for the lower edge. The containment gauge is the worst normalized v
 
 Outward radial velocity is removed while tangential velocity survives, and the arm's push $-\sigma$ gives up its outward part too, so stress a mode stored on its way into the boundary cannot press it straight back out through it. This is Moreau-style inelastic contact: the state slides along the constraint instead of striking it on every frame. One scalar rescales both mode families, so containment cannot silently turn an independent two-edge body back into a pill.
 
-The gauge bounds the untapered edges, $y_T\le H_{max}$ and $y_B\ge-H_{max}$ with $H_{max}=17$ pt, and the field scales both by $\Lambda(s)\le1$. The drawn body therefore reaches at most $\Lambda(s)H_{max}$ from the spine: 17 pt on the island and under the notch, 3.5 pt on the walls, fillets, and ears. Each canvas holds that reach. The island's canvas is ±17 pt about its spine and ±98 pt along it. Its bodies ride a 168 pt track that ends 84 pt from the centre, and a round end reaches past the track by its own half-thickness: at rest every pose stays inside the envelope's ±90 pt, but the speaking body at full lean or under the hardest drag rounds off up to 93.5 pt out, and 94 pt on an adversarial meter. The collar's canvas holds the 17 pt chin plus a 3 pt margin for its bleed, and 4 pt past each ear's end for a film-thick round end and its coverage ramp. The field's bounding box is intersected with the canvas, which is the absolute envelope: the bleed keeps the coverage ramp whole and never carries the body past the canvas.
+The gauge bounds the untapered edges, $y_T\le H_{ceil}$ and $y_B\ge-H_{ceil}$ with $H_{ceil}$ the drive's ceiling, 17 pt on the island and $H_c=28$ pt on the collar, and the field scales both by $\Lambda(s)\le1$. The drawn body therefore reaches at most $\Lambda(s)H_{ceil}$ from the spine: 17 pt on the island, 28 pt under the notch, 3.5 pt on the walls, fillets, and ears. Each canvas holds that reach. The island's canvas is ±17 pt about its spine and ±98 pt along it. Its bodies ride a 168 pt track that ends 84 pt from the centre, and a round end reaches past the track by its own half-thickness: at rest every pose stays inside the envelope's ±90 pt, but the speaking body at full lean or under the hardest drag rounds off up to 93.5 pt out, and 94 pt on an adversarial meter. The collar's canvas holds the 28 pt chin plus a 3 pt margin for its bleed, and 4 pt past each ear's end for a film-thick round end and its coverage ramp. The field's bounding box is intersected with the canvas, which is the absolute envelope: the bleed keeps the coverage ramp whole and never carries the body past the canvas.
 
 ## One scalar field for pixels and interaction
 
@@ -640,7 +642,7 @@ where $p$ is one device pixel in points. On the collar, the walls, corners, and 
 
 The rasterizer charts every pixel centre. On a horizontal run $s$ depends on $x$ alone, so each pixel column memoizes the station sample at its arc length and the rest of the column reuses it; the memo caches `stationSample(at:)` and is never a second evaluator. A conservative mask skips pixels the body cannot cover. Each frame it marks, row by row, the 8-pixel column blocks touched by a box around every piece of the body: each station interval, split at the spine's primitive joins, and both caps, each grown by its own provable coverage reach, half a pixel times the bound on $\|\nabla\phi\|$ over the piece, plus one pixel. A piece that reaches a concave fillet contributes the whole $\rho_e$ square instead, because $\|\nabla\phi\|$ has no bound near the fillet's centre. A piece on a convex corner starts its normal range at $-g$, to hold the sliver its chart reaches below the spine, and divides its climb along the body by the least metric that sliver reaches against the plateau's curvature, $1-g/R_p=0.94443$ (`leastCornerMetric`), before it bounds $\|\nabla\phi\|$. The marked blocks are visited in the same row-major order as a loop over every canvas pixel, so the image, and even the calibration's radiance sample sequence, is bit-identical to that loop.
 
-A chart depends on the spine and the pixel alone, never on the body, so the rasterizer keeps the charts of the pixels around the collar's four bends from frame to frame: each convex corner's quadrant, out to 22 pt to hold the 17 pt chin and its coverage ramp, and each fillet's square. Only those charts are dear, a plateau's arctangent or a ramp's Newton steps; every other pixel is charted afresh in a few multiplies. The kept charts are forgotten whenever the spine, the canvas, or the scale changes, and each is bit-identical to a fresh one. Without them the speaking collar's raster costs 0.059 ms more.
+A chart depends on the spine and the pixel alone, never on the body, so the rasterizer keeps the charts of the pixels around the collar's four bends from frame to frame: each convex corner's quadrant, out to the spine's ceiling plus 5 pt, 33 pt, to hold the 28 pt chin and its coverage ramp, and each fillet's square. Only those charts are dear, a plateau's arctangent or a ramp's Newton steps; every other pixel is charted afresh in a few multiplies. The kept charts are forgotten whenever the spine, the canvas, or the scale changes, and each is bit-identical to a fresh one. Without them the speaking collar's raster costs 0.059 ms more.
 
 ## Half-elliptic crown
 
@@ -706,7 +708,7 @@ $$
  q=x'^2+y'^2,\quad d=1400-z.
 $$
 
-Across the island's 196×34 pt canvas $q<0.0052$; across the widest collar canvas, 349×58 pt, $q<0.0163$. Voiceour uses
+Across the island's 196×34 pt canvas $q<0.0052$; across the widest collar canvas, 349×69 pt, under the tallest crown its 28 pt ceiling allows, $q<0.0167$. Voiceour uses
 
 $$
  (1+q)^{-1/2}\approx
@@ -894,7 +896,7 @@ $$
  Y=0.2126R+0.7152G+0.0722B
 $$
 
-across both listening and speaking bodies for the session's actual room and body seed, laid out as the layout it lights draws them. Each body is placed at rest on its pose and advanced 180 substeps on its meter buffer held still, the syllable for speaking and the quiet room for listening, and every fourth pixel more than half covered enters the pool. The layout matters as much as the pose: a collar shows only the outer half of a chin and walls, which sweeps a different part of the room than the island's whole crown, so a collar is lit by its own response. `MercuryEngine` meters the first layout a session draws and meters again, in the same room, when a frame arrives on another layout, so the solve is paid once per layout and never per frame. The response takes scene anchors $s_m=p50$ and $s_h=p98$ and maps them to
+across both listening and speaking bodies for the session's actual room and body seed, laid out as the layout it lights draws them. Each body is placed at rest on its pose and advanced 180 substeps on its meter buffer held still, the syllable for speaking and the quiet room for listening, and every fourth pixel more than half covered enters the pool. The layout matters as much as the pose: a collar shows only the outer half of a chin and walls, which sweeps a different part of the room than the island's whole crown, so a collar is lit by its own response. `MercuryEngine` meters the first layout a session draws and meters again, in the same room, when a frame arrives on another layout, so the solve is paid once per layout and never per frame. The response takes scene anchors $s_m=p50$ and $s_h=p98$ on the island, $s_h=p99$ on the collar, and maps them to
 
 $$
  y_m=0.32,\qquad y_h=0.87.
@@ -923,6 +925,8 @@ $$
 $$
 
 For every finite positive $s$, $y(s)<c$. The 0.94 ceiling is therefore unreachable analytically, not merely clamped after failure. Increase Contrast solves the same scene anchors to `0.30` and `0.90`, preserving that ceiling.
+
+The collar anchors its highlight one percentile higher because its crown is deeper. Under its 28 pt ceiling each bright source of the room reflects over more of the collar's pixels than over the island's, so the tail above the 98th percentile is heavier: anchored there, the 28 pt collar drew 3.3% of its body at or above 0.93 under Increase Contrast, past the 2% bound, and one speaking collar's median reached 0.557. Anchored on the 99th, the corpus's worst is 0.7% at the standard response and 1.9% under Increase Contrast, and every median stays inside its bounds. The island keeps the 98th.
 
 The mapped luminance rescales the source RGB ratio. If a channel would leave `[0,c]`, the result slides toward neutral along a Rec.709-luminance-null direction. Luminance remains exact while only the impossible chroma is reduced.
 
@@ -998,7 +1002,7 @@ Three look-defining values are solved against production geometry and optics rat
 
 1. Voice drive gain is solved by proportional iteration, with the contact line off, until the median speaking crest prominence under live-like speech is `5.0 pt`.
 2. Contact-line gain is then bisected against that drive, in the quiet room held still, until the upper/lower mirror correlation is near zero.
-3. Every session's display response solves its own p50/p98 room anchors on the layout it lights ([Bounded display response](#bounded-display-response)).
+3. Every session's display response solves its own p50 and highlight room anchors, p98 on the island and p99 on the collar, on the layout it lights ([Bounded display response](#bounded-display-response)).
 
 Geometry calibration differences a driven run and a zero-drive run from the same seed, on the same meter, with Reduce Motion enabled. Because the mode law is linear below containment, static asymmetry and stochastic decoration cancel exactly; the solve measures voice contribution only. The zero-drive run has no gain to try, so it runs once per seed and its frames are kept. Each run resets at rest on the island's canonical pose, which under Reduce Motion the body shape never leaves, then settles 180 substeps. The modes start at the voice's equilibrium of that instant and the voice moves on at once; the gel's slowest answer is the arm's creep, 2.1 s⁻¹ for the speaking fundamental, and after 1.5 s it is gone. Over one crest period on a buffer held still, the prominence after 180 substeps agrees with that after 1,440 to 0.01%; under live speech, the median prominence pooled over 48 seeds shows no trend from the first second after the reset on.
 
@@ -1051,7 +1055,7 @@ Each raster row is shaded in stages. A pixel's shading is one chain of dependent
 
 ## Measured gates
 
-`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column is the measurement of 2026-10-30 on the development M4 Pro, three runs on an idle machine, with the range where the runs differ; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
+`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column is the measurement of 2026-10-30 on the development M4 Pro, four runs on an idle machine, with the range where the runs differ; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
 
 | measurement | result | hard gate |
 | --- | ---: | ---: |
@@ -1059,22 +1063,22 @@ Each raster row is shaded in stages. A pixel's shading is one chain of dependent
 | near-white body area | 0.0016 | ≤0.02 |
 | reflected-direction coverage | 3.6983 sr | ≥2.0 sr |
 | 30 s median luminance drift | 0.8976 stops | ≤1.0 stop |
-| launch calibration | 114–126 ms | ≤200 ms |
-| cold room + first raster | 8.9–9.0 ms | ≤25 ms |
-| raster p50 / p99 | 0.325–0.326 / 0.342–0.346 ms | ≤0.55 / 0.70 ms |
-| raster CPU at 120 Hz | 0.0389–0.0396 core | ≤0.066 core |
-| engine + layer p50 / p99 | 0.330–0.335 / 0.370–0.378 ms | ≤0.65 / 0.85 ms |
-| engine + layer CPU at 120 Hz | 0.0395–0.0396 core | ≤0.08 core |
+| launch calibration | 115–130 ms | ≤200 ms |
+| cold room + first raster | 9.2–10.2 ms | ≤25 ms |
+| raster p50 / p99 | 0.334–0.342 / 0.379–0.481 ms | ≤0.55 / 0.70 ms |
+| raster CPU at 120 Hz | 0.0404–0.0417 core | ≤0.066 core |
+| engine + layer p50 / p99 | 0.345–0.356 / 0.418–0.474 ms | ≤0.65 / 0.85 ms |
+| engine + layer CPU at 120 Hz | 0.0410–0.0427 core | ≤0.08 core |
 | collar sessions | 64/64 pass | zero failures |
-| collar near-white area, standard / Increase Contrast | 0.0039 / 0.0147 | ≤0.02 |
-| collar raster p50 / p99 | 0.294–0.298 / 0.320–0.347 ms | ≤0.55 / 0.70 ms |
-| collar raster CPU at 120 Hz | 0.0358–0.0361 core | ≤0.066 core |
+| collar near-white area, standard / Increase Contrast | 0.0067 / 0.0192 | ≤0.02 |
+| collar raster p50 / p99 | 0.473–0.485 / 0.550–0.633 ms | ≤0.55 / 0.70 ms |
+| collar raster CPU at 120 Hz | 0.0573–0.0587 core | ≤0.066 core |
 
 A seed fails the 4,096-seed distribution screen when, for either the listening or the speaking reflection manifold, mapped luminance has a median outside `[0.18, 0.55]`, a p95 outside `[0.60, 0.92]`, a p05–p95 span below `0.30`, or less than `1.5` contrast ratio against any of the near-black, mid-grey, and near-white grounds (`0.075`, `0.45`, `0.95`); it also fails when crushed-black area exceeds `0.25`, near-ceiling area `0.02`, p95 local saturation `0.12`, or whole-body colour cast `0.06`. The 64-seed raster corpus additionally fails an Increase Contrast near-white area above `0.02`.
 
 Every body the bench measures is placed at rest on its pose and settled 600 substeps on a `MercurySpeechMeter`, as calibration's are: a speaking body hears live-like speech, a new level every 40 ms, and a listening body hears the quiet room held still. The measurements are taken at those 600 substeps and, for the motion series, over 30 s more at a sample every 75 ms. A speaking buffer held still would measure its own phase rather than what a speaking user sees: it keeps advecting through a thick half and a thin one, and at 600 substeps a frozen speaking body sat at the 5th percentile of its own series, so the bench would time a thin body.
 
-The bench also screens a 64-seed collar corpus around the 185×32 pt housing, on its 314×52 pt canvas, with the same near-white, distribution, and raster gates. Each seed is a session: its own listening and speaking collar bodies, the speaking one hearing that seed's own speech, settled 600 substeps in its own room and lit through the response `MercuryCalibration` meters on that seed's collar bodies, as the engine lights them. The collar shows only its outer half, below and beside the housing, so it reflects a different part of the room than the island's whole crown, and a response metered on the island's body is not the collar's. Every seed must pass the distribution screen's per-seed bounds above, applied to the shipping raster's own samples; near-white area must stay at or below `0.02` under both contrast settings; and the speaking collar, timed on the performance screen's seed and room, must meet the island's raster p50, p99, and 120 Hz CPU gates.
+The bench also screens a 64-seed collar corpus around the 185×32 pt housing, on its 314×63 pt canvas, with the same near-white, distribution, and raster gates. Each seed is a session: its own listening and speaking collar bodies, the speaking one hearing that seed's own speech, settled 600 substeps in its own room and lit through the response `MercuryCalibration` meters on that seed's collar bodies, as the engine lights them. The collar shows only its outer half, below and beside the housing, so it reflects a different part of the room than the island's whole crown, and a response metered on the island's body is not the collar's. Every seed must pass the distribution screen's per-seed bounds above, applied to the shipping raster's own samples; near-white area must stay at or below `0.02` under both contrast settings; and the speaking collar, timed on the performance screen's seed and room, must meet the island's raster p50, p99, and 120 Hz CPU gates.
 
 The engine-and-layer timing first plays the emergence out untimed, 90 frames of one substep each, 0.75 s, after which the body holds 99.5% of its pose's volume and 99.8% of its length, so it times the speaking body in its pose rather than its growth from nothing. The meter ticks between frames, as a level reaches the model between two display-link callbacks, so the engine meets each new buffer inside the next frame as one voice refresh. The raster timings, island and collar, draw a body placed at rest on its pose, which never emerges.
 
@@ -1082,7 +1086,7 @@ The visual companion is `make ui-mercury`, which writes the contact sheets liste
 
 The relevant automated contracts include:
 
-- `MercurySimulationTests`: replay and batch independence through emergence, lean, frame forcing, and an arrival; distinct seeds; containment under adversarial meters and at the widest skew on the deepest body; a body at its height wall that keeps its crests, reaching 13.24 pt and never passing it; time-averaged edge independence on live and still poses, with the contact line lowering the mirror correlation; Reduce Motion stillness; one-shot outcome impulses; distinct poses, speaking longer and deeper than listening; emergence from nothing; gesture wobble that Reduce Motion removes; the skew's area share and the neck's unbroken waist; a lean inside the sway wall, and the speaking island body stopped at its track's end; one kick per arrival token, and an older token that never kicks again; the collar ladder and its drive limits; draining and dismissing asking both ladders for nothing; a drive carrying the controller's pose context, lean, and arrival;
+- `MercurySimulationTests`: replay and batch independence through emergence, lean, frame forcing, and an arrival; distinct seeds; containment under adversarial meters and at the widest skew on the deepest body; a collar drawn under its own 28 pt ceiling whatever its meter, its speaking chin reaching past the island's 17; a body at its height wall that keeps its crests, reaching 13.24 pt and never passing it; time-averaged edge independence on live and still poses, with the contact line lowering the mirror correlation; Reduce Motion stillness; one-shot outcome impulses; distinct poses, speaking longer and deeper than listening; emergence from nothing; gesture wobble that Reduce Motion removes; the skew's area share and the neck's unbroken waist; a lean inside the sway wall, and the speaking island body stopped at its track's end; one kick per arrival token, and an older token that never kicks again; the collar ladder, every rung deepened by its ceiling and none held by its height wall, and its drive limits; draining and dismissing asking both ladders for nothing; a drive carrying the controller's pose context, lean, and arrival;
 - `MercuryGelTests`: the propagator as the identity at zero step and a semigroup under doubling; the arm-off block against the closed-form damped oscillator; the stationary covariance against the Lyapunov equation and an impulse-response sum; a struck fundamental that rings and a held one that remembers how long it was held; positive, finite modal parameters across the modal range; a zero state that stays zero; batch independence;
 - `MercuryBodyShapeTests`: an aspect step that rings and settles at constant volume; Reduce Motion taking every rung of the island and collar ladders straight to every other, emergence and swallow included, whether it is on from the start or turned on up to 60 gel substeps into the transition, with length, half-height, sway, skew, and neck each monotone; volume without overshoot; `L·H = V` through wobble, kicks, forcing, and a swallow; adversarial drives that never leave the limits on the island or a collar spine; a pose past the sway wall or the track's end equal to the pose at it; the sway stopped at the island track's ends, with the whole wall left on the collar; a reset that lands where a step holds the pose; a swallow that empties monotonically with and without Reduce Motion; emergence in pose; a pose step that snaps where a force creeps; frame forcing as an exact equilibrium shift; batch independence;
 - `MercuryCrownTests`: analytic derivatives, full crown, limb regularization;
@@ -1091,7 +1095,7 @@ The relevant automated contracts include:
 - `MercuryEnvironmentTests`: positivity, seed replay, power conservation, chroma neutrality, octahedral seam continuity;
 - `MercurySpectralTests`: colour-matching and D65 tables against their published integrals and chromaticity, white mapping, sampled-constant provenance, neutral normal incidence, complex-amplitude Fresnel cross-check;
 - `MercuryDisplayResponseTests`: anchor solve, monotonicity, unreachable ceiling, Rec.709 gamut handling;
-- `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation on the island and the widest collar canvas, octahedral round trip, 60/75/120/144 Hz presentation rate;
+- `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation inside the series bound on the island and the widest collar canvas under each one's tallest crown, octahedral round trip, 60/75/120/144 Hz presentation rate;
 - `MercuryClockTests`: epoch anchoring; exactly 120 substeps per second at 48, 60, 75, 120, and 144 Hz, with each frame's share; exact counts from 24 MHz tick timestamps with ±20 µs of jitter at 3.5 and 30 days of uptime; the stall cap and re-anchor through `steps` or `rephase`; display hand-offs that drop and repeat nothing; a hand-off half a substep off the old grid that stays 2, 2, 2 instead of 1, 3, 1, 3; every hand-off phase in thousandths of a substep under three kinds of ±20 µs jitter onto 120, 60, and 75 Hz, each re-phasing as `steps` would count, then holding the new display's own cadence within a substep of elapsed time; new links that start behind the last presented substep; non-finite timestamps through either entry point;
 - `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster, collar frames sized to their canvas with no pixel inside the housing, the hit region answering in the layout last drawn, lighting metered on the layout it lights and kept until the layout changes;
 - `RecordingOverlayLayoutTests` (in `MercuryEngineTests.swift`): the island's established panel and status frames, with its 196×34 pt canvas 8 pt past the envelope at each end; both fixture collars rebuilt from their housings; the island for notchless, mirrored, and unwearable housings; a collar hit region that rejects the menu-bar band and accepts the chin;

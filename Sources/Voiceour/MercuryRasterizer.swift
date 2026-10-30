@@ -486,8 +486,8 @@ final class MercuryRasterizer {
     /// they were charted on exactly these.
     ///
     /// Each bend gets the box of pixels around it: a convex corner's quadrant, out to the
-    /// farthest the body can reach past it, 17 pt and its ramp; a fillet's square. A pixel
-    /// outside every box is simply charted afresh, so the boxes decide only what is kept.
+    /// farthest the body can reach past it, the spine's ceiling and its ramp; a fillet's square.
+    /// A pixel outside every box is simply charted afresh, so the boxes decide only what is kept.
     private func prepareBendCharts(spine: MercurySpine, canvas: CGRect, pixelSize: Double, width: Int, height: Int) {
         let key = BendChartKey(spine: spine, canvas: canvas, pixelSize: pixelSize)
         guard key != bendChartKey else { return }
@@ -496,7 +496,7 @@ final class MercuryRasterizer {
         guard case .collar(let outline) = spine.kind else { return }
         let canvasMinX = Double(canvas.minX)
         let canvasMaxY = Double(canvas.maxY)
-        let reach = MercurySpine.maxHalfHeight + 5
+        let reach = spine.maxHalfHeight + 5
         let corner = outline.cornerRadius
         let fillet = outline.filletRadius
         let regions = [

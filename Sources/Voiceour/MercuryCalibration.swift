@@ -72,7 +72,8 @@ final class MercuryCalibration {
                 environment: environment,
                 seed: bodySeed,
                 layout: layout
-            )
+            ),
+            highlightPercentile: Self.highlightPercentile(for: layout)
         )
     }
 
@@ -88,7 +89,7 @@ final class MercuryCalibration {
             seed: bodySeed,
             layout: layout
         )
-        let response = Self.response(metering: samples)
+        let response = Self.response(metering: samples, highlightPercentile: Self.highlightPercentile(for: layout))
         return Self.median(
             samples.map {
                 MercuryDisplayResponse.luminance(
@@ -329,9 +330,18 @@ final class MercuryCalibration {
         return samples
     }
 
-    /// The response whose two anchors put the pooled samples' median and highlight on
-    /// their targets.
-    private static func response(metering samples: [SIMD3<Float>]) -> MercuryDisplayResponse {
+    /// The pooled percentile `layout`'s highlight anchor lands on. See
+    /// `MercuryMetrics.collarHighlightPercentile`.
+    private static func highlightPercentile(for layout: RecordingOverlayLayout) -> Int {
+        layout.kind == .collar ? MercuryMetrics.collarHighlightPercentile : MercuryMetrics.highlightPercentile
+    }
+
+    /// The response whose two anchors put the pooled samples' median and their
+    /// `highlightPercentile` on their targets.
+    private static func response(
+        metering samples: [SIMD3<Float>],
+        highlightPercentile: Int
+    ) -> MercuryDisplayResponse {
         let values = samples.map {
             MercuryDisplayResponse.luminance(
                 SIMD3(Double($0.x), Double($0.y), Double($0.z))
@@ -341,7 +351,7 @@ final class MercuryCalibration {
             values.count > 100,
             let response = MercuryDisplayResponse.solve(
                 sceneMedian: values[values.count / 2],
-                sceneHighlight: values[values.count * 98 / 100],
+                sceneHighlight: values[values.count * highlightPercentile / 100],
                 medianTarget: MercuryMetrics.targetDisplayLuminance,
                 highlightTarget: MercuryMetrics.targetHighlightLuminance,
                 ceiling: MercuryMetrics.displayCeiling

@@ -130,9 +130,10 @@ struct RecordingOverlayLayout: Sendable, Equatable {
     /// reaches `bandHeight` down from its top edge.
     ///
     /// The canvas reaches the fillet and the ear beyond each wall, `ρe + E`, and `endMargin`
-    /// past each ear's end. Below the housing it holds the deepest chin the body can draw,
-    /// `MercuryMetrics.maxHalfHeight`, and `chinMargin` under that. The status element spans
-    /// the housing's width directly under it, down to the canvas bottom: the chin's own strip.
+    /// past each ear's end. Below the housing it holds the deepest chin the body can draw, the
+    /// collar's own ceiling `Collar.maxHalfHeight`, and `chinMargin` under that. The status
+    /// element spans the housing's width directly under it, down to the canvas bottom: the
+    /// chin's own strip.
     ///
     /// Nil for a housing that cannot wear a collar. `MercurySpine.init(collar:)` accepts any
     /// housing taller than its fillet, rounding the corner down to fit. This refuses one no
@@ -154,7 +155,7 @@ struct RecordingOverlayLayout: Sendable, Equatable {
         let reach = CGFloat(Collar.filletRadius + Collar.earLength) + Collar.endMargin
         let canvas = CGSize(
             width: housingSize.width + 2 * reach,
-            height: housingSize.height + MercuryMetrics.maxHalfHeight + Collar.chinMargin
+            height: housingSize.height + CGFloat(Collar.maxHalfHeight) + Collar.chinMargin
         )
         // Flush with the canvas top and centred on it, in the canvas-local space the spine uses.
         let top = Double(canvas.height) / 2
@@ -166,7 +167,8 @@ struct RecordingOverlayLayout: Sendable, Equatable {
             cornerRadius: cornerRadius,
             filletRadius: Collar.filletRadius,
             earLength: Collar.earLength,
-            bandFilm: Collar.bandFilm
+            bandFilm: Collar.bandFilm,
+            maxHalfHeight: Collar.maxHalfHeight
         )
         return RecordingOverlayLayout(
             kind: .collar,
@@ -245,6 +247,12 @@ struct RecordingOverlayLayout: Sendable, Equatable {
         /// The outward thickness the taper leaves the body in the menu-bar band. Thinner than
         /// the fillet, so each fillet's offsets stay unique (see `MercurySpine`).
         static let bandFilm = 3.5
+        /// H_c, the deepest half-height the chin may draw below the housing. Only the body's outer
+        /// half shows there, the inner half lying under the hardware, so at the island's 17 pt the
+        /// speaking chin hung 11.5 pt below a 32 pt notch, a sliver beside it. At 28 pt every collar
+        /// pose is 28/17 as deep, and the speaking chin hangs about 19 pt, as thick as the island's
+        /// whole speaking body.
+        static let maxHalfHeight = 28.0
         /// ρ, the housing's convex bottom corners, as a fraction of its depth, held to
         /// `cornerRadii`. Apple publishes no housing shape; 0.44 of the 32 pt housing is the
         /// 14 pt bottom radius notch overlays draw, and 6…16 pt bounds it at other depths.

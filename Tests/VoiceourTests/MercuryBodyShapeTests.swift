@@ -63,8 +63,8 @@ struct MercuryBodyShapeTests {
     @Test func reduceMotionTakesEveryRungStraightToItsPose() {
         let collar = RecordingOverlayLayout.forDisplay(.fixtureNotch)
         let ladders = [
-            ("island", Self.island, Self.ladder(regions: nil)),
-            ("collar", Self.limits(along: collar.spine), Self.ladder(regions: collar.spine.regions)),
+            ("island", Self.island, Self.ladder(collar: nil)),
+            ("collar", Self.limits(along: collar.spine), Self.ladder(collar: collar.spine)),
         ]
         for (name, limits, rungs) in ladders {
             for from in rungs {
@@ -268,7 +268,7 @@ struct MercuryBodyShapeTests {
             MercuryPoseContext(), MercuryPoseContext(pointerInBand: true), MercuryPoseContext(fullScreen: true),
         ]
         for context in contexts {
-            let pose = MercuryPose.target(for: speaking, regions: collar.spine.regions, context: context)
+            let pose = MercuryPose.target(for: speaking, collar: collar.spine, context: context)
             let still = Self.target(length: Double(pose.length), halfHeight: Double(pose.halfHeight))
             for sway in [-MercuryMetrics.maxSway, MercuryMetrics.maxSway] {
                 var swayed = still
@@ -521,20 +521,22 @@ struct MercuryBodyShapeTests {
         return copy
     }
 
-    /// A body on `spine` may grow as long as the spine, as the ribbon's drive lets it.
+    /// A body on `spine` may grow as long as the spine and as deep as its ceiling, as the ribbon's
+    /// drive lets it, and drains into the reservoir that ceiling sizes.
     private static func limits(along spine: MercurySpine) -> Shape.Limits {
         Shape.Limits(
             maxLength: spine.length,
-            maxHalfHeight: Double(MercuryMetrics.maxHalfHeight),
-            maxSway: MercuryMetrics.maxSway
+            maxHalfHeight: spine.maxHalfHeight,
+            maxSway: MercuryMetrics.maxSway,
+            reservoir: spine.maxHalfHeight
         )
     }
 
     /// Every rung of the pose ladder as the simulation hands it to the body shape: idle, warming,
-    /// listening, speaking, processing and the three outcome gestures. On the collar `regions`
-    /// describe, speaking also comes with the pointer in the menu-bar band and over a full-screen app.
+    /// listening, speaking, processing and the three outcome gestures. On the `collar` spine,
+    /// speaking also comes with the pointer in the menu-bar band and over a full-screen app.
     @MainActor
-    private static func ladder(regions: MercurySpine.Regions?) -> [Shape.Target] {
+    private static func ladder(collar: MercurySpine?) -> [Shape.Target] {
         let processing = RecordingOverlayModel()
         processing.update(.transcribing)
         let speaking = live(levels: [0.5, 0.5])
@@ -542,10 +544,10 @@ struct MercuryBodyShapeTests {
             RecordingOverlayModel(), live(levels: [], capturing: false), live(levels: []), speaking, processing,
             outcome(.copiedOnly(reason: "target_terminal")), outcome(.insertFailed(reason: "no focused element")),
             outcome(.error(.inferenceFailed)),
-        ].map { MercuryPose.target(for: $0, regions: regions) }
-        if let regions {
+        ].map { MercuryPose.target(for: $0, collar: collar) }
+        if let collar {
             poses += [MercuryPoseContext(pointerInBand: true), MercuryPoseContext(fullScreen: true)].map {
-                MercuryPose.target(for: speaking, regions: regions, context: $0)
+                MercuryPose.target(for: speaking, collar: collar, context: $0)
             }
         }
         return poses.map { pose in

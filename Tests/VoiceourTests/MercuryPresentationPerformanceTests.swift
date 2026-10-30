@@ -77,14 +77,22 @@ struct MercuryPresentationPerformanceTests {
         }
     }
 
-    /// The binomial view direction against the exact one, over every point the island's
-    /// 196×34 pt canvas or the largest collar canvas can shade (349×58 pt, around the wide
-    /// notch) and every crown height up to 14 pt. The first omitted term is `35q⁴/128`: about
-    /// 2e-10 on the island, where `q < 0.0052`, and just under 2e-8 at the collar's far
-    /// corners, where `q < 0.0163`.
+    /// The binomial view direction against the exact one, over every point the island's canvas
+    /// or the largest collar canvas, around the wide notch, can shade, and every crown height a
+    /// body under that layout's ceiling can lift. The error stays inside the alternating series'
+    /// first omitted term, `35q⁴/128` with `q` at the canvas's far corner under the tallest
+    /// crown: about 2e-10 on the island, where `q < 0.0052`, and 2.1e-8 at the deep collar's far
+    /// corners, where `q < 0.0167`.
     @Test func finiteEyeApproximationIsSubpixelExactAcrossEveryCanvas() {
-        #expect(Self.worstViewDirectionError(halfWidth: 98, halfHeight: 17) < 1e-8)
-        #expect(Self.worstViewDirectionError(halfWidth: 174.5, halfHeight: 29) < 2e-8)
+        for layout in [RecordingOverlayLayout.island, .forDisplay(.fixtureWideNotch)] {
+            let halfWidth = Double(layout.canvasRect.width) / 2
+            let halfHeight = Double(layout.canvasRect.height) / 2
+            let crown = (MercuryMetrics.crownAspect * layout.spine.maxHalfHeight).rounded(.up)
+            let depth = MercuryMetrics.eyeDistance - crown
+            let q = (halfWidth * halfWidth + halfHeight * halfHeight) / (depth * depth)
+            let worst = Self.worstViewDirectionError(halfWidth: halfWidth, halfHeight: halfHeight, tallestCrown: crown)
+            #expect(worst <= 35 * pow(q, 4) / 128, "\(layout.canvasRect.size)")
+        }
     }
 
     @Test func octahedralRoomMapRoundTripsTheSphereAndExtendsItsBorder() {
@@ -134,11 +142,11 @@ struct MercuryPresentationPerformanceTests {
         #expect(capped.preferred == 120)
     }
 
-    private static func worstViewDirectionError(halfWidth: Double, halfHeight: Double) -> Double {
+    private static func worstViewDirectionError(halfWidth: Double, halfHeight: Double, tallestCrown: Double) -> Double {
         var worst = 0.0
         for horizontal in stride(from: -halfWidth, through: halfWidth, by: 1.0) {
             for vertical in stride(from: -halfHeight, through: halfHeight, by: 1.0) {
-                for crownHeight in stride(from: 0.0, through: 14.0, by: 1.0) {
+                for crownHeight in stride(from: 0.0, through: tallestCrown, by: 1.0) {
                     let exact = MercuryOptics.exactViewDirection(
                         horizontal: horizontal,
                         vertical: vertical,

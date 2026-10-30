@@ -86,6 +86,10 @@ struct MercurySpine: Sendable, Equatable {
         /// The outward thickness cap inside the menu-bar band: 3.5 pt. It must stay below the
         /// fillet's plateau radius, `0.87690 × filletRadius`; see the type's discussion.
         var bandFilm: Double
+        /// The deepest half-height the chin may draw below the housing: the collar's ceiling and
+        /// its taper's unit. Only the body's outer half shows below the housing, so a collar
+        /// ceiling above the island's 17 pt is what lets its chin read as a body.
+        var maxHalfHeight: Double
     }
 
     /// The line the ribbon is laid on.
@@ -190,10 +194,11 @@ struct MercurySpine: Sendable, Equatable {
     private let corners: Bend
     private let fillets: Bend
 
-    /// The taper's unit: the largest half-height a station may draw. On the collar it is the
-    /// chin's 17 pt below the notch. The simulation's containment gauge proves the same bound,
-    /// so a taper of 1 is exactly the full body.
-    static let maxHalfHeight = Double(MercuryMetrics.maxHalfHeight)
+    /// The taper's unit: the largest half-height a station may draw. On the island it is the
+    /// 17 pt the 34 pt envelope holds; on the collar it is the outline's own chin ceiling. The
+    /// simulation's containment gauge proves the same bound, so a taper of 1 is exactly the full
+    /// body.
+    let maxHalfHeight: Double
 
     /// Where the corner taper starts and finishes thinning, as the corner's tangent angle
     /// measured up from the bottom.
@@ -217,6 +222,7 @@ struct MercurySpine: Sendable, Equatable {
         regions = Regions(bottom: straightLength, corner: 0, wall: 0, fillet: 0, ear: 0)
         rimGap = 0
         leastCornerMetric = 1
+        maxHalfHeight = Double(MercuryMetrics.maxHalfHeight)
         corners = .none
         fillets = .none
     }
@@ -230,7 +236,7 @@ struct MercurySpine: Sendable, Equatable {
     ///
     /// Traps unless the housing has width, stands taller than its fillet, has a positive
     /// corner, and carries a band film thinner than the fillet's plateau radius and no thicker
-    /// than ``maxHalfHeight``. The layout must only lay a collar on such a housing.
+    /// than its chin ceiling. The layout must only lay a collar on such a housing.
     init(collar outline: Outline) {
         let width = outline.maxX - outline.minX
         let height = outline.top - outline.bottom
@@ -238,7 +244,7 @@ struct MercurySpine: Sendable, Equatable {
             width > 0 && height > outline.filletRadius && outline.cornerRadius > 0
                 && outline.earLength >= 0 && outline.bandFilm > 0
                 && outline.bandFilm < BendShape.plateauRadius * outline.filletRadius
-                && outline.bandFilm <= Self.maxHalfHeight,
+                && outline.bandFilm <= outline.maxHalfHeight,
             "a collar needs a housing taller than its fillet and a band film thinner than the fillet's plateau"
         )
         // The height left for the wall and the corner once the fillet has turned.
@@ -252,6 +258,7 @@ struct MercurySpine: Sendable, Equatable {
         self.fillets = fillets
         self.rimGap = rimGap
         leastCornerMetric = 1 - rimGap / corners.plateauRadius
+        maxHalfHeight = outline.maxHalfHeight
         let regions = Regions(
             bottom: width - 2 * laid.cornerRadius,
             corner: corners.arc,
@@ -404,7 +411,7 @@ struct MercurySpine: Sendable, Equatable {
         guard case .collar(let outline) = kind else { return 1 }
         let joins = leftJoins
         let local = s > restCenter ? length - s : s
-        let film = outline.bandFilm / Self.maxHalfHeight
+        let film = outline.bandFilm / outline.maxHalfHeight
         if local < joins.corner { return film }
         if local >= joins.bottom { return 1 }
         let fraction = blendFraction(atLocal: local, cornerStart: joins.corner)
@@ -433,7 +440,7 @@ struct MercurySpine: Sendable, Equatable {
         guard local >= joins.corner, local < joins.bottom else { return 0 }
         let fraction = blendFraction(atLocal: local, cornerStart: joins.corner)
         guard fraction > 0, fraction < 1 else { return 0 }
-        let film = outline.bandFilm / Self.maxHalfHeight
+        let film = outline.bandFilm / outline.maxHalfHeight
         // On the left half, where the arc length is `local` itself, the blend runs against the
         // angle and the angle against the arc length, so the two signs cancel.
         let rate =
