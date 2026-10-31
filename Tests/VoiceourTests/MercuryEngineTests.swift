@@ -135,38 +135,53 @@ struct MercuryEngineTests {
     }
 
     /// Whatever an engine drew before, a pinned frame depends only on its seed, look and
-    /// layout.
+    /// layout. A look drawn again after others have moved every cache on draws what a fresh
+    /// engine draws, and what a body, room and response built without any engine draw.
     @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
     func aReusedEngineDrawsEveryLookLikeAFreshOne(display: OverlayDisplay) throws {
         let layout = RecordingOverlayLayout.forDisplay(display)
         let drive = Drives.speaking(on: layout)
+        // A seed no other test draws, one per layout, so each engine-free render below bakes
+        // its room and settles its first bodies cold.
+        let seed: UInt64 = layout.kind == .collar ? 0x5245_5553_4544_0002 : 0x5245_5553_4544_0001
         let oilSlick = MercuryLook(island: IslandLook.oilSlick.appearance)
         var toned = oilSlick
         toned.tone = MercuryTone(brightness: -0.2, contrast: 0.4)
+        var warm = MercuryLook.stock
+        warm.lighting.whiteBalance = MercuryWhiteBalance.multipliers(temperature: 0.6)
         let looks = [
             oilSlick,
             toned,
             MercuryLook(island: IslandLook.neonKit.appearance),
             MercuryLook(island: IslandLook.candyApple.appearance),
             .stock,
+            warm,
         ]
-        let reused = MercuryEngine(seed: 17, look: .stock, hitRegion: MercuryHitRegion())
+        var cold: [Data] = []
         for look in looks {
+            cold.append(
+                try Self.coldPinnedFrame(step: 600, seed: seed, look: look, drive: drive, layout: layout)
+            )
+        }
+        let reused = MercuryEngine(seed: seed, look: .stock, hitRegion: MercuryHitRegion())
+        // Every look, then three of them again.
+        for index in [0, 1, 2, 3, 4, 5, 1, 0, 4] {
+            let look = looks[index]
             let image = try #require(
                 reused.pinnedFrame(
                     step: 600,
-                    seed: 17,
+                    seed: seed,
                     look: look,
                     drive: drive,
                     appearance: .standard,
                     layout: layout
                 )
             )
-            let fresh = MercuryEngine(seed: 17, look: look, hitRegion: MercuryHitRegion())
+            let fresh = MercuryEngine(seed: seed, look: look, hitRegion: MercuryHitRegion())
             let expected = try #require(
                 fresh.pinnedFrame(
                     step: 600,
-                    seed: 17,
+                    seed: seed,
                     look: look,
                     drive: drive,
                     appearance: .standard,
@@ -174,6 +189,7 @@ struct MercuryEngineTests {
                 )
             )
             #expect(Self.bytes(image) == Self.bytes(expected), "\(display.id) \(look)")
+            #expect(Self.bytes(image) == cold[index], "\(display.id) \(look)")
         }
     }
 
@@ -208,9 +224,10 @@ struct MercuryEngineTests {
         _ = try #require(grown)
     }
 
-    /// Paint, tone and tune meter the response again over the same room; only a new seed,
-    /// world or room lighting rebakes it. An unchanged look meters nothing, and a pinned frame
-    /// draws under the light a live frame built.
+    /// Paint, tone and tune solve the response again over the same room; only a new seed,
+    /// world or room lighting changes it, and a room shown before comes back as that same room.
+    /// An unchanged look solves nothing, and a pinned frame draws under the light a live frame
+    /// built.
     @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
     func aLookChangeRebuildsOnlyWhatItReaches(display: OverlayDisplay) throws {
         let layout = RecordingOverlayLayout.forDisplay(display)
@@ -261,17 +278,22 @@ struct MercuryEngineTests {
         #expect(engine.environment === warmRoom)
         #expect(engine.meteredResponses == 3)
 
+        look.lighting = .stock
+        _ = try #require(frame(look))
+        #expect(engine.environment === stockRoom)
+        #expect(engine.meteredResponses == 4)
+
         look.world = .spectralWeather
         _ = try #require(frame(look))
         let overcast = engine.environment
         #expect(overcast !== warmRoom)
         #expect(overcast.world == .spectralWeather)
-        #expect(engine.meteredResponses == 4)
+        #expect(engine.meteredResponses == 5)
 
         // A new seed is a new body, which emerges empty and so lights nothing yet.
         #expect(frame(seed: 19, look) == nil)
         #expect(engine.environment !== overcast)
-        #expect(engine.meteredResponses == 4)
+        #expect(engine.meteredResponses == 5)
     }
 
     /// A tune retunes the moving body in the same room: the frame is exactly that body,
@@ -356,6 +378,138 @@ struct MercuryEngineTests {
         #expect(toned !== first)
         #expect(Self.bytes(toned) != Self.bytes(first))
         #expect(engine.meteredResponses == 2)
+    }
+
+    /// A pinned frame that moves only the light redraws the body the previous one settled,
+    /// and a new tune settles a new body: each draws what a fresh engine draws.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func aPinnedFrameRedrawsItsSettledBodyUnderNewLight(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        var next = MercuryLook.stock
+        var looks = [next]
+        // Only the paint, then only the tone, only the room lighting and only the tune.
+        next.paint.metal = .gold
+        looks.append(next)
+        next.tone = MercuryTone(brightness: 0.3, contrast: -0.2)
+        looks.append(next)
+        next.lighting.whiteBalance = MercuryWhiteBalance.multipliers(temperature: -0.5)
+        looks.append(next)
+        next.tune.size = 0.9
+        looks.append(next)
+        let engine = MercuryEngine(seed: 24, look: .stock, hitRegion: MercuryHitRegion())
+        for look in looks {
+            let image = try #require(
+                engine.pinnedFrame(
+                    step: 600,
+                    seed: 24,
+                    look: look,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+            let fresh = MercuryEngine(seed: 24, look: look, hitRegion: MercuryHitRegion())
+            let expected = try #require(
+                fresh.pinnedFrame(
+                    step: 600,
+                    seed: 24,
+                    look: look,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+            #expect(Self.bytes(image) == Self.bytes(expected), "\(display.id) \(look)")
+        }
+    }
+
+    /// Live and pinned frames drive one body. A live frame after a pinned frame that redrew
+    /// its settled body carries that body on; a pinned frame after live frames settles its
+    /// own rather than redrawing the body they moved.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func liveAndPinnedFramesShareOneBody(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        var gold = MercuryLook.stock
+        gold.paint.metal = .gold
+        func pinned(_ engine: MercuryEngine, _ look: MercuryLook) -> CGImage? {
+            engine.pinnedFrame(
+                step: 600,
+                seed: 25,
+                look: look,
+                drive: drive,
+                appearance: .standard,
+                layout: layout
+            )
+        }
+        let reused = MercuryEngine(seed: 25, look: .stock, hitRegion: MercuryHitRegion())
+        let control = MercuryEngine(seed: 25, look: .stock, hitRegion: MercuryHitRegion())
+        // Started, so the live frames below advance whatever body a pinned frame left.
+        for engine in [reused, control] {
+            _ = engine.frame(
+                advancing: 0,
+                seed: 25,
+                look: .stock,
+                drive: drive,
+                appearance: .standard,
+                layout: layout
+            )
+        }
+        for look in [MercuryLook.stock, gold] {
+            _ = pinned(reused, look)
+        }
+        _ = pinned(control, gold)
+
+        var resumed: [Data] = []
+        for engine in [reused, control] {
+            let image = try #require(
+                engine.frame(
+                    advancing: 2,
+                    seed: 25,
+                    look: gold,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+            resumed.append(Self.bytes(image))
+        }
+        #expect(resumed[0] == resumed[1], "\(display.id)")
+
+        let repinned = try #require(pinned(reused, .stock))
+        let fresh = MercuryEngine(seed: 25, look: .stock, hitRegion: MercuryHitRegion())
+        let expected = try #require(pinned(fresh, .stock))
+        #expect(Self.bytes(repinned) == Self.bytes(expected), "\(display.id)")
+    }
+
+    /// The caches keep each layout's own metering. An engine that redraws one pinned body on
+    /// the island, the collar and the island again lights every frame as an engine-free render
+    /// on that layout does, never by the response another layout's bodies metered, and solves
+    /// a response for each layout it arrives on, cached or not.
+    @Test func cachedLightingKeepsEachLayoutsOwnResponse() throws {
+        let drive = Drives.speaking()
+        let collar = RecordingOverlayLayout.forDisplay(.fixtureNotch)
+        // No other test draws this seed, so the collar first asks while the cache holds only
+        // the island's anchors for this room, paint and tune.
+        let seed: UInt64 = 0x4C41_594F_5554
+        let look = MercuryLook(island: IslandLook.oilSlick.appearance)
+        let engine = MercuryEngine(seed: seed, look: look, hitRegion: MercuryHitRegion())
+        for layout in [RecordingOverlayLayout.island, collar, .island] {
+            let image = try #require(
+                engine.pinnedFrame(
+                    step: 600,
+                    seed: seed,
+                    look: look,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+            let cold = try Self.coldPinnedFrame(step: 600, seed: seed, look: look, drive: drive, layout: layout)
+            #expect(Self.bytes(image) == cold, "\(layout.kind)")
+        }
+        #expect(engine.meteredResponses == 3)
     }
 
     // MARK: - Replay
@@ -781,6 +935,45 @@ struct MercuryEngineTests {
         let lateral = point.x - cornerX
         let vertical = point.y - cornerY
         return lateral * lateral + vertical * vertical < radius * radius
+    }
+
+    /// A pinned frame built without any engine: a new body, a newly baked room and a newly
+    /// metered response, laid out and lit for `layout`.
+    private static func coldPinnedFrame(
+        step: Int,
+        seed: UInt64,
+        look: MercuryLook,
+        drive: MercurySimulation.Drive,
+        layout: RecordingOverlayLayout
+    ) throws -> Data {
+        let body = MercurySimulation(
+            seed: seed,
+            gains: MercuryCalibration.shared.gains,
+            tune: look.tune
+        )
+        body.reset(to: drive)
+        body.advance(steps: step, drive: drive)
+        let room = MercuryEnvironment(world: look.world, seed: seed, lighting: look.lighting)
+        let image = try #require(
+            MercuryRasterizer().image(
+                field: MercuryField(
+                    geometry: body.geometry,
+                    spine: layout.spine,
+                    canvas: layout.canvasRect.size
+                ),
+                environment: room,
+                response: MercuryCalibration.shared.displayResponse(
+                    for: room,
+                    bodySeed: seed,
+                    layout: layout,
+                    look: look
+                ),
+                appearance: .standard,
+                paint: MercuryPaintLookup.lookup(for: look.paint),
+                scale: MercuryMetrics.rasterScale
+            )
+        )
+        return bytes(image)
     }
 
     private static func bytes(_ image: CGImage) -> Data {

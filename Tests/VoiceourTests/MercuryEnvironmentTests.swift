@@ -368,6 +368,54 @@ struct MercuryEnvironmentTests {
         }
     }
 
+    /// No other test bakes this seed, so the first room baked from it below is cold.
+    private static let sharedLevelSeed: UInt64 = 0x4C45_5645_4C53
+
+    /// Rooms of one seed share raw levels, and each runs its own lighting passes over its
+    /// copy. A room baked cold under every option at once is the same room bit for bit when
+    /// baked again after rooms that reuse its levels under a warm balance, an underglow, a
+    /// rough finish and stock lighting: a pass that wrote into a shared level, a level kept
+    /// after its passes rather than before, or a level copied into the wrong table moves
+    /// these samples. The 0.06 finish keeps all three levels distinct, so the lattice reads
+    /// each one.
+    @Test(arguments: MercuryWorld.allCases)
+    func sharedLevelsRebakeTheColdRoom(world: MercuryWorld) {
+        let seed = Self.sharedLevelSeed
+        let first = MercuryRoomLighting(
+            finish: 0.06,
+            whiteBalance: Self.coolBalance,
+            underglow: Self.blueUnderglow
+        )
+        var warm = MercuryRoomLighting.stock
+        warm.whiteBalance = Self.warmBalance
+        var glowing = MercuryRoomLighting.stock
+        glowing.underglow = Self.blueUnderglow
+        var rough = MercuryRoomLighting.stock
+        rough.finish = 0.25
+
+        let cold = Self.sample(MercuryEnvironment(world: world, seed: seed, lighting: first))
+        for lighting in [warm, glowing, rough, MercuryRoomLighting.stock] {
+            _ = MercuryEnvironment(world: world, seed: seed, lighting: lighting)
+        }
+        let rebaked = Self.sample(MercuryEnvironment(world: world, seed: seed, lighting: first))
+
+        #expect(rebaked == cold, "\(world.rawValue) seed \(seed)")
+    }
+
+    /// Spectral Weather keeps each level's stock blur and adds a rougher finish's extra
+    /// variance at the Room of Ten rate, so under the roughest finish all three levels share
+    /// one nominal roughness but not one table, and the smooth level production reads is
+    /// blurred past the stock roughest level. Rooms share a level only where its bake
+    /// prefilters alike, so the smooth level never arrives as another room's roughest one.
+    @Test func roughWeatherKeepsItsOwnSmoothLevel() {
+        var rough = MercuryRoomLighting.stock
+        rough.finish = 0.25
+        let room = MercuryEnvironment(world: .spectralWeather, seed: Self.roomSeed, lighting: rough)
+        let smooth = Self.sphereDirections.map { room.radiance($0, roughness: 0) }
+        let roughest = Self.sphereDirections.map { room.radiance($0, roughness: 1) }
+        #expect(smooth != roughest)
+    }
+
     // MARK: - Helpers
 
     /// Fibonacci lattices: uniform on the sphere by construction, so a mean over one is

@@ -71,7 +71,11 @@ final class MercuryCalibration {
         layout: RecordingOverlayLayout,
         look: MercuryLook = .stock
     ) -> MercuryDisplayResponse {
-        meter(environment: environment, bodySeed: bodySeed, layout: layout, look: look).response
+        Self.displayResponse(
+            anchors: sceneAnchors(for: environment, bodySeed: bodySeed, layout: layout, look: look),
+            look: look,
+            paint: MercuryPaintLookup.lookup(for: look.paint)
+        )
     }
 
     /// The metered median after the bounded response, for the calibration tests.
@@ -81,7 +85,15 @@ final class MercuryCalibration {
         layout: RecordingOverlayLayout,
         look: MercuryLook = .stock
     ) -> Double {
-        let (samples, response) = meter(environment: environment, bodySeed: bodySeed, layout: layout, look: look)
+        let paint = MercuryPaintLookup.lookup(for: look.paint)
+        let (samples, anchors) = meter(
+            environment: environment,
+            bodySeed: bodySeed,
+            paint: paint,
+            tune: look.tune,
+            layout: layout
+        )
+        let response = Self.displayResponse(anchors: anchors, look: look, paint: paint)
         return Self.median(
             samples.map {
                 MercuryDisplayResponse.luminance(
@@ -91,39 +103,90 @@ final class MercuryCalibration {
         )
     }
 
-    /// One scene sampling and the response solved on it, so ``displayLuminance(for:bodySeed:layout:look:)``
-    /// reads the very samples the response was solved on.
+    /// The scene half of ``displayResponse(for:bodySeed:layout:look:)``: the anchors
+    /// `environment` meters to under `look`'s paint table, sampled over the bodies that
+    /// `bodySeed` and `look`'s tune settle into in both live poses, laid out as `layout` draws
+    /// them, with `layout`'s own highlight percentile. Nothing else in `look` reaches them, so a
+    /// caller that keeps them per room, paint, tune and layout solves a new tone without
+    /// sampling.
     ///
-    /// The targets are the look's tone anchors for its paint's albedo. Stock, they are the shipped
-    /// constants themselves, and stock bodies under the stock table sample what the shipped
-    /// renderer samples, so the stock look's response is the shipped one bit for bit.
-    private func meter(
-        environment: MercuryEnvironment,
+    /// Stock bodies under the stock table sample what the shipped renderer samples, so the
+    /// stock look's anchors are the shipped ones bit for bit.
+    func sceneAnchors(
+        for environment: MercuryEnvironment,
         bodySeed: UInt64,
         layout: RecordingOverlayLayout,
         look: MercuryLook
-    ) -> (samples: [SIMD3<Float>], response: MercuryDisplayResponse) {
-        let paint = MercuryPaintLookup.lookup(for: look.paint)
-        let samples = Self.sceneRadianceSamples(
-            gains: gains,
-            tune: look.tune,
+    ) -> MercurySceneAnchors {
+        meter(
             environment: environment,
-            paint: paint,
-            seed: bodySeed,
+            bodySeed: bodySeed,
+            paint: MercuryPaintLookup.lookup(for: look.paint),
+            tune: look.tune,
             layout: layout
-        )
+        ).anchors
+    }
+
+    /// The target half: the response `look` is solved to over `anchors`, in closed form.
+    /// `paint` is `look`'s table; its albedo, the tone and the underglow strength set the
+    /// two targets, the look's tone anchors. Stock, they are the shipped constants
+    /// themselves, so over the stock anchors the stock look's response is the shipped one bit
+    /// for bit.
+    static func displayResponse(
+        anchors: MercurySceneAnchors,
+        look: MercuryLook,
+        paint: MercuryPaintLookup
+    ) -> MercuryDisplayResponse {
         let targets = MercuryToneAnchors.targets(
             albedo: paint.albedo,
             tone: look.tone,
             underglowStrength: look.underglowStrength
         )
-        let response = Self.response(
-            metering: samples,
-            highlightPercentile: Self.highlightPercentile(for: layout),
-            medianTarget: targets.median,
-            highlightTarget: targets.highlight
+        guard
+            let response = MercuryDisplayResponse.solve(
+                sceneMedian: anchors.median,
+                sceneHighlight: anchors.highlight,
+                medianTarget: targets.median,
+                highlightTarget: targets.highlight,
+                ceiling: MercuryMetrics.displayCeiling
+            )
+        else {
+            preconditionFailure("generated mercury room has no solvable luminance spread")
+        }
+        return response
+    }
+
+    /// One scene sampling and the anchors read from it, so
+    /// ``displayLuminance(for:bodySeed:layout:look:)`` reads the very samples the response was
+    /// solved on: the pooled median, and the pooled percentile `layout`'s highlight lands on.
+    private func meter(
+        environment: MercuryEnvironment,
+        bodySeed: UInt64,
+        paint: MercuryPaintLookup,
+        tune: MercuryTune,
+        layout: RecordingOverlayLayout
+    ) -> (samples: [SIMD3<Float>], anchors: MercurySceneAnchors) {
+        let samples = Self.sceneRadianceSamples(
+            gains: gains,
+            tune: tune,
+            environment: environment,
+            paint: paint,
+            seed: bodySeed,
+            layout: layout
         )
-        return (samples, response)
+        let values = samples.map {
+            MercuryDisplayResponse.luminance(
+                SIMD3(Double($0.x), Double($0.y), Double($0.z))
+            )
+        }.sorted()
+        guard values.count > 100 else {
+            preconditionFailure("generated mercury room has no solvable luminance spread")
+        }
+        let anchors = MercurySceneAnchors(
+            median: values[values.count / 2],
+            highlight: values[values.count * Self.highlightPercentile(for: layout) / 100]
+        )
+        return (samples, anchors)
     }
 
     // MARK: - Fixed measurement conditions
@@ -341,17 +404,9 @@ final class MercuryCalibration {
     ) -> [SIMD3<Float>] {
         let rasterizer = MercuryRasterizer()
         var samples: [SIMD3<Float>] = []
-        for speaking in [false, true] {
-            let drive = drive(speaking: speaking, layout: layout, reduceMotion: false)
-            let simulation = MercurySimulation(seed: seed, gains: gains, tune: tune)
-            simulation.reset(to: drive)
-            simulation.advance(steps: settleSteps, drive: drive)
+        for field in meteringFields(gains: gains, tune: tune, seed: seed, layout: layout) {
             let collected = rasterizer.sampleSceneRadiance(
-                field: MercuryField(
-                    geometry: simulation.geometry,
-                    spine: layout.spine,
-                    canvas: layout.canvasRect.size
-                ),
+                field: field,
                 environment: environment,
                 paint: paint,
                 scale: MercuryMetrics.rasterScale
@@ -369,32 +424,58 @@ final class MercuryCalibration {
         layout.kind == .collar ? MercuryMetrics.collarHighlightPercentile : MercuryMetrics.highlightPercentile
     }
 
-    /// The response whose two anchors put the pooled samples' median and their
-    /// `highlightPercentile` on their targets.
-    private static func response(
-        metering samples: [SIMD3<Float>],
-        highlightPercentile: Int,
-        medianTarget: Double,
-        highlightTarget: Double
-    ) -> MercuryDisplayResponse {
-        let values = samples.map {
-            MercuryDisplayResponse.luminance(
-                SIMD3(Double($0.x), Double($0.y), Double($0.z))
-            )
-        }.sorted()
-        guard
-            values.count > 100,
-            let response = MercuryDisplayResponse.solve(
-                sceneMedian: values[values.count / 2],
-                sceneHighlight: values[values.count * highlightPercentile / 100],
-                medianTarget: medianTarget,
-                highlightTarget: highlightTarget,
-                ceiling: MercuryMetrics.displayCeiling
-            )
-        else {
-            preconditionFailure("generated mercury room has no solvable luminance spread")
+    /// One metering's two settled bodies and what settled them.
+    private struct MeteringBodies {
+        var gains: MercuryGains
+        var seed: UInt64
+        var tune: MercuryTune
+        var layout: RecordingOverlayLayout
+        /// Listening, then speaking.
+        var fields: [MercuryField]
+    }
+
+    /// Most recently used last. Two short fields each; four hold a live session's and a
+    /// showroom's bodies across a run of paint and room changes.
+    private static var meteringBodies: [MeteringBodies] = []
+    private static let meteringBodyCapacity = 4
+
+    /// The listening and speaking bodies a metering samples, in that order, each settled
+    /// from rest on `layout`'s own pose and laid out as `layout` draws it. A settled body
+    /// depends only on the gains, the seed, the tune and the layout, so the last few are
+    /// kept: a paint or room change re-meters a body already settled without simulating it
+    /// again.
+    private static func meteringFields(
+        gains: MercuryGains,
+        tune: MercuryTune,
+        seed: UInt64,
+        layout: RecordingOverlayLayout
+    ) -> [MercuryField] {
+        if let index = meteringBodies.firstIndex(where: {
+            $0.gains == gains && $0.seed == seed && $0.tune == tune && $0.layout == layout
+        }) {
+            let entry = meteringBodies.remove(at: index)
+            meteringBodies.append(entry)
+            return entry.fields
         }
-        return response
+        var fields: [MercuryField] = []
+        for speaking in [false, true] {
+            let drive = drive(speaking: speaking, layout: layout, reduceMotion: false)
+            let simulation = MercurySimulation(seed: seed, gains: gains, tune: tune)
+            simulation.reset(to: drive)
+            simulation.advance(steps: settleSteps, drive: drive)
+            fields.append(
+                MercuryField(
+                    geometry: simulation.geometry,
+                    spine: layout.spine,
+                    canvas: layout.canvasRect.size
+                )
+            )
+        }
+        meteringBodies.append(
+            MeteringBodies(gains: gains, seed: seed, tune: tune, layout: layout, fields: fields)
+        )
+        if meteringBodies.count > meteringBodyCapacity { meteringBodies.removeFirst() }
+        return fields
     }
 
     // MARK: - Numerics
@@ -448,4 +529,16 @@ final class MercuryCalibration {
         let denominator = (firstVariance * secondVariance).squareRoot()
         return denominator > 1e-15 ? covariance / denominator : 0
     }
+}
+
+/// The two scene luminances a display response is solved against: the median and the
+/// highlight percentile of one metering's pooled in-body samples, the 98th on the island and
+/// the 99th on a collar (`MercuryMetrics.highlightPercentile`, `collarHighlightPercentile`).
+///
+/// They depend on the room, the paint table, the body seed, the tune and the layout, and
+/// never on the tone, which moves only the targets: a new tone re-solves over the same
+/// anchors without sampling the scene again.
+struct MercurySceneAnchors: Equatable, Sendable {
+    var median: Double
+    var highlight: Double
 }

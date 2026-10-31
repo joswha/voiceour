@@ -928,14 +928,34 @@
             calibrationMilliseconds: Double
         ) -> PerformanceSummary {
             let seed = MercuryMetrics.defaultSeed
+            // A session's first frame bakes a room and settles metering bodies that no earlier
+            // frame left in the process-wide caches, so the cold frame draws a seed nothing
+            // else in this run bakes.
+            let coldSeed: UInt64 = 0xC01D_F12A_5EED_0001
             let coldStarted = ContinuousClock().now
+            let coldRoom = MercuryEnvironment(world: .roomOfTen, seed: coldSeed)
+            let coldResponse = MercuryCalibration.shared.displayResponse(
+                for: coldRoom,
+                bodySeed: coldSeed,
+                layout: .island
+            )
+            let rasterizer = MercuryRasterizer()
+            _ = rasterizer.image(
+                field: field,
+                environment: coldRoom,
+                response: coldResponse,
+                appearance: .standard,
+                scale: scale
+            )
+            let cold =
+                coldStarted.duration(to: ContinuousClock().now).milliseconds
             let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
             let response = MercuryCalibration.shared.displayResponse(
                 for: room,
                 bodySeed: seed,
                 layout: .island
             )
-            let rasterizer = MercuryRasterizer()
+            // Untimed: the default room's response table compiles here, not in a timed frame.
             _ = rasterizer.image(
                 field: field,
                 environment: room,
@@ -943,8 +963,6 @@
                 appearance: .standard,
                 scale: scale
             )
-            let cold =
-                coldStarted.duration(to: ContinuousClock().now).milliseconds
             let raster = rasterTiming(
                 field: field,
                 environment: room,

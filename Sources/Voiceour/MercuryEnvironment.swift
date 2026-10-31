@@ -102,8 +102,16 @@ struct MercuryRoomLighting: Equatable, Sendable {
 /// Neither world reads the desktop or contains an authored highlight path. Stock room
 /// colour is low-saturation, seed-derived, luminance-neutral source variation; a look's
 /// ``MercuryRoomLighting`` re-tints, roughens or adds light at bake time only.
+///
+/// A level's world bake is most of a room's cost and reads only the world, the seed and
+/// the roughness it prefilters with, so rooms share raw levels through one small
+/// process-wide cache: a colour temperature or underglow change bakes no level, a finish
+/// change bakes only the levels whose roughness moved, and a room whose levels are all
+/// cached draws nothing from its seed. Every lighting pass runs over the room's own copy.
 @MainActor
 final class MercuryEnvironment {
+    /// The seed's draw. Only a level bake reads it, so `bake(seed:)` makes it for the
+    /// first level the cache lacks.
     private enum Core {
         case room(RoomOfTenWorld)
         case weather(SpectralWeatherWorld)
@@ -116,7 +124,6 @@ final class MercuryEnvironment {
     /// `lighting.levelRoughness`, resolved once for the bake and the level search.
     private let levelRoughness: [Float]
 
-    private var core: Core
     /// Three bordered octahedral linear-RGB levels. Raw storage avoids array bounds and
     /// retain traffic in the four-tap per-pixel sampling path.
     private let tables: UnsafeMutablePointer<SIMD3<Float>>
@@ -136,13 +143,7 @@ final class MercuryEnvironment {
         capacity = levelStride * Self.levels
         tables = UnsafeMutablePointer<SIMD3<Float>>.allocate(capacity: capacity)
         tables.initialize(repeating: .zero, count: capacity)
-        switch world {
-        case .roomOfTen:
-            core = .room(RoomOfTenWorld(seed: seed))
-        case .spectralWeather:
-            core = .weather(SpectralWeatherWorld(seed: seed))
-        }
-        bake()
+        bake(seed: seed)
     }
 
     isolated deinit {
@@ -215,9 +216,39 @@ final class MercuryEnvironment {
 
     // MARK: - Baking
 
-    private func bake() {
+    /// Everything a level's world bake reads besides the static texel directions and
+    /// harmonic basis, so equal keys are equal raw levels. `prefilter` is the bit pattern of
+    /// the roughness that bake receives: identical bits are identical input to a
+    /// deterministic bake. It is that roughness, not the level's own, because Spectral
+    /// Weather prefilters one finish differently at different levels.
+    private struct LevelKey: Equatable {
+        let world: MercuryWorld
+        let seed: UInt64
+        let prefilter: UInt64
+    }
+
+    /// One level as its world baked it, before any lighting pass.
+    private struct CachedLevel {
+        let key: LevelKey
+        let texels: [SIMD3<Float>]
+    }
+
+    /// Most recently used last. A raw level depends on the lighting only through its
+    /// prefilter roughness, so rooms of one seed share every level their lightings
+    /// prefilter alike, whatever their colour temperature or underglow.
+    private static var levelCache: [CachedLevel] = []
+    /// Four rooms' worth of levels: the live look, a showroom draft and recent browsing.
+    /// One level is 150 KiB.
+    private static let levelCacheCapacity = 12
+
+    /// Fills each level from the level cache or, on a miss, from a world bake the cache
+    /// keeps a copy of, then runs the lighting passes. A hit copies the bytes a cold bake
+    /// of identical inputs writes, before any pass runs, and every pass writes only this
+    /// room's tables, so a room built from cached levels is the cold room bit for bit.
+    private func bake(seed: UInt64) {
         var effectiveRoughness: [Double] = []
         effectiveRoughness.reserveCapacity(Self.levels)
+        var core: Core?
         for (level, roughness) in levelRoughness.enumerated() {
             let destination = tables + level * levelStride
             // The octahedral grid is finer than the fixed 0.019 band limit even at its
@@ -226,16 +257,24 @@ final class MercuryEnvironment {
             let grid = MercuryMetrics.environmentGridRoughness
             let effective = (Double(roughness) * Double(roughness) + grid * grid).squareRoot()
             effectiveRoughness.append(effective)
-            switch core {
-            case .room(let room):
-                room.bake(into: destination, directions: Self.directions, roughness: effective)
-            case .weather(let weather):
-                weather.bake(
-                    into: destination,
-                    basis: Self.harmonicBasis,
-                    roughness: Self.weatherRoughness(roughness, level: level, effective: effective)
-                )
+            let prefilter: Double
+            switch world {
+            case .roomOfTen:
+                prefilter = effective
+            case .spectralWeather:
+                prefilter = Self.weatherRoughness(roughness, level: level, effective: effective)
             }
+            let key = LevelKey(world: world, seed: seed, prefilter: prefilter.bitPattern)
+            if restoreLevel(key, into: destination) { continue }
+            let drawn = core ?? Self.draw(world, seed: seed)
+            core = drawn
+            switch drawn {
+            case .room(let room):
+                room.bake(into: destination, directions: Self.directions, roughness: prefilter)
+            case .weather(let weather):
+                weather.bake(into: destination, basis: Self.harmonicBasis, roughness: prefilter)
+            }
+            cacheLevel(key, from: destination)
         }
         if let whiteBalance = lighting.whiteBalance {
             applyWhiteBalance(whiteBalance)
@@ -245,6 +284,37 @@ final class MercuryEnvironment {
         if let underglow = lighting.underglow, underglow.strength > 0 {
             addUnderglow(underglow, effectiveRoughness: effectiveRoughness)
         }
+    }
+
+    /// Draws `world`'s room from `seed`.
+    private static func draw(_ world: MercuryWorld, seed: UInt64) -> Core {
+        switch world {
+        case .roomOfTen:
+            .room(RoomOfTenWorld(seed: seed))
+        case .spectralWeather:
+            .weather(SpectralWeatherWorld(seed: seed))
+        }
+    }
+
+    /// Copies the cached raw level for `key`, if any, into `destination` and moves it to
+    /// the most-recent end.
+    private func restoreLevel(_ key: LevelKey, into destination: UnsafeMutablePointer<SIMD3<Float>>) -> Bool {
+        guard let index = Self.levelCache.firstIndex(where: { $0.key == key }) else { return false }
+        let entry = Self.levelCache.remove(at: index)
+        Self.levelCache.append(entry)
+        entry.texels.withUnsafeBufferPointer { texels in
+            guard let base = texels.baseAddress else { return }
+            destination.update(from: base, count: levelStride)
+        }
+        return true
+    }
+
+    /// Keeps a copy of the raw level just baked at `source`; past capacity the least
+    /// recently used level goes.
+    private func cacheLevel(_ key: LevelKey, from source: UnsafeMutablePointer<SIMD3<Float>>) {
+        let texels = Array(UnsafeBufferPointer(start: source, count: levelStride))
+        Self.levelCache.append(CachedLevel(key: key, texels: texels))
+        if Self.levelCache.count > Self.levelCacheCapacity { Self.levelCache.removeFirst() }
     }
 
     /// Spectral Weather prefilters with the spherical heat semigroup at time `α²/4`; a
