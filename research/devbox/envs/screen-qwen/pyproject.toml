@@ -1,0 +1,21 @@
+[project]
+name = "voiceour-screen-qwen-env"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+  "qwen-asr==0.0.6",
+  "torch==2.11.0",
+  "torchaudio==2.11.0",
+  "soundfile",
+  "librosa",
+  "huggingface_hub[hf_xet]",
+]
+[tool.uv]
+package = false
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
