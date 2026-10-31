@@ -14,6 +14,14 @@ states, owners, current sprint, blockers, decision ledger, session handoff — l
 in the Obsidian control plane `projects/voiceour/concepts/asr-research-program.md`
 (vault `/Users/vlad/Documents/ObsidianVault`), never in this repository.
 
+**External options evaluated: `research/external-voz-evaluation.md`.** Desert Ant Labs' Voz —
+the same pinned Parakeet TDT 0.6B v3 checkpoint as a 6-bit palettized Core ML export — is a
+non-candidate on both the SDK and the vendored-artifact route. Its 6-bit / ~460 MB conversion
+independently corroborates runs 68–69. Measured head-to-head on this M4 Pro, its encoder runs
+**0.822× our palettize6 standard tier** (25.07 vs 30.50 ms p50) while also applying the joint
+projection — 5.4 ms/window of headroom in the existing candidate config, chased by three
+ordered experiments (toolchain re-export, fp16 IO, fused joint projection), no dependency.
+
 ## Mission
 Juice the pinned Parakeet TDT weights and Apple-Silicon runtime: (1) contextual decoding
 for vocabulary binding, (2) ANE/heterogeneous execution, (3) quantization + margin

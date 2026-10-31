@@ -68,12 +68,14 @@ f16 remains the default, because this measurement cannot carry a default change:
 2. **Stop-to-delivery distribution.** Segment `SessionStageTimings.stopReleaseToInsertionOutcomeMs` by mute state, model load, target disposition, and capture device.
 3. **Energy and thermal cost.** Compute-rail energy over the development corpora is measured in `research/bet2-ane-encoder.md`; thermal behavior, and energy for long single dictations, are not.
 4. **Cold-cache first run.** Time download, cache verification, shader compilation, model load, and first delivery separately; one total cannot locate the wait.
+5. **Core ML encoder export headroom.** Benchmarked 2026-09-04 against Desert Ant Labs' Voz, an independent export of the same checkpoint: its encoder runs p50 25.07 ms against our palettize6 standard tier's 30.50 ms on this M4 Pro (ratio 0.822, three runs), while additionally applying the joint's 1024→640 projection and returning 240,640 bytes instead of 770,048. Separate the three causes in order — re-export unchanged on the current toolchain (ours is coremlc 3520.5.1, Voz 3600.25.2), then fp16 Core ML IO, then fusing the joint projection into the graph. Full measurement: [`research/external-voz-evaluation.md`](../research/external-voz-evaluation.md).
 
 ## Non-candidates
 
 - Rewriting Swift/C in Rust: inference already runs in Metal/Accelerate kernels.
 - Hand-written Metal: no kernel hotspot has been demonstrated.
 - A second recognizer: a parallel permission, model, and runtime surface.
+- Third-party Core ML exports of the pinned checkpoint, including Desert Ant Labs' Voz: the same Parakeet TDT 0.6B v3 weights in a 6-bit palettized graph this repository already builds. Its encoder is measurably faster than ours (see measurement 5 above), but adopting it costs the macOS 14 fallback, a second vendor patch for its 640-channel output, a second pinned model family with four files the Hub publishes no digest for, and CC BY 4.0 traded for a source-available licence with an audit clause — to buy one stage. The techniques are portable; the dependency is not worth taking. Evidence and the full ledger: [`research/external-voz-evaluation.md`](../research/external-voz-evaluation.md).
 
 ## Reproducing evidence
 

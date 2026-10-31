@@ -35,6 +35,31 @@ Artifacts: 15 files, 1,358.1 MB across three tiers; schema-v1 manifest generated
 | footprint | RSS ~156–163 MB; tiers 1.36 GB on disk; single-tier fallback 459 MB at ~0.5–0.77 energy |
 | first-use stall | ~20 s/tier ANE specialization, disk-pressure-volatile; hidden by `VOICEOUR_COREML_WARM=tiers` (193/162/166 ms warm) |
 
+### External corroboration of the conversion choices (2026-09-04)
+
+Desert Ant Labs' Voz is an independent Core ML export of the same Parakeet TDT 0.6B v3
+checkpoint, published after this packet was written. It converged on the same two decisions
+the frontier runs settled here: 6-bit palettization (`constexpr_lut_to_dense` over `uint6`
+indices in `encoder.mlmodelc/model.mil`) and a single ~460 MB encoder — 460,717,376 B against
+the 459 MB single-tier fallback in the table above. Two independent derivations landing within
+2 MB is the nearest thing this lane has to cross-team replication of runs 68–69.
+
+It corroborates the *conversion* choices only, and the sealed cross-SoC rule below does not
+move: that rule is about silicon variance, and Voz is macOS 15 only with vendor-reported
+single-machine figures. Voz was evaluated as a product option and rejected; see
+[`external-voz-evaluation.md`](external-voz-evaluation.md).
+
+**It also produced a measured result this packet should act on.** Head-to-head on the same
+M4 Pro, both `CPU_AND_NE`, both `outputBackings`, three runs × 4 ABBA blocks × 30 reps:
+Voz's encoder p50 **25.07 ms** against our palettize6 standard tier's **30.50 ms** — ratio
+0.822, stable to ±0.001 across runs — while additionally performing the joint's 1024→640
+projection and returning 240,640 B instead of 770,048 B. Warm loads are comparable
+(73–94 ms ours, 73–77 ms Voz). Our tier's last op is an fp16→fp32 `cast` over [1,1024,188];
+Voz emits fp16 directly. Three candidates, cheapest first: our export used coremlc 3520.5.1
+against Voz's 3600.25.2 (re-export unchanged and re-measure to eliminate it), fp16 IO, and
+the fused joint projection. That is 5.4 ms/window of headroom on the *existing* candidate
+configuration, available without adopting anything.
+
 ## Config-matrix coverage (all committed combinations exercised)
 
 | combination | status |
