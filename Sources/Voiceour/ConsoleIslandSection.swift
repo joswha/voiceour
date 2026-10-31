@@ -131,6 +131,12 @@ extension IslandShowroomPose {
 /// section goes away. Every commit is one save and one undo step that restores the whole
 /// previous look, so choosing a look never costs a hand-tuned one more than ⌘Z.
 ///
+/// Each row is an `Equatable` view of the values it shows, so a staged draft re-evaluates only
+/// the rows that show what it changed and the showroom, not every bridged AppKit control:
+/// re-rendering every row cost about 21 ms of main thread per pointer event with all four
+/// folds open. A row reads the coordinator only when it writes, so no row body subscribes to
+/// the draft.
+///
 /// Radio pickers (Coat, Room, Look) stay direct Form rows, because an `HStack` wrapper splits
 /// one into a group per item, and nothing is segmented, because a segmented control answers
 /// an accessibility press with false. Pop-up menus (Metal, the preview pose) sit only where no
@@ -148,12 +154,6 @@ struct ConsoleIslandSection: View {
 
     /// Commits what the controls stage, and leaves the undo step for each commit.
     @State private var editor: IslandGarageEditor
-
-    /// Surprise Me is replayable: one seed per section lifetime — the mercury seed seam when
-    /// the harness pins it, random otherwise — taken on the first press, and a counter each
-    /// press advances.
-    @State private var surpriseSeed: UInt64?
-    @State private var surpriseDraw: UInt64 = 0
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
@@ -174,7 +174,8 @@ struct ConsoleIslandSection: View {
             fold(.body, isExpanded: $showsBody) { bodyRows }
             fold(.motion, isExpanded: $showsMotion) { motionRows }
 
-            lookRow
+            IslandLookRow(look: IslandLook.matching(island), editor: editor, coordinator: coordinator)
+                .equatable()
             IslandPositionRow()
         }
     }
@@ -196,9 +197,10 @@ struct ConsoleIslandSection: View {
         @ViewBuilder content: () -> Rows
     ) -> some View {
         let rows = content()
+        let restore = IslandRestoreButton(group: group, isStock: group.isStock(island), editor: editor)
         return DisclosureGroup(isExpanded: isExpanded) {
             rows
-            restoreButton(group)
+            restore.equatable()
         } label: {
             Text(group.title)
                 .accessibilityIdentifier(group.identifier)
@@ -211,68 +213,25 @@ struct ConsoleIslandSection: View {
         }
     }
 
-    /// Resets one fold alone; the Stock look is the reset for every fold at once.
-    private func restoreButton(_ group: IslandGroup) -> some View {
-        Button("Restore Stock") {
-            apply(group.restoreAction) { group.restore(&$0) }
-        }
-        .disabled(group.isStock(island))
-        .accessibilityLabel(group.restoreLabel)
-        .accessibilityIdentifier(group.restoreIdentifier)
-        .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
     // MARK: Material
 
     @ViewBuilder
     private var materialRows: some View {
-        ConsoleRow(
-            caption: "The body's color is this metal's own reflection of the room; nothing is "
-                + "painted on."
-        ) {
-            Picker("Metal", selection: choice(\.metal, action: "Change Metal")) {
-                ForEach(IslandMetal.allCases, id: \.self) { metal in
-                    Text(metal.displayName).tag(metal)
-                }
-            }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("island.material.metal")
-        }
+        IslandMetalRow(metal: island.metal, editor: editor, coordinator: coordinator)
+            .equatable()
 
-        // The coat's own parameter — film thickness or candy color — rides the coat row and
-        // its caption, because it means nothing apart from the coat that owns it.
-        ConsoleRow(caption: coatCaption) {
-            Picker("Coat", selection: coatSelection) {
-                ForEach(IslandCoat.allCases, id: \.self) { coat in
-                    Text(coat.displayName).tag(coat)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .accessibilityIdentifier("island.material.coat")
-
-            if let film = island.coat.film {
-                sliderControl(
-                    "Film",
-                    \.film,
-                    on: film,
-                    id: "island.material.film",
-                    accessibilityLabel: "Film thickness",
-                    action: "Change Film Thickness",
-                    readout: .nanometers
-                )
-            }
-
-            if island.coat == .candy {
-                LabeledContent {
-                    ColorPicker("Candy color", selection: candyColor, supportsOpacity: false)
-                        .labelsHidden()
-                        .accessibilityValue(candyDescription)
-                        .accessibilityIdentifier("island.material.candy")
-                } label: {
-                    Text("Color")
-                }
-            }
-        }
+        IslandCoatRow(
+            caption: coatCaption,
+            coat: island.coat,
+            film: island.film,
+            candyHue: island.candyHue,
+            candySaturation: island.candySaturation,
+            candyBrightness: island.candyBrightness,
+            reduceMotion: a11y.reduceMotion,
+            editor: editor,
+            coordinator: coordinator
+        )
+        .equatable()
 
         slider(
             "Finish",
@@ -280,21 +239,6 @@ struct ConsoleIslandSection: View {
             on: IslandGrids.finish,
             id: "island.material.finish",
             caption: "Blurs the reflection from a 0% mirror to a 100% satin sheen."
-        )
-    }
-
-    /// A coat change resets the film to that coat's stock thickness (one thickness is a
-    /// different color under every coat), and the film row it inserts or removes animates
-    /// unless Reduce Motion is on.
-    private var coatSelection: Binding<IslandCoat> {
-        Binding(
-            get: { coordinator.effectiveIsland.coat },
-            set: { coat in
-                guard coat != coordinator.effectiveIsland.coat else { return }
-                withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.standard) {
-                    apply("Change Coat") { $0.select(coat: coat) }
-                }
-            }
         )
     }
 
@@ -333,61 +277,12 @@ struct ConsoleIslandSection: View {
         }
     }
 
-    /// The candy dye as HSB on the candy grids. A pick commits after a quiet spell, because a
-    /// color well reports no editing begin or end.
-    private var candyColor: Binding<Color> {
-        Binding(
-            get: {
-                let island = coordinator.effectiveIsland
-                return Self.color(
-                    hue: island.candyHue,
-                    saturation: island.candySaturation,
-                    brightness: island.candyBrightness
-                )
-            },
-            set: { color in
-                guard let picked = Self.hsb(of: color) else { return }
-                let hue = IslandGrids.candyHue.snap(picked.hue)
-                let saturation = IslandGrids.candySaturation.snap(picked.saturation)
-                let brightness = IslandGrids.candyBrightness.snap(picked.brightness)
-                let current = coordinator.effectiveIsland
-                guard
-                    hue != current.candyHue || saturation != current.candySaturation
-                        || brightness != current.candyBrightness
-                else { return }
-                stage("Change Candy Color") {
-                    $0.candyHue = hue
-                    $0.candySaturation = saturation
-                    $0.candyBrightness = brightness
-                }
-            }
-        )
-    }
-
-    /// Spoken as a hue name with its saturation and brightness, never as an RGB triple.
-    private var candyDescription: String {
-        let saturation = island.candySaturation
-        let name = saturation < 10 ? "Gray" : Self.hueName(island.candyHue)
-        return "\(name), \(saturation) percent saturation, "
-            + "\(island.candyBrightness) percent brightness"
-    }
-
     // MARK: Lighting
 
     @ViewBuilder
     private var lightingRows: some View {
-        ConsoleRow(
-            caption: "Studio reflects 32 soft area lights with a faint tint; Overcast reflects a "
-                + "gray, cloudlike sky. Each dictation draws a new room of this kind."
-        ) {
-            Picker("Room", selection: choice(\.room, action: "Change Room")) {
-                ForEach(MercuryWorld.allCases, id: \.self) { world in
-                    Text(world.displayName).tag(world)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .accessibilityIdentifier("island.lighting.room")
-        }
+        IslandRoomRow(room: island.room, editor: editor, coordinator: coordinator)
+            .equatable()
 
         slider(
             "Temperature",
@@ -399,35 +294,15 @@ struct ConsoleIslandSection: View {
             readout: .kelvin
         )
 
-        // Switch and governed values share one row and are disabled together, so the row can
-        // never read as a glow of some color and strength while the switch above it is off.
-        ConsoleRow(
-            caption: "A colored light beneath the body, reflected like the rest of the room. Only "
-                + "its hue and saturation count; Strength sets how bright it glows."
-        ) {
-            Toggle("Underglow", isOn: choice(\.underglow, action: "Change Underglow"))
-                .accessibilityIdentifier("island.lighting.underglow")
-
-            LabeledContent {
-                ColorPicker("Underglow color", selection: underglowColor, supportsOpacity: false)
-                    .labelsHidden()
-                    .accessibilityValue(underglowDescription)
-                    .accessibilityIdentifier("island.lighting.underglow.color")
-            } label: {
-                Text("Color")
-            }
-            .disabled(!island.underglow)
-
-            sliderControl(
-                "Strength",
-                \.underglowStrength,
-                on: IslandGrids.underglowStrength,
-                id: "island.lighting.underglow.strength",
-                accessibilityLabel: "Underglow strength",
-                action: "Change Underglow Strength"
-            )
-            .disabled(!island.underglow)
-        }
+        IslandUnderglowRow(
+            underglow: island.underglow,
+            underglowHue: island.underglowHue,
+            underglowSaturation: island.underglowSaturation,
+            underglowStrength: island.underglowStrength,
+            editor: editor,
+            coordinator: coordinator
+        )
+        .equatable()
 
         slider(
             "Brightness",
@@ -462,40 +337,6 @@ struct ConsoleIslandSection: View {
         guard increasedContrast else { return sentence }
         return "Increase Contrast is on, so the island keeps its accessible tone; Brightness and "
             + "Contrast apply when it is off."
-    }
-
-    /// The underglow as hue and saturation alone. Strength sets how bright it glows, so its
-    /// brightness is held at full and a darker pick snaps back to it.
-    private var underglowColor: Binding<Color> {
-        Binding(
-            get: {
-                let island = coordinator.effectiveIsland
-                return Self.color(
-                    hue: island.underglowHue,
-                    saturation: island.underglowSaturation,
-                    brightness: 100
-                )
-            },
-            set: { color in
-                guard let picked = Self.hsb(of: color) else { return }
-                let hue = IslandGrids.underglowHue.snap(picked.hue)
-                let saturation = IslandGrids.underglowSaturation.snap(picked.saturation)
-                let current = coordinator.effectiveIsland
-                guard hue != current.underglowHue || saturation != current.underglowSaturation
-                else { return }
-                stage("Change Underglow Color") {
-                    $0.underglowHue = hue
-                    $0.underglowSaturation = saturation
-                }
-            }
-        )
-    }
-
-    /// Spoken as a hue name with its saturation; below 10 % saturation the light is white.
-    private var underglowDescription: String {
-        let saturation = island.underglowSaturation
-        let name = saturation < 10 ? "White" : Self.hueName(island.underglowHue)
-        return "\(name), \(saturation) percent saturation"
     }
 
     // MARK: Body
@@ -610,12 +451,464 @@ struct ConsoleIslandSection: View {
         )
     }
 
-    // MARK: Look
+    // MARK: Sliders
 
-    /// Derived, never stored: the radio whose look matches, or none for Custom. A radio group
-    /// cannot disable one item, so Custom is the showroom's mark rather than a radio a reader
-    /// could press to no effect.
-    private var lookRow: some View {
+    /// The slider row for one field of the island in view.
+    private func slider(
+        _ label: String,
+        _ field: WritableKeyPath<IslandAppearance, Int> & Sendable,
+        on grid: IslandGrid,
+        id: String,
+        caption: String,
+        readout: IslandReadout = .percent,
+        disabled: Bool = false
+    ) -> some View {
+        IslandSliderRow(
+            label: label,
+            field: field,
+            grid: grid,
+            id: id,
+            caption: caption,
+            readout: readout,
+            isDisabled: disabled,
+            value: island[keyPath: field],
+            editor: editor,
+            coordinator: coordinator
+        )
+        .equatable()
+    }
+}
+
+// MARK: - Rows
+
+/// The metal the body is made of.
+private struct IslandMetalRow: View, Equatable {
+    let metal: IslandMetal
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+    @Environment(\.undoManager) private var undoManager
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.metal == rhs.metal && lhs.editor === rhs.editor && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
+        ConsoleRow(
+            caption: "The body's color is this metal's own reflection of the room; nothing is "
+                + "painted on."
+        ) {
+            Picker("Metal", selection: metalSelection) {
+                ForEach(IslandMetal.allCases, id: \.self) { metal in
+                    Text(metal.displayName).tag(metal)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("island.material.metal")
+        }
+    }
+
+    private var metalSelection: Binding<IslandMetal> {
+        Binding(
+            get: { metal },
+            set: { metal in
+                guard metal != coordinator.effectiveIsland.metal else { return }
+                editor.apply("Change Metal", undoManager: undoManager) { $0.metal = metal }
+            }
+        )
+    }
+}
+
+/// The coat's own parameter — film thickness or candy color — rides the coat row and its
+/// caption, because it means nothing apart from the coat that owns it.
+private struct IslandCoatRow: View, Equatable {
+    let caption: String
+    let coat: IslandCoat
+    let film: Int
+    let candyHue: Int
+    let candySaturation: Int
+    let candyBrightness: Int
+    let reduceMotion: Bool
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+    @Environment(\.undoManager) private var undoManager
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.caption == rhs.caption && lhs.coat == rhs.coat && lhs.film == rhs.film
+            && lhs.candyHue == rhs.candyHue && lhs.candySaturation == rhs.candySaturation
+            && lhs.candyBrightness == rhs.candyBrightness && lhs.reduceMotion == rhs.reduceMotion
+            && lhs.editor === rhs.editor && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
+        ConsoleRow(caption: caption) {
+            Picker("Coat", selection: coatSelection) {
+                ForEach(IslandCoat.allCases, id: \.self) { coat in
+                    Text(coat.displayName).tag(coat)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .accessibilityIdentifier("island.material.coat")
+
+            if let grid = coat.film {
+                IslandSliderControl(
+                    label: "Film",
+                    field: \.film,
+                    grid: grid,
+                    id: "island.material.film",
+                    accessibilityLabel: "Film thickness",
+                    action: "Change Film Thickness",
+                    readout: .nanometers,
+                    value: film,
+                    editor: editor,
+                    coordinator: coordinator
+                )
+                .equatable()
+            }
+
+            if coat == .candy {
+                LabeledContent {
+                    ColorPicker("Candy color", selection: candyColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .accessibilityValue(candyDescription)
+                        .accessibilityIdentifier("island.material.candy")
+                } label: {
+                    Text("Color")
+                }
+            }
+        }
+    }
+
+    /// A coat change resets the film to that coat's stock thickness (one thickness is a
+    /// different color under every coat), and the film row it inserts or removes animates
+    /// unless Reduce Motion is on.
+    private var coatSelection: Binding<IslandCoat> {
+        Binding(
+            get: { coat },
+            set: { coat in
+                guard coat != coordinator.effectiveIsland.coat else { return }
+                withAnimation(reduceMotion ? nil : VoiceourMotion.standard) {
+                    editor.apply("Change Coat", undoManager: undoManager) { $0.select(coat: coat) }
+                }
+            }
+        )
+    }
+
+    /// The candy dye as HSB on the candy grids. A pick commits after a quiet spell, because a
+    /// color well reports no editing begin or end.
+    private var candyColor: Binding<Color> {
+        Binding(
+            get: {
+                IslandColorWell.color(
+                    hue: candyHue,
+                    saturation: candySaturation,
+                    brightness: candyBrightness
+                )
+            },
+            set: { color in
+                guard let picked = IslandColorWell.hsb(of: color) else { return }
+                let hue = IslandGrids.candyHue.snap(picked.hue)
+                let saturation = IslandGrids.candySaturation.snap(picked.saturation)
+                let brightness = IslandGrids.candyBrightness.snap(picked.brightness)
+                let current = coordinator.effectiveIsland
+                guard
+                    hue != current.candyHue || saturation != current.candySaturation
+                        || brightness != current.candyBrightness
+                else { return }
+                editor.stage("Change Candy Color", undoManager: undoManager) {
+                    $0.candyHue = hue
+                    $0.candySaturation = saturation
+                    $0.candyBrightness = brightness
+                }
+            }
+        )
+    }
+
+    /// Spoken as a hue name with its saturation and brightness, never as an RGB triple.
+    private var candyDescription: String {
+        let name = candySaturation < 10 ? "Gray" : IslandColorWell.hueName(candyHue)
+        return "\(name), \(candySaturation) percent saturation, "
+            + "\(candyBrightness) percent brightness"
+    }
+}
+
+/// The kind of room the island reflects.
+private struct IslandRoomRow: View, Equatable {
+    let room: MercuryWorld
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+    @Environment(\.undoManager) private var undoManager
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.room == rhs.room && lhs.editor === rhs.editor && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
+        ConsoleRow(
+            caption: "Studio reflects 32 soft area lights with a faint tint; Overcast reflects a "
+                + "gray, cloudlike sky. Each dictation draws a new room of this kind."
+        ) {
+            Picker("Room", selection: roomSelection) {
+                ForEach(MercuryWorld.allCases, id: \.self) { world in
+                    Text(world.displayName).tag(world)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .accessibilityIdentifier("island.lighting.room")
+        }
+    }
+
+    private var roomSelection: Binding<MercuryWorld> {
+        Binding(
+            get: { room },
+            set: { room in
+                guard room != coordinator.effectiveIsland.room else { return }
+                editor.apply("Change Room", undoManager: undoManager) { $0.room = room }
+            }
+        )
+    }
+}
+
+/// Switch and governed values share one row and are disabled together, so the row can never
+/// read as a glow of some color and strength while the switch above it is off.
+private struct IslandUnderglowRow: View, Equatable {
+    let underglow: Bool
+    let underglowHue: Int
+    let underglowSaturation: Int
+    let underglowStrength: Int
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+    @Environment(\.undoManager) private var undoManager
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.underglow == rhs.underglow && lhs.underglowHue == rhs.underglowHue
+            && lhs.underglowSaturation == rhs.underglowSaturation
+            && lhs.underglowStrength == rhs.underglowStrength && lhs.editor === rhs.editor
+            && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
+        ConsoleRow(
+            caption: "A colored light beneath the body, reflected like the rest of the room. Only "
+                + "its hue and saturation count; Strength sets how bright it glows."
+        ) {
+            Toggle("Underglow", isOn: underglowSwitch)
+                .accessibilityIdentifier("island.lighting.underglow")
+
+            LabeledContent {
+                ColorPicker("Underglow color", selection: underglowColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .accessibilityValue(underglowDescription)
+                    .accessibilityIdentifier("island.lighting.underglow.color")
+            } label: {
+                Text("Color")
+            }
+            .disabled(!underglow)
+
+            IslandSliderControl(
+                label: "Strength",
+                field: \.underglowStrength,
+                grid: IslandGrids.underglowStrength,
+                id: "island.lighting.underglow.strength",
+                accessibilityLabel: "Underglow strength",
+                action: "Change Underglow Strength",
+                readout: .percent,
+                value: underglowStrength,
+                editor: editor,
+                coordinator: coordinator
+            )
+            .equatable()
+            .disabled(!underglow)
+        }
+    }
+
+    private var underglowSwitch: Binding<Bool> {
+        Binding(
+            get: { underglow },
+            set: { underglow in
+                guard underglow != coordinator.effectiveIsland.underglow else { return }
+                editor.apply("Change Underglow", undoManager: undoManager) { $0.underglow = underglow }
+            }
+        )
+    }
+
+    /// The underglow as hue and saturation alone. Strength sets how bright it glows, so its
+    /// brightness is held at full and a darker pick snaps back to it.
+    private var underglowColor: Binding<Color> {
+        Binding(
+            get: {
+                IslandColorWell.color(
+                    hue: underglowHue,
+                    saturation: underglowSaturation,
+                    brightness: 100
+                )
+            },
+            set: { color in
+                guard let picked = IslandColorWell.hsb(of: color) else { return }
+                let hue = IslandGrids.underglowHue.snap(picked.hue)
+                let saturation = IslandGrids.underglowSaturation.snap(picked.saturation)
+                let current = coordinator.effectiveIsland
+                guard hue != current.underglowHue || saturation != current.underglowSaturation
+                else { return }
+                editor.stage("Change Underglow Color", undoManager: undoManager) {
+                    $0.underglowHue = hue
+                    $0.underglowSaturation = saturation
+                }
+            }
+        )
+    }
+
+    /// Spoken as a hue name with its saturation; below 10 % saturation the light is white.
+    private var underglowDescription: String {
+        let name = underglowSaturation < 10 ? "White" : IslandColorWell.hueName(underglowHue)
+        return "\(name), \(underglowSaturation) percent saturation"
+    }
+}
+
+/// A slider and the sentence that explains it.
+private struct IslandSliderRow: View, Equatable {
+    let label: String
+    let field: WritableKeyPath<IslandAppearance, Int> & Sendable
+    let grid: IslandGrid
+    let id: String
+    let caption: String
+    let readout: IslandReadout
+    let isDisabled: Bool
+    let value: Int
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.label == rhs.label && lhs.field == rhs.field && lhs.grid == rhs.grid && lhs.id == rhs.id
+            && lhs.caption == rhs.caption && lhs.readout == rhs.readout
+            && lhs.isDisabled == rhs.isDisabled && lhs.value == rhs.value && lhs.editor === rhs.editor
+            && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
+        ConsoleRow(caption: caption) {
+            IslandSliderControl(
+                label: label,
+                field: field,
+                grid: grid,
+                id: id,
+                accessibilityLabel: label,
+                action: "Change \(label)",
+                readout: readout,
+                value: value,
+                editor: editor,
+                coordinator: coordinator
+            )
+            .equatable()
+            .disabled(isDisabled)
+        }
+    }
+}
+
+/// One integer option as a slider, in the shape every island slider shares.
+///
+/// The value is an integer in UI units moved by the grid's explicit step, so the published
+/// accessibility value is an integer (a fractional step leaks float error into it) and a
+/// look compares by exact equality. A slider without a label view publishes no label, so
+/// it hides its label and names itself, and speaks the readout as its value description.
+/// The readout beside it therefore stays out of accessibility. No end labels:
+/// `minimumValueLabel`/`maximumValueLabel` publish 19×13 pt step buttons.
+private struct IslandSliderControl: View, Equatable {
+    let label: String
+    let field: WritableKeyPath<IslandAppearance, Int> & Sendable
+    let grid: IslandGrid
+    let id: String
+    let accessibilityLabel: String
+    let action: String
+    let readout: IslandReadout
+    let value: Int
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+    @Environment(\.undoManager) private var undoManager
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.label == rhs.label && lhs.field == rhs.field && lhs.grid == rhs.grid && lhs.id == rhs.id
+            && lhs.accessibilityLabel == rhs.accessibilityLabel && lhs.action == rhs.action
+            && lhs.readout == rhs.readout && lhs.value == rhs.value && lhs.editor === rhs.editor
+            && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Slider(
+                    value: Binding(
+                        get: { Double(value) },
+                        set: { proposed in
+                            let snapped = grid.snap(Int(proposed.rounded()))
+                            guard snapped != coordinator.effectiveIsland[keyPath: field] else { return }
+                            editor.stage(action, undoManager: undoManager) { $0[keyPath: field] = snapped }
+                        }
+                    ),
+                    in: Double(grid.range.lowerBound)...Double(grid.range.upperBound),
+                    step: Double(grid.step),
+                    onEditingChanged: { editing in
+                        editor.sliderEditingChanged(editing, undoManager: undoManager)
+                    }
+                )
+                .labelsHidden()
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityValue(readout.spoken(value))
+                .accessibilityIdentifier(id)
+
+                Text(readout.text(value))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: VoiceourMetrics.Field.readout, alignment: .trailing)
+                    .accessibilityHidden(true)
+            }
+        } label: {
+            Text(label)
+        }
+    }
+}
+
+/// Resets one fold alone; the Stock look is the reset for every fold at once.
+private struct IslandRestoreButton: View, Equatable {
+    let group: IslandGroup
+    let isStock: Bool
+    let editor: IslandGarageEditor
+    @Environment(\.undoManager) private var undoManager
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.group == rhs.group && lhs.isStock == rhs.isStock && lhs.editor === rhs.editor
+    }
+
+    var body: some View {
+        Button("Restore Stock") {
+            editor.apply(group.restoreAction, undoManager: undoManager) { group.restore(&$0) }
+        }
+        .disabled(isStock)
+        .accessibilityLabel(group.restoreLabel)
+        .accessibilityIdentifier(group.restoreIdentifier)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// Derived, never stored: the radio whose look matches, or none for Custom. A radio group
+/// cannot disable one item, so Custom is the showroom's mark rather than a radio a reader
+/// could press to no effect.
+private struct IslandLookRow: View, Equatable {
+    let look: IslandLook?
+    let editor: IslandGarageEditor
+    let coordinator: DictationCoordinator
+    @Environment(\.undoManager) private var undoManager
+
+    /// Surprise Me is replayable: one seed per section lifetime — the mercury seed seam when
+    /// the harness pins it, random otherwise — taken on the first press, and a counter each
+    /// press advances.
+    @State private var surpriseSeed: UInt64?
+    @State private var surpriseDraw: UInt64 = 0
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.look == rhs.look && lhs.editor === rhs.editor && lhs.coordinator === rhs.coordinator
+    }
+
+    var body: some View {
         ConsoleRow(caption: "Choosing a look replaces every option above; ⌘Z undoes it.") {
             Picker("Look", selection: lookSelection) {
                 ForEach(IslandLook.allCases, id: \.self) { look in
@@ -634,12 +927,12 @@ struct ConsoleIslandSection: View {
 
     private var lookSelection: Binding<IslandLook?> {
         Binding(
-            get: { IslandLook.matching(coordinator.effectiveIsland) },
+            get: { look },
             set: { look in
                 guard let look, look != IslandLook.matching(coordinator.effectiveIsland) else {
                     return
                 }
-                apply("Choose Look") { $0 = look.appearance }
+                editor.apply("Choose Look", undoManager: undoManager) { $0 = look.appearance }
             }
         )
     }
@@ -647,149 +940,13 @@ struct ConsoleIslandSection: View {
     private func surprise() {
         let seed = surpriseSeed ?? RenderOverrides.mercurySeed ?? UInt64.random(in: .min ... .max)
         surpriseSeed = seed
-        let next = IslandAppearance.surprise(seed: seed, draw: surpriseDraw, avoiding: island)
+        let next = IslandAppearance.surprise(
+            seed: seed,
+            draw: surpriseDraw,
+            avoiding: coordinator.effectiveIsland
+        )
         surpriseDraw += 1
-        apply("Surprise Me") { $0 = next }
-    }
-
-    // MARK: Sliders
-
-    /// A slider and the sentence that explains it.
-    private func slider(
-        _ label: String,
-        _ field: WritableKeyPath<IslandAppearance, Int> & Sendable,
-        on grid: IslandGrid,
-        id: String,
-        caption: String,
-        readout: IslandReadout = .percent,
-        disabled: Bool = false
-    ) -> some View {
-        ConsoleRow(caption: caption) {
-            sliderControl(label, field, on: grid, id: id, readout: readout)
-                .disabled(disabled)
-        }
-    }
-
-    /// One integer option as a slider, in the shape every island slider shares.
-    ///
-    /// The value is an integer in UI units moved by the grid's explicit step, so the published
-    /// accessibility value is an integer (a fractional step leaks float error into it) and a
-    /// look compares by exact equality. A slider without a label view publishes no label, so
-    /// it hides its label and names itself, and speaks the readout as its value description.
-    /// The readout beside it therefore stays out of accessibility. No end labels:
-    /// `minimumValueLabel`/`maximumValueLabel` publish 19×13 pt step buttons.
-    private func sliderControl(
-        _ label: String,
-        _ field: WritableKeyPath<IslandAppearance, Int> & Sendable,
-        on grid: IslandGrid,
-        id: String,
-        accessibilityLabel: String? = nil,
-        action: String? = nil,
-        readout: IslandReadout = .percent
-    ) -> some View {
-        let value = island[keyPath: field]
-        return LabeledContent {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Slider(
-                    value: sliderValue(field, on: grid, action: action ?? "Change \(label)"),
-                    in: Double(grid.range.lowerBound)...Double(grid.range.upperBound),
-                    step: Double(grid.step),
-                    onEditingChanged: { editing in
-                        editor.sliderEditingChanged(editing, undoManager: undoManager)
-                    }
-                )
-                .labelsHidden()
-                .accessibilityLabel(accessibilityLabel ?? label)
-                .accessibilityValue(readout.spoken(value))
-                .accessibilityIdentifier(id)
-
-                Text(readout.text(value))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: VoiceourMetrics.Field.readout, alignment: .trailing)
-                    .accessibilityHidden(true)
-            }
-        } label: {
-            Text(label)
-        }
-    }
-
-    private func sliderValue(
-        _ field: WritableKeyPath<IslandAppearance, Int> & Sendable,
-        on grid: IslandGrid,
-        action: String
-    ) -> Binding<Double> {
-        Binding(
-            get: { Double(coordinator.effectiveIsland[keyPath: field]) },
-            set: { proposed in
-                let value = grid.snap(Int(proposed.rounded()))
-                guard value != coordinator.effectiveIsland[keyPath: field] else { return }
-                stage(action) { $0[keyPath: field] = value }
-            }
-        )
-    }
-
-    // MARK: Writes
-
-    /// A binding for a discrete option — a picker, radio group or switch — which commits each
-    /// choice at once.
-    private func choice<Value: Equatable & Sendable>(
-        _ field: WritableKeyPath<IslandAppearance, Value> & Sendable,
-        action: String
-    ) -> Binding<Value> {
-        Binding(
-            get: { coordinator.effectiveIsland[keyPath: field] },
-            set: { value in
-                guard value != coordinator.effectiveIsland[keyPath: field] else { return }
-                apply(action) { $0[keyPath: field] = value }
-            }
-        )
-    }
-
-    /// Stages `change` and commits it at once: one save and one undo step.
-    private func apply(_ action: String, _ change: (inout IslandAppearance) -> Void) {
-        editor.apply(action, undoManager: undoManager, change)
-    }
-
-    /// Stages `change` for a control that commits on its own release or after a quiet spell.
-    private func stage(_ action: String, _ change: (inout IslandAppearance) -> Void) {
-        editor.stage(action, undoManager: undoManager, change)
-    }
-
-    // MARK: Color wells
-
-    /// Twelve 30° bands centred on red at 0°: the names a color well's spoken value uses.
-    private static let hueNames = [
-        "Red", "Orange", "Yellow", "Lime", "Green", "Mint",
-        "Cyan", "Azure", "Blue", "Violet", "Magenta", "Pink",
-    ]
-
-    private static func hueName(_ hue: Int) -> String {
-        hueNames[((hue % 360) + 360 + 15) % 360 / 30]
-    }
-
-    /// HSB on the sRGB primaries, the space the renderer's `MercuryColor` decodes too.
-    private static func color(hue: Int, saturation: Int, brightness: Int) -> Color {
-        Color(
-            hue: Double(hue) / 360,
-            saturation: Double(saturation) / 100,
-            brightness: Double(brightness) / 100
-        )
-    }
-
-    /// A picked color in whole degrees and percent on the sRGB primaries, or nil for a color
-    /// with no RGB form.
-    private static func hsb(of color: Color) -> (hue: Int, saturation: Int, brightness: Int)? {
-        guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
-        return (
-            hue: Int((hue * 360).rounded()) % 360,
-            saturation: Int((saturation * 100).rounded()),
-            brightness: Int((brightness * 100).rounded())
-        )
+        editor.apply("Surprise Me", undoManager: undoManager) { $0 = next }
     }
 }
 
@@ -816,10 +973,15 @@ private struct IslandShowroom: View {
     @State private var pose: IslandShowroomPose
     /// Which room of the showroom's sequence is up; view state, never saved.
     @State private var room = 1
-    /// Whether at least a fifth of the stage is scrolled into view. Starts false: the scroll
-    /// visibility callback reports a stage that appears in view, and one that never comes
-    /// into view must not run a display link.
+    /// Whether at least a fifth of the stage is scrolled into view; out of it the surface is
+    /// suspended. Starts false: the scroll visibility callback reports a stage that appears in
+    /// view, and one that never comes into view draws nothing.
     @State private var onScreen = false
+    /// Whether the console window shows any of itself: false while it is miniaturized, on
+    /// another Space, hidden with the app or fully covered by other windows, where a live stage
+    /// would keep its display link drawing frames nobody sees. Starts true, so a stage that
+    /// appears in view draws before the first report.
+    @State private var windowVisible = true
 
     /// The look the renderer draws: the effective look with bake-class changes throttled.
     @State private var shownIsland: IslandAppearance
@@ -903,39 +1065,25 @@ private struct IslandShowroom: View {
             .onScrollVisibilityChange(threshold: 0.2) { visible in
                 onScreen = visible
             }
+            .background {
+                WindowVisibilityReader { visible in
+                    windowVisible = visible
+                }
+                .accessibilityHidden(true)
+            }
     }
 
-    /// The look mark is the one place the current look is named, and the only Custom cue:
-    /// it sits by the preview, so it stays in view while the folds below are tuned.
     private var controls: some View {
-        HStack(spacing: VoiceourMetrics.Space.sm) {
-            ConsoleStateMark(lookMark, .neutral)
-                .accessibilityIdentifier("island.showroom.look")
-
-            Picker("Preview pose", selection: $pose) {
-                ForEach(IslandShowroomPose.allCases, id: \.self) { pose in
-                    Text(pose.title).tag(pose)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityIdentifier("island.showroom.pose")
-
-            Button("Another Room") { room += 1 }
-                .help(
-                    "Shows the preview in a different generated room; every dictation draws "
-                        + "its own."
-                )
-                .accessibilityIdentifier("island.showroom.room")
-
-            if let replayLabel = pose.replayLabel {
-                Button("Play Again") { replay() }
-                    .disabled(isReplaying)
-                    .accessibilityLabel(replayLabel)
-                    .accessibilityIdentifier("island.showroom.replay")
-            }
-        }
+        IslandShowroomControls(
+            lookMark: lookMark,
+            pose: pose,
+            replayLabel: pose.replayLabel,
+            isReplaying: isReplaying,
+            setPose: { pose = $0 },
+            anotherRoom: { room += 1 },
+            replay: { replay() }
+        )
+        .equatable()
     }
 
     private var caption: String {
@@ -964,6 +1112,7 @@ private struct IslandShowroom: View {
             appearance: MercuryAppearance(increasedContrast: a11y.contrast == .increased),
             layout: .island,
             pinnedStep: pinnedStep,
+            isSuspended: isSuspended,
             replayGeneration: replayGeneration,
             replaySource: Self.posed(.processing).target,
             // No controller conducts the showroom and no panel carries it.
@@ -981,10 +1130,10 @@ private struct IslandShowroom: View {
         return room == 1 ? base : Self.splitMix64(base &+ UInt64(room - 1))
     }
 
-    /// Live at display cadence while at least a fifth of the stage is in view; otherwise, and
-    /// under Reduce Motion, one still frame from the pinned-frame path with no display link.
-    /// A replay runs live for its one hold even then, because the island keeps its gestures
-    /// under Reduce Motion; returning to still is a cached frame, not a rebake.
+    /// The harness's seam step; otherwise live at display cadence, or under Reduce Motion one
+    /// still frame from the pinned-frame path with no display link. A replay runs live for its
+    /// one hold even then, because the island keeps its gestures under Reduce Motion;
+    /// returning to still is a cached frame, not a rebake.
     private var pinnedStep: Int? {
         if let step = RenderOverrides.mercuryStep {
             return step
@@ -992,7 +1141,18 @@ private struct IslandShowroom: View {
         if isReplaying {
             return nil
         }
-        return a11y.reduceMotion || !onScreen ? Self.stillStep : nil
+        return a11y.reduceMotion ? Self.stillStep : nil
+    }
+
+    /// Out of view, scrolled away or in a window that shows none of itself, the stage draws
+    /// nothing, live or still, so a change made in the folds below costs no frame, and the
+    /// stage's return draws the current look at once. A replay keeps it drawing through its one
+    /// hold: Play Again sits below the stage and can be pressed with less than a fifth of the
+    /// stage in view, and its gesture plays then, not whenever the stage next returns. The
+    /// harness pins a seam step and is never suspended, so a scene draws that frame whatever its
+    /// scroll position or window.
+    private var isSuspended: Bool {
+        RenderOverrides.mercuryStep == nil && !(onScreen && windowVisible) && !isReplaying
     }
 
     /// The committed Morph and Drama: only a commit replays, not every step of a drag.
@@ -1001,10 +1161,10 @@ private struct IslandShowroom: View {
     }
 
     /// Bake-class changes — metal, coat, film, candy dye, finish, room, temperature and
-    /// underglow — rebuild the paint table or the room, about 9 ms each, so they reach the
-    /// renderer at most once per 100 ms: the first at once, the last when changes stop. That
-    /// bounds a drag's main-thread cost to about a tenth. Every other change goes through on
-    /// the update that carries it.
+    /// underglow — rebuild a paint table or relight the room, the costliest work a look change
+    /// can cause when the engine's caches lack it, so they reach the renderer at most once per
+    /// 100 ms: the first at once, the last when changes stop. That bounds a drag's main-thread
+    /// cost to about a tenth. Every other change goes through on the update that carries it.
     private func show(_ island: IslandAppearance) {
         let unbaked = island.withBakeInputs(of: shownIsland)
         guard unbaked != island else {
@@ -1063,6 +1223,115 @@ private struct IslandShowroom: View {
         z = (z ^ (z >> 30)) &* 0xbf58_476d_1ce4_e5b9
         z = (z ^ (z >> 27)) &* 0x94d0_49bb_1331_11eb
         return z ^ (z >> 31)
+    }
+}
+
+/// Reports whether the window hosting it shows any of itself, from AppKit's occlusion state:
+/// false while that window is miniaturized, on another Space, hidden with its app or fully
+/// covered. The first report waits a main-actor turn, because a view moves into its window
+/// inside SwiftUI's update pass, which must not publish state.
+private struct WindowVisibilityReader: NSViewRepresentable {
+    let report: (Bool) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        ReaderView(report: report)
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.report = report
+    }
+
+    final class ReaderView: NSView {
+        var report: (Bool) -> Void
+        private var occlusionObserver: NSObjectProtocol?
+
+        init(report: @escaping (Bool) -> Void) {
+            self.report = report
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            occlusionObserver.map(NotificationCenter.default.removeObserver)
+            occlusionObserver = nil
+            guard let window else { return }
+            occlusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.reportVisibility()
+                }
+            }
+            Task { @MainActor [weak self] in
+                self?.reportVisibility()
+            }
+        }
+
+        private func reportVisibility() {
+            guard let window else { return }
+            report(window.occlusionState.contains(.visible))
+        }
+    }
+}
+
+/// The look mark is the one place the current look is named, and the only Custom cue:
+/// it sits by the preview, so it stays in view while the folds below are tuned.
+private struct IslandShowroomControls: View, Equatable {
+    let lookMark: String
+    let pose: IslandShowroomPose
+    let replayLabel: String?
+    let isReplaying: Bool
+    let setPose: @MainActor @Sendable (IslandShowroomPose) -> Void
+    let anotherRoom: @MainActor @Sendable () -> Void
+    let replay: @MainActor @Sendable () -> Void
+
+    /// Leaves the closures out: they only write the showroom's `@State`, whose storage a
+    /// captured copy of the showroom reaches just as the current one does.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.lookMark == rhs.lookMark && lhs.pose == rhs.pose && lhs.replayLabel == rhs.replayLabel
+            && lhs.isReplaying == rhs.isReplaying
+    }
+
+    var body: some View {
+        HStack(spacing: VoiceourMetrics.Space.sm) {
+            ConsoleStateMark(lookMark, .neutral)
+                .accessibilityIdentifier("island.showroom.look")
+
+            Picker("Preview pose", selection: Binding(get: { pose }, set: setPose)) {
+                ForEach(IslandShowroomPose.allCases, id: \.self) { pose in
+                    Text(pose.title).tag(pose)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityIdentifier("island.showroom.pose")
+
+            Button("Another Room") { anotherRoom() }
+                .help(
+                    "Shows the preview in a different generated room; every dictation draws "
+                        + "its own."
+                )
+                .accessibilityIdentifier("island.showroom.room")
+
+            if let replayLabel {
+                Button("Play Again") { replay() }
+                    .disabled(isReplaying)
+                    .accessibilityLabel(replayLabel)
+                    .accessibilityIdentifier("island.showroom.replay")
+            }
+        }
     }
 }
 
@@ -1228,6 +1497,44 @@ private enum IslandReadout {
 
     private static func seconds(_ value: Int) -> Double {
         Double(value) / 100 / MercuryBodyShape.aspectGel.relaxationRate
+    }
+}
+
+/// The arithmetic both color wells share: HSB on the sRGB primaries, and the hue names their
+/// spoken values use.
+private enum IslandColorWell {
+    /// Twelve 30° bands centred on red at 0°: the names a color well's spoken value uses.
+    private static let hueNames = [
+        "Red", "Orange", "Yellow", "Lime", "Green", "Mint",
+        "Cyan", "Azure", "Blue", "Violet", "Magenta", "Pink",
+    ]
+
+    static func hueName(_ hue: Int) -> String {
+        hueNames[((hue % 360) + 360 + 15) % 360 / 30]
+    }
+
+    /// HSB on the sRGB primaries, the space the renderer's `MercuryColor` decodes too.
+    static func color(hue: Int, saturation: Int, brightness: Int) -> Color {
+        Color(
+            hue: Double(hue) / 360,
+            saturation: Double(saturation) / 100,
+            brightness: Double(brightness) / 100
+        )
+    }
+
+    /// A picked color in whole degrees and percent on the sRGB primaries, or nil for a color
+    /// with no RGB form.
+    static func hsb(of color: Color) -> (hue: Int, saturation: Int, brightness: Int)? {
+        guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
+        return (
+            hue: Int((hue * 360).rounded()) % 360,
+            saturation: Int((saturation * 100).rounded()),
+            brightness: Int((brightness * 100).rounded())
+        )
     }
 }
 

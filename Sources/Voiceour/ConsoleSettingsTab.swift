@@ -166,6 +166,15 @@ struct ConsoleSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        // The window's default size is this tab's ideal size, so an update anywhere in the
+        // form never makes the console's tab view measure the whole form for it. Without
+        // it, every Island control step re-measured every row: measured at about 12 ms of
+        // the 22 ms a step cost with all four Island folds open. Proposed sizes, and with
+        // them the window's minimum and every laid-out row, are unchanged.
+        .frame(
+            idealWidth: VoiceourMetrics.Window.defaultWidth,
+            idealHeight: VoiceourMetrics.Window.defaultHeight
+        )
         .onChange(of: focusedField) { previous, current in
             if previous == .silence, current != .silence { commitSilence() }
         }

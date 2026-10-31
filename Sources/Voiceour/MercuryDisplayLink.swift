@@ -55,6 +55,12 @@ final class MercurySurfaceView: NSView {
     /// `replayGeneration` is a counter the owner bumps to replay the outcome gesture from
     /// `replaySource`: every increase replays once. The recording island never replays and
     /// leaves it at 0.
+    ///
+    /// The owner sets `isSuspended` while the surface cannot be seen. A suspended surface
+    /// keeps its last image, runs no display link and draws nothing, live or pinned, until a
+    /// configuration clears it. The update that clears it draws the current configuration at
+    /// once, so the kept image never stands in for a newer look. The recording island
+    /// leaves it false.
     struct Configuration {
         var seed: UInt64
         var look: MercuryLook
@@ -63,6 +69,7 @@ final class MercurySurfaceView: NSView {
         /// The canvas the image covers and the spine the body lies along.
         var layout: RecordingOverlayLayout
         var pinnedStep: Int?
+        var isSuspended = false
         var replayGeneration: Int = 0
         var replaySource: MercuryPose?
         /// Called after each frame the display link presents. Never for a pinned harness frame,
@@ -139,11 +146,16 @@ final class MercurySurfaceView: NSView {
     }
 
     func update(_ configuration: Configuration) {
+        let wasSuspended = self.configuration?.isSuspended ?? false
         self.configuration = configuration
         if let lastReplayGeneration, configuration.replayGeneration > lastReplayGeneration {
             engine.replayGesture(from: configuration.replaySource)
         }
         lastReplayGeneration = configuration.replayGeneration
+        if configuration.isSuspended {
+            screenLink?.isPaused = true
+            return
+        }
         if let step = configuration.pinnedStep {
             screenLink?.isPaused = true
             setImage(
@@ -164,7 +176,9 @@ final class MercurySurfaceView: NSView {
         } else {
             screenLink?.isPaused = false
         }
-        if currentImage == nil {
+        // The link's first callback is a frame away, so a surface with no image yet, or one
+        // leaving suspension, draws now rather than show nothing or its kept image until then.
+        if currentImage == nil || wasSuspended {
             renderLive(steps: 0)
         }
     }
@@ -179,7 +193,7 @@ final class MercurySurfaceView: NSView {
     private func rebuildDisplayLink() {
         screenLink?.invalidate()
         screenLink = nil
-        guard window != nil, let configuration, configuration.pinnedStep == nil else {
+        guard window != nil, let configuration, configuration.pinnedStep == nil, !configuration.isSuspended else {
             return
         }
 
@@ -217,9 +231,9 @@ final class MercurySurfaceView: NSView {
     }
 
     /// One live frame. The display link supplies `steps`; tests step a view that has no
-    /// window through here.
+    /// window through here. A pinned or suspended configuration draws nothing here.
     func renderLive(steps: Int) {
-        guard let configuration, configuration.pinnedStep == nil else { return }
+        guard let configuration, configuration.pinnedStep == nil, !configuration.isSuspended else { return }
         var drive = configuration.drive
         if let panelMotion = configuration.panelMotion {
             drive.forcing = panelMotion.forcing(advancing: steps, layout: configuration.layout)
