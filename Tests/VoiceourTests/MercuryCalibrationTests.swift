@@ -75,4 +75,121 @@ struct MercuryCalibrationTests {
             }
         }
     }
+
+    /// The bounded response is per room, per look and per layout, so every session lands on
+    /// its own look's median, under the island's p98 highlight anchor or the collar's p99. The
+    /// look reaches the metering whole: its tuned, body-kitted bodies under its paint, in its
+    /// room, to its tone's targets.
+    @Test(arguments: IslandLook.allCases)
+    func everyLookIsMeteredToItsOwnMedianOnEveryLayout(island: IslandLook) {
+        let calibration = MercuryCalibration.shared
+        let look = MercuryLook(island: island.appearance)
+        let target = MercuryToneAnchors.targets(
+            albedo: MercuryPaintLookup.lookup(for: look.paint).albedo,
+            tone: look.tone,
+            underglowStrength: look.underglowStrength
+        ).median
+        for layout in [RecordingOverlayLayout.island, .forDisplay(.fixtureNotch)] {
+            for seed in [UInt64(2), 19, MercuryMetrics.defaultSeed] {
+                let environment = MercuryEnvironment(
+                    world: look.world,
+                    seed: seed,
+                    lighting: look.lighting
+                )
+                let achieved = calibration.displayLuminance(
+                    for: environment,
+                    bodySeed: seed,
+                    layout: layout,
+                    look: look
+                )
+                #expect(
+                    abs(achieved - target) <= 0.02,
+                    "\(island.rawValue) \(layout.kind) seed \(seed) metered to \(achieved), target \(target)"
+                )
+            }
+        }
+    }
+
+    /// A look's response is solved on the look's own scene: its paint and its tuned,
+    /// body-kitted bodies move the metered scene anchors, while its tone moves only the
+    /// targets those anchors are solved to.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func aLookMetersItsOwnPaintAndBodiesWhileItsToneMovesOnlyTheTargets(display: OverlayDisplay) {
+        let calibration = MercuryCalibration.shared
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let seed = MercuryMetrics.defaultSeed
+        let room = MercuryEnvironment(world: .roomOfTen, seed: seed)
+        func response(_ look: MercuryLook) -> MercuryDisplayResponse {
+            calibration.displayResponse(for: room, bodySeed: seed, layout: layout, look: look)
+        }
+        let stock = response(.stock)
+        var gold = MercuryLook.stock
+        gold.paint.metal = .gold
+        var rounder = MercuryLook.stock
+        rounder.tune.crownAspect = MercuryTune.crownAspectRange.upperBound
+        var smaller = MercuryLook.stock
+        smaller.tune.size = MercuryTune.sizeRange.lowerBound
+        for (name, look) in [("gold", gold), ("rounder crown", rounder), ("smaller body", smaller)] {
+            let metered = response(look)
+            let moved = metered.sceneMedian != stock.sceneMedian || metered.sceneHighlight != stock.sceneHighlight
+            #expect(moved, "\(display.id) \(name)")
+        }
+
+        var brighter = MercuryLook.stock
+        brighter.tone.brightness = 0.5
+        let toned = response(brighter)
+        #expect(toned.sceneMedian == stock.sceneMedian)
+        #expect(toned.sceneHighlight == stock.sceneHighlight)
+        #expect(toned != stock)
+    }
+
+    /// The looks are the per-room coverage: both rooms are user choices and must meter.
+    @Test func theLooksCoverEveryRoom() {
+        let rooms = Set(IslandLook.allCases.map { MercuryLook(island: $0.appearance).world })
+        #expect(rooms == Set(MercuryWorld.allCases))
+    }
+
+    /// Stock meters to the shipped constants themselves, so its response and bytes cannot
+    /// move.
+    @Test func stockAnchorsAreTheShippedTargets() {
+        let anchors = MercuryToneAnchors.targets(
+            albedo: MercuryPaintLookup.stock.albedo,
+            tone: .stock,
+            underglowStrength: 0
+        )
+        #expect(anchors.median == MercuryMetrics.targetDisplayLuminance)
+        #expect(anchors.highlight == MercuryMetrics.targetHighlightLuminance)
+        #expect(anchors.median == 0.32)
+        #expect(anchors.highlight == 0.87)
+        #expect(MercuryLook.stock.underglowStrength == 0)
+    }
+
+    /// Half the albedo difference, half a stop of brightness, a floor that rises with the
+    /// underglow, a ceiling below every highlight, and contrast on the highlight alone.
+    @Test func toneAnchorsFollowTheMaterialAndTheTone() {
+        let mercury = MercuryPaintLookup.stock.albedo
+        func anchors(
+            albedo: Double = mercury,
+            brightness: Double = 0,
+            contrast: Double = 0,
+            underglow: Double = 0
+        ) -> (median: Double, highlight: Double) {
+            MercuryToneAnchors.targets(
+                albedo: albedo,
+                tone: MercuryTone(brightness: brightness, contrast: contrast),
+                underglowStrength: underglow
+            )
+        }
+        #expect(abs(anchors(albedo: 1.21 * mercury).median - 0.32 * 1.1) < 1e-12)
+        #expect(abs(anchors(albedo: 0.81 * mercury).median - 0.32 * 0.9) < 1e-12)
+        #expect(abs(anchors(brightness: 0.4).median - 0.32 * exp2(0.2)) < 1e-12)
+        #expect(anchors(brightness: 1).median == 0.41)
+        #expect(anchors(brightness: -1).median == 0.28)
+        #expect(abs(anchors(brightness: -1, underglow: 1).median - 0.35) < 1e-12)
+        #expect(abs(anchors(contrast: 1).highlight - 0.895) < 1e-12)
+        #expect(abs(anchors(contrast: -1).highlight - 0.845) < 1e-12)
+        #expect(anchors(contrast: 1).median == anchors().median)
+        #expect(anchors(contrast: 5).highlight == anchors(contrast: 1).highlight)
+        #expect(anchors(contrast: 5).highlight < MercuryMetrics.displayCeiling)
+    }
 }

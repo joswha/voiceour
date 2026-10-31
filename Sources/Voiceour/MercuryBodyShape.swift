@@ -28,6 +28,15 @@ import Foundation
 /// - Skew and neck modulate the mean envelope and are critically damped at 12 rad/s: a lopsided lurch
 ///   and a pinched waist are poses, not wobbles.
 ///
+/// The island's Morph `m` (``Laws``) time-scales the shape laws: the aspect and sway gels, the sway's
+/// Reduce Motion twin and the skew and neck modulators run `m` times as slowly, every frequency
+/// divided by `m` and every relaxation time multiplied by it, so each shape coordinate but the volume
+/// takes the stock course, overshoot included, over `m` times as long. Forces and kicks meet the
+/// morph's laws as they are: a slower morph is a softer body, which a panel's acceleration or a
+/// gesture's kick deflects further before a wall stops it. The volume law is never scaled. It is the
+/// flow through the notch, which paces emergence and the swallow, and with them the hand-off's
+/// 48-substep drain.
+///
 /// Reduce Motion keeps every destination and reaches each once, with nothing bouncing. The sway is
 /// critically damped at its rubbery frequency with the arm's stress zeroed. The extent is not left to
 /// volume and aspect: a reader sees `L` and `H`, and a volume and an aspect that each settle
@@ -154,13 +163,16 @@ struct MercuryBodyShape: Sendable, Equatable {
         var volumeRate = 0.0
     }
 
-    /// `ω_V`, rad/s: the volume's, and under Reduce Motion the length's and the thickness's.
+    /// `ω_V`, rad/s: the volume's, and under Reduce Motion the length's and the thickness's. No morph
+    /// scales it.
     static let volumeFrequency: Double = 10
-    /// `Ω∞ = 13.8`, `Ω₁ = 8.8` rad/s (`Ω_g = 16.4`), loss ratio 0.14 against `Ω_g`, `τ = 0.32` s.
+    /// The stock aspect gel, which ``Laws`` paces at the island's Morph: `Ω∞ = 13.8`, `Ω₁ = 8.8` rad/s
+    /// (`Ω_g = 16.4`), loss ratio 0.14 against `Ω_g`, `τ = 0.32` s.
     static let aspectGel = gel(rubbery: 13.8, arm: 8.8, lossRatio: 0.14, relaxationTime: 0.32)
-    /// `Ω∞ = 10`, `Ω₁ = 6.3` rad/s (`Ω_g = 11.8`), loss ratio 0.16 against `Ω_g`, `τ = 0.32` s.
+    /// The stock sway gel: `Ω∞ = 10`, `Ω₁ = 6.3` rad/s (`Ω_g = 11.8`), loss ratio 0.16 against `Ω_g`,
+    /// `τ = 0.32` s.
     static let swayGel = gel(rubbery: 10, arm: 6.3, lossRatio: 0.16, relaxationTime: 0.32)
-    /// Skew and neck, rad/s.
+    /// Skew and neck, rad/s, at Morph 1.
     static let modulatorFrequency: Double = 12
     /// At most 80/20 between the two ends; the insert-failed lurch's 0.4 is 70/30.
     static let skewRange: ClosedRange<Double> = -0.6...0.6
@@ -178,9 +190,45 @@ struct MercuryBodyShape: Sendable, Equatable {
     static let aspectCoupling: Double = -1.4e-3
 
     private static let volumeLaw = CriticalDamping(frequency: volumeFrequency)
-    private static let aspectLaw = MercuryZener(parameters: aspectGel, step: MercuryMetrics.substep)
-    private static let swayLaw = GelLaw(swayGel)
-    private static let modulatorLaw = CriticalDamping(frequency: modulatorFrequency)
+
+    /// The shape laws at one Morph `m`: ``aspectGel``, ``swayGel`` with its Reduce Motion twin, and the
+    /// skew and neck modulators at ``modulatorFrequency``, each time-scaled by `1/m`. Every stiffness
+    /// is multiplied by `1/m²` and every damping, relaxation rate and modulator frequency by `1/m`, one
+    /// multiplication each, so at `m = 1` these are the stock propagators to the bit.
+    struct Laws: Sendable, Equatable {
+        fileprivate let aspect: MercuryZener
+        fileprivate let sway: GelLaw
+        fileprivate let modulator: CriticalDamping
+
+        init(morph: Double) {
+            let rate = 1 / morph
+            aspect = MercuryZener(
+                parameters: Self.paced(MercuryBodyShape.aspectGel, at: rate),
+                step: MercuryMetrics.substep
+            )
+            sway = GelLaw(Self.paced(MercuryBodyShape.swayGel, at: rate))
+            modulator = CriticalDamping(frequency: MercuryBodyShape.modulatorFrequency * rate)
+        }
+
+        /// Morph 1: the shipped body's laws.
+        static let stock = Laws(morph: 1)
+
+        /// `parameters` with every rate of the law multiplied by `rate`: the same gel run `rate` times as
+        /// fast, with its damping ratio and its `Ω_g τ` unchanged.
+        private static func paced(_ parameters: MercuryZener.Parameters, at rate: Double) -> MercuryZener.Parameters {
+            let squared = rate * rate
+            return MercuryZener.Parameters(
+                rubberyStiffness: parameters.rubberyStiffness * squared,
+                armStiffness: parameters.armStiffness * squared,
+                damping: parameters.damping * rate,
+                relaxationRate: parameters.relaxationRate * rate
+            )
+        }
+    }
+
+    /// The aspect, sway and modulator laws, at the island's Morph. Replacing them keeps every
+    /// coordinate, rate and arm stress, so the body carries on from where it is under the new laws.
+    var laws: Laws
 
     private var volumeCoordinate = DampedCoordinate()
     private var aspect = GelCoordinate()
@@ -196,8 +244,10 @@ struct MercuryBodyShape: Sendable, Equatable {
     /// from them. Nil is also how that substep knows to take over the sway's rate.
     private var extentRate: SIMD2<Double>?
 
-    /// Idle and empty.
-    init() {}
+    /// Idle and empty, under `laws`.
+    init(laws: Laws = .stock) {
+        self.laws = laws
+    }
 
     var sway: Double { lateral.value }
     var skew: Double { skewCoordinate.value }
@@ -227,8 +277,8 @@ struct MercuryBodyShape: Sendable, Equatable {
         let swayForce = Self.swayCoupling * Self.frameAcceleration(forcing.tangentialAcceleration)
 
         if volumeCoordinate.value == 0 {
-            aspect.seat(on: pose.aspect, force: aspectForce, law: Self.aspectLaw)
-            lateral.seat(on: pose.sway, force: swayForce, law: Self.swayLaw.gel)
+            aspect.seat(on: pose.aspect, force: aspectForce, law: laws.aspect)
+            lateral.seat(on: pose.sway, force: swayForce, law: laws.sway.gel)
             skewCoordinate.value = pose.skew
             neckCoordinate.value = pose.neck
             if reduceMotion {
@@ -250,12 +300,12 @@ struct MercuryBodyShape: Sendable, Equatable {
             // With no rates of its own yet, Reduce Motion takes over from the gel or a kick.
             let takingOver = extentRate == nil
             settleExtent(toward: goal, aspectTarget: pose.aspect, limits: limits)
-            lateral.settle(toward: pose.sway, force: swayForce, law: Self.swayLaw, takingOver: takingOver)
+            lateral.settle(toward: pose.sway, force: swayForce, law: laws.sway, takingOver: takingOver)
         } else {
             let fill = pose.volume > 0 ? pose.volume : -limits.reservoir * limits.reservoir
             volumeCoordinate.step(toward: fill, law: Self.volumeLaw)
             volumeCoordinate.clamp(lower: 0, upper: limits.maxVolume)
-            aspect.step(toward: pose.aspect, force: aspectForce, law: Self.aspectLaw)
+            aspect.step(toward: pose.aspect, force: aspectForce, law: laws.aspect)
             let filled = volumeCoordinate.value
             if filled > 0 {
                 let walls = Self.aspectWalls(volume: filled, limits: limits)
@@ -263,14 +313,14 @@ struct MercuryBodyShape: Sendable, Equatable {
             }
             (length, halfHeight) = Self.extent(filled, aspect.value, limits: limits)
             extentRate = nil
-            lateral.step(toward: pose.sway, force: swayForce, law: Self.swayLaw.gel)
+            lateral.step(toward: pose.sway, force: swayForce, law: laws.sway.gel)
         }
         let reach = Self.reach(length: length, limits: limits)
         lateral.clamp(lower: -reach, upper: reach)
 
-        skewCoordinate.step(toward: pose.skew, law: Self.modulatorLaw)
+        skewCoordinate.step(toward: pose.skew, law: laws.modulator)
         skewCoordinate.clamp(lower: Self.skewRange.lowerBound, upper: Self.skewRange.upperBound)
-        neckCoordinate.step(toward: pose.neck, law: Self.modulatorLaw)
+        neckCoordinate.step(toward: pose.neck, law: laws.modulator)
         neckCoordinate.clamp(lower: Self.neckRange.lowerBound, upper: Self.neckRange.upperBound)
     }
 
@@ -435,7 +485,7 @@ struct MercuryBodyShape: Sendable, Equatable {
 ///
 /// Its response to a moving target is the positive unit-mass kernel `ω² t e^(−ωt)`, so from rest it
 /// never leaves the range of the targets it is given: no overshoot and no bounce.
-private struct CriticalDamping: Sendable {
+private struct CriticalDamping: Sendable, Equatable {
     let frequency: Double
     private let offsetRow: SIMD2<Double>
     private let rateRow: SIMD2<Double>
@@ -471,7 +521,7 @@ private struct CriticalDamping: Sendable {
 /// The sway's two propagators: the Zener law, and the critically damped law at its rubbery frequency
 /// that Reduce Motion uses instead. The aspect needs only the first: under Reduce Motion it is read
 /// off the extent.
-private struct GelLaw: Sendable {
+private struct GelLaw: Sendable, Equatable {
     let gel: MercuryZener
     let calm: CriticalDamping
 

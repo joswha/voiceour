@@ -4,15 +4,23 @@
     import Darwin
     import Foundation
     import QuartzCore
+    import VoiceCore
 
     /// Distribution and temporal benchmark for the selected isolated chrome candidate.
     ///
-    /// Three corpora on purpose. The 4,096-seed screen samples a fixed reflection manifold
+    /// Three stock corpora on purpose. The 4,096-seed screen samples a fixed reflection manifold
     /// cheaply enough to bound the random room. The 64-seed raster corpus then verifies
     /// the real body, Fresnel, coverage, tone response and 8-bit output. The 64-seed collar
     /// corpus holds the collar around the 185×32 housing to the same per-seed bounds, lit by
     /// the response each seed's own collar bodies solve, as the engine lights them. None is a
     /// substitute for the contact sheets; each rejects failure modes an eye can miss.
+    ///
+    /// Both user rooms run the 4,096-seed screen on the stock look. The look corpus then
+    /// holds every named look, on the island and on that collar, and the corners of tone,
+    /// underglow, temperature and metal, to the same luminance bounds through the path a
+    /// session takes: the look's room lighting, paint table, metered response and tuned body.
+    /// One non-stock look repeats the 120 Hz budgets, because a look may change bake-time
+    /// inputs only.
     ///
     /// Every speaking body hears a live microphone, whose meter shifts a new level into the buffer
     /// every 40 ms as a session's does, rather than one buffer held still. See ``MercurySpeechMeter``.
@@ -20,7 +28,17 @@
     enum MercuryChromeBenchmark {
         private static let distributionSeeds = 4_096
         private static let rasterSeeds = 64
+        /// The polished roughness both rooms' distribution screens sample at.
+        private static let distributionRoughness: Float = 0.03
+        /// Rooms every named look renders over on each layout, and every corner case on the
+        /// island.
+        private static let lookSeeds = 64
+        private static let cornerSeeds = 64
         private static let scale = MercuryMetrics.rasterScale
+        /// The non-stock performance arm. It changes every bake-time input at once — paint,
+        /// finish, white balance, underglow, tone and body kit — and runs the fastest,
+        /// most reactive motion law, so a per-look cost would show here first.
+        private static let performanceLook = IslandLook.streetRacer
 
         struct Percentiles: Codable {
             var p05: Double
@@ -29,6 +47,7 @@
         }
 
         struct DistributionSummary: Codable {
+            var room: String
             var seeds: Int
             var listeningMedianRange: [Double]
             var speakingMedianRange: [Double]
@@ -52,6 +71,36 @@
             var bandCountRange: [Int]
             var maxHighlightCentroidStepPixels: Double
             var medianDriftStops: Double
+            var milliseconds: Double
+        }
+
+        /// One look-corpus case on one layout: its worst values over every room and both live
+        /// poses.
+        struct LookSummary: Codable {
+            var name: String
+            var appearance: String
+            var seeds: Int
+            var listeningMedianRange: [Double]
+            var speakingMedianRange: [Double]
+            var darkTailRange: [Double]
+            var highlightTailRange: [Double]
+            var narrowestSpan: Double
+            var worstGroundSeparation: Double
+            var worstCrushedFraction: Double
+            var worstNearCeilingFraction: Double
+            var worstIncreasedContrastNearWhiteFraction: Double
+            var failedSeeds: Int
+            var failureCounts: [String: Int]
+        }
+
+        struct LookCorpusSummary: Codable {
+            /// Case-room pairs rendered, and how many of them failed a gate.
+            var renders: Int
+            var failedRenders: Int
+            var looks: [LookSummary]
+            var corners: [LookSummary]
+            /// Every named look again, on the collar around the 185×32 housing.
+            var collarLooks: [LookSummary]
             var milliseconds: Double
         }
 
@@ -91,11 +140,26 @@
             var rasterCoreFractionAt120Hz: Double
         }
 
+        struct LookPerformanceSummary: Codable {
+            var look: String
+            var appearance: String
+            var rasterP50Milliseconds: Double
+            var rasterP95Milliseconds: Double
+            var rasterP99Milliseconds: Double
+            var rasterCoreFractionAt120Hz: Double
+            var engineLayerP50Milliseconds: Double
+            var engineLayerP99Milliseconds: Double
+            var engineLayerCoreFractionAt120Hz: Double
+        }
+
         struct Report: Codable {
             var candidate: String
             var distribution: DistributionSummary
+            var overcastDistribution: DistributionSummary
             var raster: RasterSummary
+            var looks: LookCorpusSummary
             var performance: PerformanceSummary
+            var lookPerformance: LookPerformanceSummary
             var collar: CollarSummary
             var passed: Bool
             var failures: [String]
@@ -119,6 +183,7 @@
                 count: 256
             )
             let distribution = distributionScreen(
+                world: .roomOfTen,
                 listeningDirections: listeningDirections,
                 speakingDirections: speakingDirections
             )
@@ -133,9 +198,24 @@
                 calibrationMilliseconds: calibrationMilliseconds
             )
             let collar = collarScreen(gains: gains)
+            // The non-stock arm runs right after the stock arms and ahead of the long corpora,
+            // so every stock number keeps its place in the run and the look arm is timed in
+            // the same state.
+            let lookPerformance = lookPerformanceScreen(gains: gains)
+            let overcast = distributionScreen(
+                world: .spectralWeather,
+                listeningDirections: listeningDirections,
+                speakingDirections: speakingDirections
+            )
+            let looks = lookCorpusScreen(gains: gains)
             var failures: [String] = []
             if distribution.failedSeeds > 0 {
                 failures.append("distribution failures: \(distribution.failedSeeds)/\(distribution.seeds)")
+            }
+            if overcast.failedSeeds > 0 {
+                failures.append(
+                    "Overcast distribution failures: \(overcast.failedSeeds)/\(overcast.seeds)"
+                )
             }
             if raster.nearWhiteFraction > 0.02 {
                 failures.append("near-white area \(format(raster.nearWhiteFraction)) > 0.02")
@@ -162,36 +242,7 @@
                     "cold first frame \(format(performance.coldFirstFrameMilliseconds))ms > 25ms"
                 )
             }
-            if performance.rasterP50Milliseconds > 0.55 {
-                failures.append(
-                    "raster p50 \(format(performance.rasterP50Milliseconds))ms > 0.55ms"
-                )
-            }
-            if performance.rasterP99Milliseconds > 0.70 {
-                failures.append(
-                    "raster p99 \(format(performance.rasterP99Milliseconds))ms > 0.70ms"
-                )
-            }
-            if performance.rasterCoreFractionAt120Hz > 0.066 {
-                failures.append(
-                    "120 Hz raster CPU \(format(performance.rasterCoreFractionAt120Hz)) > 0.066 core"
-                )
-            }
-            if performance.engineLayerP50Milliseconds > 0.65 {
-                failures.append(
-                    "engine+layer p50 \(format(performance.engineLayerP50Milliseconds))ms > 0.65ms"
-                )
-            }
-            if performance.engineLayerP99Milliseconds > 0.85 {
-                failures.append(
-                    "engine+layer p99 \(format(performance.engineLayerP99Milliseconds))ms > 0.85ms"
-                )
-            }
-            if performance.engineLayerCoreFractionAt120Hz > 0.08 {
-                failures.append(
-                    "engine+layer CPU \(format(performance.engineLayerCoreFractionAt120Hz)) > 0.08 core"
-                )
-            }
+            failures += frameFailures(performance, arm: "")
             if collar.failedSeeds > 0 {
                 failures.append("collar distribution failures: \(collar.failedSeeds)/\(collar.seeds)")
             }
@@ -219,11 +270,27 @@
                     "collar 120 Hz raster CPU \(format(collar.rasterCoreFractionAt120Hz)) > 0.066 core"
                 )
             }
+            failures += frameFailures(lookPerformance, arm: "\(performanceLook.displayName) ")
+            let lookCases = [("look", looks.looks + looks.corners), ("collar look", looks.collarLooks)]
+            for (kind, summaries) in lookCases {
+                for summary in summaries where summary.failedSeeds > 0 {
+                    let counts = summary.failureCounts.keys.sorted()
+                        .map { "\($0) \(summary.failureCounts[$0] ?? 0)" }
+                        .joined(separator: ", ")
+                    failures.append(
+                        "\(kind) \(summary.name): \(summary.failedSeeds)/\(summary.seeds)"
+                            + " rooms fail (\(counts))"
+                    )
+                }
+            }
             let report = Report(
                 candidate: productionCandidateLabel,
                 distribution: distribution,
+                overcastDistribution: overcast,
                 raster: raster,
+                looks: looks,
                 performance: performance,
+                lookPerformance: lookPerformance,
                 collar: collar,
                 passed: failures.isEmpty,
                 failures: failures
@@ -263,6 +330,24 @@
                     + collarFields
                     + " time=\(format(raster.milliseconds / 1000))s"
             )
+            let lookLine = [
+                "overcastSeeds=\(overcast.seeds)",
+                "overcastFailed=\(overcast.failedSeeds)",
+                "looks=\(looks.looks.count)x\(lookSeeds)",
+                "corners=\(looks.corners.count)x\(cornerSeeds)",
+                "collarLooks=\(looks.collarLooks.count)x\(lookSeeds)",
+                "lookFailed=\(looks.failedRenders)/\(looks.renders)",
+                lookPerformance.look,
+                "raster=\(format(lookPerformance.rasterP50Milliseconds))/"
+                    + "\(format(lookPerformance.rasterP99Milliseconds))ms",
+                "cpu@120=\(format(lookPerformance.rasterCoreFractionAt120Hz))core",
+                "frame=\(format(lookPerformance.engineLayerP50Milliseconds))/"
+                    + "\(format(lookPerformance.engineLayerP99Milliseconds))ms",
+                "engineLayerCPU@120=\(format(lookPerformance.engineLayerCoreFractionAt120Hz))core",
+                "lookTime=\(format(looks.milliseconds / 1000))s",
+                "total=\(format(started.duration(to: ContinuousClock().now).milliseconds / 1000))s",
+            ]
+            print("mercury-benchmark: \(lookLine.joined(separator: " "))")
             for failure in failures { fputs("mercury-benchmark: FAIL: \(failure)\n", stderr) }
             return failures.isEmpty
         }
@@ -270,18 +355,34 @@
         // MARK: - Distribution screen
 
         private static func distributionScreen(
+            world: MercuryWorld,
             listeningDirections: [SIMD3<Double>],
             speakingDirections: [SIMD3<Double>]
         ) -> DistributionSummary {
             var tally = DistributionTally()
+            // Spectral Weather has no per-direction form outside its bake, so its screen
+            // runs the bake itself at the two manifolds' directions.
+            let weatherBasis =
+                world == .spectralWeather
+                ? harmonicBasis((listeningDirections + speakingDirections).map(\.float))
+                : []
             for index in 0..<distributionSeeds {
                 let seed = benchmarkSeed(index)
-                let room = RoomOfTenWorld(seed: seed)
-                let listeningScene = listeningDirections.map {
-                    room.radianceRGB($0.float, roughness: 0.03).double
-                }
-                let speakingScene = speakingDirections.map {
-                    room.radianceRGB($0.float, roughness: 0.03).double
+                let listeningScene: [SIMD3<Double>]
+                let speakingScene: [SIMD3<Double>]
+                switch world {
+                case .roomOfTen:
+                    let room = RoomOfTenWorld(seed: seed)
+                    listeningScene = listeningDirections.map {
+                        room.radianceRGB($0.float, roughness: distributionRoughness).double
+                    }
+                    speakingScene = speakingDirections.map {
+                        room.radianceRGB($0.float, roughness: distributionRoughness).double
+                    }
+                case .spectralWeather:
+                    let sky = weatherRadiance(seed: seed, basis: weatherBasis)
+                    listeningScene = Array(sky.prefix(listeningDirections.count))
+                    speakingScene = Array(sky.dropFirst(listeningDirections.count))
                 }
                 guard
                     let response = solveResponse(
@@ -298,6 +399,7 @@
                 )
             }
             return DistributionSummary(
+                room: world.displayName,
                 seeds: distributionSeeds,
                 listeningMedianRange: range(tally.listeningMedians),
                 speakingMedianRange: range(tally.speakingMedians),
@@ -313,9 +415,44 @@
             )
         }
 
+        /// Spectral Weather's real harmonic basis at `directions`, one row per direction,
+        /// built exactly as `MercuryEnvironment` builds it for its table's texels.
+        private static func harmonicBasis(_ directions: [SIMD3<Float>]) -> [Float] {
+            let count = SpectralWeatherWorld.coefficientCount
+            var result = [Float](repeating: 0, count: directions.count * count)
+            var scratch = [Double](repeating: 0, count: count)
+            for (index, direction) in directions.enumerated() {
+                SpectralWeatherWorld.evaluateBasis(
+                    SIMD3<Double>(Double(direction.x), Double(direction.y), Double(direction.z)),
+                    into: &scratch
+                )
+                for coefficient in 0..<count {
+                    result[index * count + coefficient] = Float(scratch[coefficient])
+                }
+            }
+            return result
+        }
+
+        /// One seed's Overcast sky in the directions `basis` holds, at the screen's polished
+        /// roughness: the production generator and heat-kernel prefilter, through the very
+        /// bake that fills the environment's table. Like Room of Ten's closed form it skips
+        /// the table's grid band limit and normalization; the screen's response is scale-free.
+        private static func weatherRadiance(seed: UInt64, basis: [Float]) -> [SIMD3<Double>] {
+            let weather = SpectralWeatherWorld(seed: seed)
+            var sky = [SIMD3<Float>](
+                repeating: .zero,
+                count: basis.count / SpectralWeatherWorld.coefficientCount
+            )
+            sky.withUnsafeMutableBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                weather.bake(into: base, basis: basis, roughness: Double(distributionRoughness))
+            }
+            return sky.map(\.double)
+        }
+
         /// The distribution screen's per-seed bounds and their running verdict over a corpus:
-        /// one definition of a failed seed, which the 4,096-room screen and the collar corpus
-        /// both apply.
+        /// one definition of a failed seed, which both rooms' 4,096-seed screens and the collar
+        /// corpus apply.
         @MainActor
         private struct DistributionTally {
             private(set) var listeningMedians: [Double] = []
@@ -524,6 +661,268 @@
             return (maximumStep, drift)
         }
 
+        // MARK: - Look corpus
+
+        /// The worst of one look-corpus case so far.
+        private struct LookTally {
+            var seeds = 0
+            var failedSeeds = 0
+            var failureCounts: [String: Int] = [:]
+            var listeningMedians: [Double] = []
+            var speakingMedians: [Double] = []
+            var darkTails: [Double] = []
+            var highlightTails: [Double] = []
+            var narrowestSpan = Double.infinity
+            var worstGround = Double.infinity
+            var worstCrushed = 0.0
+            var worstCeiling = 0.0
+            var worstIncreasedWhite = 0.0
+        }
+
+        /// Every named look over 64 rooms on the island, then every corner over 64, then every
+        /// named look over 64 rooms on the collar around the 185×32 housing, each through the
+        /// look path a session takes: the room baked with the look's lighting, its paint table,
+        /// the response calibration meters for that look in that room on that layout, and the
+        /// tuned body settled 600 substeps under a live microphone. On the collar the body kit
+        /// draws on the collar's terms and the response anchors the collar's own highlight.
+        ///
+        /// Saturation and colour cast stay stock-only gates: they measure liquid mercury's
+        /// neutrality, and a look's colour is chosen.
+        private static func lookCorpusScreen(gains: MercuryGains) -> LookCorpusSummary {
+            let started = ContinuousClock().now
+            let rasterizer = MercuryRasterizer()
+            let looks = namedLooks(on: .island, gains: gains, rasterizer: rasterizer)
+
+            // Room-major: the corners use three paints, one stock body and four room
+            // lightings, so each room's bodies and baked lightings are built once and
+            // shared by every corner that asks for the same ones.
+            let corners = cornerAppearances()
+            var tallies = [LookTally](repeating: LookTally(), count: corners.count)
+            for index in 0..<cornerSeeds {
+                let seed = benchmarkSeed(index)
+                var environments: [MercuryEnvironment] = []
+                var bodies: [(tune: MercuryTune, fields: [MercuryField])] = []
+                for (cornerIndex, corner) in corners.enumerated() {
+                    let look = MercuryLook(island: corner.appearance)
+                    let environment: MercuryEnvironment
+                    if let shared = environments.first(where: {
+                        $0.world == look.world && $0.lighting == look.lighting
+                    }) {
+                        environment = shared
+                    } else {
+                        environment = MercuryEnvironment(
+                            world: look.world,
+                            seed: seed,
+                            lighting: look.lighting
+                        )
+                        environments.append(environment)
+                    }
+                    let fields: [MercuryField]
+                    if let shared = bodies.first(where: { $0.tune == look.tune }) {
+                        fields = shared.fields
+                    } else {
+                        fields = livePoses(seed: seed, gains: gains, layout: .island, tune: look.tune)
+                        bodies.append((look.tune, fields))
+                    }
+                    measure(
+                        look: look,
+                        seed: seed,
+                        layout: .island,
+                        fields: fields,
+                        environment: environment,
+                        paint: MercuryPaintLookup.lookup(for: look.paint),
+                        rasterizer: rasterizer,
+                        into: &tallies[cornerIndex]
+                    )
+                }
+            }
+            let cornerSummaries = zip(corners, tallies).map { corner, tally in
+                summary(tally, name: corner.name, appearance: corner.appearance)
+            }
+
+            let collarLooks = namedLooks(
+                on: UIFixtures.collarLayout(on: .fixtureNotch),
+                gains: gains,
+                rasterizer: rasterizer
+            )
+            let every = looks + cornerSummaries + collarLooks
+            return LookCorpusSummary(
+                renders: every.reduce(0) { $0 + $1.seeds },
+                failedRenders: every.reduce(0) { $0 + $1.failedSeeds },
+                looks: looks,
+                corners: cornerSummaries,
+                collarLooks: collarLooks,
+                milliseconds: started.duration(to: ContinuousClock().now).milliseconds
+            )
+        }
+
+        /// Every named look over `lookSeeds` rooms on `layout`. Look-major: calibration meters
+        /// every room through the small process-wide paint cache, so one look's rooms run back
+        /// to back. Each room is baked with that look's lighting and measured on that look's
+        /// tuned bodies.
+        private static func namedLooks(
+            on layout: RecordingOverlayLayout,
+            gains: MercuryGains,
+            rasterizer: MercuryRasterizer
+        ) -> [LookSummary] {
+            IslandLook.allCases.map { island in
+                let look = MercuryLook(island: island.appearance)
+                let paint = MercuryPaintLookup.lookup(for: look.paint)
+                var tally = LookTally()
+                for index in 0..<lookSeeds {
+                    let seed = benchmarkSeed(index)
+                    measure(
+                        look: look,
+                        seed: seed,
+                        layout: layout,
+                        fields: livePoses(seed: seed, gains: gains, layout: layout, tune: look.tune),
+                        environment: MercuryEnvironment(
+                            world: look.world,
+                            seed: seed,
+                            lighting: look.lighting
+                        ),
+                        paint: paint,
+                        rasterizer: rasterizer,
+                        into: &tally
+                    )
+                }
+                return summary(tally, name: island.rawValue, appearance: island.appearance)
+            }
+        }
+
+        /// The extremes a user can combine and no named look reaches: every corner of
+        /// brightness and contrast, without and with a full-strength saturated underglow,
+        /// at both colour-temperature limits, on stock mercury, on chromium and on gold.
+        private static func cornerAppearances() -> [(name: String, appearance: IslandAppearance)] {
+            let tones = [(-100, 100), (100, -100), (-100, -100), (100, 100)]
+            var corners: [(name: String, appearance: IslandAppearance)] = []
+            for metal in [IslandMetal.mercury, .chromium, .gold] {
+                for temperature in [-100, 100] {
+                    for underglow in [false, true] {
+                        for (brightness, contrast) in tones {
+                            var island = IslandAppearance.stock
+                            island.metal = metal
+                            island.temperature = temperature
+                            island.brightness = brightness
+                            island.contrast = contrast
+                            if underglow {
+                                island.underglow = true
+                                island.underglowHue = 300
+                                island.underglowSaturation = 100
+                                island.underglowStrength = 100
+                            }
+                            let glow = underglow ? "300/100/100" : "off"
+                            corners.append(
+                                (
+                                    "\(metal.rawValue) brightness=\(brightness)"
+                                        + " contrast=\(contrast) underglow=\(glow)"
+                                        + " temperature=\(temperature)",
+                                    island
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            return corners
+        }
+
+        /// Gates one case over one room on `layout`. Both live poses render through the look's
+        /// own paint table under the response calibration meters for that look in that room on
+        /// that layout; Increase Contrast is that response's own remap, exactly as the
+        /// rasterizer selects it.
+        private static func measure(
+            look: MercuryLook,
+            seed: UInt64,
+            layout: RecordingOverlayLayout,
+            fields: [MercuryField],
+            environment: MercuryEnvironment,
+            paint: MercuryPaintLookup,
+            rasterizer: MercuryRasterizer,
+            into tally: inout LookTally
+        ) {
+            let response = MercuryCalibration.shared.displayResponse(
+                for: environment,
+                bodySeed: seed,
+                layout: layout,
+                look: look
+            )
+            let increased = response.remapped(
+                medianTarget: MercuryMetrics.increasedContrastMedian,
+                highlightTarget: MercuryMetrics.increasedContrastHighlight
+            )
+            var failures: [String] = []
+            if increased == nil { failures.append("increasedContrastSolve") }
+            for (pose, field) in fields.enumerated() {
+                let scene = rasterizer.sampleSceneRadiance(
+                    field: field,
+                    environment: environment,
+                    paint: paint,
+                    scale: scale
+                ).map(\.double)
+                let display = scene.map(response.map)
+                let stats = percentiles(display.map(MercuryDisplayResponse.luminance).sorted())
+                if pose == 0 {
+                    tally.listeningMedians.append(stats.p50)
+                } else {
+                    tally.speakingMedians.append(stats.p50)
+                }
+                tally.darkTails.append(stats.p05)
+                tally.highlightTails.append(stats.p95)
+                tally.narrowestSpan = Swift.min(tally.narrowestSpan, stats.p95 - stats.p05)
+                if stats.p50 < 0.18 || stats.p50 > 0.55 { failures.append("median") }
+                if stats.p95 < 0.60 || stats.p95 > 0.92 { failures.append("highlight") }
+                if stats.p95 - stats.p05 < 0.30 { failures.append("flat") }
+                for ground in [0.075, 0.45, 0.95] {
+                    let separation = Swift.max(
+                        contrastRatio(stats.p05, ground),
+                        contrastRatio(stats.p95, ground)
+                    )
+                    tally.worstGround = Swift.min(tally.worstGround, separation)
+                    if separation < 1.5 { failures.append("ground") }
+                }
+                let crushed = crushedFraction(display)
+                let ceiling = nearCeilingFraction(display)
+                tally.worstCrushed = Swift.max(tally.worstCrushed, crushed)
+                tally.worstCeiling = Swift.max(tally.worstCeiling, ceiling)
+                if crushed > 0.25 { failures.append("crushed") }
+                if ceiling > 0.02 { failures.append("ceiling") }
+                if let increased {
+                    let white = nearCeilingFraction(scene.map(increased.map))
+                    tally.worstIncreasedWhite = Swift.max(tally.worstIncreasedWhite, white)
+                    if white > 0.02 { failures.append("increasedContrastWhite") }
+                }
+            }
+            tally.seeds += 1
+            for failure in failures { tally.failureCounts[failure, default: 0] += 1 }
+            if !failures.isEmpty { tally.failedSeeds += 1 }
+        }
+
+        private static func summary(
+            _ tally: LookTally,
+            name: String,
+            appearance: IslandAppearance
+        ) -> LookSummary {
+            LookSummary(
+                name: name,
+                appearance: appearance.canonicalDescription,
+                seeds: tally.seeds,
+                listeningMedianRange: range(tally.listeningMedians),
+                speakingMedianRange: range(tally.speakingMedians),
+                darkTailRange: range(tally.darkTails),
+                highlightTailRange: range(tally.highlightTails),
+                narrowestSpan: tally.narrowestSpan,
+                worstGroundSeparation: tally.worstGround,
+                worstCrushedFraction: tally.worstCrushed,
+                worstNearCeilingFraction: tally.worstCeiling,
+                worstIncreasedContrastNearWhiteFraction: tally.worstIncreasedWhite,
+                failedSeeds: tally.failedSeeds,
+                failureCounts: tally.failureCounts
+            )
+        }
+
+        // MARK: - Performance
+
         private static func performanceScreen(
             field: MercuryField,
             calibrationMilliseconds: Double
@@ -550,80 +949,10 @@
                 field: field,
                 environment: room,
                 response: response,
+                paint: .stock,
                 rasterizer: rasterizer
             )
-
-            let microphone = MercurySpeechMeter(speaking: true, seed: seed, layout: .island)
-            let engine = MercuryEngine(
-                seed: seed,
-                world: .roomOfTen,
-                hitRegion: MercuryHitRegion()
-            )
-            let presentationLayer = CALayer()
-            let initialImage = engine.frame(
-                advancing: 0,
-                seed: seed,
-                world: .roomOfTen,
-                drive: microphone.drive,
-                appearance: .standard,
-                layout: .island
-            )
-            MercuryLayerPresenter.present(initialImage, on: presentationLayer)
-            // The first live frame starts the body empty, and it grows into its pose. The timing is of
-            // a steady body, so the emergence plays out first, untimed, at the timed frames' one
-            // substep each. The meter ticks between frames, as a level reaches the model between two
-            // display-link callbacks: the engine meets each new buffer inside the next frame, as one
-            // voice refresh, and the timed span is the frame alone.
-            for _ in 0..<emergenceFrames {
-                let image = engine.frame(
-                    advancing: 1,
-                    seed: seed,
-                    world: .roomOfTen,
-                    drive: microphone.drive,
-                    appearance: .standard,
-                    layout: .island
-                )
-                MercuryLayerPresenter.present(image, on: presentationLayer)
-                microphone.elapse(1)
-            }
-            var engineLayerDurations: [Double] = []
-            engineLayerDurations.reserveCapacity(240)
-            for _ in 0..<240 {
-                let frameStarted = ContinuousClock().now
-                let image = engine.frame(
-                    advancing: 1,
-                    seed: seed,
-                    world: .roomOfTen,
-                    drive: microphone.drive,
-                    appearance: .standard,
-                    layout: .island
-                )
-                MercuryLayerPresenter.present(image, on: presentationLayer)
-                engineLayerDurations.append(
-                    frameStarted.duration(to: ContinuousClock().now).milliseconds
-                )
-                microphone.elapse(1)
-            }
-            engineLayerDurations.sort()
-
-            var sink = 0
-            let engineLayerCPUStarted = processCPUSeconds()
-            for _ in 0..<1_200 {
-                let image = engine.frame(
-                    advancing: 1,
-                    seed: seed,
-                    world: .roomOfTen,
-                    drive: microphone.drive,
-                    appearance: .standard,
-                    layout: .island
-                )
-                MercuryLayerPresenter.present(image, on: presentationLayer)
-                sink &+= image?.width ?? 0
-                microphone.elapse(1)
-            }
-            let engineLayerCoreFraction =
-                (processCPUSeconds() - engineLayerCPUStarted) / representedSeconds
-            _ = sink
+            let engineLayer = engineLayerTiming(look: .stock, seed: seed)
             return PerformanceSummary(
                 launchCalibrationMilliseconds: calibrationMilliseconds,
                 coldFirstFrameMilliseconds: cold,
@@ -631,11 +960,56 @@
                 rasterP95Milliseconds: raster.p95,
                 rasterP99Milliseconds: raster.p99,
                 rasterCoreFractionAt120Hz: raster.coreFractionAt120Hz,
-                engineLayerP50Milliseconds:
-                    engineLayerDurations[engineLayerDurations.count / 2],
-                engineLayerP99Milliseconds:
-                    engineLayerDurations[engineLayerDurations.count * 99 / 100],
-                engineLayerCoreFractionAt120Hz: engineLayerCoreFraction
+                engineLayerP50Milliseconds: engineLayer.p50,
+                engineLayerP99Milliseconds: engineLayer.p99,
+                engineLayerCoreFractionAt120Hz: engineLayer.coreFractionAt120Hz
+            )
+        }
+
+        /// The stock frame budgets, held by the non-stock arm's tuned speaking island body in
+        /// its own lighting, paint and response.
+        private static func lookPerformanceScreen(gains: MercuryGains) -> LookPerformanceSummary {
+            let seed = MercuryMetrics.defaultSeed
+            let island = performanceLook.appearance
+            let look = MercuryLook(island: island)
+            let speaking = field(speaking: true, seed: seed, gains: gains, layout: .island, tune: look.tune)
+            let room = MercuryEnvironment(world: look.world, seed: seed, lighting: look.lighting)
+            let paint = MercuryPaintLookup.lookup(for: look.paint)
+            let response = MercuryCalibration.shared.displayResponse(
+                for: room,
+                bodySeed: seed,
+                layout: .island,
+                look: look
+            )
+            let rasterizer = MercuryRasterizer()
+            // Untimed, like the stock arm's cold frame: the first raster allocates the
+            // bitmap and compiles the response table.
+            _ = rasterizer.image(
+                field: speaking,
+                environment: room,
+                response: response,
+                appearance: .standard,
+                paint: paint,
+                scale: scale
+            )
+            let raster = rasterTiming(
+                field: speaking,
+                environment: room,
+                response: response,
+                paint: paint,
+                rasterizer: rasterizer
+            )
+            let engineLayer = engineLayerTiming(look: look, seed: seed)
+            return LookPerformanceSummary(
+                look: performanceLook.rawValue,
+                appearance: island.canonicalDescription,
+                rasterP50Milliseconds: raster.p50,
+                rasterP95Milliseconds: raster.p95,
+                rasterP99Milliseconds: raster.p99,
+                rasterCoreFractionAt120Hz: raster.coreFractionAt120Hz,
+                engineLayerP50Milliseconds: engineLayer.p50,
+                engineLayerP99Milliseconds: engineLayer.p99,
+                engineLayerCoreFractionAt120Hz: engineLayer.coreFractionAt120Hz
             )
         }
 
@@ -646,13 +1020,14 @@
         /// emerging from empty then holds 99.5 % of its pose's volume and 99.8 % of its length.
         private static let emergenceFrames = 90
 
-        /// Wall time per frame over 240 rasters of one body, then the CPU 1,200 more cost
-        /// as a fraction of one core at 120 Hz. `rasterizer` must already have drawn this
+        /// Wall time per frame over 240 rasters of one body in `paint`, then the CPU 1,200 more
+        /// cost as a fraction of one core at 120 Hz. `rasterizer` must already have drawn this
         /// canvas once, so neither measure carries its context allocation.
         private static func rasterTiming(
             field: MercuryField,
             environment: MercuryEnvironment,
             response: MercuryDisplayResponse,
+            paint: MercuryPaintLookup,
             rasterizer: MercuryRasterizer
         ) -> (p50: Double, p95: Double, p99: Double, coreFractionAt120Hz: Double) {
             var durations: [Double] = []
@@ -664,6 +1039,7 @@
                     environment: environment,
                     response: response,
                     appearance: .standard,
+                    paint: paint,
                     scale: scale
                 )
                 durations.append(
@@ -681,6 +1057,7 @@
                         environment: environment,
                         response: response,
                         appearance: .standard,
+                        paint: paint,
                         scale: scale
                     )?.width ?? 0
             }
@@ -692,6 +1069,132 @@
                 durations[durations.count * 99 / 100],
                 coreFraction
             )
+        }
+
+        /// The engine plus the layer presentation the display link drives, for `look`'s speaking
+        /// island body under a live microphone: wall time per frame over 240 frames, then the CPU
+        /// 1,200 more cost as a fraction of one core at 120 Hz.
+        private static func engineLayerTiming(
+            look: MercuryLook,
+            seed: UInt64
+        ) -> (p50: Double, p99: Double, coreFractionAt120Hz: Double) {
+            let microphone = MercurySpeechMeter(speaking: true, seed: seed, layout: .island)
+            let engine = MercuryEngine(
+                seed: seed,
+                look: look,
+                hitRegion: MercuryHitRegion()
+            )
+            let presentationLayer = CALayer()
+            let initialImage = engine.frame(
+                advancing: 0,
+                seed: seed,
+                look: look,
+                drive: microphone.drive,
+                appearance: .standard,
+                layout: .island
+            )
+            MercuryLayerPresenter.present(initialImage, on: presentationLayer)
+            // The first live frame starts the body empty, and it grows into its pose. The timing is of
+            // a steady body, so the emergence plays out first, untimed, at the timed frames' one
+            // substep each. The meter ticks between frames, as a level reaches the model between two
+            // display-link callbacks: the engine meets each new buffer inside the next frame, as one
+            // voice refresh, and the timed span is the frame alone.
+            for _ in 0..<emergenceFrames {
+                let image = engine.frame(
+                    advancing: 1,
+                    seed: seed,
+                    look: look,
+                    drive: microphone.drive,
+                    appearance: .standard,
+                    layout: .island
+                )
+                MercuryLayerPresenter.present(image, on: presentationLayer)
+                microphone.elapse(1)
+            }
+            var durations: [Double] = []
+            durations.reserveCapacity(240)
+            for _ in 0..<240 {
+                let frameStarted = ContinuousClock().now
+                let image = engine.frame(
+                    advancing: 1,
+                    seed: seed,
+                    look: look,
+                    drive: microphone.drive,
+                    appearance: .standard,
+                    layout: .island
+                )
+                MercuryLayerPresenter.present(image, on: presentationLayer)
+                durations.append(
+                    frameStarted.duration(to: ContinuousClock().now).milliseconds
+                )
+                microphone.elapse(1)
+            }
+            durations.sort()
+
+            var sink = 0
+            let cpuStarted = processCPUSeconds()
+            for _ in 0..<1_200 {
+                let image = engine.frame(
+                    advancing: 1,
+                    seed: seed,
+                    look: look,
+                    drive: microphone.drive,
+                    appearance: .standard,
+                    layout: .island
+                )
+                MercuryLayerPresenter.present(image, on: presentationLayer)
+                sink &+= image?.width ?? 0
+                microphone.elapse(1)
+            }
+            let coreFraction = (processCPUSeconds() - cpuStarted) / representedSeconds
+            _ = sink
+            return (
+                durations[durations.count / 2],
+                durations[durations.count * 99 / 100],
+                coreFraction
+            )
+        }
+
+        /// The 120 Hz budgets. Every look is held to the stock ones: a look changes only
+        /// bake-time inputs and per-instance scalars, never per-pixel work. `arm` names a
+        /// non-stock arm in its messages.
+        private static func frameFailures(
+            _ cost: some MercuryFrameCost,
+            arm: String
+        ) -> [String] {
+            var failures: [String] = []
+            if cost.rasterP50Milliseconds > 0.55 {
+                failures.append(
+                    "\(arm)raster p50 \(format(cost.rasterP50Milliseconds))ms > 0.55ms"
+                )
+            }
+            if cost.rasterP99Milliseconds > 0.70 {
+                failures.append(
+                    "\(arm)raster p99 \(format(cost.rasterP99Milliseconds))ms > 0.70ms"
+                )
+            }
+            if cost.rasterCoreFractionAt120Hz > 0.066 {
+                failures.append(
+                    "\(arm)120 Hz raster CPU \(format(cost.rasterCoreFractionAt120Hz)) > 0.066 core"
+                )
+            }
+            if cost.engineLayerP50Milliseconds > 0.65 {
+                failures.append(
+                    "\(arm)engine+layer p50 \(format(cost.engineLayerP50Milliseconds))ms > 0.65ms"
+                )
+            }
+            if cost.engineLayerP99Milliseconds > 0.85 {
+                failures.append(
+                    "\(arm)engine+layer p99 \(format(cost.engineLayerP99Milliseconds))ms > 0.85ms"
+                )
+            }
+            if cost.engineLayerCoreFractionAt120Hz > 0.08 {
+                failures.append(
+                    "\(arm)engine+layer CPU \(format(cost.engineLayerCoreFractionAt120Hz))"
+                        + " > 0.08 core"
+                )
+            }
+            return failures
         }
 
         private static func processCPUSeconds() -> Double {
@@ -769,6 +1272,7 @@
                 field: timedBody,
                 environment: timingRoom,
                 response: timingResponse,
+                paint: .stock,
                 rasterizer: timingRasterizer
             )
             return CollarSummary(
@@ -820,16 +1324,18 @@
         }
 
         /// The body `seed` grows on `layout` under a live microphone, placed at rest on its pose and
-        /// settled 600 substeps. It never emerges, so the raster timings drawn from it, the island's
-        /// and the collar's, time a steady body with no warm-up of their own.
+        /// settled 600 substeps under `tune`, the look's law and drawing transform. It never
+        /// emerges, so the raster timings drawn from it, the island's and the collar's, time a
+        /// steady body with no warm-up of their own.
         private static func field(
             speaking: Bool,
             seed: UInt64,
             gains: MercuryGains,
-            layout: RecordingOverlayLayout
+            layout: RecordingOverlayLayout,
+            tune: MercuryTune = .stock
         ) -> MercuryField {
             let microphone = MercurySpeechMeter(speaking: speaking, seed: seed, layout: layout)
-            let simulation = MercurySimulation(seed: seed, gains: gains)
+            let simulation = MercurySimulation(seed: seed, gains: gains, tune: tune)
             simulation.reset(to: microphone.drive)
             microphone.advance(simulation, steps: 600)
             return MercuryField(
@@ -837,6 +1343,19 @@
                 spine: layout.spine,
                 canvas: layout.canvasRect.size
             )
+        }
+
+        /// Both live poses of `seed`'s session on `layout` under `tune`: the listening body,
+        /// then the speaking one.
+        private static func livePoses(
+            seed: UInt64,
+            gains: MercuryGains,
+            layout: RecordingOverlayLayout,
+            tune: MercuryTune
+        ) -> [MercuryField] {
+            [false, true].map { speaking in
+                field(speaking: speaking, seed: seed, gains: gains, layout: layout, tune: tune)
+            }
         }
 
         private static func benchmarkSeed(_ index: Int) -> UInt64 {
@@ -1004,6 +1523,19 @@
             String(format: "%.4f", value)
         }
     }
+
+    /// The steady-state frame cost both performance arms report and are gated on.
+    private protocol MercuryFrameCost {
+        var rasterP50Milliseconds: Double { get }
+        var rasterP99Milliseconds: Double { get }
+        var rasterCoreFractionAt120Hz: Double { get }
+        var engineLayerP50Milliseconds: Double { get }
+        var engineLayerP99Milliseconds: Double { get }
+        var engineLayerCoreFractionAt120Hz: Double { get }
+    }
+
+    extension MercuryChromeBenchmark.PerformanceSummary: MercuryFrameCost {}
+    extension MercuryChromeBenchmark.LookPerformanceSummary: MercuryFrameCost {}
 
     extension SIMD3 where Scalar == Float {
         fileprivate var double: SIMD3<Double> { SIMD3<Double>(Double(x), Double(y), Double(z)) }

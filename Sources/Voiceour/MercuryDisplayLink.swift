@@ -1,7 +1,6 @@
 import AppKit
 import QuartzCore
 import SwiftUI
-import VoiceCore
 
 /// The rate the display link asks the attached display for.
 ///
@@ -53,14 +52,19 @@ struct MercuryFrameReport: Equatable, Sendable {
 /// SwiftUI updates only its drive configuration; no frame index enters the view graph.
 @MainActor
 final class MercurySurfaceView: NSView {
+    /// `replayGeneration` is a counter the owner bumps to replay the outcome gesture from
+    /// `replaySource`: every increase replays once. The recording island never replays and
+    /// leaves it at 0.
     struct Configuration {
         var seed: UInt64
-        var world: MercuryWorld
+        var look: MercuryLook
         var drive: MercurySimulation.Drive
         var appearance: MercuryAppearance
         /// The canvas the image covers and the spine the body lies along.
         var layout: RecordingOverlayLayout
         var pinnedStep: Int?
+        var replayGeneration: Int = 0
+        var replaySource: MercuryPose?
         /// Called after each frame the display link presents. Never for a pinned harness frame,
         /// which has no clock, and never for the image a new surface draws inside SwiftUI's update
         /// pass, where what the controller does with a report — re-frame, re-gate, re-pose — would
@@ -74,6 +78,10 @@ final class MercurySurfaceView: NSView {
 
     private let engine: MercuryEngine
     private var configuration: Configuration?
+    /// Taken from the first configuration, never replayed on: a view that appears after
+    /// earlier replays — scrolled back in, or rebuilt by SwiftUI — must not replay on
+    /// arrival.
+    private var lastReplayGeneration: Int?
     private var screenLink: CADisplayLink?
     private var screenObserver: NSObjectProtocol?
     /// Never reset, least of all when the link is rebuilt for a new screen; the new link's first
@@ -86,13 +94,14 @@ final class MercurySurfaceView: NSView {
     private var clock = MercuryClock()
     /// True from a link's creation until its first callback, which re-phases the clock.
     private var linkIsNew = false
-    private var currentImage: CGImage?
+    /// The image on the layer.
+    private(set) var currentImage: CGImage?
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
 
-    init(seed: UInt64, world: MercuryWorld, hitRegion: MercuryHitRegion) {
-        engine = MercuryEngine(seed: seed, world: world, hitRegion: hitRegion)
+    init(seed: UInt64, look: MercuryLook, hitRegion: MercuryHitRegion) {
+        engine = MercuryEngine(seed: seed, look: look, hitRegion: hitRegion)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -131,13 +140,17 @@ final class MercurySurfaceView: NSView {
 
     func update(_ configuration: Configuration) {
         self.configuration = configuration
+        if let lastReplayGeneration, configuration.replayGeneration > lastReplayGeneration {
+            engine.replayGesture(from: configuration.replaySource)
+        }
+        lastReplayGeneration = configuration.replayGeneration
         if let step = configuration.pinnedStep {
             screenLink?.isPaused = true
             setImage(
                 engine.pinnedFrame(
                     step: step,
                     seed: configuration.seed,
-                    world: configuration.world,
+                    look: configuration.look,
                     drive: configuration.drive,
                     appearance: configuration.appearance,
                     layout: configuration.layout
@@ -203,7 +216,9 @@ final class MercurySurfaceView: NSView {
         onFrame(MercuryFrameReport(volume: engine.liveVolume, step: clock.presentedStep))
     }
 
-    private func renderLive(steps: Int) {
+    /// One live frame. The display link supplies `steps`; tests step a view that has no
+    /// window through here.
+    func renderLive(steps: Int) {
         guard let configuration, configuration.pinnedStep == nil else { return }
         var drive = configuration.drive
         if let panelMotion = configuration.panelMotion {
@@ -213,7 +228,7 @@ final class MercurySurfaceView: NSView {
             engine.frame(
                 advancing: steps,
                 seed: configuration.seed,
-                world: configuration.world,
+                look: configuration.look,
                 drive: drive,
                 appearance: configuration.appearance,
                 layout: configuration.layout
@@ -235,7 +250,7 @@ struct MercurySurface: NSViewRepresentable {
     func makeNSView(context: Context) -> MercurySurfaceView {
         MercurySurfaceView(
             seed: configuration.seed,
-            world: configuration.world,
+            look: configuration.look,
             hitRegion: hitRegion
         )
     }

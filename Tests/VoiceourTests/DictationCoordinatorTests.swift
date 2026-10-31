@@ -2712,6 +2712,83 @@ struct DictationCoordinatorTests {
         #expect(recorder.pinnedDeviceUIDs == ["usb-yeti", "built-in", nil])
     }
 
+    // MARK: Island draft
+
+    /// One Settings ▸ Island gesture is one edit. Staging moves only the draft — snapped
+    /// onto the grids, so the showroom never previews a value no control can hold — and
+    /// writes nothing; the commit lands it in `settings` with one write and clears the
+    /// draft; a commit with nothing pending reports nothing and writes nothing.
+    @Test func anIslandDraftWritesNothingUntilItsCommitWritesItOnce() async throws {
+        let store = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let coordinator = makeCoordinator(settingsStore: store)
+        #expect(coordinator.effectiveIsland == .stock)
+
+        var dragged = IslandAppearance.stock
+        dragged.metal = .gold
+        dragged.finish = 23
+        coordinator.stageIsland(dragged)
+
+        var snapped = dragged
+        snapped.finish = 25
+        #expect(coordinator.islandDraft == snapped)
+        #expect(coordinator.effectiveIsland == snapped)
+        #expect(coordinator.settings.island == .stock)
+        #expect(coordinator.recentSessionPersistenceTail == nil)
+
+        let change = try #require(coordinator.commitIsland())
+        #expect(change.before == .stock)
+        #expect(change.after == snapped)
+        #expect(coordinator.islandDraft == nil)
+        #expect(coordinator.settings.island == snapped)
+        #expect(coordinator.effectiveIsland == snapped)
+        let write = try #require(coordinator.recentSessionPersistenceTail)
+        let saved = await write.value
+        #expect(saved)
+        #expect(try store.load().island == snapped)
+
+        #expect(coordinator.commitIsland() == nil)
+        #expect(coordinator.recentSessionPersistenceTail == write)
+    }
+
+    /// Moving a control back to where it started leaves nothing pending: a draft that snaps
+    /// onto the committed look is dropped, so leaving Settings writes nothing.
+    @Test func anIslandDraftThatSnapsBackOntoTheCommittedLookIsDropped() {
+        let coordinator = makeCoordinator(settingsStore: scratchSettingsStore())
+        var moved = IslandAppearance.stock
+        moved.finish = 50
+        coordinator.stageIsland(moved)
+        #expect(coordinator.islandDraft == moved)
+
+        var nearlyStock = IslandAppearance.stock
+        nearlyStock.finish = 2
+        coordinator.stageIsland(nearlyStock)
+
+        #expect(coordinator.islandDraft == nil)
+        #expect(coordinator.effectiveIsland == .stock)
+        #expect(coordinator.commitIsland() == nil)
+        #expect(coordinator.recentSessionPersistenceTail == nil)
+    }
+
+    /// Quit and Restart exit the moment `prepareForTermination()` returns, so a look still
+    /// staged then — a slider held through ⌘Q — has to be on disk by that point, or the next
+    /// launch shows the island the reader had just changed.
+    @Test func terminationCommitsAPendingIslandDraftBeforeReturning() async throws {
+        let store = scratchSettingsStore()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let coordinator = makeCoordinator(settingsStore: store)
+        var staged = IslandAppearance.stock
+        staged.metal = .platinum
+        staged.room = .spectralWeather
+        coordinator.stageIsland(staged)
+
+        await coordinator.prepareForTermination()
+
+        #expect(coordinator.islandDraft == nil)
+        #expect(coordinator.settings.island == staged)
+        #expect(try store.load().island == staged)
+    }
+
     // MARK: Helpers
 
     private func processTranscript(

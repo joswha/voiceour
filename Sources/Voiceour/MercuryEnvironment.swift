@@ -40,13 +40,68 @@ enum MercuryOctahedralMap {
     }
 }
 
+/// A coloured light below the island: one static spherical Gaussian in the room.
+///
+/// It is light the mercury reflects, not paint on the body, so it follows every ripple
+/// exactly as the rest of the room does and falls away where the body faces up.
+struct MercuryUnderglow: Equatable, Sendable {
+    /// Linear Rec.709 colour at Rec.709 luminance 1, so `strength` alone sets the power
+    /// and every hue at one strength is equally bright.
+    var color: SIMD3<Double>
+    /// `0...1`. The lobe peaks at `peak * strength` normalized room means.
+    var strength: Double
+
+    /// Below the island and tilted toward the viewer, `(0, -sin 65°, cos 65°)`. Its
+    /// reflection centres on the lower half of the crown, which reads as lit from below;
+    /// a steeper axis lit only the bottom edge, which reads as an authored rim.
+    static let axis = SIMD3<Double>(0, -0.906308, 0.422618)
+    /// Half brightness 34° off axis: a broad fill, never a hotspot.
+    static let sharpness: Double = 4
+    /// Full-strength peak in normalized room means. Room of Ten lamps peak at 1.3–6.7
+    /// room means, so even full strength stays a fill: the sphere mean gains
+    /// `peak * strength * (1 - e^-8) / 8`, at most ten percent.
+    static let peak: Double = 0.8
+}
+
+/// Everything a look changes about the light the mercury reflects, all applied once at
+/// bake time so per-pixel sampling never changes.
+///
+/// `stock` is the shipped room byte for byte: each option is either skipped or fed
+/// exactly the values the room was baked with before these options existed.
+struct MercuryRoomLighting: Equatable, Sendable {
+    /// Material roughness of the smooth level; ``levelRoughness`` clamps it into the table
+    /// range `0.03...0.25`. The stock liquid is `0.03`.
+    var finish: Float
+    /// Linear-RGB room multipliers with Rec.709 luminance 1; nil is the stock room.
+    var whiteBalance: SIMD3<Double>?
+    /// The coloured fill below the island; nil is off.
+    var underglow: MercuryUnderglow?
+
+    static let stock = MercuryRoomLighting(
+        finish: MercuryMetrics.environmentRoughness[0],
+        whiteBalance: nil,
+        underglow: nil
+    )
+
+    /// The roughness each prefiltered level represents, ascending. For the clamped finish
+    /// `r` it is `[r, max(r, 0.09), max(r, 0.25)]`, the shipped layout at the stock
+    /// finish: the finish replaces the smooth level and floors the rougher two, so no
+    /// level is smoother than the material.
+    var levelRoughness: [Float] {
+        let shipped = MercuryMetrics.environmentRoughness
+        let clamped = Swift.min(Swift.max(finish, shipped[0]), shipped[shipped.count - 1])
+        return shipped.map { Swift.max(clamped, $0) }
+    }
+}
+
 /// The generated room the mercury reflects.
 ///
 /// Both worlds write into the same prefiltered linear-RGB octahedral tables, so
 /// interpolation, conductor Fresnel and display response remain one code path. Both
 /// rooms are static after their seed draw; the mercury surface owns all visible motion.
-/// Neither world reads the desktop or contains an authored highlight path. Room colour
-/// is low-saturation, seed-derived, luminance-neutral source variation.
+/// Neither world reads the desktop or contains an authored highlight path. Stock room
+/// colour is low-saturation, seed-derived, luminance-neutral source variation; a look's
+/// ``MercuryRoomLighting`` re-tints, roughens or adds light at bake time only.
 @MainActor
 final class MercuryEnvironment {
     private enum Core {
@@ -55,6 +110,11 @@ final class MercuryEnvironment {
     }
 
     private(set) var world: MercuryWorld
+    /// Kept verbatim, an out-of-range finish included, so a caller can compare it with
+    /// the lighting it wants without rebaking.
+    let lighting: MercuryRoomLighting
+    /// `lighting.levelRoughness`, resolved once for the bake and the level search.
+    private let levelRoughness: [Float]
 
     private var core: Core
     /// Three bordered octahedral linear-RGB levels. Raw storage avoids array bounds and
@@ -68,8 +128,10 @@ final class MercuryEnvironment {
     private static let storageResolution = resolution + 2
     private static let levels = MercuryMetrics.environmentRoughness.count
 
-    init(world: MercuryWorld, seed: UInt64) {
+    init(world: MercuryWorld, seed: UInt64, lighting: MercuryRoomLighting = .stock) {
         self.world = world
+        self.lighting = lighting
+        levelRoughness = lighting.levelRoughness
         levelStride = Self.storageResolution * Self.storageResolution
         capacity = levelStride * Self.levels
         tables = UnsafeMutablePointer<SIMD3<Float>>.allocate(capacity: capacity)
@@ -104,9 +166,10 @@ final class MercuryEnvironment {
         sample(level: 0, direction: direction)
     }
 
-    /// Prefiltered linear-RGB radiance for tests and the debug roughness levels.
+    /// Prefiltered linear-RGB radiance for tests and the debug roughness levels, blended
+    /// across ``MercuryRoomLighting/levelRoughness`` of this room's lighting.
     func radiance(_ direction: SIMD3<Float>, roughness: Float) -> SIMD3<Float> {
-        let (lower, upper, blend) = Self.levelBlend(for: roughness)
+        let (lower, upper, blend) = levelBlend(for: roughness)
         let first = sample(level: lower, direction: direction)
         guard blend > 0 else { return first }
         let second = sample(level: upper, direction: direction)
@@ -135,8 +198,11 @@ final class MercuryEnvironment {
         return top + (bottom - top) * rowFraction
     }
 
-    private static func levelBlend(for roughness: Float) -> (Int, Int, Float) {
-        let levels = MercuryMetrics.environmentRoughness
+    /// Equal neighbouring levels, which a rough finish produces, are safe: past the end
+    /// branches the search only stops on a pair that strictly brackets the roughness, so
+    /// the log interval is never empty.
+    private func levelBlend(for roughness: Float) -> (Int, Int, Float) {
+        let levels = levelRoughness
         if roughness <= levels[0] { return (0, 0, 0) }
         if roughness >= levels[levels.count - 1] { return (levels.count - 1, levels.count - 1, 0) }
         var index = 0
@@ -150,22 +216,95 @@ final class MercuryEnvironment {
     // MARK: - Baking
 
     private func bake() {
-        for (level, roughness) in MercuryMetrics.environmentRoughness.enumerated() {
+        var effectiveRoughness: [Double] = []
+        effectiveRoughness.reserveCapacity(Self.levels)
+        for (level, roughness) in levelRoughness.enumerated() {
             let destination = tables + level * levelStride
             // The octahedral grid is finer than the fixed 0.019 band limit even at its
             // widest corner footprint. Adding that footprint in quadrature keeps every
             // generated lobe band-limited before any bilinear sampling occurs.
             let grid = MercuryMetrics.environmentGridRoughness
             let effective = (Double(roughness) * Double(roughness) + grid * grid).squareRoot()
+            effectiveRoughness.append(effective)
             switch core {
             case .room(let room):
                 room.bake(into: destination, directions: Self.directions, roughness: effective)
             case .weather(let weather):
-                weather.bake(into: destination, basis: Self.harmonicBasis, roughness: effective)
+                weather.bake(
+                    into: destination,
+                    basis: Self.harmonicBasis,
+                    roughness: Self.weatherRoughness(roughness, level: level, effective: effective)
+                )
             }
+        }
+        if let whiteBalance = lighting.whiteBalance {
+            applyWhiteBalance(whiteBalance)
         }
         equalizePower()
         applyNormalization()
+        if let underglow = lighting.underglow, underglow.strength > 0 {
+            addUnderglow(underglow, effectiveRoughness: effectiveRoughness)
+        }
+    }
+
+    /// Spectral Weather prefilters with the spherical heat semigroup at time `α²/4`; a
+    /// Room of Ten lobe widened by the same `α` is close to time `α²/2`, twice the blur.
+    /// Each stock level keeps its accepted blur, and a finish rougher than that level's
+    /// stock value adds its extra variance at the Room of Ten rate,
+    /// `ρ² = α_s² + 2(α² − α_s²)`, so one finish reads about equally rough in both rooms.
+    private static func weatherRoughness(
+        _ roughness: Float,
+        level: Int,
+        effective: Double
+    ) -> Double {
+        let stock = MercuryMetrics.environmentRoughness[level]
+        guard roughness != stock else { return effective }
+        let grid = MercuryMetrics.environmentGridRoughness
+        let stockSquared = Double(stock) * Double(stock) + grid * grid
+        return (stockSquared + 2 * (effective * effective - stockSquared)).squareRoot()
+    }
+
+    /// Colour temperature is a room multiplier, applied before the power and
+    /// normalization passes so it re-tints the light without re-exposing it:
+    /// normalization restores the same mean luminance afterwards. Against spectral
+    /// relighting the RGB product is off by at most 0.043, for gold at the warm limit.
+    private func applyWhiteBalance(_ multipliers: SIMD3<Double>) {
+        let scale = SIMD3<Float>(
+            Float(multipliers.x), Float(multipliers.y), Float(multipliers.z)
+        )
+        for index in 0..<capacity {
+            tables[index] *= scale
+        }
+    }
+
+    /// The underglow joins after normalization, so the room's own scalar, and with it
+    /// every stock texel, never sees it, and its peak is the same fraction of the room
+    /// mean in every room. Each level prefilters it exactly like a Room of Ten source:
+    /// the sharpness widens to `λ / (1 + λα²)` and the finite-sphere power scale keeps
+    /// its power, so every level gains the same mean. It is its own light source, so the
+    /// white balance never tints it.
+    private func addUnderglow(_ underglow: MercuryUnderglow, effectiveRoughness: [Double]) {
+        let sharpness = MercuryUnderglow.sharpness
+        let axis = MercuryUnderglow.axis
+        let peak = MercuryUnderglow.peak * underglow.strength
+        for (level, roughness) in effectiveRoughness.enumerated() {
+            let filtered = sharpness / (1 + sharpness * roughness * roughness)
+            let powerScale =
+                (filtered / sharpness)
+                * (1 - exp(-2 * sharpness))
+                / Swift.max(1 - exp(-2 * filtered), 1e-12)
+            let destination = tables + level * levelStride
+            for (index, direction) in Self.directions.enumerated() {
+                let vector = SIMD3<Double>(
+                    Double(direction.x), Double(direction.y), Double(direction.z)
+                )
+                let lobe = peak * powerScale * exp(filtered * ((vector * axis).sum() - 1))
+                let light = lobe * underglow.color
+                destination[index] += SIMD3<Float>(
+                    Float(light.x), Float(light.y), Float(light.z)
+                )
+            }
+        }
     }
 
     /// Prefiltering conserves total power, enforced rather than assumed.

@@ -450,6 +450,9 @@ enum VoiceourMetrics {
     /// to the column.
     enum Field {
         static let short: CGFloat = 120
+        /// A slider's trailing value readout: wide enough for "10700 K" in monospaced
+        /// digits, so every Island slider in a column ends on the same edge whatever it reads.
+        static let readout: CGFloat = 64
     }
 
     enum Stroke {

@@ -96,6 +96,10 @@ struct MercuryField {
     let length: Double
     /// The arc length of the body's leading end: `restCenter + lateralOffset − L/2`.
     let spanStart: Double
+    /// The half-elliptic crown's vertical aspect, carried from the geometry so a look's crown
+    /// reaches the pixels through the one field every reader shares. The silhouette never
+    /// reads it.
+    let crownAspect: Double
 
     private let stations: [Station]
     /// `restCenter + lateralOffset`, the arc length the span is centred on. The material
@@ -120,7 +124,8 @@ struct MercuryField {
     private let isStraight: Bool
 
     /// - Parameters:
-    ///   - geometry: One simulated frame: its length, lateral offset and station edges.
+    ///   - geometry: One simulated frame: its length, lateral offset, station edges and crown
+    ///     aspect.
     ///   - spine: The curve to lay the body on.
     ///   - canvas: The canvas size in points. The field's origin is the canvas centre.
     init(geometry: MercurySimulation.Geometry, spine: MercurySpine, canvas: CGSize) {
@@ -132,6 +137,7 @@ struct MercuryField {
             height: canvas.height
         )
         length = Double(geometry.length)
+        crownAspect = geometry.crownAspect
         slopeLength = Swift.max(length, 1)
         middle = spine.restCenter + Double(geometry.lateralOffset)
         spanStart = middle - length / 2

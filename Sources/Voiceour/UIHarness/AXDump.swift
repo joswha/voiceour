@@ -136,6 +136,7 @@
                 subrole: reader.subrole(),
                 label: reader.label(),
                 value: reader.value(),
+                valueDescription: reader.valueDescription(),
                 placeholder: reader.placeholder(),
                 identifier: reader.identifier(),
                 help: reader.help(),
@@ -180,6 +181,7 @@
                     subrole: nil,
                     label: "accessibility walk stopped: \(reason)",
                     value: nil,
+                    valueDescription: nil,
                     placeholder: nil,
                     identifier: nil,
                     help: nil,
@@ -200,6 +202,7 @@
                 subrole: nil,
                 label: nil,
                 value: nil,
+                valueDescription: nil,
                 placeholder: nil,
                 identifier: nil,
                 help: nil,
@@ -278,6 +281,7 @@
         func accessibilityLabel() -> Any?
         func accessibilityTitle() -> Any?
         func accessibilityValue() -> Any?
+        func accessibilityValueDescription() -> Any?
         func accessibilityPlaceholderValue() -> String?
         func accessibilityIdentifier() -> String?
         func accessibilityHelp() -> String?
@@ -356,6 +360,19 @@
                 return value
             }
             return AXValueFormatter.string(from: legacyAttribute(AXLegacyKey.value))
+        }
+
+        /// What an assistive technology speaks for the value. SwiftUI publishes
+        /// `.accessibilityValue(_:)` here and keeps `AXValue` the control's raw reading, so a
+        /// slider's value is `5` and its description "5 percent". Read as `Any?` like the
+        /// label, so an attributed answer is unwrapped rather than force-bridged.
+        func valueDescription() -> String? {
+            if answers(AXSelectors.valueDescription),
+                let described = AXValueFormatter.string(from: modern.accessibilityValueDescription())
+            {
+                return described
+            }
+            return legacyText(AXLegacyKey.valueDescription)
         }
 
         /// The prompt text an empty text field displays.
@@ -549,6 +566,7 @@
         static let label = NSSelectorFromString("accessibilityLabel")
         static let title = NSSelectorFromString("accessibilityTitle")
         static let value = NSSelectorFromString("accessibilityValue")
+        static let valueDescription = NSSelectorFromString("accessibilityValueDescription")
         static let placeholder = NSSelectorFromString("accessibilityPlaceholderValue")
         static let identifier = NSSelectorFromString("accessibilityIdentifier")
         static let help = NSSelectorFromString("accessibilityHelp")
@@ -568,6 +586,7 @@
         static let size = "AXSize"
         static let title = "AXTitle"
         static let value = "AXValue"
+        static let valueDescription = "AXValueDescription"
         static let placeholder = "AXPlaceholderValue"
         /// What the modern API calls the label.
         static let descriptionAttribute = "AXDescription"

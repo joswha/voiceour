@@ -240,32 +240,6 @@ struct VoiceCoreTests {
         #expect(decoded == settings)
     }
 
-    /// The recording island's world follows the same lenient discipline as the model
-    /// variant above, and for the same reason: an install upgrading into a build that
-    /// does not know the value must keep dictating, not quarantine its settings file.
-    @Test func settingsJSONWithoutOrWithAnUnknownMercuryWorldKeepsTheDefault() throws {
-        let absent = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "parakeet"}"#.utf8))
-        #expect(absent.mercuryWorld == .roomOfTen)
-
-        let unknown = try JSONDecoder().decode(
-            Settings.self,
-            from: Data(#"{"mercury_world": "a_world_from_the_future"}"#.utf8)
-        )
-        #expect(unknown.mercuryWorld == .roomOfTen)
-    }
-
-    @Test func settingsMercuryWorldRoundTripsThroughItsPersistedTag() throws {
-        var settings = Settings()
-        settings.mercuryWorld = .spectralWeather
-
-        let data = try JSONEncoder().encode(settings)
-        #expect(String(decoding: data, as: UTF8.self).contains(#""mercury_world":"spectral_weather""#))
-
-        let decoded = try JSONDecoder().decode(Settings.self, from: data)
-        #expect(decoded.mercuryWorld == .spectralWeather)
-        #expect(decoded == settings)
-    }
-
     /// The microphone choice persists as the durable device UID plus the name
     /// that can still label it while unplugged, and a file written before the
     /// selection existed decodes to automatic device choice.
@@ -333,6 +307,28 @@ struct VoiceCoreTests {
         #expect(term.canonical == "Kubernetes")
         #expect(term.spokenAliases == ["cube are netes"])
         #expect(term.source == .manualImport)
+    }
+
+    /// `mercury_world` picked the island's room from a `--debug`-only comparison picker
+    /// until the room became part of the island's look (`island.room`). Settings files
+    /// written in between still carry it, so decoding has to ignore it rather than fail —
+    /// and must not migrate it: a debug comparison is not a look anyone chose.
+    @Test func settingsJSONWithRetiredMercuryWorldKeyStillDecodes() throws {
+        let json = """
+            {
+              "asr_backend": "parakeet",
+              "mute_system_audio_during_capture": false,
+              "mercury_world": "spectral_weather"
+            }
+            """
+
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+
+        #expect(settings.asrBackend == "parakeet")
+        #expect(settings.muteSystemAudioDuringCapture == false)
+        #expect(settings.island == .stock)
+        let reencoded = String(decoding: try JSONEncoder().encode(settings), as: UTF8.self)
+        #expect(!reencoded.contains("mercury_world"))
     }
 
     /// A settings file written by a pre-overhaul build carries every retired key plus a

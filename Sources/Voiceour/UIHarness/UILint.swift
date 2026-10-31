@@ -570,6 +570,10 @@
                     !(entry.node.role.lowercased() == "axradiobutton"
                         && trimmed(entry.node.subrole)?.lowercased() != "axtabbutton")
                 else { continue }
+                // A native form's slider publishes AppKit's 16 pt track box whatever its row
+                // does: the Settings ▸ Island sliders all measure 16 pt. Same reason as the
+                // three above — the height is AppKit's slider cell, not this project's scale.
+                guard entry.node.role.lowercased() != "axslider" else { continue }
                 let height = (frame.height * 10).rounded() / 10
                 guard !allowedControlHeights.contains(height) else { continue }
                 if height > containerHeightFloor {

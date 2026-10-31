@@ -47,6 +47,15 @@ public final class DictationCoordinator {
         }
     }
     public var settings: VoiceCore.Settings
+    /// The island look a Settings ▸ Island control is still moving, or nil when nothing is
+    /// pending. `stageIsland(_:)` moves it; `commitIsland()` lands it in `settings`.
+    ///
+    /// Kept apart from `settings` for two reasons. Observation tracks each stored property
+    /// on its own, so a drag that writes here invalidates only the views that read the
+    /// draft — the Island section and its showroom — instead of every console body that
+    /// reads `settings`. And one gesture is one edit: staging writes nothing, so a drag
+    /// costs one `saveSettings()` when it ends rather than one per tick.
+    public internal(set) var islandDraft: IslandAppearance?
     public private(set) var targetLabel: String = "No target"
     public internal(set) var lastOutcome: InsertionOutcome?
     public internal(set) var lastTranscript: String = ""
@@ -737,6 +746,11 @@ public final class DictationCoordinator {
     }
 
     public func prepareForTermination() async {
+        // A Settings ▸ Island control can still hold a staged look at quit — a slider held
+        // through ⌘Q, a colour well inside its quiet period — and the caller exits the
+        // moment this returns. Committing first queues that write ahead of the persistence
+        // tail the drain below captures, so it lands before exit. Restart takes this path too.
+        commitIsland()
         isPreparingForTermination = true
         let shouldDiscardRecording = state == .recording || state == .finalizingAudio
         cancelActiveWork()
@@ -789,6 +803,38 @@ public final class DictationCoordinator {
         settings.preferredMicrophoneName = name
         saveSettings()
         recorder.setPreferredCaptureDevice(uid: uid)
+    }
+
+    /// The island look as it stands: the draft while a Settings ▸ Island control is moving,
+    /// else the committed one. The showroom renders it and a session latches it when the
+    /// session begins, so a dictation started mid-drag shows exactly what the preview did.
+    public var effectiveIsland: IslandAppearance {
+        islandDraft ?? settings.island
+    }
+
+    /// Stages `appearance` as the island draft. Writes nothing.
+    ///
+    /// Snapped first, so the showroom never previews a value no control can hold. A draft
+    /// equal to the committed look is dropped rather than kept: moving a control back to
+    /// where it started leaves nothing pending, and nothing to write.
+    public func stageIsland(_ appearance: IslandAppearance) {
+        let snapped = appearance.snapped()
+        islandDraft = snapped == settings.island ? nil : snapped
+    }
+
+    /// Lands the pending island draft in `settings` with one `saveSettings()` and clears it.
+    ///
+    /// - Returns: the committed look before and after, so the caller can register one undo
+    ///   step that restores `before`; nil when nothing is pending, which writes nothing.
+    @discardableResult
+    public func commitIsland() -> (before: IslandAppearance, after: IslandAppearance)? {
+        guard let draft = islandDraft else { return nil }
+        let before = settings.island
+        // Settings first, so `effectiveIsland` never reads the old look in between.
+        settings.island = draft
+        islandDraft = nil
+        saveSettings()
+        return (before: before, after: draft)
     }
 
     /// The one write for a term the user authored or edited by hand. The Glossary

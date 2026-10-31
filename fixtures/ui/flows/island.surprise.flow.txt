@@ -1,0 +1,11 @@
+flow: island.surprise
+title: Surprise Me commits the seeded draws in order
+fixture: static
+transitions: idle
+PASS 1 stock | model islandLook == "stock" | "stock"
+PASS 2 first-draw | model islandAppearance == "metal=chromium coat=none film=0 candy=355/90/80 finish=10 room=spectral_weather temperature=10 underglow=92/96/50 brightness=10 contrast=-10 size=96 build=100 crown=92 taper=30 tempo=140 viscosity=150 shimmer=110 reactivity=80 slither=105 morph=100 drama=190" | "metal=chromium coat=none film=0 candy=355/90/80 finish=10 room=spectral_weather temperature=10 underglow=92/96/50 brightness=10 contrast=-10 size=96 build=100 crown=92 taper=30 tempo=140 viscosity=150 shimmer=110 reactivity=80 slither=105 morph=100 drama=190"
+PASS 3 first-draw | model islandLook == "custom" | "custom"
+PASS 4 first-draw | model islandDraftPending == "0" | 0
+PASS 5 second-draw | model islandAppearance == "metal=titanium coat=clear film=0 candy=355/90/80 finish=40 room=spectral_weather temperature=10 underglow=off brightness=-30 contrast=20 size=94 build=96 crown=72 taper=40 tempo=140 viscosity=110 shimmer=80 reactivity=80 slither=90 morph=130 drama=90" | "metal=titanium coat=clear film=0 candy=355/90/80 finish=40 room=spectral_weather temperature=10 underglow=off brightness=-30 contrast=20 size=94 build=96 crown=72 taper=40 tempo=140 viscosity=110 shimmer=80 reactivity=80 slither=90 morph=130 drama=90"
+PASS 6 second-draw | model islandLook == "custom" | "custom"
+PASS 7 second-draw | model islandDraftPending == "0" | 0

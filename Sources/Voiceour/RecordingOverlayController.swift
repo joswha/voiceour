@@ -8,6 +8,7 @@ final class RecordingOverlayController {
     private var stateCancellable: AnyCancellable?
     private var inputLevelCancellable: AnyCancellable?
     private var captureLiveCancellable: AnyCancellable?
+    private var dockRequestCancellable: AnyCancellable?
     private let model = RecordingOverlayModel()
     private var panel: RecordingOverlayPanel?
     private var visibilityToken = 0
@@ -15,11 +16,12 @@ final class RecordingOverlayController {
     private let hitRegion = MercuryHitRegion()
     /// What the body feels of its panel: shared with the surface, which reads it every live frame.
     private let panelMotion = MercuryPanelMotion()
-    /// The world this session's body reflects. A fresh one is installed on every
-    /// transition from hidden to visible — a state change inside one session must not
-    /// re-seed, or the room would change under the reader mid-utterance.
+    /// The session this body draws: a room seed and the island's look, latched together on every
+    /// transition from hidden to visible, before the show that may build the panel reading them. A
+    /// state change inside one session must not re-latch either, or the room or the look would
+    /// change under the reader mid-utterance.
     private var mercurySeed = RenderOverrides.mercurySeed ?? MercuryMetrics.defaultSeed
-    private var mercuryWorld = MercuryWorld.default
+    private var islandAppearance = IslandAppearance.stock
 
     /// The display the panel is laid out on, as it was read when the body went there. Nil until
     /// the first session.
@@ -44,9 +46,10 @@ final class RecordingOverlayController {
     /// The user put the body somewhere this session, by hand or by the Dock island action. It stays
     /// where it was put until the session ends.
     private var userPlaced = false
-    /// Docked, or a free island where the user let go of it; persisted in `UserDefaults.standard`
-    /// under `RecordingOverlayPlacement.DefaultsKey`. Every layout the panel takes follows it.
-    private var placement: RecordingOverlayPlacement
+    /// Docked, or a free island where the user let go of it; persisted under
+    /// `RecordingOverlayPlacement.DefaultsKey` in `RecordingOverlayPlacement.defaults`, which
+    /// Settings ▸ Island's Dock Island writes too. Every layout the panel takes follows it.
+    private(set) var placement: RecordingOverlayPlacement
     /// The press on the body in progress, from its mouse-down to its mouse-up.
     private var drag: RecordingOverlayDrag?
     /// An island gliding onto its dock, on the substep clock.
@@ -63,14 +66,25 @@ final class RecordingOverlayController {
         self?.consider(screen, cause: cause)
     }
 
-    /// Deletes the absolute island origin earlier builds persisted, a clean cutover to docked, and
-    /// reads the placement the user left. Constructed once, at launch.
+    /// Deletes the absolute island origin earlier builds persisted, a clean cutover to docked, reads
+    /// the placement the user left, and follows Settings ▸ Island's Dock Island from then on.
+    /// Constructed once, at launch.
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
-        let defaults = UserDefaults.standard
+        let defaults = RecordingOverlayPlacement.defaults
         RecordingOverlayPlacement.removeLegacyOrigin(from: defaults)
         placement = RecordingOverlayPlacement(defaults: defaults)
         model.update(isFree: placement.isFree)
+        // Posted only by the main-actor `RecordingOverlayPlacement.requestDock()` and delivered on
+        // the posting thread, so the island has followed by the time the Settings button's action
+        // returns.
+        dockRequestCancellable = NotificationCenter.default
+            .publisher(for: RecordingOverlayPlacement.dockRequestNotification)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.followDockRequest()
+                }
+            }
     }
 
     func bind(to statePublisher: AnyPublisher<SessionState, Never>) {
@@ -171,17 +185,18 @@ final class RecordingOverlayController {
     ///
     /// A session starts on the focused display, laid out there while the panel is hidden, and the
     /// body grows out of that display's notch or top edge from its first frame. A show that lands
-    /// mid-hide reverses the fade and the swallow with it: the body grows back where it is.
+    /// mid-hide reverses the fade and the swallow with it: the body grows back where it is. Every
+    /// show while the panel is visible — that reversal, or a recording that preempts an outcome
+    /// dwell — belongs to the session on screen and keeps its room and look.
     private func show() {
         let beginsSession = panel?.isVisible != true
         if beginsSession {
-            // Install both world inputs before `makePanel()` constructs the StateObject.
-            // A Settings change applies to the next dictation, never mid-utterance.
+            // Latched together before `makePanel()` builds the surface that reads them: a fresh
+            // room seed and the coordinator's effective look, a Settings ▸ Island draft still in
+            // flight included, so a dictation started mid-drag shows what the showroom showed. A
+            // Settings change applies to the next dictation, never mid-utterance.
             mercurySeed = RenderOverrides.mercurySeed ?? UInt64.random(in: .min ... .max)
-            mercuryWorld =
-                RenderOverrides.mercuryWorld
-                ?? coordinator?.settings.mercuryWorld
-                ?? .default
+            islandAppearance = coordinator?.effectiveIsland ?? .stock
         }
         let panel = panel ?? makePanel()
         model.endDismissal()
@@ -337,9 +352,9 @@ final class RecordingOverlayController {
                 },
                 hitRegion: hitRegion,
                 panelMotion: panelMotion,
-                // Session-latched closures: Settings remains the persisted authority, but
-                // changing the debug picker cannot replace lighting mid-utterance.
-                world: { [weak self] in self?.mercuryWorld ?? .default },
+                // Session-latched closures: Settings remains the persisted authority, but a
+                // Settings ▸ Island change cannot replace the look or the room mid-utterance.
+                island: { [weak self] in self?.islandAppearance ?? .stock },
                 seed: { [weak self] in self?.mercurySeed ?? MercuryMetrics.defaultSeed },
                 onFrame: { [weak self] report in self?.didPresent(report) }
             ),
@@ -782,8 +797,11 @@ final class RecordingOverlayController {
         }
     }
 
-    /// The status element's Dock island: docks a free island as releasing it onto its dock anchor
-    /// would, and persists docked. A body on its way to another display docks there as it arrives.
+    /// The status element's Dock island, and Settings ▸ Island's while the island is visible: docks
+    /// a free island as releasing it onto its dock anchor would, and persists docked. A body on its
+    /// way to another display docks there as it arrives; one that cannot move now — fading, or
+    /// holding an outcome — starts its next session docked. A press in progress keeps the hand's
+    /// say: its release persists where it lets go.
     private func dockIsland() {
         guard placement.isFree, drag == nil else { return }
         persist(.docked)
@@ -801,6 +819,18 @@ final class RecordingOverlayController {
             on: display
         )
         updatePointerGate()
+    }
+
+    /// Settings ▸ Island's Dock Island, which has persisted docked already. A visible island follows
+    /// it as it follows the status element's Dock island; a hidden one takes the placement, so its
+    /// next session starts docked.
+    private func followDockRequest() {
+        guard let panel, panel.isVisible else {
+            placement = .docked
+            model.update(isFree: false)
+            return
+        }
+        dockIsland()
     }
 
     /// Sends the island home on `display`: a glide or a jump onto the island's dock, or a siphon or
@@ -841,7 +871,7 @@ final class RecordingOverlayController {
 
     private func persist(_ placement: RecordingOverlayPlacement) {
         self.placement = placement
-        placement.save(to: .standard)
+        placement.save(to: RecordingOverlayPlacement.defaults)
         model.update(isFree: placement.isFree)
     }
 

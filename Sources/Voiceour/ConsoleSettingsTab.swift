@@ -22,6 +22,11 @@ import VoiceMac
 /// once sat under a BACKEND heading, which made that heading a lie for half its
 /// rows; two sections both called "Capture" would be the same failure.
 ///
+/// **Island** is the last preference and the only one drawn as a picture: how the
+/// recording island looks, previewed in a showroom of its own rather than on the
+/// real panel, because a visible island means a live microphone. Its options fold
+/// shut, so the readouts still follow the choices within a short scroll.
+///
 /// Every OS grant this app asks for is reported exactly once, in the row for the
 /// capability it gates — microphone by **Microphone**, Accessibility by **Fn/Globe
 /// capture** for the key tap and by **Insertion** for synthetic paste. There is no
@@ -113,11 +118,9 @@ struct ConsoleSettingsTab: View {
                 Section("Backend") {
                     backendRow
                 }
-
-                Section("Overlay") {
-                    mercuryWorldRow
-                }
             }
+
+            ConsoleIslandSection(coordinator: coordinator)
 
             Section("Readiness") {
                 readinessRow(
@@ -492,29 +495,6 @@ struct ConsoleSettingsTab: View {
                         .accessibilityIdentifier("voice.backend.restart")
                 }
             }
-        }
-    }
-
-    // MARK: Overlay
-
-    /// Debug comparison only. Both worlds ship and write into the same prefiltered RGB
-    /// tables and bounded conductor path, but only the default is reachable without
-    /// `--debug`, exactly like the backend picker above.
-    ///
-    /// No restart mark: `RecordingOverlayController` latches the persisted choice when a
-    /// session begins, so the next dictation gets a newly seeded room with no mid-session
-    /// lighting replacement.
-    private var mercuryWorldRow: some View {
-        ConsoleRow(
-            caption: "Which generated room the recording island's mercury reflects. "
-                + "Debug comparison only; the next dictation picks it up."
-        ) {
-            Picker("Reflection world", selection: settingBinding(coordinator, \.mercuryWorld)) {
-                ForEach(MercuryWorld.allCases, id: \.self) { world in
-                    Text(world.displayName).tag(world)
-                }
-            }
-            .accessibilityIdentifier("overlay.world")
         }
     }
 

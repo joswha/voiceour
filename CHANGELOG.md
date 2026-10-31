@@ -8,6 +8,10 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 
 ## Unreleased
 
+### Added
+
+- **Island garage.** Settings ▸ Island customizes the recording island with a live showroom preview: twelve looks, Surprise Me, and options for its metal, coat, finish, room, colour temperature, underglow, brightness, contrast, size, build, crown, taper and motion. A look dresses the floating island and the notch collar alike. Every colour comes from the metal, its coat or the light in the room; nothing is painted on. A change shows the next time the island appears and can be undone with ⌘Z, and Dock Island returns a free island to its dock.
+
 ### Changed
 
 - **macOS 27 baseline.** Voiceour requires macOS 27 on Apple Silicon; building from source requires Xcode 27 and Swift 6.4.
@@ -18,6 +22,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 - **Gel mercury.** The recording island now moves like a gummy liquid-metal gel: it wobbles elastically, remembers how long it was held, and squashes and stretches at constant volume. Its surface and its overall shape follow exact viscoelastic physics. Its speaking crests are calibrated against live speech rather than a held meter snapshot, its speaking body is slimmer, and its reflections carry slightly less room colour.
 - **Lighter mercury rendering.** Drawing the recording island at 120 fps takes about 40% less CPU, with identical pixels.
 - **Notch collar.** On a MacBook display with a camera notch, the recording island frames the notch: a liquid collar wraps the camera housing's sides and bottom, about 9 points thick beside it and 16 below while you speak, gives the menu bar back when the pointer reaches for it, and spreads along the empty band over a full-screen app. Moving to another display drains the body into the old edge and grows it out of the new one, unless Reduce Motion is on. The overlay passes every click through except on the body itself, and paste, cancel, and the end of an outcome swallow the body as it fades. Pulling the collar or the docked island stretches it like rubber; past 24 points it tears off as a free island that keeps its spot relative to each display, and letting it go near its dock, or the Dock island VoiceOver action, docks it again. Island positions saved by earlier builds are discarded: every install starts docked.
+- **Overcast room.** The island's second generated room, a grey cloud-like sky that was previously a `--debug` comparison, is a regular choice in Settings ▸ Island ▸ Lighting.
 
 ### Fixed
 

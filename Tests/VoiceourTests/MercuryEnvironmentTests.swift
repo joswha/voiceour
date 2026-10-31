@@ -11,7 +11,11 @@ import Testing
 /// `--debug` build can reach is exactly the kind of thing that rots quietly.
 @MainActor
 struct MercuryEnvironmentTests {
-    private static let seeds: [UInt64] = [1, 7, 0x5155_4943_4B53_4C56]
+    /// The seed of the stock rooms the chroma, seam and room-lighting tests share.
+    private static let roomSeed: UInt64 = 17
+
+    /// Room of Ten at `roomSeed`, baked once for every test that only reads it.
+    private static let roomOfTen = MercuryEnvironment(world: .roomOfTen, seed: roomSeed)
 
     /// Source sharpnesses are drawn log-uniform over the room-scale bounds. Measured
     /// with a Kolmogorov-Smirnov statistic against the declared marginal rather than a
@@ -64,7 +68,7 @@ struct MercuryEnvironmentTests {
     /// body. Individual room directions therefore carry RGB variation while the room's
     /// sphere mean stays neutral and cannot cast the whole island green or blue.
     @Test func roomOfTenHasLocalChromaAndNeutralMean() {
-        let environment = MercuryEnvironment(world: .roomOfTen, seed: 17)
+        let environment = Self.roomOfTen
         var mean = SIMD3<Double>.zero
         var maximumLocalChroma = 0.0
         for direction in Self.denseDirections {
@@ -93,7 +97,7 @@ struct MercuryEnvironmentTests {
     }
 
     @Test func octahedralBorderIsContinuousAroundNegativeZ() {
-        let environment = MercuryEnvironment(world: .roomOfTen, seed: 17)
+        let environment = Self.roomOfTen
         var minimum = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
         var maximum = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
         let epsilon: Float = 1e-5
@@ -145,28 +149,222 @@ struct MercuryEnvironmentTests {
     /// Radiance is strictly positive everywhere, and prefiltering conserves power: the
     /// three roughness levels agree on the sphere mean, so a rougher patch of body is not
     /// a darker one.
-    @Test(arguments: MercuryWorld.allCases)
-    func radianceIsPositiveAndRoughnessConservesPower(world: MercuryWorld) {
-        for seed in Self.seeds {
-            let environment = MercuryEnvironment(world: world, seed: seed)
-            environment.advance(steps: 120, frozen: false)
-            var means: [Double] = []
-            for roughness in MercuryMetrics.environmentRoughness {
-                var total = 0.0
-                for direction in Self.denseDirections {
-                    let value = environment.radiance(direction, roughness: roughness)
-                    #expect(value.min() > 0)
-                    total += MercuryDisplayResponse.luminance(
-                        SIMD3(
-                            Double(value.x), Double(value.y), Double(value.z)
-                        )
+    @Test(arguments: MercuryWorld.allCases, [UInt64(1), 7, 0x5155_4943_4B53_4C56])
+    func radianceIsPositiveAndRoughnessConservesPower(world: MercuryWorld, seed: UInt64) {
+        let environment = MercuryEnvironment(world: world, seed: seed)
+        environment.advance(steps: 120, frozen: false)
+        var means: [Double] = []
+        var nonPositive = 0
+        for roughness in MercuryMetrics.environmentRoughness {
+            var total = 0.0
+            for direction in Self.denseDirections {
+                let value = environment.radiance(direction, roughness: roughness)
+                if !(value.min() > 0) { nonPositive += 1 }
+                total += MercuryDisplayResponse.luminance(
+                    SIMD3(
+                        Double(value.x), Double(value.y), Double(value.z)
                     )
-                }
-                means.append(total / Double(Self.denseDirections.count))
+                )
             }
-            let lowest = means.min() ?? 0
-            let highest = means.max() ?? 0
-            #expect(highest - lowest <= 0.06 * highest, "\(world.rawValue) seed \(seed) means \(means)")
+            means.append(total / Double(Self.denseDirections.count))
+        }
+        #expect(nonPositive == 0, "\(world.rawValue) seed \(seed): \(nonPositive) non-positive samples")
+        let lowest = means.min() ?? 0
+        let highest = means.max() ?? 0
+        #expect(highest - lowest <= 0.06 * highest, "\(world.rawValue) seed \(seed) means \(means)")
+    }
+
+    // MARK: - Room lighting
+
+    private struct ShippedRoom {
+        let world: MercuryWorld
+        let seed: UInt64
+        let room: MercuryEnvironment
+    }
+
+    /// One default-initialized room per world at `roomSeed`, baked once: every
+    /// room-lighting test measures against it, and a room never changes after its bake. A
+    /// lighting option acts on the bake, never on the seed's draw, so one room per world
+    /// exercises every option's path.
+    private static let shippedRooms: [ShippedRoom] = MercuryWorld.allCases.map { world in
+        let room = world == .roomOfTen ? roomOfTen : MercuryEnvironment(world: world, seed: roomSeed)
+        return ShippedRoom(world: world, seed: roomSeed, room: room)
+    }
+
+    /// Blackbody white balances at t = +1 and t = -1 (4,678 K and 10,667 K against
+    /// 6,504 K), each at Rec.709 luminance 1. Literal, so the bake is held to its own
+    /// contract apart from the spectral solve that produces them.
+    private static let warmBalance = SIMD3<Double>(1.21683, 0.96884, 0.67021)
+    private static let coolBalance = SIMD3<Double>(0.81855, 1.01063, 1.42899)
+
+    /// A saturated blue at Rec.709 luminance 1 and full strength: far enough from the
+    /// near-neutral room that its hue is unambiguous wherever it dominates.
+    private static let blueUnderglow: MercuryUnderglow = {
+        let raw = SIMD3<Double>(0.05, 0.2, 1)
+        return MercuryUnderglow(color: raw / MercuryDisplayResponse.luminance(raw), strength: 1)
+    }()
+
+    /// Stock is the shipped room, not a room close to it. Explicit stock bakes exactly
+    /// what the default initializer bakes, and so does every neutral value of every
+    /// option at once: a finish clamped up to stock, a unit white balance and a
+    /// zero-strength underglow. An option that leaks into the bake moves a whole level, so
+    /// every level is compared on the sphere lattice.
+    @Test(arguments: MercuryWorld.allCases)
+    func neutralLightingBakesTheShippedRoom(world: MercuryWorld) {
+        let neutral = MercuryRoomLighting(
+            finish: 0,
+            whiteBalance: SIMD3(repeating: 1),
+            underglow: MercuryUnderglow(color: SIMD3(repeating: 1), strength: 0)
+        )
+        for shipped in Self.shippedRooms where shipped.world == world {
+            #expect(shipped.room.lighting == .stock)
+            let expected = Self.sample(shipped.room)
+            for lighting in [MercuryRoomLighting.stock, neutral] {
+                let environment = MercuryEnvironment(
+                    world: world,
+                    seed: shipped.seed,
+                    lighting: lighting
+                )
+                #expect(
+                    Self.sample(environment) == expected,
+                    "\(world.rawValue) seed \(shipped.seed) \(lighting)"
+                )
+            }
+        }
+    }
+
+    /// The finish replaces the smooth level and floors the rougher two, so no level is
+    /// smoother than the material. Out-of-range finishes clamp into the table, and the
+    /// stock finish is the shipped layout.
+    @Test func finishSetsTheLevelLayout() {
+        #expect(MercuryRoomLighting.stock.levelRoughness == MercuryMetrics.environmentRoughness)
+        let layouts: [(finish: Float, levels: [Float])] = [
+            (0, [0.03, 0.09, 0.25]),
+            (0.06, [0.06, 0.09, 0.25]),
+            (0.12, [0.12, 0.12, 0.25]),
+            (0.25, [0.25, 0.25, 0.25]),
+            (1, [0.25, 0.25, 0.25]),
+        ]
+        for layout in layouts {
+            var lighting = MercuryRoomLighting.stock
+            lighting.finish = layout.finish
+            #expect(lighting.levelRoughness == layout.levels, "finish \(layout.finish)")
+        }
+    }
+
+    /// A rough finish spreads every source into a broader, dimmer lobe, and the room is
+    /// still normalized to the same mean: roughness costs highlight, never exposure.
+    @Test(arguments: MercuryWorld.allCases)
+    func roughFinishLowersPeaksAtTheSameMean(world: MercuryWorld) {
+        var rough = MercuryRoomLighting.stock
+        rough.finish = 0.25
+        for shipped in Self.shippedRooms where shipped.world == world {
+            let context = "\(world.rawValue) seed \(shipped.seed)"
+            let environment = MercuryEnvironment(world: world, seed: shipped.seed, lighting: rough)
+            let peak = Self.peakLuminance(environment)
+            let stockPeak = Self.peakLuminance(shipped.room)
+            let mean = MercuryDisplayResponse.luminance(Self.meanRadiance(environment))
+            #expect(peak < stockPeak, "\(context) peak \(peak) against \(stockPeak)")
+            #expect(abs(mean - 1) <= 1e-3, "\(context) mean \(mean)")
+            Self.expectPhysical(environment, context)
+        }
+    }
+
+    /// Colour temperature re-tints the light without re-exposing it: warm raises the
+    /// room's red-to-blue ratio, cool lowers it, and the normalized mean stays 1.
+    @Test(arguments: MercuryWorld.allCases)
+    func whiteBalanceTintsWithoutExposure(world: MercuryWorld) {
+        for shipped in Self.shippedRooms where shipped.world == world {
+            let stock = Self.meanRadiance(shipped.room)
+            for (balance, warm) in [(Self.warmBalance, true), (Self.coolBalance, false)] {
+                var lighting = MercuryRoomLighting.stock
+                lighting.whiteBalance = balance
+                let mean = Self.meanRadiance(
+                    MercuryEnvironment(world: world, seed: shipped.seed, lighting: lighting)
+                )
+                let context = "\(world.rawValue) seed \(shipped.seed) balance \(balance)"
+                let ratio = mean.x / mean.z
+                let stockRatio = stock.x / stock.z
+                #expect(
+                    warm ? ratio > stockRatio : ratio < stockRatio,
+                    "\(context) red/blue \(ratio) against \(stockRatio)"
+                )
+                let luminance = MercuryDisplayResponse.luminance(mean)
+                #expect(abs(luminance - 1) <= 1e-3, "\(context) mean \(luminance)")
+            }
+        }
+    }
+
+    /// The underglow is light below the island. Along its axis it adds its own colour at
+    /// nearly its 0.8 peak, enough to own the hue there. At the mirrored top-light
+    /// direction, 130 degrees away, the λ = 4 lobe has fallen to e^(-6.54): 1.15e-3 room
+    /// means on the smooth level. Every level gains exactly the declared power,
+    /// `0.8 (1 - e^-8) / 8` of the room mean, so roughness still costs no exposure.
+    @Test(arguments: MercuryWorld.allCases)
+    func underglowLightsTheRoomFromBelow(world: MercuryWorld) {
+        var lit = MercuryRoomLighting.stock
+        lit.underglow = Self.blueUnderglow
+        let color = Self.blueUnderglow.color
+        let axis = SIMD3<Float>(0, -0.906308, 0.422618)
+        let top = SIMD3<Float>(0, 0.906308, 0.422618)
+        let declaredPower = 0.8 * (1 - Foundation.exp(-8.0)) / 8
+        for shipped in Self.shippedRooms where shipped.world == world {
+            let context = "\(world.rawValue) seed \(shipped.seed)"
+            let stock = shipped.room
+            let environment = MercuryEnvironment(world: world, seed: shipped.seed, lighting: lit)
+
+            let glowing = Self.double(environment.radiance(axis))
+            let added = glowing - Self.double(stock.radiance(axis))
+            let addedLuminance = MercuryDisplayResponse.luminance(added)
+            let hueError = added / addedLuminance - color
+            #expect(addedLuminance > 0.3, "\(context) axis gained \(addedLuminance)")
+            #expect(
+                Swift.max(abs(hueError.x), abs(hueError.y), abs(hueError.z)) <= 1e-3,
+                "\(context) axis gained \(added)"
+            )
+            #expect(glowing.z > glowing.x && glowing.z > glowing.y, "\(context) axis \(glowing)")
+
+            let topGain = MercuryDisplayResponse.luminance(
+                Self.double(environment.radiance(top)) - Self.double(stock.radiance(top))
+            )
+            #expect(abs(topGain) < 2e-3, "\(context) top gained \(topGain)")
+
+            for roughness in MercuryMetrics.environmentRoughness {
+                let gained = MercuryDisplayResponse.luminance(
+                    Self.meanRadiance(environment, roughness: roughness)
+                        - Self.meanRadiance(stock, roughness: roughness)
+                )
+                #expect(
+                    abs(gained - declaredPower) <= 1e-3,
+                    "\(context) roughness \(roughness) gained \(gained)"
+                )
+            }
+            Self.expectPhysical(environment, context)
+        }
+    }
+
+    /// Every option at once (an intermediate finish, a cool balance and an underglow)
+    /// replays byte for byte from the same seed, leaves the shipped room, and stays a
+    /// physical light field.
+    @Test(arguments: MercuryWorld.allCases)
+    func litRoomsReplayAndStayPhysical(world: MercuryWorld) {
+        let lighting = MercuryRoomLighting(
+            finish: 0.15,
+            whiteBalance: Self.coolBalance,
+            underglow: Self.blueUnderglow
+        )
+        for shipped in Self.shippedRooms where shipped.world == world {
+            let context = "\(world.rawValue) seed \(shipped.seed)"
+            let first = MercuryEnvironment(world: world, seed: shipped.seed, lighting: lighting)
+            let second = MercuryEnvironment(world: world, seed: shipped.seed, lighting: lighting)
+            for environment in [first, second] {
+                environment.advance(steps: 600, frozen: false)
+            }
+            #expect(first.lighting == lighting)
+            let replayed = Self.sample(first)
+            #expect(replayed == Self.sample(second), "\(context)")
+            #expect(replayed != Self.sample(shipped.room), "\(context)")
+            Self.expectPhysical(first, context)
         }
     }
 
@@ -190,7 +388,7 @@ struct MercuryEnvironmentTests {
         }
     }
 
-    /// Enough to say "these two rooms are not the same room".
+    /// Enough to tell two rooms apart, or to see an option leak into a whole level.
     private static let sphereDirections: [SIMD3<Float>] = lattice(2048)
 
     /// Two degrees apart, finer than the 3.75-degree table, so the sharpest level's peaks
@@ -208,6 +406,56 @@ struct MercuryEnvironmentTests {
             }
         }
         return values
+    }
+
+    /// The normalization's own measure: the 4,096-point lattice the environment pins its
+    /// mean on, so a normalized room's mean luminance there is 1 to rounding.
+    private static let integrationDirections: [SIMD3<Float>] = lattice(4_096)
+
+    /// Mean linear-RGB radiance over the normalization lattice. The default roughness
+    /// reads level zero under every finish: the level production samples.
+    private static func meanRadiance(
+        _ environment: MercuryEnvironment,
+        roughness: Float = MercuryMetrics.environmentRoughness[0]
+    ) -> SIMD3<Double> {
+        var total = SIMD3<Double>.zero
+        for direction in integrationDirections {
+            total += double(environment.radiance(direction, roughness: roughness))
+        }
+        return total / Double(integrationDirections.count)
+    }
+
+    /// Brightest luminance on the production level at two-degree spacing.
+    private static func peakLuminance(_ environment: MercuryEnvironment) -> Double {
+        var peak = 0.0
+        for direction in denseDirections {
+            let value = double(environment.radiance(direction))
+            peak = Swift.max(peak, MercuryDisplayResponse.luminance(value))
+        }
+        return peak
+    }
+
+    /// Finite and non-negative wherever a caller can sample: the smooth and rough ends of
+    /// this lighting's layout and a blend between its rougher levels. Every lighting pass
+    /// applies one formula to every texel, so a pass that breaks either property breaks it
+    /// far wider than the spacing of the 4,096-direction normalization lattice read here.
+    private static func expectPhysical(_ environment: MercuryEnvironment, _ context: String) {
+        let levels = environment.lighting.levelRoughness
+        var finite = true
+        var minimum = Float.greatestFiniteMagnitude
+        for roughness in [levels[0], (levels[1] + levels[2]) / 2, levels[2]] {
+            for direction in integrationDirections {
+                let value = environment.radiance(direction, roughness: roughness)
+                finite = finite && value.x.isFinite && value.y.isFinite && value.z.isFinite
+                minimum = Swift.min(minimum, value.min())
+            }
+        }
+        #expect(finite, "\(context) radiance is not finite")
+        #expect(minimum >= 0, "\(context) minimum radiance \(minimum)")
+    }
+
+    private static func double(_ value: SIMD3<Float>) -> SIMD3<Double> {
+        SIMD3(Double(value.x), Double(value.y), Double(value.z))
     }
 
 }

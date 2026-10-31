@@ -128,6 +128,28 @@
             #expect(evaluate(button).contains { $0.rule == "control-height" })
         }
 
+        @Test func systemDrawnSlidersAreNotHeldToTheControlScale() {
+            // Every Settings ▸ Island slider publishes AppKit's 16 pt track box. A 16 pt
+            // app-drawn control of the same size is still a finding.
+            let slider = node(
+                role: "AXWindow",
+                frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                children: [
+                    node(role: "AXSlider", label: "Finish", frame: CGRect(x: 10, y: 10, width: 304, height: 16))
+                ]
+            )
+            let button = node(
+                role: "AXWindow",
+                frame: CGRect(x: 0, y: 0, width: 400, height: 300),
+                children: [
+                    node(role: "AXButton", label: "Finish", frame: CGRect(x: 10, y: 10, width: 304, height: 16))
+                ]
+            )
+
+            #expect(evaluate(slider).contains { $0.rule == "control-height" } == false)
+            #expect(evaluate(button).contains { $0.rule == "control-height" })
+        }
+
         @Test func documentContentOverflowingAScrollViewportIsNotAClippedChild() {
             let overflowing = node(
                 role: "AXGroup",

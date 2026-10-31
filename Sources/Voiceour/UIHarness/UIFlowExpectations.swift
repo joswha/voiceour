@@ -11,12 +11,14 @@
 #if UI_HARNESS
 
     import Foundation
+    import VoiceCore
 
     enum UIFlowExpectations {
         /// Returns the complete match set in the hierarchy's document order.
         static func matches(_ query: UIQuery, in tree: AXNode) -> [AXNode] {
             var result: [AXNode] = []
-            collectMatches(query, in: tree, into: &result)
+            var ancestors: [AXNode] = []
+            collectMatches(query, in: tree, ancestors: &ancestors, into: &result)
             return result
         }
 
@@ -75,6 +77,12 @@
             case .value(let query, let rule):
                 result = evaluateUnique(query, in: tree) { node in
                     let actual = node.value ?? ""
+                    return Evaluation(passed: rule.accepts(actual), observed: UIQuery.quote(actual))
+                }
+
+            case .valueDescription(let query, let rule):
+                result = evaluateUnique(query, in: tree) { node in
+                    let actual = node.valueDescription ?? ""
                     return Evaluation(passed: rule.accepts(actual), observed: UIQuery.quote(actual))
                 }
 
@@ -164,14 +172,29 @@
             let rendered: String
         }
 
-        private static func collectMatches(_ query: UIQuery, in node: AXNode, into result: inout [AXNode]) {
-            if nodeMatches(query, node: node) { result.append(node) }
+        /// Document-order walk that carries the path from the root, so a `within` query can
+        /// ask about a node's ancestors without a second pass. A node enclosed by several
+        /// matching containers is still reported once: matching is a property of the node.
+        private static func collectMatches(
+            _ query: UIQuery,
+            in node: AXNode,
+            ancestors: inout [AXNode],
+            into result: inout [AXNode]
+        ) {
+            if nodeMatches(query, node: node, ancestors: ancestors[...]) { result.append(node) }
+            ancestors.append(node)
             for child in node.children {
-                collectMatches(query, in: child, into: &result)
+                collectMatches(query, in: child, ancestors: &ancestors, into: &result)
             }
+            ancestors.removeLast()
         }
 
-        private static func nodeMatches(_ query: UIQuery, node: AXNode) -> Bool {
+        /// `ancestors` runs from the root down to the node's parent.
+        private static func nodeMatches(
+            _ query: UIQuery,
+            node: AXNode,
+            ancestors: ArraySlice<AXNode>
+        ) -> Bool {
             switch query {
             case .id(let value): return node.identifier == value
             case .label(let value): return node.label == value
@@ -179,7 +202,13 @@
             case .placeholder(let value): return node.placeholder == value
             case .labelContains(let value): return node.label?.contains(value) ?? false
             case .role(let value): return node.role == value
-            case .all(let queries): return queries.allSatisfy { nodeMatches($0, node: node) }
+            case .all(let queries):
+                return queries.allSatisfy { nodeMatches($0, node: node, ancestors: ancestors) }
+            case .within(let container, let inner):
+                guard nodeMatches(inner, node: node, ancestors: ancestors) else { return false }
+                return ancestors.indices.contains { index in
+                    nodeMatches(container, node: ancestors[index], ancestors: ancestors[..<index])
+                }
             }
         }
 
@@ -239,6 +268,8 @@
                 return []
             case .all(let queries):
                 return queries.flatMap(queryNeedles)
+            case .within(let container, let inner):
+                return queryNeedles(inner) + queryNeedles(container)
             }
         }
 
@@ -289,7 +320,21 @@
                 return quotedProbe(context.effects.pasteboardWrites.last ?? "")
             case .pasteboardWrites:
                 return scalarProbe(context.effects.pasteboardWrites.count)
+            case .islandLook:
+                return quotedProbe(islandLookTag(coordinator.settings.island))
+            case .islandAppearance:
+                return quotedProbe(coordinator.settings.island.canonicalDescription)
+            case .islandDraftPending:
+                return flagProbe(coordinator.islandDraft != nil)
+            case .islandPlacement:
+                return quotedProbe(RecordingOverlayPlacement.persisted.isFree ? "free" : "docked")
             }
+        }
+
+        /// What `islandLook` reports for an appearance: the look's raw tag, or `custom`. One
+        /// spelling, so a flow can compute the tag it expects from the appearance it expects.
+        static func islandLookTag(_ appearance: IslandAppearance) -> String {
+            IslandLook.matching(appearance)?.rawValue ?? "custom"
         }
 
         private static func quotedProbe(_ value: String) -> ModelProbe {
@@ -298,6 +343,12 @@
 
         private static func scalarProbe<T>(_ value: T) -> ModelProbe {
             let text = String(describing: value)
+            return ModelProbe(value: text, rendered: text)
+        }
+
+        /// `1` or `0`: the island keys report presence, not a Swift boolean.
+        private static func flagProbe(_ flag: Bool) -> ModelProbe {
+            let text = flag ? "1" : "0"
             return ModelProbe(value: text, rendered: text)
         }
     }

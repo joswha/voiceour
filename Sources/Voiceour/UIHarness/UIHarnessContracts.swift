@@ -177,6 +177,14 @@
         var subrole: String?
         var label: String?
         var value: String?
+        /// What an assistive technology speaks for the value (`accessibilityValueDescription`),
+        /// when the element publishes one beside the value itself.
+        ///
+        /// Deliberately NOT printed by `AXDump.text`, for the same reason `selected` is not:
+        /// a slider's `AXValue` is the integer its goldens already record, and the sentence
+        /// VoiceOver reads for it ("70 nanometers") is a flow-only contract, so no golden
+        /// moves.
+        var valueDescription: String?
         /// Prompt text a text field shows while empty (`AXPlaceholderValue`). It is the only
         /// thing identifying an untouched field, so it is both dumped and matchable.
         var placeholder: String?

@@ -61,6 +61,15 @@ struct MercuryArrival: Equatable, Sendable {
 /// not a hope, and it is the only limiter in the geometry path. The body shape holds `H` to
 /// ``maxBodyHalfHeight(ceiling:)``, a crest headroom under that ceiling, so every station keeps
 /// room for a crest and the gauge never has to erase the body to honour one.
+///
+/// A ``MercuryTune`` is resolved once into the law's constants, and ``retune(_:)`` swaps it under
+/// a live body. Its motion knobs multiply the gel's own constants, one multiplication each, and
+/// every factor is exactly 1 for the shipped body, which therefore runs the shipped law to the
+/// bit: Tempo and Viscosity enter every mode's ``MercuryGel/modal(waveNumber:depth:tempo:viscosity:)``,
+/// Shimmer the kick variance, Reactivity and Slither the voice gains, Morph the body shape's
+/// ``MercuryBodyShape/Laws`` and Drama the gestures' kicks. Its body kit is a drawing transform
+/// applied where the geometry is emitted (see ``Geometry``), so the dynamics, the containment
+/// proof and calibration all stay on the stock law and the stock envelope.
 @MainActor
 final class MercurySimulation {
     /// Everything the session tells the body.
@@ -96,10 +105,20 @@ final class MercurySimulation {
         var arrival: MercuryArrival?
     }
 
-    /// What the field reads: points along the spine and along its normal.
+    /// What the field reads: points along the spine and along its normal, for the body as it is
+    /// drawn.
+    ///
+    /// The tune's body kit is applied here and nowhere else. The containment gauge proves the stock
+    /// body inside its ceiling, and on a collar inside every wall's reach, and the drawn body lies
+    /// pointwise inside the stock one: each edge is the stock edge times `size · build · G′(a) / G(a)`,
+    /// where `G′` is the mean envelope at the kit's end taper, never above the gauged `gEnd`, and
+    /// `size · build ≤ 1`. On the island, whose ceiling is the same at every station, the length is
+    /// drawn `size` times as long as well. A collar draws the stock length: its stations lie along the
+    /// housing's outline at the arc lengths the gauge proved, and moving them along a curved spine
+    /// would carry them to reaches it never measured. The sway is never scaled.
     struct Geometry: Equatable {
         var length: CGFloat
-        /// `H0`, the depth the shaped mean envelope is drawn at.
+        /// `H0 · size · build`, the depth the shaped mean envelope is drawn at.
         var halfHeight: CGFloat
         /// Points along the spine, from its rest centre to the body's centre: the body
         /// shape's sway.
@@ -109,6 +128,9 @@ final class MercurySimulation {
         var top: [Float]
         /// `columns + 1` samples of the bottom edge's offset, never positive.
         var bottom: [Float]
+        /// The half-elliptic crown's vertical aspect. It travels with the silhouette, so every
+        /// reader of this body, metering included, lifts the same crown.
+        var crownAspect: Double = MercuryMetrics.crownAspect
     }
 
     /// One complex mode: its two real components, advanced together.
@@ -150,8 +172,44 @@ final class MercurySimulation {
         }
     }
 
+    /// A tune resolved into the law's constants, once per tune rather than once per substep. Each
+    /// is a shipped constant times one tune value, which is exactly 1 at stock, so each enters its
+    /// expression as one multiplication and the stock body runs the shipped expressions to the bit.
+    private struct Law {
+        /// Tempo and Viscosity, handed to every mode's gel.
+        let tempo: Double
+        let viscosity: Double
+        /// Whether either moves the modes off their stock gel. Without, every mode's following
+        /// compensation is exactly 1 and is never evaluated.
+        let compensates: Bool
+        /// `restRMS · shimmer`: the autonomous shimmer's rms at the fundamental. Zero draws no kicks.
+        let shimmerRMS: Double
+        /// The contact-line family's factor on its own kicks.
+        let slither: Double
+        /// `gains.drive · reactivity`.
+        let drive: Double
+        /// `gains.snake · reactivity · slither`.
+        let snake: Double
+        /// The gestures' kicks times Drama. The copy-only bead's squash is not one of them.
+        let lurchImpulse: Double
+        let collapseImpulse: Double
+        let lurchSwayRate: Double
+        let collapseAspectRate: Double
+        /// The body shape's laws at the tune's Morph.
+        let shape: MercuryBodyShape.Laws
+        /// Drawn length over the body's own, on the island: `size`.
+        let lengthScale: Double
+        /// Drawn depth over the body's own: `size · build`.
+        let depthScale: Double
+        let crownAspect: Double
+        /// `G′(a)` at every station, the mean envelope at the kit's end taper; nil at the gauged
+        /// `gEnd`, where the drawn envelope is the gauged one.
+        let drawnMean: [Double]?
+    }
+
     private let noise: MercuryNoise
     private let gains: MercuryGains
+    private var law: Law
 
     private var varicose: [Mode]
     private var snake: [Mode]
@@ -165,25 +223,36 @@ final class MercurySimulation {
     private var lastSamples: [Float]
 
     /// The body the modes ride on: its length, depth, sway, skew and neck.
-    private var body = MercuryBodyShape()
+    private var body: MercuryBodyShape
     private var substepIndex: UInt64 = 0
     private var lastReduceMotion: Bool
     private var lastGesture: MercuryOutcomeGesture?
     /// The greatest arrival `id` applied since the last reset. Tokens only grow, so one at or
     /// below it has kicked already, however frames interleave them.
     private var highestAppliedArrival: Int?
+    /// The pose a replay starts from. ``rearmGesture(from:)`` hands it over, and the next advance
+    /// that moves the body places the body shape on it.
+    private var replaySource: MercuryPose?
+    /// Whether the last drive laid the body on a collar, which draws the stock length.
+    private var collared = false
 
-    /// `(L, H0)`, floored, that `propagators` and `kickScales` were built for. A held pose
-    /// stops moving them, so a pinned frame, calibration and a still body build them once.
+    /// `(L, H0)`, floored, that `propagators`, `kickScales` and `compensation` were built for. A
+    /// held pose stops moving them, so a pinned frame, calibration and a still body build them once.
     private var modalExtent: SIMD2<Double>?
     private var propagators: [MercuryZener] = []
-    /// `σ_w` per mode, built only when kicks are due at this extent: Reduce Motion never
-    /// pays for the stationary solve.
+    /// `σ_w` per mode, built only when kicks are due at this extent: Reduce Motion and a body
+    /// without shimmer never pay for the stationary solve.
     private var kickScales: [Double]
     private var kickScalesBuilt = false
+    /// Each mode's following compensation at this extent, `|H_stock(iW)| / |H_tuned(iW)|`: exactly
+    /// 1 unless the tune moves Tempo or Viscosity.
+    private var compensation: [Double]
 
     /// `G_s` at every station, for the skew and neck it was last built with.
     private var shapedEnvelope: [Double]
+    /// `G′_s`, the envelope the kit draws when it retapers the ends, at the same skew and neck. Nil
+    /// draws `shapedEnvelope`.
+    private var drawnEnvelope: [Double]?
     private var envelopeSkew = 0.0
     private var envelopeNeck = 0.0
 
@@ -192,17 +261,22 @@ final class MercurySimulation {
 
     var geometry: Geometry {
         Geometry(
-            length: CGFloat(body.length),
-            halfHeight: CGFloat(depth),
+            length: CGFloat(collared ? body.length : body.length * law.lengthScale),
+            halfHeight: CGFloat(depth * law.depthScale),
             lateralOffset: CGFloat(body.sway),
             top: top,
-            bottom: bottom
+            bottom: bottom,
+            crownAspect: law.crownAspect
         )
     }
 
-    init(seed: UInt64, gains: MercuryGains) {
+    /// `tune` defaults to stock, the shipped body to the bit, which calibration, the harness and
+    /// the benchmarks measure.
+    init(seed: UInt64, gains: MercuryGains, tune: MercuryTune = .stock) {
         noise = MercuryNoise(seed: seed)
         self.gains = gains
+        let law = Self.resolve(tune, gains: gains)
+        self.law = law
         let count = MercuryMetrics.modeCount
         let restVaricose = Self.restDraw(noise: MercuryNoise(seed: seed), family: 0)
         let restSnake = Self.restDraw(noise: MercuryNoise(seed: seed), family: 1)
@@ -212,10 +286,13 @@ final class MercurySimulation {
         snake = restSnake.map { Mode(value: $0) }
         voice = Array(repeating: SIMD2<Double>(), count: count)
         lastSamples = Array(repeating: 0, count: 11)
+        body = MercuryBodyShape(laws: law.shape)
         lastReduceMotion = false
         lastGesture = nil
         kickScales = Array(repeating: 0, count: count)
+        compensation = Array(repeating: 1, count: count)
         shapedEnvelope = Self.meanEnvelope
+        drawnEnvelope = law.drawnMean
         top = Array(repeating: 0, count: MercuryMetrics.columns + 1)
         bottom = Array(repeating: 0, count: MercuryMetrics.columns + 1)
         propagators.reserveCapacity(count)
@@ -232,16 +309,19 @@ final class MercurySimulation {
     /// A reset is itself the transition into this drive, so a gesture the pose already
     /// carries is spent rather than kicked, as is an arrival handed to a body at rest. An
     /// emerging body takes its arrival on the next advance, as the first motion of the
-    /// mercury that emerges. Either way, arrivals the body took before the reset are forgotten.
+    /// mercury that emerges. Either way, arrivals the body took before the reset are forgotten,
+    /// and so is a replay ``rearmGesture(from:)`` handed over: the reset is the placement.
     func reset(to drive: Drive, emerging: Bool = false) {
         substepIndex = 0
         lastReduceMotion = drive.reduceMotion
         lastGesture = drive.pose.gesture
         highestAppliedArrival = emerging ? nil : drive.arrival?.id
+        replaySource = nil
+        collared = drive.spine != nil
         lastSamples = drive.samples
         voice = Self.spectrum(of: drive.samples)
         if emerging {
-            body = MercuryBodyShape()
+            body = MercuryBodyShape(laws: law.shape)
         } else {
             body.reset(to: Self.bodyTarget(for: drive), limits: Self.bodyLimits(for: drive))
         }
@@ -250,10 +330,53 @@ final class MercurySimulation {
         rebuildGeometry()
     }
 
+    /// Swaps the tune under a live body, for a look that changes mid-session.
+    ///
+    /// The modes, the voice and the body shape's coordinates, rates and arm stresses carry on as
+    /// they are, so the body changes character without a jump. Only the laws change — the modes'
+    /// propagators, kick scales and following compensation, rebuilt by the next substep, and the
+    /// body shape's ``MercuryBodyShape/Laws`` — and the geometry is redrawn with the new kit at
+    /// once. Nothing needs containing again: the state is the one the last reset or advance
+    /// contained, against the stock envelope that no tune moves, and every kit draws inside it.
+    func retune(_ tune: MercuryTune) {
+        law = Self.resolve(tune, gains: gains)
+        body.laws = law.shape
+        modalExtent = nil
+        for index in compensation.indices {
+            compensation[index] = 1
+        }
+        redrawEnvelope()
+        rebuildGeometry()
+    }
+
+    /// Lets the latched outcome gesture land again on the next advance, for a replay. The
+    /// impulse is a pose-entry event, so forgetting the latched gesture is all it takes.
+    ///
+    /// With `source`, the replay also starts from that pose, as the live processing-to-outcome
+    /// transition does. The next advance that moves the body first places the body shape at rest
+    /// on `source`, exactly where ``reset(to:emerging:)`` would place it in that advance's drive,
+    /// its limits included, then kicks it and relaxes it toward that drive's pose. That drive is
+    /// meant to carry an outcome pose: a live pose has no gesture, so its replay would be the jump
+    /// to `source` alone. The modes keep their state, and that advance's substeps contain them
+    /// against the placed body before anything is drawn. Placing the body here instead would need
+    /// limits this call does not have, and would draw a body no containment had seen.
+    func rearmGesture(from source: MercuryPose? = nil) {
+        lastGesture = nil
+        replaySource = source
+    }
+
     /// `steps` substeps of this drive. Zero leaves the body exactly as it is: nothing in it
-    /// moves between substeps.
+    /// moves between substeps, and a replay waits for an advance that moves it.
     func advance(steps: Int, drive: Drive) {
         guard steps > 0 else { return }
+        collared = drive.spine != nil
+        if let source = replaySource {
+            replaySource = nil
+            var from = drive
+            from.pose = source
+            body.reset(to: Self.bodyTarget(for: from), limits: Self.bodyLimits(for: drive))
+            reshapeEnvelope()
+        }
         refreshVoice(drive: drive)
         applyGestureImpulse(drive: drive)
         applyArrival(drive: drive)
@@ -285,7 +408,11 @@ final class MercurySimulation {
 
         let effectiveLength = Swift.max(body.length, 1)
         let effectiveHalf = Swift.max(depth, 0.25)
-        prepareModes(length: effectiveLength, depth: effectiveHalf, kicked: !drive.reduceMotion)
+        // Reduce Motion removes the autonomous kicks whatever the tune asks for, and a tune
+        // without shimmer draws none: the noise is counter-based, so a skipped draw cannot shift
+        // a later one.
+        let kicked = !drive.reduceMotion && law.shimmerRMS > 0
+        prepareModes(length: effectiveLength, depth: effectiveHalf, kicked: kicked)
         let driveScale = Double(drive.pose.driveScale)
 
         for index in 0..<MercuryMetrics.modeCount {
@@ -294,28 +421,40 @@ final class MercurySimulation {
             varicose[index].advance(propagator, about: target.varicose)
             snake[index].advance(propagator, about: target.snake)
 
-            guard !drive.reduceMotion else { continue }
+            guard kicked else { continue }
             let deviation = kickScales[index]
             let counter = substepIndex &* UInt64(MercuryMetrics.modeCount) &+ UInt64(index)
             let varicoseKick = noise.gaussianPair(stream: MercuryNoiseStream.varicoseForcing, counter: counter)
             let snakeKick = noise.gaussianPair(stream: MercuryNoiseStream.snakeForcing, counter: counter)
             varicose[index].velocity += deviation * varicoseKick
-            snake[index].velocity += deviation * snakeKick
+            // Slither drives the contact line's own life as well as its voice gain; the voice's
+            // share alone barely shows.
+            snake[index].velocity += (deviation * law.slither) * snakeKick
         }
 
         contain(depth: effectiveHalf, drive: drive)
         substepIndex &+= 1
     }
 
-    /// The modes' gel at this length and depth: `MercuryGel.modal` at `m pi / L`, one
-    /// propagator serving both families. When kicks are due, also each mode's kick scale
-    /// `σ_w = sqrt(Var / unitKickOffsetVariance)`, with `Var = (restRMS / H0 * m^-1.5)^2`.
+    /// The modes' gel at this length and depth: ``MercuryGel/modal(waveNumber:depth:tempo:viscosity:)``
+    /// at `m pi / L` and the tune's Tempo and Viscosity, one propagator serving both families. When
+    /// kicks are due, also each mode's kick scale `σ_w = sqrt(Var / unitKickOffsetVariance)`, with
+    /// `Var = (restRMS · shimmer / H0 * m^-1.5)^2`.
     ///
-    /// `Var` keeps the autonomous shimmer at `restRMS` points of edge displacement at the
-    /// fundamental, falling as `m^-1.5`. The divisor is the exact stationary variance of one
-    /// unit kick per substep through this very propagator — the process the simulation runs,
-    /// not its continuous-time limit — so the shimmer has precisely that rms however stiff,
-    /// damped or creeping the gel makes the mode.
+    /// `Var` keeps the autonomous shimmer at `restRMS · shimmer` points of edge displacement at the
+    /// fundamental, falling as `m^-1.5`. The divisor is the exact stationary variance of one unit
+    /// kick per substep through this very propagator — the process the simulation runs, not its
+    /// continuous-time limit — so the shimmer has precisely that rms however stiff, damped or
+    /// creeping the gel makes the mode, at every tempo and viscosity.
+    ///
+    /// A tune that moves Tempo or Viscosity also gets each mode's following compensation here. The
+    /// voice advects mode `m` at `W = m pi / bufferPeriod`, and a mode follows an equilibrium
+    /// carried round at `W` with the gain ``MercuryZener/Parameters/followingGain(at:)``, which both
+    /// knobs move. Uncompensated, the corners of their ranges would swing an island mode at 0.8 to
+    /// 1.7 times its calibrated following, and the collar's long bodies, whose crests a slower
+    /// tempo carries past their glassy resonance, at a fifth of it to nearly four times it.
+    /// Multiplying the mode's voice force by `|H_stock(iW)| / |H_tuned(iW)|` at the mode's present
+    /// extent restores the stock gain, and with it the meaning of the calibrated crest prominence.
     private func prepareModes(length: Double, depth: Double, kicked: Bool) {
         let extent = SIMD2(length, depth)
         if extent != modalExtent {
@@ -324,31 +463,39 @@ final class MercurySimulation {
             propagators.removeAll(keepingCapacity: true)
             for index in 0..<MercuryMetrics.modeCount {
                 let wave = Double(index + 1) * Double.pi / length
-                propagators.append(
-                    MercuryZener(
-                        parameters: MercuryGel.modal(waveNumber: wave, depth: depth),
-                        step: MercuryMetrics.substep
-                    )
+                let parameters = MercuryGel.modal(
+                    waveNumber: wave,
+                    depth: depth,
+                    tempo: law.tempo,
+                    viscosity: law.viscosity
                 )
+                propagators.append(MercuryZener(parameters: parameters, step: MercuryMetrics.substep))
+                guard law.compensates else { continue }
+                let advection = Double(index + 1) * Double.pi / MercuryMetrics.bufferPeriod
+                compensation[index] =
+                    MercuryGel.modal(waveNumber: wave, depth: depth).followingGain(at: advection)
+                    / parameters.followingGain(at: advection)
             }
         }
         guard kicked, !kickScalesBuilt else { return }
         kickScalesBuilt = true
         for index in 0..<MercuryMetrics.modeCount {
-            let scale = MercuryMetrics.restRMS / depth * pow(Double(index + 1), -1.5)
+            let scale = law.shimmerRMS / depth * pow(Double(index + 1), -1.5)
             kickScales[index] = (scale * scale / propagators[index].unitKickOffsetVariance()).squareRoot()
         }
     }
 
-    /// Where mode `index` of each family is held in this drive: its rest draw, plus the voice.
+    /// Where mode `index` of each family is held in this drive: its rest draw, plus the voice,
+    /// at the tune's gains and with the mode's following compensation.
     private func equilibrium(_ index: Int, driveScale: Double) -> (varicose: SIMD2<Double>, snake: SIMD2<Double>) {
         let coefficient = voice[index]
-        let varicoseForce: SIMD2<Double> = (driveScale * gains.drive) * coefficient
+        let following = compensation[index]
+        let varicoseForce: SIMD2<Double> = ((driveScale * law.drive) * following) * coefficient
         // Multiplying by `i * m * pi` is the derivative along the material
         // coordinate: the contact line answers the crest's slope, not its height,
         // which is what stops the two edges moving as one.
         let rotated = SIMD2<Double>(-coefficient.y, coefficient.x)
-        let snakeWeight: Double = driveScale * gains.snake * Double(index + 1) * Double.pi
+        let snakeWeight: Double = driveScale * law.snake * Double(index + 1) * Double.pi * following
         return (restVaricose[index] + varicoseForce, restSnake[index] + snakeWeight * rotated)
     }
 
@@ -461,7 +608,8 @@ final class MercurySimulation {
         body.halfHeight
     }
 
-    /// `G_s` at every station, rebuilt only when the body's skew or neck has moved since.
+    /// `G_s` at every station, and the kit's `G′_s`, rebuilt only when the body's skew or neck has
+    /// moved since.
     private func reshapeEnvelope() {
         let skew = body.skew
         let neck = body.neck
@@ -473,9 +621,28 @@ final class MercurySimulation {
                 Self.meanEnvelope[station] * (1 + skew * Self.stationPosition[station])
                 * (1 - neck * Self.waist[station])
         }
+        redrawEnvelope()
     }
 
-    /// A gesture's kicks, once, as its pose arrives.
+    /// The kit's `G′_s`, its retapered mean envelope shaped by the same skew and neck as `G_s`, or
+    /// nil when the kit keeps the gauged `gEnd`.
+    private func redrawEnvelope() {
+        guard let mean = law.drawnMean else {
+            drawnEnvelope = nil
+            return
+        }
+        if drawnEnvelope == nil {
+            drawnEnvelope = mean
+        }
+        for station in 0...MercuryMetrics.columns {
+            drawnEnvelope?[station] =
+                mean[station] * (1 + envelopeSkew * Self.stationPosition[station])
+                * (1 - envelopeNeck * Self.waist[station])
+        }
+    }
+
+    /// A gesture's kicks, once, as its pose arrives, at the tune's Drama. The copy-only bead's
+    /// squash is the gathering itself rather than a blow, so no Drama scales it.
     private func applyGestureImpulse(drive: Drive) {
         let gesture = drive.pose.gesture
         defer { lastGesture = gesture }
@@ -484,11 +651,11 @@ final class MercurySimulation {
         case .gathered:
             kickBody(MercuryBodyShape.Impulse(aspectRate: MercuryMetrics.gatheredAspectRate), drive: drive)
         case .lurch:
-            snake[0].velocity.x += MercuryMetrics.lurchImpulse
-            kickBody(MercuryBodyShape.Impulse(swayRate: MercuryMetrics.lurchSwayRate), drive: drive)
+            snake[0].velocity.x += law.lurchImpulse
+            kickBody(MercuryBodyShape.Impulse(swayRate: law.lurchSwayRate), drive: drive)
         case .collapse:
-            varicose[0].velocity.x += MercuryMetrics.collapseImpulse
-            kickBody(MercuryBodyShape.Impulse(aspectRate: MercuryMetrics.collapseAspectRate), drive: drive)
+            varicose[0].velocity.x += law.collapseImpulse
+            kickBody(MercuryBodyShape.Impulse(aspectRate: law.collapseAspectRate), drive: drive)
         }
     }
 
@@ -558,11 +725,38 @@ final class MercurySimulation {
 
     // MARK: - State helpers
 
+    /// Clamped first: the law's proofs and the pose ladder's distinctness hold only inside the
+    /// tune's ranges.
+    private static func resolve(_ requested: MercuryTune, gains: MercuryGains) -> Law {
+        let tune = requested.clamped()
+        return Law(
+            tempo: tune.tempo,
+            viscosity: tune.viscosity,
+            compensates: tune.tempo != 1 || tune.viscosity != 1,
+            shimmerRMS: MercuryMetrics.restRMS * tune.shimmer,
+            slither: tune.slither,
+            drive: gains.drive * tune.reactivity,
+            snake: gains.snake * tune.reactivity * tune.slither,
+            lurchImpulse: MercuryMetrics.lurchImpulse * tune.drama,
+            collapseImpulse: MercuryMetrics.collapseImpulse * tune.drama,
+            lurchSwayRate: MercuryMetrics.lurchSwayRate * tune.drama,
+            collapseAspectRate: MercuryMetrics.collapseAspectRate * tune.drama,
+            shape: MercuryBodyShape.Laws(morph: tune.morph),
+            lengthScale: tune.size,
+            depthScale: tune.size * tune.build,
+            crownAspect: tune.crownAspect,
+            drawnMean: tune.endTaper == MercuryMetrics.gEnd
+                ? nil
+                : stationPosition.map { position in 1 - (1 - tune.endTaper) * position * position }
+        )
+    }
+
     /// One draw per mode component from its own stationary measure, keyed by the seed.
     ///
     /// Scaled at construction against the ceiling, `maxHalfHeight`, rather than against any
     /// pose, because the rest shape is a property of the body rather than of whatever pose it
-    /// happens to be in; the containment gauge is what keeps it inside a shallower one.
+    /// happens to be in; the containment gauge is what keeps it inside a shallower one. Nor does
+    /// Shimmer scale it, so a body without shimmer keeps its seed's asymmetry.
     private static func restDraw(noise: MercuryNoise, family: UInt64) -> [SIMD2<Double>] {
         var result = [SIMD2<Double>](repeating: SIMD2<Double>(), count: MercuryMetrics.modeCount)
         let reference = Double(MercuryMetrics.maxHalfHeight)
@@ -575,8 +769,13 @@ final class MercurySimulation {
         return result
     }
 
-    /// Every mode at the equilibrium this drive holds it to, with no velocity and no stress.
+    /// Every mode at the equilibrium this drive holds it to, with no velocity and no stress. A
+    /// tune that compensates the modes' following builds the compensation at the body's present
+    /// extent first, so the modes land on the equilibrium its law holds them to there.
     private func settleToEquilibrium(drive: Drive) {
+        if law.compensates {
+            prepareModes(length: Swift.max(body.length, 1), depth: Swift.max(depth, 0.25), kicked: false)
+        }
         let driveScale = Double(drive.pose.driveScale)
         for index in 0..<MercuryMetrics.modeCount {
             let target = equilibrium(index, driveScale: driveScale)
@@ -588,13 +787,16 @@ final class MercurySimulation {
 
     // MARK: - Geometry
 
+    /// The body as drawn: the stock law's `theta` on the kit's envelope, `H0 · size · build · G′_s`,
+    /// which is the stock edge times `size · build · G′ / G` at every station.
     private func rebuildGeometry() {
-        let depth = self.depth
+        let depth = self.depth * law.depthScale
+        let envelope = drawnEnvelope ?? shapedEnvelope
         for station in 0...MercuryMetrics.columns {
             let exponents = edgeExponents(at: station)
-            let envelope = depth * shapedEnvelope[station]
-            top[station] = Float(envelope * exp(exponents.upper))
-            bottom[station] = Float(-envelope * exp(exponents.lower))
+            let drawn = depth * envelope[station]
+            top[station] = Float(drawn * exp(exponents.upper))
+            bottom[station] = Float(-drawn * exp(exponents.lower))
         }
     }
 
@@ -647,7 +849,7 @@ final class MercurySimulation {
         2 * Double(station) / Double(MercuryMetrics.columns) - 1
     }
 
-    /// `G(a)`.
+    /// `G(a)`: the envelope the containment gauge proves against, whatever the kit draws.
     private static let meanEnvelope: [Double] = stationPosition.map { position in
         1 - (1 - MercuryMetrics.gEnd) * position * position
     }

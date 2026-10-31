@@ -12,16 +12,18 @@ The island is also not Apple's system Liquid Glass. It is a private, CPU-rasteri
 
 The renderer holds these properties; the tests and hard gates under [Measured gates](#measured-gates) verify the measurable ones:
 
-- One procedural body conveys warming, listening, speaking, processing, copy-only delivery, paste failure, and error.
+- One procedural body conveys warming, listening, speaking, processing, copy-only delivery, paste failure, and error. Every look keeps those silhouettes; no state is carried by hue.
 - `MercuryField` is the sole silhouette for raster coverage, drag hit-testing, and cursor routing.
 - The body moves; its generated room does not. Static geometry must produce byte-identical reflections indefinitely.
 - The body is a viscoelastic gel: struck, it rings; held, it creeps; squash and stretch trade length for thickness at constant volume.
-- The visible material is polished liquid mercury: structured dark and bright bands, subtle room colour, and grazing reflectance—not a white pill.
+- The visible material is a polished conductor: structured dark and bright bands, room colour, and grazing reflectance—not a white pill. The stock look is liquid mercury. A look may choose another metal, a coat, a finish, the room and its light; every colour it shows is the metal's own complex-index reflectance, a coat's interference or absorption, or light in the room. Nothing is painted, rimmed, or highlighted.
+- The stock look's pixels, geometry, responses, and timing paths are pinned bit for bit on the island and the collar, and no look adds per-pixel work ([Island garage](#island-garage-customization)).
+- A session latches its look with its seed when the island appears from hidden; a Settings change never reaches a body on screen.
 - Physics advances in exact `1/120 s` steps. Presentation follows the display containing the panel, capped at 120 fps.
 - A 120 Hz display shows one physics step per frame; a 60 Hz display shows two steps per frame.
 - The complete engine-plus-layer path stays below 8% of one M-series CPU core at represented 120 Hz.
-- Reduce Motion removes autonomous shimmer, emergence, squash-and-stretch overshoot, and the body shape's gesture and arrival kicks, but preserves voice and pose motion because those carry information.
-- Increase Contrast re-solves the same bounded response; it never clips the body to white.
+- Reduce Motion removes autonomous shimmer, whatever a look's Shimmer and Slither, emergence, squash-and-stretch overshoot, and the body shape's gesture and arrival kicks, but preserves voice and pose motion because those carry information.
+- Increase Contrast re-solves the same bounded response to fixed anchors that override a look's Brightness and Contrast; it never clips the body to white.
 - Harness renders are pinned by seed and exact substep. They never start a live display link.
 
 ## Coordinate system and representation
@@ -139,7 +141,7 @@ $$
  \qquad g_{end}=0.46.
 $$
 
-Its nonzero second derivative prevents a straight flank or stadium capsule from appearing at any amplitude.
+Its nonzero second derivative prevents a straight flank or stadium capsule from appearing at any amplitude. A look's Taper draws the same family with a smaller $g_{end}$; containment always gauges this stock envelope ([Body kit](#body-kit)).
 
 The [body shape](#global-body-shape)'s two modulators reshape it:
 
@@ -249,7 +251,7 @@ The first term is the finite-depth capillary–gravity dispersion of a mercury p
 - surface tension over density $\gamma/\rho=818\,700\ \mathrm{pt^3/s^2}$;
 - product tempo $0.32$.
 
-The tempo is intentionally not physical. Real mercury waves at this scale are too fast to read as a menu-bar status surface; the dispersion across modes remains physical while one global factor moves the band into a legible range. The gel adds stiffness and memory to the liquid and never removes it.
+The tempo is intentionally not physical. Real mercury waves at this scale are too fast to read as a menu-bar status surface; the dispersion across modes remains physical while one global factor moves the band into a legible range. The gel adds stiffness and memory to the liquid and never removes it. A look's Tempo time-scales this whole law, and its Viscosity the loss outside the arm ([Motion law](#motion-law)).
 
 A shear wave of speed $c$ on a gel has modal stiffness $(ck)^2$. The rubbery network's $c_\infty=505$ pt/s and the arm's $c_1=410$ pt/s are tuned at the body's tempo, not measured. Their glassy speed $\sqrt{c_\infty^2+c_1^2}\approx650$ pt/s puts mode $m$ of the 160 pt speaking body at $\Omega_g\approx13m$ rad/s, above the $m\pi/0.44\approx7.1m$ rad/s at which the voice advects its crests. The voice therefore drives every crest below its glassy resonance: quasi-static and springy, never a ring the voice did not ask for.
 
@@ -334,7 +336,7 @@ $$
  \mathrm{Var}_{target}=\left(\frac{0.62\ \mathrm{pt}}{H_0}\,m^{-3/2}\right)^2.
 $$
 
-$\mathrm{Var}_{target}$ is in the log-displacement units of $\theta$, so each mode component shimmers by $0.62\,m^{-3/2}$ pt of edge displacement at the body's centre, however stiff, damped, or creeping the gel makes the mode. The $m^{-3/2}$ fall gives the still-listening body life without letting high modes turn its edge into noise. Kick scales are built only when kicks are due at the current extent, so Reduce Motion never pays for the solve.
+$\mathrm{Var}_{target}$ is in the log-displacement units of $\theta$, so each mode component shimmers by $0.62\,m^{-3/2}$ pt of edge displacement at the body's centre, however stiff, damped, or creeping the gel makes the mode. The $m^{-3/2}$ fall gives the still-listening body life without letting high modes turn its edge into noise. Kick scales are built only when kicks are due at the current extent, so Reduce Motion never pays for the solve. A look's Shimmer multiplies that rms in both families, and its Slither the contact-line family's once more ([Motion law](#motion-law)).
 
 Reduce Motion sends every mode directly to its current equilibrium, with no velocity or stress, and suppresses future stochastic kicks. It does not remove the asymmetric rest draw, voice forcing, pose motion, or an outcome gesture's mode impulse.
 
@@ -347,7 +349,7 @@ $$
  s_j e^{-i m\pi(j+1/2)/11}.
 $$
 
-The varicose equilibrium receives $C_m$. The contact-line equilibrium receives its material derivative: multiplication by $i m\pi$. That derivative makes edge motion answer the crest's slope rather than its height. Each equilibrium is the seed's rest draw plus this voice term, scaled by its calibrated gain and the pose's drive scale, and it acts on the mode as a [force](#exact-propagator): moving it never touches the arm's stress.
+The varicose equilibrium receives $C_m$. The contact-line equilibrium receives its material derivative: multiplication by $i m\pi$. That derivative makes edge motion answer the crest's slope rather than its height. Each equilibrium is the seed's rest draw plus this voice term, scaled by its calibrated gain and the pose's drive scale, and it acts on the mode as a [force](#exact-propagator): moving it never touches the arm's stress. A look's Reactivity multiplies both gains and its Slither the contact-line gain once more; under a look's Tempo or Viscosity each mode's voice term also carries the [following compensation](#motion-law).
 
 Between meter updates, the coefficient phase advances by
 
@@ -386,6 +388,8 @@ and its response to a moving target is the positive kernel $\omega^2te^{-\omega 
 **Sway** $\delta$ is a Zener gel with $\Omega_\infty=10$ and $\Omega_1=6.3$ rad/s ($\Omega_g=11.8$), loss ratio 0.16, and $\tau=0.32$ s. Its target is the pose's lateral offset plus $6\ \mathrm{pt}\times\mathrm{lean}$, where the drive's lean in $[-1,1]$ points toward the window the text will land in; 6 pt is under a third of the speaking body's 20 pt crest spacing. A lean arrives with the jelly's wobble and, held, creeps rather than snaps.
 
 **Skew and neck** are critically damped at 12 rad/s. A lopsided lurch and a pinched waist are poses, not wobbles.
+
+A look's Morph time-scales the aspect, sway, skew, and neck laws together and never the volume's ([Morph, Drama, and replay](#morph-drama-and-replay)).
 
 A pose step moves the reference configuration of each gel coordinate and loads its arm by $-\Omega_1^2\Delta$, as in the [exact propagator](#exact-propagator). The panel's own acceleration is a force instead. With $a_t$ and $a_n$ its tangential and normal components in pt/s², each clamped to ±40,000 so that a panel that jumps sloshes the mercury rather than teleporting it, the drive pushes
 
@@ -501,7 +505,7 @@ An outcome gesture is its pose plus one-shot kicks, latched once when the pose's
 - `lurch`, paste failure: skew 0.4 and an 8 pt lateral offset, a sway kick of $+60$ pt/s that throws the body toward its offset, past it, and back, and a 1.1 s⁻¹ kick to the contact-line fundamental.
 - `collapse`, error: neck 0.7, an aspect kick of $+1.5$ s⁻¹ that stretches the body as it thins into its pinched waist, and a 1.0 s⁻¹ kick to the varicose fundamental.
 
-A reset into a pose that already carries its gesture spends the gesture instead of kicking it. Reduce Motion spends the body-shape kicks without applying them, but the mode kicks still fire, because a gesture carries information.
+A reset into a pose that already carries its gesture spends the gesture instead of kicking it. Reduce Motion spends the body-shape kicks without applying them, but the mode kicks still fire, because a gesture carries information. A look's Drama scales the lurch's and the collapse's kicks ([Morph, Drama, and replay](#morph-drama-and-replay)).
 
 An arrival is the kick a body takes as it emerges on the display it was handed to: a `MercuryArrival` token with a sway rate along the spine's left-to-right traversal, away from the side the body came from, and an aspect rate, negative for a landing squash. Arrival ids only grow. The simulation keeps the highest id it has applied and kicks only for a higher one, so the same arrival can accompany every frame of an emergence and the body still feels one kick, and an older token handed over again after a newer one never kicks. A reset forgets them all: an emerging body has applied none and takes its arrival on its first advance, while a body reset at rest counts the drive's own arrival as applied, so that arrival is spent.
 
@@ -535,7 +539,7 @@ $$
 
 is exact for any constant acceleration at any cadence and zero for a constant velocity, and each component is held to the body shape's ±40,000 pt/s². It is the panel's own acceleration, the sign the couplings are written against, so the body lags as it is carried, sloshes as the hand turns, and wobbles when it stops. A jump the body must not feel — a session's start, a re-frame of an empty or re-anchored body, the tear-off the snap already stands for — restarts the differences at rest.
 
-**Docking.** A release with the island's centre within 48 pt of the dock anchor of the display it is on docks; anywhere else the island persists as free there. The anchor is the docked arrangement's centre: the housing's bottom centre, $(h_x,h_{min})$, or the docked island's envelope centre. Twice the tear-off distance, so an island torn off and let go of where it is goes home; a free island cannot rise above the visible frame, so the collar's anchor is reached from 34 pt below it. Docking into the collar changes the layout, which only an empty panel may do: `RecordingOverlayConductor.relayout` drains the body straight up with no lean, re-frames the empty panel onto the housing, and emerges it with the landing squash and no sway. Docking onto the island's dock glides the panel there, critically damped from rest, $x(t)=x_d+(x_0-x_d)(1+\omega t)e^{-\omega t}$ with $\omega=35$ rad/s; its 24 substeps, 0.2 s, carry a full 48 pt glide to within half a point and then land it exactly, and the glide's acceleration, $\omega^2(x_d-x_0)$ at its start, reverses 29 ms in, so the body lags and then sloshes forward as the island settles. The "Dock island" action docks from wherever the island is, and from beyond 48 pt a glide would sweep a visible body across the screen, so it siphons. Under Reduce Motion the collar re-frames at once and the island jumps home, a jump the gel still feels through the clamp. A drag or the action freezes the session's moves; an outcome dwell or a hide ends a live drag where the body is, keeping the placement its release would have.
+**Docking.** A release with the island's centre within 48 pt of the dock anchor of the display it is on docks; anywhere else the island persists as free there. The anchor is the docked arrangement's centre: the housing's bottom centre, $(h_x,h_{min})$, or the docked island's envelope centre. Twice the tear-off distance, so an island torn off and let go of where it is goes home; a free island cannot rise above the visible frame, so the collar's anchor is reached from 34 pt below it. Docking into the collar changes the layout, which only an empty panel may do: `RecordingOverlayConductor.relayout` drains the body straight up with no lean, re-frames the empty panel onto the housing, and emerges it with the landing squash and no sway. Docking onto the island's dock glides the panel there, critically damped from rest, $x(t)=x_d+(x_0-x_d)(1+\omega t)e^{-\omega t}$ with $\omega=35$ rad/s; its 24 substeps, 0.2 s, carry a full 48 pt glide to within half a point and then land it exactly, and the glide's acceleration, $\omega^2(x_d-x_0)$ at its start, reverses 29 ms in, so the body lags and then sloshes forward as the island settles. The "Dock island" action docks from wherever the island is, and from beyond 48 pt a glide would sweep a visible body across the screen, so it siphons. Settings ▸ Island's Dock Island persists the docked placement and docks a visible free island exactly as the action does; with the island hidden, the next session simply starts docked. Under Reduce Motion the collar re-frames at once and the island jumps home, a jump the gel still feels through the clamp. A drag or the action freezes the session's moves; an outcome dwell or a hide ends a live drag where the body is, keeping the placement its release would have.
 
 ## Exact containment on the drawn envelope
 
@@ -559,6 +563,8 @@ and likewise for the lower edge. The containment gauge is the worst normalized v
 Outward radial velocity is removed while tangential velocity survives, and the arm's push $-\sigma$ gives up its outward part too, so stress a mode stored on its way into the boundary cannot press it straight back out through it. This is Moreau-style inelastic contact: the state slides along the constraint instead of striking it on every frame. One scalar rescales both mode families, so containment cannot silently turn an independent two-edge body back into a pill.
 
 The gauge bounds the untapered edges, $y_T\le H_{ceil}$ and $y_B\ge-H_{ceil}$ with $H_{ceil}$ the drive's ceiling, 17 pt on the island and $H_c=24$ pt on the collar, and the field scales both by $\Lambda(s)\le1$. The drawn body therefore reaches at most $\Lambda(s)H_{ceil}$ from the spine: 17 pt on the island, 24 pt below and beside the notch, 3.5 pt along the fillets and ears. Each canvas holds that reach. The island's canvas is ±17 pt about its spine and ±98 pt along it. Its bodies ride a 168 pt track that ends 84 pt from the centre, and a round end reaches past the track by its own half-thickness: at rest every pose stays inside the envelope's ±90 pt, but the speaking body at full lean or under the hardest drag rounds off up to 93.5 pt out, and 94 pt on an adversarial meter. The collar's canvas holds the 24 pt chin plus a 3 pt margin for its bleed, reaches 64.5 pt past each wall, and runs 4 pt past each ear's end for a film-thick round end and its coverage ramp. The field's bounding box is intersected with the canvas, which is the absolute envelope: the bleed keeps the coverage ramp whole and never carries the body past the canvas.
+
+A look's body kit draws inside what the gauge contains: it scales every emitted edge by at most 1, keeps the collar's stations at the arc lengths the gauge held them at, and only shortens the island's span, so every bound above holds for every look ([Body kit](#body-kit)).
 
 ## One scalar field for pixels and interaction
 
@@ -631,7 +637,7 @@ Positive values are inside. The same `MercuryField` evaluation decides:
 - panel drag eligibility;
 - open-hand cursor routing.
 
-This is a structural safety property, not a visual approximation. Transparent corners of the panel cannot swallow a click, and where the spine has no chart there is no body: nothing is drawn and nothing is hit. `MercuryHitRegion` converts panel points into the canvas of the layout last drawn and never claims a point in that layout's menu-bar band, `OverlayDisplay.bandHeight` deep. Menus, menu titles, and status items own that strip, so the collar's film there is drawn but never hit. The island's band is empty.
+This is a structural safety property, not a visual approximation. Drag eligibility and cursor routing accept a point at most 3 pt outside the body, $\phi\ge-3$ pt (`MercuryMetrics.dragSlop`), so transparent corners of the panel cannot swallow a click, and where the spine has no chart there is no body: nothing is drawn and nothing is hit. `MercuryHitRegion` converts panel points into the canvas of the layout last drawn and never claims a point in that layout's menu-bar band, `OverlayDisplay.bandHeight` deep. Menus, menu titles, and status items own that strip, so the collar's film there is drawn but never hit. The island's band is empty.
 
 Coverage is analytic first-order antialiasing:
 
@@ -656,6 +662,8 @@ $$
  z=\beta\sqrt{2r\tilde\phi-\tilde\phi^2},
  \qquad \beta=0.78.
 $$
+
+$\beta=0.78$ is the stock crown. A look's Crown sets it anywhere in $[0.60,1.00]$; the drawn geometry carries it as `MercuryField.crownAspect`, which the rasterizer and the metering read once per field ([Body kit](#body-kit)).
 
 The field is regularized only for the crown:
 
@@ -710,14 +718,14 @@ $$
  q=x'^2+y'^2,\quad d=1400-z.
 $$
 
-Across the island's 196×34 pt canvas $q<0.0052$; across the widest collar canvas, 349×65 pt, under the tallest crown its 24 pt ceiling allows, $q<0.0166$. Voiceour uses
+Across the island's 196×34 pt canvas $q<0.0052$; across the widest collar canvas, 349×65 pt, $q<0.0167$. Both hold under the tallest crown any look draws, $\beta=1$, which reaches the layout's ceiling itself: 17 pt on the island and 24 pt on the collar. Voiceour uses
 
 $$
  (1+q)^{-1/2}\approx
  1-\frac12q+\frac38q^2-\frac5{16}q^3.
 $$
 
-The series alternates, so its first omitted term, $\tfrac{35}{128}q^4$, bounds the direction error: about $2\times10^{-10}$ on the island and $1.9\times10^{-8}$ on the widest collar canvas, far below one 8-bit code value. Dense tests check both canvases against the exact normalization.
+The series alternates, so its first omitted term, $\tfrac{35}{128}q^4$, bounds the direction error: about $2\times10^{-10}$ on the island and $2.1\times10^{-8}$ on the widest collar canvas, far below one 8-bit code value. Dense tests check both canvases against the exact normalization.
 
 With incidence $\mu=N\cdot V$, the mirror direction is
 
@@ -731,7 +739,7 @@ A smooth conductor has no useful colour or structure without something to reflec
 
 Voiceour therefore reflects a generated room rather than painting a highlight. The production room is static for the session. Moving the room was tested and rejected: even slow motion reads as lights rotating around an object instead of a liquid deforming under fixed illumination.
 
-`RecordingOverlayController` draws one fresh random seed for the room and body and latches the persisted `MercuryWorld` when a session begins, so a Settings change applies to the next dictation, never mid-utterance; the harness pins `MercuryMetrics.defaultSeed`. Two worlds share the same prefiltered linear-RGB tables, exact Fresnel, and bounded response path. Room of Ten, below, is the default and the compiled fallback for an unknown persisted value. Spectral Weather, a static lognormal spherical-harmonic room, is a debug comparison selectable only from the `--debug` Settings pane and rendered by the `overlay.island.weather` scene. The room equations and every `make ui-mercury-bench` corpus below use Room of Ten; the octahedral, optical, and response sections apply to both worlds.
+`RecordingOverlayController.show()` draws one fresh random seed for the room and body and latches the island's look with it — `Settings.island`, or the Garage draft still in flight — whenever the panel is not visible, so a Settings change reaches the next appearance of the body, never a body on screen; the harness pins `MercuryMetrics.defaultSeed`. Two rooms share the same prefiltered linear-RGB tables, conductor Fresnel, and bounded response path, and both are user choices in Settings ▸ Island. Studio is Room of Ten, below: the stock room and the compiled fallback for an unknown persisted value. Overcast is Spectral Weather, a static lognormal spherical-harmonic sky, rendered by the `overlay.island.overcast` scene. `make ui-mercury-bench` screens the seed distribution of both rooms, and looks that choose Overcast carry it into the look corpus; the stock raster, collar, motion, and performance corpora use Room of Ten. The octahedral, optical, and response sections apply to both rooms. The Settings showroom renders the same engine in a room sequence of its own ([Sessions, engine and showroom](#sessions-engine-and-showroom)).
 
 ### Room of Ten
 
@@ -773,7 +781,21 @@ $$
  \lambda' = \frac{\lambda}{1+\lambda\alpha^2}.
 $$
 
-Its amplitude is scaled to preserve finite-sphere power. The table footprint roughness `0.019` is added in quadrature to the material level before baking. Production samples the `0.03` level; `0.09` and `0.25` exist for debug and tests.
+Its amplitude is scaled to preserve finite-sphere power. The table footprint roughness `0.019` is added in quadrature to the material level before baking. Production samples the smooth level, `0.03` at the stock finish ([Finish](#finish)); `0.09` and `0.25` exist for debug and tests.
+
+### Overcast (Spectral Weather)
+
+Overcast is a grey, cloud-like sky: a lognormal field on the sphere,
+
+$$
+ L(d)=L_0\exp\left(g(d)-\tfrac12\operatorname{Var}g\right),
+ \qquad
+ g(d)=\sum_{l=1}^{12}\sum_{m=-l}^{l}a_{lm}Y_{lm}(d),
+$$
+
+whose Gaussian coefficients have variance $A\,(\kappa^2+l(l+1))^{-\nu}$ with $\kappa^2=100$ and $\nu=3.8$; $A$ is solved so that the pointwise standard deviation of $g$ is 1.45 nats. With no degree-0 term the field has no mean of its own, and the radiance is strictly positive with mean $L_0$. The coefficients are drawn once from the seed, so the sky is as static as Room of Ten. Each level prefilters exactly, through the spherical heat semigroup $T_l=e^{-l(l+1)\alpha^2/4}$, with the variance correction recomputed per level so that a blurrier level is not a brighter one; power equalization then pins every level to the sharpest one's mean, because a single draw's mean drifts as its logarithm is blurred. The sky carries no colour of its own: a look's temperature and underglow are its only tint.
+
+The knee $\kappa^2$ sets how much of that variance sits in the lowest degrees. At $\kappa^2=30$ the sky is a few huge cloud banks, and 8 of 4,096 seeds reflect one dark bank over more than a quarter of the body, past the crushed-black gate. A knee of 100, `MercuryMetrics.weatherKappaSquared`, spreads the same variance into smaller cells and is the lowest tested knee that clears every Overcast gate with margin. That evidence is the 2026-10-29 measurement across the 4,096 seeds on the island bodies that preceded the gel law: the worst crushed-black area 0.207 against the 0.25 bound, the worst near-ceiling area 0.0156 against 0.02, and the lowest ground contrast 2.32 against 1.5. The gel bodies are held to the same bounds by the Overcast screen of [Measured gates](#measured-gates).
 
 ## Octahedral environment map
 
@@ -888,6 +910,8 @@ Because the spectra and the observer are fixed, $F_{\mathrm{rgb}}$ depends on $\
 - the real-valued algebra matches an independent complex-amplitude evaluation, $r_s=(\mu-w)/(\mu+w)$ and $r_p=(\eta^2\mu-w)/(\eta^2\mu+w)$ with $w=\sqrt{\eta^2-s^2}$, to $6.7\times10^{-16}$;
 - `MercuryOptics.exactFresnel` equals this integral, so the table bound above is a bound against the spectrum.
 
+The 1,024-entry table is `MercuryPaintLookup.stock`, the only copy, built from this oracle: `MercuryOptics.fresnel(cosine:)` reads it, and every other paint integrates through the same observer into a table of the same shape that the rasterizer reads through the same lerp ([Spectral integration](#spectral-integration), [Per-look Fresnel table](#per-look-fresnel-table)).
+
 ## Bounded display response
 
 Raw room radiance is unbounded and seed-dependent. A plain exposure caused two failures: some seeds crushed the dark bands; others turned sustained speech into a white lozenge.
@@ -898,7 +922,7 @@ $$
  Y=0.2126R+0.7152G+0.0722B
 $$
 
-across both listening and speaking bodies for the session's actual room and body seed, laid out as the layout it lights draws them. Each body is placed at rest on its pose and advanced 180 substeps on its meter buffer held still, the syllable for speaking and the quiet room for listening, and every fourth pixel more than half covered enters the pool. The layout matters as much as the pose: a collar shows only the outer half of a chin and walls, which sweeps a different part of the room than the island's whole crown, so a collar is lit by its own response. `MercuryEngine` meters the first layout a session draws and meters again, in the same room, when a frame arrives on another layout, so the solve is paid once per layout and never per frame. The response takes scene anchors $s_m=p50$ and $s_h=p98$ on the island, $s_h=p99$ on the collar, and maps them to
+across both listening and speaking bodies for the session's actual room, look, and body seed, laid out as the layout it lights draws them: the look's tuned law and body kit shape them, its crown lifts them, and its paint table shades them. Each body is placed at rest on its pose and advanced 180 substeps on its meter buffer held still, the syllable for speaking and the quiet room for listening, and every fourth pixel more than half covered enters the pool. The layout matters as much as the pose: a collar shows only the outer half of a chin and walls, which sweeps a different part of the room than the island's whole crown, so a collar is lit by its own response. `MercuryEngine` meters the first layout a session draws and meters again, in the same room and look, when a frame arrives on another layout, so the solve is paid once per layout and never per frame. The response takes scene anchors $s_m=p50$ and $s_h=p98$ on the island, $s_h=p99$ on the collar, and maps them to
 
 $$
  y_m=0.32,\qquad y_h=0.87.
@@ -926,7 +950,7 @@ $$
  h=s_m q_m^{1/p}.
 $$
 
-For every finite positive $s$, $y(s)<c$. The 0.94 ceiling is therefore unreachable analytically, not merely clamped after failure. Increase Contrast solves the same scene anchors to `0.30` and `0.90`, preserving that ceiling.
+For every finite positive $s$, $y(s)<c$. The 0.94 ceiling is therefore unreachable analytically, not merely clamped after failure. Increase Contrast solves the same scene anchors to `0.30` and `0.90`, preserving that ceiling. A look moves both targets ([Tone anchors](#tone-anchors)); the Increase Contrast pair overrides them.
 
 The collar anchors its highlight one percentile higher because its crown is deeper and frames the notch on three sides. Under its 24 pt ceiling each bright source of the room reflects over more of the collar's pixels than over the island's, so the tail above the 98th percentile is heavier: anchored there, the framed collar drew just over 2.0% of its body at or above 0.93 under Increase Contrast, past the 2% bound. Anchored on the 99th, the corpus's worst is 0.03% at the standard response and 1.2% under Increase Contrast. The island keeps the 98th.
 
@@ -1004,7 +1028,7 @@ Three look-defining values are solved against production geometry and optics rat
 
 1. Voice drive gain is solved by proportional iteration, with the contact line off, until the median speaking crest prominence under live-like speech is `5.0 pt`.
 2. Contact-line gain is then bisected against that drive, in the quiet room held still, until the upper/lower mirror correlation is near zero.
-3. Every session's display response solves its own p50 and highlight room anchors, p98 on the island and p99 on the collar, on the layout it lights ([Bounded display response](#bounded-display-response)).
+3. Every session's display response solves its own p50 and highlight anchors for its room and look, p98 on the island and p99 on the collar, on the layout it lights ([Bounded display response](#bounded-display-response)).
 
 Geometry calibration differences a driven run and a zero-drive run from the same seed, on the same meter, with Reduce Motion enabled. Because the mode law is linear below containment, static asymmetry and stochastic decoration cancel exactly; the solve measures voice contribution only. The zero-drive run has no gain to try, so it runs once per seed and its frames are kept. Each run resets at rest on the island's canonical pose, which under Reduce Motion the body shape never leaves, then settles 180 substeps. The modes start at the voice's equilibrium of that instant and the voice moves on at once; the gel's slowest answer is the arm's creep, 2.1 s⁻¹ for the speaking fundamental, and after 1.5 s it is gone. Over one crest period on a buffer held still, the prominence after 180 substeps agrees with that after 1,440 to 0.01%; under live speech, the median prominence pooled over 48 seeds shows no trend from the first second after the reset on.
 
@@ -1017,6 +1041,291 @@ The contact line is solved in the quiet room held still. Edge independence is a 
 The solve gives a drive gain of 0.7862 and a contact-line gain of 0.0246, which `make ui-mercury` prints. The contact line also moves the top edge, so with both gains the median crest prominence under live speech is 5.2483 pt, and the mirror correlation in the quiet room rounds to −0.0000. `MercuryCalibrationTests` holds the prominence within 10% of its target and the correlation at or below 0.2.
 
 The one-time calibration is warmed in `VoiceourApp.init` and takes 113–125 ms on the development M4 Pro. Current gates require launch calibration below 200 ms and first generated room plus first raster below 25 ms.
+
+## Island garage: customization
+
+Settings ▸ Island turns the renderer's shipped constants into a chosen look, which the island and the collar wear alike. [README.md](../README.md#settings) states what the user sees; this section derives how each option enters the model. A look is an `IslandAppearance` (VoiceCore) whose every number is an integer UI unit on a fixed grid, so looks compare by exact equality and a decoded or randomly drawn value always lands on a reachable slider position. `MercuryLook(island:)` snaps it and resolves five renderer inputs — the room (`MercuryWorld`), the paint (`MercuryPaint`), the room lighting (`MercuryRoomLighting`), the tone (`MercuryTone`), and the tune (`MercuryTune`) — mapping every stock value to its shipped constant verbatim.
+
+| option | grid: range / step / stock | renderer input |
+| --- | --- | --- |
+| Metal, Coat | 8 metals, 7 coats; Mercury, None | paint ([Metals](#metals), [Coats](#coats)) |
+| Film | per coat, in nm ([Coats](#coats)) | film thickness $d$ |
+| Candy colour | HSB; 355° / 90 / 80 | dye transmittance $T_0$ |
+| Finish | 0–100 / 5 / 0 | roughness $r=0.03\,(25/3)^{v/100}$ |
+| Room | Studio, Overcast; Studio | `MercuryWorld` |
+| Temperature | −100–100 / 10 / 0 | $t=v/100$ |
+| Underglow | off; hue and saturation; strength 10–100 / 10 / 60 | colour $c_u$, strength $s=v/100$ |
+| Brightness, Contrast | −100–100 / 10 / 0 | $b,\ c=v/100$ |
+| Size, Build | 85–100 / 1 / 100; 80–100 / 2 / 100 | drawn scales $\sigma,\ b_k=v/100$ |
+| Crown | 60–100 / 2 / 78 | crown aspect $\beta=v/100$ |
+| Taper | 0–100 / 10 / 0 | drawn end value $g_t=0.46-0.0016v$ |
+| Tempo, Viscosity, Shimmer, Reactivity, Slither, Morph, Drama | percent of stock ([Motion law](#motion-law)) | law multipliers $v/100$ |
+
+Two invariants bind every option:
+
+- **Stock is bit-identical.** `IslandAppearance.stock` resolves to `MercuryLook.stock`, whose every factor is exactly `1.0`, a constant equal to the shipped one bit for bit, or a bake step that stock skips; no shipped expression is algebraically rewritten. Its pixels, geometry, responses, and timing paths on the island and the collar are pinned by `MercuryStockBaselineTests`, by its overlay goldens, and by its `make ui-mercury-bench` figures, timings aside.
+- **A look adds no per-pixel work.** The paint is one μ→RGB table of the stock table's shape, read through the same lerp from a pointer taken once per frame; finish, temperature, and underglow change the room tables at bake time; the crown aspect is a per-field scalar the staged passes take once per render; every other option is a per-instance constant of the law or the response.
+
+### Metals
+
+Each metal is its measured complex refractive index $\eta(\lambda)=n+ik$. Mercury's is the 81-sample table of [Exact liquid-mercury Fresnel](#exact-liquid-mercury-fresnel) itself: stock samples `MercuryOptics.exactFresnel`, so its table stays the shipped one, and mercury under a coat stands on the same data. Every other metal is interpolated linearly in wavelength between its dataset's rows and clamped at its ends, which is refractiveindex.info's own convention. Every non-stock paint integrates through the stock observer ([Spectral integration](#spectral-integration)).
+
+| metal | dataset (refractiveindex.info page) | spectral $F_0$ (R, G, B) | albedo $A$ | median target |
+| --- | --- | --- | ---: | ---: |
+| Mercury | Inagaki, Arakawa & Williams 1981 (`Hg/Inagaki`) | 0.7814, 0.7795, 0.7784 | 0.7798 | 0.320 |
+| Silver | Johnson & Christy 1972 (`Ag/Johnson`) | 0.9894, 0.9840, 0.9778 | 0.9847 | 0.360 |
+| Aluminum | Rakić 1995 (`Al/Rakic`) | 0.9073, 0.9159, 0.9223 | 0.9145 | 0.347 |
+| Chrome | Johnson & Christy 1974 (`Cr/Johnson`) | 0.5496, 0.5560, 0.5542 | 0.5545 | 0.270 |
+| Platinum | Rakić et al. 1998, Lorentz–Drude model (`Pt/Rakic-LD`) | 0.6778, 0.6377, 0.5837 | 0.6423 | 0.290 |
+| Titanium | Johnson & Christy 1974 (`Ti/Johnson`) | 0.6186, 0.5794, 0.5425 | 0.5850 | 0.277 |
+| Gold | Johnson & Christy 1972 (`Au/Johnson`) | 1.0376, 0.7284, 0.3646 | 0.7679 | 0.318 |
+| Copper | Johnson & Christy 1972 (`Cu/Johnson`) | 0.9318, 0.6227, 0.5224 | 0.6812 | 0.299 |
+
+$F_0=((n-1)^2+k^2)/((n+1)^2+k^2)$ is normal-incidence reflectance; the spectral column integrates it through the stock observer below, mercury from its 5 nm table and every other metal from its rows. The albedo $A$ is its Rec.709 luminance, and the median target is the response anchor at neutral brightness ([Tone anchors](#tone-anchors)). Gold's red above 1 is not extra energy: the observer's weights have negative lobes, so a saturated reflectance can exceed 1 in one channel, and the display response's gamut path already bounds it. Platinum comes from a Lorentz–Drude model resampled at the Johnson & Christy wavelengths: Johnson & Christy 1974 has no platinum, and Werner's electron-loss-derived visible constants make platinum and titanium as bright as silver.
+
+### Spectral integration
+
+Every non-stock paint integrates the stock conductor's 81 wavelengths, $\lambda_j=380+5j$ nm for $j=0,\dots,80$, through its observer:
+
+$$
+ V_j=W^{-1}M\,\frac{\delta_j\,S(\lambda_j)\,\bar{\mathbf c}(\lambda_j)}{\sum_k\delta_k\,S(\lambda_k)\,\bar y(\lambda_k)},
+ \qquad
+ \mathrm{RGB}(\mu)=\sum_jV_j\,R(\mu,\lambda_j).
+$$
+
+Here $\delta_j$ are the trapezoid weights, 2.5 nm at either end and 5 nm inside; $S$ is D65; $\bar{\mathbf c}=(\bar x,\bar y,\bar z)^{\mathsf T}$ is the CIE 1931 2° observer; and $W$ and $M$ are the white normalization and IEC matrix of [Exact liquid-mercury Fresnel](#exact-liquid-mercury-fresnel). The $V_j$ are `MercurySpectral.channelWeights`. Because $\sum_jV_j=(1,1,1)$ to rounding, a perfect reflector stays white, and the island has one observer: bare mercury through this path equals `MercuryOptics.exactFresnel` within $10^{-12}$.
+
+Three wavelengths are not enough: sampled at 610, 550, and 460 nm, a coat misses its spectral integral by up to 0.44 across its thickness range (Oil Slick on gold, with a 690 nm film), and bare gold's red by 0.11.
+
+Against the CIE's 1 nm tables, the 5 nm grid integrates bare metals and lacquers within `3e-5`, and each film coat at its stock thickness within `1e-3` for $\mu\ge0.02$. Nearer grazing, a film over silver resonates too narrowly for 5 nm: `2.5e-3` at $\mu=0.01$ and `0.017` near $\mu=0.0015$.
+
+### Coats
+
+A coat is a layered stack: air, then films, then the metal. Layer $j$ has relative permittivity $\varepsilon_j=\eta_j^2$ and normalized normal wave number
+
+$$
+ q_j=\sqrt{\varepsilon_j-\sin^2\theta}=\sqrt{(\varepsilon_j-1)+\mu^2},
+ \qquad \operatorname{Im}q_j\ge0,
+$$
+
+with $q_0=\mu$ in air; the second form keeps a film of index 1 bit-equal to the cosine near grazing. Interfaces use
+
+$$
+ r^s_{ij}=\frac{q_i-q_j}{q_i+q_j},
+ \qquad
+ r^p_{ij}=\frac{\varepsilon_jq_i-\varepsilon_iq_j}{\varepsilon_jq_i+\varepsilon_iq_j},
+$$
+
+and the Airy recursion wraps each film around what lies beneath it, from the metal, layer $N$, upward:
+
+$$
+ \Gamma_{N-1}=r_{N-1,N},
+ \qquad
+ \Gamma_{j-1}=\frac{r_{j-1,j}+\Gamma_jE_j}{1+r_{j-1,j}\Gamma_jE_j},
+ \qquad
+ E_j=\exp\left(i\,\frac{4\pi d_jq_j}{\lambda}\right).
+$$
+
+The reflectance $R=|\Gamma_0|^2$ is averaged over s and p polarizations and is exact for absorbing layers too. A vanishing film, or a film of index 1, reduces it to the bare conductor within `1e-12`. Films are titania, $n^2=1+4.07248\lambda^2/(\lambda^2-0.23098^2)$ with $\lambda$ in µm — a single-oscillator fit to Siefke et al.'s ALD TiO₂ over 0.40–0.70 µm, within 0.015 in $n$, with $n=2.438$ at 550 nm — or fused silica from Malitson's three-term Sellmeier formula, $n=1.460$ at 550 nm.
+
+| coat | stack | film: range / step / stock (nm) | what it shows |
+| --- | --- | --- | --- |
+| Pearl | titania film | 60–140 / 5 / 70 | a soft tint set by thickness |
+| Anodized | titania film | 20–220 / 5 / 50 | anodizing's sequence on titanium: bronze, blue, gold, green |
+| Oil Slick | silica film | 250–700 / 10 / 450 | rainbow bands that slide across the body as it moves; silica's low index gives the strongest angle shift |
+| Chameleon | 8 nm chromium over a silica spacer | 300–550 / 10 / 350 | an absorber–spacer–mirror Fabry–Pérot cavity, as in optically variable pigments: a colour shift across the body on every metal |
+| Clear Coat | lacquer, $n_l=1.50$ | — | a slightly darker face and a whiter edge |
+| Candy | dyed lacquer, $n_l=1.50$ | — | the dye's colour, whitening toward grazing |
+
+A non-absorbing film on a near-perfect reflector only shifts phase, so Pearl, Anodized, and Oil Slick barely tint silver and aluminium; Chameleon's absorbing chromium makes its interference show on every metal. Surprise Me therefore draws only None, Clear Coat, Candy, and Chameleon on those two metals.
+
+Clear Coat and Candy are an incoherent lacquer over the metal. Light refracts into it at $\mu_t=\sqrt{1-(1-\mu^2)/n_l^2}$; $R_t(\mu)$ is the lacquer's own dielectric Fresnel, $F(\mu_t)$ is the metal's spectral Fresnel seen from inside it, and the dye transmits $T=T_0^{1/\mu_t}$ along the slanted round trip. Summing the interreflections,
+
+$$
+ R=R_t+\frac{(1-R_t)^2\,F\,T}{1-R_t\,F\,T}.
+$$
+
+$T_0$ is the candy colour decoded to linear sRGB (IEC 61966-2-1) and clamped to $[0.02,1]$, because an opaque dye would leave only the lacquer's sheen; Clear Coat is the same lacquer with $T_0=1$, to the last bit. The sum runs per wavelength and is then projected onto each channel's weights, the dye acting as a neutral filter of that channel's strength within its band. Projecting first would put Rec.709 $F$ into the denominator, where gold's red exceeds 1 and $1-R_tF$ can cross zero near grazing.
+
+After the spectral sum, a colour with a negative channel — an interference colour outside Rec.709, mostly Chameleon's — moves toward its own grey along the luminance-null direction until its lowest channel is zero:
+
+$$
+ c'=Y\mathbf 1+(c-Y\mathbf 1)\frac{Y}{Y-\min_ic_i},
+ \qquad Y=w\cdot c.
+$$
+
+Luminance stays exact. Channels above 1 stay as they are; the display response's gamut path bounds them. Stock's oracle clamps at zero instead: on a saturated coat a clamp would shift the hue and add luminance, while mercury's channels stay above 0.70 at every cosine, so for mercury neither binds.
+
+### Per-look Fresnel table
+
+`MercuryPaintLookup` samples a paint at the stock table's 1,024 cosines, $\mu_i=10^{-4}+(1-10^{-4})\,i/1023$, stores each channel as `Float`, and interpolates exactly as the stock lookup does; the rasterizer reads its look's table through the one lerp every pixel already takes. `MercuryPaintLookup.stock` is the stock table — the same cosines through `MercuryOptics.exactFresnel` — and the only copy of it. Every other table is built once per canonical paint and kept in a small process-wide cache. Canonicalization resets the fields a coat ignores, so equivalent paints share one table and uncoated mercury is stock itself; no table depends on the room. Dense tests bound every metal under every coat against its exact spectral oracle at 10,001 cosines: within `1e-4` for $\mu\ge0.01$, `1e-3` for Chameleon, whose cavity colour turns faster, and `1e-2` on the outermost sliver below $\mu=0.01$. A paint's albedo $A$ is the Rec.709 luminance of its $\mu=1$ entry; stock's is 0.77983.
+
+### Finish
+
+Finish sets the material roughness $r=0.03\,(25/3)^{v/100}\in[0.03,0.25]$, log-uniform along the slider. The three prefiltered levels become $[r,\max(r,0.09),\max(r,0.25)]$: the finish replaces the smooth level and floors the rougher two, so no level is smoother than the material, and the level search tolerates the equal neighbours this creates. Each level bakes through the shipped expression $\alpha=\sqrt{r^2+0.019^2}$ from a `Float` roughness, so $r=0.03$ reproduces the stock tables byte for byte. Production still samples only the smooth level.
+
+Overcast prefilters with the spherical heat semigroup at time $\alpha^2/4$, while a Room of Ten lobe widened by the same $\alpha$ is close to time $\alpha^2/2$: one finish would blur Overcast half as much. Each stock level keeps its accepted blur, and a rougher finish adds its extra variance at the Room of Ten rate,
+
+$$
+ \rho^2=\alpha_s^2+2\left(\alpha^2-\alpha_s^2\right),
+$$
+
+where $\alpha_s$ is that level's stock effective roughness and $\rho$ replaces $\alpha$ in the heat kernel. One finish therefore reads about equally rough in both rooms. Microfacet masking is not modelled; at the roughest finish it would dim the grazing limb, which few body pixels reach.
+
+### Room colour temperature
+
+Temperature moves the room's white point linearly in mired,
+
+$$
+ M=153.75+60t\ \mathrm{mired},
+ \qquad T=10^6/M,
+$$
+
+from 10,667 K at $t=-1$ through 6,504 K at stock to 4,678 K at $t=+1$. $\Delta u'v'$ is nearly linear in mired, so equal steps read as equal shifts either side of stock. The room is lit by the observer's D65; a temperature multiplies that light by the ratio of two Planckians, and the room multiplier is that ratio's colour through the same observer, scaled to unit Rec.709 luminance:
+
+$$
+ \mathbf r(t)=\sum_jV_j\,\frac{B(\lambda_j,T(t))}{B(\lambda_j,T(0))},
+ \qquad
+ m=\frac{\mathbf r(t)}{w\cdot\mathbf r(t)},
+$$
+
+with $V_j$ the weights of [Spectral integration](#spectral-integration) and $B(\lambda,T)=\lambda^{-5}/(e^{c_2/\lambda T}-1)$ Planck's law, $c_2=14\,387.768775\ \mu\mathrm{m\,K}$; the $\lambda^{-5}$ cancels in the ratio.
+
+| $t$ | $T$ | $m$ (R, G, B) |
+| ---: | ---: | --- |
+| −1 | 10,667 K | 0.8083, 1.0147, 1.4189 |
+| −0.5 | 8,081 K | 0.8989, 1.0100, 1.1990 |
+| +0.5 | 5,442 K | 1.1097, 0.9850, 0.8252 |
+| +1 | 4,678 K | 1.2261, 0.9656, 0.6745 |
+
+The multiplier scales every texel of every level after the level loop and before power equalization. Normalization then restores the room's mean luminance, so temperature re-tints without re-exposing; $t=0$ skips the step. It stands in for spectral relighting: for the bare metals the two differ by at most 0.035, in gold's red at normal incidence at the warm limit, and for a film coat at its stock thickness by up to 0.10, for Chameleon on silver before the gamut floor. The underglow is its own light and is never white-balanced.
+
+### Underglow
+
+The underglow is one static spherical-Gaussian light below the island:
+
+$$
+ L_u(d)=g\,c_u\exp\left[\lambda_u(d\cdot a-1)\right],
+ \qquad a=(0,-\sin65^\circ,\cos65^\circ)=(0,-0.906308,0.422618),
+ \qquad \lambda_u=4.
+$$
+
+Its reflection centres on the lower half of the crown, which reads as lit from below; a steeper axis lit only the bottom edge and read as an authored rim. The lobe falls to half brightness 34° off its axis: a broad fill, not a hotspot. $c_u$ is the chosen hue and saturation at full brightness, decoded to linear light and scaled to unit Rec.709 luminance, so every hue at one strength is equally bright. The peak is $g=0.8s$ normalized room means, where Room of Ten lamps peak at 1.3–6.7, and the sphere's mean gains only
+
+$$
+ g\,\frac{1-e^{-2\lambda_u}}{2\lambda_u}\approx0.125\,g\le0.1.
+$$
+
+The light joins each level after the room's normalization, prefiltered exactly like a Room of Ten source: $\lambda'=\lambda_u/(1+\lambda_u\alpha^2)$, with the power scale $(\lambda'/\lambda_u)(1-e^{-2\lambda_u})/(1-e^{-2\lambda'})$. The room's normalization scalar, and with it every stock texel, never sees the underglow, and one strength reads the same in every room.
+
+### Tone anchors
+
+The response keeps its two-anchor Naka–Rushton solve; a look moves only the two targets. Increase Contrast overrides every look with $(y_m,y_h)=(0.30,0.90)$, through the existing remap of the same metered scene anchors. Otherwise
+
+$$
+ y_m=\operatorname{clamp}\left(0.32\left(\frac{A}{A_{Hg}}\right)^{1/2}2^{b/2},\ 0.28+0.07s,\ 0.41\right),
+ \qquad
+ y_h=0.87+0.025c,
+$$
+
+with $A$ the paint's albedo, $A_{Hg}$ stock's, $b$ and $c$ the brightness and contrast, and $s$ the underglow strength, zero while it is off. Stock paint with $b=c=s=0$ gives exactly $(0.32,0.87)$, so the stock response, and its bytes, are the shipped ones.
+
+- **Albedo memory.** Metering every metal to one median would leave silver, aluminium, and chrome differing only at the limb, while keeping mercury's response for every metal pushed chrome's median to 0.142 in design-time simulation, below the 0.18 gate. The square root keeps the metals' order — silver 0.360, mercury 0.320, chrome at the 0.28 floor — inside the gates.
+- **Brightness** moves the median target half a stop either way before the clamp. **Contrast** moves the highlight target between 0.845 and 0.895, which scales the response exponent $p$ by 0.895× to 1.148× at the stock median.
+- **Floor and ceiling.** A room's response is metered on settled listening and speaking bodies, while the speaking body a reader watches moves under live speech, so each body's displayed median lands between 0.66 and 1.28 times its target across the look corpus's rooms at the steepest contrast. The median target therefore stays in $[0.28, 0.41]$: at a 0.25 floor the darkest, most contrasted corner — brightness −100, contrast +100 — showed a 0.164 speaking median in one bench room, and at a 0.42 ceiling the brightest a 0.552 one, outside the $[0.18, 0.55]$ gate. The coloured underglow raises the metered median, which would push the unlit bands of a dark tone toward crushed black, so while it is on the floor rises to $0.28+0.07s$. The looks whose paint spreads its poses wider than that — Blued Titanium, Chameleon, Oil Slick, Midnight Cruise, and Street Racer — carry the tone and motion that hold every one of their rooms inside the gates on both layouts.
+
+Each session meters against its actual look on the layout it lights: the scene samples pass through the look's paint table, its lit room, and its drawn body and crown, and the highlight anchor is the layout's own, p98 on the island and p99 on the collar. `MercuryCalibrationTests` hold every look's achieved median within ±0.02 of its own target, and the look corpus holds every look on both layouts and the extremes no look reaches — every brightness and contrast corner, with and without a full-strength underglow, at both temperature limits — to the luminance gates ([Measured gates](#measured-gates)).
+
+### Body kit
+
+Size $\sigma$, Build $b_k$, Taper, and Crown form a drawing transform applied where the simulation emits its geometry. The simulation keeps integrating the stock law on the unscaled pose ladder, and containment and calibration keep gauging the stock envelope $G$ with $g_{end}=0.46$; only the drawn geometry is scaled, retapered, and recrowned. With
+
+$$
+ G_t(a)=1-(1-g_t)(2a-1)^2,\qquad g_t\in[0.30,0.46],
+$$
+
+every station's emitted edges and the drawn depth become
+
+$$
+ y'_T=\sigma b_k\frac{G_t(a)}{G(a)}\,y_T,\qquad
+ y'_B=\sigma b_k\frac{G_t(a)}{G(a)}\,y_B,\qquad
+ H'_0=\sigma b_kH_0,
+$$
+
+so the shaped envelope keeps its skew and neck on the retapered family. On the island the span also shortens with Size, $L'=\sigma L$. On a collar the length is left alone: it is the housing outline the collar's ladder measures, and moving its stations along the curved spine would carry them to arc lengths whose wall reach the gauge never checked. There Size and Build set the thickness and Taper the ends. Four properties follow from ratios rather than from new measurement:
+
+1. **Containment.** $\sigma b_k\le1$, and $G_t\le G$ pointwise when $g_t\le0.46$, so every drawn edge lies inside the edge the gauge contained at the same station: within 17 pt on the island, and on a collar within its ceiling and the reach `MercurySpine.reach(at:under:)` gives at that station's own arc length, which the unscaled length keeps.
+2. **Horizontal reach.** On the island the drawn span and its round ends, scaled by $\sigma b_kg_t/g_{end}\le1$, never reach past the stock body on the same trajectory, so the 196 pt canvas holds every look's body as it holds the stock one ([Exact containment](#exact-containment-on-the-drawn-envelope)).
+3. **Pose distinctness.** On the island, listening stays $82\sigma\ge69.7$ pt longer than warming and speaking $20\sigma\ge17$ pt longer than listening; Build divides every drawn aspect $L/2H$ by $b_k$, so warming stays a compact bead, $58/(17b_k)\le4.5$, for $b_k\ge0.758$, while listening only grows longer against its depth. On a collar every length is the stock one and every depth shrinks by the same $\sigma b_k$, so the ladder keeps its order and warming stays a bead, $58/(24\sigma b_k)\le3.6$. The grids stop at $\sigma=0.85$ and $b_k=0.80$.
+4. **Stock dynamics.** The kit never touches the dynamics, so at the stock law the body's trajectory is the stock body's, whatever the kit draws.
+
+The crown aspect $\beta\in[0.60,1.00]$ applies on both layouts and reaches pixels and metering as `MercuryField.crownAspect`. At $\beta=1$ the crown stands at the layout's ceiling, 17 pt on the island and 24 pt on the collar, and the finite-eye series stays inside its bound on both canvases ([Finite eye and reflection](#finite-eye-and-reflection)). Toward $\beta=0$ the flat plateau of the rejected crown returns, so the grid stops at 0.60.
+
+### Motion law
+
+The engine half of `MercuryTune` resolves into the gel law's constants when a simulation is built, and again on a retune, which keeps the moving body's state. Each knob multiplies constants of the law and enters each expression as one multiplication, so at stock every factor is exactly 1:
+
+| option | law constants | range | bound |
+| --- | --- | --- | --- |
+| Tempo $t$ | every surface mode's Zener law, time-scaled: $\Omega_\infty^2$ and $\Omega_1^2$ ×$t^2$ (the capillary–gravity term through the product tempo $0.32t$, both wave speeds ×$t$), the loss $c$ ×$t$, and the arm's rate $1/\tau$ ×$t$ | 0.70–1.50 | an exact time scale: every eigenvalue ×$t$ and every damping ratio unchanged, 0.13–0.23 over both ladders; the propagator is exact at any stiffness and the kick scale is the exact stationary variance, so mode $m$'s autonomous rms stays $0.62\,m^{-3/2}$ pt × Shimmer. At 1.5 only the warming bead's seventh and eighth modes, 60.2 and 68.8 Hz, and the collar's gathered bead's eighth, 62.3 Hz, pass the 60 Hz Nyquist limit of 120 Hz presentation, at 0.033 and 0.027 pt rms, twice that at full Shimmer; every mode the range lifts past 15 Hz moves the edge at most 0.22 pt rms, 0.44 at full Shimmer, against stock's 0.12. At 0.7 the island's crests are still driven at no more than 0.81 of their glassy frequency |
+| Viscosity $v$ | the loss outside the arm, $c=2\zeta_0\Omega_g+2\nu k^2$, ×$v$ | 0.50–2.00 | every ladder mode stays underdamped, $c/2\Omega_g$ from 0.073 at 0.5 to 0.455 at 2.0, and the Padé propagator has no critical-damping singularity |
+| Shimmer | the autonomous kicks' 0.62 pt rms target, both families | 0–2 | containment holds for any amplitude; zero skips the draws, and the counter-based noise means no later draw shifts |
+| Reactivity | both calibrated gains, drive and contact line | 0.50–1.50 | their calibrated ratio, and with it the two edges' independence, survives |
+| Slither | the contact-line family: its gain and its autonomous kicks | 0.75–2.50 | below 0.75 a quiet listening body reads as a mirrored pill |
+| Morph $m$ | the body-shape laws: the aspect and sway gels, the sway's Reduce Motion law, and the skew and neck modulators, time-scaled by $1/m$; never the volume | 0.60–1.60 | at 1.6 skew and neck reach 90% of a step in 0.53 s and 99.9% within the 1.2 s outcome hold, while the aspect and sway still carry 12% and 15% of theirs at its end; at 0.6 the aspect step overshoots at 0.12 s and settles within 2% in 0.83 s ([Morph, Drama, and replay](#morph-drama-and-replay)) |
+| Drama $d$ | the lurch's contact-line and sway kicks and the collapse's varicose and aspect kicks | 0.50–3.00 | at 3 the sway kick is 180 pt/s, the aspect kick 4.5 s⁻¹, and the mode kicks 3.3 and 3.0 s⁻¹; the gauge contains any mode impulse, and the body shape's Moreau walls hold any shape kick inside its limits |
+
+The voice target rotates at the advection rate $W_m=m\pi/0.44$ s, and a mode follows an equilibrium moved as a force with the Zener transfer
+
+$$
+ H(iW)=\frac{\Omega_\infty^2}{\Omega_\infty^2-W^2+icW+\Omega_1^2\dfrac{iW\tau}{1+iW\tau}}.
+$$
+
+Tempo and viscosity move every term but $W$, and with them that gain. The island's speaking fundamental follows the voice with $|H|=0.909$ at stock, 1.374 at tempo 0.7, and 0.795 at 1.5; on the 185×32 pt collar's 244 pt speaking frame, nearer its glassy resonance, the stock gain is 1.55. Uncompensated, a slow tempo would swell the calibrated crests and a fast one shrink them. Each mode's voice force, in both families, is therefore multiplied at the mode's current extent by
+
+$$
+ c_m=\frac{|H_{stock}(iW_m)|}{|H_{tuned}(iW_m)|},
+$$
+
+which restores the stock following gain: 0.662 and 1.143 for that fundamental. Across the range the factor runs from 0.58 to 1.24 on the island's poses and from 0.27 to 4.8 on the collar's long bodies, which sit nearer their resonance. It is part of the equilibrium the modes are held to, so a reset or a Reduce Motion entry places them on the compensated equilibrium too. At stock tempo and viscosity the factor is exactly 1 and is not evaluated.
+
+Calibration still solves the stock body once at launch, and a look multiplies the solved gains afterwards; re-solving per look would cost a launch calibration per change. The multipliers are safe because the gauge contains any finite amplitude and, below containment, the mode law is linear: prominence scales with reactivity and the compensation, and the mirror correlation depends only on the ratio of the two gains, which only Slither moves. Reduce Motion stays structural: autonomous kicks, slither's share included, are applied only while it is off, whatever the tune; its entry still settles the modes to equilibrium; and the body shape's gesture and arrival kicks are spent unapplied. Voice, pose, and the outcome gestures' mode kicks remain.
+
+### Morph, Drama, and replay
+
+Morph $m$ time-scales the body shape's own laws by $1/m$: the aspect and sway gels take their frequencies and loss ÷$m$ and their relaxation time ×$m$, and the sway's critically damped Reduce Motion law and the skew and neck modulators their frequency ÷$m$. A time scale keeps every overshoot and stretches every settle: the 100×10 → 125×8 pt aspect step still overshoots by 57.6% and settles within 2% after $1.38m$ s. Forces and kicks are not scaled, so a slower morph is a softer body: the same kick or panel acceleration deflects it further, and its Moreau walls stop it. The volume law keeps $\omega_V=10$ rad/s. It is the flow through the notch, which paces emergence, the swallow at dismissal, and the conductor's hand-off, whose drain re-frames the panel after at most 48 substeps: at every morph the island's speaking body still empties on its 40th substep and the fixture collar's speaking frame on its 44th. Slowed by 1.6, the volume would empty the island's speaking body only about the 64th substep and hand the re-frame a visible body.
+
+Drama $d$ scales the outcome gestures' one-shot kicks: `lurch`'s 1.1 s⁻¹ contact-line kick and +60 pt/s sway kick, `collapse`'s 1.0 s⁻¹ varicose kick and +1.5 s⁻¹ aspect kick. The poses themselves, the lurch's 8 pt offset and 0.4 skew and the collapse's neck, are unscaled, and so is `gathered`'s −2.0 s⁻¹ squash: the copy-only bead only gathers.
+
+An outcome gesture fires once, on pose entry, so a body already holding an outcome pose would never show it again. `MercuryEngine.replayGesture(from:)` records a pending replay, which the next advancing frame that drives an outcome pose consumes immediately before `advance`, through `MercurySimulation.rearmGesture(from:)`: the latched gesture is forgotten and, given a source pose, the next advance first places the body shape at rest on that pose, exactly as a reset would under that advance's limits and lean, then fires the gesture's kicks, scaled by Drama, and relaxes into the outcome pose, so the body shape retraces the live processing-to-outcome transition bit for bit; the modes keep their state. A replay requested on a live pose is dropped. `MercurySurfaceView` replays once per increase of its configuration's replay generation and takes its starting generation from its first configuration, so a re-created view never replays on its own; the recording island always passes generation 0.
+
+The showroom's Play Again appears for the Copy-Only, Delivery Failed, and Error poses, replays from the processing pose, and is disabled for the 1.2 s hold. A Morph or Drama change replays automatically while an outcome pose is showing, except under Reduce Motion; there a Play Again press runs the showroom live for that one hold, as the island plays its gesture, and then returns to the still frame.
+
+### Sessions, engine and showroom
+
+`RecordingOverlayController.show()` latches the session. When the panel is not visible, it draws the session seed and resolves `MercuryLook(island:)` from `effectiveIsland` — the committed `Settings.island`, or the Garage draft still in flight — together, and the island and the collar render that look for the whole session. A show that finds the panel visible, a dictation started during the last one's outcome dwell or a show that reverses a fade, continues the session it finds: the body grows back where it is, in the room and look it had. Every other state change keeps what the session latched.
+
+The engine keeps its look's lighting: the room, the paint table, and the response metered for the layout it last drew. A new seed is a new session, a new body that emerges in a new room. A look change keeps the body: a new tune retunes the moving body in place, so a preview's body keeps moving; the room is rebaked only when the seed, room, or lighting changes; and the response is re-metered when the room is rebaked or the paint, tone, tune, or layout changes. A pinned frame always starts a fresh simulation but reuses lighting whose inputs are unchanged, so a reused engine's bytes equal a fresh engine's.
+
+The Settings showroom draws the production `MercurySurface` on the island layout, with its own hit region, in a deterministic room sequence that starts at `MercuryMetrics.defaultSeed`; Another Room advances it. Each pose drives it through `MercurySimulation.Drive.target(for:reduceMotion:)` from a fixed model built once, so it climbs the island's own ladder exactly as a session does. It runs the production display link only while visible and holds the pinned frame at substep 600 under Reduce Motion or when scrolled away. Bake-class changes — paint, room, and lighting — reach it at most ten times a second while a control moves, which bounds main-thread bake time during a drag. It previews no collar; the collar wears the same look on its own layout.
+
+### Rejected options
+
+| option | decision |
+| --- | --- |
+| Coats at three wavelengths | Rejected. A coat misses its spectral integral by up to 0.44. |
+| A separate observer for paints | Rejected. Paints, the white balance, and the stock conductor share `MercurySpectral`'s CIE 1931/D65 observer, so bare mercury through the paint path is the stock oracle. |
+| Brushed or anisotropic finish | Rejected. It needs per-pixel tangent frames and two-dimensional lobes. |
+| True matte | Rejected. It needs a per-pixel diffuse irradiance lookup. |
+| Metal flake or glitter | Rejected. It is per-pixel noise and an authored sparkle. |
+| Film thickness varying across the body | Rejected. A real oil rainbow needs a per-pixel two-dimensional lookup. |
+| Emissive glow or two-tone paint | Rejected. Neither is a reflection; the underglow lights the body physically instead. |
+| Coloured key-light gel | Rejected. Only Room of Ten has discrete lamps to tint; temperature and underglow cover the need. |
+| Calibration re-solved per look | Rejected. It costs a launch calibration per change, and multipliers on the stock solve are provably safe. |
+| Lower-edge lag and dispersion options | Rejected. A lag of zero reintroduces the breathing pill, and dispersion changes only high-mode texture. |
+| Body-kit length on the collar | Rejected. The collar's length is the housing outline; stations moved along the curved spine would leave the wall-reach proof. |
+| Morph on the volume law | Rejected. The volume is the flow through the notch that paces emergence, the swallow, and the 48-substep hand-off drain. |
+| Preview on the real island panel | Rejected. A visible island means a live microphone. |
 
 ## Performance investigation and decisions
 
@@ -1037,7 +1346,7 @@ The final optimization stack was deliberately staged so the 30 fps cache remaine
 6. direct AppKit display link and layer presentation;
 7. deletion of the 30 fps hold only after measurement passed.
 
-Each raster row is shaded in stages. A pixel's shading is one chain of dependent square roots, divides, and table reads, and the core overlaps consecutive pixels' chains only as far as its instruction window reaches, which across one long loop body is barely past the next pixel. So each row runs four passes over the pixels it covers: cover charts, samples, and covers each marked pixel and queues those the body covers; reflect finds where each queued pixel's reflection leaves the crown; light reads the room there through the conductor's Fresnel; write maps each through the display response into the bitmap, or hands it to calibration. Pixels within a pass are independent, so their chains overlap. Every pixel takes the same operations in the same order as `sceneRadiance(of:at:epsilon:environment:)`, so the output is byte-identical and calibration's samples arrive in the same order. The Fresnel, sRGB, and display-response tables live in raw storage read once per frame, the rare gamut pull-back sits out of line, and a pixel at least half a ramp inside an edge takes coverage exactly 1 without the divide. Against the single-pass loop, seven interleaved pairs on 2026-10-30 put the island raster p50 at 0.344 ms instead of 0.542 ms, and the collar's at 0.308 ms instead of 0.490 ms.
+Each raster row is shaded in stages. A pixel's shading is one chain of dependent square roots, divides, and table reads, and the core overlaps consecutive pixels' chains only as far as its instruction window reaches, which across one long loop body is barely past the next pixel. So each row runs four passes over the pixels it covers: cover charts, samples, and covers each marked pixel and queues those the body covers; reflect finds where each queued pixel's reflection leaves the crown at the field's crown aspect; light reads the room there through the look's paint table, the conductor's Fresnel at stock; write maps each through the display response into the bitmap, or hands it to calibration. Pixels within a pass are independent, so their chains overlap. Every pixel takes the same operations in the same order as the per-pixel reference path, `sceneRadiance`, so the output is byte-identical and calibration's samples arrive in the same order. The paint, sRGB, and display-response tables live in raw storage read once per frame, the rare gamut pull-back sits out of line, and a pixel at least half a ramp inside an edge takes coverage exactly 1 without the divide. Against the single-pass loop, seven interleaved pairs on 2026-10-30 put the island raster p50 at 0.344 ms instead of 0.542 ms, and the collar's at 0.308 ms instead of 0.490 ms.
 
 ### Rejected alternatives
 
@@ -1057,7 +1366,7 @@ Each raster row is shaded in stages. A pixel's shading is one chain of dependent
 
 ## Measured gates
 
-`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column is the measurement of 2026-10-30 on the development M4 Pro, four runs on an idle machine, with the range where the runs differ; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
+`make ui-mercury-bench` is permanent and production-backed, and `make check` runs it. The hard-gate column is the contract `MercuryChromeBenchmark` enforces. The result column of the first table is the stock look's measurement of 2026-10-30 on the development M4 Pro, four runs on an idle machine, with the range where the runs differ; rerun the target for current values, which it writes to `.build/ui-harness/mercury/benchmark.json`.
 
 | measurement | result | hard gate |
 | --- | ---: | ---: |
@@ -1076,7 +1385,21 @@ Each raster row is shaded in stages. A pixel's shading is one chain of dependent
 | collar raster p50 / p99 | 0.454–0.457 / 0.492–0.515 ms | ≤0.55 / 0.70 ms |
 | collar raster CPU at 120 Hz | 0.0548–0.0561 core | ≤0.066 core |
 
-A seed fails the 4,096-seed distribution screen when, for either the listening or the speaking reflection manifold, mapped luminance has a median outside `[0.18, 0.55]`, a p95 outside `[0.60, 0.92]`, a p05–p95 span below `0.30`, or less than `1.5` contrast ratio against any of the near-black, mid-grey, and near-white grounds (`0.075`, `0.45`, `0.95`); it also fails when crushed-black area exceeds `0.25`, near-ceiling area `0.02`, p95 local saturation `0.12`, or whole-body colour cast `0.06`. The 64-seed raster corpus additionally fails an Increase Contrast near-white area above `0.02`.
+The look gates run in the same target. They report under `overcastDistribution`, `looks` (the collar's corpus under `looks.collarLooks`), and `lookPerformance`, and on the run's second `mercury-benchmark:` line:
+
+| measurement | result | hard gate |
+| --- | --- | ---: |
+| generated rooms, Overcast: 4,096 seeds on the stock look | 4,096/4,096 pass | zero failures |
+| look corpus, island: 12 looks and 48 option corners × 64 rooms | 3,840/3,840 pass | zero failures |
+| look corpus, collar: 12 looks × 64 rooms | 768/768 pass | zero failures |
+| Street Racer raster p50 / p99 | 0.226 / 0.250 ms | ≤0.55 / 0.70 ms |
+| Street Racer raster CPU at 120 Hz | 0.0266 core | ≤0.066 core |
+| Street Racer engine + layer p50 / p99 | 0.237 / 0.263 ms | ≤0.65 / 0.85 ms |
+| Street Racer engine + layer CPU at 120 Hz | 0.0284 core | ≤0.08 core |
+
+A seed fails the 4,096-seed distribution screen, which runs every seed of each room, Studio and Overcast, on the stock look, when, for either the listening or the speaking reflection manifold, mapped luminance has a median outside `[0.18, 0.55]`, a p95 outside `[0.60, 0.92]`, a p05–p95 span below `0.30`, or less than `1.5` contrast ratio against any of the near-black, mid-grey, and near-white grounds (`0.075`, `0.45`, `0.95`); it also fails when crushed-black area exceeds `0.25`, near-ceiling area `0.02`, p95 local saturation `0.12`, or whole-body colour cast `0.06`. The 64-seed raster corpus additionally fails an Increase Contrast near-white area above `0.02`.
+
+The look corpus renders each of the twelve looks in its own room over 64 seeds, on the island and again on the 185×32 pt collar, then 48 island corners that no look reaches over 64 seeds each: the four brightness and contrast corners at ±100, without and with a full-strength magenta underglow (hue 300°, saturation 100), at both temperature limits, on mercury, chrome, and gold, in Studio. Every case runs a session's own path: the room baked with its lighting, its paint table, the response metered for that look on that layout in that room, and its tuned, body-kitted body, every body hearing the bench's `MercurySpeechMeter`. A render fails when either live pose breaks one of the luminance bounds above — median, p95, p05–p95 span, ground contrast, crushed-black or near-ceiling area — when its Increase Contrast response cannot be solved, or when that response leaves more than `0.02` of the body near white. The saturation and colour-cast bounds stay stock-only: they measure mercury's neutrality, and a look's colour is chosen. Street Racer, which changes every bake-time input at once and runs the fastest and most reactive motion law of any look, repeats the island's raster and engine-plus-layer measurements against the stock budgets.
 
 Every body the bench measures is placed at rest on its pose and settled 600 substeps on a `MercurySpeechMeter`, as calibration's are: a speaking body hears live-like speech, a new level every 40 ms, and a listening body hears the quiet room held still. The measurements are taken at those 600 substeps and, for the motion series, over 30 s more at a sample every 75 ms. A speaking buffer held still would measure its own phase rather than what a speaking user sees: it keeps advecting through a thick half and a thin one, and at 600 substeps a frozen speaking body sat at the 5th percentile of its own series, so the bench would time a thin body.
 
@@ -1088,55 +1411,65 @@ The visual companion is `make ui-mercury`, which writes the contact sheets liste
 
 The relevant automated contracts include:
 
-- `MercurySimulationTests`: replay and batch independence through emergence, lean, frame forcing, and an arrival; distinct seeds; containment under adversarial meters and at the widest skew on the deepest body; a collar drawn under its own 24 pt ceiling whatever its meter, its speaking chin reaching past the island's 17; a body at its height wall that keeps its crests, reaching 13.24 pt and never passing it; time-averaged edge independence on live and still poses, with the contact line lowering the mirror correlation; Reduce Motion stillness; one-shot outcome impulses; distinct poses, speaking longer and deeper than listening; emergence from nothing; gesture wobble that Reduce Motion removes; the skew's area share and the neck's unbroken waist; a lean inside the sway wall, and the speaking island body stopped at its track's end; one kick per arrival token, and an older token that never kicks again; the collar ladder framing the notch, every rung deepened by its ceiling and none held by its height wall, and its drive limits; draining and dismissing asking both ladders for nothing; a drive carrying the controller's pose context, lean, and arrival;
-- `MercuryGelTests`: the propagator as the identity at zero step and a semigroup under doubling; the arm-off block against the closed-form damped oscillator; the stationary covariance against the Lyapunov equation and an impulse-response sum; a struck fundamental that rings and a held one that remembers how long it was held; positive, finite modal parameters across the modal range; a zero state that stays zero; batch independence;
-- `MercuryBodyShapeTests`: an aspect step that rings and settles at constant volume; Reduce Motion taking every rung of the island and collar ladders straight to every other, emergence and swallow included, whether it is on from the start or turned on up to 60 gel substeps into the transition, with length, half-height, sway, skew, and neck each monotone; volume without overshoot; `L·H = V` through wobble, kicks, forcing, and a swallow; adversarial drives that never leave the limits on the island or a collar spine; a pose past the sway wall or the track's end equal to the pose at it; the sway stopped at the island track's ends, with the whole wall left on the collar; a reset that lands where a step holds the pose; a swallow that empties monotonically with and without Reduce Motion; emergence in pose; a pose step that snaps where a force creeps; frame forcing as an exact equilibrium shift; batch independence;
-- `MercuryCrownTests`: analytic derivatives, full crown, limb regularization;
+- `MercurySimulationTests`: replay and batch independence through emergence, lean, frame forcing, and an arrival; distinct seeds; containment under adversarial meters and at the widest skew on the deepest body; a collar drawn under its own 24 pt ceiling whatever its meter, its speaking chin reaching past the island's 17; a body at its height wall that keeps its crests, reaching 13.24 pt and never passing it; time-averaged edge independence on live and still poses, with the contact line lowering the mirror correlation; Reduce Motion stillness; one-shot outcome impulses; distinct poses, speaking longer and deeper than listening; emergence from nothing; gesture wobble that Reduce Motion removes; the skew's area share and the neck's unbroken waist; a lean inside the sway wall, and the speaking island body stopped at its track's end; one kick per arrival token, and an older token that never kicks again; the collar ladder framing the notch, every rung deepened by its ceiling and none held by its height wall, and its drive limits; draining and dismissing asking both ladders for nothing; a drive carrying the controller's pose context, lean, and arrival; a retune back to stock running the stock law bit for bit, and a retune that moves nothing; every tune extreme inside the island and the collar through adversarial meters, gestures, replay, Reduce Motion, shoves and arrivals, swallow, and emergence; following compensation handing every mode its stock following; no Shimmer holding a silent body still off the capsule, and Reduce Motion removing shimmer whatever the tune; Slither keeping the two edges apart; Drama scaling the blows and not the gathering; Morph pacing the shape and never the swallow; the body kit as a drawing transform of the stock law that keeps every pose distinct; a replay retracing the live transition from processing, and a rearmed gesture landing on the next advance only; a tune clamped before it enters the law; tuned advancing replayable and batch independent;
+- `MercuryStockBaselineTests`: the stock look against FNV-1a digests printed on `96fa829` — 24 trajectories, 14 on the island (one handing off to the collar) and 10 on the collar, through emergence, live meters, every gesture, Reduce Motion turned on mid-swing, meters pressing containment, uneven batching, the sway wall, arrivals, panel forcing, the swallow, and the hand-off; the calibrated gains' bit patterns; Studio radiance at five roughness levels with every field of the island and collar responses for three seeds; and the raster bytes of two island and two collar frames under both contrast settings;
+- `MercuryGelTests`: the propagator as the identity at zero step and a semigroup under doubling; the arm-off block against the closed-form damped oscillator; the stationary covariance against the Lyapunov equation and an impulse-response sum; a struck fundamental that rings and a held one that remembers how long it was held; positive, finite modal parameters across the modal range; a zero state that stays zero; batch independence; Tempo running every mode faster while Viscosity only damps it; the following gain as the steady swing of a carried equilibrium;
+- `MercuryBodyShapeTests`: an aspect step that rings and settles at constant volume; Reduce Motion taking every rung of the island and collar ladders straight to every other, emergence and swallow included, whether it is on from the start or turned on up to 60 gel substeps into the transition, with length, half-height, sway, skew, and neck each monotone, at every Morph; volume without overshoot; `L·H = V` through wobble, kicks, forcing, and a swallow; adversarial drives that never leave the limits on the island or a collar spine; a pose past the sway wall or the track's end equal to the pose at it; the sway stopped at the island track's ends, with the whole wall left on the collar; a reset that lands where a step holds the pose; a swallow that empties monotonically with and without Reduce Motion; emergence in pose; a pose step that snaps where a force creeps; frame forcing as an exact equilibrium shift; batch independence; Morph pacing the shape laws and never the volume;
+- `MercuryCrownTests`: analytic derivatives, full crown, limb regularization, each across the Crown range at the island's depths and the collar's 24 pt ceiling;
 - `MercurySpineTests`: the island axis; collar regions, clamped corners, joins with the plateau's exact curvature and a frame that is the curve's own, and mirror symmetry; eased bends whose curvature is continuous across every join and ramp hand-over and which keep their circle's footprint, with $S=1.62051\,r$, $\kappa_pr=1.14038$, and a rim gap of $0.04873\,r$; `rimDistance` as the distance outside the circular housing; ramp feet within four Newton steps; chart round trips, the brute-force nearest point against a resampled outline whose eased bends are integrated by Simpson's rule from their curvature profile alone, the curvilinear metric, and no chart exactly inside the housing and above the screen; unique fillet offsets; ears continued past their ends; one station per column on horizontal runs; taper plateaus, bounds, C¹ continuity, and analytic slope; a film-only upper band;
 - `MercuryFieldTests`: pixel/hit identity on the island and both fixture collars; the island bit for bit as the closed-form straight ribbon; island containment; no island body reaching either end of its 196 pt canvas at full lean, under the hardest drag, or on adversarial meters; the wider island canvas adding only transparent margins, byte for byte and metered sample for sample; one connected body; the hit region's panel-to-field conversion; one evaluation behind value, gradient, and sample; the analytic gradient against central differences on every collar primitive and both caps; a gradient continuous across every join; housing exclusion; a film-only menu-bar band; housing-rim antialiasing; the sparse raster against the full loop, with covered pixels in the rim sliver on both collars;
-- `MercuryEnvironmentTests`: positivity, seed replay, power conservation, chroma neutrality, octahedral seam continuity;
+- `MercuryEnvironmentTests`: positivity, seed replay, power conservation, chroma neutrality, octahedral seam continuity; stock lighting baking the shipped rooms, the finish level layout, white balance without exposure, underglow from below, lit-room replay;
 - `MercurySpectralTests`: colour-matching and D65 tables against their published integrals and chromaticity, white mapping, sampled-constant provenance, neutral normal incidence, complex-amplitude Fresnel cross-check;
+- `MercuryPaintTests`: the stock table bit for bit against the spectral oracle, and its reads bit for bit through the shipped lerp; paints sharing the stock observer, mercury's substrate as the stock oracle's table, and bare spectral mercury as the stock oracle; dataset rows, film dispersion, the closed-form conductor, vanishing films, the gamut floor keeping luminance and hue, every metal under every coat against its spectral oracle, unit-luminance white balance, the stock albedo, Clear Coat as colourless Candy, one table per equivalent paint, user colours;
+- `IslandAppearanceTests`: lenient decoding, grid snapping, canonical form, per-fold stock restore, every look on grid and distinct, Surprise Me replay, grid, and documented mixing;
 - `MercuryDisplayResponseTests`: anchor solve, monotonicity, unreachable ceiling, Rec.709 gamut handling;
-- `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation inside the series bound on the island and the widest collar canvas under each one's tallest crown, octahedral round trip, 60/75/120/144 Hz presentation rate;
+- `MercuryPresentationPerformanceTests`: Fresnel/OETF/response oracle error, view approximation inside the series bound on the island and the widest collar canvas under the tallest crown any look draws, octahedral round trip, 60/75/120/144 Hz presentation rate;
 - `MercuryClockTests`: epoch anchoring; exactly 120 substeps per second at 48, 60, 75, 120, and 144 Hz, with each frame's share; exact counts from 24 MHz tick timestamps with ±20 µs of jitter at 3.5 and 30 days of uptime; the stall cap and re-anchor through `steps` or `rephase`; display hand-offs that drop and repeat nothing; a hand-off half a substep off the old grid that stays 2, 2, 2 instead of 1, 3, 1, 3; every hand-off phase in thousandths of a substep under three kinds of ±20 µs jitter onto 120, 60, and 75 Hz, each re-phasing as `steps` would count, then holding the new display's own cadence within a substep of elapsed time; new links that start behind the last presented substep; non-finite timestamps through either entry point;
-- `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster, collar frames sized to their canvas with no pixel inside the housing, the hit region answering in the layout last drawn, lighting metered on the layout it lights and kept until the layout changes;
+- `MercuryEngineTests`: reseeding, duplicate image identity, appearance reraster, collar frames sized to their canvas with no pixel inside the housing, the hit region answering in the layout last drawn, lighting metered on the layout it lights and kept until the layout changes; the stock appearance as the stock look, and an appearance mapped onto its physical inputs; on the island and the collar, every look drawn by a reused engine as by a fresh one, a new seed starting a fresh body under its look, a look change rebuilding only what it reaches, a retune keeping the room and the moving body, pinned frames keyed on the look, a replay that fires even before the first frame and is dropped on a live pose, and one replay per surface generation;
 - `RecordingOverlayLayoutTests` (in `MercuryEngineTests.swift`): the island's established panel and status frames, with its 196×34 pt canvas 8 pt past the envelope at each end; both fixture collars rebuilt from their housings; the island for notchless, mirrored, and unwearable housings; a collar hit region that rejects the menu-bar band and accepts the chin;
 - `RecordingOverlayConductorTests`: hand-off timelines on the substep clock, a drain that re-frames on empty volume or at its 48-substep cap, a return during the drain that grows the body again without a re-frame, a drain re-aimed at a third display, instant moves, and an emergence settling after 60 substeps; a relayout that siphons the body on its own display; the destination and lean the conductor names; exit and arrival signs from the displays' centres; `RecordingOverlayHandOffGeometryTests` (same file): the collar frame on each fixture housing, the window lean in half display widths held to ±1, full screen within a point, Quartz window frames in AppKit coordinates;
 - `RecordingOverlayPointerGateTests`: a collar that ignores its band and takes its chin, an island that takes its body and ignores the rest of its panel, mouse locations in the panel's flipped space, a panel written only when the answer changes, the pointer in the band beside the housing only, a held press that keeps the mouse everywhere but through a forced click-through;
 - `RecordingOverlayDragTests`: tether pulls under 24 pt that snap back, tear-offs under the hand on the island and the collar with the grab held to the island canvas and the centre to the padded frame, free islands that follow at once, a click that leaves a free island be, releases within and beyond 48 pt of each anchor kind, Reduce Motion's snapless tear-offs, jumps and re-frames; κ, the snap rates, docking by layout, distance and Reduce Motion, and the glide's monotone landing;
 - `MercuryPanelMotionTests`: zero forcing for a constant-velocity drag and exactly the acceleration, clamped, for a constant one at 120, 60, 75, and 48 Hz cadences; a body that lags its panel and swings forward at the stop; restarts that are not felt and moves that are; forcing resolved onto each layout's axes with the tether added; the 24 pt tether settling the sway at 6 pt within 0.05 pt in 3 s on the collar and the listening island, and at the speaking island's 4 pt track end, monotone under Reduce Motion;
-- `RecordingOverlayPlacementTests`: `(u, v)` round trips and the same relative spot on two displays, clamping into the padded range, docked and free arrangements and dock anchors on both fixtures, persistence against an injected suite with absent, malformed, and legacy keys;
+- `RecordingOverlayPlacementTests`: `(u, v)` round trips and the same relative spot on two displays, clamping into the padded range, docked and free arrangements and dock anchors on both fixtures, persistence against an injected suite with absent, malformed, and legacy keys; Settings' Dock Island persisting the docked placement through the seam and asking the island to follow once, and a hidden island starting its next session docked;
 - `RecordingOverlayDockActionTests`: "Dock island" published after Finish and Cancel only while free, and performing it docks;
 - `RecordingOverlayMovePolicyTests`: click deferral, focus, returns, storms, freezes, and reconfiguration, each a replayed timeline;
-- `MercuryCalibrationTests`: the solved crest prominence under the live meter within 10% of its target; independent voice-driven edges in the quiet room held still, with a nonzero contact-line gain and a mirror correlation at or below 0.2; per-room response median for every `MercuryWorld`; each fixture collar metered on its own bodies to the same median, by a response that is not the island's;
-- `make ui-snap`: island, collar, and recording-panel scene rasters and accessibility dumps (`make ui-list` is the inventory);
-- `make ui-flow`: overlay journeys among the semantic flows (`make ui-flow-list` is the inventory).
+- `MercuryCalibrationTests`: the solved crest prominence under the live meter within 10% of its target; independent voice-driven edges in the quiet room held still, with a nonzero contact-line gain and a mirror correlation at or below 0.2; per-room response median for every `MercuryWorld`; each fixture collar metered on its own bodies to the same median, by a response that is not the island's; every look metered to its own median on the island and the collar; a look metering its own paint and bodies while its tone moves only the targets; looks that cover every room; the stock anchors as the shipped targets; tone anchors that follow the material and the tone;
+- `IslandGarageEditorTests`: a slider drag as one named undo step, a choice that settles another control's draft as a step of its own, Undo inside a colour well's quiet spell keeping the pick for Redo, and no save or step with nothing pending;
+- `UILintTests`: Settings ▸ Island's native sliders exempt from `control-height`, like native switches, disclosure triangles, and form radio buttons, while an app-drawn control of the same height is still a finding;
+- `make ui-snap`: island, collar, recording-panel, and Settings ▸ Island scene rasters and accessibility dumps (`make ui-list` is the inventory);
+- `make ui-flow`: overlay and `island.*` journeys among the semantic flows (`make ui-flow-list` is the inventory).
 
 ## Privacy and accessibility boundaries
 
-The room is generated from a seed. It does not read wallpaper, windows, desktop pixels, camera data, or any network resource. No additional permission follows from the material.
+The room is generated from a seed. It does not read wallpaper, windows, desktop pixels, camera data, or any network resource. No additional permission follows from the material. Temperature and underglow are generated light in that room, not samples of anything on screen.
 
-`MercurySurfaceView` is hidden from accessibility and hit-testing. The stable 180×34 `Dictation status` element remains in SwiftUI and carries the human-readable value plus named Finish/Cancel actions. `MercuryHitRegion` remains AppKit's single click/cursor oracle.
+`MercurySurfaceView` is hidden from accessibility and hit-testing. The stable `Dictation status` element remains in SwiftUI and carries the human-readable value plus named Finish/Cancel actions, and Dock island while the island is free. `MercuryHitRegion` remains AppKit's single click/cursor oracle. In the Settings showroom the surface is hidden the same way: one `Island preview` static-text element states the pose and room, and the adjacent look mark names the look in words.
 
 ## Source map
 
 | concern | source |
 | --- | --- |
 | physical constants and measured targets | `Sources/Voiceour/MercuryMetrics.swift` |
-| world selection and persisted fallback | `Sources/VoiceCore/MercuryWorld.swift` |
+| room selection (Studio, Overcast) and persisted fallback | `Sources/VoiceCore/MercuryWorld.swift` |
+| island appearance, grids, looks, and Surprise Me | `Sources/VoiceCore/IslandAppearance.swift` |
+| look mapping and tone anchors | `Sources/Voiceour/MercuryLook.swift` |
 | deterministic random streams | `Sources/Voiceour/MercuryNoise.swift` |
 | island and collar pose ladders and targets | `Sources/Voiceour/MercuryPose.swift` |
+| body kit and motion-law multipliers | `Sources/Voiceour/MercuryTune.swift` |
 | two-family mode solver, envelope modulators, gestures, arrivals, and containment | `Sources/Voiceour/MercurySimulation.swift` |
 | Zener gel law, balanced Padé propagator, and Lyapunov kick variance | `Sources/Voiceour/MercuryGel.swift` |
 | body shape: volume, aspect, sway, skew, neck, and their limits | `Sources/Voiceour/MercuryBodyShape.swift` |
-| calibrated gains and room metering | `Sources/Voiceour/MercuryCalibration.swift` |
+| calibrated gains and per-layout look metering | `Sources/Voiceour/MercuryCalibration.swift` |
 | live-like speech and quiet-room meters for calibration and the benchmark | `Sources/Voiceour/MercurySpeechMeter.swift` |
 | spine, eased bends, exact curvilinear chart, and taper | `Sources/Voiceour/MercurySpine.swift` |
 | signed silhouette on the spine | `Sources/Voiceour/MercuryField.swift` |
 | crown and total derivative | `Sources/Voiceour/MercuryCrown.swift` |
-| static generated rooms and octahedral chart | `Sources/Voiceour/MercuryEnvironment.swift` |
-| spectral conductor reflectance (CIE 1931 observer, D65, liquid-mercury n and k) | `Sources/Voiceour/MercurySpectral.swift` |
-| exact-source optical LUTs | `Sources/Voiceour/MercuryOptics.swift` |
+| static generated rooms, room lighting, and octahedral chart | `Sources/Voiceour/MercuryEnvironment.swift` |
+| the island's one observer (CIE 1931, D65, white-normalized linear-sRGB weights), liquid-mercury n and k, conductor reflectance | `Sources/Voiceour/MercurySpectral.swift` |
+| metal and film data, layered and lacquer optics, gamut floor, white balance | `Sources/Voiceour/MercurySpectra.swift` |
+| paints and per-look Fresnel tables, the stock table included | `Sources/Voiceour/MercuryPaint.swift` |
+| stock conductor oracle and transfer LUTs | `Sources/Voiceour/MercuryOptics.swift` |
 | bounded Naka–Rushton display response | `Sources/Voiceour/MercuryDisplayResponse.swift` |
 | production CPU shading | `Sources/Voiceour/MercuryRasterizer.swift` |
 | fixed-step engine, image cache, and hit region | `Sources/Voiceour/MercuryRibbon.swift` |
@@ -1150,7 +1483,9 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | docked and free placement, normalization, persistence, and frame arithmetic | `Sources/Voiceour/RecordingOverlayPlacement.swift` |
 | tether, tear-off, carrying, docking rules, snap, and glide | `Sources/Voiceour/RecordingOverlayDrag.swift` |
 | panel acceleration by finite differences and the non-published forcing channel | `Sources/Voiceour/MercuryPanelMotion.swift` |
-| layout per display, placement, drag and dock wiring, pose context, hand-off and dismissal | `Sources/Voiceour/RecordingOverlayController.swift` |
+| layout per display, placement, drag and dock wiring, session latch of seed and look, pose context, hand-off and dismissal | `Sources/Voiceour/RecordingOverlayController.swift` |
+| Settings ▸ Island, its showroom, and Dock Island | `Sources/Voiceour/ConsoleIslandSection.swift` |
+| Settings ▸ Island commits and undo steps | `Sources/Voiceour/IslandGarageEditor.swift` |
 | material/performance corpus | `Sources/Voiceour/UIHarness/MercuryChromeBenchmark.swift` |
 | contact sheets | `Sources/Voiceour/UIHarness/MercurySheet.swift` |
 
@@ -1159,6 +1494,13 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 - Fleming, Dror, and Adelson, [“Real-world illumination and the perception of surface reflectance properties”](https://doi.org/10.1167/3.5.3), *Journal of Vision* 3(5), 2003.
 - Dror, Willsky, and Adelson, [“Statistical characterization of real-world illumination”](https://doi.org/10.1167/4.9.11), *Journal of Vision* 4(9), 2004.
 - Inagaki, Arakawa, and Williams, [“Optical properties of liquid mercury”](https://doi.org/10.1103/PhysRevB.23.5246), *Physical Review B* 23, 1981, for mercury's $n(\lambda)$ and $k(\lambda)$. Voiceour resamples the CC0 tabulation at [refractiveindex.info](https://refractiveindex.info/?shelf=main&book=Hg&page=Inagaki) (`database/data/main/Hg/nk/Inagaki.yml`) linearly in wavelength onto the 5 nm grid.
+- Johnson and Christy, [“Optical Constants of the Noble Metals”](https://doi.org/10.1103/PhysRevB.6.4370), *Physical Review B* 6, 1972, for silver, gold, and copper.
+- Johnson and Christy, [“Optical constants of transition metals: Ti, V, Cr, Mn, Fe, Co, Ni, and Pd”](https://doi.org/10.1103/PhysRevB.9.5056), *Physical Review B* 9, 1974, for titanium and chromium.
+- Rakić, [“Algorithm for the determination of intrinsic optical constants of metal films: application to aluminum”](https://doi.org/10.1364/AO.34.004755), *Applied Optics* 34(22), 1995.
+- Rakić, Djurišić, Elazar, and Majewski, [“Optical properties of metallic films for vertical-cavity optoelectronic devices”](https://doi.org/10.1364/AO.37.005271), *Applied Optics* 37(22), 1998, for the platinum Lorentz–Drude model.
+- Malitson, [“Interspecimen Comparison of the Refractive Index of Fused Silica”](https://doi.org/10.1364/JOSA.55.001205), *Journal of the Optical Society of America* 55(10), 1965, for the silica film.
+- Siefke et al., [“Materials Pushing the Application Limits of Wire Grid Polarizers further into the Deep Ultraviolet Spectral Range”](https://doi.org/10.1002/adom.201600250), *Advanced Optical Materials* 4, 2016, for the TiO₂ data behind the titania fit.
+- Polyanskiy, [“Refractiveindex.info database of optical constants”](https://doi.org/10.1038/s41597-023-02898-2), *Scientific Data* 11, 2024. The database, which supplies every metal row above, is CC0.
 - Pharr, Jakob, and Humphreys, [PBRT v4: Conductor BRDF](https://www.pbr-book.org/4ed/Reflection_Models/Conductor_BRDF), for smooth-conductor complex Fresnel and reflection conventions.
 - Lagarde, [“Memo on Fresnel equations”](https://seblagarde.wordpress.com/2013/04/29/memo-on-fresnel-equations/), 2013, for the real-valued air–conductor form used as the table oracle.
 - CIE, [“Colour-matching functions of CIE 1931 standard colorimetric observer”](https://doi.org/10.25039/CIE.DS.xvudnb9b), dataset, 2019, from CIE 018:2019 Table 6, for $\bar x$, $\bar y$, and $\bar z$. Voiceour embeds every fifth 1 nm row from 380 to 780 nm, identical to CVRL's 5 nm `ciexyz31` table.
@@ -1171,4 +1513,4 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 
 ## Maintenance rule
 
-This document describes the shipping renderer, not a menu of optional effects. A future change to the field, mode law, body shape, pose ladder, crown, room distribution, optics, response, cadence, or hard benchmark must update this document in the same commit. Raw brainstorm artifacts are disposable. Production code, tests, and the benchmark gates are the enforced contract; this file is their derivation and rationale, and README.md and AGENTS.md remain the authority for what the island must do.
+This document describes the shipping renderer, not a menu of optional effects. A future change to the field, mode law, body shape, pose ladder, crown, room distribution, paints, look mapping, optics, response, cadence, or hard benchmark must update this document in the same commit. Raw brainstorm artifacts are disposable. Production code, tests, and the benchmark gates are the enforced contract; this file is their derivation and rationale, and README.md and AGENTS.md remain the authority for what the island must do.

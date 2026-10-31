@@ -5,6 +5,7 @@
 
     import Foundation
     import Testing
+    import VoiceCore
     @testable import Voiceour
 
     /// App-target smoke coverage for the offscreen harness catalog: a scene id is the
@@ -63,6 +64,20 @@
                     "console tab \(tab.rawValue) has no scene golden with prefix \(prefix)"
                 )
             }
+        }
+
+        /// Every named look ships one real-island raster, one look ships on the collar, and
+        /// the retired debug-world scene is gone: its bytes belong to `overlay.island.overcast`
+        /// now.
+        @Test func everyNonStockLookHasAnIslandScene() {
+            let ids = Set(UISceneCatalog.all().map(\.id))
+            for look in IslandLook.allCases where look != .stock {
+                let id = "overlay.island.look." + look.rawValue.replacingOccurrences(of: "_", with: "-")
+                #expect(ids.contains(id), "look \(look.rawValue) has no island scene")
+            }
+            #expect(ids.contains("overlay.notch.look.street-racer"))
+            #expect(ids.contains("overlay.island.overcast"))
+            #expect(!ids.contains("overlay.island.weather"))
         }
     }
 

@@ -1,0 +1,15 @@
+flow: island.underglow-dependency
+title: The underglow switch governs its color and strength
+fixture: static
+transitions: idle
+PASS 1 off | value id=island.lighting.underglow == "0" | "0"
+PASS 2 off | enabled(false) id=island.lighting.underglow.color | false
+PASS 3 off | enabled(false) id=island.lighting.underglow.strength | false
+PASS 4 on | value id=island.lighting.underglow == "1" | "1"
+PASS 5 on | enabled(true) id=island.lighting.underglow.color | true
+PASS 6 on | enabled(true) id=island.lighting.underglow.strength | true
+PASS 7 on | value id=island.lighting.underglow.strength == "60" | "60"
+PASS 8 on | model islandLook == "custom" | "custom"
+PASS 9 off-again | enabled(false) id=island.lighting.underglow.color | false
+PASS 10 off-again | enabled(false) id=island.lighting.underglow.strength | false
+PASS 11 off-again | model islandLook == "stock" | "stock"

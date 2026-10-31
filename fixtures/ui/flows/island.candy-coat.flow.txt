@@ -1,0 +1,11 @@
+flow: island.candy-coat
+title: The Candy coat alone offers a dye color well
+fixture: static
+transitions: idle
+PASS 1 bare | absent id=island.material.candy | 0 matches
+PASS 2 candy | exists id=island.material.candy | 1 match
+PASS 3 candy | enabled(true) id=island.material.candy | true
+PASS 4 candy | absent id=island.material.film | 0 matches
+PASS 5 candy | model islandAppearance contains "coat=candy " | "metal=mercury coat=candy film=0 candy=355/90/80 finish=0 room=room_of_ten temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100"
+PASS 6 bare-again | absent id=island.material.candy | 0 matches
+PASS 7 bare-again | model islandLook == "stock" | "stock"

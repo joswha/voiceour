@@ -90,12 +90,6 @@ public struct Settings: Codable, Equatable, Sendable {
     /// written by a future build degrades to the default instead of throwing — a decode failure
     /// here would quarantine the whole settings file over one unknown word.
     public var asrModelVariant: ASRModelVariant
-    /// Which generated room the recording island's mercury reflects.
-    ///
-    /// Stored as its raw tag and resolved through ``MercuryWorld/resolved(_:)``, for the
-    /// same reason `asrModelVariant` above is: a value written by a future build must
-    /// degrade to the default rather than quarantine the whole settings file.
-    public var mercuryWorld: MercuryWorld
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool
     public var sessionSoundsEnabled: Bool
@@ -125,12 +119,18 @@ public struct Settings: Codable, Equatable, Sendable {
     /// additionally requires both durable records to be empty, and an install that
     /// has dictated has at least one of them.
     public var hasCompletedFirstRun: Bool
+    /// How the recording island looks: material, room lighting, body kit and motion law,
+    /// chosen in Settings ▸ Island. A session latches it when the session begins.
+    ///
+    /// ``IslandAppearance`` decodes field by field, and a value that is not an object at all
+    /// decodes to stock here: nothing about the island's look may quarantine the file that
+    /// holds the user's glossary.
+    public var island: IslandAppearance
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
         case asrBackend = "asr_backend"
         case asrModelVariant = "asr_model_variant"
-        case mercuryWorld = "mercury_world"
         case glossary
         case muteSystemAudioDuringCapture = "mute_system_audio_during_capture"
         case sessionSoundsEnabled = "session_sounds_enabled"
@@ -139,13 +139,13 @@ public struct Settings: Codable, Equatable, Sendable {
         case preferredMicrophoneUID = "preferred_microphone_uid"
         case preferredMicrophoneName = "preferred_microphone_name"
         case hasCompletedFirstRun = "has_completed_first_run"
+        case island
     }
 
     public init(
         cleanupEnabled: Bool = true,
         asrBackend: String = "parakeet",
         asrModelVariant: ASRModelVariant = .default,
-        mercuryWorld: MercuryWorld = .default,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,
         sessionSoundsEnabled: Bool = true,
@@ -153,12 +153,12 @@ public struct Settings: Codable, Equatable, Sendable {
         autoStopSilenceMs: Int = 2500,
         preferredMicrophoneUID: String? = nil,
         preferredMicrophoneName: String? = nil,
-        hasCompletedFirstRun: Bool = false
+        hasCompletedFirstRun: Bool = false,
+        island: IslandAppearance = .stock
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
         self.asrModelVariant = asrModelVariant
-        self.mercuryWorld = mercuryWorld
         self.glossary = glossary
         self.muteSystemAudioDuringCapture = muteSystemAudioDuringCapture
         self.sessionSoundsEnabled = sessionSoundsEnabled
@@ -167,6 +167,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.preferredMicrophoneUID = preferredMicrophoneUID
         self.preferredMicrophoneName = preferredMicrophoneName
         self.hasCompletedFirstRun = hasCompletedFirstRun
+        self.island = island
     }
 
     public init(from decoder: Decoder) throws {
@@ -176,9 +177,6 @@ public struct Settings: Codable, Equatable, Sendable {
         asrBackend = try container.decodeIfPresent(String.self, forKey: .asrBackend) ?? defaults.asrBackend
         asrModelVariant = ASRModelVariant.resolved(
             try container.decodeIfPresent(String.self, forKey: .asrModelVariant)
-        )
-        mercuryWorld = MercuryWorld.resolved(
-            try container.decodeIfPresent(String.self, forKey: .mercuryWorld)
         )
         glossary = try container.decodeIfPresent([ProtectedTerm].self, forKey: .glossary) ?? defaults.glossary
         muteSystemAudioDuringCapture =
@@ -195,6 +193,9 @@ public struct Settings: Codable, Equatable, Sendable {
         hasCompletedFirstRun =
             try container.decodeIfPresent(Bool.self, forKey: .hasCompletedFirstRun)
             ?? defaults.hasCompletedFirstRun
+        island =
+            (try? container.decodeIfPresent(IslandAppearance.self, forKey: .island))
+            ?? defaults.island
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

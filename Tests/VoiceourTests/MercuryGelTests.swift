@@ -4,8 +4,9 @@ import Testing
 @testable import Voiceour
 
 /// The gel law, held to what the body depends on: the propagator is the exact exponential, it is the
-/// liquid's own oscillator when the arm is off, its kick statistics are exact, and the material it
-/// describes rings like a jelly and remembers like a gum.
+/// liquid's own oscillator when the arm is off, its kick statistics are exact, the material it
+/// describes rings like a jelly and remembers like a gum, Tempo plays it faster and Viscosity only
+/// damps it, and its following gain is what a carried equilibrium does to it.
 struct MercuryGelTests {
     private static let step = MercuryMetrics.substep
 
@@ -214,6 +215,80 @@ struct MercuryGelTests {
         #expect(Self.largestLane(stepped.offset - batched.offset) * glassy <= 1e-12)
         #expect(Self.largestLane(stepped.velocity - batched.velocity) <= 1e-12)
         #expect(Self.largestLane(stepped.stress - batched.stress) / glassy <= 1e-12)
+    }
+
+    /// Tempo runs every mode faster and changes nothing else about it: a mode at Tempo `t` over one
+    /// substep is the stock mode over `t` substeps, in the coordinates a clock running `t` times as
+    /// fast reads, velocity times `t` and stress times `t²`. Viscosity changes the damping alone,
+    /// both its parts. Across the modal range, from `π/400` to `8π/20` pt⁻¹ and 0.25 to 17 pt deep.
+    @Test func tempoRunsEveryModeFasterAndViscosityOnlyDampsIt() {
+        for mode in 1...MercuryMetrics.modeCount {
+            for (length, depth) in [(160.0, 11.5), (58.0, 8.5), (400.0, 17.0), (20.0, 0.25)] {
+                let waveNumber = Double(mode) * .pi / length
+                let stock = MercuryGel.modal(waveNumber: waveNumber, depth: depth)
+                for tempo in [MercuryTune.tempoRange.lowerBound, MercuryTune.tempoRange.upperBound] {
+                    let faster = MercuryGel.modal(waveNumber: waveNumber, depth: depth, tempo: tempo)
+                    let tuned = Self.rows(MercuryZener(parameters: faster, step: Self.step))
+                    let played = Self.rows(MercuryZener(parameters: stock, step: tempo * Self.step))
+                    // `Φ_t(h) = S⁻¹ Φ(t h) S` with `S = diag(1, 1/t, 1/t²)`, compared in velocity units.
+                    let clock = [1, 1 / tempo, 1 / (tempo * tempo)]
+                    let glassy = faster.glassyFrequency
+                    let units = [glassy, 1, 1 / glassy]
+                    var gap = 0.0
+                    for row in 0..<3 {
+                        for column in 0..<3 {
+                            let expected = played[row][column] * clock[column] / clock[row]
+                            gap = max(gap, abs(tuned[row][column] - expected) * units[row] / units[column])
+                        }
+                    }
+                    #expect(gap <= 1e-12, "k \(waveNumber), H \(depth), tempo \(tempo)")
+                }
+                for viscosity in [MercuryTune.viscosityRange.lowerBound, MercuryTune.viscosityRange.upperBound] {
+                    let thicker = MercuryGel.modal(waveNumber: waveNumber, depth: depth, viscosity: viscosity)
+                    #expect(thicker.rubberyStiffness == stock.rubberyStiffness)
+                    #expect(thicker.armStiffness == stock.armStiffness)
+                    #expect(thicker.relaxationRate == stock.relaxationRate)
+                    #expect(abs(thicker.damping / (viscosity * stock.damping) - 1) <= 1e-15)
+                }
+            }
+        }
+    }
+
+    /// `followingGain(at:)` is what a mode does when a force carries its equilibrium round a circle:
+    /// once the start has died away, the mode runs a circle that many times the equilibrium's
+    /// radius. Simulated for 20 s in 0.2 ms steps that hold each step's equilibrium at the step's
+    /// middle, on the speaking fundamental and on a slow, runny and a fast, syrupy one, below, near
+    /// and above their glassy frequencies. A held force is followed exactly.
+    @Test func followingGainIsTheSteadySwingOfACarriedEquilibrium() {
+        let fine = 2e-4
+        let modes = [
+            Self.fundamental,
+            MercuryGel.modal(waveNumber: .pi / 160, depth: 11.5, tempo: 0.7, viscosity: 0.5),
+            MercuryGel.modal(waveNumber: .pi / 160, depth: 11.5, tempo: 1.5, viscosity: 2),
+        ]
+        for parameters in modes {
+            #expect(abs(parameters.followingGain(at: 0) - 1) <= 1e-15)
+            let zener = MercuryZener(parameters: parameters, step: fine)
+            for frequency in [3.0, 9.0, 25.0] {
+                var position = SIMD2<Double>()
+                var velocity = SIMD2<Double>()
+                var stress = SIMD2<Double>()
+                for index in 0..<100_000 {
+                    let phase = frequency * (Double(index) + 0.5) * fine
+                    let equilibrium = SIMD2(cos(phase), sin(phase))
+                    let next = zener.advance(
+                        MercuryZener.State(offset: position - equilibrium, velocity: velocity, stress: stress)
+                    )
+                    position = next.offset + equilibrium
+                    velocity = next.velocity
+                    stress = next.stress
+                }
+                let radius = (position * position).sum().squareRoot()
+                let gain = parameters.followingGain(at: frequency)
+                #expect(
+                    abs(radius / gain - 1) <= 1e-4, "\(parameters) at \(frequency) rad/s: \(radius) against \(gain)")
+            }
+        }
     }
 
     // MARK: - Helpers

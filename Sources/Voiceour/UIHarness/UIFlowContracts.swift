@@ -44,7 +44,7 @@
     /// snapshot script and the wrong behaviour for a contract: a substring that silently
     /// retargets is exactly the failure mode a flow exists to catch. Every query here yields
     /// the full match SET, and an expectation that needs one node fails loudly on zero or two.
-    enum UIQuery: Hashable, CustomStringConvertible {
+    enum UIQuery: Hashable, Sendable, CustomStringConvertible {
         /// Exact `accessibilityIdentifier`.
         case id(String)
         /// Exact accessibility label (`AXLabel`, or `AXTitle` when the node publishes no label).
@@ -60,6 +60,11 @@
         case role(String)
         /// Every child query must match the same node.
         indirect case all([UIQuery])
+        /// Every node matching the second query that sits anywhere below a node matching the
+        /// first. Two controls can share a label -- Settings ▸ Island offers both a coat and a
+        /// look called Oil Slick -- and the radio group each one belongs to is then the only
+        /// thing that tells them apart.
+        indirect case within(UIQuery, UIQuery)
 
         var description: String {
             switch self {
@@ -70,6 +75,7 @@
             case .labelContains(let value): return "label~=\(Self.quote(value))"
             case .role(let value): return "role=\(value)"
             case .all(let queries): return queries.map(\.description).joined(separator: " & ")
+            case .within(let container, let query): return "\(query) in \(container)"
             }
         }
 
@@ -233,6 +239,17 @@
         case pasteboardText
         /// Decimal count of pasteboard writes the flow observed.
         case pasteboardWrites
+        /// Raw tag of the look the committed island matches (`IslandLook.matching`), or
+        /// `custom` when it matches none. Read from `settings`, never the draft, so a check
+        /// after a Garage control proves its commit reached the persisted settings.
+        case islandLook
+        /// `settings.island.canonicalDescription`: the committed island on one line.
+        case islandAppearance
+        /// `1` while a Garage control holds an uncommitted draft, else `0`.
+        case islandDraftPending
+        /// `docked`, or `free` while the persisted placement (`RecordingOverlayPlacement.persisted`,
+        /// read through the harness's defaults seam) is an island the user tore off.
+        case islandPlacement
 
         var description: String { rawValue }
     }
@@ -259,6 +276,12 @@
         case selected(UIQuery, Bool)
         /// The single matching node's value satisfies the text rule.
         case value(UIQuery, UIText)
+        /// The single matching node's spoken value (`accessibilityValueDescription`)
+        /// satisfies the text rule.
+        ///
+        /// `AXDump` never prints it, so it remains a flow-only contract: a slider's dumped
+        /// value is its integer reading, and this is the sentence VoiceOver reads for it.
+        case valueDescription(UIQuery, UIText)
         /// The single matching node's label satisfies the text rule.
         case label(UIQuery, UIText)
         /// The single matching node publishes exactly these named accessibility actions,
@@ -290,6 +313,7 @@
             case .enabled(let query, let flag): return "enabled(\(flag)) \(query)"
             case .selected(let query, let flag): return "selected(\(flag)) \(query)"
             case .value(let query, let text): return "value \(query) \(text)"
+            case .valueDescription(let query, let text): return "description \(query) \(text)"
             case .label(let query, let text): return "label \(query) \(text)"
             case .actions(let query, let names):
                 return "actions \(query) == [\(names.joined(separator: ", "))]"
@@ -310,6 +334,7 @@
             case .exists(let query), .absent(let query): return query
             case .count(let query, _), .enabled(let query, _), .selected(let query, _): return query
             case .value(let query, _), .label(let query, _), .role(let query, _): return query
+            case .valueDescription(let query, _): return query
             case .actions(let query, _): return query
             case .text, .state, .transitions, .model, .lintClean: return nil
             }
@@ -365,6 +390,12 @@
         case press(UIQuery)
         /// Synthetic mouse click at the centre of the matching node's frame. Escape hatch.
         case click(UIQuery)
+        /// Accessibility increment on the single node matching the query: one `step` of a
+        /// slider, the adjustment VoiceOver makes. SwiftUI brackets it with editing begin and
+        /// end, so a control that commits on release commits exactly as after a drag.
+        case increment(UIQuery)
+        /// Accessibility decrement on the single node matching the query; see `increment`.
+        case decrement(UIQuery)
         /// Focus the matching text field, clear it, and type this text.
         case type(String, into: UIQuery)
         /// Drive the coordinator directly.
@@ -376,6 +407,8 @@
             switch self {
             case .press(let query): return "press \(query)"
             case .click(let query): return "click \(query)"
+            case .increment(let query): return "increment \(query)"
+            case .decrement(let query): return "decrement \(query)"
             case .type(let text, let query): return "type \(UIQuery.quote(text)) into \(query)"
             case .dictate(let action): return "dictate \(action)"
             case .navigate(let section): return "navigate \(section.rawValue)"

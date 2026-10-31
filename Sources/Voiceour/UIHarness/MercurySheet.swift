@@ -15,8 +15,9 @@
     /// The scene catalog can only ever pin one frame of one state at a time, and driving
     /// the real app to look at the body is slow, non-reproducible and only ever shows the
     /// state the app happens to be in. This mode renders every state, every ground, every
-    /// world and a strip of consecutive frames into a handful of contact sheets, so the
-    /// look can be judged and iterated on directly.
+    /// world, every named look and the garage's metals, coats, room lighting and body kit,
+    /// plus strips of consecutive frames, into a handful of contact sheets, so the look can
+    /// be judged and iterated on directly.
     ///
     /// It writes no goldens and gates nothing. It is a debugging instrument.
     @MainActor
@@ -35,10 +36,12 @@
             var written: [String] = []
             for sheet in [
                 states(named: "states", on: .island), motion(named: "motion", on: .island),
-                outcomeMotion(), worlds(), adaptations(),
+                outcomeMotion(), worlds(), looks(named: "looks", on: .island), metals(), coats(),
+                lighting(), bodyKit(), adaptations(),
                 comparison(), candidateMotion(), candidateWorlds(),
                 roomSweep(), selectedRoomWorlds(), chromaSweep(),
                 states(named: "collar-states", on: collar), motion(named: "collar-motion", on: collar),
+                looks(named: "collar-looks", on: collar),
             ] {
                 guard let image = compose(sheet) else {
                     fputs("mercury-sheet: \(sheet.name) produced no image\n", stderr)
@@ -59,7 +62,7 @@
                     + " mirror=\(format(calibration.mirrorCorrelation))"
             )
             for world in MercuryWorld.allCases {
-                print("mercury-sheet: \(world.rawValue) \(contrastReport(world: world))")
+                print("mercury-sheet: \(world.rawValue) \(contrastReport(look: roomLook(world)))")
             }
             print("mercury-sheet: wrote \(written.joined(separator: ", ")) in \(directory.path)")
             return true
@@ -95,7 +98,7 @@
             let stride = 9
             let state = State(
                 pose: .speaking,
-                world: .roomOfTen,
+                look: .stock,
                 seed: MercuryMetrics.defaultSeed,
                 layout: layout
             )
@@ -172,7 +175,8 @@
         }
 
         /// Four rooms per world at the speaking pose: the per-session variety a reader
-        /// actually sees, and the check that no room is a black hole or a white blob.
+        /// actually sees, and the check that no room is a black hole or a white blob. Each
+        /// world is chosen the way Settings chooses it, as the stock look in that room.
         private static func worlds() -> Sheet {
             let seeds: [UInt64] = [
                 MercuryMetrics.defaultSeed, 0x1d3a_7f21_9c4e_b806, 0xa07b_5514_ee92_3fd1, 0x6c19_e83d_402f_a75b,
@@ -181,16 +185,181 @@
                 name: "worlds",
                 columns: seeds.enumerated().map { "room \($0.offset)" },
                 rows: MercuryWorld.allCases.map { world in
-                    Row(
+                    let look = roomLook(world)
+                    return Row(
                         title: world.displayName,
                         cells: seeds.map { seed in
                             Cell(
                                 ground: .dark,
-                                body: body(pose: .speaking, world: world, seed: seed)
+                                body: body(pose: .speaking, look: look, seed: seed)
                             )
                         }
                     )
                 }
+            )
+        }
+
+        /// Every named look on every ground at the speaking pose, laid out on `layout`,
+        /// through the path a session latches: the look's room lighting, paint table, metered
+        /// response and body. On the collar the body kit redraws the edges and height along the
+        /// housing's own length.
+        private static func looks(named name: String, on layout: RecordingOverlayLayout) -> Sheet {
+            Sheet(
+                name: name,
+                columns: Ground.allCases.map(\.title),
+                rows: IslandLook.allCases.map { look in
+                    let image = body(
+                        pose: .speaking,
+                        look: MercuryLook(island: look.appearance),
+                        layout: layout
+                    )
+                    return Row(
+                        title: look.displayName,
+                        cells: Ground.allCases.map { Cell(ground: $0, body: image) }
+                    )
+                },
+                layout: layout
+            )
+        }
+
+        /// Every metal bare and under the clear lacquer, on the darkest and lightest grounds.
+        private static func metals() -> Sheet {
+            let coats: [IslandCoat] = [.none, .clear]
+            let grounds: [Ground] = [.dark, .light]
+            return Sheet(
+                name: "metals",
+                columns: grounds.flatMap { ground in
+                    coats.map { "\($0.displayName) / \(ground.title)" }
+                },
+                rows: IslandMetal.allCases.map { metal in
+                    let images = coats.map { coat in
+                        body(
+                            pose: .speaking,
+                            look: islandLook {
+                                $0.metal = metal
+                                $0.select(coat: coat)
+                            }
+                        )
+                    }
+                    return Row(
+                        title: metal.displayName,
+                        cells: grounds.flatMap { ground in
+                            images.map { Cell(ground: ground, body: $0) }
+                        }
+                    )
+                }
+            )
+        }
+
+        /// Every coat at its default film, and Candy at its default dye, over titanium and
+        /// over stock mercury, on the darkest and lightest grounds.
+        private static func coats() -> Sheet {
+            let metals: [IslandMetal] = [.titanium, .mercury]
+            let grounds: [Ground] = [.dark, .light]
+            return Sheet(
+                name: "coats",
+                columns: grounds.flatMap { ground in
+                    metals.map { "\($0.displayName) / \(ground.title)" }
+                },
+                rows: IslandCoat.allCases.map { coat in
+                    let images = metals.map { metal in
+                        body(
+                            pose: .speaking,
+                            look: islandLook {
+                                $0.metal = metal
+                                $0.select(coat: coat)
+                            }
+                        )
+                    }
+                    return Row(
+                        title: coat.film.map { "\(coat.displayName) \($0.stock) nm" }
+                            ?? coat.displayName,
+                        cells: grounds.flatMap { ground in
+                            images.map { Cell(ground: ground, body: $0) }
+                        }
+                    )
+                }
+            )
+        }
+
+        /// Room colour temperature at both limits and at stock, each without and with the
+        /// default underglow, on the darkest and lightest grounds.
+        private static func lighting() -> Sheet {
+            let temperatures = [
+                IslandGrids.temperature.range.lowerBound,
+                IslandGrids.temperature.stock,
+                IslandGrids.temperature.range.upperBound,
+            ]
+            let underglows = [false, true]
+            let grounds: [Ground] = [.dark, .light]
+            return Sheet(
+                name: "lighting",
+                columns: grounds.flatMap { ground in
+                    underglows.map { "underglow \($0 ? "on" : "off") / \(ground.title)" }
+                },
+                rows: temperatures.map { temperature in
+                    let images = underglows.map { underglow in
+                        body(
+                            pose: .speaking,
+                            look: islandLook {
+                                $0.temperature = temperature
+                                $0.underglow = underglow
+                            }
+                        )
+                    }
+                    let kelvin = MercuryWhiteBalance.kelvin(temperature: Double(temperature) / 100)
+                    return Row(
+                        title: "\(Int(kelvin.rounded())) K (\(temperature))",
+                        cells: grounds.flatMap { ground in
+                            images.map { Cell(ground: ground, body: $0) }
+                        }
+                    )
+                }
+            )
+        }
+
+        /// The body kit's corners — size, build and taper at both ends of their ranges — in
+        /// the speaking pose under the lowest, stock and highest crown, and in the listening
+        /// and warming poses, which the kit redraws too, under the stock crown.
+        private static func bodyKit() -> Sheet {
+            let crownGrid = IslandGrids.crown
+            let crowns = [crownGrid.range.lowerBound, crownGrid.stock, crownGrid.range.upperBound]
+            let size = IslandGrids.size.range
+            let build = IslandGrids.build.range
+            let taper = IslandGrids.taper.range
+            var rows: [Row] = []
+            for drawnSize in [size.upperBound, size.lowerBound] {
+                for drawnBuild in [build.upperBound, build.lowerBound] {
+                    for drawnTaper in [taper.lowerBound, taper.upperBound] {
+                        func kit(crown: Int) -> MercuryLook {
+                            islandLook {
+                                $0.size = drawnSize
+                                $0.build = drawnBuild
+                                $0.taper = drawnTaper
+                                $0.crown = crown
+                            }
+                        }
+                        let speaking = crowns.map {
+                            Cell(ground: .dark, body: body(pose: .speaking, look: kit(crown: $0)))
+                        }
+                        let stockCrown = kit(crown: crownGrid.stock)
+                        let poses = [Pose.listening, .warming].map {
+                            Cell(ground: .dark, body: body(pose: $0, look: stockCrown))
+                        }
+                        rows.append(
+                            Row(
+                                title: "s\(drawnSize) b\(drawnBuild) t\(drawnTaper)",
+                                cells: speaking + poses
+                            )
+                        )
+                    }
+                }
+            }
+            return Sheet(
+                name: "body",
+                columns: crowns.map { "speaking / crown \($0)" }
+                    + [Pose.listening, .warming].map { "\($0.title) / crown \(crownGrid.stock)" },
+                rows: rows
             )
         }
 
@@ -219,7 +388,7 @@
                 columns: ["shipping / dark", "candidate / dark", "shipping / light", "candidate / light"],
                 rows: Pose.allCases.map { pose in
                     let session = Session(
-                        state: State(pose: pose, world: .roomOfTen, seed: MercuryMetrics.defaultSeed)
+                        state: State(pose: pose, look: .stock, seed: MercuryMetrics.defaultSeed)
                     )
                     session.advance(steps: 600)
                     let shipping = session.render(appearance: .standard)
@@ -241,7 +410,7 @@
             let session = Session(
                 state: State(
                     pose: .speaking,
-                    world: .roomOfTen,
+                    look: .stock,
                     seed: MercuryMetrics.defaultSeed
                 )
             )
@@ -276,7 +445,7 @@
             var candidate: [Cell] = []
             for seed in seeds {
                 let session = Session(
-                    state: State(pose: .speaking, world: .roomOfTen, seed: seed)
+                    state: State(pose: .speaking, look: .stock, seed: seed)
                 )
                 session.advance(steps: 600)
                 shipping.append(Cell(ground: .dark, body: session.render(appearance: .standard)))
@@ -479,29 +648,41 @@
 
         private static func body(
             pose: Pose,
-            world: MercuryWorld = .roomOfTen,
+            look: MercuryLook = .stock,
             seed: UInt64 = MercuryMetrics.defaultSeed,
             appearance: MercuryAppearance = .standard,
             layout: RecordingOverlayLayout = .island
         ) -> CGImage? {
-            let session = Session(state: State(pose: pose, world: world, seed: seed, layout: layout))
+            let session = Session(state: State(pose: pose, look: look, seed: seed, layout: layout))
             session.advance(steps: 600)
             return session.render(appearance: appearance)
         }
 
-        /// What the body's pixels actually span, over four rooms of one world.
+        /// The stock island with `change` applied, mapped the way the island maps it.
+        private static func islandLook(_ change: (inout IslandAppearance) -> Void) -> MercuryLook {
+            var island = IslandAppearance.stock
+            change(&island)
+            return MercuryLook(island: island)
+        }
+
+        /// The stock look in `world`: how Settings chooses a room.
+        private static func roomLook(_ world: MercuryWorld) -> MercuryLook {
+            islandLook { $0.room = world }
+        }
+
+        /// What the body's pixels actually span, over four rooms of one look.
         ///
         /// The look question this bench exists for is "does it read as metal", and metal
         /// is a *spread*: bright where the reflection catches a source, near-black where it
         /// does not. A median on its own cannot tell a mercury ridge from a grey lozenge,
         /// and neither can an eye that has been staring at both.
-        private static func contrastReport(world: MercuryWorld) -> String {
+        private static func contrastReport(look: MercuryLook) -> String {
             let seeds: [UInt64] = [
                 MercuryMetrics.defaultSeed, 0x1d3a_7f21_9c4e_b806, 0xa07b_5514_ee92_3fd1, 0x6c19_e83d_402f_a75b,
             ]
             var spans: [String] = []
             for seed in seeds {
-                let session = Session(state: State(pose: .speaking, world: world, seed: seed))
+                let session = Session(state: State(pose: .speaking, look: look, seed: seed))
                 session.advance(steps: 600)
                 let values = session.luminance().sorted()
                 guard values.count > 20 else { continue }
@@ -516,50 +697,60 @@
 
         private struct State {
             var pose: Pose
-            var world: MercuryWorld
+            var look: MercuryLook
             var seed: UInt64
             /// Where the body is laid out. The response is metered on this layout's own
             /// bodies, as the engine meters it, so a collar row is lit as the collar is.
             var layout: RecordingOverlayLayout = .island
         }
 
-        /// One body plus the room it reflects, advanced together exactly as the engine
-        /// advances them.
+        /// One body in its look plus the room it reflects, advanced together exactly as the
+        /// engine advances them.
         @MainActor
         private final class Session {
             private let simulation: MercurySimulation
             private let environment: MercuryEnvironment
+            private let paint: MercuryPaintLookup
             private let shippingResponse: MercuryDisplayResponse
             private let rasterizer = MercuryRasterizer()
-            private let prototypeRasterizer: MercuryPrototypeRasterizer
-            private let prototypeResponse: MercuryDisplayResponse?
+            private let prototypeRasterizer = MercuryPrototypeRasterizer()
+            /// Metered on first use: only the stock comparison sheets draw the candidate,
+            /// which knows no look, so a look sheet never pays for it.
+            private lazy var prototypeResponse: MercuryDisplayResponse? =
+                prototypeRasterizer.response(
+                    fields: Session.meterFields(seed: seed, gains: MercuryCalibration.shared.gains),
+                    environment: environment,
+                    scale: MercuryMetrics.rasterScale
+                )
+            private let seed: UInt64
             private let drive: MercurySimulation.Drive
             private let layout: RecordingOverlayLayout
             private var started = false
 
             init(state: State) {
                 let calibration = MercuryCalibration.shared
-                let gains = calibration.gains
-                simulation = MercurySimulation(seed: state.seed, gains: gains)
+                let look = state.look
+                simulation = MercurySimulation(
+                    seed: state.seed,
+                    gains: calibration.gains,
+                    tune: look.tune
+                )
                 let generatedRoom = MercuryEnvironment(
-                    world: state.world,
-                    seed: state.seed
+                    world: look.world,
+                    seed: state.seed,
+                    lighting: look.lighting
                 )
                 environment = generatedRoom
+                paint = MercuryPaintLookup.lookup(for: look.paint)
                 shippingResponse = calibration.displayResponse(
                     for: generatedRoom,
                     bodySeed: state.seed,
-                    layout: state.layout
+                    layout: state.layout,
+                    look: look
                 )
+                seed = state.seed
                 drive = state.pose.drive(on: state.layout)
                 layout = state.layout
-                let prototype = MercuryPrototypeRasterizer()
-                prototypeRasterizer = prototype
-                prototypeResponse = prototype.response(
-                    fields: Self.meterFields(seed: state.seed, gains: gains),
-                    environment: generatedRoom,
-                    scale: MercuryMetrics.rasterScale
-                )
             }
 
             func advance(steps: Int) {
@@ -577,6 +768,7 @@
                     environment: environment,
                     response: shippingResponse,
                     appearance: appearance,
+                    paint: paint,
                     scale: MercuryMetrics.rasterScale
                 )
             }
@@ -596,6 +788,7 @@
                 rasterizer.sampleSceneRadiance(
                     field: field,
                     environment: environment,
+                    paint: paint,
                     scale: MercuryMetrics.rasterScale
                 ).map { sample in
                     MercuryDisplayResponse.luminance(

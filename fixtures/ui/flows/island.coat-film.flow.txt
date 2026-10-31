@@ -1,0 +1,16 @@
+flow: island.coat-film
+title: Each film coat opens the film slider at its own stock thickness
+fixture: static
+transitions: idle
+PASS 1 none | value label="None" in id=island.material.coat == "1" | "1"
+PASS 2 none | absent id=island.material.film | 0 matches
+PASS 3 pearl | value id=island.material.film == "70" | "70"
+PASS 4 pearl | description id=island.material.film == "70 nanometers" | "70 nanometers"
+PASS 5 pearl | model islandAppearance contains "coat=pearl film=70 " | "metal=mercury coat=pearl film=70 candy=355/90/80 finish=0 room=room_of_ten temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100"
+PASS 6 oil-slick | value id=island.material.film == "450" | "450"
+PASS 7 oil-slick | model islandAppearance contains "coat=oil_slick film=450 " | "metal=mercury coat=oil_slick film=450 candy=355/90/80 finish=0 room=room_of_ten temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100"
+PASS 8 chameleon | value id=island.material.film == "350" | "350"
+PASS 9 chameleon | model islandAppearance contains "coat=chameleon film=350 " | "metal=mercury coat=chameleon film=350 candy=355/90/80 finish=0 room=room_of_ten temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100"
+PASS 10 none-again | value label="None" in id=island.material.coat == "1" | "1"
+PASS 11 none-again | absent id=island.material.film | 0 matches
+PASS 12 none-again | model islandLook == "stock" | "stock"

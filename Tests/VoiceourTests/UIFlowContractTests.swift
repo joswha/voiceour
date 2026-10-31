@@ -210,6 +210,10 @@
                 (.labelContains("Sav"), "label~=\"Sav\""),
                 (.role("AXButton"), "role=AXButton"),
                 (.all([.label("Save"), .role("AXButton")]), "label=\"Save\" & role=AXButton"),
+                (
+                    .within(.id("island.material.coat"), .label("Oil Slick")),
+                    "label=\"Oil Slick\" in id=island.material.coat"
+                ),
             ]
             for (query, expected) in queries {
                 #expect(query.description == expected)
@@ -222,6 +226,10 @@
                 (.count(.role("AXButton"), .exactly(2)), "count role=AXButton exactly 2"),
                 (.enabled(.label("Save"), true), "enabled(true) label=\"Save\""),
                 (.value(.id("status"), .equals("line\nbreak")), "value id=status == \"line\\nbreak\""),
+                (
+                    .valueDescription(.id("finish"), .equals("5 percent")),
+                    "description id=finish == \"5 percent\""
+                ),
                 (.label(.id("save"), .contains("Sav")), "label id=save contains \"Sav\""),
                 (.role(.id("save"), "AXButton"), "role id=save == AXButton"),
                 (.text(.contains("Ready"), .atLeast(1)), "text contains \"Ready\" at least 1"),
@@ -237,6 +245,40 @@
                 #expect(expectation.expectation == expected)
                 #expect(!expectation.expectation.contains("\n"))
             }
+        }
+
+        @Test func adjustmentActionsDescribeTheirTarget() {
+            #expect(UIFlowAction.increment(.id("finish")).description == "increment id=finish")
+            #expect(UIFlowAction.decrement(.label("Tempo")).description == "decrement label=\"Tempo\"")
+        }
+
+        /// Settings ▸ Island offers a coat and a look that share a label, so `within` tells
+        /// them apart by the group each radio sits in, and reports a node once however many
+        /// matching groups enclose it.
+        @Test func withinMatchesOnlyNodesBelowAMatchingContainer() {
+            func node(_ role: String, label: String? = nil, id: String? = nil, children: [AXNode] = []) -> AXNode {
+                AXNode(role: role, label: label, identifier: id, actions: [], frame: .zero, children: children)
+            }
+            let coat = node("AXRadioButton", label: "Oil Slick")
+            let look = node("AXRadioButton", label: "Oil Slick")
+            let tree = node(
+                "AXGroup",
+                children: [
+                    node("AXRadioGroup", id: "island.material.coat", children: [coat]),
+                    node(
+                        "AXRadioGroup", id: "island.look",
+                        children: [node("AXGroup", id: "island.look", children: [look])]),
+                ]
+            )
+
+            #expect(UIFlowExpectations.matches(.label("Oil Slick"), in: tree).count == 2)
+            #expect(
+                UIFlowExpectations.matches(.within(.id("island.material.coat"), .label("Oil Slick")), in: tree).count
+                    == 1)
+            #expect(UIFlowExpectations.matches(.within(.id("island.look"), .label("Oil Slick")), in: tree).count == 1)
+            // A container is never its own descendant: only the nested group matches.
+            #expect(UIFlowExpectations.matches(.within(.id("island.look"), .id("island.look")), in: tree).count == 1)
+            #expect(UIFlowExpectations.matches(.within(.id("island.body"), .label("Oil Slick")), in: tree).isEmpty)
         }
 
         @Test func flowResultStatusMatchesJournalVerdict() {

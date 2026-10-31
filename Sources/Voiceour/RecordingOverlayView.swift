@@ -3,13 +3,14 @@ import VoiceCore
 
 /// The recording island, or the collar it becomes around a camera housing.
 ///
-/// One borderless liquid-mercury body and one invisible accessibility element over it.
+/// One borderless liquid-metal body and one invisible accessibility element over it.
 /// There is no capsule, no control disc, no waveform, no work mark, and no painted word
 /// or symbol: every state the island reports — warming, listening, speaking, working, and
-/// the three unclean deliveries — is carried by how much mercury there is and what it is
-/// doing. What a VoiceOver reader hears is unchanged, because that never came from the
-/// pixels: it comes from this element's label and value, and from named actions: Finish and
-/// Cancel where the two discs used to be, and Dock island while the island is free.
+/// the three unclean deliveries — is carried by how much metal there is and what it is
+/// doing, whatever look Settings ▸ Island gave it. What a VoiceOver reader hears is
+/// unchanged, because that never came from the pixels: it comes from this element's label
+/// and value, and from named actions: Finish and Cancel where the two discs used to be, and
+/// Dock island while the island is free.
 ///
 /// Every measure comes from `model.layout`: the panel, the canvas the body is drawn on, and
 /// the status element's fixed frame.
@@ -28,9 +29,10 @@ struct RecordingOverlayView: View {
     /// What the body feels of its panel, read by the surface once per live frame. The harness
     /// moves no panel and leaves it nil.
     let panelMotion: MercuryPanelMotion?
-    /// Read per frame rather than passed as a value, so the debug picker and a new
-    /// session's world both arrive without a notification path.
-    let world: @MainActor () -> MercuryWorld
+    /// Read per frame rather than passed as a value, so a new session's latched look and
+    /// room both arrive without a notification path. The default is the stock island, which
+    /// is what a harness scene renders unless it passes a look of its own.
+    let island: @MainActor () -> IslandAppearance
     let seed: @MainActor () -> UInt64
     /// Told what each live frame shows, for the controller's hand-offs and pointer gate. The
     /// harness renders pinned frames, which report nothing, and leaves it nil.
@@ -47,7 +49,7 @@ struct RecordingOverlayView: View {
         onDock: @escaping () -> Void,
         hitRegion: MercuryHitRegion? = nil,
         panelMotion: MercuryPanelMotion? = nil,
-        world: @escaping @MainActor () -> MercuryWorld = { RenderOverrides.mercuryWorld ?? .default },
+        island: @escaping @MainActor () -> IslandAppearance = { .stock },
         seed: @escaping @MainActor () -> UInt64 = { RenderOverrides.mercurySeed ?? MercuryMetrics.defaultSeed },
         onFrame: (@MainActor (MercuryFrameReport) -> Void)? = nil,
         islandOnly: Bool = false
@@ -60,7 +62,7 @@ struct RecordingOverlayView: View {
         // view, so it gets a region of its own rather than a nil one to special-case.
         self.hitRegion = hitRegion ?? MercuryHitRegion()
         self.panelMotion = panelMotion
-        self.world = world
+        self.island = island
         self.seed = seed
         self.onFrame = onFrame
         self.islandOnly = islandOnly
@@ -98,7 +100,7 @@ struct RecordingOverlayView: View {
                 model: model,
                 hitRegion: hitRegion,
                 panelMotion: panelMotion,
-                world: world,
+                island: island,
                 seed: seed,
                 onFrame: onFrame
             )

@@ -1,10 +1,12 @@
 import AppKit
+import Combine
 import Testing
+import VoiceCore
 
 @testable import Voiceour
 
 /// Where a placement puts the body on a display, how a free placement is normalized so it means the
-/// same relative spot on every display, and how it persists.
+/// same relative spot on every display, how it persists, and how Settings ▸ Island docks it.
 struct RecordingOverlayPlacementTests {
     private static let padding = RecordingOverlayMetrics.screenPadding
     private static let island = RecordingOverlayMetrics.islandSize
@@ -110,5 +112,86 @@ struct RecordingOverlayPlacementTests {
         )
         #expect(frame.midX == destination.midX)
         #expect(frame.maxY == destination.maxY - 44)
+    }
+
+    // MARK: - Settings ▸ Island
+
+    /// Dock Island reads and writes where the seam points: it sees the free placement there,
+    /// persists docked there, and asks the island to follow exactly once. A test or a harness scene
+    /// that docks through the seam never moves the rendering Mac's own island.
+    @Test @MainActor func dockIslandPersistsDockedThroughTheSeamAndAsksTheIslandToFollowOnce() throws {
+        typealias Key = RecordingOverlayPlacement.DefaultsKey
+        try Self.withScratchPlacement { defaults in
+            RecordingOverlayPlacement.free(u: 0.25, v: 0.6).save(to: defaults)
+            #expect(RecordingOverlayPlacement.persisted == .free(u: 0.25, v: 0.6))
+
+            var requests = 0
+            let observation = NotificationCenter.default
+                .publisher(for: RecordingOverlayPlacement.dockRequestNotification)
+                .sink { _ in requests += 1 }
+            defer { observation.cancel() }
+
+            RecordingOverlayPlacement.requestDock()
+
+            #expect(requests == 1)
+            #expect(defaults.object(forKey: Key.u) == nil && defaults.object(forKey: Key.v) == nil)
+            #expect(RecordingOverlayPlacement.persisted == .docked)
+        }
+    }
+
+    /// Dock Island while no dictation shows the island. The controller read the free placement at
+    /// launch, through the seam, and takes docked the moment Settings asks, so the next session is
+    /// laid out docked rather than where the island was let go.
+    @Test @MainActor func aHiddenIslandStartsItsNextSessionDockedOnceSettingsDocksIt() throws {
+        try Self.withScratchPlacement { defaults in
+            RecordingOverlayPlacement.free(u: 0.25, v: 0.6).save(to: defaults)
+            let controller = RecordingOverlayController(coordinator: Self.makeCoordinator())
+            #expect(controller.placement == .free(u: 0.25, v: 0.6))
+
+            RecordingOverlayPlacement.requestDock()
+
+            #expect(controller.placement == .docked)
+            #expect(RecordingOverlayPlacement(defaults: defaults) == .docked)
+        }
+    }
+
+    /// Runs `body` with the placement seam pointed at a scratch suite, then puts the seam back and
+    /// deletes the suite.
+    @MainActor
+    private static func withScratchPlacement(_ body: (UserDefaults) throws -> Void) throws {
+        let suite = "RecordingOverlayPlacementTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let previous = RenderOverrides.islandPlacementDefaults
+        RenderOverrides.islandPlacementDefaults = defaults
+        defer {
+            RenderOverrides.islandPlacementDefaults = previous
+            defaults.removePersistentDomain(forName: suite)
+        }
+        try body(defaults)
+    }
+
+    /// A coordinator on test doubles, its stores in a scratch directory nothing here writes.
+    @MainActor
+    private static func makeCoordinator() -> DictationCoordinator {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "voiceour-placement-tests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        return DictationCoordinator(
+            recorder: FakeRecorder(),
+            asr: FakeASR(behavior: .text("unused")),
+            tracker: FakeTracker(),
+            inserter: FakeInserter(outcome: .pasteAttempted),
+            permissions: FakePermissions(),
+            hotkey: FakeHotkey(),
+            activeASRBackend: "fake",
+            settingsStore: SettingsStore(url: directory.appendingPathComponent("settings.json")),
+            recentSessionStore: RecentSessionStore(
+                url: directory.appendingPathComponent("recent-sessions.json")
+            ),
+            dictationStatsStore: DictationStatsStore(
+                url: directory.appendingPathComponent("dictation-activity.json")
+            )
+        )
     }
 }

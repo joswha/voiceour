@@ -208,7 +208,7 @@ enum MercurySpectral {
     /// `whitePoint` to (0.99987, 1.00013, 0.99972) rather than (1, 1, 1). Dividing each
     /// channel by that response, a gain within 2.8e-4 of 1, makes a perfect reflector exactly
     /// neutral instead of tinting it with the matrix's rounding.
-    private static let channelWeights: [SIMD3<Double>] = {
+    static let channelWeights: [SIMD3<Double>] = {
         let white = linearSRGB(xyz: whitePoint)
         return tristimulusWeights.map { linearSRGB(xyz: $0) / white }
     }()

@@ -270,6 +270,30 @@
                     failures: &failures
                 )
 
+            case .increment(let query):
+                performInteraction(
+                    .increment,
+                    query: query,
+                    expectation: action.description,
+                    ordinal: ordinal,
+                    view: view,
+                    window: window,
+                    context: context,
+                    failures: &failures
+                )
+
+            case .decrement(let query):
+                performInteraction(
+                    .decrement,
+                    query: query,
+                    expectation: action.description,
+                    ordinal: ordinal,
+                    view: view,
+                    window: window,
+                    context: context,
+                    failures: &failures
+                )
+
             case .type(let text, let query):
                 performInteraction(
                     .type(text),
@@ -349,6 +373,8 @@
             case press
             case click
             case type(String)
+            case increment
+            case decrement
         }
 
         private static func performInteraction(
@@ -408,13 +434,17 @@
                 return
             }
 
-            let step: UIStep
+            let warnings: [String]
             switch kind {
-            case .press: step = .press(target)
-            case .click: step = .click(target)
-            case .type(let text): step = .type(text, into: target)
+            case .press: warnings = UIInteraction.apply([.press(target)], in: view, window: window)
+            case .click: warnings = UIInteraction.apply([.click(target)], in: view, window: window)
+            case .type(let text):
+                warnings = UIInteraction.apply([.type(text, into: target)], in: view, window: window)
+            case .increment:
+                warnings = UIInteraction.adjust(.increment, target, in: view).map { [$0] } ?? []
+            case .decrement:
+                warnings = UIInteraction.adjust(.decrement, target, in: view).map { [$0] } ?? []
             }
-            let warnings = UIInteraction.apply([step], in: view, window: window)
             UIHarnessRuntime.appendInteractionWarnings(warnings)
             for warning in warnings {
                 failures.append(

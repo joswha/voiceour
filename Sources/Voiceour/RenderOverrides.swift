@@ -92,14 +92,30 @@ enum RenderOverrides {
     /// this as nil, which is the live HAL read.
     static var availableMicrophones: [CoreAudioInputDevice.AvailableMicrophone]?
 
-    /// Pins the recording island's generated world and the exact substep its body is
-    /// rendered at. With a step pinned, the representable produces one frame advanced
-    /// from rest by that many fixed substeps and never starts its live display link.
-    /// Production reads all three as nil: a fresh random world per session and the
-    /// attached display's native cadence, capped at 120 fps.
+    /// Pins the seed of the recording island's generated room and the exact substep its
+    /// body is rendered at. With a step pinned, the representable produces one frame
+    /// advanced from rest by that many fixed substeps and never starts its live display
+    /// link. Settings ▸ Island reads both too: the seed is its showroom's first room, which
+    /// the showroom's other rooms and Surprise Me's draws derive from, and the step pins its
+    /// preview. Production reads both as nil: a fresh random room per session, the showroom's
+    /// rooms from `MercuryMetrics.defaultSeed`, a random Surprise Me, and the attached
+    /// display's native cadence, capped at 120 fps.
     static var mercurySeed: UInt64?
     static var mercuryStep: Int?
-    static var mercuryWorld: MercuryWorld?
+
+    /// Points the recording island's persisted placement — docked, or free where the user let
+    /// it go — at another defaults suite, so a Settings golden never encodes whether the
+    /// rendering Mac's user tore their island off, and a scene or test can persist a placement
+    /// or dock it without touching theirs. The overlay controller and Settings ▸ Island both
+    /// read and write through it (`RecordingOverlayPlacement.defaults`). Production reads this
+    /// as nil, which is `UserDefaults.standard`.
+    static var islandPlacementDefaults: UserDefaults?
+
+    /// Pins the pose the Settings ▸ Island showroom opens on. The pose is chosen through an
+    /// `NSMenu` popup, which the offscreen window can never order front, so a scene states
+    /// the pose rather than driving the control. Production reads this as nil, which opens
+    /// on Speaking.
+    static var islandShowroomPose: IslandShowroomPose?
 
     /// Pins the display the recording island lays itself out on: its frame, visible frame,
     /// camera housing, menu-bar band, refresh ceiling and mirroring. Non-nil replaces the live

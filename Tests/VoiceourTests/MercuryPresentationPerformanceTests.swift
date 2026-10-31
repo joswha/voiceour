@@ -79,15 +79,15 @@ struct MercuryPresentationPerformanceTests {
 
     /// The binomial view direction against the exact one, over every point the island's canvas
     /// or the largest collar canvas, around the wide notch, can shade, and every crown height a
-    /// body under that layout's ceiling can lift. The error stays inside the alternating series'
-    /// first omitted term, `35q⁴/128` with `q` at the canvas's far corner under the tallest
-    /// crown: about 2e-10 on the island, where `q < 0.0052`, and 2.1e-8 at the deep collar's far
-    /// corners, where `q < 0.0167`.
+    /// body under that layout's ceiling can lift at the roundest crown a look can choose. The
+    /// error stays inside the alternating series' first omitted term, `35q⁴/128` with `q` at the
+    /// canvas's far corner under the tallest crown: about 2e-10 on the island, where
+    /// `q < 0.0052`, and 2.1e-8 at the deep collar's far corners, where `q < 0.0167`.
     @Test func finiteEyeApproximationIsSubpixelExactAcrossEveryCanvas() {
         for layout in [RecordingOverlayLayout.island, .forDisplay(.fixtureWideNotch)] {
             let halfWidth = Double(layout.canvasRect.width) / 2
             let halfHeight = Double(layout.canvasRect.height) / 2
-            let crown = (MercuryMetrics.crownAspect * layout.spine.maxHalfHeight).rounded(.up)
+            let crown = (MercuryTune.crownAspectRange.upperBound * layout.spine.maxHalfHeight).rounded(.up)
             let depth = MercuryMetrics.eyeDistance - crown
             let q = (halfWidth * halfWidth + halfHeight * halfHeight) / (depth * depth)
             let worst = Self.worstViewDirectionError(halfWidth: halfWidth, halfHeight: halfHeight, tallestCrown: crown)

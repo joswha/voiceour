@@ -1,0 +1,10 @@
+flow: island.room-selection
+title: Choosing Overcast relights the showroom and commits the room
+fixture: static
+transitions: idle
+PASS 1 overcast | value label="Overcast" in id=island.lighting.room == "1" | "1"
+PASS 2 overcast | value id=island.showroom == "Speaking, Overcast room 1" | "Speaking, Overcast room 1"
+PASS 3 overcast | model islandAppearance contains "room=spectral_weather " | "metal=mercury coat=none film=0 candy=355/90/80 finish=0 room=spectral_weather temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100"
+PASS 4 studio | value label="Studio" in id=island.lighting.room == "1" | "1"
+PASS 5 studio | value id=island.showroom == "Speaking, Studio room 1" | "Speaking, Studio room 1"
+PASS 6 studio | model islandLook == "stock" | "stock"

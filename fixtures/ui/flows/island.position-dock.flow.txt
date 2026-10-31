@@ -1,0 +1,12 @@
+flow: island.position-dock
+title: Dock Island docks a torn-off island and says where it goes
+fixture: static
+transitions: idle
+PASS 1 free | enabled(true) id=island.position.dock | true
+PASS 2 free | label id=island.position.dock == "Dock the island" | "Dock the island"
+PASS 3 free | text == "Kept where you let it go, at the same relative spot on each display." exactly 1 | 1 match
+PASS 4 free | model islandPlacement == "free" | "free"
+PASS 5 docked | enabled(false) id=island.position.dock | false
+PASS 6 docked | text == "On a display with a camera notch the island frames the notch; elsewhere it floats centered near the top. Drag it 24 pt to tear it off." exactly 1 | 1 match
+PASS 7 docked | text == "Kept where you let it go, at the same relative spot on each display." exactly 0 | 0 matches
+PASS 8 docked | model islandPlacement == "docked" | "docked"

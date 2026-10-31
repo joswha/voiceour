@@ -1,0 +1,19 @@
+flow: island.folds-independent
+title: The four Garage folds open and close independently
+fixture: static
+transitions: idle
+PASS 1 closed | value id=island.group.material == "false" | "false"
+PASS 2 closed | value id=island.group.lighting == "false" | "false"
+PASS 3 closed | value id=island.group.body == "false" | "false"
+PASS 4 closed | value id=island.group.motion == "false" | "false"
+PASS 5 closed | absent id=island.material.finish | 0 matches
+PASS 6 closed | absent id=island.lighting.temperature | 0 matches
+PASS 7 closed | absent id=island.body.size | 0 matches
+PASS 8 closed | absent id=island.motion.tempo | 0 matches
+PASS 9 material-and-motion | exists id=island.material.finish | 1 match
+PASS 10 material-and-motion | exists id=island.motion.tempo | 1 match
+PASS 11 material-and-motion | absent id=island.lighting.temperature | 0 matches
+PASS 12 material-and-motion | absent id=island.body.size | 0 matches
+PASS 13 motion-only | absent id=island.material.finish | 0 matches
+PASS 14 motion-only | exists id=island.motion.tempo | 1 match
+PASS 15 motion-only | value id=island.group.motion == "true" | "true"

@@ -191,6 +191,14 @@
             /// One dictation driven end to end: `lastTranscript` and `lastOutcome`
             /// are populated and exactly one session was recorded.
             case completedDictation
+            /// `backendReady` wearing the Arctic Platinum look: a pearl film, an underglow,
+            /// the Overcast room and non-stock tone at once, so one golden locks every row a
+            /// stock island leaves hidden or disabled.
+            case islandLook
+            /// Arctic Platinum tuned one finish step off its look, on an island the user tore
+            /// off and left free: the CUSTOM mark, a look list with nothing selected and a live
+            /// Dock Island, none of which a stock install can show.
+            case islandCustom
         }
 
         /// Every fixture timestamp derives from this instant, and `RenderOverrides`
@@ -259,16 +267,16 @@
             case .sidecarFailure:
                 return makeSidecarFailure()
             case .backendReady:
-                return make(
-                    sessions: history,
-                    settings: settings(
-                        backend: realBackend,
-                        preferredMicrophoneUID: "harness-usb-yeti",
-                        preferredMicrophoneName: "Yeti Stereo Microphone"
-                    ),
-                    backend: realBackend,
-                    health: realBackendHealth
-                )
+                return makeBackendReady(island: .stock)
+            case .islandLook:
+                return makeBackendReady(island: IslandLook.arcticPlatinum.appearance)
+            case .islandCustom:
+                var island = IslandLook.arcticPlatinum.appearance
+                island.finish = 25
+                let coordinator = makeBackendReady(island: island)
+                // Into the harness suite `pinProcessSeams()` just docked, never the Mac's own.
+                RecordingOverlayPlacement.free(u: 0.25, v: 0.75).save(to: placementDefaults)
+                return coordinator
             case .backendUnavailable:
                 return make(
                     sessions: history,
@@ -317,18 +325,33 @@
             // Which microphones this Mac has is machine state too. Two pins so
             // the picker's Automatic default has real alternatives to not name.
             RenderOverrides.availableMicrophones = pinnedMicrophones
-            // Production follows a view-bound display link. Pinning the world and exact
+            // Production follows a view-bound display link. Pinning the seed and exact
             // substep makes the representable write one deterministic frame without
             // starting that link: 600 substeps is five seconds at the fixed 120 Hz step.
+            // The room is not pinned: it belongs to the island appearance under test.
             RenderOverrides.mercurySeed = MercuryMetrics.defaultSeed
             RenderOverrides.mercuryStep = 600
-            RenderOverrides.mercuryWorld = .roomOfTen
             // The overlay's display is machine state too: resolved from the rendering Mac's own
             // screen, its layout would be the collar on a notched MacBook and the island on a
             // desktop display. The notchless fixture is the island's display; collar scenes set
             // their layout from `collarLayout(on:)` instead.
             RenderOverrides.overlayDisplay = .fixtureNotchless
+            // Where this Mac's user last left the island is machine state too, and Settings
+            // reads it for Dock Island. The harness suite is docked on every pin, so a free
+            // placement is always one a fixture put there.
+            RenderOverrides.islandPlacementDefaults = placementDefaults
+            RecordingOverlayPlacement.docked.save(to: placementDefaults)
+            // The showroom opens on its production pose, Speaking. The one scene that
+            // shows another pins it in a scope of its own.
+            RenderOverrides.islandShowroomPose = nil
         }
+
+        /// The harness's own defaults suite for the island's placement, so no scene or flow
+        /// reads or writes the rendering Mac's `UserDefaults.standard`. The initializer
+        /// refuses only the app's bundle identifier and the global domain, never this name.
+        private static let placementDefaults = UserDefaults(
+            suiteName: "com.voiceour.ui-harness.placement"
+        )!
 
         // MARK: Overlay displays
 
@@ -478,7 +501,10 @@
             /// Whether this install has already completed a dictation. False on
             /// every fixture but one, because that is what a fresh install holds;
             /// the guidance card is still absent wherever a fixture has sessions.
-            hasCompletedFirstRun: Bool = false
+            hasCompletedFirstRun: Bool = false,
+            /// The committed island look. Stock everywhere but the Garage fixtures, which
+            /// is also what every overlay golden renders.
+            island: IslandAppearance = .stock
         ) -> VoiceCore.Settings {
             VoiceCore.Settings(
                 asrBackend: backend,
@@ -488,7 +514,8 @@
                 autoStopEnabled: false,
                 preferredMicrophoneUID: preferredMicrophoneUID,
                 preferredMicrophoneName: preferredMicrophoneName,
-                hasCompletedFirstRun: hasCompletedFirstRun
+                hasCompletedFirstRun: hasCompletedFirstRun,
+                island: island
             )
         }
 
@@ -551,6 +578,23 @@
             }
             coordinator.isSystemAudioMuteUnavailable = muteUnavailable
             return coordinator
+        }
+
+        /// Real backend, healthy sidecar, every permission granted and the Yeti selected:
+        /// the Settings page of a working install, wearing `island`. One builder, so the
+        /// Garage fixtures differ from `backendReady` in their look and nothing else.
+        private static func makeBackendReady(island: IslandAppearance) -> DictationCoordinator {
+            make(
+                sessions: history,
+                settings: settings(
+                    backend: realBackend,
+                    preferredMicrophoneUID: "harness-usb-yeti",
+                    preferredMicrophoneName: "Yeti Stereo Microphone",
+                    island: island
+                ),
+                backend: realBackend,
+                health: realBackendHealth
+            )
         }
 
         private static func makeRecording() -> DictationCoordinator {

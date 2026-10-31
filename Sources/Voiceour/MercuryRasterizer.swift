@@ -11,9 +11,10 @@ struct MercuryAppearance: Equatable {
 /// CPU rasterizer for the one procedural mercury body.
 ///
 /// The scalar field remains the sole coverage and hit-test oracle. Its sampled radius
-/// also lifts a fixed-aspect half-elliptic crown whose exact total gradient supplies the
-/// surface normal. A static generated RGB room, exact conductor Fresnel and a bounded
-/// two-anchor response complete the material; no highlight, rim or gradient is authored.
+/// also lifts a half-elliptic crown, at the field's own aspect, whose exact total gradient
+/// supplies the surface normal. A static generated RGB room, the look's paint table and a
+/// bounded two-anchor response complete the material; no highlight, rim or gradient is
+/// authored.
 ///
 /// Every pixel is charted onto the spine. Pixels with no chart, under the camera housing or
 /// above the screen's top edge, stay clear. On a horizontal straight run, which is the whole
@@ -38,11 +39,16 @@ struct MercuryAppearance: Equatable {
 /// as its instruction window reaches, which across one long loop body is barely past the next
 /// pixel. So each row takes four short passes instead: cover charts, samples and covers each
 /// marked pixel and queues those the body covers; reflect finds where each queued pixel's
-/// reflection leaves the crown; light reads the room there through the conductor's Fresnel;
+/// reflection leaves the crown; light reads the room there through the paint's reflectance;
 /// and write takes each through the display response into the bitmap, or hands it to
 /// calibration. Within a pass the pixels are independent, so their chains overlap. Every
-/// pixel takes exactly the steps of ``sceneRadiance(of:at:epsilon:environment:)``, in the
-/// same order, and calibration's samples arrive in the same order.
+/// pixel takes exactly the steps of
+/// ``sceneRadiance(of:at:epsilon:crownAspect:environment:paint:)``, in the same order, and
+/// calibration's samples arrive in the same order.
+///
+/// **A look adds no per-pixel work.** It reaches a frame as two values taken once per
+/// render: the field's crown aspect, a scalar in place of a constant, and the paint's table,
+/// whose one lerp per pixel is the reflectance lookup liquid mercury takes too.
 @MainActor
 final class MercuryRasterizer {
     private var context: CGContext?
@@ -99,7 +105,7 @@ final class MercuryRasterizer {
     private struct Reflection {
         /// The reflected ray, as the room reads it.
         var direction: SIMD3<Float>
-        /// `max(N·V, 1e-4)`, the cosine the conductor's Fresnel reads.
+        /// `max(N·V, 1e-4)`, the cosine the paint's reflectance reads.
         var incidence: Double
     }
 
@@ -120,11 +126,13 @@ final class MercuryRasterizer {
         bendChartStates?.deallocate()
     }
 
+    /// `paint` defaults to the shipped liquid mercury, which every stock caller draws.
     func image(
         field: MercuryField,
         environment: MercuryEnvironment,
         response: MercuryDisplayResponse,
         appearance: MercuryAppearance,
+        paint: MercuryPaintLookup = .stock,
         scale: CGFloat
     ) -> CGImage? {
         guard let context = context(for: field.canvasBounds, scale: scale) else { return nil }
@@ -134,6 +142,7 @@ final class MercuryRasterizer {
             environment: environment,
             response: response,
             appearance: appearance,
+            paint: paint,
             context: context,
             scale: scale,
             samples: &samples
@@ -141,11 +150,12 @@ final class MercuryRasterizer {
         return context.makeImage()
     }
 
-    /// Linear `environment × conductor Fresnel` samples before the display response.
+    /// Linear `environment × paint reflectance` samples before the display response.
     /// Calibration pools these over listening and speaking, then solves two anchors once.
     func sampleSceneRadiance(
         field: MercuryField,
         environment: MercuryEnvironment,
+        paint: MercuryPaintLookup = .stock,
         scale: CGFloat
     ) -> [SIMD3<Float>] {
         guard let context = context(for: field.canvasBounds, scale: scale) else { return [] }
@@ -155,6 +165,7 @@ final class MercuryRasterizer {
             environment: environment,
             response: nil,
             appearance: .standard,
+            paint: paint,
             context: context,
             scale: scale,
             samples: &samples
@@ -199,35 +210,41 @@ final class MercuryRasterizer {
     }
 
     /// The linear scene radiance a covered point reflects: the room, seen off the crown the
-    /// sample lifts from the finite eye, times the conductor's Fresnel.
+    /// sample lifts at `crownAspect` from the finite eye, times the paint's reflectance. The
+    /// defaults are the stock look's: the shipped crown and liquid mercury.
     ///
-    /// The pixel loop runs its two halves as separate stages: ``reflection(of:at:epsilon:)``
-    /// for every covered pixel of a row, then ``radiance(of:environment:optics:)``.
+    /// The pixel loop runs its two halves as separate stages:
+    /// ``reflection(of:at:epsilon:crownAspect:)`` for every covered pixel of a row, then
+    /// ``radiance(of:environment:paint:)``.
     @inline(__always)
     static func sceneRadiance(
         of sample: MercuryField.Sample,
         at point: SIMD2<Double>,
         epsilon: Double,
-        environment: MercuryEnvironment
+        crownAspect: Double = MercuryMetrics.crownAspect,
+        environment: MercuryEnvironment,
+        paint: MercuryPaintLookup = .stock
     ) -> SIMD3<Double> {
         radiance(
-            of: reflection(of: sample, at: point, epsilon: epsilon),
+            of: reflection(of: sample, at: point, epsilon: epsilon, crownAspect: crownAspect),
             environment: environment,
-            optics: MercuryOptics.tables
+            paint: paint.table
         )
     }
 
-    /// Where the reflection of the finite eye leaves the crown the sample lifts at `point`.
+    /// Where the reflection of the finite eye leaves the crown the sample lifts at `point`: a
+    /// crown whose height over the centre line is `crownAspect` times the half-thickness.
     @inline(__always)
     private static func reflection(
         of sample: MercuryField.Sample,
         at point: SIMD2<Double>,
-        epsilon: Double
+        epsilon: Double,
+        crownAspect: Double
     ) -> Reflection {
         let crown = MercuryCrown.evaluate(
             field: sample.value,
             radius: sample.radius,
-            aspect: MercuryMetrics.crownAspect,
+            aspect: crownAspect,
             epsilon: epsilon
         )
         let crownGradient = crown.gradient(
@@ -254,17 +271,17 @@ final class MercuryRasterizer {
         )
     }
 
-    /// The room along a reflection, times the conductor's Fresnel at its incidence.
+    /// The room along a reflection, times the paint's reflectance at its incidence.
     @inline(__always)
     private static func radiance(
         of reflection: Reflection,
         environment: MercuryEnvironment,
-        optics: MercuryOptics.Tables
+        paint: MercuryPaintLookup.Table
     ) -> SIMD3<Double> {
         let room = environment.radiance(reflection.direction)
         return SIMD3<Double>(
             Double(room.x), Double(room.y), Double(room.z)
-        ) * optics.fresnel(cosine: reflection.incidence)
+        ) * paint.fresnel(cosine: reflection.incidence)
     }
 
     /// The alpha byte of a pixel the body covers by `coverage`. Its colour bytes are
@@ -329,6 +346,7 @@ final class MercuryRasterizer {
         environment: MercuryEnvironment,
         response: MercuryDisplayResponse?,
         appearance: MercuryAppearance,
+        paint: MercuryPaintLookup,
         context: CGContext,
         scale: CGFloat,
         samples: inout [SIMD3<Float>]?
@@ -383,6 +401,11 @@ final class MercuryRasterizer {
         let displayLookup = selectedResponse.map { lookup(for: $0) }
         // Taken once: a lazy global would check its initializer at every one of a pixel's reads.
         let optics = MercuryOptics.tables
+        // The look's two per-frame inputs, also taken once: the paint's table, read through its
+        // address, and the crown's aspect. The table borrows `paint`'s storage, which outlives
+        // every row: a parameter is guaranteed alive for the whole call.
+        let reflectance = paint.table
+        let crownAspect = field.crownAspect
         for row in rows {
             let vertical = canvasMaxY - (Double(row) + 0.5) * pixelSize
             let words = mask + row * wordsPerRow
@@ -457,10 +480,15 @@ final class MercuryRasterizer {
             }
             // Reflect, then light: each its own pass over the row. See the type's discussion.
             for entry in 0..<queued {
-                reflections[entry] = Self.reflection(of: queue[entry].sample, at: queue[entry].point, epsilon: epsilon)
+                reflections[entry] = Self.reflection(
+                    of: queue[entry].sample,
+                    at: queue[entry].point,
+                    epsilon: epsilon,
+                    crownAspect: crownAspect
+                )
             }
             for entry in 0..<queued {
-                radiances[entry] = Self.radiance(of: reflections[entry], environment: environment, optics: optics)
+                radiances[entry] = Self.radiance(of: reflections[entry], environment: environment, paint: reflectance)
             }
             // Write.
             if collecting {

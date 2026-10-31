@@ -1,0 +1,15 @@
+flow: island.look-selection
+title: Choosing a look commits it and the showroom mark names it
+fixture: static
+transitions: idle
+PASS 1 stock | value label="Stock" in id=island.look == "1" | "1"
+PASS 2 stock | value id=island.showroom.look == "STOCK" | "STOCK"
+PASS 3 stock | model islandLook == "stock" | "stock"
+PASS 4 neon-kit | value label="Neon Kit" in id=island.look == "1" | "1"
+PASS 5 neon-kit | value label="Stock" in id=island.look == "0" | "0"
+PASS 6 neon-kit | value id=island.showroom.look == "NEON KIT" | "NEON KIT"
+PASS 7 neon-kit | model islandLook == "neon_kit" | "neon_kit"
+PASS 8 neon-kit | model islandDraftPending == "0" | 0
+PASS 9 stock-again | value label="Stock" in id=island.look == "1" | "1"
+PASS 10 stock-again | value id=island.showroom.look == "STOCK" | "STOCK"
+PASS 11 stock-again | model islandAppearance == "metal=mercury coat=none film=0 candy=355/90/80 finish=0 room=room_of_ten temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100" | "metal=mercury coat=none film=0 candy=355/90/80 finish=0 room=room_of_ten temperature=0 underglow=off brightness=0 contrast=0 size=100 build=100 crown=78 taper=0 tempo=100 viscosity=100 shimmer=100 reactivity=100 slither=100 morph=100 drama=100"

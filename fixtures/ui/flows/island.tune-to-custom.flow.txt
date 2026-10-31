@@ -1,0 +1,17 @@
+flow: island.tune-to-custom
+title: One slider step off a look reads as Custom until its fold is restored
+fixture: static
+transitions: idle
+PASS 1 material-open | value id=island.material.finish == "0" | "0"
+PASS 2 material-open | enabled(false) id=island.material.stock | false
+PASS 3 custom | value id=island.material.finish == "5" | "5"
+PASS 4 custom | description id=island.material.finish == "5 percent" | "5 percent"
+PASS 5 custom | value id=island.showroom.look == "CUSTOM" | "CUSTOM"
+PASS 6 custom | value label="Stock" in id=island.look == "0" | "0"
+PASS 7 custom | model islandLook == "custom" | "custom"
+PASS 8 custom | model islandDraftPending == "0" | 0
+PASS 9 custom | enabled(true) id=island.material.stock | true
+PASS 10 stock-again | value id=island.material.finish == "0" | "0"
+PASS 11 stock-again | value id=island.showroom.look == "STOCK" | "STOCK"
+PASS 12 stock-again | enabled(false) id=island.material.stock | false
+PASS 13 stock-again | model islandLook == "stock" | "stock"

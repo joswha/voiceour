@@ -95,6 +95,15 @@
         /// `MenuLayout.popoverWidth`, tall enough for the fullest menu state without clipping.
         static let menuSize = CGSize(width: 280, height: 420)
 
+        /// Settings' whole page with every Island fold shut. The Island section puts
+        /// Readiness, Capture, Privacy and Danger below the first-launch measure, so a scene
+        /// about any of them renders at this height instead: a multiple of 4 that reaches the
+        /// last Danger caption without a scroller.
+        static let settingsPageSize = CGSize(
+            width: VoiceourMetrics.Window.defaultWidth,
+            height: 2_212
+        )
+
         /// Ordered so the contact sheet reads top-down like the app does: the
         /// console tab by tab, then the pieces that live outside it.
         private static var registry: [UISceneDescriptor] {
@@ -260,26 +269,87 @@
                     fixture: .populated,
                     appFilter: "com.apple.dt.Xcode"
                 ),
+                // The first-launch measure, which now ends inside the Island showroom: what a
+                // fresh install's Settings tab shows before any scrolling.
                 console(
                     "console.settings.granted",
-                    "Settings preferences and readiness with every permission granted",
+                    "Settings at the first-launch measure with every permission granted",
                     tab: .settings,
                     fixture: .backendReady
                 ),
                 console(
                     "console.settings.denied",
-                    "Settings readiness with permissions denied",
+                    "Settings' whole page, readiness with permissions denied",
                     tab: .settings,
-                    fixture: .backendUnavailable
+                    fixture: .backendUnavailable,
+                    size: settingsPageSize
                 ),
                 console(
                     "console.settings.downloading",
-                    "Settings readiness while the model is still downloading",
+                    "Settings' whole page, readiness while the model is still downloading",
                     tab: .settings,
-                    fixture: .backendDownloading
+                    fixture: .backendDownloading,
+                    size: settingsPageSize
+                ),
+                // Every Garage control, caption, readout and spoken value at stock, and the
+                // showroom's raster.
+                console(
+                    "console.settings.island.tuning",
+                    "Settings' Island section with all four folds open at the stock look",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 3_192),
+                    tags: ["island", "steps"],
+                    steps: islandFoldSteps
+                ),
+                // The rows only a non-stock look shows or enables: the film slider, the
+                // underglow's color and strength, the Overcast radio, signed and kelvin
+                // readouts away from stock, and the ARCTIC PLATINUM mark.
+                console(
+                    "console.settings.island.look",
+                    "Settings' Island section with all four folds open on the Arctic Platinum look",
+                    tab: .settings,
+                    fixture: .islandLook,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 3_212),
+                    tags: ["island", "steps"],
+                    steps: islandFoldSteps
+                ),
+                // CUSTOM, a look list with nothing selected, and Dock Island live beside the
+                // free placement's caption.
+                console(
+                    "console.settings.island.custom",
+                    "Settings' Island section tuned off a look, with a free island placement",
+                    tab: .settings,
+                    fixture: .islandCustom,
+                    size: settingsPageSize,
+                    tags: ["island"]
+                ),
+                // An outcome pose, which only this scene can show: Play Again present and
+                // enabled, and the showroom drawn at the gesture's pinned endpoint, the same
+                // frame semantics as `overlay.island.copied`. Play Again itself is never
+                // pressed here: its 1.2 s hold is wall-clock.
+                console(
+                    "console.settings.island.outcome",
+                    "Settings' Island showroom holding the delivery-failed gesture",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    showroomPose: .deliveryFailed,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_024),
+                    tags: ["island"]
                 ),
             ]
         }
+
+        /// Opens all four Garage folds. Each press reaches one `DisclosureGroup` through the
+        /// identifier and named action on its label; the settle lets the last fold's rows
+        /// finish inserting before the capture.
+        private static let islandFoldSteps: [UIStep] = [
+            .press("island.group.material"),
+            .press("island.group.lighting"),
+            .press("island.group.body"),
+            .press("island.group.motion"),
+            .settle(120),
+        ]
 
         // MARK: Accessibility adaptations
 
@@ -304,10 +374,11 @@
                 ),
                 accessibilityConsole(
                     "a11y.differentiate-without-color",
-                    "Denied readiness state with Differentiate Without Color enabled",
+                    "Settings' whole page denied, with Differentiate Without Color enabled",
                     tab: .settings,
                     fixture: .backendUnavailable,
-                    adaptation: .differentiateWithoutColor
+                    adaptation: .differentiateWithoutColor,
+                    size: settingsPageSize
                 ),
                 accessibilityConsole(
                     "a11y.home.differentiate",
@@ -322,6 +393,30 @@
                     tab: .home,
                     fixture: .populated,
                     adaptation: .reduceTransparency
+                ),
+                // Brightness and Contrast disabled beside the caption that says why, and the
+                // showroom drawn at the accessible tone the island itself will use.
+                accessibilityConsole(
+                    "a11y.island.increase-contrast",
+                    "Settings' Island lighting fold with Increase Contrast enabled",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    adaptation: .increaseContrast,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 2_488),
+                    tags: ["island", "steps"],
+                    steps: [.press("island.group.lighting"), .settle(120)]
+                ),
+                // Shimmer disabled beside the caption that says why, and the showroom's own
+                // Reduce Motion sentence; the rest of Motion stays live, as voice motion does.
+                accessibilityConsole(
+                    "a11y.island.reduce-motion",
+                    "Settings' Island motion fold with Reduce Motion enabled",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    adaptation: .reduceMotion,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 2_512),
+                    tags: ["island", "steps"],
+                    steps: [.press("island.group.motion"), .settle(120)]
                 ),
             ]
         }
@@ -345,6 +440,10 @@
 
         // MARK: Recording overlay
 
+        /// Every body the showroom can hold comes from `IslandShowroomPose.model()`, the
+        /// builders the Settings showroom previews with, so a golden and the showroom can never
+        /// disagree about what a pose is. The collar's failed-delivery and error scenes latch
+        /// outcomes of their own, whose status sentences their goldens lock.
         private static var overlayScenes: [UISceneDescriptor] {
             [
                 UISceneDescriptor(
@@ -355,7 +454,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: listeningOverlayModel(),
+                            model: IslandShowroomPose.speaking.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {}
@@ -370,7 +469,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: listeningOverlayModel(),
+                            model: IslandShowroomPose.speaking.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {},
@@ -378,6 +477,8 @@
                         )
                     )
                 },
+                // The state a user looks at before every utterance, so it gets a golden of
+                // its own rather than sharing one with the speaking body.
                 UISceneDescriptor(
                     id: "overlay.island.listening",
                     title: "Recording overlay island, live microphone hearing nothing",
@@ -386,7 +487,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: quietOverlayModel(),
+                            model: IslandShowroomPose.listening.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {},
@@ -394,6 +495,8 @@
                         )
                     )
                 },
+                // One unclean delivery at its stable endpoint: the gathered gesture, no
+                // control of any kind, and one safe status value.
                 UISceneDescriptor(
                     id: "overlay.island.copied",
                     title: "Recording overlay island, copy-only outcome",
@@ -402,7 +505,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: outcomeOverlayModel(.copiedOnly(reason: "target_terminal")),
+                            model: IslandShowroomPose.copyOnly.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {},
@@ -410,6 +513,10 @@
                         )
                     )
                 },
+                // Warming Up feeds the speaking levels to a capture that is not live yet, and
+                // `record(_:)` drops every one, so this golden pins both halves of that fix:
+                // the body cannot be driven from a warm-up buffer, and it holds the small calm
+                // warming lens instead of the listening pose.
                 UISceneDescriptor(
                     id: "overlay.island.warmup",
                     title: "Recording overlay island, microphone still warming up",
@@ -418,7 +525,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: warmingOverlayModel(),
+                            model: IslandShowroomPose.warmingUp.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {},
@@ -426,6 +533,8 @@
                         )
                     )
                 },
+                // The working droplet: short, tall, and disconnected from the voice, pinned
+                // to one substep index like every other overlay scene.
                 UISceneDescriptor(
                     id: "overlay.island.processing",
                     title: "Recording overlay island, transcribing",
@@ -434,7 +543,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: processingOverlayModel(),
+                            model: IslandShowroomPose.processing.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {},
@@ -451,7 +560,7 @@
                 ) {
                     AnyView(
                         RecordingOverlayView(
-                            model: listeningOverlayModel(),
+                            model: IslandShowroomPose.speaking.model(),
                             onCancel: {},
                             onFinish: {},
                             onDock: {},
@@ -459,55 +568,91 @@
                         )
                     )
                 },
+                // The stock look in the other room a user can choose. The appearance goes
+                // straight to the view, exactly as a session's latched look does.
                 UISceneDescriptor(
-                    id: "overlay.island.weather",
-                    title: "Recording overlay island reflecting the debug Spectral Weather world",
+                    id: "overlay.island.overcast",
+                    title: "Recording overlay island speaking in the Overcast room",
                     size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay"]
                 ) {
                     AnyView(
-                        UIHarnessMercuryWorldScope(world: .spectralWeather) {
-                            AnyView(
-                                RecordingOverlayView(
-                                    model: listeningOverlayModel(),
-                                    onCancel: {},
-                                    onFinish: {},
-                                    onDock: {},
-                                    islandOnly: true
-                                )
-                            )
-                        }
+                        RecordingOverlayView(
+                            model: IslandShowroomPose.speaking.model(),
+                            onCancel: {},
+                            onFinish: {},
+                            onDock: {},
+                            island: { overcastIsland },
+                            islandOnly: true
+                        )
                     )
                 },
-                // The collar around the 16-inch MacBook Pro's camera housing, `.fixtureNotch`:
-                // the island's states on the island's own model builders, laid along the
-                // housing's outline. `wide` is the same panel at More Space, whose housing spans
-                // more points. Canvas alone like the island scenes; the collar's canvas is its
-                // whole panel, hung flush from the screen's top edge around the housing.
+            ] + lookScenes + collarScenes
+        }
+
+        /// Stock in every respect but its room.
+        private static let overcastIsland: IslandAppearance = {
+            var island = IslandAppearance.stock
+            island.room = .spectralWeather
+            return island
+        }()
+
+        /// Every named look but Stock on the real island, speaking: the raster each look
+        /// ships as. Stock's is `overlay.island.recording`. Ids spell the look's raw tag with
+        /// dashes, the separator every other scene basename uses.
+        private static var lookScenes: [UISceneDescriptor] {
+            IslandLook.allCases.filter { $0 != .stock }.map { look in
+                UISceneDescriptor(
+                    id: "overlay.island.look." + look.rawValue.replacingOccurrences(of: "_", with: "-"),
+                    title: "Recording overlay island speaking in the \(look.displayName) look",
+                    size: RecordingOverlayLayout.island.canvasRect.size,
+                    tags: ["overlay"]
+                ) {
+                    AnyView(
+                        RecordingOverlayView(
+                            model: IslandShowroomPose.speaking.model(),
+                            onCancel: {},
+                            onFinish: {},
+                            onDock: {},
+                            island: { look.appearance },
+                            islandOnly: true
+                        )
+                    )
+                }
+            }
+        }
+
+        /// The collar around the 16-inch MacBook Pro's camera housing, `.fixtureNotch`: the
+        /// island's states on the showroom's model builders, laid along the housing's outline.
+        /// `wide` is the same panel at More Space, whose housing spans more points. Canvas alone
+        /// like the island scenes; the collar's canvas is its whole panel, hung flush from the
+        /// screen's top edge around the housing.
+        private static var collarScenes: [UISceneDescriptor] {
+            [
                 collar(
                     "overlay.notch.recording",
                     "Recording overlay collar around the camera housing, speaking",
-                    model: listeningOverlayModel
+                    model: { IslandShowroomPose.speaking.model() }
                 ),
                 collar(
                     "overlay.notch.listening",
                     "Recording overlay collar, live microphone hearing nothing",
-                    model: quietOverlayModel
+                    model: { IslandShowroomPose.listening.model() }
                 ),
                 collar(
                     "overlay.notch.warmup",
                     "Recording overlay collar, microphone still warming up",
-                    model: warmingOverlayModel
+                    model: { IslandShowroomPose.warmingUp.model() }
                 ),
                 collar(
                     "overlay.notch.processing",
                     "Recording overlay collar, transcribing",
-                    model: processingOverlayModel
+                    model: { IslandShowroomPose.processing.model() }
                 ),
                 collar(
                     "overlay.notch.copied",
                     "Recording overlay collar, copy-only outcome",
-                    model: { outcomeOverlayModel(.copiedOnly(reason: "target_terminal")) }
+                    model: { IslandShowroomPose.copyOnly.model() }
                 ),
                 collar(
                     "overlay.notch.lurch",
@@ -524,7 +669,7 @@
                     "Recording overlay collar with Reduce Motion enabled",
                     tags: ["a11y"],
                     accessibilityAdaptation: .reduceMotion,
-                    model: listeningOverlayModel
+                    model: { IslandShowroomPose.speaking.model() }
                 ),
                 // Over a full-screen app the band beside the housing is empty black, and the
                 // speaking collar turns both fillets and runs out along the ears into it.
@@ -532,7 +677,7 @@
                     "overlay.notch.fullscreen",
                     "Recording overlay collar over a full-screen app, speaking",
                     model: {
-                        let model = listeningOverlayModel()
+                        let model = IslandShowroomPose.speaking.model()
                         model.update(poseContext: MercuryPoseContext(fullScreen: true))
                         return model
                     }
@@ -541,7 +686,17 @@
                     "overlay.notch.wide",
                     "Recording overlay collar around a wider camera housing, speaking",
                     display: .fixtureWideNotch,
-                    model: listeningOverlayModel
+                    model: { IslandShowroomPose.speaking.model() }
+                ),
+                // A look reaches the collar through the same latched appearance as the island:
+                // its paint, room lighting, tone and motion law, and its body kit on the
+                // collar's terms, edges and height redrawn along the housing's own length.
+                // Street Racer changes every one of them at once.
+                collar(
+                    "overlay.notch.look.street-racer",
+                    "Recording overlay collar speaking in the \(IslandLook.streetRacer.displayName) look",
+                    island: IslandLook.streetRacer.appearance,
+                    model: { IslandShowroomPose.speaking.model() }
                 ),
             ]
         }
@@ -560,6 +715,7 @@
             deselected: Bool = false,
             appFilter: String? = nil,
             teachingSurface: String? = nil,
+            showroomPose: IslandShowroomPose? = nil,
             // Optional rather than `= consoleSize`: a default argument expression is
             // evaluated outside this enum's main-actor context, so it may not read a
             // main-actor static. Nil is the first-launch measure, resolved below.
@@ -623,6 +779,18 @@
                         }
                     )
                 }
+                if let showroomPose {
+                    return AnyView(
+                        UIHarnessShowroomPoseScope(pose: showroomPose) {
+                            AnyView(
+                                ConsoleWindowView(
+                                    coordinator: UIFixtures.coordinator(fixture),
+                                    initialTab: tab
+                                )
+                            )
+                        }
+                    )
+                }
                 return AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
             }
         }
@@ -635,14 +803,19 @@
             _ title: String,
             tab: ConsoleTab,
             fixture: UIFixtures.Kind,
-            adaptation: UIHarnessAccessibilityAdaptation
+            adaptation: UIHarnessAccessibilityAdaptation,
+            // Nil is the first-launch measure, for the same reason as in `console`.
+            size: CGSize? = nil,
+            tags: [String] = [],
+            steps: [UIStep] = []
         ) -> UISceneDescriptor {
             UISceneDescriptor(
                 id: identifier,
                 title: title,
-                size: consoleSize,
+                size: size ?? consoleSize,
                 colorScheme: .dark,
-                tags: ["console", "a11y"],
+                tags: ["console", "a11y"] + tags,
+                steps: steps,
                 accessibilityAdaptation: adaptation
             ) {
                 AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
@@ -667,11 +840,13 @@
         /// The collar around the camera housing of `display`, its canvas alone like the island
         /// scenes. The scene measures the layout's canvas, which for the collar is the whole
         /// panel, and the model carries the layout, so the body, its pose ladder and the status
-        /// element's frame all read the collar the panel would lay out on that display.
+        /// element's frame all read the collar the panel would lay out on that display. `island`
+        /// goes straight to the view, exactly as a session's latched look does.
         private static func collar(
             _ identifier: String,
             _ title: String,
             display: OverlayDisplay = .fixtureNotch,
+            island: IslandAppearance = .stock,
             tags: [String] = [],
             accessibilityAdaptation: UIHarnessAccessibilityAdaptation? = nil,
             model makeModel: @escaping @MainActor () -> RecordingOverlayModel
@@ -692,6 +867,7 @@
                         onCancel: {},
                         onFinish: {},
                         onDock: {},
+                        island: { island },
                         islandOnly: true
                     )
                 )
@@ -707,70 +883,16 @@
 
         // MARK: - Overlay state
 
-        /// The live meter's syllable, oldest first: the mercury body's forcing, which it
-        /// reads as a travelling crest train.
-        private static let driveLevels = MercurySpeechMeter.syllable
-
-        /// A capture that is live and receiving buffers. These levels also carry it past
-        /// the voice-activity hysteresis — two consecutive samples at or above 0.10 — so
-        /// the golden records the speaking pose rather than the listening one.
-        private static func listeningOverlayModel() -> RecordingOverlayModel {
-            let model = RecordingOverlayModel()
-            model.update(.recording)
-            model.updateCaptureLive(true)
-            for level in driveLevels {
-                model.record(level)
-            }
-            return model
-        }
-
-        /// A live microphone in a quiet room. Every level sits at or below the release
-        /// threshold, so the voice-activity hysteresis never starts and the body holds
-        /// the narrower listening pose. This is the state a user looks at before every
-        /// utterance, so it gets a golden of its own rather than sharing one with the
-        /// speaking body.
-        private static func quietOverlayModel() -> RecordingOverlayModel {
-            let model = RecordingOverlayModel()
-            model.update(.recording)
-            model.updateCaptureLive(true)
-            for level in MercurySpeechMeter.quietRoom {
-                model.record(level)
-            }
-            return model
-        }
-
         /// One unclean delivery at its stable endpoint: the outcome's gesture, no control of
-        /// any kind, and one safe status value.
+        /// any kind, and one safe status value. Only the collar's failed-delivery and error
+        /// scenes build one here: their outcomes are not the showroom's, so their goldens lock
+        /// status sentences the showroom never shows.
         private static func outcomeOverlayModel(_ state: SessionState) -> RecordingOverlayModel {
             let model = RecordingOverlayModel()
             model.update(state)
             if let outcome = RecordingOverlayOutcome(state: state) {
                 model.present(outcome)
             }
-            return model
-        }
-
-        /// A capture that has been started and is not delivering audio yet: the state the
-        /// island holds for 1422 ms on a cold AirPods Max link against 99 ms on the
-        /// built-in microphone. The drive levels below are fed in deliberately —
-        /// `record(_:)` drops every one of them while capture is not live, so this scene
-        /// pins both halves of the fix at once: the body cannot be driven from a warm-up
-        /// buffer, and it holds the small calm warming lens instead of the listening pose.
-        private static func warmingOverlayModel() -> RecordingOverlayModel {
-            let model = RecordingOverlayModel()
-            model.update(.recording)
-            for level in driveLevels {
-                model.record(level)
-            }
-            return model
-        }
-
-        /// The working droplet: short, tall, and disconnected from the voice. Capturable
-        /// now that the retired three-dot mark's wall-clock phase is gone — the body is
-        /// pinned to one substep index like every other overlay scene.
-        private static func processingOverlayModel() -> RecordingOverlayModel {
-            let model = RecordingOverlayModel()
-            model.update(.transcribing)
             return model
         }
     }
@@ -872,24 +994,26 @@
         }
     }
 
-    /// Process-wide value seam scoped to the one scene that renders the debug world.
-    /// Switching it in the running app is a Settings picker behind `--debug`, which the
-    /// harness never passes, so the state is pinned rather than performed.
-    private struct UIHarnessMercuryWorldScope: View {
+    /// Process-wide value seam scoped to the one scene that renders the Settings showroom
+    /// holding an outcome. The pose is chosen from an `NSMenu` popup, which an offscreen
+    /// window that can never order front cannot open, so the pose is pinned rather than
+    /// performed. Building the fixture first lets its standard pins run, which leave the
+    /// pose nil, before this scene installs its own.
+    private struct UIHarnessShowroomPoseScope: View {
         private let content: AnyView
-        private let previous: MercuryWorld?
+        private let previous: IslandShowroomPose?
 
         @MainActor
-        init(world: MercuryWorld, build: @escaping @MainActor () -> AnyView) {
+        init(pose: IslandShowroomPose, build: @escaping @MainActor () -> AnyView) {
             content = build()
-            previous = RenderOverrides.mercuryWorld
-            RenderOverrides.mercuryWorld = world
+            previous = RenderOverrides.islandShowroomPose
+            RenderOverrides.islandShowroomPose = pose
         }
 
         var body: some View {
             content
                 .onDisappear {
-                    RenderOverrides.mercuryWorld = previous
+                    RenderOverrides.islandShowroomPose = previous
                 }
         }
     }

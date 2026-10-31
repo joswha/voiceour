@@ -58,38 +58,30 @@ final class MercuryCalibration {
         mirrorCorrelation = quietRoom.mirrorCorrelation(gains: gains)
     }
 
-    /// The bounded display response for one generated room, metered over both live poses of
-    /// the bodies `layout` draws. Two scene anchors solve its two parameters; no bisection
-    /// and no runtime clamp can turn a different seed into a different material.
+    /// The bounded display response for one generated room and look, metered over both live
+    /// poses of the bodies `layout` draws. Two scene anchors solve its two parameters; no
+    /// bisection and no runtime clamp can turn a different seed into a different material.
+    ///
+    /// `environment` is the look's room, already baked with its lighting. `look` supplies the
+    /// rest of what the response is metered against, the paint table and the tune its bodies
+    /// move and are drawn under, and the tone and underglow strength its targets come from.
     func displayResponse(
         for environment: MercuryEnvironment,
         bodySeed: UInt64,
-        layout: RecordingOverlayLayout
+        layout: RecordingOverlayLayout,
+        look: MercuryLook = .stock
     ) -> MercuryDisplayResponse {
-        Self.response(
-            metering: Self.sceneRadianceSamples(
-                gains: gains,
-                environment: environment,
-                seed: bodySeed,
-                layout: layout
-            ),
-            highlightPercentile: Self.highlightPercentile(for: layout)
-        )
+        meter(environment: environment, bodySeed: bodySeed, layout: layout, look: look).response
     }
 
     /// The metered median after the bounded response, for the calibration tests.
     func displayLuminance(
         for environment: MercuryEnvironment,
         bodySeed: UInt64,
-        layout: RecordingOverlayLayout
+        layout: RecordingOverlayLayout,
+        look: MercuryLook = .stock
     ) -> Double {
-        let samples = Self.sceneRadianceSamples(
-            gains: gains,
-            environment: environment,
-            seed: bodySeed,
-            layout: layout
-        )
-        let response = Self.response(metering: samples, highlightPercentile: Self.highlightPercentile(for: layout))
+        let (samples, response) = meter(environment: environment, bodySeed: bodySeed, layout: layout, look: look)
         return Self.median(
             samples.map {
                 MercuryDisplayResponse.luminance(
@@ -97,6 +89,41 @@ final class MercuryCalibration {
                 )
             }
         )
+    }
+
+    /// One scene sampling and the response solved on it, so ``displayLuminance(for:bodySeed:layout:look:)``
+    /// reads the very samples the response was solved on.
+    ///
+    /// The targets are the look's tone anchors for its paint's albedo. Stock, they are the shipped
+    /// constants themselves, and stock bodies under the stock table sample what the shipped
+    /// renderer samples, so the stock look's response is the shipped one bit for bit.
+    private func meter(
+        environment: MercuryEnvironment,
+        bodySeed: UInt64,
+        layout: RecordingOverlayLayout,
+        look: MercuryLook
+    ) -> (samples: [SIMD3<Float>], response: MercuryDisplayResponse) {
+        let paint = MercuryPaintLookup.lookup(for: look.paint)
+        let samples = Self.sceneRadianceSamples(
+            gains: gains,
+            tune: look.tune,
+            environment: environment,
+            paint: paint,
+            seed: bodySeed,
+            layout: layout
+        )
+        let targets = MercuryToneAnchors.targets(
+            albedo: paint.albedo,
+            tone: look.tone,
+            underglowStrength: look.underglowStrength
+        )
+        let response = Self.response(
+            metering: samples,
+            highlightPercentile: Self.highlightPercentile(for: layout),
+            medianTarget: targets.median,
+            highlightTarget: targets.highlight
+        )
+        return (samples, response)
     }
 
     // MARK: - Fixed measurement conditions
@@ -161,7 +188,8 @@ final class MercuryCalibration {
 
     /// The drive gain whose live crests reach the target prominence, with the contact line off.
     /// Both gains are the body law's, not the lighting's, so both are solved on the island's
-    /// canonical bodies, whatever layout a session goes on to draw.
+    /// canonical bodies, whatever layout a session goes on to draw, and on the stock law,
+    /// whatever its look: a tune scales the law's own constants about these gains.
     ///
     /// Solved by proportion rather than bisection. Below the containment gauge the voice's
     /// amplitudes are linear in the gain, and the drawn edge's exponential and the gauge bend
@@ -288,22 +316,26 @@ final class MercuryCalibration {
         }
     }
 
-    /// In-body `radiance * Fresnel` triples for one room, pooled over the two poses the
-    /// body actually spends its time in, laid out as `layout` draws them.
+    /// In-body `radiance * paint reflectance` triples for one room, pooled over the two poses
+    /// the body actually spends its time in, laid out as `layout` draws them.
     ///
     /// Both, not one: metering only the listening body landed *its* median on target and
     /// left the speaking body — the one a reader watches — anywhere from 0.04 to 0.46
     /// across four rooms, because a taller ridge with deeper crests sweeps a different
-    /// part of the room. The body carries the session's own seed and its own layout, so the
+    /// part of the room. The body carries the session's own seed, tune and layout, so the
     /// room is metered against the body it will light rather than against a stand-in. The
     /// layout matters as much as the pose: a collar shows only the outer half of a chin and
-    /// walls, which sweeps a different part of the room than the island's whole crown.
+    /// walls, which sweeps a different part of the room than the island's whole crown. So
+    /// does the tune: its law moves the body and its body kit draws it, crown included.
     ///
-    /// Sampled once through the shipping crown and conductor path, then solved in closed
-    /// form. The room is static, so the response remains valid for as long as the layout is.
+    /// Sampled once through the shipping crown and paint path, then solved in closed form.
+    /// The room is static, so the response remains valid for as long as the layout and the
+    /// look are.
     private static func sceneRadianceSamples(
         gains: MercuryGains,
+        tune: MercuryTune,
         environment: MercuryEnvironment,
+        paint: MercuryPaintLookup,
         seed: UInt64,
         layout: RecordingOverlayLayout
     ) -> [SIMD3<Float>] {
@@ -311,7 +343,7 @@ final class MercuryCalibration {
         var samples: [SIMD3<Float>] = []
         for speaking in [false, true] {
             let drive = drive(speaking: speaking, layout: layout, reduceMotion: false)
-            let simulation = MercurySimulation(seed: seed, gains: gains)
+            let simulation = MercurySimulation(seed: seed, gains: gains, tune: tune)
             simulation.reset(to: drive)
             simulation.advance(steps: settleSteps, drive: drive)
             let collected = rasterizer.sampleSceneRadiance(
@@ -321,6 +353,7 @@ final class MercuryCalibration {
                     canvas: layout.canvasRect.size
                 ),
                 environment: environment,
+                paint: paint,
                 scale: MercuryMetrics.rasterScale
             )
             // Every fourth pixel: the median of a stride is the median, and the full set
@@ -340,7 +373,9 @@ final class MercuryCalibration {
     /// `highlightPercentile` on their targets.
     private static func response(
         metering samples: [SIMD3<Float>],
-        highlightPercentile: Int
+        highlightPercentile: Int,
+        medianTarget: Double,
+        highlightTarget: Double
     ) -> MercuryDisplayResponse {
         let values = samples.map {
             MercuryDisplayResponse.luminance(
@@ -352,8 +387,8 @@ final class MercuryCalibration {
             let response = MercuryDisplayResponse.solve(
                 sceneMedian: values[values.count / 2],
                 sceneHighlight: values[values.count * highlightPercentile / 100],
-                medianTarget: MercuryMetrics.targetDisplayLuminance,
-                highlightTarget: MercuryMetrics.targetHighlightLuminance,
+                medianTarget: medianTarget,
+                highlightTarget: highlightTarget,
                 ceiling: MercuryMetrics.displayCeiling
             )
         else {

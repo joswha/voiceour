@@ -166,12 +166,51 @@
             static func tab(_ tab: ConsoleTab) -> UIQuery {
                 .id("console.tab.\(tab.rawValue)")
             }
+
+            // Settings ▸ Island. Coats and looks share two radio labels, Oil Slick and
+            // Chameleon, so every radio is addressed inside its own group.
+            static let islandShowroom = UIQuery.id("island.showroom")
+            static let islandLookMark = UIQuery.id("island.showroom.look")
+            static let islandAnotherRoom = UIQuery.id("island.showroom.room")
+            static let islandMaterialFold = UIQuery.id("island.group.material")
+            static let islandLightingFold = UIQuery.id("island.group.lighting")
+            static let islandBodyFold = UIQuery.id("island.group.body")
+            static let islandMotionFold = UIQuery.id("island.group.motion")
+            static let islandFilm = UIQuery.id("island.material.film")
+            static let islandCandy = UIQuery.id("island.material.candy")
+            static let islandFinish = UIQuery.id("island.material.finish")
+            static let islandMaterialStock = UIQuery.id("island.material.stock")
+            static let islandTemperature = UIQuery.id("island.lighting.temperature")
+            static let islandUnderglow = UIQuery.id("island.lighting.underglow")
+            static let islandUnderglowColor = UIQuery.id("island.lighting.underglow.color")
+            static let islandUnderglowStrength = UIQuery.id("island.lighting.underglow.strength")
+            static let islandSize = UIQuery.id("island.body.size")
+            static let islandTempo = UIQuery.id("island.motion.tempo")
+            static let islandSurprise = UIQuery.id("island.look.surprise")
+            static let islandPositionDock = UIQuery.id("island.position.dock")
+            static let islandFreePlacementCaption =
+                "Kept where you let it go, at the same relative spot on each display."
+            static let islandDockedPlacementCaption =
+                "On a display with a camera notch the island frames the notch; "
+                + "elsewhere it floats centered near the top. Drag it 24 pt to tear it off."
+
+            static func islandLook(_ look: IslandLook) -> UIQuery {
+                .within(.id("island.look"), .label(look.displayName))
+            }
+
+            static func islandCoat(_ coat: IslandCoat) -> UIQuery {
+                .within(.id("island.material.coat"), .label(coat.displayName))
+            }
+
+            static func islandRoom(_ room: MercuryWorld) -> UIQuery {
+                .within(.id("island.lighting.room"), .label(room.displayName))
+            }
         }
 
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
-            sessionFlows + voiceFlows + glossaryFlows + systemFlows + consoleFlows + menuFlows
-                + overlayFlows
+            sessionFlows + voiceFlows + islandFlows + glossaryFlows + systemFlows + consoleFlows
+                + menuFlows + overlayFlows
         }
 
         /// Selection goes through `UIHarnessRequest.matches(id:tags:)`, the one spelling of
@@ -451,6 +490,376 @@
                             [
                                 .value(Selector.autoStop, .equals("1")),
                                 .enabled(Selector.autoStopDuration, true),
+                            ]
+                        ),
+                    ]),
+            ]
+        }
+
+        // MARK: Island
+
+        /// Settings ▸ Island. Checks read the committed settings (`islandLook`,
+        /// `islandAppearance`) beside the controls, so each journey proves a control's commit
+        /// reached the persisted settings rather than only that the view redrew. Sliders
+        /// move by accessibility increment, which commits exactly as a released drag does.
+        ///
+        /// Undo has no flow: ⌘Z is a key equivalent, which AppKit offers only to the key
+        /// window, and this one can never become key. The Garage's undo steps are unit-tested
+        /// against a standalone `UndoManager` instead.
+        private static var islandFlows: [UIFlow] {
+            let tags = ["island", "console", "settings"]
+            let stock = IslandAppearance.stock.canonicalDescription
+            // The journal records both lines, so a change to the draw algorithm shows up as
+            // a journal diff even though the expectation is computed from it.
+            let firstDraw = IslandAppearance.surprise(
+                seed: MercuryMetrics.defaultSeed, draw: 0, avoiding: .stock)
+            let secondDraw = IslandAppearance.surprise(
+                seed: MercuryMetrics.defaultSeed, draw: 1, avoiding: firstDraw)
+            return [
+                UIFlow(
+                    id: "island.look-selection",
+                    title: "Choosing a look commits it and the showroom mark names it",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "stock",
+                            [
+                                .value(Selector.islandLook(.stock), .equals("1")),
+                                .value(Selector.islandLookMark, .equals("STOCK")),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandLook(.neonKit))),
+                        .check(
+                            "neon-kit",
+                            [
+                                .value(Selector.islandLook(.neonKit), .equals("1")),
+                                .value(Selector.islandLook(.stock), .equals("0")),
+                                .value(Selector.islandLookMark, .equals("NEON KIT")),
+                                .model(.islandLook, .equals("neon_kit")),
+                                .model(.islandDraftPending, .equals("0")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandLook(.stock))),
+                        .check(
+                            "stock-again",
+                            [
+                                .value(Selector.islandLook(.stock), .equals("1")),
+                                .value(Selector.islandLookMark, .equals("STOCK")),
+                                .model(.islandAppearance, .equals(stock)),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.tune-to-custom",
+                    title: "One slider step off a look reads as Custom until its fold is restored",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.islandMaterialFold)),
+                        .wait(.element(Selector.islandFinish)),
+                        .check(
+                            "material-open",
+                            [
+                                .value(Selector.islandFinish, .equals("0")),
+                                .enabled(Selector.islandMaterialStock, false),
+                            ]
+                        ),
+                        .act(.increment(Selector.islandFinish)),
+                        .check(
+                            "custom",
+                            [
+                                .value(Selector.islandFinish, .equals("5")),
+                                .valueDescription(Selector.islandFinish, .equals("5 percent")),
+                                .value(Selector.islandLookMark, .equals("CUSTOM")),
+                                .value(Selector.islandLook(.stock), .equals("0")),
+                                .model(.islandLook, .equals("custom")),
+                                // Committed on the step's editing end, not left as a draft.
+                                .model(.islandDraftPending, .equals("0")),
+                                .enabled(Selector.islandMaterialStock, true),
+                            ]
+                        ),
+                        .act(.press(Selector.islandMaterialStock)),
+                        .check(
+                            "stock-again",
+                            [
+                                .value(Selector.islandFinish, .equals("0")),
+                                .value(Selector.islandLookMark, .equals("STOCK")),
+                                .enabled(Selector.islandMaterialStock, false),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.coat-film",
+                    title: "Each film coat opens the film slider at its own stock thickness",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.islandMaterialFold)),
+                        .wait(.element(Selector.islandCoat(.none))),
+                        .check(
+                            "none",
+                            [
+                                .value(Selector.islandCoat(.none), .equals("1")),
+                                .absent(Selector.islandFilm),
+                            ]
+                        ),
+                        .act(.press(Selector.islandCoat(.pearl))),
+                        .check(
+                            "pearl",
+                            [
+                                .value(Selector.islandFilm, .equals("70")),
+                                .valueDescription(Selector.islandFilm, .equals("70 nanometers")),
+                                .model(.islandAppearance, .contains("coat=pearl film=70 ")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandCoat(.oilSlick))),
+                        .check(
+                            "oil-slick",
+                            [
+                                .value(Selector.islandFilm, .equals("450")),
+                                .model(.islandAppearance, .contains("coat=oil_slick film=450 ")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandCoat(.chameleon))),
+                        .check(
+                            "chameleon",
+                            [
+                                .value(Selector.islandFilm, .equals("350")),
+                                .model(.islandAppearance, .contains("coat=chameleon film=350 ")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandCoat(.none))),
+                        .check(
+                            "none-again",
+                            [
+                                .value(Selector.islandCoat(.none), .equals("1")),
+                                .absent(Selector.islandFilm),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.candy-coat",
+                    title: "The Candy coat alone offers a dye color well",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.islandMaterialFold)),
+                        .wait(.element(Selector.islandCoat(.candy))),
+                        .check("bare", [.absent(Selector.islandCandy)]),
+                        .act(.press(Selector.islandCoat(.candy))),
+                        .check(
+                            "candy",
+                            [
+                                .exists(Selector.islandCandy),
+                                .enabled(Selector.islandCandy, true),
+                                .absent(Selector.islandFilm),
+                                .model(.islandAppearance, .contains("coat=candy ")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandCoat(.none))),
+                        .check(
+                            "bare-again",
+                            [
+                                .absent(Selector.islandCandy),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.underglow-dependency",
+                    title: "The underglow switch governs its color and strength",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.islandLightingFold)),
+                        .wait(.element(Selector.islandUnderglow)),
+                        .check(
+                            "off",
+                            [
+                                .value(Selector.islandUnderglow, .equals("0")),
+                                .enabled(Selector.islandUnderglowColor, false),
+                                .enabled(Selector.islandUnderglowStrength, false),
+                            ]
+                        ),
+                        .act(.press(Selector.islandUnderglow)),
+                        .check(
+                            "on",
+                            [
+                                .value(Selector.islandUnderglow, .equals("1")),
+                                .enabled(Selector.islandUnderglowColor, true),
+                                .enabled(Selector.islandUnderglowStrength, true),
+                                .value(Selector.islandUnderglowStrength, .equals("60")),
+                                .model(.islandLook, .equals("custom")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandUnderglow)),
+                        .check(
+                            "off-again",
+                            [
+                                .enabled(Selector.islandUnderglowColor, false),
+                                .enabled(Selector.islandUnderglowStrength, false),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.room-selection",
+                    title: "Choosing Overcast relights the showroom and commits the room",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.islandLightingFold)),
+                        .wait(.element(Selector.islandRoom(.spectralWeather))),
+                        .act(.press(Selector.islandRoom(.spectralWeather))),
+                        .check(
+                            "overcast",
+                            [
+                                .value(Selector.islandRoom(.spectralWeather), .equals("1")),
+                                .value(Selector.islandShowroom, .equals("Speaking, Overcast room 1")),
+                                .model(.islandAppearance, .contains("room=spectral_weather ")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandRoom(.roomOfTen))),
+                        .check(
+                            "studio",
+                            [
+                                .value(Selector.islandRoom(.roomOfTen), .equals("1")),
+                                .value(Selector.islandShowroom, .equals("Speaking, Studio room 1")),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.surprise",
+                    title: "Surprise Me commits the seeded draws in order",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check("stock", [.model(.islandLook, .equals("stock"))]),
+                        .act(.press(Selector.islandSurprise)),
+                        .check(
+                            "first-draw",
+                            [
+                                .model(.islandAppearance, .equals(firstDraw.canonicalDescription)),
+                                .model(.islandLook, .equals(UIFlowExpectations.islandLookTag(firstDraw))),
+                                .model(.islandDraftPending, .equals("0")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandSurprise)),
+                        .check(
+                            "second-draw",
+                            [
+                                .model(.islandAppearance, .equals(secondDraw.canonicalDescription)),
+                                .model(.islandLook, .equals(UIFlowExpectations.islandLookTag(secondDraw))),
+                                .model(.islandDraftPending, .equals("0")),
+                            ]
+                        ),
+                    ]),
+                // The preview's room is view state: drawing another one must never reach
+                // the island's settings.
+                UIFlow(
+                    id: "island.showroom-room",
+                    title: "Another Room changes the preview and saves nothing",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "room-1",
+                            [
+                                .label(Selector.islandShowroom, .equals("Island preview")),
+                                .value(Selector.islandShowroom, .equals("Speaking, Studio room 1")),
+                                .model(.islandLook, .equals("stock")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandAnotherRoom)),
+                        .check(
+                            "room-2",
+                            [
+                                .value(Selector.islandShowroom, .equals("Speaking, Studio room 2")),
+                                .model(.islandAppearance, .equals(stock)),
+                                .model(.islandDraftPending, .equals("0")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.folds-independent",
+                    title: "The four Garage folds open and close independently",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "closed",
+                            [
+                                .value(Selector.islandMaterialFold, .equals("false")),
+                                .value(Selector.islandLightingFold, .equals("false")),
+                                .value(Selector.islandBodyFold, .equals("false")),
+                                .value(Selector.islandMotionFold, .equals("false")),
+                                .absent(Selector.islandFinish),
+                                .absent(Selector.islandTemperature),
+                                .absent(Selector.islandSize),
+                                .absent(Selector.islandTempo),
+                            ]
+                        ),
+                        .act(.press(Selector.islandMaterialFold)),
+                        .act(.press(Selector.islandMotionFold)),
+                        .wait(.element(Selector.islandTempo)),
+                        .check(
+                            "material-and-motion",
+                            [
+                                .exists(Selector.islandFinish),
+                                .exists(Selector.islandTempo),
+                                .absent(Selector.islandTemperature),
+                                .absent(Selector.islandSize),
+                            ]
+                        ),
+                        .act(.press(Selector.islandMaterialFold)),
+                        .wait(.absent(Selector.islandFinish)),
+                        .check(
+                            "motion-only",
+                            [
+                                .absent(Selector.islandFinish),
+                                .exists(Selector.islandTempo),
+                                .value(Selector.islandMotionFold, .equals("true")),
+                            ]
+                        ),
+                    ]),
+                UIFlow(
+                    id: "island.position-dock",
+                    title: "Dock Island docks a torn-off island and says where it goes",
+                    tags: tags,
+                    host: .console(.settings),
+                    fixture: .static(.islandCustom),
+                    steps: [
+                        .check(
+                            "free",
+                            [
+                                .enabled(Selector.islandPositionDock, true),
+                                .label(Selector.islandPositionDock, .equals("Dock the island")),
+                                .text(.equals(Selector.islandFreePlacementCaption), .exactly(1)),
+                                .model(.islandPlacement, .equals("free")),
+                            ]
+                        ),
+                        .act(.press(Selector.islandPositionDock)),
+                        .check(
+                            "docked",
+                            [
+                                .enabled(Selector.islandPositionDock, false),
+                                .text(.equals(Selector.islandDockedPlacementCaption), .exactly(1)),
+                                .text(.equals(Selector.islandFreePlacementCaption), .exactly(0)),
+                                .model(.islandPlacement, .equals("docked")),
                             ]
                         ),
                     ]),

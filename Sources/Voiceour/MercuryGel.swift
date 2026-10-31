@@ -43,31 +43,46 @@ enum MercuryGel {
     /// damping — the `k²` law of viscous wave damping — so short modes die while long ones ring.
     static let viscosity: Double = 200
 
-    /// Zener parameters of the surface mode with wavenumber `k` (pt⁻¹) on a body of depth `H` (pt):
+    /// Zener parameters of the surface mode with wavenumber `k` (pt⁻¹) on a body of depth `H` (pt),
+    /// at the island's Tempo `t` and Viscosity `v` (``MercuryTune``):
     ///
-    ///     ω_cg² = tempo² (g k + (σ/ρ) k³) tanh(k H)
-    ///     Ω∞² = ω_cg² + (c∞ k)²,    Ω₁² = (c₁ k)²,    Ω_g = √(Ω∞² + Ω₁²)
-    ///     c = 2 ζ0 Ω_g + 2 ν k²,    1 / τ
+    ///     ω_cg² = (t · tempo)² (g k + (σ/ρ) k³) tanh(k H)
+    ///     Ω∞² = ω_cg² + (t c∞ k)²,    Ω₁² = (t c₁ k)²,    Ω_g = √(Ω∞² + Ω₁²)
+    ///     c = 2 v ζ0 Ω_g + 2 t v ν k²,    t / τ
     ///
     /// `ω_cg` is the capillary–gravity dispersion of a mercury pool this deep, slowed by the one global
     /// `MercuryMetrics.tempo`. The gel only adds stiffness and memory to it; it never removes the
-    /// liquid. Every term is positive for `k > 0` and `H > 0`, so every mode is strictly dissipative.
-    static func modal(waveNumber: Double, depth: Double) -> MercuryZener.Parameters {
-        let tempo = MercuryMetrics.tempo
+    /// liquid. Every term is positive for `k > 0`, `H > 0`, `t > 0` and `v > 0`, so every mode is
+    /// strictly dissipative.
+    ///
+    /// Tempo is an exact time scale. Every rate of the law is multiplied by `t` — both stiffnesses by
+    /// `t²`, the damping and the arm's relaxation rate by `t` — so the tuned mode is the stock one run
+    /// `t` times as fast: every eigenvalue times `t`, the damping ratio and the shape of the dispersion
+    /// unchanged. Viscosity multiplies the damping alone, both its parts. Each enters as one
+    /// multiplication of a constant, so at `t = v = 1` these are the shipped parameters to the bit.
+    static func modal(
+        waveNumber: Double,
+        depth: Double,
+        tempo timeScale: Double = 1,
+        viscosity lossScale: Double = 1
+    ) -> MercuryZener.Parameters {
+        let tempo = MercuryMetrics.tempo * timeScale
         let restoring =
             MercuryMetrics.gravity * waveNumber
             + MercuryMetrics.surfaceTensionOverDensity * waveNumber * waveNumber * waveNumber
         let capillaryGravity = tempo * tempo * restoring * tanh(waveNumber * depth)
-        let rubberyRate = rubberyWaveSpeed * waveNumber
-        let armRate = armWaveSpeed * waveNumber
+        let rubberyRate = rubberyWaveSpeed * timeScale * waveNumber
+        let armRate = armWaveSpeed * timeScale * waveNumber
         let rubbery = capillaryGravity + rubberyRate * rubberyRate
         let arm = armRate * armRate
         let glassy = (rubbery + arm).squareRoot()
+        let loss = lossRatio * lossScale
+        let kinematic = viscosity * timeScale * lossScale
         return MercuryZener.Parameters(
             rubberyStiffness: rubbery,
             armStiffness: arm,
-            damping: 2 * lossRatio * glassy + 2 * viscosity * waveNumber * waveNumber,
-            relaxationRate: 1 / relaxationTime
+            damping: 2 * loss * glassy + 2 * kinematic * waveNumber * waveNumber,
+            relaxationRate: timeScale / relaxationTime
         )
     }
 }
@@ -118,6 +133,24 @@ struct MercuryZener: Sendable, Equatable {
         /// both springs.
         var glassyFrequency: Double {
             (rubberyStiffness + armStiffness).squareRoot()
+        }
+
+        /// `|H(iω)|`: how fully the mode follows an equilibrium that a force carries round at angular
+        /// frequency `ω`, the steady swing of `u` over the swing of `u*`:
+        ///
+        ///     H(iω) = Ω∞² / (Ω∞² − ω² + i c ω + Ω₁² iωτ / (1 + iωτ))
+        ///
+        /// A force moves the rubbery equilibrium by `f / Ω∞²`, and the arm answers the motion it
+        /// produces with its complex stiffness. So a held force is followed exactly, `|H(0)| = 1`, and
+        /// a carried one meets the gel's storage and loss at `ω`. The quadrature part,
+        /// `ω (c + Ω₁² τ / (1 + ω²τ²))`, is positive for `ω > 0` in every strictly dissipative mode, so
+        /// the gain is finite at every frequency.
+        func followingGain(at frequency: Double) -> Double {
+            let squared = frequency * frequency
+            let relaxed = armStiffness / (relaxationRate * relaxationRate + squared)
+            let inPhase = rubberyStiffness - squared + relaxed * squared
+            let quadrature = frequency * (damping + relaxed * relaxationRate)
+            return rubberyStiffness / (inPhase * inPhase + quadrature * quadrature).squareRoot()
         }
     }
 
@@ -170,7 +203,7 @@ struct MercuryZener: Sendable, Equatable {
     /// Discrete rather than continuous, because the kick lands once per substep: this is the exact
     /// statistic of the process the simulation runs, and the continuous-time variance is only its
     /// `h → 0` limit. The solution is unique when the mode is strictly dissipative, which every
-    /// ``MercuryGel/modal(waveNumber:depth:)`` mode is.
+    /// ``MercuryGel/modal(waveNumber:depth:tempo:viscosity:)`` mode is.
     func unitKickOffsetVariance() -> Double {
         stationaryMatrix().row0.x
     }

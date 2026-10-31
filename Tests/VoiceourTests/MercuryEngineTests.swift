@@ -2,21 +2,104 @@ import CoreGraphics
 import Foundation
 import Testing
 
+@testable import VoiceCore
 @testable import Voiceour
 
 @MainActor
 struct MercuryEngineTests {
+    // MARK: - Looks
+
+    /// The stock appearance is the shipped renderer input for input, which is what keeps
+    /// every stock image byte-identical.
+    @Test func theStockAppearanceIsTheStockLook() {
+        #expect(MercuryLook(island: .stock) == .stock)
+        #expect(MercuryLook(island: IslandLook.stock.appearance) == .stock)
+        #expect(MercuryLook.stock.world == .default)
+        #expect(MercuryLook.stock.paint == .stock)
+        #expect(MercuryLook.stock.lighting == .stock)
+        #expect(MercuryLook.stock.tone == .stock)
+        #expect(MercuryLook.stock.tune == .stock)
+
+        // Values the appearance keeps but does not show never reach the look.
+        var hidden = IslandAppearance.stock
+        hidden.candyHue = 10
+        hidden.underglowHue = 10
+        hidden.underglowStrength = 100
+        #expect(MercuryLook(island: hidden) == .stock)
+    }
+
+    @Test func anAppearanceMapsOntoItsPhysicalInputs() {
+        var island = IslandAppearance.stock
+        island.metal = .platinum
+        island.select(coat: .pearl)
+        island.film = 90
+        island.finish = 20
+        island.room = .spectralWeather
+        island.temperature = -80
+        island.underglow = true
+        island.underglowHue = 190
+        island.underglowSaturation = 35
+        island.underglowStrength = 30
+        island.brightness = 30
+        island.contrast = -30
+        island.build = 96
+        island.crown = 84
+        island.taper = 50
+        island.morph = 140
+        let look = MercuryLook(island: island)
+
+        #expect(look.world == .spectralWeather)
+        #expect(
+            look.paint
+                == MercuryPaint(
+                    metal: .platinum,
+                    coat: .pearl,
+                    filmNanometers: 90,
+                    candy: SIMD3(repeating: 1)
+                )
+        )
+        #expect(look.lighting.finish == Float(0.03 * pow(25.0 / 3.0, 0.2)))
+        #expect(look.lighting.whiteBalance == MercuryWhiteBalance.multipliers(temperature: -0.8))
+        #expect(
+            look.lighting.underglow
+                == MercuryUnderglow(
+                    color: MercuryColor.luminanceNormalized(
+                        MercuryColor.linearRGB(hue: 190, saturation: 35, brightness: 100)
+                    ),
+                    strength: 0.3
+                )
+        )
+        #expect(look.underglowStrength == 0.3)
+        #expect(look.tone == MercuryTone(brightness: 0.3, contrast: -0.3))
+        #expect(look.tune.size == 1)
+        #expect(look.tune.build == 0.96)
+        #expect(look.tune.crownAspect == 0.84)
+        #expect(abs(look.tune.endTaper - 0.38) < 1e-12)
+        #expect(look.tune.morph == 1.4)
+
+        // A dye is its round-trip transmittance, held where the lacquer keeps it.
+        var candy = IslandAppearance.stock
+        candy.metal = .silver
+        candy.select(coat: .candy)
+        candy.candyHue = 120
+        candy.candySaturation = 100
+        candy.candyBrightness = 100
+        #expect(MercuryLook(island: candy).paint.candy == SIMD3<Double>(0.02, 1, 0.02))
+    }
+
+    // MARK: - Light and body
+
     @Test func reseedingRebuildsTheBodyAndLightingTogether() throws {
         let drive = Drives.speaking()
         let reused = MercuryEngine(
             seed: 1,
-            world: .roomOfTen,
+            look: .stock,
             hitRegion: MercuryHitRegion()
         )
         _ = reused.pinnedFrame(
             step: 600,
             seed: 1,
-            world: .roomOfTen,
+            look: .stock,
             drive: drive,
             appearance: .standard,
             layout: .island
@@ -25,7 +108,7 @@ struct MercuryEngineTests {
             reused.pinnedFrame(
                 step: 600,
                 seed: 2,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: .island
@@ -34,14 +117,14 @@ struct MercuryEngineTests {
 
         let fresh = MercuryEngine(
             seed: 2,
-            world: .roomOfTen,
+            look: .stock,
             hitRegion: MercuryHitRegion()
         )
         let expected = try #require(
             fresh.pinnedFrame(
                 step: 600,
                 seed: 2,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: .island
@@ -51,11 +134,375 @@ struct MercuryEngineTests {
         #expect(Self.bytes(reseeded) == Self.bytes(expected))
     }
 
+    /// Whatever an engine drew before, a pinned frame depends only on its seed, look and
+    /// layout.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func aReusedEngineDrawsEveryLookLikeAFreshOne(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        let oilSlick = MercuryLook(island: IslandLook.oilSlick.appearance)
+        var toned = oilSlick
+        toned.tone = MercuryTone(brightness: -0.2, contrast: 0.4)
+        let looks = [
+            oilSlick,
+            toned,
+            MercuryLook(island: IslandLook.neonKit.appearance),
+            MercuryLook(island: IslandLook.candyApple.appearance),
+            .stock,
+        ]
+        let reused = MercuryEngine(seed: 17, look: .stock, hitRegion: MercuryHitRegion())
+        for look in looks {
+            let image = try #require(
+                reused.pinnedFrame(
+                    step: 600,
+                    seed: 17,
+                    look: look,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+            let fresh = MercuryEngine(seed: 17, look: look, hitRegion: MercuryHitRegion())
+            let expected = try #require(
+                fresh.pinnedFrame(
+                    step: 600,
+                    seed: 17,
+                    look: look,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+            #expect(Self.bytes(image) == Self.bytes(expected), "\(display.id) \(look)")
+        }
+    }
+
+    /// A new seed is a new session: a new body grows afresh under the new look's light, frame
+    /// for frame as a fresh engine grows its first, and its first frame is as empty.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func aNewSeedStartsAFreshBodyUnderItsLook(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        let neon = MercuryLook(island: IslandLook.neonKit.appearance)
+        let reused = MercuryEngine(seed: 20, look: .stock, hitRegion: MercuryHitRegion())
+        _ = try Self.emerged(reused, seed: 20, drive: drive, appearance: .standard, layout: layout)
+        let fresh = MercuryEngine(seed: 21, look: neon, hitRegion: MercuryHitRegion())
+        func frame(_ engine: MercuryEngine, advancing steps: Int) -> CGImage? {
+            engine.frame(
+                advancing: steps,
+                seed: 21,
+                look: neon,
+                drive: drive,
+                appearance: .standard,
+                layout: layout
+            )
+        }
+        #expect(frame(reused, advancing: 2) == nil)
+        #expect(frame(fresh, advancing: 0) == nil)
+        var grown: CGImage?
+        for index in 0..<18 {
+            grown = frame(reused, advancing: MercuryMetrics.maxSubstepsPerFrame)
+            let expected = frame(fresh, advancing: MercuryMetrics.maxSubstepsPerFrame)
+            #expect(grown.map(Self.bytes) == expected.map(Self.bytes), "\(display.id) frame \(index)")
+        }
+        _ = try #require(grown)
+    }
+
+    /// Paint, tone and tune meter the response again over the same room; only a new seed,
+    /// world or room lighting rebakes it. An unchanged look meters nothing, and a pinned frame
+    /// draws under the light a live frame built.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func aLookChangeRebuildsOnlyWhatItReaches(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        let engine = MercuryEngine(seed: 18, look: .stock, hitRegion: MercuryHitRegion())
+        let stockRoom = engine.environment
+        _ = try Self.emerged(engine, seed: 18, drive: drive, appearance: .standard, layout: layout)
+        #expect(engine.environment === stockRoom)
+        #expect(engine.meteredResponses == 1)
+
+        func frame(seed: UInt64 = 18, _ look: MercuryLook) -> CGImage? {
+            engine.frame(
+                advancing: 1,
+                seed: seed,
+                look: look,
+                drive: drive,
+                appearance: .standard,
+                layout: layout
+            )
+        }
+        var look = MercuryLook.stock
+        look.paint.metal = .gold
+        look.tone.contrast = 0.4
+        look.tune.morph = 1.3
+        _ = try #require(frame(look))
+        #expect(engine.environment === stockRoom)
+        #expect(engine.meteredResponses == 2)
+        _ = try #require(frame(look))
+        #expect(engine.meteredResponses == 2)
+
+        look.lighting.whiteBalance = MercuryWhiteBalance.multipliers(temperature: 0.5)
+        _ = try #require(frame(look))
+        let warmRoom = engine.environment
+        #expect(warmRoom !== stockRoom)
+        #expect(warmRoom.lighting == look.lighting)
+        #expect(engine.meteredResponses == 3)
+
+        _ = try #require(
+            engine.pinnedFrame(
+                step: 600,
+                seed: 18,
+                look: look,
+                drive: drive,
+                appearance: .standard,
+                layout: layout
+            )
+        )
+        #expect(engine.environment === warmRoom)
+        #expect(engine.meteredResponses == 3)
+
+        look.world = .spectralWeather
+        _ = try #require(frame(look))
+        let overcast = engine.environment
+        #expect(overcast !== warmRoom)
+        #expect(overcast.world == .spectralWeather)
+        #expect(engine.meteredResponses == 4)
+
+        // A new seed is a new body, which emerges empty and so lights nothing yet.
+        #expect(frame(seed: 19, look) == nil)
+        #expect(engine.environment !== overcast)
+        #expect(engine.meteredResponses == 4)
+    }
+
+    /// A tune retunes the moving body in the same room: the frame is exactly that body,
+    /// retuned mid-flight, under the response metered for the new look.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func retuningKeepsTheRoomAndTheMovingBody(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        var tuned = MercuryLook.stock
+        tuned.tune.size = 0.9
+        tuned.tune.crownAspect = 0.9
+        tuned.tune.shimmer = 1.5
+        let engine = MercuryEngine(seed: 11, look: .stock, hitRegion: MercuryHitRegion())
+        let room = engine.environment
+        _ = try Self.emerged(engine, seed: 11, drive: drive, appearance: .standard, layout: layout)
+        let retuned = try #require(
+            engine.frame(
+                advancing: 2,
+                seed: 11,
+                look: tuned,
+                drive: drive,
+                appearance: .standard,
+                layout: layout
+            )
+        )
+        #expect(engine.environment === room)
+
+        let body = MercurySimulation(seed: 11, gains: MercuryCalibration.shared.gains)
+        body.reset(to: drive, emerging: true)
+        for _ in 0..<18 {
+            body.advance(steps: MercuryMetrics.maxSubstepsPerFrame, drive: drive)
+        }
+        body.retune(tuned.tune)
+        body.advance(steps: 2, drive: drive)
+        let expected = try #require(
+            MercuryRasterizer().image(
+                field: MercuryField(
+                    geometry: body.geometry,
+                    spine: layout.spine,
+                    canvas: layout.canvasRect.size
+                ),
+                environment: room,
+                response: MercuryCalibration.shared.displayResponse(
+                    for: room,
+                    bodySeed: 11,
+                    layout: layout,
+                    look: tuned
+                ),
+                appearance: .standard,
+                paint: MercuryPaintLookup.lookup(for: tuned.paint),
+                scale: MercuryMetrics.rasterScale
+            )
+        )
+        #expect(Self.bytes(retuned) == Self.bytes(expected))
+    }
+
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func pinnedFrameKeysOnTheLook(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let drive = Drives.speaking(on: layout)
+        let engine = MercuryEngine(seed: 16, look: .stock, hitRegion: MercuryHitRegion())
+        func pinned(_ look: MercuryLook) throws -> CGImage {
+            try #require(
+                engine.pinnedFrame(
+                    step: 600,
+                    seed: 16,
+                    look: look,
+                    drive: drive,
+                    appearance: .standard,
+                    layout: layout
+                )
+            )
+        }
+        let first = try pinned(.stock)
+        let cached = try pinned(.stock)
+        #expect(first === cached)
+        #expect(engine.meteredResponses == 1)
+
+        var brighter = MercuryLook.stock
+        brighter.tone.brightness = 0.3
+        let toned = try pinned(brighter)
+        #expect(toned !== first)
+        #expect(Self.bytes(toned) != Self.bytes(first))
+        #expect(engine.meteredResponses == 2)
+    }
+
+    // MARK: - Replay
+
+    /// A replay requested before the body's first frame survives the reset that starts it
+    /// and fires on the first advancing frame, exactly as one requested after that reset.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func replayGestureFiresAgainEvenBeforeTheFirstFrame(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let outcome = try Drives.outcome(.insertFailed(reason: "no focused element"), on: layout)
+        let source = Drives.processingPose(on: layout)
+        let early = MercuryEngine(seed: 14, look: .stock, hitRegion: MercuryHitRegion())
+        let late = MercuryEngine(seed: 14, look: .stock, hitRegion: MercuryHitRegion())
+        let unarmed = MercuryEngine(seed: 14, look: .stock, hitRegion: MercuryHitRegion())
+        func frame(_ engine: MercuryEngine, advancing steps: Int) -> CGImage? {
+            engine.frame(
+                advancing: steps,
+                seed: 14,
+                look: .stock,
+                drive: outcome,
+                appearance: .standard,
+                layout: layout
+            )
+        }
+        early.replayGesture(from: source)
+        for engine in [early, late, unarmed] {
+            #expect(frame(engine, advancing: 0) == nil)
+        }
+        late.replayGesture(from: source)
+
+        var images: [Data?] = []
+        for engine in [early, late, unarmed] {
+            var image = frame(engine, advancing: 2)
+            for _ in 0..<18 {
+                image = frame(engine, advancing: MercuryMetrics.maxSubstepsPerFrame)
+            }
+            images.append(image.map(Self.bytes))
+        }
+        _ = try #require(images[0])
+        #expect(images[0] == images[1])
+        #expect(images[0] != images[2])
+    }
+
+    /// A replay that meets a live pose is dropped rather than kept for the next outcome.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func replayGestureIsDroppedOnALivePose(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let live = Drives.speaking(on: layout)
+        let outcome = try Drives.outcome(.insertFailed(reason: "no focused element"), on: layout)
+        let replayed = MercuryEngine(seed: 15, look: .stock, hitRegion: MercuryHitRegion())
+        let control = MercuryEngine(seed: 15, look: .stock, hitRegion: MercuryHitRegion())
+        for engine in [replayed, control] {
+            _ = try Self.emerged(engine, seed: 15, drive: live, appearance: .standard, layout: layout)
+        }
+        replayed.replayGesture(from: Drives.processingPose(on: layout))
+
+        var images: [[Data]] = []
+        for engine in [replayed, control] {
+            var frames: [Data] = []
+            for drive in [live, outcome, outcome] {
+                let image = try #require(
+                    engine.frame(
+                        advancing: 2,
+                        seed: 15,
+                        look: .stock,
+                        drive: drive,
+                        appearance: .standard,
+                        layout: layout
+                    )
+                )
+                frames.append(Self.bytes(image))
+            }
+            images.append(frames)
+        }
+        #expect(images[0] == images[1])
+    }
+
+    /// The first configuration only records its generation, however high; each later
+    /// increase replays once, and the same generation again replays nothing.
+    @Test(arguments: [OverlayDisplay.fixtureNotchless, .fixtureNotch])
+    func surfaceViewReplaysOncePerGeneration(display: OverlayDisplay) throws {
+        let layout = RecordingOverlayLayout.forDisplay(display)
+        let outcome = try Drives.outcome(.error(.inferenceFailed), on: layout)
+        let source = Drives.processingPose(on: layout)
+        let view = MercurySurfaceView(seed: 13, look: .stock, hitRegion: MercuryHitRegion())
+        let control = MercuryEngine(seed: 13, look: .stock, hitRegion: MercuryHitRegion())
+        func configure(generation: Int) {
+            view.update(
+                MercurySurfaceView.Configuration(
+                    seed: 13,
+                    look: .stock,
+                    drive: outcome,
+                    appearance: .standard,
+                    layout: layout,
+                    pinnedStep: nil,
+                    replayGeneration: generation,
+                    replaySource: source
+                )
+            )
+        }
+        func controlFrame(advancing steps: Int) -> CGImage? {
+            control.frame(
+                advancing: steps,
+                seed: 13,
+                look: .stock,
+                drive: outcome,
+                appearance: .standard,
+                layout: layout
+            )
+        }
+        // Steps the view and the control engine together; true when they drew the same.
+        func stepMatches(replaying: Bool) throws -> Bool {
+            if replaying {
+                control.replayGesture(from: source)
+            }
+            view.renderLive(steps: 2)
+            let expected = try #require(controlFrame(advancing: 2))
+            return Self.bytes(try #require(view.currentImage)) == Self.bytes(expected)
+        }
+
+        // The first configuration draws the view's first live frame: the body about to emerge.
+        configure(generation: 3)
+        #expect(view.currentImage == nil)
+        #expect(controlFrame(advancing: 0) == nil)
+        for _ in 0..<18 {
+            view.renderLive(steps: MercuryMetrics.maxSubstepsPerFrame)
+            _ = controlFrame(advancing: MercuryMetrics.maxSubstepsPerFrame)
+        }
+        #expect(try stepMatches(replaying: false))
+
+        configure(generation: 4)
+        #expect(try stepMatches(replaying: true))
+
+        configure(generation: 4)
+        #expect(try stepMatches(replaying: false))
+
+        configure(generation: 6)
+        #expect(try stepMatches(replaying: true))
+    }
+
+    // MARK: - Presentation
+
     @Test func livePresentationRendersEveryCommittedStepAndCachesDuplicates() throws {
         let drive = Drives.speaking()
         let engine = MercuryEngine(
             seed: 7,
-            world: .roomOfTen,
+            look: .stock,
             hitRegion: MercuryHitRegion()
         )
         let first = try Self.emerged(engine, seed: 7, drive: drive, appearance: .standard, layout: .island)
@@ -63,7 +510,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: 0,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: .island
@@ -73,7 +520,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: 1,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: .island
@@ -88,7 +535,7 @@ struct MercuryEngineTests {
         let drive = Drives.speaking()
         let engine = MercuryEngine(
             seed: 9,
-            world: .roomOfTen,
+            look: .stock,
             hitRegion: MercuryHitRegion()
         )
         let standard = try Self.emerged(engine, seed: 9, drive: drive, appearance: .standard, layout: .island)
@@ -96,7 +543,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: 0,
                 seed: 9,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: MercuryAppearance(increasedContrast: true),
                 layout: .island
@@ -120,14 +567,14 @@ struct MercuryEngineTests {
         }
         let engine = MercuryEngine(
             seed: 5,
-            world: .roomOfTen,
+            look: .stock,
             hitRegion: MercuryHitRegion()
         )
         let image = try #require(
             engine.pinnedFrame(
                 step: 600,
                 seed: 5,
-                world: .roomOfTen,
+                look: .stock,
                 drive: Drives.collar(spine: layout.spine),
                 appearance: .standard,
                 layout: layout
@@ -169,7 +616,7 @@ struct MercuryEngineTests {
         let drive = Drives.speaking()
         let collar = RecordingOverlayLayout.forDisplay(.fixtureNotch)
         let region = MercuryHitRegion()
-        let engine = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: region)
+        let engine = MercuryEngine(seed: 7, look: .stock, hitRegion: region)
         let island = try Self.emerged(engine, seed: 7, drive: drive, appearance: .standard, layout: .island)
         // 3 pt above the island's centre: on the island's body, and in the collar's band.
         let raised = CGPoint(x: 130, y: 30)
@@ -179,7 +626,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: 0,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: collar
@@ -189,7 +636,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: 0,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: collar
@@ -206,7 +653,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: 1,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: collar
@@ -214,12 +661,12 @@ struct MercuryEngineTests {
         )
         #expect(stepped !== collared)
 
-        let pinning = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
+        let pinning = MercuryEngine(seed: 7, look: .stock, hitRegion: MercuryHitRegion())
         let pinned = try #require(
             pinning.pinnedFrame(
                 step: 120,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: collar
@@ -229,7 +676,7 @@ struct MercuryEngineTests {
             pinning.pinnedFrame(
                 step: 120,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: collar
@@ -239,7 +686,7 @@ struct MercuryEngineTests {
             pinning.pinnedFrame(
                 step: 120,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: .standard,
                 layout: .island
@@ -265,7 +712,7 @@ struct MercuryEngineTests {
                 != calibration.displayResponse(for: room, bodySeed: 7, layout: collar)
         )
 
-        let engine = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
+        let engine = MercuryEngine(seed: 7, look: .stock, hitRegion: MercuryHitRegion())
         func frame(
             advancing steps: Int,
             on layout: RecordingOverlayLayout,
@@ -274,7 +721,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: steps,
                 seed: 7,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: appearance,
                 layout: layout
@@ -298,14 +745,14 @@ struct MercuryEngineTests {
         _ = try #require(frame(advancing: 1, on: .island))
         #expect(engine.meteredResponses == 3)
 
-        let travelled = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
-        let fresh = MercuryEngine(seed: 7, world: .roomOfTen, hitRegion: MercuryHitRegion())
+        let travelled = MercuryEngine(seed: 7, look: .stock, hitRegion: MercuryHitRegion())
+        let fresh = MercuryEngine(seed: 7, look: .stock, hitRegion: MercuryHitRegion())
         func pinned(_ engine: MercuryEngine, step: Int, on layout: RecordingOverlayLayout) throws -> CGImage {
             try #require(
                 engine.pinnedFrame(
                     step: step,
                     seed: 7,
-                    world: .roomOfTen,
+                    look: .stock,
                     drive: drive,
                     appearance: .standard,
                     layout: layout
@@ -320,6 +767,8 @@ struct MercuryEngineTests {
         #expect(travelled.meteredResponses == 2)
         #expect(fresh.meteredResponses == 1)
     }
+
+    // MARK: - Fixtures
 
     /// Strictly inside the camera housing: between its walls and above its bottom edge, less
     /// the two rounded bottom corners.
@@ -338,8 +787,9 @@ struct MercuryEngineTests {
         image.dataProvider!.data! as Data
     }
 
-    /// A fresh engine's emergence. Its first live frame is the empty body about to grow out of
-    /// the top edge, which draws nothing; 0.6 s of full frames later the body is in its pose.
+    /// A fresh engine's emergence under the stock look. Its first live frame is the empty body
+    /// about to grow out of the notch or the top edge, which draws nothing; 0.6 s of full frames
+    /// later the body is in its pose.
     private static func emerged(
         _ engine: MercuryEngine,
         seed: UInt64,
@@ -351,7 +801,7 @@ struct MercuryEngineTests {
             engine.frame(
                 advancing: steps,
                 seed: seed,
-                world: .roomOfTen,
+                look: .stock,
                 drive: drive,
                 appearance: appearance,
                 layout: layout
@@ -543,5 +993,38 @@ private enum Drives {
         drive.pose.length = CGFloat(0.9 * spine.length)
         drive.maxLength = spine.length
         return drive
+    }
+
+    /// The drive the ribbon hands the engine for a microphone on `layout` hearing the syllable:
+    /// that layout's own speaking rung.
+    static func speaking(on layout: RecordingOverlayLayout) -> MercurySimulation.Drive {
+        let model = RecordingOverlayModel()
+        model.update(layout: layout)
+        model.update(.recording)
+        model.updateCaptureLive(true)
+        for level in MercurySpeechMeter.syllable {
+            model.record(level)
+        }
+        return .target(for: model, reduceMotion: false)
+    }
+
+    /// An outcome pose on `layout`'s ladder, the only kind with a gesture to replay.
+    static func outcome(_ state: SessionState, on layout: RecordingOverlayLayout) throws -> MercurySimulation.Drive {
+        let model = RecordingOverlayModel()
+        model.update(layout: layout)
+        model.update(state)
+        model.present(try #require(RecordingOverlayOutcome(state: state)))
+        let drive = MercurySimulation.Drive.target(for: model, reduceMotion: false)
+        _ = try #require(drive.pose.gesture)
+        return drive
+    }
+
+    /// The pose a replay starts from on `layout`, as the live processing-to-outcome transition
+    /// does.
+    static func processingPose(on layout: RecordingOverlayLayout) -> MercuryPose {
+        let model = RecordingOverlayModel()
+        model.update(layout: layout)
+        model.update(.transcribing)
+        return MercurySimulation.Drive.target(for: model, reduceMotion: false).pose
     }
 }

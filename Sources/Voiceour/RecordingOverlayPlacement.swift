@@ -151,6 +151,34 @@ extension RecordingOverlayPlacement {
     }
 }
 
+// MARK: - Settings ▸ Island
+
+extension RecordingOverlayPlacement {
+    /// Where every placement read and write goes: `UserDefaults.standard`, unless the harness or a
+    /// test points `RenderOverrides.islandPlacementDefaults` at a scratch suite, so neither reads nor
+    /// moves the rendering Mac's own island. The overlay controller and Settings ▸ Island both go
+    /// through it, so the Dock Island row describes the placement the controller follows.
+    @MainActor static var defaults: UserDefaults {
+        RenderOverrides.islandPlacementDefaults ?? .standard
+    }
+
+    /// The placement as persisted: what Settings ▸ Island's Dock Island row reads.
+    @MainActor static var persisted: RecordingOverlayPlacement {
+        RecordingOverlayPlacement(defaults: defaults)
+    }
+
+    /// Posted by ``requestDock()`` once docked is persisted. The overlay controller observes it: a
+    /// visible free island docks as the status element's Dock island action docks it, and a hidden
+    /// one starts its next session docked.
+    static let dockRequestNotification = Notification.Name("Voiceour.RecordingOverlay.dockRequest")
+
+    /// Settings ▸ Island's Dock Island: persists docked, then asks the overlay controller to follow.
+    @MainActor static func requestDock() {
+        RecordingOverlayPlacement.docked.save(to: defaults)
+        NotificationCenter.default.post(name: dockRequestNotification, object: nil)
+    }
+}
+
 // MARK: - Frames
 
 /// The rectangle arithmetic behind placement, in AppKit global coordinates. Placement is computed on

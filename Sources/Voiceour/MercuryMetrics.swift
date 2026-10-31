@@ -168,7 +168,13 @@ enum MercuryMetrics {
     // MARK: Spectral Weather
 
     static let weatherMaxDegree = 12
-    static let weatherKappaSquared: Double = 30
+    /// Spectrum knee `κ²` of `(κ² + l(l + 1))^-s`. It sets how much of the sky's variance
+    /// sits in its lowest harmonics. At the debug comparison's 30 the sky was a few huge
+    /// cloud banks, and 8 of 4,096 rooms reflected one dark bank over more than a quarter
+    /// of the body; 100 spreads the same variance into smaller cells and is the lowest
+    /// tested knee that clears every Overcast gate with margin (crushed 0.21, near-ceiling
+    /// 0.016, ground separation 2.3).
+    static let weatherKappaSquared: Double = 100
     static let weatherSlope: Double = 3.8
     /// Pointwise standard deviation of the log-radiance field, in nats.
     static let weatherSigma: Double = 1.45

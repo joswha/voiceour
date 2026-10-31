@@ -8,7 +8,8 @@ import VoiceCore
 /// Motion takes every rung of both ladders straight to its pose, from rest or from wherever the gel's
 /// swing has got to, the volume never overshoots, area is exact, no drive can push the body past a
 /// bound or slide it off its track, a reset lands where a step holds the pose, an idle target
-/// swallows, an empty body emerges in its pose, and batching changes nothing.
+/// swallows, an empty body emerges in its pose, batching changes nothing, and a morph paces the
+/// shape and never the flow.
 struct MercuryBodyShapeTests {
     private typealias Shape = MercuryBodyShape
 
@@ -450,6 +451,91 @@ struct MercuryBodyShapeTests {
         }
 
         #expect(single == batched)
+    }
+
+    /// Morph paces the shape laws and never the flow. At Morph 1.5 every shape law runs two thirds
+    /// as fast, so three of its substeps are two of the stock law's: a pose step at constant volume —
+    /// new proportions, a sway, a skew and a neck — retraces the stock course, overshoot included,
+    /// over one and a half times the time, and under Reduce Motion so do the sway and the
+    /// modulators. The volume is the flow through the notch: it fills and swallows on the very
+    /// substeps the stock body's does at every morph, with or without Reduce Motion.
+    @Test func morphPacesTheShapeLawsAndNeverTheVolume() {
+        let start = Self.target(length: 100, halfHeight: 10)
+        let goal = Self.target(length: 125, halfHeight: 8, sway: 3, skew: 0.4, neck: 0.7)
+        for reduceMotion in [false, true] {
+            var stock = Shape()
+            var paced = Shape(laws: Shape.Laws(morph: 1.5))
+            stock.reset(to: start, limits: Self.island)
+            paced.reset(to: start, limits: Self.island)
+            var worst = 0.0
+            for _ in 0..<240 {
+                for _ in 0..<2 {
+                    stock.step(toward: goal, limits: Self.island, forcing: .none, reduceMotion: reduceMotion)
+                }
+                for _ in 0..<3 {
+                    paced.step(toward: goal, limits: Self.island, forcing: .none, reduceMotion: reduceMotion)
+                }
+                // Under Reduce Motion the extent is the volume law's, which no morph paces.
+                let proportions = reduceMotion ? [] : [Self.aspect(stock) - Self.aspect(paced)]
+                let differences =
+                    proportions + [stock.sway - paced.sway, stock.skew - paced.skew, stock.neck - paced.neck]
+                worst = max(worst, differences.map { abs($0) }.max() ?? 0)
+            }
+            #expect(worst <= 1e-9, "Reduce Motion \(reduceMotion): \(worst)")
+        }
+        for reduceMotion in [false, true] {
+            let volumes = [1.0, 0.6, 1.6].map { morph in
+                var shape = Shape(laws: Shape.Laws(morph: morph))
+                return (0..<300).map { index -> Double in
+                    let pose = index < 150 ? Self.speaking : Self.idle
+                    shape.step(toward: pose, limits: Self.island, forcing: .none, reduceMotion: reduceMotion)
+                    return shape.volume
+                }
+            }
+            #expect(volumes[1] == volumes[0], "Reduce Motion \(reduceMotion)")
+            #expect(volumes[2] == volumes[0], "Reduce Motion \(reduceMotion)")
+            #expect(volumes[0].last == 0, "Reduce Motion \(reduceMotion)")
+        }
+    }
+
+    /// Reduce Motion goes straight to every pose at every morph: the sway's critically damped twin and
+    /// the modulators are paced with the laws they stand in for, so from rest, and from wherever a
+    /// morph's slower or faster swing has got to, every rung of both ladders reaches the next once.
+    @MainActor
+    @Test(arguments: [MercuryTune.morphRange.lowerBound, MercuryTune.morphRange.upperBound])
+    func reduceMotionTakesEveryRungStraightToItsPoseAtEveryMorph(morph: Double) {
+        let collar = RecordingOverlayLayout.forDisplay(.fixtureNotch)
+        let ladders = [
+            ("island", Self.island, Self.ladder(collar: nil)),
+            ("collar", Self.limits(along: collar.spine), Self.ladder(collar: collar.spine)),
+        ]
+        let laws = Shape.Laws(morph: morph)
+        for (name, limits, rungs) in ladders {
+            for from in rungs {
+                for to in rungs where to != from {
+                    for takeover in [0, 6, 24, 60] {
+                        var shape = Shape(laws: laws)
+                        shape.reset(to: from, limits: limits)
+                        for _ in 0..<takeover {
+                            shape.step(toward: to, limits: limits, forcing: .none, reduceMotion: false)
+                        }
+                        let goal = Self.coordinates(of: to)
+                        var previous = Self.coordinates(of: shape)
+                        var straight = true
+                        for _ in 0..<600 {
+                            shape.step(toward: to, limits: limits, forcing: .none, reduceMotion: true)
+                            let current = Self.coordinates(of: shape)
+                            straight = straight && Self.approaches(goal, from: previous, to: current)
+                            previous = current
+                        }
+                        let pair = "\(from.length)×\(from.halfHeight) → \(to.length)×\(to.halfHeight)"
+                        let step = "\(name) \(pair), taken over after \(takeover) substeps"
+                        #expect(straight, "\(step)")
+                        #expect(zip(previous, goal).allSatisfy { abs($0 - $1) < 1e-6 }, "\(step)")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Helpers

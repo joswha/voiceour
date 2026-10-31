@@ -1,26 +1,28 @@
-/// Which generated room the recording island's mercury reflects.
+/// Which generated room the recording island's body reflects.
 ///
-/// Two worlds ship and both write into the same prefiltered linear-RGB tables, exact
-/// conductor Fresnel and bounded display-response path. Both are static after their seed
-/// draw; only the mercury surface moves. Only `roomOfTen` is reachable without `--debug`.
+/// Two rooms ship, and both are user choices in Settings ▸ Island
+/// (``IslandAppearance/room``): Studio and Overcast. Both fill the same prefiltered linear-RGB
+/// tables that every metal and coat reflects, and both are static after their seed draw; only
+/// the body moves.
 ///
 /// Stored as its raw tag and resolved through ``resolved(_:)``, exactly like
 /// ``ASRModelVariant``: a decode failure here would quarantine the whole settings file
 /// over one unknown word.
 public enum MercuryWorld: String, Codable, Equatable, CaseIterable, Sendable {
-    /// Bounded stratified area sources over a neutral room bounce. The default.
+    /// Studio: bounded stratified area sources over a neutral room bounce. The default.
     case roomOfTen = "room_of_ten"
-    /// A static lognormal spherical-harmonic room. Debug comparison only.
+    /// Overcast: a static lognormal spherical-harmonic sky.
     case spectralWeather = "spectral_weather"
 
     /// The compiled default, and where a stale or unknown persisted value lands.
     public static let `default` = MercuryWorld.roomOfTen
 
-    /// What the debug picker shows.
+    /// What Settings ▸ Island calls the room. The raw tags keep the renderer's names, so a
+    /// value already on disk still resolves.
     public var displayName: String {
         switch self {
-        case .roomOfTen: return "Room of Ten"
-        case .spectralWeather: return "Spectral Weather"
+        case .roomOfTen: return "Studio"
+        case .spectralWeather: return "Overcast"
         }
     }
 

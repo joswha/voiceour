@@ -2,15 +2,17 @@ import Foundation
 
 /// Process-built optical transfer tables. Their source functions remain here as the
 /// numerical oracle; dense tests bound every lookup before the rasterizer uses it.
+///
+/// Liquid mercury's own reflectance table is the stock paint's, `MercuryPaintLookup.stock`:
+/// the one table of its kind, which ``fresnel(cosine:)`` reads.
 enum MercuryOptics {
-    private static let fresnelMinimum = 1e-4
-    private static let fresnelCount = 1_024
     private static let transferCount = 4_096
     private static let opaqueTransferCount = 16_384
 
-    /// The three tables a pixel reads, built once on first use and never written again.
+    /// The two transfer tables a pixel's colour bytes read, built once on first use and never
+    /// written again.
     ///
-    /// Raw storage, as the room's texels are: a pixel makes up to nine reads here, and an
+    /// Raw storage, as the room's texels are: a pixel makes up to six reads here, and an
     /// array would check its bounds and a lazy global its initializer on every one. The
     /// rasterizer takes ``tables`` once per frame and reads through it; every other reader
     /// goes through `MercuryOptics`'s static functions, which read the same value.
@@ -18,21 +20,10 @@ enum MercuryOptics {
     /// `@unchecked Sendable`: the storage is filled before the value exists and is never
     /// written or freed after, so every thread reads the same immutable bytes.
     struct Tables: @unchecked Sendable {
-        /// Mercury's conductor response over `μ ∈ [1e-4, 1]`, from the spectral oracle:
-        /// 1,024 × 81 exact Fresnel evaluations, about a millisecond in a release build. A
-        /// pixel still pays one lerp.
-        private let fresnelTable: UnsafePointer<SIMD3<Float>>
         private let transferTable: UnsafePointer<Float>
         private let opaqueTransferTable: UnsafePointer<UInt8>
 
         fileprivate init() {
-            fresnelTable = Self.tabulate(count: fresnelCount) { index in
-                let cosine =
-                    fresnelMinimum
-                    + (1 - fresnelMinimum) * Double(index) / Double(fresnelCount - 1)
-                let value = exactFresnel(cosine: cosine)
-                return SIMD3(Float(value.x), Float(value.y), Float(value.z))
-            }
             transferTable = Self.tabulate(count: transferCount) { index in
                 Float(exactEncodeSRGB(Double(index) / Double(transferCount - 1)))
             }
@@ -49,20 +40,6 @@ enum MercuryOptics {
                 (storage + index).initialize(to: entry(index))
             }
             return UnsafePointer(storage)
-        }
-
-        @inline(__always)
-        func fresnel(cosine: Double) -> SIMD3<Double> {
-            let clamped = Swift.min(Swift.max(cosine, fresnelMinimum), 1)
-            let scaled =
-                (clamped - fresnelMinimum)
-                * Double(fresnelCount - 1)
-                / (1 - fresnelMinimum)
-            let lower = Int(scaled)
-            let upper = Swift.min(lower + 1, fresnelCount - 1)
-            let fraction = Float(scaled - Double(lower))
-            let value = fresnelTable[lower] + (fresnelTable[upper] - fresnelTable[lower]) * fraction
-            return SIMD3(Double(value.x), Double(value.y), Double(value.z))
         }
 
         @inline(__always)
@@ -93,16 +70,18 @@ enum MercuryOptics {
     /// The tables, built on first use.
     static let tables = Tables()
 
+    /// Liquid mercury's conductor response: one lerp of the stock paint's table.
     @inline(__always)
     static func fresnel(cosine: Double) -> SIMD3<Double> {
-        tables.fresnel(cosine: cosine)
+        MercuryPaintLookup.stock.fresnel(cosine: cosine)
     }
 
-    /// The conductor oracle the table is built from and tested against: mercury's exact
-    /// Fresnel reflectance integrated over the CIE observer under D65, in linear sRGB
-    /// (`MercurySpectral`). The clamp at 0 is the gamut boundary, since the XYZ → sRGB matrix
-    /// has negative lobes and an arbitrary physical spectrum can land outside it. It never
-    /// binds for mercury, whose channels stay above 0.70 at every cosine.
+    /// The stock look's conductor oracle, which `MercuryPaintLookup.stock` tabulates and is
+    /// tested against: mercury's exact Fresnel reflectance integrated over the CIE observer
+    /// under D65, in linear sRGB (`MercurySpectral`). The clamp at 0 is the gamut boundary,
+    /// since the XYZ → sRGB matrix has negative lobes and an arbitrary physical spectrum can
+    /// land outside it. It never binds for mercury, whose channels stay above 0.70 at every
+    /// cosine.
     static func exactFresnel(cosine: Double) -> SIMD3<Double> {
         pointwiseMax(MercurySpectral.linearSRGBReflectance(cosine: cosine), .zero)
     }
@@ -134,8 +113,9 @@ enum MercuryOptics {
     /// The series alternates, so its first omitted term, `35q⁴/128`, bounds the direction
     /// error. Across the island's 196×34 pt canvas `q < 0.0052` and the error is about 2e-10;
     /// across the widest collar canvas, 349×65 pt under the tallest crown its 24 pt ceiling
-    /// allows, `q < 0.0166` and it is 2.0e-8. Retaining the cubic term replaces one square root
-    /// and three divides with one scalar divide.
+    /// allows at the roundest aspect a look can choose, 1.0, `q < 0.0167` and it is 2.1e-8.
+    /// Retaining the cubic term replaces one square root and three divides with one scalar
+    /// divide.
     @inline(__always)
     static func viewDirection(
         horizontal: Double,

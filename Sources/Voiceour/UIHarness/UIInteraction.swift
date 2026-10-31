@@ -23,6 +23,17 @@
         func accessibilityPerformPress() -> Bool
     }
 
+    /// Bridge for the accessibility increment and decrement actions, which step an adjustable
+    /// control by one `step`: the adjustment VoiceOver makes to a slider.
+    ///
+    /// SHOWSTOPPER, as for `AXPressable`: both return a BOOL, which
+    /// `perform(_:)?.takeUnretainedValue()` would dereference as an object pointer. The
+    /// `@objc protocol` plus `unsafeBitCast` path is the only safe one.
+    @objc private protocol AXIncrementable {
+        func accessibilityPerformIncrement() -> Bool
+        func accessibilityPerformDecrement() -> Bool
+    }
+
     /// Bridge for the live accessibility accessors used to re-resolve a step target.
     ///
     /// SwiftUI's nodes are `SwiftUI.AccessibilityNode`: NSObjects that implement the informal
@@ -66,6 +77,8 @@
         private static let replaceCurrentSelection = NSRange(location: NSNotFound, length: 0)
 
         private static let pressSelector = NSSelectorFromString("accessibilityPerformPress")
+        private static let incrementSelector = NSSelectorFromString("accessibilityPerformIncrement")
+        private static let decrementSelector = NSSelectorFromString("accessibilityPerformDecrement")
         private static let childrenSelector = NSSelectorFromString("accessibilityChildren")
         private static let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
         private static let labelSelector = NSSelectorFromString("accessibilityLabel")
@@ -139,6 +152,47 @@
                 return nil
             }
             return "press(\"\(target)\"): accessibilityPerformPress returned false."
+        }
+
+        /// Which way one accessibility adjustment moves a control.
+        enum Adjustment {
+            case increment
+            case decrement
+
+            fileprivate var name: String {
+                switch self {
+                case .increment: "increment"
+                case .decrement: "decrement"
+                }
+            }
+        }
+
+        /// One accessibility increment or decrement of the control `target` resolves to,
+        /// followed by the same fixed settle as every step. Returns a warning when nothing
+        /// moved, nil otherwise. Flows adjust sliders; no scene step needs it, so this is
+        /// its own entry point rather than a `UIStep`.
+        static func adjust(_ adjustment: Adjustment, _ target: String, in view: NSView) -> String? {
+            let name = adjustment.name
+            guard let node = locate(target, in: view) else { return missingTarget(name, target) }
+            guard let element = liveElement(matching: target, in: view) else {
+                return
+                    "\(name)(\"\(target)\"): matched accessibility node \(node.role) but its live element could not be re-resolved; nothing adjusted."
+            }
+            let selector = adjustment == .increment ? incrementSelector : decrementSelector
+            guard element.responds(to: selector) else {
+                return
+                    "\(name)(\"\(target)\"): \(node.role) does not implement \(NSStringFromSelector(selector)); nothing adjusted."
+            }
+            // SHOWSTOPPER: see AXIncrementable — perform(_:)?.takeUnretainedValue() segfaults
+            // on the returned BOOL.
+            let adjustable = unsafeBitCast(element, to: AXIncrementable.self)
+            let reportedSuccess =
+                adjustment == .increment
+                ? adjustable.accessibilityPerformIncrement()
+                : adjustable.accessibilityPerformDecrement()
+            UIHarnessRuntime.pump(iterations: actionSettleIterations)
+            if reportedSuccess { return nil }
+            return "\(name)(\"\(target)\"): \(NSStringFromSelector(selector)) returned false."
         }
 
         /// The escape hatch for controls with no press action: a synthetic mouse click.
