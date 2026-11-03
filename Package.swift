@@ -58,6 +58,20 @@ let parakeetCxxSettings: [CXXSetting] =
     parakeetDefines.map { CXXSetting.define($0.0, to: $0.1) }
     + [.define("NDEBUG", .when(configuration: .release))]
 
+// CGranite: Voiceour's adapted transcribe.cpp Granite Speech 5 TurboCTC port (Vendor/granite/NOTICE.md).
+// It uses only CGgml's public headers plus Accelerate (cblas/vDSP), hence the new-LAPACK guard.
+let graniteDefines: [(String, String?)] = [
+    ("ACCELERATE_NEW_LAPACK", nil)
+]
+
+let graniteCSettings: [CSetting] =
+    graniteDefines.map { CSetting.define($0.0, to: $0.1) }
+    + [.define("NDEBUG", .when(configuration: .release))]
+
+let graniteCxxSettings: [CXXSetting] =
+    graniteDefines.map { CXXSetting.define($0.0, to: $0.1) }
+    + [.define("NDEBUG", .when(configuration: .release))]
+
 let package = Package(
     name: "voiceour",
     platforms: [.macOS(.v27)],
@@ -107,6 +121,20 @@ let package = Package(
             cxxSettings: parakeetCxxSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
+        .target(
+            name: "CGranite",
+            dependencies: ["CGgml"],
+            path: "Vendor/granite",
+            exclude: ["NOTICE.md", "LICENSE"],
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: graniteCSettings,
+            cxxSettings: graniteCxxSettings,
+            linkerSettings: [
+                .linkedFramework("Accelerate"),
+                .linkedLibrary("c++")
+            ]
+        ),
         .executableTarget(
             name: "Voiceour",
             dependencies: ["VoiceCore", "VoiceMac"]
@@ -121,7 +149,7 @@ let package = Package(
         ),
         .target(
             name: "ASRSidecarCore",
-            dependencies: ["VoiceCore", "CParakeet"],
+            dependencies: ["VoiceCore", "CParakeet", "CGranite"],
             linkerSettings: [
                 .linkedFramework("CoreML"),
                 .linkedFramework("Foundation")
