@@ -74,13 +74,13 @@ f16 remains the default, because this measurement cannot carry a default change:
 
 - Rewriting Swift/C in Rust: inference already runs in Metal/Accelerate kernels.
 - Hand-written Metal: no kernel hotspot has been demonstrated.
-- A second recognizer: a parallel permission, model, and runtime surface.
+- A third recognizer: another parallel permission, model, and runtime surface.
 - Third-party Core ML exports of the pinned checkpoint, including Desert Ant Labs' Voz: the same Parakeet TDT 0.6B v3 weights in a 6-bit palettized graph this repository already builds. Its encoder is measurably faster than ours (see measurement 5 above), but adopting it costs the macOS 14 fallback, a second vendor patch for its 640-channel output, a second pinned model family with four files the Hub publishes no digest for, and CC BY 4.0 traded for a source-available licence with an audit clause — to buy one stage. The techniques are portable; the dependency is not worth taking. Evidence and the full ledger: [`research/external-voz-evaluation.md`](../research/external-voz-evaluation.md).
 
 ## Reproducing evidence
 
 ```sh
-swift build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
+swift build && VOICEOUR_ASR_BACKEND=parakeet .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 
 cd bench
 uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend parakeet --n 64
