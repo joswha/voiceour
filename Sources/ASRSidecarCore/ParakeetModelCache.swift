@@ -77,6 +77,16 @@ public struct ParakeetModelManifest: Codable, Equatable, Sendable {
             sizeBytes: variant.sizeBytes
         )
     }
+
+    /// The one Granite Speech 5 TurboCTC artifact. Granite is a single conversion, so unlike
+    /// Parakeet there is no variant to select and nothing beside it to retire.
+    public static let granite = ParakeetModelManifest(
+        modelId: GraniteModelContract.modelId,
+        revision: GraniteModelContract.revision,
+        file: GraniteModelContract.fileName,
+        sha256: GraniteModelContract.sha256,
+        sizeBytes: GraniteModelContract.sizeBytes
+    )
 }
 
 /// The app-owned directory holding one pinned GGUF weight file plus its manifest.
@@ -174,6 +184,30 @@ public struct ParakeetModelCache: Sendable {
             .appendingPathComponent(variant.cacheDirectoryName, isDirectory: true)
     }
 
+    /// The Granite cache: `VOICEOUR_MODEL_CACHE` when set, else its own app cache directory.
+    ///
+    /// Never owns a variant root, whichever directory it names: Granite has one artifact, so it
+    /// has no siblings to retire, and the Parakeet directories beside its default are not its
+    /// business. `VOICEOUR_MODEL_VARIANT` is ignored, because it names Parakeet precisions.
+    public static func granite(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> ParakeetModelCache {
+        let directory: URL
+        if let override = environment["VOICEOUR_MODEL_CACHE"], !override.isEmpty {
+            directory = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Voiceour", isDirectory: true)
+                .appendingPathComponent(GraniteModelContract.cacheDirectoryName, isDirectory: true)
+        }
+        return ParakeetModelCache(
+            directory: directory,
+            artifact: .granite,
+            source: GraniteModelContract.downloadURL,
+            ownsVariantRoot: false
+        )
+    }
+
     /// Deletes the cached artifacts of every variant other than this cache's own.
     ///
     /// Called once this cache's artifact has *loaded*, which is why the ordering matters more
@@ -229,10 +263,18 @@ public struct ParakeetModelCache: Sendable {
     /// The lock file deliberately remains. Unlinking a lock inode while another process holds
     /// it permits a new opener to lock a different inode and creates two simultaneous writers.
     public func removeCorruptModelAndDerivedCache() {
+        removeModelAndManifest()
+        _ = parakeet_remove_weight_arena(weightArenaURL.path)
+    }
+
+    /// Removes the artifact and its manifest and nothing else.
+    ///
+    /// What a cache without derived bytes — Granite's, which derives no weight arena — removes
+    /// after its artifact fails digest re-verification.
+    public func removeModelAndManifest() {
         for url in [modelURL, manifestURL] {
             try? FileManager.default.removeItem(at: url)
         }
-        _ = parakeet_remove_weight_arena(weightArenaURL.path)
     }
 
     public func manifest() -> ParakeetModelManifest? {

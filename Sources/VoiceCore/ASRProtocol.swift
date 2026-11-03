@@ -85,6 +85,79 @@ public enum ASRModelVariant: String, Codable, Equatable, CaseIterable, Sendable 
     }
 }
 
+/// Granite Speech 5.0 TurboCTC 470M (IBM, Apache-2.0), Oct-21 multilingual checkpoint, one Q8_0 GGUF conversion.
+/// Evaluation backend only; Parakeet remains the shipping default.
+public enum GraniteModelContract {
+    public static let modelId = "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF"
+    public static let revision = "62f64d9d5ad35989b06caf199cafe7155944a22b"
+    public static let fileName = "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf"
+    public static let sha256 = "f3efdc05b85b3a764bb5bb7022e69f61cafcecc11605c881c6396a6ed07ec91b"
+    public static let sizeBytes: Int64 = 505_663_136
+    public static let cacheDirectoryName = "granite-speech-5.0-470m-turboctc-q8_0"
+    public static let sourceCheckpoint = "ibm-granite/granite-speech-5.0-470m-turboctc"
+    public static let sourceRevision = "1dd23f46f6d4e6eae2531982ba2e33220086dd97"
+    public static var downloadURL: URL {
+        URL(string: "https://huggingface.co/\(modelId)/resolve/\(revision)/\(fileName)")!
+    }
+    public static var expectedModel: ASRExpectedModel {
+        ASRExpectedModel(modelId: modelId, revision: revision, file: fileName)
+    }
+}
+
+/// The one weight artifact a running model-backed backend loads, whichever backend that is.
+///
+/// Every surface that names or sizes "the model" — the download readout, Diagnostics, the
+/// Settings Model section, benchmark metadata — reads this instead of assuming the artifact
+/// is a Parakeet variant: a Granite run must never be stamped with a Parakeet file or size.
+public struct ASRModelArtifact: Equatable, Sendable {
+    public let modelId: String
+    public let revision: String
+    public let file: String
+    public let sizeBytes: Int64
+    /// What a reader calls it: the Parakeet variant's Settings name, or Granite's model name.
+    public let displayName: String
+    /// What tells this artifact apart within its pinned revision: Parakeet's quantization tag
+    /// (every variant shares one id and revision), Granite's file name.
+    public let tag: String
+
+    public init(modelId: String, revision: String, file: String, sizeBytes: Int64, displayName: String, tag: String) {
+        self.modelId = modelId
+        self.revision = revision
+        self.file = file
+        self.sizeBytes = sizeBytes
+        self.displayName = displayName
+        self.tag = tag
+    }
+
+    public static func parakeet(_ variant: ASRModelVariant) -> ASRModelArtifact {
+        ASRModelArtifact(
+            modelId: ASRModelContract.modelId,
+            revision: ASRModelContract.revision,
+            file: variant.fileName,
+            sizeBytes: variant.sizeBytes,
+            displayName: variant.displayName,
+            tag: variant.rawValue
+        )
+    }
+
+    public static let granite = ASRModelArtifact(
+        modelId: GraniteModelContract.modelId,
+        revision: GraniteModelContract.revision,
+        file: GraniteModelContract.fileName,
+        sizeBytes: GraniteModelContract.sizeBytes,
+        displayName: "Granite Speech 5.0 TurboCTC 470M",
+        tag: GraniteModelContract.fileName
+    )
+
+    /// `<id>@<revision> (<tag>)`: the string a bug report needs to name the exact weights.
+    public var identifier: String { "\(modelId)@\(revision) (\(tag))" }
+
+    /// The pin the sidecar must have loaded, echoed on every transcribe.
+    public var expectedModel: ASRExpectedModel {
+        ASRExpectedModel(modelId: modelId, revision: revision, file: file)
+    }
+}
+
 public enum BackendStatus: String, Codable, Equatable, Sendable {
     case ready
     case modelMissing = "model_missing"
@@ -332,7 +405,7 @@ public struct ASRCancelRequest: Codable, Equatable, Sendable {
 public enum ASRConfidenceMode: String, Codable, Equatable, Sendable {
     /// No confidence basis at all: the value, if any, is not a decoder posterior.
     case none
-    /// Mean of the decoder's per-token posteriors from a greedy TDT decode.
+    /// Mean of greedy decoder token posteriors: TDT for Parakeet, CTC first-frame posterior for Granite.
     case greedyTokenProb = "greedy_token_prob"
 }
 

@@ -87,6 +87,35 @@ struct SidecarProcessTests {
         #expect(error["category"] as? String == "setup")
     }
 
+    /// The shipped binary reaches the Granite backend: without a cached artifact it greets as
+    /// `granite-ctc` with the model missing and refuses a transcribe instead of downloading on
+    /// the request path.
+    @Test func aGraniteSidecarWithoutItsModelRefusesInsteadOfDownloading() throws {
+        let cache = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-granite-empty-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let audio = try TemporaryWAV()
+        defer { audio.remove() }
+
+        let session = try Sidecar.run(
+            lines: [request("health", id: "h1"), transcribeRequest(id: "t1", audio: audio.meta)],
+            environment: ["VOICEOUR_ASR_BACKEND": "granite", "VOICEOUR_MODEL_CACHE": cache.path]
+        )
+
+        #expect(session.types == ["hello", "health", "error"])
+        let hello = try #require(session.object(type: "hello"))
+        #expect(hello["backend_id"] as? String == "granite-ctc")
+        #expect(hello["backend_status"] as? String == "model_missing")
+        let health = try #require(session.object(type: "health"))
+        #expect(health["cache_ok"] as? Bool == false)
+        #expect(health["ready"] as? Bool == false)
+        let error = try #require(session.object(type: "error"))
+        #expect(error["code"] as? String == "model_not_installed")
+        #expect(error["request_id"] as? String == "t1")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).isEmpty)
+    }
+
     @Test func cancelInterruptsAnInFlightTranscribeWellBeforeItWouldFinish() throws {
         let audio = try TemporaryWAV()
         defer { audio.remove() }
