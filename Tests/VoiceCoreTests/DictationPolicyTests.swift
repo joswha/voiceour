@@ -34,9 +34,9 @@ struct DictationPolicyTests {
         #expect(LaunchOptions.validBackend("sherpa") == nil)
     }
 
-    /// An install that persisted one of the retired Python-sidecar backend ids keeps its real
-    /// backend. Without the mapping every one of these would fail validation and silently fall
-    /// through to the fake backend on the next launch.
+    /// A retired Python-sidecar backend id from an argument, the environment or a
+    /// debug-persisted choice still names a real backend: it normalizes to Parakeet, which
+    /// replaced them, instead of failing validation.
     @Test func retiredBackendIdsNormalizeToParakeet() {
         #expect(LaunchOptions.validBackend("mlx") == "parakeet")
         #expect(LaunchOptions.validBackend("MLX") == "parakeet")
@@ -45,41 +45,36 @@ struct DictationPolicyTests {
         #expect(LaunchOptions(arguments: ["--asr-backend=mlx"]).asrBackend == "parakeet")
     }
 
-    /// A persisted settings file saying `fake` is a pre-parakeet-default relic for a release
-    /// user, but the debug picker still writes it and the restarted process must honor it
-    /// under `--debug`. Launch arguments and the environment keep using `validBackend` and
-    /// are unaffected by this rule.
-    @Test func persistedFakeIsHonoredOnlyForDevBuilds() {
+    /// A persisted backend is the debug picker's saved choice, honored only in a `--debug`
+    /// launch. A release launch never restores one, whatever it names: every launch writes its
+    /// resolved id into settings and a release build has no picker, so honoring the file would
+    /// pin a user to whatever an earlier launch ran — `fake`, or a former default — for good.
+    @Test func aPersistedBackendIsHonoredOnlyInDebugLaunches() {
         let ids = LaunchOptions.defaultBackendIDs
 
-        #expect(LaunchOptions.persistedBackend("fake", validBackendIDs: ids, allowsDevBackend: false) == nil)
+        for persisted in ["fake", "parakeet", "granite", "apple"] {
+            #expect(LaunchOptions.persistedBackend(persisted, validBackendIDs: ids, allowsDevBackend: false) == nil)
+        }
         #expect(LaunchOptions.persistedBackend("fake", validBackendIDs: ids, allowsDevBackend: true) == "fake")
-        #expect(LaunchOptions.persistedBackend("apple", validBackendIDs: ids, allowsDevBackend: false) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("parakeet", validBackendIDs: ids, allowsDevBackend: true) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("granite", validBackendIDs: ids, allowsDevBackend: true) == "granite")
         #expect(LaunchOptions.persistedBackend("apple", validBackendIDs: ids, allowsDevBackend: true) == "parakeet")
-        #expect(LaunchOptions.persistedBackend("parakeet", validBackendIDs: ids, allowsDevBackend: false) == "parakeet")
         #expect(LaunchOptions.persistedBackend("sherpa", validBackendIDs: ids, allowsDevBackend: true) == nil)
     }
 
-    /// The evaluation backend is selectable from split and inline arguments and the
-    /// environment; a persisted setting selects it only in a debug launch, like `fake`,
-    /// because a release build has no picker to switch a saved choice back.
-    @Test func graniteIsAcceptedPerLaunchAndPersistedOnlyUnderDebug() {
-        let ids = LaunchOptions.defaultBackendIDs
-
-        #expect(ids == ["fake", "parakeet", "granite"])
-        #expect(LaunchOptions(arguments: ["--asr-backend", "granite"]).asrBackend == "granite")
+    /// Either real backend is selectable per launch, case-insensitively, split or inline. The
+    /// sidecars' wire ids are not selectors.
+    @Test func eitherRealBackendIsSelectablePerLaunch() {
+        #expect(LaunchOptions(arguments: ["--asr-backend", "parakeet"]).asrBackend == "parakeet")
         #expect(LaunchOptions(arguments: ["--asr-backend=GRANITE"]).asrBackend == "granite")
-        #expect(LaunchOptions.validBackend(" granite ") == "granite")
-        #expect(LaunchOptions.persistedBackend("granite", validBackendIDs: ids, allowsDevBackend: false) == nil)
-        #expect(LaunchOptions.persistedBackend("granite", validBackendIDs: ids, allowsDevBackend: true) == "granite")
-        // The sidecar's wire id is never a selector, and no retired id maps onto Granite.
+        #expect(LaunchOptions.validBackend(" Parakeet ") == "parakeet")
         #expect(LaunchOptions.validBackend("granite-ctc") == nil)
-        #expect(!LaunchOptions.retiredBackendIDs.values.contains("granite"))
+        #expect(LaunchOptions.validBackend("parakeet-cpp") == nil)
     }
 
-    /// Argument beats environment beats persisted setting beats the default, and an invalid
-    /// value at any level falls through instead of winning.
-    @Test func backendPrecedenceHoldsForGranite() {
+    /// Argument beats environment beats the debug-persisted choice beats the default; an
+    /// invalid value at any level falls through, and a release launch skips the persisted level.
+    @Test func backendPrecedence() {
         func resolve(
             argument: String? = nil,
             environment: String? = nil,
@@ -92,24 +87,26 @@ struct DictationPolicyTests {
                 persisted: persisted,
                 validBackendIDs: LaunchOptions.defaultBackendIDs,
                 allowsDevBackend: allowsDevBackend,
-                defaultBackend: "parakeet"
+                defaultBackend: "granite"
             )
         }
 
-        #expect(resolve() == "parakeet")
-        #expect(resolve(persisted: "granite") == "parakeet")
-        #expect(resolve(persisted: "granite", allowsDevBackend: true) == "granite")
-        #expect(resolve(environment: "granite", persisted: "parakeet") == "granite")
-        #expect(resolve(argument: "granite", environment: "parakeet", persisted: "fake") == "granite")
-        #expect(resolve(argument: "parakeet", environment: "granite", persisted: "granite") == "parakeet")
-        #expect(resolve(environment: "parakeet", persisted: "granite", allowsDevBackend: true) == "parakeet")
-        // Invalid values fall through to the next source.
-        #expect(resolve(argument: "sherpa", environment: "GRANITE") == "granite")
-        #expect(resolve(environment: "granite-ctc", persisted: "granite", allowsDevBackend: true) == "granite")
-        #expect(resolve(environment: "sherpa", persisted: "nonsense") == "parakeet")
-        // A persisted `fake` or `granite` needs a debug launch.
-        #expect(resolve(persisted: "fake") == "parakeet")
+        #expect(resolve() == "granite")
+        // A release launch never restores a saved backend, the former default included.
+        #expect(resolve(persisted: "parakeet") == "granite")
+        #expect(resolve(persisted: "fake") == "granite")
+        #expect(resolve(persisted: "parakeet", allowsDevBackend: true) == "parakeet")
         #expect(resolve(persisted: "fake", allowsDevBackend: true) == "fake")
+        #expect(resolve(environment: "parakeet", persisted: "granite", allowsDevBackend: true) == "parakeet")
+        #expect(resolve(argument: "parakeet", environment: "granite") == "parakeet")
+        #expect(
+            resolve(argument: "granite", environment: "parakeet", persisted: "fake", allowsDevBackend: true)
+                == "granite"
+        )
+        // Invalid values fall through to the next source.
+        #expect(resolve(argument: "sherpa", environment: "PARAKEET") == "parakeet")
+        #expect(resolve(environment: "granite-ctc", persisted: "parakeet", allowsDevBackend: true) == "parakeet")
+        #expect(resolve(environment: "sherpa", persisted: "nonsense", allowsDevBackend: true) == "granite")
         // A retired id normalizes at its own level, so it still outranks a lower source.
         #expect(resolve(environment: "mlx", persisted: "granite", allowsDevBackend: true) == "parakeet")
     }

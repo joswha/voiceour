@@ -20,8 +20,8 @@ struct ASRBackendRegistryTests {
     @Test func builtInCarriesTheThreeBackendsInPickerOrder() {
         #expect(registry.descriptors.map(\.id) == ["fake", "parakeet", "granite"])
         #expect(registry.backendIDs == ["fake", "parakeet", "granite"])
-        // Registering the evaluation backend never moves the shipping default.
-        #expect(registry.defaultDescriptor.id == "parakeet")
+        // Granite is the default; the picker order does not follow it.
+        #expect(registry.defaultDescriptor.id == "granite")
     }
 
     @Test func descriptorMetadataMatchesWhatTheUISurfaces() throws {
@@ -128,11 +128,11 @@ struct ASRBackendRegistryTests {
 
     /// A stale `settings.asrBackend` written by a future build must not crash the
     /// app: an unknown id resolves to the default descriptor instead of trapping.
-    /// That default is the real local sidecar, so an unrecognised id degrades to
-    /// real dictation rather than to synthetic text the user cannot tell apart.
+    /// That default is Granite, a real local recognizer, so an unrecognised id degrades
+    /// to real dictation rather than to synthetic text the user cannot tell apart.
     @Test func unknownBackendFallsBackToTheRealBackendWithoutTrapping() {
         #expect(registry.descriptor(for: "quantum-ears") == nil)
-        #expect(registry.defaultDescriptor.id == "parakeet")
+        #expect(registry.defaultDescriptor.id == "granite")
 
         let components = registry.liveComponents(for: "quantum-ears", context: context)
         #expect(components.recorder is MicrophoneRecorder)
@@ -145,7 +145,7 @@ struct ASRBackendRegistryTests {
         #expect(VoiceCore.LaunchOptions.validBackend("PARAKEET", validBackendIDs: ids) == "parakeet")
         #expect(VoiceCore.LaunchOptions.validBackend("  fake ", validBackendIDs: ids) == "fake")
         #expect(VoiceCore.LaunchOptions.validBackend(" Granite\n", validBackendIDs: ids) == "granite")
-        // Retired ids normalize before the membership test, so a persisted "mlx" still
+        // Retired ids normalize before the membership test, so an "mlx" from any source still
         // resolves against the live registry rather than falling through to the default.
         #expect(VoiceCore.LaunchOptions.validBackend("MLX", validBackendIDs: ids) == "parakeet")
         #expect(VoiceCore.LaunchOptions.validBackend("ARK-0.6B", validBackendIDs: ids) == "parakeet")

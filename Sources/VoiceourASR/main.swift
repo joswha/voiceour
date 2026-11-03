@@ -103,16 +103,14 @@ private func idleUnloadMs(_ environment: [String: String]) -> Int {
 /// machine can go from no model to a real local transcript, and the replacement for the
 /// retired `scripts/phase0_asr_proof.py`.
 ///
-/// It drives the same backend type the protocol loop uses — `GraniteSidecarBackend` when
-/// `VOICEOUR_ASR_BACKEND=granite`, `ParakeetSidecarBackend` otherwise — so a green `--prove` is
-/// evidence about the real path rather than about a parallel one.
+/// It drives the same backend type the protocol loop uses — `GraniteSidecarBackend`, the
+/// default recognizer, unless `VOICEOUR_ASR_BACKEND=parakeet` selects `ParakeetSidecarBackend`
+/// — so a green `--prove` is evidence about the real path rather than about a parallel one.
 private func prove(wavPath: String, environment: [String: String]) -> Int32 {
     // No idle unload: --prove is one load and one decode, and a timer would only add a way
     // for the measurement to change under it.
     let backend: SidecarBackend
-    if environment["VOICEOUR_ASR_BACKEND"] == "granite" {
-        backend = GraniteSidecarBackend(cache: .granite(environment: environment), log: logLine, idleUnloadMs: 0)
-    } else {
+    if environment["VOICEOUR_ASR_BACKEND"] == "parakeet" {
         do {
             backend = try ParakeetSidecarBackend(
                 cache: .standard(environment: environment),
@@ -124,6 +122,8 @@ private func prove(wavPath: String, environment: [String: String]) -> Int32 {
             logLine("prove: sidecar startup failed: \(error)")
             return 1
         }
+    } else {
+        backend = GraniteSidecarBackend(cache: .granite(environment: environment), log: logLine, idleUnloadMs: 0)
     }
     defer { backend.shutdown() }
 

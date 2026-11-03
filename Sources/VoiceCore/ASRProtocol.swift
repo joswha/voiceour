@@ -86,7 +86,7 @@ public enum ASRModelVariant: String, Codable, Equatable, CaseIterable, Sendable 
 }
 
 /// Granite Speech 5.0 TurboCTC 470M (IBM, Apache-2.0), Oct-21 multilingual checkpoint, one Q8_0 GGUF conversion.
-/// Evaluation backend only; Parakeet remains the shipping default.
+/// The default recognizer's pin.
 public enum GraniteModelContract {
     public static let modelId = "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF"
     public static let revision = "62f64d9d5ad35989b06caf199cafe7155944a22b"

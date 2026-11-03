@@ -62,11 +62,15 @@ struct BenchModelIdentityTests {
         #expect(message.contains("pipeline --backend \(normalized)"))
     }
 
-    @Test func rawDecodeStillAcceptsParakeetExplicitlyAndByDefault() throws {
-        let base = [
-            "raw-decode", "--input", "/tmp/manifest.jsonl", "--output", "/tmp/results.jsonl", "--model", "/tmp/m.bin",
-        ]
-        #expect(try BenchCLI.parse(base).backend == "parakeet")
-        #expect(try BenchCLI.parse(base + ["--backend", "parakeet"]).backend == "parakeet")
+    /// `pipeline` runs the default recognizer unless told otherwise. The in-process commands
+    /// decode only Parakeet, so it stays their default: a `stage-profile --sidecar` subtraction
+    /// compares one engine, and `raw-decode` accepts its one backend with or without the flag.
+    @Test func eachCommandDefaultsToTheBackendItCanRun() throws {
+        let io = ["--input", "/tmp/manifest.jsonl", "--output", "/tmp/results.jsonl"]
+        let rawDecode = ["raw-decode"] + io + ["--model", "/tmp/m.bin"]
+        #expect(try BenchCLI.parse(["pipeline"] + io).backend == "granite")
+        #expect(try BenchCLI.parse(["stage-profile"] + io).backend == "parakeet")
+        #expect(try BenchCLI.parse(rawDecode).backend == "parakeet")
+        #expect(try BenchCLI.parse(rawDecode + ["--backend", "parakeet"]).backend == "parakeet")
     }
 }

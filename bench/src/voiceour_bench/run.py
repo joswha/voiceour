@@ -13,8 +13,8 @@ from .report import build_report, markdown_table
 
 # Mirrors `ASRBackendRegistry.builtIn` in Sources/VoiceMac/ASRBackendRegistry.swift, in its
 # order. The Swift runner validates the id against the registry itself; this list only exists
-# so a typo fails here instead of after a release build. `parakeet` is the default and the
-# shipping backend; `granite` is the opt-in evaluation backend.
+# so a typo fails here instead of after a release build. `granite` is the default recognizer;
+# `parakeet` is the selectable alternative.
 ASR_BACKENDS = ("fake", "parakeet", "granite")
 
 
@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tier", choices=("smoke", "librispeech", "fleurs", "techterms"), required=True)
     parser.add_argument("--mode", choices=("stt", "e2e"), required=True)
     parser.add_argument("--n", type=int, default=None, help="first-N rows for HF-backed tiers")
-    parser.add_argument("--backend", choices=ASR_BACKENDS, default="parakeet")
+    parser.add_argument("--backend", choices=ASR_BACKENDS, default="granite")
     parser.add_argument("--timeout-ms", type=int, default=120000)
     args = parser.parse_args(argv)
 

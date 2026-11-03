@@ -187,8 +187,10 @@ enum BenchCLI {
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
 
-    /// The one registry backend `raw-decode` can stand in for: it constructs `ParakeetContext`.
-    static let rawDecodeBackend = "parakeet"
+    /// The registry backend the in-process commands decode with. `raw-decode`, `stage-profile`,
+    /// `tdt-lattice` and `dump-states` construct `ParakeetContext` themselves, so Parakeet is
+    /// their default — and `raw-decode`'s only — backend; `pipeline` runs the registry default.
+    static let inProcessBackend = "parakeet"
 
     static func parse(_ arguments: [String]) throws -> BenchOptions {
         guard let commandValue = arguments.first, let command = BenchCommand(rawValue: commandValue) else {
@@ -198,7 +200,7 @@ enum BenchCLI {
         var input: URL?
         var output: URL?
         var outputDirectory: URL?
-        var backend = ASRBackendRegistry.builtIn.defaultDescriptor.id
+        var backend: String?
         var timeoutMs = 120_000
         var vocabulary: URL?
         var model: URL?
@@ -273,12 +275,14 @@ enum BenchCLI {
         if command == .rawDecode, model == nil {
             throw BenchError.usage("raw-decode requires --model")
         }
+        let resolvedBackend =
+            backend ?? (command == .pipeline ? ASRBackendRegistry.builtIn.defaultDescriptor.id : inProcessBackend)
         // raw-decode builds a Parakeet context on the file it is handed; it has no dispatch to
         // any other engine, so a Granite run would silently decode with Parakeet's code path.
-        if command == .rawDecode, backend != rawDecodeBackend {
+        if command == .rawDecode, resolvedBackend != inProcessBackend {
             throw BenchError.usage(
-                "raw-decode decodes Parakeet checkpoints only; --backend \(backend) is not supported "
-                    + "(use pipeline --backend \(backend))"
+                "raw-decode decodes Parakeet checkpoints only; --backend \(resolvedBackend) is not supported "
+                    + "(use pipeline --backend \(resolvedBackend))"
             )
         }
         if model != nil, command != .rawDecode, command != .dumpStates {
@@ -292,7 +296,7 @@ enum BenchCLI {
             command: command,
             input: input,
             output: destination,
-            backend: backend,
+            backend: resolvedBackend,
             timeoutMs: timeoutMs,
             vocabulary: vocabulary,
             model: model,

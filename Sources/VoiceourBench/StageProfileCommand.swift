@@ -16,7 +16,8 @@ import VoiceMac
 ///
 /// With `--sidecar`, each row also runs through the real `voiceour-asr` process via the
 /// `pipeline` command's client, right after its in-process decode, so `client_us - full`
-/// isolates IPC and sidecar shell overhead.
+/// isolates IPC and sidecar shell overhead. That sidecar runs Parakeet unless `--backend`
+/// names another, so by default both sides of the subtraction are the same engine.
 struct StageProfileCommand {
     var options: BenchOptions
 
@@ -31,7 +32,7 @@ struct StageProfileCommand {
         guard cache.cacheOK() else {
             throw BenchError.io("pinned model cache is not ready: \(cache.modelURL.path)")
         }
-        let backend = options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id
+        let backend = options.backend ?? BenchCLI.inProcessBackend
         let sidecarAudio = options.sidecar ? try rows.map { try BenchRunner.recordedAudio(for: $0.row) } : []
 
         let writer = try JSONLWriter(url: options.output)
