@@ -182,11 +182,11 @@
                     fixture: .firstRunAcquisitionFailed,
                     tags: ["first-run"]
                 ),
-                // The evaluation backend's first launch: the same card and ladder, but the
+                // The default recognizer's first launch: the same card and ladder, but the
                 // pin and the size are Granite's own, never a Parakeet variant's.
                 console(
                     "console.home.first-run.granite-downloading",
-                    "Home's first-run card while the Granite evaluation model downloads",
+                    "Home's first-run card while Granite, the default model, downloads",
                     tab: .home,
                     fixture: .firstRunGraniteDownloading,
                     tags: ["first-run", "granite"]
@@ -305,7 +305,7 @@
                 // Granite's file. Whole page so both halves are on one golden.
                 console(
                     "console.settings.granite",
-                    "Settings' whole page with the Granite evaluation backend running",
+                    "Settings' whole page with Granite, the default recognizer, running",
                     tab: .settings,
                     fixture: .graniteReady,
                     size: settingsPageSize,

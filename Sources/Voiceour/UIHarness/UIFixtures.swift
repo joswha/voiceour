@@ -163,7 +163,7 @@
             /// A fresh install whose acquisition failed and said why. The sidecar's
             /// own verdict, which outranks every inferred readout.
             case firstRunAcquisitionFailed
-            /// `firstRunDownloading` on the Granite evaluation backend: the same card, sized
+            /// `firstRunDownloading` on Granite, the default recognizer: the same card, sized
             /// and named from Granite's own 0.51 GB artifact rather than a Parakeet variant's.
             case firstRunGraniteDownloading
             /// An install that has completed a dictation and has nothing left to
@@ -187,7 +187,7 @@
             case sidecarFailure
             /// Real backend, healthy sidecar, every permission granted.
             case backendReady
-            /// `backendReady` on the Granite evaluation backend: Settings ▸ Model names its one
+            /// `backendReady` on Granite, the default recognizer: Settings ▸ Model names its one
             /// artifact instead of offering the Parakeet variant picker.
             case graniteReady
             /// Real backend whose health probe fails, permissions denied.
@@ -445,12 +445,14 @@
 
         // MARK: Composition
 
-        /// The canonical picker id: what `Settings.asrBackend` stores and what
-        /// the registry resolves a descriptor from. Not `parakeet-cpp`, which is
-        /// the id the sidecar reports for itself.
+        /// Parakeet's canonical picker id: what `Settings.asrBackend` stores and what the
+        /// registry resolves a descriptor from. Not `parakeet-cpp`, which is the id the
+        /// sidecar reports for itself. Most fixtures run Parakeet, the selectable
+        /// alternative, so its variant picker, readiness and 1.26 GB download stay covered
+        /// and the model-selection flow has a picker to drive.
         private static let realBackend = "parakeet"
 
-        /// The evaluation backend's picker id, and the id its sidecar reports. The fixture
+        /// The default recognizer's picker id, and the id its sidecar reports. The fixture
         /// injects nothing else: the coordinator derives Granite's artifact (name, size,
         /// identifier) from the active backend, exactly as a live launch does.
         private static let graniteBackend = "granite"

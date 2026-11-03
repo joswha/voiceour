@@ -78,11 +78,11 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
 
 public struct Settings: Codable, Equatable, Sendable {
     public var cleanupEnabled: Bool
-    /// The backend a fresh install dictates through. `parakeet` is the shipped
-    /// local sidecar; `fake` exists for development and the offscreen harness and
-    /// is reachable only through `--asr-backend`/`VOICEOUR_ASR_BACKEND` or the
-    /// debug pane, never by default. It used to BE the default, which meant a
-    /// release build transcribed synthetic text until the user found the picker.
+    /// The backend the last launch resolved, and under `--debug` the Backend picker's saved
+    /// choice. `granite` is the default local recognizer; `parakeet` runs only when chosen
+    /// through `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the debug pane; `fake` exists for
+    /// development and the offscreen harness. A release launch never restores this value
+    /// (`LaunchOptions.persistedBackend`).
     public var asrBackend: String
     /// Which artifact of the pinned model repository the sidecar loads.
     ///
@@ -144,7 +144,7 @@ public struct Settings: Codable, Equatable, Sendable {
 
     public init(
         cleanupEnabled: Bool = true,
-        asrBackend: String = "parakeet",
+        asrBackend: String = "granite",
         asrModelVariant: ASRModelVariant = .default,
         glossary: [ProtectedTerm] = Settings.defaultGlossary,
         muteSystemAudioDuringCapture: Bool = true,

@@ -64,24 +64,19 @@ public struct LaunchOptions: Equatable, Sendable {
         return validBackendIDs.contains(resolved) ? resolved : nil
     }
 
-    /// Backends a PERSISTED settings file may select only in a debug launch. `fake` is a
-    /// development id: a release user's settings file saying `fake` (written by a
-    /// pre-parakeet-default build) must not silently keep them on synthetic transcripts.
-    /// `granite` is an evaluation backend whose only release surface is a per-launch
-    /// override (`--asr-backend`, `VOICEOUR_ASR_BACKEND`); the launch writes the resolved id
-    /// into settings, and a release build has no picker to switch back, so a saved Granite
-    /// choice must not outlive that launch. Both are honored from arguments and environment.
-    public static let debugPersistedBackendIDs: Set<String> = ["fake", "granite"]
-
-    /// The backend a PERSISTED settings file may select (`debugPersistedBackendIDs` rule).
+    /// The backend a PERSISTED settings file may select: one only in a debug launch, where it
+    /// is the Backend picker's saved choice. A release build has no backend picker, and every
+    /// launch writes its resolved id into settings, so a release launch that honored the file
+    /// would pin users to whatever an earlier launch ran — synthetic `fake` transcripts, or a
+    /// backend that is no longer the default — with no way back. Launch arguments and the
+    /// environment are unaffected.
     public static func persistedBackend(
         _ value: String?,
         validBackendIDs: Set<String>,
         allowsDevBackend: Bool
     ) -> String? {
-        guard let normalized = validBackend(value, validBackendIDs: validBackendIDs) else { return nil }
-        if debugPersistedBackendIDs.contains(normalized) && !allowsDevBackend { return nil }
-        return normalized
+        guard allowsDevBackend else { return nil }
+        return validBackend(value, validBackendIDs: validBackendIDs)
     }
 
     /// The backend a launch runs, highest precedence first: the `--asr-backend` argument,

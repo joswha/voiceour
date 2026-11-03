@@ -269,9 +269,9 @@ ui-all: ui-snap ui-flow
 .PHONY: bench-smoke bench-stt bench-e2e bench-techterms bench-gate
 
 N ?= 200
-# Parakeet is the shipping backend and the default. BACKEND=granite measures the opt-in
-# Granite evaluation backend through the same pipeline; BACKEND=fake measures the fake path.
-BACKEND ?= parakeet
+# Granite is the default recognizer and the default here. BACKEND=parakeet measures the
+# selectable Parakeet backend through the same pipeline; BACKEND=fake measures the fake path.
+BACKEND ?= granite
 
 ## bench-smoke: offline fake-backend smoke run
 bench-smoke:

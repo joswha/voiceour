@@ -9,7 +9,7 @@ protocol GraniteRuntimeContext: AnyObject {
 
 extension GraniteContext: GraniteRuntimeContext {}
 
-/// The Granite Speech 5 TurboCTC evaluation backend over the pinned Q8_0 GGUF.
+/// The default recognizer: Granite Speech 5 TurboCTC over the pinned Q8_0 GGUF.
 ///
 /// Mirrors `ParakeetSidecarBackend`'s observable contract — health and readiness, preload
 /// acquisition and its latched failure, request-path refusal while the model is missing, the

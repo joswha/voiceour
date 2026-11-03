@@ -12,13 +12,13 @@ class _BuildReached(Exception):
     """Raised in place of the release build once argument parsing has succeeded."""
 
 
-def test_granite_is_an_accepted_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_parakeet_is_an_accepted_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse_build(root: Path) -> Path:
         raise _BuildReached
 
     monkeypatch.setattr(run, "_build_swift_runner", refuse_build)
     with pytest.raises(_BuildReached):
-        run.main(["--tier", "smoke", "--mode", "stt", "--backend", "granite"])
+        run.main(["--tier", "smoke", "--mode", "stt", "--backend", "parakeet"])
 
 
 def test_an_unregistered_backend_is_refused_before_building(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -31,7 +31,7 @@ def test_an_unregistered_backend_is_refused_before_building(monkeypatch: pytest.
     assert raised.value.code == 2
 
 
-def test_the_default_backend_stays_parakeet(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_default_backend_is_granite(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[argparse.Namespace] = []
 
     def capture(runner: Path, args: argparse.Namespace, manifest: Path, output: Path, root: Path) -> None:
@@ -44,4 +44,4 @@ def test_the_default_backend_stays_parakeet(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(run, "_invoke_runner", capture)
     with pytest.raises(_BuildReached):
         run.main(["--tier", "smoke", "--mode", "stt"])
-    assert seen[0].backend == "parakeet"
+    assert seen[0].backend == "granite"

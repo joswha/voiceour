@@ -102,11 +102,10 @@ struct ConsoleSettingsTab: View {
                 cueRow
             }
 
-            // Not debug-gated, unlike Backend below: two artifacts actually ship
-            // and the difference between them is about 1.17 GB of combined cache
-            // after first load, which is a trade only the reader can make. While
-            // the evaluation backend runs there is no such trade, so the section
-            // names its one artifact instead.
+            // Not debug-gated, unlike Backend below. While Parakeet runs, two artifacts
+            // of it ship and the difference between them is about 1.17 GB of combined
+            // cache after first load, a trade only the reader can make. Granite, the
+            // default recognizer, pins one artifact, so the section names it instead.
             Section("Model") {
                 if let artifact = runningGraniteArtifact {
                     graniteModelRow(artifact)
@@ -115,12 +114,11 @@ struct ConsoleSettingsTab: View {
                 }
             }
 
-            // One real backend ships as the default, so a release build has
-            // nothing to choose between: the picker exists to reach `fake` and
-            // the Granite evaluation backend during development, and a release
-            // user who found it could only downgrade their own dictation to
-            // synthetic text or an unpromoted model. The running model is still
-            // stated by the Readiness rows below.
+            // Granite is the one recognizer a release launch selects, so a release build
+            // has nothing to choose between: the picker exists to reach `fake` and
+            // Parakeet during development, and a release user who found it could only
+            // move their own dictation to synthetic text or to a recognizer they did not
+            // ask for. The running model is still stated by the Readiness rows below.
             if LaunchOptions.showsDebugPanes {
                 Section("Backend") {
                     backendRow
@@ -490,13 +488,12 @@ struct ConsoleSettingsTab: View {
     }
 
     /// Granite pins one artifact, so there is nothing to choose and no variant to restart
-    /// into: the row names the model that loads and what it downloads. No cache-size or
-    /// quality claim — none is measured for this build — and the caption says plainly that
-    /// it is the evaluation backend, not the shipping one.
+    /// into: the row names the model that loads, what it downloads, and its cache, which is
+    /// the download alone because the file is mapped read-only and no arena is written.
     private func graniteModelRow(_ artifact: ASRModelArtifact) -> some View {
         ConsoleRow(
-            caption: "Downloads \(ConsoleReadiness.gigabytes(artifact.sizeBytes)). "
-                + "Evaluation backend; Parakeet remains the default recognizer."
+            caption: "Downloads \(ConsoleReadiness.gigabytes(artifact.sizeBytes)); "
+                + "uses about \(ConsoleReadiness.gigabytes(artifact.sizeBytes)) after first load."
         ) {
             LabeledContent {
                 Text(artifact.displayName)

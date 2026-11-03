@@ -100,11 +100,11 @@ public struct ASRBackendRegistry: Sendable {
         Set(descriptors.map(\.id))
     }
 
-    /// The backend used when no id resolves: the real local sidecar. It is the
-    /// fallback for a stale or unknown `settings.asrBackend` too, so a value from a
+    /// The backend used when no id resolves: Granite, the default local recognizer. It is
+    /// the fallback for a stale or unknown `settings.asrBackend` too, so a value from a
     /// future build degrades to real dictation rather than to synthetic text.
     public var defaultDescriptor: ASRBackendDescriptor {
-        descriptor(for: Self.parakeetBackendID) ?? descriptors[0]
+        descriptor(for: Self.graniteBackendID) ?? descriptors[0]
     }
 
     public func descriptor(for id: String) -> ASRBackendDescriptor? {
@@ -139,6 +139,8 @@ public struct ASRBackendRegistry: Sendable {
                 )
             }
         ),
+        // Selectable alternative: two variants of one checkpoint, reached only through
+        // `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the debug picker.
         ASRBackendDescriptor(
             id: Self.parakeetBackendID,
             displayName: "PARAKEET",
@@ -160,8 +162,8 @@ public struct ASRBackendRegistry: Sendable {
                 )
             }
         ),
-        // Evaluation backend: selectable through the same seams, never the default. One fixed
-        // artifact, so no variant reaches its sidecar (the client strips an inherited one too).
+        // The default recognizer. One fixed artifact, so no variant reaches its sidecar (the
+        // client strips an inherited one too).
         ASRBackendDescriptor(
             id: Self.graniteBackendID,
             displayName: "GRANITE",
