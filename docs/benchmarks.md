@@ -354,3 +354,65 @@ checks token, text and segment identity; isolated stage speedups are not app-lat
 `bench/rust/run_official.sh` serializes measurements and enforces power/completion checks.
 Rust and MLX are needed only to reproduce those experiments; building the shipping app requires
 neither.
+
+## Speech recognizer replacement screen — 2026-11-03
+
+A benchmark-only screen compared shipping Parakeet TDT 0.6B v3 with Nemotron Labs Unified ASR
+0.6B and other locally runnable recognizers available by 2026-11-03. The shipping recognizer
+was unchanged. The measurements used an Apple M4 Pro under macOS 27.0.1 on AC power, with
+offscreen, file-based public and TTS audio only. Each arm is one checkpoint, precision,
+runtime and frontend combination.
+
+- Screen: 25 configurations × 1,495 rows. The rows are 1,000 human-speech rows (250 each from
+  AMI IHM, FLEURS en-US, LibriSpeech clean and LibriSpeech other), 472 synthetic technical rows
+  and 23 non-speech rows. Failed attempts count as empty hypotheses and were never retried.
+- Confirmation: 9 configurations × 17,858 rows. These rows share no row id or audio with the
+  screen, but the speakers and AMI meeting series overlap. Its corpus mix is 69% AMI, so compare
+  it per corpus, not pooled against the screen.
+- Performance: 80 files × 7 counterbalanced passes per arm with no other heavy local work,
+  three fresh-process starts per arm, recovery probes, and ten 30–600 s concatenations.
+
+Selected raw U-WER (%), M4 Pro warm model latency, and model-process measures:
+
+| arm | screen human | screen jargon | confirm AMI / FLEURS / LS-clean / LS-other | p50 / p95 ms | speed vs prod | first result ms | footprint MiB | model files MB |
+| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| production v3 f16 | 4.71 | 6.13 | 11.62 / 5.02 / 1.98 / 3.71 | 53.0 / 158.2 | 1.00× | 1,190 (696 excl. adapter hashing) | 165 | 2,512 incl. arena |
+| production v3 q8_0 | 4.72 | 6.21 | 11.71 / 4.96 / 1.97 / 3.74 | 52.5 / 157.1 | 1.01× | 706 (453) | 165 | 1,337 incl. arena |
+| Nemotron fp16, ANE | 4.37 | 6.78 | 10.97 / 4.83 / 1.79 / 3.38 | 54.1 / 151.6 | 0.92× | 197 | 71 | 1,222 |
+| Nemotron int8, ANE | 4.40 | 6.70 | 10.95 / 4.96 / 1.79 / 3.44 | 54.6 / 154.9 | 0.91× | 297 | 75 | 626 |
+| Granite 5 TurboCTC Oct-21 Q8 | 3.84 | 6.52 | 8.48 / 4.50 / 1.31 / 2.67 | 38.4 / 113.6 | 1.32× | 236 | 392 | 506 |
+| Qwen3-ASR 1.7B Q8 | 4.27 | 5.06 | 11.05 / 3.39 / 1.64 / 3.48 | 326.7 / 1,032.7 | 0.19× | 1,840 | 449 | 2,185 |
+| Parakeet Ultra, BN-corrected | 4.55 | 6.13 | 10.78 / 4.31 / 1.83 / 3.47 | 53.3 / 158.4 | 0.99× | 604 | 161 | 2,512 incl. arena |
+
+- **Nemotron:** improves the human-speech corpora modestly. It is slower in median model latency
+  through FluidAudio CoreML (ANE 0.92×; GPU route 0.67×) and loses ground on synthetic jargon. The
+  int8 encoder halves its model files.
+- **Granite:** gave the best accuracy, latency and model-size tradeoff measured. It is an
+  integration candidate, not a cutover:
+  - It emits the documented `<|nospeech|>` control token on noise.
+  - Its tested transcribe.cpp runtime ignores cancellation once inference starts.
+  - It failed five 0.04–0.06 s confirmation clips.
+  - It has no backend protocol, packaging or cross-SoC qualification.
+- **Qwen3 1.7B:**
+  - Wins on FLEURS and on technical terms.
+  - Fills 22 of 23 non-speech controls with words.
+  - Stopped one decode on a repetition guard.
+  - Is about 5× slower.
+- **Parakeet derivatives:** native Ultra, v2 and Bark Pro needed reference BatchNorm epsilon
+  folding. With that correction, Ultra had the lowest error on the long concatenations: 8.1% vs
+  production's 20.0%.
+- **Uncertainty:** the corrected analysis builds speaker, session and sentence groups once
+  globally. AMI has only four meeting-series components, so it withholds pooled human-speech
+  ranges.
+- **Memory:** footprint is memory charged to the recognizer process. It excludes file-mapped
+  weights and CoreML or ANE service memory, so it is not a whole-system RAM ranking.
+- **Energy:** only the system GPU energy counter responded. CPU, ANE and total energy are
+  unmeasured.
+
+[Results](../benchmarks/results/20261103-asr-replacement-evaluation.json) carry exact model,
+runtime and corpus pins, failures, uncertainty limits, storage accounting and research
+exclusions. The [count proof](../benchmarks/results/20261103-asr-replacement-proof.json) holds
+the per-row counts, the grouping labels, the reproduction sources and the input digests. None
+of this satisfies the
+[paired promotion gate](#paired-fixed-corpus-promotion-gate): the screen has no real-speaker
+dictation holdout and no cross-SoC replication.
