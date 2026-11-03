@@ -392,7 +392,8 @@ Selected raw U-WER (%), M4 Pro warm model latency, and model-process measures:
   - It emits the documented `<|nospeech|>` control token on noise.
   - Its tested transcribe.cpp runtime ignores cancellation once inference starts.
   - It failed five 0.04–0.06 s confirmation clips.
-  - It has no backend protocol, packaging or cross-SoC qualification.
+  - It has no cross-SoC qualification. The integrated backend is measured in
+    [Granite evaluation backend](#granite-evaluation-backend--2026-11-03).
 - **Qwen3 1.7B:**
   - Wins on FLEURS and on technical terms.
   - Fills 22 of 23 non-speech controls with words.
@@ -416,3 +417,73 @@ the per-row counts, the grouping labels, the reproduction sources and the input 
 of this satisfies the
 [paired promotion gate](#paired-fixed-corpus-promotion-gate): the screen has no real-speaker
 dictation holdout and no cross-SoC replication.
+
+## Granite evaluation backend — 2026-11-03
+
+This section measures the opt-in `granite` backend through the production path: release
+`voiceour-asr` with the `CGranite` port and the pinned Q8_0 GGUF. It used the frozen corpora,
+adapters and machine of the [replacement screen](#speech-recognizer-replacement-screen--2026-11-03):
+an Apple M4 Pro under macOS 27.0.1 on AC power. Parakeet stayed the default.
+
+| arm | screen human | screen jargon | confirm AMI / FLEURS / LS-clean / LS-other | long 30–600 s | p50 / p95 ms | speed vs Parakeet | first result ms | footprint MiB | GPU J per audio min |
+| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production Parakeet v3 f16 | 4.71 | 6.13 | 11.62 / 5.02 / 1.98 / 3.71 | 19.97 | 54.5 / 172.6 | 1.00× | 956 (446) | 165 | 8.58 |
+| production Granite Q8_0 | 3.84 | 6.52 | 8.48 / 4.50 / 1.31 / 2.67 | 11.92 | 38.0 / 116.2 | 1.37× (1.33–1.40) | 363 (161) | 261 | 6.87 |
+
+- **Columns.**
+  - U-WER is raw %, measured before the text stages.
+  - Speed is the geometric mean of per-file median model-latency ratios, with a 95% bootstrap
+    range.
+  - First result is spawn-to-first-result over three fresh processes. The figure in parentheses
+    excludes the benchmark adapter's pre-spawn artifact hashing.
+  - Footprint excludes file-mapped weights: Granite maps its GGUF and Parakeet maps its arena.
+  - On disk Granite needs 506 MB; Parakeet f16 needs 2,512 MB including its arena.
+- **Parity.**
+  - Post-integration Parakeet text is byte-identical to the pre-integration production run on all
+    1,495 screen rows.
+  - Granite's production text equals the transcribe.cpp runtime it was ported from on every row
+    except designed changes, and raw U-WER is unchanged on every corpus:
+    - 25 outputs that were only `<|nospeech|>` become empty transcripts.
+    - Five confirmation clips of 0.04–0.06 s that transcribe.cpp failed now decode.
+    - Two comma near-ties differ.
+- **Weak spots.**
+  - One of 23 non-speech controls produced text ("Il." on 8 s of silence); Parakeet produced text
+    on two.
+  - Granite is worse on synthetic jargon (6.52 vs 6.13) and on the 16 technical-term fixtures
+    (8.65 vs 6.73).
+- **Acquisition.** `voiceour-asr --prove` into an empty `VOICEOUR_MODEL_CACHE` did four things:
+  downloaded the 505,663,136-byte artifact, verified its digest, wrote the five-field manifest and
+  transcribed the fixture.
+- **Reliability.**
+  - Missing-file and wrong-rate requests fail without ending the process.
+  - A cancel sent 1 ms into a 30 s request answered `cancelled` in 6.3 ms.
+  - After a SIGKILL of the process group, a fresh spawn reproduces the same text.
+  - Cancellation is polled only at stage boundaries, so a cancel during graph compute waits for
+    it. A whole 600 s decode takes 2.3–2.5 s.
+
+The [paired gate](#paired-fixed-corpus-promotion-gate) ran on `voiceour-bench pipeline` results
+for both backends, with zero error rows and identical manifest pins:
+
+| subset | rows | resampling unit | U-WER Parakeet → Granite | upper bound | verdict |
+| --- | ---: | --- | ---: | ---: | --- |
+| AMI IHM + LibriSpeech | 17,139 | 89 speakers, corpus strata | 8.36 → 6.36 | −1.56 (unstable) | reject: new multiword deletions in 263 rows |
+| FLEURS en-US | 719 | row (no speaker metadata) | 5.02 → 4.50 | −0.26 | reject: new multiword deletions in 6 rows; case F1 −2.29 points |
+
+- **Deletions.** 258 of the 263 deletion rows are AMI. Most drop verbatim repetitions or
+  disfluencies that AMI references keep, but some lose content: "I don't know." became "I'.".
+- **Verdict.** The gate's hard reject stands. Both subsets are public corpora, not the
+  real-speaker dictation holdout the promotion rule requires.
+- **Promotion blockers:**
+  - the gate verdict above;
+  - a real-speaker dictation holdout;
+  - cross-SoC replication;
+  - a self-hosted or official IBM artifact in place of the personal Hugging Face repository.
+
+[Results](../benchmarks/results/20261103-granite-backend-evaluation.json) carry:
+- the release binary digests;
+- parity counts;
+- per-corpus and paired accuracy;
+- both gate verdicts and their deletion profile;
+- latency, cold start, memory and energy;
+- reliability, including one retained failed run;
+- input digests.

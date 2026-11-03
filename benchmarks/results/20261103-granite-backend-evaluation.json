@@ -1,0 +1,949 @@
+{
+ "schema_version": 1,
+ "experiment": "granite-backend-evaluation-20261103",
+ "measured_at": "2026-11-03T19:10:58.493561+00:00",
+ "status": "complete production-path evaluation of the opt-in Granite backend; no shipping promotion",
+ "question": "Does the integrated Granite Speech 5.0 TurboCTC 470M backend (voiceour-asr, CGranite on vendored ggml) reproduce the screened accuracy and speed through the production path, and does it meet the repository promotion gate?",
+ "shipping_model_changed": false,
+ "decision": {
+  "shipping": "Parakeet TDT 0.6B v3 f16 stays the default. Granite ships as an opt-in evaluation backend.",
+  "gate": "The paired fixed-corpus promotion gate rejects Granite on both public-corpus subsets (contiguous multiword deletion hazard on both; FLEURS case F1 also exceeds the 2-point formatting margin).",
+  "other_blockers_independent_of_gate": [
+   "no real-speaker dictation holdout",
+   "no cross-SoC replication",
+   "artifact hosted in a personal Hugging Face repository"
+  ]
+ },
+ "hardware": {
+  "model": "Mac16,7",
+  "chip": "Apple M4 Pro",
+  "memory_bytes": 25769803776,
+  "power": "Now drawing from 'AC Power'"
+ },
+ "observed_os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434",
+ "runtime_fingerprints": [
+  {
+   "path": ".build/out/Products/Release/voiceour-asr",
+   "sha256": "6751c1e033b96b6a51b86f1bf0c120644a6b69c8ac21fee14ba8532e78966381",
+   "bytes": 4511808
+  },
+  {
+   "path": ".build/out/Products/Release/voiceour-bench",
+   "sha256": "c2636476c0d3146040e89810cf831c8666469edfc1c9a530961fb3ade81c51a4",
+   "bytes": 7172080
+  }
+ ],
+ "artifact": {
+  "model_id": "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF",
+  "revision": "62f64d9d5ad35989b06caf199cafe7155944a22b",
+  "file": "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf",
+  "sha256": "f3efdc05b85b3a764bb5bb7022e69f61cafcecc11605c881c6396a6ed07ec91b",
+  "size_bytes": 505663136,
+  "source_checkpoint": "ibm-granite/granite-speech-5.0-470m-turboctc",
+  "source_revision": "1dd23f46f6d4e6eae2531982ba2e33220086dd97",
+  "provenance": "Rebuilt from the IBM checkpoint with transcribe.cpp 4d7c1cc plus the published conversion patch; the rebuild differs in 8 bytes of two frontend constants and is byte-identical after splicing them; all 163 Q8_0 weights are byte-identical.",
+  "cold_acquisition": {
+   "command": "VOICEOUR_ASR_BACKEND=granite VOICEOUR_MODEL_CACHE=<empty task dir> voiceour-asr --prove fixtures/audio/hello_16k_mono.wav",
+   "result": "cold_load_ms=11533 warm_inference_ms=30",
+   "downloaded_sha256_matches_pin": true,
+   "manifest_fields": [
+    "file",
+    "model_id",
+    "revision",
+    "sha256",
+    "size_bytes"
+   ],
+   "cache_contents": [
+    "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf",
+    "manifest.json"
+   ],
+   "limit": "One download on one network; acquisition time is not a product claim."
+  }
+ },
+ "parity": {
+  "parakeet_post_vs_pre_integration_screen": {
+   "rows": 1495,
+   "byte_identical_text": 1495
+  },
+  "granite_production_vs_port_driver": {
+   "screen": {
+    "rows": 1495,
+    "different": 22,
+    "cause": "designed no-speech rule maps <|nospeech|>-only output to an empty transcript"
+   },
+   "confirmation": {
+    "rows": 17858,
+    "different": 3,
+    "cause": "designed no-speech rule"
+   }
+  },
+  "granite_production_vs_transcribe_cpp": {
+   "screen": {
+    "rows": 1495,
+    "identical": 1473,
+    "different": 22,
+    "cause": "no-speech rule only"
+   },
+   "confirmation": {
+    "rows": 17858,
+    "identical": 17850,
+    "different": 8,
+    "causes": {
+     "no_speech_rule": 3,
+     "transcribe_cpp_failed_short_clip_now_decoded": 3,
+     "comma_near_tie": 2
+    },
+    "transcribe_cpp_failures_now_decoded": 5
+   }
+  },
+  "pytorch_f32_reference": "Port argmax matched the PyTorch F32 reference on 100% of frames (port evidence)."
+ },
+ "accuracy": {
+  "metric": "raw pooled U-WER (Whisper English normalizer) before Voiceour text stages; production adapters",
+  "screen": {
+   "production-v3-f16-post": {
+    "__all__": {
+     "rows": 1495,
+     "raw_uwer_pct": 5.035,
+     "raw_cer_pct": 1.958,
+     "error_rows": 0
+    },
+    "__natural__": {
+     "rows": 1000,
+     "raw_uwer_pct": 4.708,
+     "raw_cer_pct": 2.105,
+     "error_rows": 0
+    },
+    "ami-ihm": {
+     "rows": 250,
+     "raw_uwer_pct": 9.315,
+     "raw_cer_pct": 5.196,
+     "error_rows": 0
+    },
+    "fleurs-en-us": {
+     "rows": 250,
+     "raw_uwer_pct": 5.106,
+     "raw_cer_pct": 2.271,
+     "error_rows": 0
+    },
+    "librispeech-clean": {
+     "rows": 250,
+     "raw_uwer_pct": 1.892,
+     "raw_cer_pct": 0.532,
+     "error_rows": 0
+    },
+    "librispeech-other": {
+     "rows": 250,
+     "raw_uwer_pct": 3.573,
+     "raw_cer_pct": 1.31,
+     "error_rows": 0
+    },
+    "public-instrumental-music": {
+     "rows": 3,
+     "raw_uwer_pct": null,
+     "raw_cer_pct": null,
+     "error_rows": 0
+    },
+    "synthetic-jargon": {
+     "rows": 456,
+     "raw_uwer_pct": 6.127,
+     "raw_cer_pct": 1.187,
+     "error_rows": 0
+    },
+    "synthetic-nonspeech": {
+     "rows": 20,
+     "raw_uwer_pct": null,
+     "raw_cer_pct": null,
+     "error_rows": 0
+    },
+    "synthetic-techterms": {
+     "rows": 16,
+     "raw_uwer_pct": 6.731,
+     "raw_cer_pct": 1.596,
+     "error_rows": 0
+    }
+   },
+   "production-granite-q8": {
+    "__all__": {
+     "rows": 1495,
+     "raw_uwer_pct": 4.343,
+     "raw_cer_pct": 1.593,
+     "error_rows": 0
+    },
+    "__natural__": {
+     "rows": 1000,
+     "raw_uwer_pct": 3.844,
+     "raw_cer_pct": 1.651,
+     "error_rows": 0
+    },
+    "ami-ihm": {
+     "rows": 250,
+     "raw_uwer_pct": 7.499,
+     "raw_cer_pct": 3.984,
+     "error_rows": 0
+    },
+    "fleurs-en-us": {
+     "rows": 250,
+     "raw_uwer_pct": 5.243,
+     "raw_cer_pct": 2.1,
+     "error_rows": 0
+    },
+    "librispeech-clean": {
+     "rows": 250,
+     "raw_uwer_pct": 1.129,
+     "raw_cer_pct": 0.311,
+     "error_rows": 0
+    },
+    "librispeech-other": {
+     "rows": 250,
+     "raw_uwer_pct": 2.365,
+     "raw_cer_pct": 0.855,
+     "error_rows": 0
+    },
+    "public-instrumental-music": {
+     "rows": 3,
+     "raw_uwer_pct": null,
+     "raw_cer_pct": null,
+     "error_rows": 0
+    },
+    "synthetic-jargon": {
+     "rows": 456,
+     "raw_uwer_pct": 6.516,
+     "raw_cer_pct": 1.345,
+     "error_rows": 0
+    },
+    "synthetic-nonspeech": {
+     "rows": 20,
+     "raw_uwer_pct": null,
+     "raw_cer_pct": null,
+     "error_rows": 0
+    },
+    "synthetic-techterms": {
+     "rows": 16,
+     "raw_uwer_pct": 8.654,
+     "raw_cer_pct": 3.014,
+     "error_rows": 0
+    }
+   }
+  },
+  "screen_paired_vs_parakeet": {
+   "__all__": {
+    "delta_pct_points": -0.692,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "ami-ihm": {
+    "delta_pct_points": -1.815,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "__natural__": {
+    "delta_pct_points": -0.864,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "fleurs-en-us": {
+    "delta_pct_points": 0.138,
+    "percentile_95_interval_pct_points": [
+     -0.396,
+     0.684
+    ],
+    "interval_withheld_reason": null
+   },
+   "synthetic-jargon": {
+    "delta_pct_points": 0.389,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "librispeech-clean": {
+    "delta_pct_points": -0.764,
+    "percentile_95_interval_pct_points": [
+     -1.194,
+     -0.368
+    ],
+    "interval_withheld_reason": null
+   },
+   "librispeech-other": {
+    "delta_pct_points": -1.208,
+    "percentile_95_interval_pct_points": [
+     -1.603,
+     -0.826
+    ],
+    "interval_withheld_reason": null
+   },
+   "synthetic-nonspeech": {
+    "delta_pct_points": null,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "public-instrumental-music": {
+    "delta_pct_points": null,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "synthetic-techterms": {
+    "delta_pct_points": 1.923,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   }
+  },
+  "confirmation": {
+   "production-v3-f16": {
+    "__all__": {
+     "rows": 17858,
+     "raw_uwer_pct": 7.215,
+     "raw_cer_pct": 4.028,
+     "error_rows": 0
+    },
+    "__natural__": {
+     "rows": 17858,
+     "raw_uwer_pct": 7.215,
+     "raw_cer_pct": 4.028,
+     "error_rows": 0
+    },
+    "ami-ihm": {
+     "rows": 12393,
+     "raw_uwer_pct": 11.616,
+     "raw_cer_pct": 7.518,
+     "error_rows": 0
+    },
+    "fleurs-en-us": {
+     "rows": 719,
+     "raw_uwer_pct": 5.015,
+     "raw_cer_pct": 2.084,
+     "error_rows": 0
+    },
+    "librispeech-clean": {
+     "rows": 2210,
+     "raw_uwer_pct": 1.985,
+     "raw_cer_pct": 0.647,
+     "error_rows": 0
+    },
+    "librispeech-other": {
+     "rows": 2536,
+     "raw_uwer_pct": 3.713,
+     "raw_cer_pct": 1.396,
+     "error_rows": 0
+    }
+   },
+   "production-granite-q8": {
+    "__all__": {
+     "rows": 17858,
+     "raw_uwer_pct": 5.301,
+     "raw_cer_pct": 2.781,
+     "error_rows": 0
+    },
+    "__natural__": {
+     "rows": 17858,
+     "raw_uwer_pct": 5.301,
+     "raw_cer_pct": 2.781,
+     "error_rows": 0
+    },
+    "ami-ihm": {
+     "rows": 12393,
+     "raw_uwer_pct": 8.483,
+     "raw_cer_pct": 5.082,
+     "error_rows": 0
+    },
+    "fleurs-en-us": {
+     "rows": 719,
+     "raw_uwer_pct": 4.495,
+     "raw_cer_pct": 1.873,
+     "error_rows": 0
+    },
+    "librispeech-clean": {
+     "rows": 2210,
+     "raw_uwer_pct": 1.307,
+     "raw_cer_pct": 0.403,
+     "error_rows": 0
+    },
+    "librispeech-other": {
+     "rows": 2536,
+     "raw_uwer_pct": 2.669,
+     "raw_cer_pct": 1.03,
+     "error_rows": 0
+    }
+   }
+  },
+  "confirmation_paired_vs_parakeet": {
+   "__all__": {
+    "delta_pct_points": -1.914,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "ami-ihm": {
+    "delta_pct_points": -3.133,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "__natural__": {
+    "delta_pct_points": -1.914,
+    "percentile_95_interval_pct_points": null,
+    "interval_withheld_reason": "stratum_grouping_ineligible_see_design"
+   },
+   "fleurs-en-us": {
+    "delta_pct_points": -0.52,
+    "percentile_95_interval_pct_points": [
+     -0.873,
+     -0.17
+    ],
+    "interval_withheld_reason": null
+   },
+   "librispeech-clean": {
+    "delta_pct_points": -0.678,
+    "percentile_95_interval_pct_points": [
+     -0.916,
+     -0.464
+    ],
+    "interval_withheld_reason": null
+   },
+   "librispeech-other": {
+    "delta_pct_points": -1.044,
+    "percentile_95_interval_pct_points": [
+     -1.336,
+     -0.763
+    ],
+    "interval_withheld_reason": null
+   }
+  },
+  "non_speech": {
+   "production-v3-f16-post": {
+    "rows": 20,
+    "nonempty_rows": 2,
+    "nonempty_outputs": [
+     {
+      "id": "nonspeech-clicks-1s",
+      "text": "Uh"
+     },
+     {
+      "id": "nonspeech-dither-8s",
+      "text": "La lengua persa tiene que tratar de los de los de los de los de los de los"
+     }
+    ]
+   },
+   "production-granite-q8": {
+    "rows": 20,
+    "nonempty_rows": 1,
+    "nonempty_outputs": [
+     {
+      "id": "nonspeech-silence-8s",
+      "text": "Il."
+     }
+    ]
+   },
+   "granite5-turboctc-470m-oct21-q8-transcribe": {
+    "rows": 20,
+    "nonempty_rows": 20,
+    "nonempty_outputs": [
+     {
+      "id": "nonspeech-breath-like-1s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-breath-like-20s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-breath-like-3s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-breath-like-8s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-clicks-1s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-clicks-20s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-clicks-3s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-clicks-8s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-dither-1s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-dither-20s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-dither-3s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-dither-8s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-silence-1s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-silence-20s",
+      "text": "<|nospeech|>."
+     },
+     {
+      "id": "nonspeech-silence-3s",
+      "text": "<|nospeech|>."
+     },
+     {
+      "id": "nonspeech-silence-8s",
+      "text": "Il."
+     },
+     {
+      "id": "nonspeech-white-noise-1s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-white-noise-20s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-white-noise-3s",
+      "text": "<|nospeech|>"
+     },
+     {
+      "id": "nonspeech-white-noise-8s",
+      "text": "<|nospeech|>"
+     }
+    ]
+   }
+  },
+  "instrumental_music": {
+   "production-v3-f16-post": {
+    "rows": 3,
+    "nonempty_rows": 0
+   },
+   "production-granite-q8": {
+    "rows": 3,
+    "nonempty_rows": 0
+   }
+  },
+  "long_audio": {
+   "production-v3-f16": {
+    "rows": 10,
+    "raw_uwer_pct": 19.973,
+    "raw_cer_pct": 17.553,
+    "error_rows": 0
+   },
+   "production-granite-q8": {
+    "rows": 10,
+    "raw_uwer_pct": 11.924,
+    "raw_cer_pct": 8.268,
+    "error_rows": 0
+   }
+  },
+  "long_audio_runtime": {
+   "clips": 10,
+   "durations_s": [
+    30,
+    30,
+    60,
+    60,
+    120,
+    120,
+    300,
+    300,
+    600,
+    600
+   ],
+   "errors": 0,
+   "granite_600s_inference_ms": [
+    2501,
+    2341
+   ]
+  },
+  "limits": [
+   "Pooled confirmation intervals are withheld: AMI has four meeting-series components.",
+   "Confirmation is 69% AMI; compare per corpus.",
+   "The Parakeet confirmation arm is the pre-integration production run; the post-integration screen proved its text byte-identical."
+  ]
+ },
+ "paired_promotion_gate": {
+  "command": "voiceour-bench-paired-gate --frozen-row-conditional --seed 20260830 -B 100000 --permutation-samples 100000 --ni-margin 0.0035 --benefit-margin 0.005 --format-margin 0.02",
+  "pipeline": "voiceour-bench pipeline --backend parakeet|granite (production sidecar + text stages), zero error rows",
+  "speaker_clustered": {
+   "design": "AMI IHM + LibriSpeech confirmation rows with speaker_id (17,139 rows, 89 speakers), --cluster-field speaker_id --stratum-field corpus",
+   "report": ".build/asr-screen-20261103/post-integration/gate/paired-gate-speakers.json",
+   "report_sha256": "cf16b4cf477c480b95126c646eee5f35a49c81fcd90c11f4e8ae8a315ca3cc4f",
+   "status": "reject",
+   "gates": {
+    "benefit_bound": "inconclusive",
+    "benefit_permutation": "pass",
+    "benefit_point": "pass",
+    "case_f1": "not_applicable",
+    "deletion_hazard": "fail",
+    "errors": "pass",
+    "punctuation_micro_f1": "not_applicable",
+    "row_set": "pass",
+    "uwer_non_inferiority_bound": "inconclusive",
+    "uwer_non_inferiority_point": "pass"
+   },
+   "reasons": [
+    {
+     "code": "DELETION_HAZARD",
+     "details": {
+      "rows": 263
+     },
+     "message": "candidate introduces contiguous multiword deletions"
+    }
+   ],
+   "incumbent_uwer_pct": 8.356,
+   "candidate_uwer_pct": 6.365,
+   "delta_pct_points": -1.991,
+   "upper_decision_bound_pct_points": -1.555,
+   "interval_unstable": true,
+   "method_disagreement_pct_points": 0.051,
+   "benefit_permutation": {
+    "clusters": 89,
+    "p_value": 9.99990000099999e-06,
+    "permutations": 100000
+   },
+   "deletion_hazard_rows": 263,
+   "formatting": {
+    "eligible_rows": 0
+   },
+   "config": {
+    "cluster_fields": [
+     "speaker_id"
+    ],
+    "stratum_fields": [
+     "corpus"
+    ],
+    "seed": 20260830,
+    "bootstrap_samples_requested": 100000
+   },
+   "warnings": []
+  },
+  "fleurs_row_level": {
+   "design": "FLEURS en-US confirmation rows (719); public metadata identifies no speaker, so the gate resamples rows",
+   "report": ".build/asr-screen-20261103/post-integration/gate/paired-gate-fleurs.json",
+   "report_sha256": "877d6ad7a08e6c99ad448dbf915a86bf3da1c731b7b22305511c60d3c3791844",
+   "status": "reject",
+   "gates": {
+    "benefit_bound": "pass",
+    "benefit_permutation": "pass",
+    "benefit_point": "pass",
+    "case_f1": "fail",
+    "deletion_hazard": "fail",
+    "errors": "pass",
+    "punctuation_micro_f1": "pass",
+    "row_set": "pass",
+    "uwer_non_inferiority_bound": "pass",
+    "uwer_non_inferiority_point": "pass"
+   },
+   "reasons": [
+    {
+     "code": "DELETION_HAZARD",
+     "details": {
+      "rows": 6
+     },
+     "message": "candidate introduces contiguous multiword deletions"
+    },
+    {
+     "code": "FORMAT_POINT_INFERIOR",
+     "details": {
+      "delta": -0.022916131205346524,
+      "metric": "case_f1",
+      "required_minimum": -0.02
+     },
+     "message": "candidate point case F1 delta exceeds the formatting loss margin"
+    }
+   ],
+   "incumbent_uwer_pct": 5.022,
+   "candidate_uwer_pct": 4.502,
+   "delta_pct_points": -0.52,
+   "upper_decision_bound_pct_points": -0.255,
+   "interval_unstable": false,
+   "method_disagreement_pct_points": 0.0,
+   "benefit_permutation": {
+    "clusters": 719,
+    "p_value": 0.0008199918000819992,
+    "permutations": 100000
+   },
+   "deletion_hazard_rows": 6,
+   "formatting": {
+    "eligible_rows": 719,
+    "case_f1_delta_pct_points": -2.292
+   },
+   "config": {
+    "cluster_fields": [],
+    "stratum_fields": [],
+    "seed": 20260830,
+    "bootstrap_samples_requested": 100000
+   },
+   "warnings": [
+    "CLUSTER_METADATA_MISSING"
+   ]
+  },
+  "deletion_hazard_profile_speaker_gate": {
+   "rows": 263,
+   "by_corpus": {
+    "ami-ihm": 258,
+    "librispeech-clean": 2,
+    "librispeech-other": 3
+   },
+   "span_words": {
+    "2": 203,
+    "3": 38,
+    "4": 16,
+    "5": 3,
+    "6": 2,
+    "8": 1
+   },
+   "filler_only_spans": 30,
+   "note": "Mostly dropped verbatim repetitions and disfluencies kept by AMI references; some are content losses."
+  },
+  "scope": "Public corpora, frozen-row-conditional. Not the real-speaker dictation holdout the promotion rule requires."
+ },
+ "performance": {
+  "protocol": "80 latency files x 7 passes (3 counterbalanced rounds of 2/2/3), 3 warmups, energy sampling; 3 fresh-process cold starts per arm; nothing else heavy running",
+  "candidates": {
+   "production-v3-f16-post": {
+    "coverage": {
+     "planned": 560,
+     "attempted": 560,
+     "successful": 560,
+     "warm_usable": 560,
+     "missing": 0,
+     "errors": 0,
+     "ranking_eligible": true
+    },
+    "inference_ms": {
+     "p50": 54.5,
+     "p95": 172.6,
+     "p99": 198.0,
+     "max": 210
+    },
+    "request_wall_ms": {
+     "p50": 55.9,
+     "p95": 174.1,
+     "p99": 200.4
+    },
+    "cold_spawn_to_first_result_ms": {
+     "median": 956.3,
+     "attempts": [
+      1260.5,
+      956.3,
+      848.0
+     ]
+    },
+    "cold_excluding_adapter_validation_ms": {
+     "median": 446.2
+    },
+    "lifetime_physical_footprint_mib": 164.6,
+    "max_sampled_rss_mib": 98.5,
+    "cpu_seconds_three_warm_sessions_incl_load_and_warmups": 18.05,
+    "gpu_joules_per_audio_minute_median": 8.58,
+    "deterministic_seven_pass_ids": 80
+   },
+   "production-granite-q8": {
+    "coverage": {
+     "planned": 560,
+     "attempted": 560,
+     "successful": 560,
+     "warm_usable": 560,
+     "missing": 0,
+     "errors": 0,
+     "ranking_eligible": true
+    },
+    "inference_ms": {
+     "p50": 38.0,
+     "p95": 116.2,
+     "p99": 139.4,
+     "max": 158
+    },
+    "request_wall_ms": {
+     "p50": 39.9,
+     "p95": 118.0,
+     "p99": 141.7
+    },
+    "cold_spawn_to_first_result_ms": {
+     "median": 363.0,
+     "attempts": [
+      373.1,
+      345.6,
+      363.0
+     ]
+    },
+    "cold_excluding_adapter_validation_ms": {
+     "median": 161.1
+    },
+    "lifetime_physical_footprint_mib": 260.7,
+    "max_sampled_rss_mib": 196.2,
+    "cpu_seconds_three_warm_sessions_incl_load_and_warmups": 5.34,
+    "gpu_joules_per_audio_minute_median": 6.87,
+    "deterministic_seven_pass_ids": 80
+   },
+   "granite5-turboctc-470m-oct21-q8-transcribe": {
+    "coverage": {
+     "planned": 560,
+     "attempted": 560,
+     "successful": 560,
+     "warm_usable": 560,
+     "missing": 0,
+     "errors": 0,
+     "ranking_eligible": true
+    },
+    "inference_ms": {
+     "p50": 40.3,
+     "p95": 124.1,
+     "p99": 144.1,
+     "max": 156.0
+    },
+    "request_wall_ms": {
+     "p50": 45.0,
+     "p95": 142.7,
+     "p99": 164.4
+    },
+    "cold_spawn_to_first_result_ms": {
+     "median": 149.6,
+     "attempts": [
+      163.3,
+      144.6,
+      149.6
+     ]
+    },
+    "cold_excluding_adapter_validation_ms": {
+     "median": 149.6
+    },
+    "lifetime_physical_footprint_mib": 391.8,
+    "max_sampled_rss_mib": 354.2,
+    "cpu_seconds_three_warm_sessions_incl_load_and_warmups": 9.56,
+    "gpu_joules_per_audio_minute_median": 6.73,
+    "deterministic_seven_pass_ids": 80
+   }
+  },
+  "paired_speed": {
+   "production-granite-q8:inference_ms": {
+    "speedup_vs_parakeet": 1.368,
+    "percentile_95_interval": [
+     1.333,
+     1.402
+    ]
+   },
+   "granite5-turboctc-470m-oct21-q8-transcribe:inference_ms": {
+    "speedup_vs_parakeet": 1.337,
+    "percentile_95_interval": [
+     1.304,
+     1.367
+    ]
+   },
+   "production-granite-q8:request_wall_ms": {
+    "speedup_vs_parakeet": 1.357,
+    "percentile_95_interval": [
+     1.322,
+     1.39
+    ]
+   },
+   "granite5-turboctc-470m-oct21-q8-transcribe:request_wall_ms": {
+    "speedup_vs_parakeet": 1.243,
+    "percentile_95_interval": [
+     1.22,
+     1.265
+    ]
+   }
+  },
+  "model_files_on_disk_mb": {
+   "production-v3-f16": "2,512 incl. arena (earlier screen storage inventory)",
+   "production-granite-q8": 506
+  },
+  "limits": [
+   "Inference telemetry truncates to integer ms.",
+   "Cold start: process-cold, not OS-cache-cold; production adapter validation hashes the artifact before spawn.",
+   "Footprint excludes file-mapped weights; Granite maps its GGUF read-only, Parakeet maps its arena.",
+   "Only the system GPU energy counter responds."
+  ]
+ },
+ "reliability": {
+  "full": {
+   "status": "passed",
+   "transcript_identity_checks": {
+    "error_recovery_text_identical": {
+     "applicable": true,
+     "passed": true
+    },
+    "cancel_recovery_text_identical": {
+     "applicable": true,
+     "passed": true
+    },
+    "forced_restart_text_identical": {
+     "applicable": true,
+     "passed": true
+    }
+   },
+   "missing_file": "audio_not_found",
+   "wrong_rate": "unsupported_audio_format",
+   "cancel_after_1ms_on_30s": {
+    "response": "cancelled",
+    "cancel_latency_ms": 6.3
+   },
+   "sigkill_process_group": {
+    "kill_to_group_gone_ms": 24.9
+   }
+  },
+  "supplemental_measured_child_restart": {
+   "status": "passed",
+   "forced_restart_text_identical": true
+  },
+  "retained_failed_run": {
+   "label": "post-reliability-production-granite-q8",
+   "exit_code": 2,
+   "cause": "plan combined full scenarios with measured-child termination, which the harness forbids; no request ran"
+  },
+  "cancellation_limit": "Native cancellation is polled at granite.h stage boundaries only; a cancel arriving during graph compute waits for it (measured whole-decode 2.3-2.5 s for 600 s audio)."
+ },
+ "promotion_blockers": [
+  "Paired gate rejects on both public subsets: contiguous multiword deletion hazard (263 speaker-subset rows, 6 FLEURS rows) and FLEURS case F1 -2.29 points against a 2-point margin.",
+  "No real-speaker dictation holdout.",
+  "No cross-SoC replication (Apple M4 Pro only).",
+  "Pinned artifact lives in a personal Hugging Face repository; promotion needs a self-hosted or official IBM artifact.",
+  "Cancellation only at stage boundaries."
+ ],
+ "evidence": {
+  "raw_evidence_root": ".build/asr-screen-20261103",
+  "retention": "Raw rows, failed runs, logs, caches and gate inputs remain local; nothing here contains audio or weights.",
+  "input_sha256": {
+   ".build/asr-screen-20261103/scoring/post-integration-screen/report.json": "f5191c006edccb27fc942b95aed7a14991f038aa1a93d665b217d8dc91691f96",
+   ".build/asr-screen-20261103/scoring/post-integration-confirmation/report.json": "b40cf505ab5598e440355a74768a0c3603748b1ed93066ffeb23c47fe28bc15c",
+   ".build/asr-screen-20261103/scoring/post-integration-long/report.json": "7c33b6d1f406178724af4df96d17e0dd46fbdeccb08c27bb67b12441be869e84",
+   ".build/asr-screen-20261103/scoring/post-integration-performance.json": "b339d56a2d11e7ad5fcd88f32e51ce47a3b79cef58e379a75618fbaa51b64c33",
+   ".build/asr-screen-20261103/post-integration/gate/paired-gate-speakers.json": "cf16b4cf477c480b95126c646eee5f35a49c81fcd90c11f4e8ae8a315ca3cc4f",
+   ".build/asr-screen-20261103/post-integration/gate/paired-gate-fleurs.json": "877d6ad7a08e6c99ad448dbf915a86bf3da1c731b7b22305511c60d3c3791844",
+   ".build/asr-screen-20261103/post-integration/gate/confirmation-speakers.manifest.jsonl": "d49942a41f12bed8594d722b35467f36da4dab8142a03845719d600424d9d833",
+   ".build/asr-screen-20261103/post-integration/gate/confirmation-fleurs.manifest.jsonl": "e4b4cff0abb705aa4c4df152fbbbf454c3113392bafa99a9f7eaa2d46668af57",
+   ".build/asr-screen-20261103/post-integration/gate/parakeet-speakers.results.jsonl": "edcbb528ad191009c27b3128dfde31e272662c18896eecc5b47b5bdaf9af75bb",
+   ".build/asr-screen-20261103/post-integration/gate/granite-speakers.results.jsonl": "b0ca1dff95499836c904eac0c559043a47cf8ede29dd1bbdd42da8d9ed9c4d10",
+   ".build/asr-screen-20261103/post-integration/gate/parakeet-fleurs.results.jsonl": "b3e170048a9adbd6b5d41ac9e114218198b5dbc6fc9b401a7b1f9222fa5253b0",
+   ".build/asr-screen-20261103/post-integration/gate/granite-fleurs.results.jsonl": "2a9c9e805fa863de2ecbfb848a53024931c0961745b064a6b59b6c822ccb7331",
+   ".build/asr-screen-20261103/runs/post-reliability2-production-granite-q8.reliability.json": "f26d014ee8cdb45d2941068c231af00616d37e2e04ee4ecf9e5fa35987cc4b55",
+   ".build/asr-screen-20261103/runs/post-reliability2-restart-production-granite-q8.reliability.json": "a1487fdd225605483da44d907d7dc62442748111a4ca3c83bf767ee8290feadf",
+   ".build/asr-screen-20261103/post-integration/accuracy-plan.json": "a33be05b5c73215881786df0f8a9f4aebe6c482bad1ede3c143f058556459059",
+   ".build/asr-screen-20261103/post-integration/performance-plan.json": "bf6b685c0066cfad072bce66c068518ee968e5f9957a027f4a5bc22233f71bf0",
+   ".build/asr-screen-20261103/post-integration/reliability-plan.json": "f71defd5330b124393740e5c709a2e7e41a2961ac608c95beef349116a8565d6",
+   ".build/asr-screen-20261103/post-integration/reliability-plan-2.json": "af0d282b4d1dd73c99d8cf51ca02cc6b8a0c153889c308a9c0af2094bd2f43c7",
+   ".build/asr-screen-20261103/post-integration/production-granite-q8.runner.json": "6aa14ecd373ab3ef1ef01df5b36695e7d8ec3fa8c55217f3431081d685f1f0c0",
+   ".build/asr-screen-20261103/post-integration/production-v3-f16-post.runner.json": "949821532a3a9b5cafc6ee25b7e63ad38922fb70e899528dcf6eb3982dd1da3a",
+   ".build/asr-screen-20261103/production_sidecar_runner.py": "2adaffb976f1a58137d7e7f305246e8e0cb7f6a8408ae2ce651fd9757c181953",
+   ".build/asr-screen-20261103/scoring/analyze_performance_post.py": "9a31f02bc7df4523a66918afef1a5240dc1a00dd68da67446240e3d687e53a17",
+   ".build/asr-screen-20261103/post-integration/acquisition.log": "276a814db80099b840db4c5351c717df91ab9ca968f0b735f6042d6e65244701",
+   ".build/asr-screen-20261103/runs/post-accuracy-production-granite-q8.run.json": "bbe6f2df77206238b76dc741875aef8ef34a271165ffdb9b81abefb9b7294366",
+   ".build/asr-screen-20261103/runs/post-accuracy-production-granite-q8.rows.jsonl": "b640d6c526cf9f57f2fa33766fe4ad2b7dd6aa739936290609f5d54e5aa233f5",
+   ".build/asr-screen-20261103/runs/post-accuracy-production-v3-f16-post.run.json": "afd89ce216b3c03b47e1d78153edb7b10e391f4aa4eda7bb696420cbeffcd9b7",
+   ".build/asr-screen-20261103/runs/post-accuracy-production-v3-f16-post.rows.jsonl": "83322eeb1fa891476d4e02eff5fbea65cd7862b8c9f80b7211daf9f3fbfc4af4",
+   ".build/asr-screen-20261103/runs/post-confirmation-production-granite-q8.run.json": "23db80dd591d1b9193857ef12f24b691df6619767150612f0e8147a0456b514d",
+   ".build/asr-screen-20261103/runs/post-confirmation-production-granite-q8.rows.jsonl": "6254fc735d42da9e6e1e86de168c894421b013a4b48fb19405293a127370f5b1",
+   ".build/asr-screen-20261103/runs/post-long-production-granite-q8.run.json": "7edc672368a72321a7e065576c3d6ead238530bf8806de5262d57dc42419d58f",
+   ".build/asr-screen-20261103/runs/post-long-production-granite-q8.rows.jsonl": "64e456357b1686ef48cfa49b1a6221716389297ab03e6bd28865dd0689f78419"
+  }
+ }
+}
