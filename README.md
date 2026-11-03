@@ -6,7 +6,7 @@
 
 <p><strong>Tap <code>fn</code> to dictate where your cursor is.</strong></p>
 
-<sub>macOS 27+ · Apple Silicon only · English only · initial 1.26 GB model download</sub>
+<sub>macOS 27+ · Apple Silicon only · English only · initial 0.51 GB model download</sub>
 
 </div>
 
@@ -16,7 +16,7 @@ Tap Fn once and speak. Tap again and the text lands in the app you were already 
 
 Terms you teach in the Glossary do more than fix spelling: Voiceour also repairs close phonetic mishearings of them, by deterministic matching against your own terms rather than a model rewriting your words. Terms that are ordinary English words are held out of that phonetic step, so a word you actually said is never traded for one that merely sounds like something you taught.
 
-No account, no telemetry, no cloud transcription. The only network request downloads the pinned recognition model. Settings offers two conversions of that one model — Balanced and Compact — that transcribe the same to within what the benchmarks can resolve, so the choice is about disk and memory footprint.
+No account, no telemetry, no cloud transcription. The only network request downloads the pinned recognition model: IBM's Granite Speech 5.0 TurboCTC 470M by default, or NVIDIA's Parakeet TDT 0.6B v3 when a launch selects it.
 
 Home keeps the running totals: how long you have spoken, how much typing it saved, and which apps the words went to.
 
@@ -84,14 +84,14 @@ Preferences come first and readouts after them:
 
 - **Dictation** — the tap gesture, auto-stop and its silence duration, cleanup.
 - **Audio** — microphone (Automatic, or a specific device that keeps its name while unplugged), mute system audio while recording, session sounds.
-- **Model** — Balanced or Compact. A change applies at the next launch; Settings marks it *Restart to apply* and offers **Restart Voiceour**. While the [Granite evaluation backend](#granite-evaluation-backend) is running, this section instead names its single model and 0.51 GB download and offers no choice.
+- **Model** — the running recognizer's model. With Granite, the default, this section names the single model, captioned *Downloads 0.51 GB; uses about 0.51 GB after first load.*, and offers no choice. With [Parakeet](#parakeet-alternative) it offers Balanced or Compact; a change applies at the next launch, and Settings marks it *Restart to apply* and offers **Restart Voiceour**.
 - **Island** — the recording island's look, which the notch collar wears too. A showroom previews it live as the floating island, in a generated room of its own, in the pose its menu picks: Warming Up, Listening, Speaking, Processing, Copy-Only, Delivery Failed, or Error. It moves only while on screen; under Reduce Motion it holds still except while Play Again plays a gesture. **Another Room** draws a different room, and **Play Again** replays the gesture of an outcome pose. Twelve looks — Stock, Showroom Chrome, Liquid Gold, Candy Apple, Blued Titanium, Chameleon, Oil Slick, Arctic Platinum, Desert Heat, Midnight Cruise, Neon Kit, and Street Racer — and **Surprise Me** set every option at once; settings that match no look are marked *Custom*. Four folds hold the options, each with its own **Restore Stock**: **Material** (metal, coat with its film thickness or candy colour, finish), **Lighting** (Studio or Overcast room, colour temperature, underglow, brightness, contrast), **Body** (size, build, crown, taper), and **Motion** (tempo, viscosity, shimmer, reactivity, slither, morph, drama). The collar's length follows the camera housing, so there Size and Build set only its thickness. Colour comes only from the metal, its coat, and the light in the room; nothing is painted on. A change shows the next time the island appears, and ⌘Z undoes each one. **Dock Island**, available while the island floats free, docks it again as its Dock island VoiceOver action does: around the notch on a display with one, near the top centre elsewhere.
 - **Readiness** — backend, model, and microphone status, each with its remediation action.
 - **Capture** — whether Fn/Globe capture and paste delivery are available, which is the Accessibility grant.
 - **Privacy** — what is stored locally, and **Copy Diagnostics**: build, backend and model state, permission states, microphone selection, saved-session count, and storage paths. Diagnostics never include transcripts.
 - **Danger** — Clear History and Clear Vocabulary, each behind a confirmation.
 
-Launched with `--debug`, Settings also shows a development backend picker: Fake, Parakeet, and the Granite evaluation backend.
+Launched with `--debug`, Settings also shows a development Backend picker: Fake, Parakeet, and Granite. Later `--debug` launches restore its choice; a release launch never does.
 
 ## Architecture
 
@@ -102,8 +102,8 @@ flowchart LR
     Recorder --> WAV[16 kHz mono WAV]
     WAV --> Client[SidecarASRClient]
     Client --> Sidecar[voiceour-asr]
-    Sidecar --> Model[pinned Parakeet GGUF]
-    Sidecar -.-> Granite[pinned Granite GGUF, opt-in evaluation]
+    Sidecar --> Granite[pinned Granite GGUF]
+    Sidecar -.-> Parakeet[pinned Parakeet GGUF, when selected]
     Sidecar --> Text[LiteralComposition → CleanupEngine → VocabularyRepairEngine]
     Text --> Safety[delivery-target safety check]
     Safety --> Clipboard[clipboard]
@@ -163,8 +163,8 @@ The record-start target only labels the menu's *Will paste into …* line; it ne
 | History | `~/Library/Application Support/Voiceour/recent-sessions.json` | Newest 500 rows; Clear History |
 | Home ledger | `~/Library/Application Support/Voiceour/dictation-activity.json` | Aggregates; Clear History |
 | Mute recovery record | `~/Library/Application Support/Voiceour/mute-owned.flag` | Until the muted device is restored |
-| Parakeet model and acceleration file | `~/Library/Caches/Voiceour/<variant>/` | Until the variant is switched away from |
-| Granite evaluation model | `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` | Until deleted by hand |
+| Granite model | `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` | Until deleted by hand |
+| Parakeet model and acceleration file | `~/Library/Caches/Voiceour/<variant>/` | Until Parakeet loads the other variant, or deleted by hand |
 | Recordings | `$TMPDIR/voiceour/<uuid>.wav` | Deleted after transcription, cancellation, or failure |
 | Island placement (docked, or free at a spot relative to the display), last console tab | User defaults for `com.voiceour.app` | Until moved, docked, or changed |
 
@@ -177,7 +177,24 @@ The record-start target only labels the menu's *Will paste into …* line; it ne
 
 ## Model and network contract
 
-The shipping recognizer, and the default, uses one repository at one revision: `ggml-org/parakeet-GGUF` at `35156454d1a39de06863303dd209fd2bed6ee079`, the `parakeet-tdt-0.6b-v3` checkpoint, decoded locally by vendored parakeet.cpp/ggml on Metal. Voiceour supports English dictation. That revision holds two conversions of the same checkpoint:
+The default recognizer is IBM's Granite Speech 5.0 TurboCTC 470M, decoded locally on the vendored ggml, Metal first with a CPU fallback, through Voiceour's port of transcribe.cpp under `Vendor/granite/`. Voiceour supports English dictation. Granite downloads one artifact, `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, from `17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF` at `62f64d9d5ad35989b06caf199cafe7155944a22b`:
+
+| file | SHA-256 | download | cache after first load |
+| --- | --- | --- | --- |
+| `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf` | `f3efdc05b85b3a764bb5bb7022e69f61cafcecc11605c881c6396a6ed07ec91b` | 505,663,136 bytes | about 0.51 GB |
+
+- **Selection.** A launch runs the backend named by `--asr-backend`, else by `VOICEOUR_ASR_BACKEND`, else — in a `--debug` launch only — the Backend picker's saved choice, else Granite. An invalid value falls through to the next source, and the retired ids `mlx`, `ark-0.6b`, `ark-3b` and `apple` select Parakeet. A release launch never restores a saved backend: a release build has no picker, and every launch saves the backend it resolved. [Parakeet](#parakeet-alternative) runs only when one of these sources names it.
+- **Source.** That file is a third-party Q8_0 GGUF conversion of `ibm-granite/granite-speech-5.0-470m-turboctc` at `1dd23f46f6d4e6eae2531982ba2e33220086dd97`, IBM's October 21, 2026 multilingual checkpoint, licensed Apache-2.0. [NOTICE](NOTICE) carries the attribution. Voiceour uses it for English dictation only.
+- **No variant choice.** There is one artifact. Settings ▸ Model names it and its 0.51 GB download instead of offering Balanced or Compact, and `VOICEOUR_MODEL_VARIANT` is ignored.
+- **Cache.** `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` holds the file and its manifest. The file is mapped read-only and no acceleration file is written, so the cache is the size of the download. Neither backend ever removes the other's cache: switching between Granite and Parakeet keeps both on disk. Granite's directory stays until you delete it, and so does a Parakeet cache from an earlier version in `~/Library/Caches/Voiceour/parakeet-tdt-0.6b-v3-ggml*` — about 2.51 GB for Balanced including its acceleration file, 1.34 GB for Compact.
+- **Download.** Only the sidecar's background load downloads; until the model is ready a dictation is refused rather than left waiting. The file comes from `https://huggingface.co/17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF/resolve/62f64d9d5ad35989b06caf199cafe7155944a22b/granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`. Voiceour requires the remaining download bytes plus 256 MiB of free disk before fetching, makes up to three resumable attempts, and verifies the completed file against the digest above before accepting it. A cached file is reused only when its manifest and size match the pin exactly. A cached file that fails to load is hashed again; if its bytes no longer match, it is removed and downloaded again in the background, once per process.
+- **Promotion record.** The repository owners made Granite the default on 2026-11-03 by explicit decision, with three conditions unmet. The paired real-speaker gate never passed: on public corpora it rejected Granite for new contiguous multiword deletions in 263 of 17,139 speaker-clustered rows and in 6 of 719 FLEURS rows, and for a FLEURS case F1 change of −2.29 points against its 2-point margin. There is no cross-SoC replication; every measurement is from one Apple M4 Pro. The artifact is hosted in a personal Hugging Face repository. On that Mac, through the production path, Granite has lower raw word error than Parakeet's Balanced conversion on every human corpus — U-WER AMI 11.62 → 8.48%, FLEURS 5.02 → 4.50%, LibriSpeech clean 1.98 → 1.31% and other 3.71 → 2.67%, 30–600 s clips 19.97 → 11.92% — runs 1.37× faster at the median (54.5 → 38.0 ms model latency), returns its first result 363 ms after spawn instead of 956 ms, and needs 506 MB of model files instead of 2,512 MB. It is weaker on technical terms (synthetic jargon 6.13 → 6.52%, the 16 technical-term fixtures 6.73 → 8.65%), and its process footprint is larger (165 → 261 MiB). The [measurements and gate verdict](docs/benchmarks.md#granite-evaluation-backend--2026-11-03) carry the detail.
+- **The only network request** is the running backend's pinned model download: Granite's above, or Parakeet's [below](#parakeet-alternative) when that backend is selected. Transcription is entirely local. There is no telemetry, crash reporting, analytics, account, update check, or cloud text processing, and Voiceour stores no credential.
+- Like any download, that HTTPS request tells Hugging Face and its CDN your IP address and User-Agent. You can block Voiceour in a firewall such as Little Snitch once the model is cached; without a cached model there is no transcription, though the fake development backend still works.
+
+### Parakeet alternative
+
+NVIDIA's Parakeet TDT 0.6B v3 runs only when a launch selects it: `--asr-backend parakeet`, `VOICEOUR_ASR_BACKEND=parakeet`, or the `--debug` Backend picker. It uses one repository at one revision: `ggml-org/parakeet-GGUF` at `35156454d1a39de06863303dd209fd2bed6ee079`, the `parakeet-tdt-0.6b-v3` checkpoint, decoded locally by vendored parakeet.cpp/ggml on Metal. That revision holds two conversions of the same checkpoint, which Settings ▸ Model offers while Parakeet runs:
 
 | Settings name | file | SHA-256 | download | cache after first load |
 | --- | --- | --- | --- | --- |
@@ -185,26 +202,10 @@ The shipping recognizer, and the default, uses one repository at one revision: `
 | Compact (`q8_0`) | `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | `4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e` | 668,757,119 bytes | about 1.34 GB |
 
 - **Same transcripts, different footprint.** The two conversions agree to within what the committed benchmark corpus can resolve, so neither is presented as more accurate. Compact saves 587 MB of download and about 1.17 GB of combined cache.
-- **The default is not a speed claim.** Balanced is the default and the fallback for an unknown or stale setting. On the development M4 Pro it decoded faster under macOS 26.5.2, while under macOS 26.6.2 the two tied or Compact was slightly faster; decode-speed ordering has moved with the OS and toolchain, and no current ordering is claimed. Changing the default needs cross-SoC replication and the paired real-speaker gate. The dated measurements are in [performance-roadmap.md](docs/performance-roadmap.md) and [benchmarks.md](docs/benchmarks.md).
-- **Switching** applies at the next launch. The previous variant's cache directory is removed only after the newly selected variant has loaded successfully, so a switch that fails to download or load leaves the previous weights on disk. Otherwise exactly one variant stays resident.
-- **Download.** Only the sidecar's background load downloads; until the model is ready a dictation is refused rather than left waiting. The file comes from `https://huggingface.co/ggml-org/parakeet-GGUF/resolve/35156454d1a39de06863303dd209fd2bed6ee079/<file>`. Voiceour requires the remaining download bytes plus 256 MiB of free disk before fetching, makes up to three resumable attempts, and verifies the completed file against the digest above before accepting it. A cached file is reused only when its manifest and size match the pin exactly. A cached file that fails to load is hashed again; if its bytes no longer match, it is removed and downloaded again in the background, once per process.
+- **The default variant is not a speed claim.** Balanced is Parakeet's default variant and the fallback for an unknown or stale setting. On the development M4 Pro it decoded faster under macOS 26.5.2, while under macOS 26.6.2 the two tied or Compact was slightly faster; decode-speed ordering has moved with the OS and toolchain, and no current ordering is claimed. Changing the default variant needs cross-SoC replication and the paired real-speaker gate. The dated measurements are in [performance-roadmap.md](docs/performance-roadmap.md) and [benchmarks.md](docs/benchmarks.md).
+- **Switching** variants applies at the next launch. The previous variant's cache directory is removed only after the newly selected variant has loaded successfully, so a switch that fails to download or load leaves the previous weights on disk. Otherwise exactly one variant stays resident.
+- **Download.** The file comes from `https://huggingface.co/ggml-org/parakeet-GGUF/resolve/35156454d1a39de06863303dd209fd2bed6ee079/<file>`, under the same rules as Granite's: background load only, free-space check, three resumable attempts, digest verification, exact manifest-and-size reuse, and one re-download per process for a cached file that fails to load and no longer matches its digest.
 - **Acceleration file.** After the verified model first loads, Voiceour writes a model-sized weight arena next to it so later loads are fast. It is generated locally, never downloaded, named after the artifact's digest, and rebuilt if it is stale or incomplete; that is why the cache is about twice the download.
-- **The only network request** is the selected backend's pinned model download: Parakeet's above, or Granite's [below](#granite-evaluation-backend) when that backend is chosen. Transcription is entirely local. There is no telemetry, crash reporting, analytics, account, update check, or cloud text processing, and Voiceour stores no credential.
-- Like any download, that HTTPS request tells Hugging Face and its CDN your IP address and User-Agent. You can block Voiceour in a firewall such as Little Snitch once the model is cached; without a cached model there is no transcription, though the fake development backend still works.
-
-### Granite evaluation backend
-
-IBM's Granite Speech 5.0 TurboCTC 470M is an opt-in evaluation backend, not the shipping recognizer and never the default. It runs only when chosen explicitly: `--asr-backend granite` or `VOICEOUR_ASR_BACKEND=granite` select it for that launch, and the `--debug` Backend picker saves it for later `--debug` launches. A release launch never restores a saved Granite choice, so a one-off evaluation cannot strand a build that has no picker on it. It decodes locally on the same vendored ggml, Metal first with a CPU fallback, through Voiceour's port of transcribe.cpp under `Vendor/granite/`. It downloads one artifact, `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, from `17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF` at `62f64d9d5ad35989b06caf199cafe7155944a22b`:
-
-| file | SHA-256 | download | cache after first load |
-| --- | --- | --- | --- |
-| `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf` | `f3efdc05b85b3a764bb5bb7022e69f61cafcecc11605c881c6396a6ed07ec91b` | 505,663,136 bytes | about 0.51 GB |
-
-- **Source.** That file is a third-party Q8_0 GGUF conversion of `ibm-granite/granite-speech-5.0-470m-turboctc` at `1dd23f46f6d4e6eae2531982ba2e33220086dd97`, IBM's October 21, 2026 multilingual checkpoint, licensed Apache-2.0. [NOTICE](NOTICE) carries the attribution. Voiceour uses it for English dictation only.
-- **No variant choice.** There is one artifact. Settings ▸ Model names it and its 0.51 GB download instead of offering Balanced or Compact, and `VOICEOUR_MODEL_VARIANT` is ignored.
-- **Cache.** `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` holds the file and its manifest. The file is mapped read-only and no acceleration file is written, so the cache is the size of the download. Neither backend ever removes the other's cache: switching between Parakeet and Granite keeps both on disk, and Granite's directory stays until you delete it.
-- **Download.** The file comes from `https://huggingface.co/17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF/resolve/62f64d9d5ad35989b06caf199cafe7155944a22b/granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, under the same rules as Parakeet's: background load only, free-space check, three resumable attempts, digest verification, exact manifest-and-size reuse, and one re-download per process for a cached file that fails to load and no longer matches its digest.
-- **Not promoted.** Making Granite the default needs the same paired real-speaker gate and cross-SoC replication as any default change, and an artifact Voiceour hosts itself or IBM publishes officially. Measured on public corpora it is faster with lower word error than Parakeet, but the paired gate rejects it there too: it introduces multiword deletions, and loses capitalization accuracy on FLEURS ([measurements](docs/benchmarks.md#granite-evaluation-backend--2026-11-03)).
 
 ## Safety and permissions
 
@@ -245,7 +246,7 @@ These are product decisions, not deferred roadmap items. Feature requests that c
 - **No per-utterance or per-hour analytics.** Home reads one aggregate, day-resolution ledger.
 - **No saved audio.**
 - **No telemetry, crash reporting, account, update check, or stored credential.**
-- **No second production recognizer.** Local Parakeet is the only shipping-default recognizer. Granite is an opt-in [evaluation backend](#granite-evaluation-backend) that runs only when selected explicitly, pending the promotion gate; the fake backend exists for development.
+- **No third recognizer.** Granite is the default recognizer and [Parakeet](#parakeet-alternative) the alternative a launch must select explicitly; the fake backend exists for development.
 - **No language picker.** Voiceour supports English only.
 - **No control socket or terminal client.** Microphone and Accessibility grants stay inside the signed app.
 - **No Intel or universal build.** The vendored ggml drop is arm64-only by design.
@@ -284,7 +285,7 @@ make logs
 
 `make status` reports the running process, whether the bundle is current, and its signer. `make stop` quits every running Voiceour. `make logs` streams the unified log for subsystem `com.voiceour.app`.
 
-Launch flags go through `ARGS`, as in `make run ARGS="--debug --show-console"`; the app also accepts `--console-section=<tab>`, `--no-activate`, and `--asr-backend <id>`. A `.env` at the repository root is sourced by `make run` and `make dev`, and `make run` forwards `VOICEOUR_ASR_BACKEND`, `VOICEOUR_MODEL_VARIANT` and `VOICEOUR_SUPPORT_DIR` to the bundle explicitly. `make run ARGS="--asr-backend granite"` or `VOICEOUR_ASR_BACKEND=granite make run` runs the Granite evaluation backend for one launch. `VOICEOUR_MODEL_VARIANT=f16|q8_0` pins the Parakeet model for one launch without changing Settings; Granite ignores it. `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory, which is how a cold download is exercised. [AGENTS.md](AGENTS.md#environment-seams) lists every environment seam.
+Launch flags go through `ARGS`, as in `make run ARGS="--debug --show-console"`; the app also accepts `--console-section=<tab>`, `--no-activate`, and `--asr-backend <id>`. A `.env` at the repository root is sourced by `make run` and `make dev`, and `make run` forwards `VOICEOUR_ASR_BACKEND`, `VOICEOUR_MODEL_VARIANT` and `VOICEOUR_SUPPORT_DIR` to the bundle explicitly. `make run ARGS="--asr-backend parakeet"` or `VOICEOUR_ASR_BACKEND=parakeet make run` runs Parakeet for one launch. `VOICEOUR_MODEL_VARIANT=f16|q8_0` pins the Parakeet model for one launch without changing Settings; Granite ignores it. `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory, which is how a cold download is exercised. [AGENTS.md](AGENTS.md#environment-seams) lists every environment seam.
 
 ## Verification
 
@@ -303,17 +304,17 @@ make check
 
 The default gates use synthetic or fixture audio and offscreen windows. They do not need desktop focus, speaker playback, or microphone access. Live microphone and foreground delivery checks are opt-in; run them only when the person using the Mac agrees to the interruption.
 
-**Opt-in suites.** `VOICEOUR_PARAKEET_INTEGRATION=1 swift test` runs the real-model tests and needs the model cache; `VOICEOUR_GRANITE_INTEGRATION=1 swift test` does the same for the Granite evaluation backend. `VOICEOUR_CAPTURE_INTEGRATION=1 swift test` opens the real microphone. To prove the cached model end to end:
+**Opt-in suites.** `VOICEOUR_GRANITE_INTEGRATION=1 swift test` runs the real Granite model tests and needs its model cache; `VOICEOUR_PARAKEET_INTEGRATION=1 swift test` does the same for Parakeet. `VOICEOUR_CAPTURE_INTEGRATION=1 swift test` opens the real microphone. To prove the default Granite model end to end, downloading it first if it is not cached:
 
 ```sh
 make fixture
 make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 ```
 
-`make fixture` generates that local audio file with `say`; it is not committed. The same proof runs the Granite evaluation backend instead, downloading its model first if it is not cached:
+`make fixture` generates that local audio file with `say`; it is not committed. The same proof runs Parakeet instead:
 
 ```sh
-make build && VOICEOUR_ASR_BACKEND=granite .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
+make build && VOICEOUR_ASR_BACKEND=parakeet .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 ```
 
 Either proof prints the transcript with its cold-load and warm-inference times, and exits non-zero unless the transcript contains *hello* and *world*.
@@ -371,7 +372,7 @@ Files stay local. [Runtime and data](#runtime-and-data) lists what they hold and
 <details>
 <summary><strong>Which languages does it support?</strong></summary>
 
-English only. The model is `parakeet-tdt-0.6b-v3` and there is no language picker. The opt-in Granite evaluation backend's checkpoint is multilingual, but Voiceour uses it for English only too.
+English only, with no language picker. The default Granite checkpoint is multilingual, but Voiceour uses it for English only, as it does `parakeet-tdt-0.6b-v3` when Parakeet is selected.
 
 </details>
 

@@ -169,10 +169,11 @@ Parakeet speech model weights -- CC BY 4.0
 ================================================================================
 
 No model weights are contained in this bundle or in the Voiceour source repository. By
-default, on first use the app downloads one GGUF conversion of NVIDIA's Parakeet TDT 0.6B
-v3 speech recognition checkpoint into a local cache. That download, or the Granite one
-below when that evaluation backend is selected instead, is the only network access the app
-makes. The weights are not Voiceour's work and are not MIT licensed:
+default, on first use the app downloads the Granite model below into a local cache; when the
+Parakeet backend is selected instead, it downloads one GGUF conversion of NVIDIA's Parakeet
+TDT 0.6B v3 speech recognition checkpoint into a cache of its own. The running backend's
+download is the only network access the app makes. The Parakeet weights are not Voiceour's
+work and are not MIT licensed:
 
     Model:        NVIDIA Parakeet TDT 0.6B v3
     Creator:      NVIDIA Corporation
@@ -191,9 +192,9 @@ else's weights, so the governing terms remain NVIDIA's CC BY 4.0.
 Granite speech model weights -- Apache-2.0
 ================================================================================
 
-The opt-in Granite evaluation backend, never the default, downloads one GGUF conversion of
-IBM's Granite Speech 5.0 470M TurboCTC checkpoint into a local cache of its own. Those
-weights are not contained in this bundle, are not Voiceour's work and are not MIT licensed:
+The Granite backend, the default recognizer, downloads one GGUF conversion of IBM's Granite
+Speech 5.0 470M TurboCTC checkpoint into a local cache of its own. Those weights are not
+contained in this bundle, are not Voiceour's work and are not MIT licensed:
 
     Model:        IBM Granite Speech 5.0 470M TurboCTC
     Creator:      IBM

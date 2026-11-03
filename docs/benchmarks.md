@@ -2,7 +2,7 @@
 
 These benchmarks measure local speech recognition, deterministic cleanup, technical-term behavior, and latency through the production Swift path. The Python package under `bench/` prepares datasets, invokes `voiceour-bench`, scores rows, and writes reports under `benchmarks/results/`. It never ships.
 
-This file is a supporting measurement appendix, not a product specification. [README.md](../README.md#model-and-network-contract) owns the shipping model, its variants, and the network contract; [README.md](../README.md#verification) owns which gates a change must pass; [AGENTS.md](../AGENTS.md#developer-commands) owns command conventions. The tier, command, row-identity, metric, and gate sections describe the current tooling. Every dated section is a measurement record bound to its corpus, model pin, hardware, and OS: it is neither a product claim nor a promise about another Mac, and no experiment route described here changes the shipping recognizer.
+This file is a supporting measurement appendix, not a product specification. [README.md](../README.md#model-and-network-contract) owns the default recognizer, Parakeet's variants, and the network contract; [README.md](../README.md#verification) owns which gates a change must pass; [AGENTS.md](../AGENTS.md#developer-commands) owns command conventions. The tier, command, row-identity, metric, and gate sections describe the current tooling. Every dated section is a measurement record bound to its corpus, model pin, hardware, and OS: it is neither a product claim nor a promise about another Mac, and no experiment route described here changes the default recognizer.
 
 Preparation is deterministic first-N selection: two runs with the same `--tier` and `--n` cover the same rows. Latency measurements live in [performance-roadmap.md](performance-roadmap.md).
 
@@ -29,7 +29,7 @@ make bench-techterms
 make bench-gate BASELINE=benchmarks/results/<baseline>.json CANDIDATE=benchmarks/results/<candidate>.json
 ```
 
-`BACKEND=fake` measures the fake path and `BACKEND=granite` the opt-in Granite evaluation backend; the default is `parakeet`, and `make bench-smoke` always uses `fake`. `VOICEOUR_MODEL_VARIANT=f16` or `q8_0` selects the Parakeet artifact for a run and is ignored by Granite, which has one artifact; the runner records the loaded file as `model_file`.
+`make bench-stt`, `bench-e2e` and `bench-techterms` measure Granite, the default recognizer, unless `BACKEND=parakeet` selects Parakeet or `BACKEND=fake` the fake path; `make bench-smoke` always uses `fake`. `VOICEOUR_MODEL_VARIANT=f16` or `q8_0` selects the Parakeet artifact for a run and is ignored by Granite, which has one artifact; the runner records the loaded file as `model_file`.
 
 Direct calls must pass `--no-config` so uv ignores user configuration:
 
@@ -40,7 +40,7 @@ uv --no-config run pytest
 uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend parakeet --n 64
 ```
 
-`--backend` is `fake`, `parakeet`, or `granite`; parakeet is the default and the shipping backend, granite the opt-in evaluation backend. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR then `CleanupEngine`); the mode records intent, not execution. Native `raw-decode` is Parakeet-only and refuses another backend. `make bench-gate` refuses a cross-model pair; compare Parakeet with Granite through the [paired gate](#paired-fixed-corpus-promotion-gate).
+`--backend` is `fake`, `parakeet`, or `granite`, and defaults to `granite`; `voiceour-bench pipeline` without one runs the registry default, also `granite`. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR then `CleanupEngine`); the mode records intent, not execution. Native `raw-decode` is Parakeet-only and refuses another backend. `make bench-gate` refuses a cross-model pair; compare Parakeet with Granite through the [paired gate](#paired-fixed-corpus-promotion-gate).
 
 ## Row identity
 
@@ -214,7 +214,7 @@ this record, unit-tested but not yet run against a real artifact.
 
 ## macOS 27 native model prototypes — 2026-09-16
 
-`bench/apple27/` compares native model routes with shipping Parakeet on 140 frozen clips:
+`bench/apple27/` compares native model routes with production Parakeet on 140 frozen clips:
 FLEURS en_US (95), LibriSpeech test-other (29), and synthetic TechTerms (16). It reuses
 `VoiceCore` cleanup but changes no production code, settings or signing. Reference text is
 scoring-only; no model sees it.
@@ -357,9 +357,9 @@ neither.
 
 ## Speech recognizer replacement screen — 2026-11-03
 
-A benchmark-only screen compared shipping Parakeet TDT 0.6B v3 with Nemotron Labs Unified ASR
-0.6B and other locally runnable recognizers available by 2026-11-03. The shipping recognizer
-was unchanged. The measurements used an Apple M4 Pro under macOS 27.0.1 on AC power, with
+A benchmark-only screen compared Parakeet TDT 0.6B v3, then the default recognizer, with Nemotron
+Labs Unified ASR 0.6B and other locally runnable recognizers available by 2026-11-03. The screen
+changed no recognizer. The measurements used an Apple M4 Pro under macOS 27.0.1 on AC power, with
 offscreen, file-based public and TTS audio only. Each arm is one checkpoint, precision,
 runtime and frontend combination.
 
@@ -420,10 +420,10 @@ dictation holdout and no cross-SoC replication.
 
 ## Granite evaluation backend — 2026-11-03
 
-This section measures the opt-in `granite` backend through the production path: release
+This section measures the `granite` backend through the production path: release
 `voiceour-asr` with the `CGranite` port and the pinned Q8_0 GGUF. It used the frozen corpora,
 adapters and machine of the [replacement screen](#speech-recognizer-replacement-screen--2026-11-03):
-an Apple M4 Pro under macOS 27.0.1 on AC power. Parakeet stayed the default.
+an Apple M4 Pro under macOS 27.0.1 on AC power. Parakeet was the default during these runs.
 
 | arm | screen human | screen jargon | confirm AMI / FLEURS / LS-clean / LS-other | long 30–600 s | p50 / p95 ms | speed vs Parakeet | first result ms | footprint MiB | GPU J per audio min |
 | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -487,3 +487,7 @@ for both backends, with zero error rows and identical manifest pins:
 - latency, cold start, memory and energy;
 - reliability, including one retained failed run;
 - input digests.
+
+The same day the repository owners made Granite the default recognizer by explicit decision, with
+every promotion blocker above still open; Parakeet stays selectable per launch.
+[README.md](../README.md#model-and-network-contract) owns the resulting contract.

@@ -51,7 +51,7 @@ Platform: Swift tools 6.4, Swift 6 language mode, macOS 27, arm64 only. Names: `
 - Production targets MUST NOT import `Voiceour`; tests may.
 - MUST preserve injection for recording, ASR, targets, insertion, permissions, hotkeys, muting, settings, recent sessions.
 - `../syncour` consumes `VoiceCore` and `VoiceMac` by path dependency. Their public APIs are external contracts; Syncour's owner handles its platform/toolchain migration.
-- Registered backends, picker order `fake`, `parakeet`, `granite`: `parakeet` (production default), `granite` (opt-in evaluation; [Granite contract](#granite-evaluation-model)), `fake` (deterministic development). Retired `mlx`, `ark-0.6b`, `ark-3b`, `apple` ids normalize to `parakeet`.
+- Registered backends, picker order `fake`, `parakeet`, `granite`: `granite` (default recognizer; [Granite contract](#granite-default-model)), `parakeet` (alternative, explicit selection only), `fake` (deterministic development). Retired `mlx`, `ark-0.6b`, `ark-3b`, `apple` ids normalize to `parakeet`.
 - `voiceour-asr` is the only child process. Pinned model acquisition is the only network path.
 
 ## Runtime flow
@@ -155,30 +155,30 @@ NDJSON v1 over stdin/stdout; stdout protocol-only, stderr continuously drained.
 
 ## Model contract and vendor rules
 
-Parakeet model `ggml-org/parakeet-GGUF`, revision `35156454d1a39de06863303dd209fd2bed6ee079`; two conversions of one checkpoint:
+`granite` is the default recognizer ([contract](#granite-default-model)); `parakeet` is the alternative, run only when `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the `--debug` picker selects it. Parakeet model `ggml-org/parakeet-GGUF`, revision `35156454d1a39de06863303dd209fd2bed6ee079`; two conversions of one checkpoint:
 
 | variant | file | SHA-256 | bytes |
 | --- | --- | --- | ---: |
 | `f16` — Balanced | `ggml-parakeet-tdt-0.6b-v3-f16.bin` | `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f` | 1,255,897,319 |
 | `q8_0` — Compact | `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | `4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e` | 668,757,119 |
 
-- Default/unknown/stale value → `f16`. `q8_0` artifact is 587 MB smaller. Corpus cannot resolve an accuracy difference. NEVER claim superior accuracy or unqualified speed; changing default requires cross-SoC replication + [paired real-speaker gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate). [Dated measurements](docs/performance-roadmap.md) are not shipping promises.
+- Default/unknown/stale Parakeet variant → `f16`. `q8_0` artifact is 587 MB smaller. Corpus cannot resolve an accuracy difference. NEVER claim superior accuracy or unqualified speed; changing the default variant requires cross-SoC replication + [paired real-speaker gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate). [Dated measurements](docs/performance-roadmap.md) are not shipping promises.
 - MUST update id/revision/filenames/digests/sizes, descriptors, manifest, README, AGENTS, NOTICE, fixtures, tests as one contract. `make check-docs` extracts pins from `Sources/VoiceCore/ASRProtocol.swift` (`ASRModelContract`, `ASRModelVariant`, `GraniteModelContract`); both root docs MUST name/hash every artifact.
 - Cache root: `~/Library/Caches/Voiceour/`. Preserve `f16` directory `parakeet-tdt-0.6b-v3-ggml`; `q8_0` uses `parakeet-tdt-0.6b-v3-ggml-q8_0`. `manifest.json`: `model_id`, `revision`, `file`, `sha256`, `size_bytes`.
 - `cacheOK` = full manifest matches selected pin AND file size matches; no hash here. Download completion verifies digest. Load failure rehashes; mismatch removes artifact/manifest/base arena and reacquires once/process.
 - Acquisition: preload thread only; ephemeral session; three resumable attempts; remaining bytes + 256 MiB free required before fetching.
-- Selection precedence: `VOICEOUR_MODEL_VARIANT` > persisted `asr_model_variant`; invalid env → `f16`. App MUST write resolved variant last/unconditionally to the Parakeet sidecar env and strip it from fake/Granite sidecar env. Every decode MUST carry `expected_model.file`; shared id/revision cannot distinguish variants.
+- Variant precedence: `VOICEOUR_MODEL_VARIANT` > persisted `asr_model_variant`; invalid env → `f16`. App MUST write resolved variant last/unconditionally to the Parakeet sidecar env and strip it from fake/Granite sidecar env. Every decode MUST carry `expected_model.file`; shared id/revision cannot distinguish variants.
 - Variant/backend changes require restart. Keep `DictationCoordinator.activeModelVariant` separate from `settings.asrModelVariant`; Settings shows *Restart to apply*. Restart removes `VOICEOUR_ASR_BACKEND` + `VOICEOUR_MODEL_VARIANT` overrides.
-- One artifact resident. Delete other variant directories only after selected weights load successfully, never at selection time. NEVER prune under caller-owned `VOICEOUR_MODEL_CACHE`. Changing `HOME` does not relocate the cache; cold-download checks need an explicit empty cache directory.
+- One Parakeet variant resident. Delete other variant directories only after selected weights load successfully, never at selection time. NEVER prune under caller-owned `VOICEOUR_MODEL_CACHE`. Changing `HOME` does not relocate the cache; cold-download checks need an explicit empty cache directory.
 - Derived `weights-<sha256>-<size>.arena`: exact layout manifest, cross-process `flock`, physically reserved storage, fsynced temporaries, atomic rename. Warm mapping is read-only after manifest match. Stale/partial arena → rebuild; creation failure → ordinary buffers. Artifact + arena ≈ twice artifact size.
 - Vendor pin: `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage); preserve upstream-relative paths.
 - Every upstream-file change MUST carry `VOICEOUR PATCH`, an ordered `patches/*.patch`, and a `Vendor/parakeet/NOTICE.md` entry. Fix warnings at source; NEVER suppress them.
 - `scripts/vendor_parakeet.sh --check`: exact file set + byte-reproducible embedded Metal; with upstream checkout, exact pin-plus-patches equality.
 - NEVER add `-mcpu=native` or attempt a universal build. `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces arm64. Intel would require x86 `ggml/src/ggml-cpu/arch/x86/{quants.c,repack.cpp}`, manifest/NOTICE changes, and per-architecture targets: SwiftPM has no architecture build condition.
 
-### Granite evaluation model
+### Granite default model
 
-Backend `granite` only; NEVER default. Release launches select it per launch only (`--asr-backend`, `VOICEOUR_ASR_BACKEND`); a persisted `granite`, like `fake`, is honored only under `--debug` (`LaunchOptions.debugPersistedBackendIDs`), because a release build has no picker to switch back. Model `17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF`, revision `62f64d9d5ad35989b06caf199cafe7155944a22b`; one Q8_0 GGUF conversion of `ibm-granite/granite-speech-5.0-470m-turboctc` @ `1dd23f46f6d4e6eae2531982ba2e33220086dd97` (IBM, Apache-2.0):
+Backend `granite`: the default recognizer, `ASRBackendRegistry.defaultDescriptor`. A persisted backend, whatever its id, is honored only under `--debug` (`LaunchOptions.persistedBackend`): a release build has no picker and every launch writes its resolved backend into settings, so honoring the file would pin a release install to an earlier launch's choice. Precedence: [`VOICEOUR_ASR_BACKEND`](#environment-seams). Model `17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF`, revision `62f64d9d5ad35989b06caf199cafe7155944a22b`; one Q8_0 GGUF conversion of `ibm-granite/granite-speech-5.0-470m-turboctc` @ `1dd23f46f6d4e6eae2531982ba2e33220086dd97` (IBM, Apache-2.0):
 
 | file | SHA-256 | bytes |
 | --- | --- | ---: |
@@ -191,7 +191,7 @@ Backend `granite` only; NEVER default. Release launches select it per launch onl
 - Cancellation: abort callback polled only at `granite.h` stage boundaries (before frontend, before graph compute, after compute/before CTC decode); a cancel can wait one full graph compute. NEVER install a Metal abort callback (vendored Metal `n_cb=3`).
 - Short input: right-pad zeros to the minimum sample count yielding one encoder frame after both subsamplers, computed from hparams (1,120 for the pin); 0 samples → empty transcript.
 - Transcript: special tokens never text. `<|nospeech|>` emitted and decoded text has no Unicode letter/number → empty transcript. Language `en`; `greedyTokenProb` = CTC first-frame posterior; word times = frame × `granite_ms_per_frame`.
-- Promotion to default MUST pass the [paired real-speaker gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate) + cross-SoC replication + a self-hosted or official IBM artifact. Public-corpus screens are evidence, not promotion.
+- Promotion record: repository owners made `granite` the default on 2026-11-03 by explicit decision with three blockers open: the [paired real-speaker gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate) rejected it on public corpora, no cross-SoC replication, personal-repository artifact. [Measurements](docs/benchmarks.md#granite-evaluation-backend--2026-11-03).
 - `Vendor/granite/`: adapted MIT port of transcribe.cpp `src/arch/granite5_ctc` @ `5700f127e38dd53c4735ea23ef743b4b538eacd4` onto `Vendor/parakeet/ggml`; not a verbatim drop. `NOTICE.md` MUST map every file to its upstream source and adaptations; `LICENSE` is upstream's verbatim. NEVER vendor or change ggml there; ggml changes follow the Parakeet patch rules. `granite.h` declarations frozen; additive only. Native logs only via `granite_log_set` (honours `VOICEOUR_ASR_LOG`), NEVER stdout. Fix warnings at source.
 
 ## Environment seams
@@ -200,7 +200,7 @@ Overrides apply to one run, never persist settings. App code MUST NOT enable exp
 
 | variable | reader / contract |
 | --- | --- |
-| `VOICEOUR_ASR_BACKEND` | App: `--asr-backend` > env > persisted setting (`fake` and `granite` only with `--debug`) > `parakeet`. Values `parakeet`, `granite`, `fake`. Standalone sidecar default: `fake`. |
+| `VOICEOUR_ASR_BACKEND` | App: `--asr-backend` > env > persisted setting (any id, `--debug` launches only) > `granite`; invalid values fall through to the next source. Values `granite`, `parakeet`, `fake`. Standalone sidecar default: `fake`; `voiceour-asr --prove` default: `granite`, `parakeet` selects Parakeet. |
 | `VOICEOUR_MODEL_VARIANT` | App/sidecar, Parakeet only: `f16` or `q8_0`; overrides Settings. Granite ignores it. |
 | `VOICEOUR_MODEL_CACHE` | Sidecar, Parakeet and Granite: caller-owned single directory; no variant subdirectory or pruning. |
 | `VOICEOUR_SUPPORT_DIR` | App: exact support-directory replacement. |
@@ -303,7 +303,7 @@ Experimental constraints:
 
 ## Local-first and network policy
 
-- Only compiled model URLs: each backend's own pinned host/repository/revision and digest. NEVER network text processing, telemetry, crash reporting, accounts, update checks, arbitrary URLs, or another production recognizer; Granite stays an opt-in evaluation backend.
+- Only compiled model URLs: each backend's own pinned host/repository/revision and digest. NEVER network text processing, telemetry, crash reporting, accounts, update checks, arbitrary URLs, or a third recognizer beyond `granite` (default) and `parakeet` (explicit alternative).
 - Sidecar env allowlist: `PATH`, `HOME`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` + lowercase forms, `SSL_CERT_FILE`, `VOICEOUR_*`. NEVER inherit full parent env. Always write `VOICEOUR_ASR_BACKEND`, `VOICEOUR_PRELOAD=1`; Parakeet model variant last.
 - No credential UI, credential environment contract, configurable base URL, secret store, or keychain item. `Resources/Voiceour.entitlements`: audio-input only; no provisioning profile. Data-protection Keychain is unavailable: `SecItemAdd` returns `errSecMissingEntitlement` (-34018); ad-hoc `keychain-access-groups` fails AMFI. NEVER add a feature depending on it.
 
@@ -337,8 +337,8 @@ Use the smallest proving command. `make` lists the catalogue.
 | Fake debug app / real bundle | `make dev` / `make run` |
 | Stop / status / logs | `make stop` / `make status` / `make logs` |
 | Generate local audio fixture | `make fixture` |
-| Real model fixture proof | `make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
-| Granite fixture proof | `make build && VOICEOUR_ASR_BACKEND=granite .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
+| Default (Granite) model fixture proof | `make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
+| Parakeet fixture proof | `make build && VOICEOUR_ASR_BACKEND=parakeet .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
 | Scene gate / bless / inventory | `make ui-snap` / `make ui-update` / `make ui-list` |
 | Flow gate / bless / inventory | `make ui-flow` / `make ui-flow-update` / `make ui-flow-list` |
 | All local scenes + flows | `make ui-all` |
@@ -356,7 +356,7 @@ Use the smallest proving command. `make` lists the catalogue.
 
 - `make check` order: build, format-check, check-docs, lint-python, test, ui-flow, ui-mercury-bench, test-python, self-test, bench-smoke.
 - `make self-test`: `--self-test`, cleanup + classification only; no backend construction.
-- `bench-stt`/`bench-e2e` defaults: `N=200`, `BACKEND=parakeet`; `BACKEND=granite` runs the Granite pipeline. `voiceour-bench raw-decode` is Parakeet-only and refuses other backends. Parakeet-vs-Granite comparison uses the [paired gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate), never `make bench-gate` (same-model only). MUST retain `uv --no-config`. [Benchmark reference](docs/benchmarks.md).
+- `bench-stt`/`bench-e2e`/`bench-techterms` default `BACKEND=granite` (`N=200` for the first two); `BACKEND=parakeet` runs the Parakeet pipeline; `bench-smoke` always uses `fake`. `voiceour_bench.run --backend` defaults to `granite`, `voiceour-bench pipeline` to the registry default. `voiceour-bench raw-decode` is Parakeet-only and refuses other backends. Parakeet-vs-Granite comparison uses the [paired gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate), never `make bench-gate` (same-model only). MUST retain `uv --no-config`. [Benchmark reference](docs/benchmarks.md).
 - Real-model/microphone checks require task relevance and available prerequisites; microphone also requires explicit interruption consent.
 
 ## Fast iteration runtime

@@ -11,16 +11,17 @@ fail() {
   failures=1
 }
 
-# The repository identity every artifact shares.
+# The repository identity every Parakeet artifact shares.
 model_id=$(sed -n '/^public enum ASRModelContract/,/^}/s/.*modelId = "\(.*\)"/\1/p' "$CONTRACT")
 revision=$(sed -n '/^public enum ASRModelContract/,/^}/s/.*revision = "\(.*\)"/\1/p' "$CONTRACT")
 
 [ -n "$model_id" ] || fail "could not extract ASRModelContract.modelId from Sources/VoiceCore/ASRProtocol.swift"
 [ -n "$revision" ] || fail "could not extract ASRModelContract.revision from Sources/VoiceCore/ASRProtocol.swift"
 
-# The artifacts are read out of ASRModelVariant rather than restated here, and each file name is
-# rebuilt from the same interpolated template the Swift uses. A variant added, renamed or rehashed
-# there therefore changes what the docs must say instead of leaving this check on the old set.
+# The Parakeet artifacts are read out of ASRModelVariant rather than restated here, and each file
+# name is rebuilt from the same interpolated template the Swift uses. A variant added, renamed or
+# rehashed there therefore changes what the docs must say instead of leaving this check on the old
+# set.
 variant_enum=$(sed -n '/^public enum ASRModelVariant/,/^}/p' "$CONTRACT")
 file_template=$(printf '%s\n' "$variant_enum" | sed -n 's/.*var fileName: String { "\(.*\)" }.*/\1/p')
 variant_cases=$(printf '%s\n' "$variant_enum" | sed -n \
@@ -106,8 +107,9 @@ EOF
 done
 
 # NOTICE is attribution rather than contract, so it must credit every artifact a reader can
-# actually be served — both conversions of the pinned revision, not just the default. The digests
-# stay out of it: they are the integrity check the two canonical documents above describe.
+# actually be served — both Parakeet conversions of the pinned revision, not just its default
+# variant. The digests stay out of it: they are the integrity check the two canonical documents
+# above describe.
 if [ -f "$ROOT/NOTICE" ]; then
   while read -r file _sha; do
     [ -n "$file" ] || continue
@@ -117,7 +119,7 @@ $artifacts
 EOF
 fi
 
-# The opt-in Granite evaluation backend downloads one artifact from a repository of its own, so its
+# Granite, the default recognizer, downloads one artifact from a repository of its own, so its
 # pins are read out of GraniteModelContract rather than restated here, and checked on their own:
 # none of them is shared with the Parakeet contract above. Each field must be declared exactly once;
 # two matches would make grep -F accept either line and hide drift in the other.

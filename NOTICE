@@ -37,19 +37,20 @@ licence. `benchmarks/DATA-LICENSE.md` carries the full attribution: creators, ti
 URI, warranty disclaimer, previous modifications, and exactly which files and JSON keys hold
 corpus text.
 
-Model chain:
+Parakeet model chain:
 
-The ASR sidecar loads one artifact of `ggml-org/parakeet-GGUF` at revision
-`35156454d1a39de06863303dd209fd2bed6ee079`. That revision holds two conversions of the
+When Parakeet is selected, the ASR sidecar loads one artifact of `ggml-org/parakeet-GGUF` at
+revision `35156454d1a39de06863303dd209fd2bed6ee079`. That revision holds two conversions of the
 same checkpoint, and the app can be pointed at either:
 
-- `ggml-parakeet-tdt-0.6b-v3-f16.bin` — the default
+- `ggml-parakeet-tdt-0.6b-v3-f16.bin` — Parakeet's default variant
 - `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` — the Compact selection
 
 Both were converted from `nvidia/parakeet-tdt-0.6b-v3`, which is licensed under Creative
 Commons Attribution 4.0 International (CC BY 4.0),
 https://creativecommons.org/licenses/by/4.0/legalcode.en. They are downloaded and cached at
-runtime on first use; neither is bundled with the app or committed to this repository.
+runtime on first use of that backend; neither is bundled with the app or committed to this
+repository.
 
 NVIDIA does not endorse, sponsor or certify Voiceour.
 
@@ -68,13 +69,13 @@ copyright notice, so none is restated here.
 These weights are not covered by Voiceour's MIT licence, which covers Voiceour's own source
 code. Their use is governed by CC BY 4.0.
 
-Granite evaluation model chain:
+Granite model chain:
 
-The opt-in Granite evaluation backend (`--asr-backend granite`; never the default) loads one
-artifact, `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, of
+The Granite backend, the default recognizer, loads one artifact,
+`granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, of
 `17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF` at revision
-`62f64d9d5ad35989b06caf199cafe7155944a22b`. It is downloaded and cached at runtime on first use of
-that backend; it is not bundled with the app or committed to this repository.
+`62f64d9d5ad35989b06caf199cafe7155944a22b`. It is downloaded and cached at runtime on first use;
+it is not bundled with the app or committed to this repository.
 
 That artifact is a third-party conversion of IBM's Granite Speech 5.0 470M TurboCTC checkpoint,
 `ibm-granite/granite-speech-5.0-470m-turboctc` at revision
