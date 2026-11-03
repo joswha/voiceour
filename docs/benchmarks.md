@@ -29,7 +29,7 @@ make bench-techterms
 make bench-gate BASELINE=benchmarks/results/<baseline>.json CANDIDATE=benchmarks/results/<candidate>.json
 ```
 
-`BACKEND=fake` measures the fake path; the default is `parakeet`, and `make bench-smoke` always uses `fake`. `VOICEOUR_MODEL_VARIANT=f16` or `q8_0` selects the Parakeet artifact for a run, and the runner records the loaded file as `model_file`.
+`BACKEND=fake` measures the fake path and `BACKEND=granite` the opt-in Granite evaluation backend; the default is `parakeet`, and `make bench-smoke` always uses `fake`. `VOICEOUR_MODEL_VARIANT=f16` or `q8_0` selects the Parakeet artifact for a run and is ignored by Granite, which has one artifact; the runner records the loaded file as `model_file`.
 
 Direct calls must pass `--no-config` so uv ignores user configuration:
 
@@ -40,7 +40,7 @@ uv --no-config run pytest
 uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend parakeet --n 64
 ```
 
-`--backend` is `fake` or `parakeet`; parakeet is the default and only real backend. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR then `CleanupEngine`); the mode records intent, not execution.
+`--backend` is `fake`, `parakeet`, or `granite`; parakeet is the default and the shipping backend, granite the opt-in evaluation backend. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR then `CleanupEngine`); the mode records intent, not execution. Native `raw-decode` is Parakeet-only and refuses another backend. `make bench-gate` refuses a cross-model pair; compare Parakeet with Granite through the [paired gate](#paired-fixed-corpus-promotion-gate).
 
 ## Row identity
 

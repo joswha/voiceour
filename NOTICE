@@ -6,6 +6,11 @@ Third-party components used by the repository:
 
 - Swift Testing — Apache-2.0 with Runtime Library Exception — https://github.com/swiftlang/swift-testing
 - whisper.cpp's Parakeet TDT implementation and ggml, vendored under `Vendor/parakeet/` — MIT License — https://github.com/ggml-org/whisper.cpp @ `592feef04a1802b18cbeffd0fd0eb5d02570c2ec`
+- transcribe.cpp's Granite Speech 5 TurboCTC implementation (`src/arch/granite5_ctc`), adapted onto
+  that vendored ggml under `Vendor/granite/` — MIT License — https://github.com/handy-computer/transcribe.cpp @
+  `5700f127e38dd53c4735ea23ef743b4b538eacd4`. `Vendor/granite/` is a port, not a verbatim copy;
+  `Vendor/granite/NOTICE.md` maps each file to its upstream source and `Vendor/granite/LICENSE` carries
+  the full licence text.
 
 Benchmark-only dependencies (`bench/` only; never shipped in the app):
 
@@ -62,3 +67,30 @@ copyright notice, so none is restated here.
 
 These weights are not covered by Voiceour's MIT licence, which covers Voiceour's own source
 code. Their use is governed by CC BY 4.0.
+
+Granite evaluation model chain:
+
+The opt-in Granite evaluation backend (`--asr-backend granite`; never the default) loads one
+artifact, `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, of
+`17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF` at revision
+`62f64d9d5ad35989b06caf199cafe7155944a22b`. It is downloaded and cached at runtime on first use of
+that backend; it is not bundled with the app or committed to this repository.
+
+That artifact is a third-party conversion of IBM's Granite Speech 5.0 470M TurboCTC checkpoint,
+`ibm-granite/granite-speech-5.0-470m-turboctc` at revision
+`1dd23f46f6d4e6eae2531982ba2e33220086dd97` (the October 21, 2026 multilingual release), created by
+IBM and licensed under the Apache License, Version 2.0,
+https://www.apache.org/licenses/LICENSE-2.0. The conversion repository's publisher, 17slever17,
+converted that checkpoint to GGUF with handy-computer/transcribe.cpp (MIT License) at
+`4d7c1ccefd39e5a9ea36cca5f8fefc6dcc14b99b` and quantised it to Q8_0; no retraining or fine-tuning
+was performed. That repository is labelled Apache-2.0, matching the checkpoint, and is not an
+official IBM release. Voiceour does not modify the weights.
+
+IBM does not endorse, sponsor or certify Voiceour.
+
+The licensor offers the weights on an "AS IS" basis, without warranties or conditions of any kind;
+sections 7 and 8 of the licence linked above state the disclaimer of warranty and limitation of
+liability that apply. `ibm-granite/granite-speech-5.0-470m-turboctc` supplies no NOTICE file, so
+none is restated here.
+
+These weights are not covered by Voiceour's MIT licence. Their use is governed by Apache-2.0.

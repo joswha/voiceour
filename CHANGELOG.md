@@ -11,6 +11,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 ### Added
 
 - **Island garage.** Settings ▸ Island customizes the recording island with a live showroom preview: twelve looks, Surprise Me, and options for its metal, coat, finish, room, colour temperature, underglow, brightness, contrast, size, build, crown, taper and motion. A look dresses the floating island and the notch collar alike. Every colour comes from the metal, its coat or the light in the room; nothing is painted on. A change shows the next time the island appears and can be undone with ⌘Z, and Dock Island returns a free island to its dock.
+- **Granite evaluation backend.** IBM's Granite Speech 5.0 TurboCTC 470M can be chosen as an opt-in local recognizer for one launch with `--asr-backend granite` or `VOICEOUR_ASR_BACKEND=granite`, or from the `--debug` Backend picker. It runs on the same on-device engine as Parakeet, downloads a single pinned 0.51 GB model into its own cache on first use, and Settings ▸ Model names that model instead of offering Balanced or Compact. It is for evaluation only: Parakeet remains the default recognizer, and changing that needs the paired real-speaker promotion gate.
 
 ### Changed
 

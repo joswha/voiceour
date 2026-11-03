@@ -117,6 +117,68 @@ $artifacts
 EOF
 fi
 
+# The opt-in Granite evaluation backend downloads one artifact from a repository of its own, so its
+# pins are read out of GraniteModelContract rather than restated here, and checked on their own:
+# none of them is shared with the Parakeet contract above. Each field must be declared exactly once;
+# two matches would make grep -F accept either line and hide drift in the other.
+granite_enum=$(sed -n '/^public enum GraniteModelContract/,/^}/p' "$CONTRACT")
+[ -n "$granite_enum" ] || fail "could not find public enum GraniteModelContract in Sources/VoiceCore/ASRProtocol.swift"
+granite_field() {
+  value=$(printf '%s\n' "$granite_enum" | sed -n "s/^ *public static let $1 = \"\([^\"]*\)\".*/\1/p")
+  case "$value" in
+    '')
+      [ -z "$granite_enum" ] ||
+        fail "could not extract GraniteModelContract.$1 from Sources/VoiceCore/ASRProtocol.swift"
+      ;;
+    *'
+'*)
+      fail "GraniteModelContract.$1 is declared more than once in Sources/VoiceCore/ASRProtocol.swift"
+      value=
+      ;;
+  esac
+  eval "$2=\$value"
+}
+granite_field modelId granite_model_id
+granite_field revision granite_revision
+granite_field fileName granite_file
+granite_field sha256 granite_sha
+granite_field sourceCheckpoint granite_source
+granite_field sourceRevision granite_source_revision
+
+for doc in README.md NOTICE AGENTS.md; do
+  [ -f "$ROOT/$doc" ] || continue
+  if [ -n "$granite_model_id" ] && ! grep -Fq "$granite_model_id" "$ROOT/$doc"; then
+    fail "$doc is missing Granite model id $granite_model_id"
+  fi
+  if [ -n "$granite_revision" ] && ! grep -Fq "$granite_revision" "$ROOT/$doc"; then
+    fail "$doc is missing Granite revision $granite_revision"
+  fi
+done
+
+for doc in README.md AGENTS.md; do
+  [ -f "$ROOT/$doc" ] || continue
+  if [ -n "$granite_file" ] && ! grep -Fq "$granite_file" "$ROOT/$doc"; then
+    fail "$doc is missing Granite artifact file name $granite_file"
+  fi
+  if [ -n "$granite_sha" ] && ! grep -Fq "$granite_sha" "$ROOT/$doc"; then
+    fail "$doc is missing Granite sha256 $granite_sha for $granite_file"
+  fi
+done
+
+# NOTICE credits the downloaded conversion by file name and the IBM checkpoint it was converted
+# from by repository and revision; the digest stays in the two canonical documents.
+if [ -f "$ROOT/NOTICE" ]; then
+  if [ -n "$granite_file" ] && ! grep -Fq "$granite_file" "$ROOT/NOTICE"; then
+    fail "NOTICE is missing Granite artifact file name $granite_file"
+  fi
+  if [ -n "$granite_source" ] && ! grep -Fq "$granite_source" "$ROOT/NOTICE"; then
+    fail "NOTICE is missing Granite source checkpoint $granite_source"
+  fi
+  if [ -n "$granite_source_revision" ] && ! grep -Fq "$granite_source_revision" "$ROOT/NOTICE"; then
+    fail "NOTICE is missing Granite source revision $granite_source_revision"
+  fi
+fi
+
 for doc in README.md NOTICE AGENTS.md; do
   if grep -Fq "$RETIRED_REVISION" "$ROOT/$doc"; then
     fail "$doc contains retired revision $RETIRED_REVISION"
@@ -252,4 +314,4 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
-printf '%s\n' "check_docs.sh: OK: README.md, NOTICE and AGENTS.md match $model_id@$revision; README.md and AGENTS.md name and digest $artifact_names; NOTICE credits $artifact_names; retired revision absent from README.md, NOTICE and AGENTS.md"
+printf '%s\n' "check_docs.sh: OK: README.md, NOTICE and AGENTS.md match $model_id@$revision and Granite $granite_model_id@$granite_revision; README.md and AGENTS.md name and digest $artifact_names, $granite_file; NOTICE credits $artifact_names, $granite_file from $granite_source@$granite_source_revision; retired revision absent from README.md, NOTICE and AGENTS.md"

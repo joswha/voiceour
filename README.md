@@ -84,14 +84,14 @@ Preferences come first and readouts after them:
 
 - **Dictation** — the tap gesture, auto-stop and its silence duration, cleanup.
 - **Audio** — microphone (Automatic, or a specific device that keeps its name while unplugged), mute system audio while recording, session sounds.
-- **Model** — Balanced or Compact. A change applies at the next launch; Settings marks it *Restart to apply* and offers **Restart Voiceour**.
+- **Model** — Balanced or Compact. A change applies at the next launch; Settings marks it *Restart to apply* and offers **Restart Voiceour**. While the [Granite evaluation backend](#granite-evaluation-backend) is running, this section instead names its single model and 0.51 GB download and offers no choice.
 - **Island** — the recording island's look, which the notch collar wears too. A showroom previews it live as the floating island, in a generated room of its own, in the pose its menu picks: Warming Up, Listening, Speaking, Processing, Copy-Only, Delivery Failed, or Error. It moves only while on screen; under Reduce Motion it holds still except while Play Again plays a gesture. **Another Room** draws a different room, and **Play Again** replays the gesture of an outcome pose. Twelve looks — Stock, Showroom Chrome, Liquid Gold, Candy Apple, Blued Titanium, Chameleon, Oil Slick, Arctic Platinum, Desert Heat, Midnight Cruise, Neon Kit, and Street Racer — and **Surprise Me** set every option at once; settings that match no look are marked *Custom*. Four folds hold the options, each with its own **Restore Stock**: **Material** (metal, coat with its film thickness or candy colour, finish), **Lighting** (Studio or Overcast room, colour temperature, underglow, brightness, contrast), **Body** (size, build, crown, taper), and **Motion** (tempo, viscosity, shimmer, reactivity, slither, morph, drama). The collar's length follows the camera housing, so there Size and Build set only its thickness. Colour comes only from the metal, its coat, and the light in the room; nothing is painted on. A change shows the next time the island appears, and ⌘Z undoes each one. **Dock Island**, available while the island floats free, docks it again as its Dock island VoiceOver action does: around the notch on a display with one, near the top centre elsewhere.
 - **Readiness** — backend, model, and microphone status, each with its remediation action.
 - **Capture** — whether Fn/Globe capture and paste delivery are available, which is the Accessibility grant.
 - **Privacy** — what is stored locally, and **Copy Diagnostics**: build, backend and model state, permission states, microphone selection, saved-session count, and storage paths. Diagnostics never include transcripts.
 - **Danger** — Clear History and Clear Vocabulary, each behind a confirmation.
 
-Launched with `--debug`, Settings also shows a development backend picker.
+Launched with `--debug`, Settings also shows a development backend picker: Fake, Parakeet, and the Granite evaluation backend.
 
 ## Architecture
 
@@ -103,6 +103,7 @@ flowchart LR
     WAV --> Client[SidecarASRClient]
     Client --> Sidecar[voiceour-asr]
     Sidecar --> Model[pinned Parakeet GGUF]
+    Sidecar -.-> Granite[pinned Granite GGUF, opt-in evaluation]
     Sidecar --> Text[LiteralComposition → CleanupEngine → VocabularyRepairEngine]
     Text --> Safety[delivery-target safety check]
     Safety --> Clipboard[clipboard]
@@ -116,10 +117,11 @@ Voiceour is a Swift package: macOS 27, Swift tools 6.4, Swift 6 language mode in
 | `VoiceCore` (library) | Foundation-only domain logic: settings, session state, ASR wire types, literal composition, cleanup, glossary, vocabulary repair, history and ledger models, failure presentation, safety policy. |
 | `VoiceMac` (library) | macOS adapters: capture, fake audio, sidecar process client, target tracking, pasteboard delivery, permissions, hotkeys, system-audio muting, installed-app lookup, word-list import. |
 | `Voiceour` (app) | SwiftUI menu, recording island, console, persistence journals, and `DictationCoordinator`, which orchestrates every session. |
-| `ASRSidecarCore` | Model acquisition and cache, WAV loading, the Parakeet context, the fake and real backends, and the NDJSON server. |
+| `ASRSidecarCore` | Model acquisition and cache, WAV loading, the Parakeet and Granite contexts, the fake and real backends, and the NDJSON server. |
 | `VoiceourASR` | The `voiceour-asr` helper executable, bundled beside the app and signed with it. |
 | `VoiceourBench` | `voiceour-bench`, which runs the production path over benchmark manifests. |
 | `CGgml`, `CParakeet` | The vendored parakeet.cpp/ggml C and C++ under `Vendor/parakeet/`. |
+| `CGranite` | Voiceour's port of transcribe.cpp's Granite Speech 5 TurboCTC inference under `Vendor/granite/`, built on `CGgml`. |
 | `ASRSidecarStub`, `ParakeetMixedQuantize` | A protocol test helper and a research quantization tool. Neither ships in the app. |
 
 `VoiceCore` and `VoiceMac` are also consumed by Syncour, a separate sibling package, so their public API is not private to this repository.
@@ -161,7 +163,8 @@ The record-start target only labels the menu's *Will paste into …* line; it ne
 | History | `~/Library/Application Support/Voiceour/recent-sessions.json` | Newest 500 rows; Clear History |
 | Home ledger | `~/Library/Application Support/Voiceour/dictation-activity.json` | Aggregates; Clear History |
 | Mute recovery record | `~/Library/Application Support/Voiceour/mute-owned.flag` | Until the muted device is restored |
-| Model and acceleration file | `~/Library/Caches/Voiceour/<variant>/` | Until the variant is switched away from |
+| Parakeet model and acceleration file | `~/Library/Caches/Voiceour/<variant>/` | Until the variant is switched away from |
+| Granite evaluation model | `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` | Until deleted by hand |
 | Recordings | `$TMPDIR/voiceour/<uuid>.wav` | Deleted after transcription, cancellation, or failure |
 | Island placement (docked, or free at a spot relative to the display), last console tab | User defaults for `com.voiceour.app` | Until moved, docked, or changed |
 
@@ -174,7 +177,7 @@ The record-start target only labels the menu's *Will paste into …* line; it ne
 
 ## Model and network contract
 
-Recognition uses one repository at one revision: `ggml-org/parakeet-GGUF` at `35156454d1a39de06863303dd209fd2bed6ee079`, the `parakeet-tdt-0.6b-v3` checkpoint, decoded locally by vendored parakeet.cpp/ggml on Metal. Voiceour supports English dictation. That revision holds two conversions of the same checkpoint:
+The shipping recognizer, and the default, uses one repository at one revision: `ggml-org/parakeet-GGUF` at `35156454d1a39de06863303dd209fd2bed6ee079`, the `parakeet-tdt-0.6b-v3` checkpoint, decoded locally by vendored parakeet.cpp/ggml on Metal. Voiceour supports English dictation. That revision holds two conversions of the same checkpoint:
 
 | Settings name | file | SHA-256 | download | cache after first load |
 | --- | --- | --- | --- | --- |
@@ -186,8 +189,22 @@ Recognition uses one repository at one revision: `ggml-org/parakeet-GGUF` at `35
 - **Switching** applies at the next launch. The previous variant's cache directory is removed only after the newly selected variant has loaded successfully, so a switch that fails to download or load leaves the previous weights on disk. Otherwise exactly one variant stays resident.
 - **Download.** Only the sidecar's background load downloads; until the model is ready a dictation is refused rather than left waiting. The file comes from `https://huggingface.co/ggml-org/parakeet-GGUF/resolve/35156454d1a39de06863303dd209fd2bed6ee079/<file>`. Voiceour requires the remaining download bytes plus 256 MiB of free disk before fetching, makes up to three resumable attempts, and verifies the completed file against the digest above before accepting it. A cached file is reused only when its manifest and size match the pin exactly. A cached file that fails to load is hashed again; if its bytes no longer match, it is removed and downloaded again in the background, once per process.
 - **Acceleration file.** After the verified model first loads, Voiceour writes a model-sized weight arena next to it so later loads are fast. It is generated locally, never downloaded, named after the artifact's digest, and rebuilt if it is stale or incomplete; that is why the cache is about twice the download.
-- **The only network request** is that model download. Transcription is entirely local. There is no telemetry, crash reporting, analytics, account, update check, or cloud text processing, and Voiceour stores no credential.
+- **The only network request** is the selected backend's pinned model download: Parakeet's above, or Granite's [below](#granite-evaluation-backend) when that backend is chosen. Transcription is entirely local. There is no telemetry, crash reporting, analytics, account, update check, or cloud text processing, and Voiceour stores no credential.
 - Like any download, that HTTPS request tells Hugging Face and its CDN your IP address and User-Agent. You can block Voiceour in a firewall such as Little Snitch once the model is cached; without a cached model there is no transcription, though the fake development backend still works.
+
+### Granite evaluation backend
+
+IBM's Granite Speech 5.0 TurboCTC 470M is an opt-in evaluation backend, not the shipping recognizer and never the default. It runs only when chosen explicitly: `--asr-backend granite` or `VOICEOUR_ASR_BACKEND=granite` select it for that launch, and the `--debug` Backend picker saves it for later `--debug` launches. A release launch never restores a saved Granite choice, so a one-off evaluation cannot strand a build that has no picker on it. It decodes locally on the same vendored ggml, Metal first with a CPU fallback, through Voiceour's port of transcribe.cpp under `Vendor/granite/`. It downloads one artifact, `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, from `17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF` at `62f64d9d5ad35989b06caf199cafe7155944a22b`:
+
+| file | SHA-256 | download | cache after first load |
+| --- | --- | --- | --- |
+| `granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf` | `f3efdc05b85b3a764bb5bb7022e69f61cafcecc11605c881c6396a6ed07ec91b` | 505,663,136 bytes | about 0.51 GB |
+
+- **Source.** That file is a third-party Q8_0 GGUF conversion of `ibm-granite/granite-speech-5.0-470m-turboctc` at `1dd23f46f6d4e6eae2531982ba2e33220086dd97`, IBM's October 21, 2026 multilingual checkpoint, licensed Apache-2.0. [NOTICE](NOTICE) carries the attribution. Voiceour uses it for English dictation only.
+- **No variant choice.** There is one artifact. Settings ▸ Model names it and its 0.51 GB download instead of offering Balanced or Compact, and `VOICEOUR_MODEL_VARIANT` is ignored.
+- **Cache.** `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` holds the file and its manifest. The file is mapped read-only and no acceleration file is written, so the cache is the size of the download. Neither backend ever removes the other's cache: switching between Parakeet and Granite keeps both on disk, and Granite's directory stays until you delete it.
+- **Download.** The file comes from `https://huggingface.co/17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF/resolve/62f64d9d5ad35989b06caf199cafe7155944a22b/granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, under the same rules as Parakeet's: background load only, free-space check, three resumable attempts, digest verification, exact manifest-and-size reuse, and one re-download per process for a cached file that fails to load and no longer matches its digest.
+- **Not promoted.** Making Granite the default needs the same paired real-speaker gate and cross-SoC replication as any default change, and an artifact Voiceour hosts itself or IBM publishes officially.
 
 ## Safety and permissions
 
@@ -228,7 +245,7 @@ These are product decisions, not deferred roadmap items. Feature requests that c
 - **No per-utterance or per-hour analytics.** Home reads one aggregate, day-resolution ledger.
 - **No saved audio.**
 - **No telemetry, crash reporting, account, update check, or stored credential.**
-- **No second production recognizer.** Local Parakeet is the shipping path; the fake backend exists for development.
+- **No second production recognizer.** Local Parakeet is the only shipping-default recognizer. Granite is an opt-in [evaluation backend](#granite-evaluation-backend) that runs only when selected explicitly, pending the promotion gate; the fake backend exists for development.
 - **No language picker.** Voiceour supports English only.
 - **No control socket or terminal client.** Microphone and Accessibility grants stay inside the signed app.
 - **No Intel or universal build.** The vendored ggml drop is arm64-only by design.
@@ -267,7 +284,7 @@ make logs
 
 `make status` reports the running process, whether the bundle is current, and its signer. `make stop` quits every running Voiceour. `make logs` streams the unified log for subsystem `com.voiceour.app`.
 
-Launch flags go through `ARGS`, as in `make run ARGS="--debug --show-console"`; the app also accepts `--console-section=<tab>`, `--no-activate`, and `--asr-backend <id>`. A `.env` at the repository root is sourced by `make run` and `make dev`, and `make run` forwards `VOICEOUR_ASR_BACKEND`, `VOICEOUR_MODEL_VARIANT` and `VOICEOUR_SUPPORT_DIR` to the bundle explicitly. `VOICEOUR_MODEL_VARIANT=f16|q8_0` pins the model for one launch without changing Settings, and `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory, which is how a cold download is exercised. [AGENTS.md](AGENTS.md#environment-seams) lists every environment seam.
+Launch flags go through `ARGS`, as in `make run ARGS="--debug --show-console"`; the app also accepts `--console-section=<tab>`, `--no-activate`, and `--asr-backend <id>`. A `.env` at the repository root is sourced by `make run` and `make dev`, and `make run` forwards `VOICEOUR_ASR_BACKEND`, `VOICEOUR_MODEL_VARIANT` and `VOICEOUR_SUPPORT_DIR` to the bundle explicitly. `make run ARGS="--asr-backend granite"` or `VOICEOUR_ASR_BACKEND=granite make run` runs the Granite evaluation backend for one launch. `VOICEOUR_MODEL_VARIANT=f16|q8_0` pins the Parakeet model for one launch without changing Settings; Granite ignores it. `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory, which is how a cold download is exercised. [AGENTS.md](AGENTS.md#environment-seams) lists every environment seam.
 
 ## Verification
 
@@ -279,27 +296,33 @@ make check
 
 - `make build` treats every Swift, C, and C++ warning as an error.
 - `make test` runs the Swift suites, harness suites included, on the fake backend.
-- `make check-docs` checks that README.md, AGENTS.md, and NOTICE match the compiled model pin and that every `make` target and script path a live doc names exists.
+- `make check-docs` checks that README.md, AGENTS.md, and NOTICE match the compiled Parakeet and Granite model pins and that every `make` target and script path a live doc names exists.
 - `make self-test` launches the debug app with `--self-test`, which checks cleanup output and target classification.
 - `make ui-flow` runs the semantic UI journeys, and `make ui-mercury-bench` enforces the recording island's quality and speed gates.
 - `make bench-smoke` runs the offline benchmark path on the fake backend.
 
 The default gates use synthetic or fixture audio and offscreen windows. They do not need desktop focus, speaker playback, or microphone access. Live microphone and foreground delivery checks are opt-in; run them only when the person using the Mac agrees to the interruption.
 
-**Opt-in suites.** `VOICEOUR_PARAKEET_INTEGRATION=1 swift test` runs the real-model tests and needs the model cache. `VOICEOUR_CAPTURE_INTEGRATION=1 swift test` opens the real microphone. To prove the cached model end to end:
+**Opt-in suites.** `VOICEOUR_PARAKEET_INTEGRATION=1 swift test` runs the real-model tests and needs the model cache; `VOICEOUR_GRANITE_INTEGRATION=1 swift test` does the same for the Granite evaluation backend. `VOICEOUR_CAPTURE_INTEGRATION=1 swift test` opens the real microphone. To prove the cached model end to end:
 
 ```sh
 make fixture
 make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 ```
 
-`make fixture` generates that local audio file with `say`; it is not committed.
+`make fixture` generates that local audio file with `say`; it is not committed. The same proof runs the Granite evaluation backend instead, downloading its model first if it is not cached:
+
+```sh
+make build && VOICEOUR_ASR_BACKEND=granite .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
+```
+
+Either proof prints the transcript with its cold-load and warm-inference times, and exits non-zero unless the transcript contains *hello* and *world*.
 
 **UI changes** also run `make ui-snap`. Read the generated `.ax.diff` or `.flow.diff` before blessing a golden with `make ui-update` or `make ui-flow-update`. A scene with an error-severity lint finding or a failing flow cannot be blessed. CI requires semantic flows, but its hosted scene snapshots are advisory: never bless CI raster drift. [ui-harness.md](docs/ui-harness.md) covers the artifacts.
 
 **CI** runs on the `xcode-27` runner, asserts macOS 27, Xcode 27, SDK 27, Swift 6.4 and arm64, and runs build, format, docs, Python lint, Swift tests, semantic flows, Python tests, self-test, and the benchmark smoke. A packaging job builds, bundles, and runs `make verify-bundle` but publishes nothing. The real-model workflow runs weekly and on demand.
 
-**Bundles.** `make verify-bundle` checks the signed `voiceour-asr` helper, arm64-only binaries, packaged resources, `com.voiceour.app`, `LSUIElement`, the microphone usage string, a macOS 27 minimum and SDK on both binaries, and an audio-input-only entitlement set with no sandbox or Input Monitoring entitlement.
+**Bundles.** `make verify-bundle` checks the signed `voiceour-asr` helper, arm64-only binaries, packaged resources including the third-party licences with the ggml and transcribe.cpp notices and the Granite model attribution, `com.voiceour.app`, `LSUIElement`, the microphone usage string, a macOS 27 minimum and SDK on both binaries, and an audio-input-only entitlement set with no sandbox or Input Monitoring entitlement.
 
 **Before a release**, qualify delivery by hand on a clean macOS account with the notarized bundle; `make test` covers these outcomes without posting keystrokes into live apps.
 
@@ -348,7 +371,7 @@ Files stay local. [Runtime and data](#runtime-and-data) lists what they hold and
 <details>
 <summary><strong>Which languages does it support?</strong></summary>
 
-English only. The model is `parakeet-tdt-0.6b-v3` and there is no language picker.
+English only. The model is `parakeet-tdt-0.6b-v3` and there is no language picker. The opt-in Granite evaluation backend's checkpoint is multilingual, but Voiceour uses it for English only too.
 
 </details>
 
@@ -438,6 +461,6 @@ Specialist documents hold derivations, measurements, and runbooks. They never re
 
 Superseded records live under `docs/archive/` with their dates.
 
-MIT licensed. That covers Voiceour's own code; third-party components keep their own terms. [NOTICE](NOTICE) credits the vendored sources and the speech model, and [benchmarks/DATA-LICENSE.md](benchmarks/DATA-LICENSE.md) covers the CC BY 4.0 corpus transcripts quoted in the committed benchmark reports.
+MIT licensed. That covers Voiceour's own code; third-party components keep their own terms. [NOTICE](NOTICE) credits the vendored and ported sources and the speech models, and [benchmarks/DATA-LICENSE.md](benchmarks/DATA-LICENSE.md) covers the CC BY 4.0 corpus transcripts quoted in the committed benchmark reports.
 
 Voiceour is an independent macOS dictation app, not affiliated with, sponsored by, or endorsed by Apple Inc.

@@ -27,13 +27,17 @@ sidecar_archs=$(lipo -archs "$SIDECAR")
 [ "$sidecar_archs" = "arm64" ] || fail "unexpected architectures for $SIDECAR: $sidecar_archs"
 codesign --verify --strict --verbose=2 "$SIDECAR"
 
-# MIT obliges the ggml notice to travel with every copy of the binary, and a downloader of
-# the .app alone never sees the source tree. The literal string is the assertion that
-# matters: existence and size cannot tell a real licence body from a heading whose
-# generation silently produced nothing.
+# MIT obliges the ggml and transcribe.cpp notices to travel with every copy of the binary,
+# Apache-2.0 the Granite weights' attribution, and a downloader of the .app alone never sees
+# the source tree. The literal strings are the assertions that matter: existence and size
+# cannot tell a real licence body from a heading whose generation silently produced nothing.
 [ -f "$LICENSES" ] || fail "missing $LICENSES; run scripts/bundle.sh first"
 [ -s "$LICENSES" ] || fail "empty $LICENSES"
 grep -Fq 'The ggml authors' "$LICENSES" || fail "$LICENSES does not carry the ggml copyright notice"
+grep -Fq 'The transcribe.cpp authors' "$LICENSES" ||
+  fail "$LICENSES does not carry the transcribe.cpp copyright notice"
+grep -Fq 'Model:        IBM Granite Speech 5.0 470M TurboCTC' "$LICENSES" ||
+  fail "$LICENSES does not carry the Granite model attribution"
 
 plutil -lint "$ROOT/Resources/Info.plist" "$ROOT/Resources/Voiceour.entitlements"
 
