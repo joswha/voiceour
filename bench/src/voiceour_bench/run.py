@@ -11,10 +11,11 @@ from pathlib import Path
 from .datasets_prep import prepare_tier, repo_root
 from .report import build_report, markdown_table
 
-# Mirrors `ASRBackendRegistry.builtIn` in Sources/VoiceMac/ASRBackendRegistry.swift.
-# The Swift runner validates the id against the registry itself; this list only
-# exists so a typo fails here instead of after a release build.
-ASR_BACKENDS = ("fake", "parakeet")
+# Mirrors `ASRBackendRegistry.builtIn` in Sources/VoiceMac/ASRBackendRegistry.swift, in its
+# order. The Swift runner validates the id against the registry itself; this list only exists
+# so a typo fails here instead of after a release build. `parakeet` is the default and the
+# shipping backend; `granite` is the opt-in evaluation backend.
+ASR_BACKENDS = ("fake", "parakeet", "granite")
 
 
 def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:

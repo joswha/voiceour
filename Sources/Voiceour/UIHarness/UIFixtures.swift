@@ -163,6 +163,9 @@
             /// A fresh install whose acquisition failed and said why. The sidecar's
             /// own verdict, which outranks every inferred readout.
             case firstRunAcquisitionFailed
+            /// `firstRunDownloading` on the Granite evaluation backend: the same card, sized
+            /// and named from Granite's own 0.51 GB artifact rather than a Parakeet variant's.
+            case firstRunGraniteDownloading
             /// An install that has completed a dictation and has nothing left to
             /// show: history and lifetime figures erased. Zeroed like `firstRun`,
             /// but owed no guidance, so Home keeps its caption instead of the card.
@@ -184,6 +187,9 @@
             case sidecarFailure
             /// Real backend, healthy sidecar, every permission granted.
             case backendReady
+            /// `backendReady` on the Granite evaluation backend: Settings ▸ Model names its one
+            /// artifact instead of offering the Parakeet variant picker.
+            case graniteReady
             /// Real backend whose health probe fails, permissions denied.
             case backendUnavailable
             /// Real backend part-way through acquiring its 1.26 GB artifact.
@@ -245,6 +251,14 @@
                     health: failedAcquisitionHealth,
                     permissions: .notDetermined
                 )
+            case .firstRunGraniteDownloading:
+                return make(
+                    sessions: [],
+                    settings: settings(backend: graniteBackend),
+                    backend: graniteBackend,
+                    health: downloadingHealth(backendId: graniteWireBackend),
+                    permissions: .notDetermined
+                )
             case .erasedFigures:
                 return make(
                     sessions: [],
@@ -268,6 +282,12 @@
                 return makeSidecarFailure()
             case .backendReady:
                 return makeBackendReady(island: .stock)
+            case .graniteReady:
+                return makeBackendReady(
+                    island: .stock,
+                    backend: graniteBackend,
+                    health: readyHealth(backendId: graniteWireBackend)
+                )
             case .islandLook:
                 return makeBackendReady(island: IslandLook.arcticPlatinum.appearance)
             case .islandCustom:
@@ -430,6 +450,12 @@
         /// the id the sidecar reports for itself.
         private static let realBackend = "parakeet"
 
+        /// The evaluation backend's picker id, and the id its sidecar reports. The fixture
+        /// injects nothing else: the coordinator derives Granite's artifact (name, size,
+        /// identifier) from the active backend, exactly as a live launch does.
+        private static let graniteBackend = "granite"
+        private static let graniteWireBackend = "granite-ctc"
+
         // `nonisolated` because it is a default argument of `make`, and default
         // argument expressions are evaluated outside the enum's main-actor context.
         nonisolated private static let devBackendHealth = ASRBackendHealth(
@@ -440,25 +466,35 @@
             cacheOk: true
         )
 
-        private static let realBackendHealth = ASRBackendHealth(
-            backendId: "parakeet-cpp",
-            backendStatus: .ready,
-            ready: true,
-            modelLoaded: true,
-            cacheOk: true
-        )
+        private static let realBackendHealth = readyHealth(backendId: "parakeet-cpp")
 
         /// Mid-acquisition: no cache yet, so `ready` is false and the fraction is what the
         /// System pane reads.
-        private static let downloadingBackendHealth = ASRBackendHealth(
-            backendId: "parakeet-cpp",
-            backendStatus: .modelMissing,
-            ready: false,
-            modelLoaded: false,
-            cacheOk: false,
-            downloadFraction: 0.42,
-            warming: nil
-        )
+        private static let downloadingBackendHealth = downloadingHealth(backendId: "parakeet-cpp")
+
+        /// A model-backed sidecar with its artifact cached and loaded, reporting as `backendId`.
+        private static func readyHealth(backendId: String) -> ASRBackendHealth {
+            ASRBackendHealth(
+                backendId: backendId,
+                backendStatus: .ready,
+                ready: true,
+                modelLoaded: true,
+                cacheOk: true
+            )
+        }
+
+        /// A model-backed sidecar part-way through acquiring its artifact, reporting as `backendId`.
+        private static func downloadingHealth(backendId: String) -> ASRBackendHealth {
+            ASRBackendHealth(
+                backendId: backendId,
+                backendStatus: .modelMissing,
+                ready: false,
+                modelLoaded: false,
+                cacheOk: false,
+                downloadFraction: 0.42,
+                warming: nil
+            )
+        }
 
         /// Acquisition stopped and the sidecar named why. `lastAcquisitionError` is
         /// its own verdict, which the coordinator publishes on the very first probe
@@ -582,18 +618,23 @@
 
         /// Real backend, healthy sidecar, every permission granted and the Yeti selected:
         /// the Settings page of a working install, wearing `island`. One builder, so the
-        /// Garage fixtures differ from `backendReady` in their look and nothing else.
-        private static func makeBackendReady(island: IslandAppearance) -> DictationCoordinator {
+        /// Garage fixtures differ from `backendReady` in their look and nothing else, and
+        /// `graniteReady` in its backend and nothing else.
+        private static func makeBackendReady(
+            island: IslandAppearance,
+            backend: String = realBackend,
+            health: ASRBackendHealth? = nil
+        ) -> DictationCoordinator {
             make(
                 sessions: history,
                 settings: settings(
-                    backend: realBackend,
+                    backend: backend,
                     preferredMicrophoneUID: "harness-usb-yeti",
                     preferredMicrophoneName: "Yeti Stereo Microphone",
                     island: island
                 ),
-                backend: realBackend,
-                health: realBackendHealth
+                backend: backend,
+                health: health ?? realBackendHealth
             )
         }
 

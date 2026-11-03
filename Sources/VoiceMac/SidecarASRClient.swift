@@ -50,10 +50,14 @@ struct SidecarLaunchConfiguration: Sendable {
         }
         environment["VOICEOUR_ASR_BACKEND"] = backend
         environment["VOICEOUR_PRELOAD"] = "1"
-        // Set last and unconditionally for a model-backed sidecar, so an inherited
+        // Set last and unconditionally for a backend that takes a variant, so an inherited
         // VOICEOUR_MODEL_VARIANT from the parent shell cannot outrank the user's selection.
+        // Removed for every other backend (fake, Granite's single fixed artifact): a Parakeet
+        // selection must never reach a sidecar it does not describe.
         if let modelVariant {
             environment[ASRModelVariant.environmentKey] = modelVariant.rawValue
+        } else {
+            environment.removeValue(forKey: ASRModelVariant.environmentKey)
         }
         return SidecarLaunchConfiguration(
             executableURL: executableURL,
@@ -75,18 +79,22 @@ public enum SidecarASRClientError: Error, Equatable {
 }
 
 /// `ASRClienting` requires `Sendable`, and this satisfies it without an escape
-/// hatch: both stored properties are immutable and every piece of mutable state
+/// hatch: every stored property is immutable and every piece of mutable state
 /// lives in the `SidecarProcessRuntime` actor below.
 public final class SidecarASRClient: ASRClienting {
     private let runtime: SidecarProcessRuntime
+    /// How this client spawns its sidecar. Internal so the registry's tests can pin
+    /// what each backend's helper is told, environment included.
+    let launch: SidecarLaunchConfiguration
     /// The model this client's sidecar must have loaded, echoed on every
     /// transcribe so a stale cache fails as a mismatch instead of quietly
     /// transcribing with other weights. Nil for a backend that pins no model —
     /// the fake sidecar used to be told to expect Parakeet.
-    private let expectedModel: ASRExpectedModel?
+    let expectedModel: ASRExpectedModel?
 
     init(launch: SidecarLaunchConfiguration, expectedModel: ASRExpectedModel? = nil) {
         self.runtime = SidecarProcessRuntime(launch: launch)
+        self.launch = launch
         self.expectedModel = expectedModel
     }
 

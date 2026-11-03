@@ -269,7 +269,8 @@ ui-all: ui-snap ui-flow
 .PHONY: bench-smoke bench-stt bench-e2e bench-techterms bench-gate
 
 N ?= 200
-# Parakeet is the only real backend; override only to measure the fake path.
+# Parakeet is the shipping backend and the default. BACKEND=granite measures the opt-in
+# Granite evaluation backend through the same pipeline; BACKEND=fake measures the fake path.
 BACKEND ?= parakeet
 
 ## bench-smoke: offline fake-backend smoke run
@@ -289,6 +290,8 @@ bench-techterms:
 	cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend $(BACKEND)
 
 # Usage: make bench-gate BASELINE=benchmarks/results/<a>.json CANDIDATE=benchmarks/results/<b>.json
+# Same-model regressions only: it refuses a cross-backend/model pair, so Parakeet versus
+# Granite goes through voiceour-bench-paired-gate (docs/benchmarks.md).
 ## bench-gate: U-WER regression gate between two reports
 bench-gate:
 	cd bench && uv --no-config run python -m voiceour_bench.compare ../$(BASELINE) ../$(CANDIDATE) --gate uwer_final:0.0035

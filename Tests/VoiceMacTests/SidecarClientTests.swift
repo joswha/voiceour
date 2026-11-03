@@ -54,16 +54,38 @@ struct SidecarClientTests {
 
     /// A backend that loads no weights is told nothing about them. Handing the fake sidecar a
     /// variant is the same category of lie as handing it Parakeet's model id: a claim about
-    /// weights it never reads.
+    /// weights it never reads. An inherited one is removed too, not merely left unset.
     @Test func sidecarLaunchEnvironmentOmitsTheVariantForABackendThatPinsNone() {
         let configuration = SidecarLaunchConfiguration.sidecar(
             executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
             backend: "fake",
-            parentEnvironment: ["PATH": "/usr/bin:/bin"]
+            parentEnvironment: ["PATH": "/usr/bin:/bin", ASRModelVariant.environmentKey: "q8_0"]
         )
 
         #expect(configuration.environment[ASRModelVariant.environmentKey] == nil)
         #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "fake")
+    }
+
+    /// Granite loads one fixed artifact. A `VOICEOUR_MODEL_VARIANT` exported for Parakeet in the
+    /// launching shell must not reach its sidecar: the Granite sidecar ignores it, and the
+    /// environment it is handed says so rather than carrying a Parakeet selection it never reads.
+    @Test func graniteLaunchEnvironmentDropsAnInheritedParakeetVariant() {
+        let configuration = SidecarLaunchConfiguration.sidecar(
+            executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
+            backend: "granite",
+            modelVariant: nil,
+            parentEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                ASRModelVariant.environmentKey: "q8_0",
+                "VOICEOUR_MODEL_CACHE": "/tmp/granite-cache",
+            ]
+        )
+
+        #expect(configuration.environment[ASRModelVariant.environmentKey] == nil)
+        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "granite")
+        #expect(configuration.environment["VOICEOUR_PRELOAD"] == "1")
+        // Every other Voiceour control still passes through, the cache override included.
+        #expect(configuration.environment["VOICEOUR_MODEL_CACHE"] == "/tmp/granite-cache")
     }
 
     @Test func resultWithProtocolVersionTwoIsRejectedRatherThanDelivered() async throws {
@@ -327,6 +349,32 @@ struct SidecarClientTests {
         // not carry a field no backend can honour.
         #expect(raw["bias_phrases"] == nil)
         #expect(raw["bias_snapshot_id"] == nil)
+    }
+
+    /// Granite's pin reaches the wire under the same three snake-case keys as Parakeet's, with
+    /// Granite's own repository, revision and GGUF file.
+    @Test func transcribeRequestEncodingCarriesTheGranitePin() async throws {
+        let temp = try makeTemporaryDirectory()
+        let requestFile = temp.appendingPathComponent("request.json")
+
+        let client = SidecarASRClient(
+            launch: stubLaunch("echo-result", requestFile.path),
+            expectedModel: GraniteModelContract.expectedModel
+        )
+        _ = try await client.transcribe(sampleAudio(), timeoutMs: 1_234)
+
+        let requestData = try Data(contentsOf: requestFile)
+        let decoded = try ASRWire.decode(ASRTranscribeRequest.self, from: requestData)
+        #expect(decoded.expectedModel == GraniteModelContract.expectedModel)
+
+        let raw = try #require(try JSONSerialization.jsonObject(with: requestData) as? [String: Any])
+        let expectedModel = try #require(raw["expected_model"] as? [String: Any])
+        #expect(expectedModel.count == 3)
+        #expect(
+            expectedModel["model_id"] as? String == "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF"
+        )
+        #expect(expectedModel["revision"] as? String == "62f64d9d5ad35989b06caf199cafe7155944a22b")
+        #expect(expectedModel["file"] as? String == "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf")
     }
 
     /// A client with no pinned model leaves `expected_model` off the wire

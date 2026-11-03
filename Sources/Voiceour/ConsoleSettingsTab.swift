@@ -104,16 +104,23 @@ struct ConsoleSettingsTab: View {
 
             // Not debug-gated, unlike Backend below: two artifacts actually ship
             // and the difference between them is about 1.17 GB of combined cache
-            // after first load, which is a trade only the reader can make.
+            // after first load, which is a trade only the reader can make. While
+            // the evaluation backend runs there is no such trade, so the section
+            // names its one artifact instead.
             Section("Model") {
-                modelVariantRow
+                if let artifact = runningGraniteArtifact {
+                    graniteModelRow(artifact)
+                } else {
+                    modelVariantRow
+                }
             }
 
-            // One real backend ships, so a release build has nothing to choose
-            // between: the picker exists to reach `fake` during development, and
-            // a release user who found it could only downgrade their own
-            // dictation to synthetic text. The running model is still stated by
-            // the Readiness rows below.
+            // One real backend ships as the default, so a release build has
+            // nothing to choose between: the picker exists to reach `fake` and
+            // the Granite evaluation backend during development, and a release
+            // user who found it could only downgrade their own dictation to
+            // synthetic text or an unpromoted model. The running model is still
+            // stated by the Readiness rows below.
             if LaunchOptions.showsDebugPanes {
                 Section("Backend") {
                     backendRow
@@ -456,23 +463,48 @@ struct ConsoleSettingsTab: View {
     /// the option the reader is weighing — the Readiness rows below stay with what
     /// is loaded.
     ///
-    /// Sized by hand rather than through ByteCountFormatter for the reason the
-    /// download readout gives: that formatter is locale-aware and would bake the
-    /// developer's region into a committed golden.
+    /// Sized through `ConsoleReadiness.gigabytes`, the download readout's own
+    /// locale-independent spelling, so no committed golden encodes a region.
     ///
     /// Compact is never sold as faster or better. The committed corpus puts the two
     /// at the same word error rate and Compact at lower throughput, so the disk is
     /// the only honest reason to pick it.
     private var modelVariantSummary: String {
         let variant = coordinator.settings.asrModelVariant
-        let downloadText = String(format: "%.2f GB", Double(variant.sizeBytes) / 1_000_000_000)
-        let cacheText = String(format: "%.2f GB", Double(variant.sizeBytes) * 2 / 1_000_000_000)
+        let downloadText = ConsoleReadiness.gigabytes(variant.sizeBytes)
+        let cacheText = ConsoleReadiness.gigabytes(variant.sizeBytes * 2)
         switch variant {
         case .f16:
             return "Downloads \(downloadText); uses about \(cacheText) after first load. Default and faster."
         case .q8:
             return "Downloads \(downloadText); uses about \(cacheText) after first load. "
                 + "Same measured accuracy, slightly slower."
+        }
+    }
+
+    /// Granite's artifact while Granite is the *running* backend, else nil. Keyed on the
+    /// active backend, not the saved one: a pending switch must not relabel the model the
+    /// sidecar has loaded, and the Backend row already says the switch needs a restart.
+    private var runningGraniteArtifact: ASRModelArtifact? {
+        coordinator.activeBackend == "granite" ? coordinator.activeModelArtifact : nil
+    }
+
+    /// Granite pins one artifact, so there is nothing to choose and no variant to restart
+    /// into: the row names the model that loads and what it downloads. No cache-size or
+    /// quality claim — none is measured for this build — and the caption says plainly that
+    /// it is the evaluation backend, not the shipping one.
+    private func graniteModelRow(_ artifact: ASRModelArtifact) -> some View {
+        ConsoleRow(
+            caption: "Downloads \(ConsoleReadiness.gigabytes(artifact.sizeBytes)). "
+                + "Evaluation backend; Parakeet remains the default recognizer."
+        ) {
+            LabeledContent {
+                Text(artifact.displayName)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("voice.model.granite")
+            } label: {
+                Text("Speech model")
+            }
         }
     }
 

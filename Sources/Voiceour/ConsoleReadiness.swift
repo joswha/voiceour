@@ -100,6 +100,20 @@ enum ConsoleReadiness {
         activeDescriptor(coordinator)?.modelLabel ?? coordinator.activeBackend
     }
 
+    /// A byte count as `0.51 GB`, decimal and locale-independent, so every surface that
+    /// sizes a download (this readout, Settings ▸ Model) spells it one way and no
+    /// committed golden encodes the developer's region.
+    static func gigabytes(_ bytes: Int64) -> String {
+        String(format: "%.2f GB", Double(bytes) / 1_000_000_000)
+    }
+
+    /// The downloading readout's sentence: the running backend's model label, sized from
+    /// its own artifact (Granite's download is not a Parakeet variant's), or the bare label
+    /// for a backend without a pinned artifact.
+    static func downloadDetail(modelLabel: String, artifact: ASRModelArtifact?) -> String {
+        artifact.map { "\(modelLabel) — \(gigabytes($0.sizeBytes))." } ?? "\(modelLabel)."
+    }
+
     // MARK: Readouts
 
     static func backend(_ coordinator: DictationCoordinator) -> ConsoleReadout {
@@ -126,15 +140,12 @@ enum ConsoleReadiness {
                 remediation: recheck(coordinator)
             )
         } else if let fraction = coordinator.modelDownloadFraction {
-            // Formatted by hand rather than through ByteCountFormatter: that
-            // formatter is locale-aware and rendered "1,26 GB" on this host, which
-            // would bake the developer's region into a committed golden.
-            let sizeText = String(
-                format: "%.2f GB", Double(coordinator.activeModelVariant.sizeBytes) / 1_000_000_000)
+            let detail = downloadDetail(
+                modelLabel: activeModelLabel(coordinator), artifact: coordinator.activeModelArtifact)
             return ConsoleReadout(
                 label: "DOWNLOADING",
                 severity: .neutral,
-                detail: "\(activeModelLabel(coordinator)) — \(sizeText).",
+                detail: detail,
                 progress: fraction
             )
         } else if coordinator.isBackendWarming {

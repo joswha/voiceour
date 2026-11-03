@@ -27,7 +27,7 @@ public struct LaunchOptions: Equatable, Sendable {
     }
 
     /// Backend ids accepted when validation is not supplied by a registry.
-    public static let defaultBackendIDs: Set<String> = ["fake", "parakeet"]
+    public static let defaultBackendIDs: Set<String> = ["fake", "parakeet", "granite"]
 
     /// Backend ids that existed in shipped builds and no longer do.
     ///
@@ -64,18 +64,45 @@ public struct LaunchOptions: Equatable, Sendable {
         return validBackendIDs.contains(resolved) ? resolved : nil
     }
 
-    /// The backend a PERSISTED settings file may select. `fake` is a development
-    /// id: it is honored from launch arguments and environment, but a release
-    /// user's settings file saying `fake` (written by a pre-parakeet-default
-    /// build) must not silently keep them on synthetic transcripts.
+    /// Backends a PERSISTED settings file may select only in a debug launch. `fake` is a
+    /// development id: a release user's settings file saying `fake` (written by a
+    /// pre-parakeet-default build) must not silently keep them on synthetic transcripts.
+    /// `granite` is an evaluation backend whose only release surface is a per-launch
+    /// override (`--asr-backend`, `VOICEOUR_ASR_BACKEND`); the launch writes the resolved id
+    /// into settings, and a release build has no picker to switch back, so a saved Granite
+    /// choice must not outlive that launch. Both are honored from arguments and environment.
+    public static let debugPersistedBackendIDs: Set<String> = ["fake", "granite"]
+
+    /// The backend a PERSISTED settings file may select (`debugPersistedBackendIDs` rule).
     public static func persistedBackend(
         _ value: String?,
         validBackendIDs: Set<String>,
         allowsDevBackend: Bool
     ) -> String? {
         guard let normalized = validBackend(value, validBackendIDs: validBackendIDs) else { return nil }
-        if normalized == "fake" && !allowsDevBackend { return nil }
+        if debugPersistedBackendIDs.contains(normalized) && !allowsDevBackend { return nil }
         return normalized
+    }
+
+    /// The backend a launch runs, highest precedence first: the `--asr-backend` argument,
+    /// then `VOICEOUR_ASR_BACKEND`, then the persisted setting (`persistedBackend`'s rules),
+    /// then the registry default. Every source normalizes through `validBackend`, so an
+    /// invalid value falls through to the next source instead of winning, and a retired id
+    /// normalizes at its own source's precedence.
+    ///
+    /// `launchArgument` is `asrBackend` as parsed, already normalized.
+    public static func resolvedBackend(
+        launchArgument: String?,
+        environment: String?,
+        persisted: String?,
+        validBackendIDs: Set<String>,
+        allowsDevBackend: Bool,
+        defaultBackend: String
+    ) -> String {
+        launchArgument
+            ?? validBackend(environment, validBackendIDs: validBackendIDs)
+            ?? persistedBackend(persisted, validBackendIDs: validBackendIDs, allowsDevBackend: allowsDevBackend)
+            ?? defaultBackend
     }
 
     private static func value(after index: Array<String>.Index, in values: [String]) -> String? {

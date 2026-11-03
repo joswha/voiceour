@@ -187,6 +187,9 @@ enum BenchCLI {
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
 
+    /// The one registry backend `raw-decode` can stand in for: it constructs `ParakeetContext`.
+    static let rawDecodeBackend = "parakeet"
+
     static func parse(_ arguments: [String]) throws -> BenchOptions {
         guard let commandValue = arguments.first, let command = BenchCommand(rawValue: commandValue) else {
             throw BenchError.usage("expected subcommand: pipeline or tdt-lattice")
@@ -269,6 +272,14 @@ enum BenchCLI {
         }
         if command == .rawDecode, model == nil {
             throw BenchError.usage("raw-decode requires --model")
+        }
+        // raw-decode builds a Parakeet context on the file it is handed; it has no dispatch to
+        // any other engine, so a Granite run would silently decode with Parakeet's code path.
+        if command == .rawDecode, backend != rawDecodeBackend {
+            throw BenchError.usage(
+                "raw-decode decodes Parakeet checkpoints only; --backend \(backend) is not supported "
+                    + "(use pipeline --backend \(backend))"
+            )
         }
         if model != nil, command != .rawDecode, command != .dumpStates {
             throw BenchError.usage("--model is only valid for raw-decode and dump-states")
@@ -842,30 +853,28 @@ struct BenchRunner {
         )
     }
 
-    /// Model identity is read from the backend's descriptor, never branched on
-    /// here: a stale branch would stamp Parakeet's identity onto every other
-    /// backend's rows and make the whole record untrustworthy.
+    /// Model identity is the backend's own artifact, read from its descriptor and never
+    /// branched on here: a stale branch would stamp Parakeet's identity — or Parakeet's file —
+    /// onto every other backend's rows and make the whole record untrustworthy.
     ///
     /// A backend with no model at all — `fake` — reports its own name rather than
     /// borrowing another backend's model, and names no file.
     ///
-    /// The file is the loaded artifact, which the descriptor cannot supply: every variant of
-    /// the pinned repository shares one id and revision, so a record without the file name
-    /// makes two runs on different weights look like the same model to a comparison.
-    private static func modelIdentity(for backend: String?) -> (id: String, revision: String, file: String?) {
+    /// The file is the loaded artifact: every Parakeet variant shares one id and revision, so
+    /// a record without the file name makes two runs on different weights look like the same
+    /// model to a comparison. Granite's is its one pinned GGUF, whatever the variant says.
+    static func modelIdentity(
+        for backend: String?,
+        variant: ASRModelVariant = BenchRunner.modelVariant
+    ) -> (id: String, revision: String, file: String?) {
         guard
             let backend,
-            let descriptor = ASRBackendRegistry.builtIn.descriptor(for: backend),
-            let modelId = descriptor.modelId
+            let artifact = ASRBackendRegistry.builtIn.descriptor(for: backend)?.modelArtifact(for: variant)
         else {
             let name = backend ?? "none"
             return (name, name, nil)
         }
-        return (
-            modelId,
-            descriptor.modelRevision ?? ProcessInfo.processInfo.operatingSystemVersionString,
-            modelVariant.fileName
-        )
+        return (artifact.modelId, artifact.revision, artifact.file)
     }
 
     static func sha256(of url: URL) throws -> String {

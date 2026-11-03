@@ -8,9 +8,10 @@ public struct ASRBackendContext: Sendable {
     /// executable: SwiftPM's products directory and an app bundle's `Contents/MacOS` are both
     /// flat, so one rule covers `swift run`, the benchmark and the shipped bundle.
     public let sidecarExecutableURL: URL
-    /// Which artifact of the pinned repository this launch should load. Held here rather than
+    /// Which artifact of the Parakeet repository this launch should load. Held here rather than
     /// on the descriptor because it is the user's current selection, not a property of the
-    /// backend: the descriptor set is compiled, the selection changes.
+    /// backend: the descriptor set is compiled, the selection changes. Backends with one fixed
+    /// artifact (Granite) and backends with none (fake) ignore it.
     public let modelVariant: ASRModelVariant
 
     public init(sidecarExecutableURL: URL, modelVariant: ASRModelVariant = .default) {
@@ -48,27 +49,30 @@ public struct ASRBackendDescriptor: Sendable {
     public let modelLabel: String
     /// The real model behind the backend, as opposed to `modelLabel`, which is
     /// a display string ("no model · synthetic transcripts") that no consumer
-    /// can act on. Benchmark metadata, Diagnostics and the sidecar's
-    /// `expected_model` all need the identity itself. Both are nil where the
-    /// backend loads no model of its own.
-    public let modelId: String?
-    public let modelRevision: String?
+    /// can act on. Benchmark metadata, Diagnostics, the download readout and the
+    /// sidecar's `expected_model` all need the artifact itself. Nil where the
+    /// backend loads no model of its own; otherwise resolved from the launch's
+    /// Parakeet variant, which only Parakeet's resolver reads.
+    private let resolveModelArtifact: (@Sendable (ASRModelVariant) -> ASRModelArtifact)?
     public let makeComponents: @Sendable (ASRBackendContext) -> ASRBackendComponents
 
     public init(
         id: String,
         displayName: String,
         modelLabel: String,
-        modelId: String?,
-        modelRevision: String?,
+        modelArtifact: (@Sendable (ASRModelVariant) -> ASRModelArtifact)?,
         makeComponents: @escaping @Sendable (ASRBackendContext) -> ASRBackendComponents
     ) {
         self.id = id
         self.displayName = displayName
         self.modelLabel = modelLabel
-        self.modelId = modelId
-        self.modelRevision = modelRevision
+        self.resolveModelArtifact = modelArtifact
         self.makeComponents = makeComponents
+    }
+
+    /// The artifact this backend loads when launched with `variant`, or nil for a model-less one.
+    public func modelArtifact(for variant: ASRModelVariant) -> ASRModelArtifact? {
+        resolveModelArtifact?(variant)
     }
 }
 
@@ -86,6 +90,7 @@ public struct ASRBackendRegistry: Sendable {
     public let descriptors: [ASRBackendDescriptor]
     private static let fakeBackendID = "fake"
     private static let parakeetBackendID = "parakeet"
+    private static let graniteBackendID = "granite"
 
     public init(descriptors: [ASRBackendDescriptor]) {
         self.descriptors = descriptors
@@ -122,8 +127,7 @@ public struct ASRBackendRegistry: Sendable {
             id: Self.fakeBackendID,
             displayName: "FAKE",
             modelLabel: "no model · synthetic transcripts",
-            modelId: nil,
-            modelRevision: nil,
+            modelArtifact: nil,
             makeComponents: { context in
                 ASRBackendComponents(
                     recorder: FakeAudioRecorder(),
@@ -139,8 +143,7 @@ public struct ASRBackendRegistry: Sendable {
             id: Self.parakeetBackendID,
             displayName: "PARAKEET",
             modelLabel: ASRModelContract.modelId,
-            modelId: ASRModelContract.modelId,
-            modelRevision: ASRModelContract.revision,
+            modelArtifact: { ASRModelArtifact.parakeet($0) },
             makeComponents: { context in
                 ASRBackendComponents(
                     recorder: MicrophoneRecorder(),
@@ -148,23 +151,34 @@ public struct ASRBackendRegistry: Sendable {
                         sidecarExecutableURL: context.sidecarExecutableURL,
                         backend: Self.parakeetBackendID,
                         modelVariant: context.modelVariant,
-                        expectedModel: Self.parakeetModel(context.modelVariant)
+                        // The artifact is part of the pin because the repository holds several:
+                        // without `file` a sidecar still serving the previously selected variant
+                        // would pass the check.
+                        expectedModel: ASRModelArtifact.parakeet(context.modelVariant).expectedModel
+                    ),
+                    usesSystemAudioMuter: true
+                )
+            }
+        ),
+        // Evaluation backend: selectable through the same seams, never the default. One fixed
+        // artifact, so no variant reaches its sidecar (the client strips an inherited one too).
+        ASRBackendDescriptor(
+            id: Self.graniteBackendID,
+            displayName: "GRANITE",
+            modelLabel: GraniteModelContract.modelId,
+            modelArtifact: { _ in ASRModelArtifact.granite },
+            makeComponents: { context in
+                ASRBackendComponents(
+                    recorder: MicrophoneRecorder(),
+                    client: SidecarASRClient(
+                        sidecarExecutableURL: context.sidecarExecutableURL,
+                        backend: Self.graniteBackendID,
+                        modelVariant: nil,
+                        expectedModel: GraniteModelContract.expectedModel
                     ),
                     usesSystemAudioMuter: true
                 )
             }
         ),
     ])
-
-    /// The model the sidecar must have loaded, echoed on every transcribe.
-    ///
-    /// The artifact is part of it because the pinned repository holds several: without `file`
-    /// a sidecar still serving the previously selected variant would pass the check.
-    private static func parakeetModel(_ variant: ASRModelVariant) -> ASRExpectedModel {
-        ASRExpectedModel(
-            modelId: ASRModelContract.modelId,
-            revision: ASRModelContract.revision,
-            file: variant.fileName
-        )
-    }
 }

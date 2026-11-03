@@ -275,6 +275,14 @@ public final class DictationCoordinator {
     public var activeBackend: String { activeASRBackend }
     public var activeModelVariant: ASRModelVariant { activeVariant }
 
+    /// The weights the running sidecar loads: the active backend's own artifact, which for
+    /// Parakeet is the active variant's and for Granite its one fixed pin. Nil for the fake
+    /// backend and for an id no descriptor claims. Every size and identity readout reads this,
+    /// never `activeModelVariant`, so a Granite run is never described as a Parakeet file.
+    public var activeModelArtifact: ASRModelArtifact? {
+        ASRBackendRegistry.builtIn.descriptor(for: activeASRBackend)?.modelArtifact(for: activeVariant)
+    }
+
     /// True while this install still owes its reader the first-run guidance: the
     /// card Home shows above its figures, and the launch that opens the console on
     /// it. Derived, never stored, so the two durable records the rule reads stay the
@@ -536,15 +544,14 @@ public final class DictationCoordinator {
         let env = ProcessInfo.processInfo.environment
 
         let registry = ASRBackendRegistry.builtIn
-        let backend =
-            launchOptions.asrBackend
-            ?? VoiceCore.LaunchOptions.validBackend(env["VOICEOUR_ASR_BACKEND"], validBackendIDs: registry.backendIDs)
-            ?? VoiceCore.LaunchOptions.persistedBackend(
-                settings.asrBackend,
-                validBackendIDs: registry.backendIDs,
-                allowsDevBackend: LaunchOptions.showsDebugPanes
-            )
-            ?? registry.defaultDescriptor.id
+        let backend = VoiceCore.LaunchOptions.resolvedBackend(
+            launchArgument: launchOptions.asrBackend,
+            environment: env["VOICEOUR_ASR_BACKEND"],
+            persisted: settings.asrBackend,
+            validBackendIDs: registry.backendIDs,
+            allowsDevBackend: LaunchOptions.showsDebugPanes,
+            defaultBackend: registry.defaultDescriptor.id
+        )
         settings.asrBackend = backend
 
         let permissions = SystemPermissions()

@@ -182,6 +182,15 @@
                     fixture: .firstRunAcquisitionFailed,
                     tags: ["first-run"]
                 ),
+                // The evaluation backend's first launch: the same card and ladder, but the
+                // pin and the size are Granite's own, never a Parakeet variant's.
+                console(
+                    "console.home.first-run.granite-downloading",
+                    "Home's first-run card while the Granite evaluation model downloads",
+                    tab: .home,
+                    fixture: .firstRunGraniteDownloading,
+                    tags: ["first-run", "granite"]
+                ),
                 console(
                     "console.glossary.populated",
                     "Glossary with the bundled canonical terms",
@@ -290,6 +299,17 @@
                     tab: .settings,
                     fixture: .backendDownloading,
                     size: settingsPageSize
+                ),
+                // Settings ▸ Model while Granite runs: its one artifact named and sized in
+                // place of the Parakeet variant picker, and the Readiness Model row naming
+                // Granite's file. Whole page so both halves are on one golden.
+                console(
+                    "console.settings.granite",
+                    "Settings' whole page with the Granite evaluation backend running",
+                    tab: .settings,
+                    fixture: .graniteReady,
+                    size: settingsPageSize,
+                    tags: ["granite"]
                 ),
                 // Every Garage control, caption, readout and spoken value at stock, and the
                 // showroom's raster.

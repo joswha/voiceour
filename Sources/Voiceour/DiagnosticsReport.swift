@@ -48,9 +48,7 @@ enum DiagnosticsReport {
             lines.append("  health error: \(payload)")
         }
         if let fraction = coordinator.modelDownloadFraction {
-            lines.append(
-                "  download: \(Int(fraction * 100))% of \(coordinator.activeModelVariant.sizeBytes) bytes"
-            )
+            lines.append(downloadLine(fraction: fraction, artifact: coordinator.activeModelArtifact))
         }
         if let failure = coordinator.acquisitionFailure {
             lines.append("  acquisition failure: \(failure.title) — \(failure.cause)")
@@ -99,9 +97,9 @@ enum DiagnosticsReport {
         return "\(saved) → \(coordinator.activeBackend.uppercased()) (drift)"
     }
 
-    /// The model the running backend loads, with the revision it is pinned to.
-    /// Backends without pinned model metadata fall back to their descriptor's own
-    /// label rather than borrowing another backend's model id.
+    /// The model the running backend loads, with the revision it is pinned to and
+    /// the artifact within it. Backends without a pinned model fall back to their
+    /// descriptor's own label rather than borrowing another backend's model id.
     ///
     /// Not private: the Settings tab prints the same string as a row, and two
     /// spellings of "which model is this" is exactly the drift this replaces.
@@ -110,11 +108,9 @@ enum DiagnosticsReport {
         guard let descriptor = ASRBackendRegistry.builtIn.descriptor(for: coordinator.activeBackend) else {
             return coordinator.activeBackend
         }
-        guard let modelId = descriptor.modelId else { return descriptor.modelLabel }
-        guard let revision = descriptor.modelRevision else { return modelId }
-        // The artifact is named too: every variant shares the id and revision, so without it a
-        // bug report cannot say which weights produced the transcript it is about.
-        return "\(modelId)@\(revision) (\(coordinator.activeModelVariant.rawValue))"
+        // The artifact is named too: Parakeet's variants share one id and revision, so without
+        // it a bug report cannot say which weights produced the transcript it is about.
+        return coordinator.activeModelArtifact?.identifier ?? descriptor.modelLabel
     }
 
     /// A missing model is a recoverable gap — download it and dictation works. An
@@ -190,5 +186,15 @@ enum DiagnosticsReport {
             }
         }
         return payload
+    }
+}
+
+extension DiagnosticsReport {
+    /// The report's download line, sized from the running backend's own artifact: a Granite
+    /// download is never reported in a Parakeet variant's bytes.
+    static func downloadLine(fraction: Double, artifact: ASRModelArtifact?) -> String {
+        let percent = Int(fraction * 100)
+        guard let artifact else { return "  download: \(percent)%" }
+        return "  download: \(percent)% of \(artifact.sizeBytes) bytes"
     }
 }

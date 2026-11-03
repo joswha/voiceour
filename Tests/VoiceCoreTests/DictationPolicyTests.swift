@@ -60,6 +60,60 @@ struct DictationPolicyTests {
         #expect(LaunchOptions.persistedBackend("sherpa", validBackendIDs: ids, allowsDevBackend: true) == nil)
     }
 
+    /// The evaluation backend is selectable from split and inline arguments and the
+    /// environment; a persisted setting selects it only in a debug launch, like `fake`,
+    /// because a release build has no picker to switch a saved choice back.
+    @Test func graniteIsAcceptedPerLaunchAndPersistedOnlyUnderDebug() {
+        let ids = LaunchOptions.defaultBackendIDs
+
+        #expect(ids == ["fake", "parakeet", "granite"])
+        #expect(LaunchOptions(arguments: ["--asr-backend", "granite"]).asrBackend == "granite")
+        #expect(LaunchOptions(arguments: ["--asr-backend=GRANITE"]).asrBackend == "granite")
+        #expect(LaunchOptions.validBackend(" granite ") == "granite")
+        #expect(LaunchOptions.persistedBackend("granite", validBackendIDs: ids, allowsDevBackend: false) == nil)
+        #expect(LaunchOptions.persistedBackend("granite", validBackendIDs: ids, allowsDevBackend: true) == "granite")
+        // The sidecar's wire id is never a selector, and no retired id maps onto Granite.
+        #expect(LaunchOptions.validBackend("granite-ctc") == nil)
+        #expect(!LaunchOptions.retiredBackendIDs.values.contains("granite"))
+    }
+
+    /// Argument beats environment beats persisted setting beats the default, and an invalid
+    /// value at any level falls through instead of winning.
+    @Test func backendPrecedenceHoldsForGranite() {
+        func resolve(
+            argument: String? = nil,
+            environment: String? = nil,
+            persisted: String? = nil,
+            allowsDevBackend: Bool = false
+        ) -> String {
+            LaunchOptions.resolvedBackend(
+                launchArgument: argument.flatMap { LaunchOptions(arguments: ["--asr-backend", $0]).asrBackend },
+                environment: environment,
+                persisted: persisted,
+                validBackendIDs: LaunchOptions.defaultBackendIDs,
+                allowsDevBackend: allowsDevBackend,
+                defaultBackend: "parakeet"
+            )
+        }
+
+        #expect(resolve() == "parakeet")
+        #expect(resolve(persisted: "granite") == "parakeet")
+        #expect(resolve(persisted: "granite", allowsDevBackend: true) == "granite")
+        #expect(resolve(environment: "granite", persisted: "parakeet") == "granite")
+        #expect(resolve(argument: "granite", environment: "parakeet", persisted: "fake") == "granite")
+        #expect(resolve(argument: "parakeet", environment: "granite", persisted: "granite") == "parakeet")
+        #expect(resolve(environment: "parakeet", persisted: "granite", allowsDevBackend: true) == "parakeet")
+        // Invalid values fall through to the next source.
+        #expect(resolve(argument: "sherpa", environment: "GRANITE") == "granite")
+        #expect(resolve(environment: "granite-ctc", persisted: "granite", allowsDevBackend: true) == "granite")
+        #expect(resolve(environment: "sherpa", persisted: "nonsense") == "parakeet")
+        // A persisted `fake` or `granite` needs a debug launch.
+        #expect(resolve(persisted: "fake") == "parakeet")
+        #expect(resolve(persisted: "fake", allowsDevBackend: true) == "fake")
+        // A retired id normalizes at its own level, so it still outranks a lower source.
+        #expect(resolve(environment: "mlx", persisted: "granite", allowsDevBackend: true) == "parakeet")
+    }
+
     @Test func launchOptionsIgnoresMissingValues() {
         let options = LaunchOptions(arguments: [
             "--repo-root",
