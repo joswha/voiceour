@@ -1,8 +1,9 @@
 name: Real ASR
 
-# The only job that touches the real model. It downloads a 1.26 GB artifact and
-# decodes real audio, so it runs weekly rather than per push, and it is not a
-# required gate: a Hugging Face outage must not block a merge.
+# The only job that touches the real models. It downloads both pinned artifacts —
+# Granite's 0.51 GB default and Parakeet's 1.26 GB Balanced conversion — and decodes
+# real audio, so it runs weekly rather than per push, and it is not a required gate:
+# a Hugging Face outage must not block a merge.
 on:
   workflow_dispatch:
   schedule:
@@ -25,11 +26,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # The pinned revision publishes several conversions of one checkpoint, so the
-      # revision alone does not identify the bytes: the key carries the artifact's
-      # file name too. This caches the default variant, which is what the build under
-      # test downloads when nothing sets VOICEOUR_MODEL_VARIANT.
-
       - name: Assert the macOS 27 toolchain
         run: |
           set -euo pipefail
@@ -38,6 +34,17 @@ jobs:
           [ "$(xcrun --show-sdk-version | cut -d. -f1)" = "27" ]
           swift --version 2>&1 | grep -E 'Swift version 6\.4'
           [ "$(uname -m)" = "arm64" ]
+
+      # Each key carries the artifact's file name as well as its revision: the Parakeet
+      # revision publishes several conversions of one checkpoint, so the revision alone
+      # does not identify the bytes. Parakeet's entry caches its default variant, which
+      # is what the build under test downloads when nothing sets VOICEOUR_MODEL_VARIANT.
+      - name: Cache the pinned Granite artifact
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0
+          key: granite-gguf-62f64d9d5ad35989b06caf199cafe7155944a22b-granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf
+
       - name: Cache the pinned Parakeet artifact
         uses: actions/cache@v4
         with:
@@ -52,14 +59,16 @@ jobs:
       - name: Generate the spoken fixture
         run: make fixture
 
-      # The one command that proves a machine can go from no model to a real
-      # local transcript. If the hosted runner has no Metal device, ggml falls
-      # back to BLAS/CPU and this still passes, slower.
-      - name: Prove the pinned model
+      # The commands that prove a machine can go from no model to a real local
+      # transcript: Granite, the default, then Parakeet. If the hosted runner has no
+      # Metal device, ggml falls back to BLAS/CPU and these still pass, slower.
+      - name: Prove the default Granite model
         run: .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 
-      - name: Integration tests against the real model
-        run: |
-          VOICEOUR_PARAKEET_INTEGRATION=1 swift test -Xswiftc -DUI_HARNESS \
-            --filter "SidecarProcessTests|parakeetSessionPersistsEndToEndTelemetry"
+      - name: Prove the Parakeet model
+        run: VOICEOUR_ASR_BACKEND=parakeet .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav
 
+      - name: Integration tests against the real models
+        run: |
+          VOICEOUR_GRANITE_INTEGRATION=1 VOICEOUR_PARAKEET_INTEGRATION=1 swift test -Xswiftc -DUI_HARNESS \
+            --filter "SidecarProcessTests|parakeetSessionPersistsEndToEndTelemetry|GraniteSidecarBackendTests"
