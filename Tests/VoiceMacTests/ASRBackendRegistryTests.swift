@@ -59,16 +59,16 @@ struct ASRBackendRegistryTests {
         #expect(q8.expectedModel.modelId == ASRModelContract.modelId)
 
         let granite = ASRModelArtifact.granite
-        #expect(granite.modelId == "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF")
-        #expect(granite.revision == "62f64d9d5ad35989b06caf199cafe7155944a22b")
-        #expect(granite.file == "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf")
+        #expect(granite.modelId == "vladers/granite-speech-5.0-470m-turboctc-GGUF")
+        #expect(granite.revision == "bd7db273aa69a26fc81e370c84597fa738fe2ad0")
+        #expect(granite.file == "granite-speech-5.0-470m-turboctc-Q8_0.gguf")
         #expect(granite.sizeBytes == 505_663_136)
         #expect(granite.displayName == "Granite Speech 5.0 TurboCTC 470M")
         #expect(granite.expectedModel == GraniteModelContract.expectedModel)
         #expect(
             GraniteModelContract.downloadURL.absoluteString
-                == "https://huggingface.co/17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF/resolve/"
-                + "62f64d9d5ad35989b06caf199cafe7155944a22b/granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf"
+                == "https://huggingface.co/vladers/granite-speech-5.0-470m-turboctc-GGUF/resolve/"
+                + "bd7db273aa69a26fc81e370c84597fa738fe2ad0/granite-speech-5.0-470m-turboctc-Q8_0.gguf"
         )
     }
 

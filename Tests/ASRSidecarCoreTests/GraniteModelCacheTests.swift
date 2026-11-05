@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import VoiceCore
@@ -25,7 +26,7 @@ struct GraniteModelCacheTests {
     @Test func theDownloadURLIsThePinnedResolveURL() {
         #expect(
             ParakeetModelCache.granite(environment: [:]).source.absoluteString
-                == "https://huggingface.co/17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF/resolve/62f64d9d5ad35989b06caf199cafe7155944a22b/granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf"
+                == "https://huggingface.co/vladers/granite-speech-5.0-470m-turboctc-GGUF/resolve/bd7db273aa69a26fc81e370c84597fa738fe2ad0/granite-speech-5.0-470m-turboctc-Q8_0.gguf"
         )
     }
 
@@ -62,6 +63,65 @@ struct GraniteModelCacheTests {
         #expect(!cache.cacheOK())
         #expect(throws: ParakeetModelCacheError.self) { try cache.ensureModel() }
         #expect(cache.manifest() == .pinned(.default))
+    }
+
+    /// A pin an earlier build cached in the app directory makes way for the current one: the
+    /// next acquisition clears its weights and manifest and downloads the current artifact.
+    @Test func aSupersededPinIsReplacedByTheCurrentArtifact() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("granite-superseded-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let old = ParakeetModelManifest(
+            modelId: "earlier/granite", revision: "0000000000000000000000000000000000000001",
+            file: "earlier.gguf", sha256: String(repeating: "0", count: 64), sizeBytes: 3)
+        try Data("old".utf8).write(to: directory.appendingPathComponent(old.file))
+        try JSONEncoder().encode(old).write(to: directory.appendingPathComponent("manifest.json"))
+        let current = Data("current granite weights".utf8)
+        let published = root.appendingPathComponent("published.gguf")
+        try current.write(to: published)
+        let cache = ParakeetModelCache(
+            directory: directory,
+            artifact: ParakeetModelManifest(
+                modelId: "current/granite", revision: "0000000000000000000000000000000000000002",
+                file: "current.gguf", sha256: SHA256.hash(data: current).map { String(format: "%02x", $0) }.joined(),
+                sizeBytes: Int64(current.count)),
+            source: published,
+            ownsVariantRoot: false,
+            supersededPins: [ASRExpectedModel(modelId: old.modelId, revision: old.revision, file: old.file)],
+            retryDelay: 0,
+            availableCapacity: { _ in nil }
+        )
+
+        try cache.ensureModel()
+
+        #expect(cache.cacheOK())
+        #expect(cache.manifest() == cache.artifact)
+        #expect(try Data(contentsOf: cache.modelURL) == current)
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(old.file).path))
+    }
+
+    /// Under a caller-owned `VOICEOUR_MODEL_CACHE` a superseded pin is that caller's file: it is
+    /// refused like any mismatch and left exactly as it was.
+    @Test func aSupersededPinInACallerOwnedCacheIsKept() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("granite-superseded-override-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pin = try #require(GraniteModelContract.supersededPins.first)
+        // A superseded pin is never the live one; were it, ensureModel would download the real artifact.
+        try #require(pin != GraniteModelContract.expectedModel)
+        let kept = ParakeetModelManifest(
+            modelId: pin.modelId, revision: pin.revision, file: pin.file,
+            sha256: String(repeating: "0", count: 64), sizeBytes: 4)
+        let cache = ParakeetModelCache.granite(environment: ["VOICEOUR_MODEL_CACHE": directory.path])
+        try Data("kept".utf8).write(to: directory.appendingPathComponent(pin.file))
+        try JSONEncoder().encode(kept).write(to: cache.manifestURL)
+
+        #expect(throws: ParakeetModelCacheError.self) { try cache.ensureModel() }
+        #expect(cache.manifest() == kept)
+        #expect(try Data(contentsOf: directory.appendingPathComponent(pin.file)) == Data("kept".utf8))
     }
 
     /// Parakeet's retirement only ever names Parakeet variant directories.

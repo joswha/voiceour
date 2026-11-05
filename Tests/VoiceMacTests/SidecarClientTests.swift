@@ -370,11 +370,9 @@ struct SidecarClientTests {
         let raw = try #require(try JSONSerialization.jsonObject(with: requestData) as? [String: Any])
         let expectedModel = try #require(raw["expected_model"] as? [String: Any])
         #expect(expectedModel.count == 3)
-        #expect(
-            expectedModel["model_id"] as? String == "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF"
-        )
-        #expect(expectedModel["revision"] as? String == "62f64d9d5ad35989b06caf199cafe7155944a22b")
-        #expect(expectedModel["file"] as? String == "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf")
+        #expect(expectedModel["model_id"] as? String == "vladers/granite-speech-5.0-470m-turboctc-GGUF")
+        #expect(expectedModel["revision"] as? String == "bd7db273aa69a26fc81e370c84597fa738fe2ad0")
+        #expect(expectedModel["file"] as? String == "granite-speech-5.0-470m-turboctc-Q8_0.gguf")
     }
 
     /// A client with no pinned model leaves `expected_model` off the wire

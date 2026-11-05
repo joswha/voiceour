@@ -113,6 +113,10 @@ public struct ParakeetModelCache: Sendable {
     /// what sits next to it is none of this cache's business. Decided by whoever chose
     /// `directory`, because that is the only place that knows where the path came from.
     public let ownsVariantRoot: Bool
+    /// Pins an earlier build cached in `directory` and this one replaced. A manifest naming one
+    /// of them is cleared for this cache's download instead of refused. Empty for a
+    /// `VOICEOUR_MODEL_CACHE` override: whatever its caller keeps there stays theirs.
+    public let supersededPins: [ASRExpectedModel]
     /// How the preflight asks a volume what it can still give, in bytes, or nil when the volume
     /// cannot be asked. A seam: a genuinely full disk is not something a unit suite can arrange.
     public let availableCapacity: @Sendable (URL) -> Int64?
@@ -142,6 +146,7 @@ public struct ParakeetModelCache: Sendable {
         artifact: ParakeetModelManifest = .pinned(.default),
         source: URL = ASRModelVariant.default.downloadURL,
         ownsVariantRoot: Bool = true,
+        supersededPins: [ASRExpectedModel] = [],
         sessionConfiguration: URLSessionConfiguration = ParakeetModelCache.defaultSessionConfiguration(),
         retryDelay: TimeInterval = 2,
         availableCapacity: @escaping @Sendable (URL) -> Int64? = ParakeetModelCache.volumeAvailableCapacity
@@ -150,6 +155,7 @@ public struct ParakeetModelCache: Sendable {
         self.artifact = artifact
         self.source = source
         self.ownsVariantRoot = ownsVariantRoot
+        self.supersededPins = supersededPins
         self.sessionConfiguration = sessionConfiguration
         self.retryDelay = retryDelay
         self.availableCapacity = availableCapacity
@@ -188,23 +194,28 @@ public struct ParakeetModelCache: Sendable {
     ///
     /// Never owns a variant root, whichever directory it names: Granite has one artifact, so it
     /// has no siblings to retire, and the Parakeet directories beside its default are not its
-    /// business. `VOICEOUR_MODEL_VARIANT` is ignored, because it names Parakeet precisions.
+    /// business. `VOICEOUR_MODEL_VARIANT` is ignored, because it names Parakeet precisions. Only
+    /// the app directory replaces a superseded Granite pin; an override's contents are its
+    /// caller's.
     public static func granite(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> ParakeetModelCache {
-        let directory: URL
         if let override = environment["VOICEOUR_MODEL_CACHE"], !override.isEmpty {
-            directory = URL(fileURLWithPath: override, isDirectory: true)
-        } else {
-            directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Voiceour", isDirectory: true)
-                .appendingPathComponent(GraniteModelContract.cacheDirectoryName, isDirectory: true)
+            return ParakeetModelCache(
+                directory: URL(fileURLWithPath: override, isDirectory: true),
+                artifact: .granite,
+                source: GraniteModelContract.downloadURL,
+                ownsVariantRoot: false
+            )
         }
         return ParakeetModelCache(
-            directory: directory,
+            directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Voiceour", isDirectory: true)
+                .appendingPathComponent(GraniteModelContract.cacheDirectoryName, isDirectory: true),
             artifact: .granite,
             source: GraniteModelContract.downloadURL,
-            ownsVariantRoot: false
+            ownsVariantRoot: false,
+            supersededPins: GraniteModelContract.supersededPins
         )
     }
 
@@ -369,13 +380,23 @@ public struct ParakeetModelCache: Sendable {
         }
     }
 
-    /// Refuses to overwrite a directory that already holds a different artifact.
+    /// Refuses to overwrite a directory that already holds a different artifact, unless that
+    /// artifact is one of `supersededPins`: a pin an earlier build placed here, whose bytes
+    /// cannot load under this one. It is cleared, weight file and manifest, and the download
+    /// proceeds.
     ///
     /// `file` is part of the comparison because every variant shares `modelId` and `revision`:
     /// on those two alone this guard would pass for any of them, and a download would clobber
     /// the manifest while leaving the previous weight file orphaned beside it.
     private func requireMatchingManifestOrAbsent() throws {
         guard let existing = manifest() else { return }
+        let existingPin = ASRExpectedModel(modelId: existing.modelId, revision: existing.revision, file: existing.file)
+        if supersededPins.contains(existingPin) {
+            for url in [directory.appendingPathComponent(existing.file), manifestURL] {
+                try? FileManager.default.removeItem(at: url)
+            }
+            return
+        }
         let matches =
             existing.modelId == artifact.modelId && existing.revision == artifact.revision
             && existing.file == artifact.file

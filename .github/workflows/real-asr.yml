@@ -43,7 +43,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0
-          key: granite-gguf-62f64d9d5ad35989b06caf199cafe7155944a22b-granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf
+          key: granite-gguf-bd7db273aa69a26fc81e370c84597fa738fe2ad0-granite-speech-5.0-470m-turboctc-Q8_0.gguf
 
       - name: Cache the pinned Parakeet artifact
         uses: actions/cache@v4

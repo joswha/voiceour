@@ -72,20 +72,21 @@ code. Their use is governed by CC BY 4.0.
 Granite model chain:
 
 The Granite backend, the default recognizer, loads one artifact,
-`granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf`, of
-`17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF` at revision
-`62f64d9d5ad35989b06caf199cafe7155944a22b`. It is downloaded and cached at runtime on first use;
+`granite-speech-5.0-470m-turboctc-Q8_0.gguf`, of
+`vladers/granite-speech-5.0-470m-turboctc-GGUF` at revision
+`bd7db273aa69a26fc81e370c84597fa738fe2ad0`. It is downloaded and cached at runtime on first use;
 it is not bundled with the app or committed to this repository.
 
-That artifact is a third-party conversion of IBM's Granite Speech 5.0 470M TurboCTC checkpoint,
+That artifact is a conversion of IBM's Granite Speech 5.0 470M TurboCTC checkpoint,
 `ibm-granite/granite-speech-5.0-470m-turboctc` at revision
 `1dd23f46f6d4e6eae2531982ba2e33220086dd97` (the October 21, 2026 multilingual release), created by
 IBM and licensed under the Apache License, Version 2.0,
-https://www.apache.org/licenses/LICENSE-2.0. The conversion repository's publisher, 17slever17,
-converted that checkpoint to GGUF with handy-computer/transcribe.cpp (MIT License) at
-`4d7c1ccefd39e5a9ea36cca5f8fefc6dcc14b99b` and quantised it to Q8_0; no retraining or fine-tuning
-was performed. That repository is labelled Apache-2.0, matching the checkpoint, and is not an
-official IBM release. Voiceour does not modify the weights.
+https://www.apache.org/licenses/LICENSE-2.0. Voiceour's maintainers converted that checkpoint to
+GGUF with handy-computer/transcribe.cpp (MIT License) release 0.4.1,
+`4d7c1ccefd39e5a9ea36cca5f8fefc6dcc14b99b`, plus 17slever17's granite5_ctc_multilingual.patch
+(Apache-2.0) and a patch of their own, and quantised it to Q8_0; no retraining or fine-tuning was
+performed. The conversion repository's NOTICE states those changes, its conversion/build.sh
+rebuilds the file byte for byte, and it is not an official IBM release.
 
 IBM does not endorse, sponsor or certify Voiceour.
 

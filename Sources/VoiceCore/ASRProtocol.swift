@@ -85,13 +85,14 @@ public enum ASRModelVariant: String, Codable, Equatable, CaseIterable, Sendable 
     }
 }
 
-/// Granite Speech 5.0 TurboCTC 470M (IBM, Apache-2.0), Oct-21 multilingual checkpoint, one Q8_0 GGUF conversion.
+/// Granite Speech 5.0 TurboCTC 470M (IBM, Apache-2.0), Oct-21 multilingual checkpoint, the Q8_0 file of the
+/// reproducible GGUF set the maintainers publish: every file there rebuilds byte for byte from IBM's checkpoint.
 /// The default recognizer's pin.
 public enum GraniteModelContract {
-    public static let modelId = "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF"
-    public static let revision = "62f64d9d5ad35989b06caf199cafe7155944a22b"
-    public static let fileName = "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf"
-    public static let sha256 = "f3efdc05b85b3a764bb5bb7022e69f61cafcecc11605c881c6396a6ed07ec91b"
+    public static let modelId = "vladers/granite-speech-5.0-470m-turboctc-GGUF"
+    public static let revision = "bd7db273aa69a26fc81e370c84597fa738fe2ad0"
+    public static let fileName = "granite-speech-5.0-470m-turboctc-Q8_0.gguf"
+    public static let sha256 = "fc34cbe71f979a6aeb8bea08bfac88d5c62c1736c0bc845827e37c90f28e336c"
     public static let sizeBytes: Int64 = 505_663_136
     public static let cacheDirectoryName = "granite-speech-5.0-470m-turboctc-q8_0"
     public static let sourceCheckpoint = "ibm-granite/granite-speech-5.0-470m-turboctc"
@@ -102,6 +103,20 @@ public enum GraniteModelContract {
     public static var expectedModel: ASRExpectedModel {
         ASRExpectedModel(modelId: modelId, revision: revision, file: fileName)
     }
+}
+
+extension GraniteModelContract {
+    /// Pins earlier builds downloaded into Granite's app cache directory. An artifact cached
+    /// under one of them is a pin Voiceour itself replaced, not a deliberately kept file, so
+    /// acquisition replaces it instead of refusing the directory. Under a caller-owned
+    /// `VOICEOUR_MODEL_CACHE` it is refused like any other mismatch.
+    public static let supersededPins: [ASRExpectedModel] = [
+        ASRExpectedModel(
+            modelId: "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF",
+            revision: "62f64d9d5ad35989b06caf199cafe7155944a22b",
+            file: "granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf"
+        )
+    ]
 }
 
 /// The one weight artifact a running model-backed backend loads, whichever backend that is.

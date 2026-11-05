@@ -60,9 +60,9 @@ struct DiagnosticsReportTests {
         let identifier = DiagnosticsReport.modelIdentifier(coordinator)
         #expect(
             identifier
-                == "17slever17/granite-speech-5.0-470m-turboctc-multilingual-GGUF"
-                + "@62f64d9d5ad35989b06caf199cafe7155944a22b"
-                + " (granite-speech-5.0-470m-turboctc-multilingual-Q8_0.gguf)"
+                == "vladers/granite-speech-5.0-470m-turboctc-GGUF"
+                + "@bd7db273aa69a26fc81e370c84597fa738fe2ad0"
+                + " (granite-speech-5.0-470m-turboctc-Q8_0.gguf)"
         )
         #expect(!identifier.contains("q8_0)"))
         #expect(!identifier.contains("parakeet"))
