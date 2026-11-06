@@ -31,6 +31,10 @@ public enum SafetyClassifier {
         "com.github.wez.wezterm",
         "io.alacritty",
         "dev.warp.Warp-Stable",
+        "co.zeit.hyper",
+        "org.tabby",
+        "com.raphaelamorim.rio",
+        "com.cmuxterm.app",
     ]
 
     static let codeEditorBundleIds: Set<String> = [

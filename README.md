@@ -210,7 +210,7 @@ Without Accessibility, Voiceour falls back to passive event monitoring, which ca
 | target class | examples | delivery |
 | --- | --- | --- |
 | Normal text | TextEdit, Notes, Mail, browser fields, chat composers | Clipboard, then Cmd-V once permission and target identity checks pass |
-| Terminal | Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp | Copy-only; exactly one trailing newline stripped |
+| Terminal | Terminal, iTerm2, Ghostty, kitty, WezTerm, Alacritty, Warp, Hyper, Tabby, Rio, cmux | Copy-only; exactly one trailing newline stripped |
 | Code editor | VS Code, Cursor, Xcode, Sublime Text, Zed, JetBrains IDEs | Copy-only |
 | Secure | Password fields, active secure input, 1Password, Bitwarden | Concealed, host-only copy; no History row or ledger entry |
 | Unknown-risky | A focused app whose control could not be inspected | Copy-only; exactly one trailing newline stripped |

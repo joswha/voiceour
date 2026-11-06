@@ -32,6 +32,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading â
 
 ### Fixed
 
+- **Hyper, Tabby, Rio and cmux are terminals.** Dictating into them copies the transcript without its trailing newline instead of pasting it, as in every other terminal.
 - **Glossary terms that are ordinary words leave prose alone.** A Glossary term such as *Go*, *Rust*, *Swift* or *Metal* no longer capitalizes every *go*, *rust*, *swift* or *metal* you dictate in ordinary sentences. The term's heard-as forms still apply, and distinctive terms still correct their own case.
 - **Actionable transcription failures.** Sidecar model, protocol and timeout errors keep their specific cause and recovery action instead of appearing as a generic internal error. A failed utterance is not delivered or saved, and a later dictation can recover normally.
 - **Strict sidecar response handling.** Malformed JSON, invalid response schemas, unknown frame types and invalid UTF-8 fail pending requests and retire the bad process. A valid reply after corrupt bytes cannot be mistaken for a successful transcript; the next request starts a clean helper.

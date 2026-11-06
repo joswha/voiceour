@@ -139,6 +139,16 @@ struct VoiceCoreTests {
         )
     }
 
+    /// Terminals whose bundle ids come from their own build configurations: Hyper's
+    /// electron-builder `appId`, Tabby's, Rio's `Info.plist`, and cmux's installed bundle.
+    /// Missing from the list, each one received a synthesized Cmd-V instead of a copy.
+    @Test(arguments: ["co.zeit.hyper", "org.tabby", "com.raphaelamorim.rio", "com.cmuxterm.app"])
+    func moreTerminalsClassifyAsTerminal(bundleId: String) {
+        let focus = TargetFocusInspection.inspected(role: nil, subrole: nil)
+
+        #expect(SafetyClassifier.classify(bundleId: bundleId, focus: focus) == .terminal)
+    }
+
     @Test func zedBundleClassifiesAsCodeEditor() {
         let focus = TargetFocusInspection.inspected(role: nil, subrole: nil)
 
