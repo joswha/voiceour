@@ -40,7 +40,7 @@ uv --no-config run pytest
 uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend granite --n 64
 ```
 
-`--backend` is `fake` or `granite`, and defaults to `granite`; `voiceour-bench pipeline` without one runs the registry default, also `granite`. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR, then `CleanupEngine` under the transcript's detected language, then vocabulary repair on English or undetermined transcripts); the mode records intent, not execution. `make bench-gate` refuses a cross-model pair; compare two models through the [paired gate](#paired-fixed-corpus-promotion-gate).
+`--backend` is `fake` or `granite`, and defaults to `granite`; `voiceour-bench pipeline` without one runs the registry default, also `granite`. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR, then `CleanupEngine` under the transcript's detected language); the mode records intent, not execution. Each row's `cleaned_text` is that glossary-free cleanup. Without `--vocabulary`, `final_text` equals it. With `--vocabulary <file>` (a repair vocabulary, or a `[{"term", "heard_as"}]` word list whose heard-as forms are text-stage aliases only), the run takes the production path: each transcribe request carries the file's spot terms (`TermSpotTargets`), and `final_text` is the app's `DictationTextStage` over the result — term spotting at `TermSpottingPolicy.frozen`, literal composition, cleanup with the file's terms as the Glossary, and the app's repair engine for those terms. `make bench-gate` refuses a cross-model pair; compare two models through the [paired gate](#paired-fixed-corpus-promotion-gate).
 
 ## Row identity
 
