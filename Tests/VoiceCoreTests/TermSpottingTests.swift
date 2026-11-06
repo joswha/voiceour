@@ -136,6 +136,11 @@ struct DictationTextStageSpottingTests {
         #expect(spotted == stage("open the Kubernetes dot yaml file"))
         #expect(spotted.contains("Kubernetes"))
         #expect(spotted != stage(raw))
+        let outcome = DictationTextStage.apply(
+            raw, spotting: evidence(raw, first: 2, last: 3), cleanupEnabled: true, glossary: glossary,
+            repairEngine: nil)
+        #expect(outcome.text == spotted)
+        #expect(outcome.language == DictationLanguage.detect(raw))
     }
 
     @Test func cleanupOffSkipsSpotting() {

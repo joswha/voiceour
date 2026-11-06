@@ -8,8 +8,8 @@
 /// spoken formatting commands, filler removal and phonetic repair.
 ///
 /// Term spotting renders the spots `TermSpottingPolicy.frozen` accepts into the recognizer's words,
-/// and only when those words joined by single spaces are the raw transcript. The rest of the stage
-/// then runs on the spotted text exactly as on a raw transcript, which is the path wave 2 measured.
+/// and only when those words joined by single spaces are the raw transcript. The later stages then
+/// run on the spotted text under the raw transcript's language: it is detected once per utterance.
 public enum DictationTextStage {
     public struct Outcome: Equatable, Sendable {
         public var text: String
@@ -24,16 +24,32 @@ public enum DictationTextStage {
         repairEngine: VocabularyRepairEngine?
     ) -> Outcome {
         let language = DictationLanguage.detect(raw)
-        if cleanupEnabled, DictationLanguage.usesEnglishRules(language),
-            let spotted = spotting?.render(over: raw)
-        {
-            return apply(spotted, cleanupEnabled: cleanupEnabled, glossary: glossary, repairEngine: repairEngine)
+        var text = raw
+        if cleanupEnabled, DictationLanguage.usesEnglishRules(language), let spotted = spotting?.render(over: raw) {
+            text = spotted
         }
+        return Outcome(
+            text: stages(
+                text, language: language, cleanupEnabled: cleanupEnabled, glossary: glossary, repairEngine: repairEngine
+            ),
+            language: language
+        )
+    }
+
+    /// The stages after spotting — literal composition, then with cleanup enabled cleanup and
+    /// repair — on `text` under `language`, the raw transcript's detected language.
+    public static func stages(
+        _ text: String,
+        language: DictationLanguage?,
+        cleanupEnabled: Bool,
+        glossary: [ProtectedTerm],
+        repairEngine: VocabularyRepairEngine?
+    ) -> String {
         let englishRules = DictationLanguage.usesEnglishRules(language)
-        let composed = englishRules ? LiteralComposition.apply(raw) : raw
-        guard cleanupEnabled else { return Outcome(text: composed, language: language) }
+        let composed = englishRules ? LiteralComposition.apply(text) : text
+        guard cleanupEnabled else { return composed }
         let cleaned = CleanupEngine.clean(composed, glossary: glossary, language: language)
-        guard englishRules, let repairEngine else { return Outcome(text: cleaned, language: language) }
-        return Outcome(text: repairEngine.repair(cleaned).text, language: language)
+        guard englishRules, let repairEngine else { return cleaned }
+        return repairEngine.repair(cleaned).text
     }
 }

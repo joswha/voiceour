@@ -308,6 +308,12 @@ struct BenchGlossary {
         ).text
     }
 
+    /// The app's stages after spotting, with cleanup enabled, on already spotted `text` under
+    /// `language`, the raw transcript's.
+    func stages(_ text: String, language: DictationLanguage?) -> String {
+        DictationTextStage.stages(text, language: language, cleanupEnabled: true, glossary: terms, repairEngine: engine)
+    }
+
     private struct Entry: Decodable {
         var term: String
         var heardAs: [String]?

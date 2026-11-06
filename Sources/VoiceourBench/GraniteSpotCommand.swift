@@ -108,6 +108,10 @@ struct GraniteSpotCommand {
         let spotMicroseconds = (DispatchTime.now().uptimeNanoseconds - spotStart) / 1_000
 
         let baseline = setup.glossary.textStage(transcript.text)
+        // The app's semantics: the raw transcript's language, detected once, gates spotting and
+        // runs every later stage of every grid point's final.
+        let language = DictationLanguage.detect(transcript.text)
+        let spotsApply = wordsMatch && DictationLanguage.usesEnglishRules(language)
         var special: [String: Int] = [:]
         for token in raw.tokens where token.isSpecial {
             special[String(decoding: token.bytes, as: UTF8.self), default: 0] += 1
@@ -124,13 +128,16 @@ struct GraniteSpotCommand {
             spots: zip(spots, candidates).map {
                 SpotRecord(spot: $0, candidate: $1, msPerFrame: raw.msPerFrame, words: words, setup: setup)
             },
-            finals: wordsMatch ? Self.finals(words: words, spots: spots, baseline: baseline, setup: setup) : []
+            finals: spotsApply
+                ? Self.finals(words: words, spots: spots, baseline: baseline, language: language, setup: setup) : []
         )
     }
 
     /// M1 texts that differ from the baseline, each with the grid points that produce it. Points are
     /// grouped by the spots their thresholds admit, so each distinct admitted set renders once.
-    private static func finals(words: [String], spots: [TermSpot], baseline: String, setup: SpotSetup) -> [SpotFinal] {
+    private static func finals(
+        words: [String], spots: [TermSpot], baseline: String, language: DictationLanguage?, setup: SpotSetup
+    ) -> [SpotFinal] {
         guard !spots.isEmpty else { return [] }
         let targets = setup.targets
         var bySignature: [[Int]: [Int]] = [:]
@@ -154,7 +161,7 @@ struct GraniteSpotCommand {
                 )
             else { continue }
             let spottedRaw = changed.joined(separator: " ")
-            let final = rendered[spottedRaw] ?? setup.glossary.textStage(spottedRaw)
+            let final = rendered[spottedRaw] ?? setup.glossary.stages(spottedRaw, language: language)
             rendered[spottedRaw] = final
             if final != baseline { finals[final, default: []].append(contentsOf: points) }
         }
