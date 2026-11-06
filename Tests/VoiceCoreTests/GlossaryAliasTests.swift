@@ -52,6 +52,32 @@ struct GlossaryAliasTests {
         #expect(Glossary.canonicalize("run cube cuddle now", terms: [term]) == "run kubectl now")
     }
 
+    @Test func ordinaryWordCanonicalsLeaveProseAlone() {
+        let terms = ["Go", "Rust", "Swift", "Metal", "C"].map { ProtectedTerm(canonical: $0, spokenAliases: []) }
+        let prose = "we should go after lunch, the gate is covered in rust, a swift reply on metal, plan c"
+
+        #expect(Glossary.canonicalize(prose, terms: terms) == prose)
+    }
+
+    @Test func ordinaryWordCanonicalsKeepTheirHeardAsForms() {
+        let term = ProtectedTerm(canonical: "Go", spokenAliases: ["golang"])
+
+        #expect(
+            Glossary.canonicalize("i write golang daily and go home", terms: [term]) == "i write Go daily and go home")
+    }
+
+    @Test func distinctiveCanonicalsStillNormalizeTheirCase() {
+        let terms = [
+            ProtectedTerm(canonical: "kubectl", spokenAliases: []),
+            ProtectedTerm(canonical: "Control Plane", spokenAliases: []),
+        ]
+
+        #expect(
+            Glossary.canonicalize("Kubectl says the control plane is down", terms: terms)
+                == "kubectl says the Control Plane is down"
+        )
+    }
+
     @Test func derivedAliasesMatchOnlyAtWordBoundaries() {
         let term = ProtectedTerm(canonical: "NSPasteboard", spokenAliases: [])
         let unrelated = "XNSPasteboarder and ns pasteboardish stay unchanged"

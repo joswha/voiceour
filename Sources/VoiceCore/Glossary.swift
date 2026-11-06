@@ -64,7 +64,8 @@ public enum Glossary {
         // never trigger another glossary rule in the same pass.
         for term in terms {
             let template = NSRegularExpression.escapedTemplate(for: term.renderedCanonical)
-            for alias in matchingAliases(for: term) {
+            for alias in matchingAliases(for: term)
+            where recasesOwnSurface(term.canonical) || aliasKey(alias) != aliasKey(term.canonical) {
                 guard let regex = aliasRegex(alias) else { continue }
                 for match in regex.matches(in: text, range: fullRange) {
                     replacements.append(
@@ -182,6 +183,20 @@ public enum Glossary {
             }
             return lhs.offset < rhs.offset
         }.map(\.element)
+    }
+
+    /// Whether a term's own canonical, matched case-insensitively, is rewritten to its spelling.
+    ///
+    /// That case normalization turns `Kubectl` into `kubectl`. A one-word canonical that is an
+    /// ordinary English word, or one of at most two characters, cannot be told apart from the word
+    /// in prose: matching it would make every "go" `Go` and every "rust" `Rust`. Those terms keep
+    /// their heard-as forms but do not recase their own surface — the class vocabulary repair
+    /// already refuses to target.
+    static func recasesOwnSurface(_ canonical: String) -> Bool {
+        let trimmed = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 2 else { return false }
+        if trimmed.contains(where: \.isWhitespace) { return true }
+        return !RepairVocabulary.bundledOrdinaryWords.contains(trimmed.lowercased())
     }
 
     static func generalizableAliases(for term: ProtectedTerm) -> [String] {
