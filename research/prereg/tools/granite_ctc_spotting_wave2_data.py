@@ -100,15 +100,38 @@ NEGATIVES = [
     "The soup needs a little more salt.",
 ]
 
-REAL_SPEECH = [("tedlium", None), ("voxpopuli", None), ("earnings22", None), ("gigaspeech", 2000)]
+# The preregistration named tedlium too; on 2026-11-06 the hub repository no longer holds its data
+# files (the config resolves to zero rows), so wave 2 runs on the other three, decided before any
+# wave-2 output existed.
+REAL_SPEECH = [("voxpopuli", None), ("earnings22", None), ("gigaspeech", 2000)]
 
 
 def synthesize(text: str, voice: str, wav: Path) -> None:
+    """Writes `text` in `voice` to `wav`, keeping a file an earlier run completed.
+
+    `say` occasionally stalls forever on one request, so each attempt is bounded and retried; the
+    text, voice and conversion are unchanged, so a retry writes the same audio.
+    """
+    if wav.exists() and wav.stat().st_size > 0:
+        return
     wav.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as scratch:
-        aiff = Path(scratch) / "speech.aiff"
-        subprocess.run(["say", "-v", voice, "-o", str(aiff), text], check=True)
-        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(wav)], check=True)
+    for attempt in range(3):
+        with tempfile.TemporaryDirectory() as scratch:
+            aiff = Path(scratch) / "speech.aiff"
+            partial = wav.with_suffix(".partial.wav")
+            try:
+                subprocess.run(["say", "-v", voice, "-o", str(aiff), text], check=True, timeout=120)
+                subprocess.run(
+                    ["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(partial)],
+                    check=True,
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                print(f"say timed out on attempt {attempt + 1}: {voice}: {text}", flush=True)
+                continue
+            partial.replace(wav)
+            return
+    raise RuntimeError(f"say failed three times: {voice}: {text}")
 
 
 def row(row_id: str, wav: Path, reference: str, **extra) -> dict:
