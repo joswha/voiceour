@@ -606,6 +606,66 @@ struct DictationCoordinatorTests {
         #expect(coordinator.pendingSuggestions.isEmpty)
     }
 
+    /// The stop path asks the recognizer to spot the snapshot's targets by their own spellings,
+    /// delivers the canonical a spot proves, and keeps the greedy transcript as History's raw text.
+    /// Without the spot the same transcript is delivered unchanged.
+    @Test func aTermSpotDeliversTheCanonicalAndHistoryKeepsTheGreedyRaw() async throws {
+        let raw = "Deploy it to cooper netties today."
+        let glossary = [ProtectedTerm(canonical: "Kubernetes", spokenAliases: [], source: .explicitCorrection)]
+        let unspotted = try await processTranscript(raw, glossary: glossary)
+        #expect(unspotted.text == raw)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-term-spotting-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var settings = VoiceCore.Settings()
+        settings.glossary = glossary
+        settings.hasCompletedFirstRun = true
+        let asr = SpottingASR(
+            transcript: raw,
+            spots: [TermSpot(term: 0, variant: 0, firstWord: 3, lastWord: 4, score: -3, tokenCount: 4)]
+        )
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: asr,
+            inserter: inserter,
+            settings: settings,
+            settingsStore: temporarySettingsStore(),
+            recentSessionStore: RecentSessionStore(url: directory.appendingPathComponent("recent-sessions.json"))
+        )
+
+        await driveUtterance(coordinator)
+
+        let delivered = "Deploy it to Kubernetes today."
+        #expect(coordinator.lastTranscript == delivered)
+        #expect(inserter.insertedText == delivered)
+        let session = try #require(coordinator.recentSessions.first)
+        #expect(session.text == delivered)
+        #expect(session.rawTranscript == raw)
+        #expect(await asr.requestedSpotTerms == [[ASRSpotTerm(variants: TermSpotting.variants(for: "Kubernetes"))]])
+    }
+
+    /// A transcript in another language is never spotted, whatever spots come back with it.
+    @Test func anotherLanguageIsNotSpotted() async throws {
+        let raw = "O comitê comprou um carro e disse que a capital usa cooper netties."
+        var settings = VoiceCore.Settings()
+        settings.glossary = [ProtectedTerm(canonical: "Kubernetes", spokenAliases: [], source: .explicitCorrection)]
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: SpottingASR(
+                transcript: raw,
+                spots: [TermSpot(term: 0, variant: 0, firstWord: 11, lastWord: 12, score: 0, tokenCount: 4)]
+            ),
+            inserter: inserter,
+            settings: settings
+        )
+
+        await driveUtterance(coordinator)
+
+        #expect(coordinator.lastTranscript == raw)
+        #expect(inserter.insertedText == raw)
+    }
+
     @Test func graniteSessionPersistsEndToEndTelemetry() async throws {
         guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
 
@@ -2988,6 +3048,45 @@ private actor FailOnceASR: ASRClienting {
             throw error
         }
         return try await recovered.transcribe(audio, timeoutMs: timeoutMs)
+    }
+
+    func health(timeoutMs: Int) async throws -> ASRBackendHealth {
+        FakeASR.ready
+    }
+}
+
+/// Answers `transcript` split into words, with `spots` over them, and records the terms each
+/// spotting transcribe asked for.
+private actor SpottingASR: ASRClienting {
+    private let transcript: String
+    private let spots: [TermSpot]
+    private(set) var requestedSpotTerms: [[ASRSpotTerm]] = []
+
+    init(transcript: String, spots: [TermSpot]) {
+        self.transcript = transcript
+        self.spots = spots
+    }
+
+    func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
+        try await transcribe(audio, timeoutMs: timeoutMs, spotTerms: [])
+    }
+
+    func transcribe(_ audio: RecordedAudio, timeoutMs: Int, spotTerms: [ASRSpotTerm]) async throws -> ASRResult {
+        requestedSpotTerms.append(spotTerms)
+        let words = transcript.split(separator: " ").map { ASRWord(text: String($0), startMs: 0, endMs: 0) }
+        return ASRResult(
+            requestId: "spotting",
+            backendId: "granite-ctc",
+            modelId: "fake",
+            modelRevision: "dev",
+            transcript: ASRTranscript(
+                text: transcript,
+                language: "en",
+                segments: [ASRSegment(startMs: 0, endMs: 0, text: transcript, words: words)],
+                termSpots: spotTerms.isEmpty ? nil : spots
+            ),
+            timingsMs: ASRTimings(load: 0, inference: 1, total: 1)
+        )
     }
 
     func health(timeoutMs: Int) async throws -> ASRBackendHealth {

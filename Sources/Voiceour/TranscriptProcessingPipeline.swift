@@ -200,9 +200,20 @@ extension DictationCoordinator {
             )
             StopPath.signposter.endInterval(StopPath.Stage.vocabulary, vocabularySpan)
 
+            // Spotting rides the transcribe call: the sidecar searches the decode's own logits
+            // for every target's spellings, and the text stage alone decides what changes.
+            let activeTerms = vocabulary.terms
+            let spotTargets =
+                settings.cleanupEnabled
+                ? TermSpotTargets(terms: activeTerms, ordinaryWords: RepairVocabulary.bundledOrdinaryWords) : nil
+
             state = .transcribing
             let asrStarted = runtime.now()
-            let result = try await asr.transcribe(audio, timeoutMs: 30_000)
+            let result = try await asr.transcribe(
+                audio,
+                timeoutMs: 30_000,
+                spotTerms: spotTargets?.spotTerms ?? []
+            )
             let asrMs = Int(runtime.now().timeIntervalSince(asrStarted) * 1000)
             try ensureCurrentProcessing(generation)
             removeTemporaryAudio(&audioURL)
@@ -210,9 +221,9 @@ extension DictationCoordinator {
             state = .cleaning
             let cleanupSpan = StopPath.signposter.beginInterval(StopPath.Stage.cleanup)
             let rawTranscript = result.transcript.text
-            let activeTerms = vocabulary.terms
             let textStage = DictationTextStage.apply(
                 rawTranscript,
+                spotting: spotTargets.map { TermSpotEvidence(transcript: result.transcript, targets: $0) },
                 cleanupEnabled: settings.cleanupEnabled,
                 glossary: activeTerms,
                 repairEngine: settings.cleanupEnabled ? repairEngine(for: activeTerms) : nil
