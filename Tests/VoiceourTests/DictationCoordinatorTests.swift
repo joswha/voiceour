@@ -1350,8 +1350,10 @@ struct DictationCoordinatorTests {
         #expect(claude.labeledAliases.isEmpty)
         #expect(CleanupEngine.clean("deploy on Google Cloud", glossary: [claude]) == "deploy on Google Cloud")
         // The row itself survives: the canonical may still be vocabulary the
-        // user relies on, and its own surface still normalises.
-        #expect(CleanupEngine.clean("ask claude about it", glossary: [claude]) == "ask Claude about it")
+        // user relies on. Its one-word spelling is ordinary English, so prose
+        // keeps the word as spoken rather than recasing it.
+        #expect(CleanupEngine.clean("ask claude about it", glossary: [claude]) == "ask claude about it")
+        #expect(CleanupEngine.clean("ask Claude about it", glossary: [claude]) == "ask Claude about it")
     }
 
     /// The whole feature, end to end, on the surfaces the user actually touches:
