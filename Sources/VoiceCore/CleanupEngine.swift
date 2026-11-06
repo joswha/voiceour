@@ -3,13 +3,25 @@ import Foundation
 public enum CleanupEngine {
     static let fillers: Set<String> = ["um", "uh", "uhm", "erm", "mmm", "hmm"]
 
+    /// Normalizes whitespace, removes fillers, collapses repeats, restores a sentence's
+    /// capital letter where a removal exposed a lower-case word, canonicalizes
+    /// Glossary surfaces, then runs `repairEngine`. The deletion passes and repair
+    /// follow English: a transcript `language` names as another language keeps every
+    /// word — Portuguese *um* is an article, German *die die* is grammar — and gets
+    /// whitespace normalization and canonicalization only
+    /// (`DictationLanguage.usesEnglishRules`).
     public static func clean(
         _ raw: String,
         glossary: [ProtectedTerm],
+        language: DictationLanguage? = nil,
         repairEngine: VocabularyRepairEngine? = nil
     ) -> String {
         let normalized = normalize(raw)
         guard !normalized.isEmpty else { return "" }
+        guard DictationLanguage.usesEnglishRules(language) else {
+            return Glossary.canonicalize(normalized, terms: glossary, language: language)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let fragile = fragileSurfaces(in: glossary)
         let noFillers = removeFillers(from: normalized, glossary: glossary, fragile: fragile)
         let deduped = collapseAdjacentRepeats(in: noFillers, fragile: fragile)
@@ -19,7 +31,7 @@ public enum CleanupEngine {
             glossary: glossary,
             fragile: fragile
         )
-        let canonical = Glossary.canonicalize(recased, terms: glossary)
+        let canonical = Glossary.canonicalize(recased, terms: glossary, language: language)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return repairEngine?.repair(canonical).text ?? canonical
     }

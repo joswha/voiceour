@@ -69,9 +69,10 @@ public enum GraniteTranscriptMapping {
         }
 
         let mean = textTokens.reduce(0.0) { $0 + Double($1.probability) } / Double(textTokens.count)
+        // Granite emits no language tag; the text's own words name it, or nothing does.
         return ASRTranscript(
             text: text,
-            language: "en",
+            language: DictationLanguage.detect(text)?.rawValue,
             segments: [ASRSegment(startMs: first.startMs, endMs: last.endMs, text: text, words: words)],
             confidence: mean,
             confidenceMode: .greedyTokenProb
@@ -80,7 +81,7 @@ public enum GraniteTranscriptMapping {
 
     /// The transcript of a decode without tokens.
     static var emptyTranscript: ASRTranscript {
-        ASRTranscript(text: "", language: "en", segments: nil, confidence: nil, confidenceMode: nil)
+        ASRTranscript(text: "", language: nil, segments: nil, confidence: nil, confidenceMode: nil)
     }
 
     static func words(from textTokens: [GraniteRawToken], msPerFrame: Int) -> [ASRWord] {

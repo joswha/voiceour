@@ -40,7 +40,7 @@ uv --no-config run pytest
 uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --backend granite --n 64
 ```
 
-`--backend` is `fake` or `granite`, and defaults to `granite`; `voiceour-bench pipeline` without one runs the registry default, also `granite`. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR then `CleanupEngine`); the mode records intent, not execution. `make bench-gate` refuses a cross-model pair; compare two models through the [paired gate](#paired-fixed-corpus-promotion-gate).
+`--backend` is `fake` or `granite`, and defaults to `granite`; `voiceour-bench pipeline` without one runs the registry default, also `granite`. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR, then `CleanupEngine` under the transcript's detected language, then vocabulary repair on English or undetermined transcripts); the mode records intent, not execution. `make bench-gate` refuses a cross-model pair; compare two models through the [paired gate](#paired-fixed-corpus-promotion-gate).
 
 ## Row identity
 
@@ -434,3 +434,42 @@ for both backends, with zero error rows and identical manifest pins:
 The same day the repository owners made Granite the default recognizer by explicit decision, with
 every promotion blocker above still open; Parakeet remained selectable per launch.
 [README.md](../README.md#model-and-network-contract) owns the resulting contract.
+
+## Multilingual text stage — 2026-11-06
+
+Granite transcribes French, German, Spanish, Portuguese, Italian and Japanese as well as English, and the
+text stage reads each transcript's language before applying its English-only rules;
+[README.md](../README.md#what-happens-to-the-words) owns that behavior. Measured with `voiceour-bench
+granite-spot` (the production in-process decode and the app's `DictationTextStage`) on FLEURS `test`,
+Granite Q8_0 at `bd7db273`, an Apple M4 Pro under macOS 27.3, with the bundled seven-term glossary.
+*Before* is the text stage at `55e4b3a`, which applied the English rules to every transcript; *after* is the
+language-aware stage. The recognizer's text is identical in both builds on every row. WER uses Whisper's
+basic text normalizer (its English normalizer for `en`); Japanese is CER with spaces removed.
+
+Held out, rows 201–500 of each language, none seen while the detector's word lists were tuned:
+
+| language | rows | detected | undetermined | misdetected | metric | raw | before | after | rows rewritten, before → after |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| en | 300 | 298 | 2 | 0 | WER | 4.82 | 4.89 | 4.89 | 6 → 6 |
+| fr | 300 | 300 | 0 | 0 | WER | 6.65 | 6.66 | 6.65 | 1 → 0 |
+| de | 300 | 298 | 2 | 0 | WER | 5.38 | 5.80 | 5.38 | 27 → 0 |
+| es | 300 | 298 | 2 | 0 | WER | 4.78 | 4.83 | 4.78 | 4 → 0 |
+| pt | 300 | 294 | 6 | 0 | WER | 8.71 | 9.99 | 8.73 | 87 → 1 |
+| it | 300 | 298 | 2 | 0 | WER | 4.13 | 4.17 | 4.13 | 3 → 0 |
+| ja | 300 | 300 | 0 | 0 | CER | 4.59 | 4.59 | 4.59 | 0 → 0 |
+
+- **What the English rules did.** Filler removal deleted the Portuguese article *um* and the German *um* of
+  *um … zu*, repeat collapse merged German *die die*, and the `capital` command consumed the Spanish noun and
+  uppercased the next word (`capital bilingüe` → `BILINGÜE`).
+- **Tuning rows 1–200.** The same shape: detection 1,396 of 1,400 with none wrong; Portuguese 9.03 → 7.70
+  against a raw 7.70, German 5.45 → 5.07, Spanish 4.27 → 4.23; English and Japanese unchanged.
+- **English misrouting.** None on the 18,330 wave-1 English transcripts the lists were tuned against
+  (12,812 English, 5,518 undetermined), and none on 6,985 fresh ones: the VoxPopuli, Earnings-22 and
+  GigaSpeech rows of the wave-2 word-spotting record plus its 402 synthetic sentences (6,644 English, 341
+  undetermined).
+- **A larger glossary.** With the 141-term jargon vocabulary instead of the seven defaults every figure is the
+  same, except Spanish *before*: 4.85 over 5 rewritten rows.
+- **What remains.** An undetermined transcript keeps the English rules: 14 of the 2,100 held-out rows, of
+  which one Portuguese row lost its article (`prometeu um novo` → `prometeu novo`).
+- **Limits.** FLEURS is read speech, 300 held-out rows per language, on one Mac. A code-switched transcript is
+  classified as a whole. The raw column is the recognizer's own accuracy on this corpus, not a product claim.

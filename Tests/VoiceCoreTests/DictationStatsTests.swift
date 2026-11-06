@@ -361,6 +361,15 @@ struct DictationStatsTests {
         #expect(WordCount.count(in: text(40)) == 40)
     }
 
+    /// Japanese has no spaces, so each kana or Han character is a word and its
+    /// punctuation separates; a Latin run beside it is still one word.
+    @Test func wordCountCountsJapaneseCharacters() {
+        #expect(WordCount.count(in: "会議の結果は、来週公開されます。") == 14)
+        #expect(WordCount.count(in: "「テスト」") == 3)
+        #expect(WordCount.count(in: "Swiftで書く") == 4)
+        #expect(WordCount.count(in: "人々") == 2)
+    }
+
     // MARK: Day keys
 
     @Test func dayKeysAreIsoOrderedAndZeroPadded() {

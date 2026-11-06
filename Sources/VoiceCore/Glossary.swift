@@ -55,17 +55,28 @@ public enum Glossary {
         return aliases
     }
 
-    public static func canonicalize(_ text: String, terms: [ProtectedTerm]) -> String {
+    /// Replaces every alias match with its term, longest then leftmost. In a transcript
+    /// `language` names as other than English, a one-word term spelled as an ordinary word
+    /// (`Vue`, `claude`) leaves its own surface alone: French *vue* is "view", and the
+    /// ordinary-word list that guards English prose knows no French.
+    public static func canonicalize(
+        _ text: String,
+        terms: [ProtectedTerm],
+        language: DictationLanguage? = nil
+    ) -> String {
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
         var replacements: [AliasReplacement] = []
         var discoveryOrder = 0
+        let englishRules = DictationLanguage.usesEnglishRules(language)
 
         // Every match comes from the original text so replacement output can
         // never trigger another glossary rule in the same pass.
         for term in terms {
             let template = NSRegularExpression.escapedTemplate(for: term.renderedCanonical)
+            let recasesSurface =
+                recasesOwnSurface(term.canonical) && (englishRules || !isSpelledAsAWord(term.canonical))
             for alias in matchingAliases(for: term)
-            where recasesOwnSurface(term.canonical) || aliasKey(alias) != aliasKey(term.canonical) {
+            where recasesSurface || aliasKey(alias) != aliasKey(term.canonical) {
                 guard let regex = aliasRegex(alias) else { continue }
                 for match in regex.matches(in: text, range: fullRange) {
                     replacements.append(
@@ -197,6 +208,13 @@ public enum Glossary {
         guard trimmed.count > 2 else { return false }
         if trimmed.contains(where: \.isWhitespace) { return true }
         return !RepairVocabulary.bundledOrdinaryWords.contains(trimmed.lowercased())
+    }
+
+    /// One word with at most an initial capital — the shape any language's ordinary words take.
+    static func isSpelledAsAWord(_ canonical: String) -> Bool {
+        let trimmed = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.allSatisfy(\.isLetter) else { return false }
+        return !trimmed.dropFirst().contains(where: \.isUppercase)
     }
 
     static func generalizableAliases(for term: ProtectedTerm) -> [String] {

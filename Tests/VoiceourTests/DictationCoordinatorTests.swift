@@ -581,6 +581,31 @@ struct DictationCoordinatorTests {
             })
     }
 
+    /// A dictation in another language keeps the words the English rules would take — the
+    /// Portuguese article *um*, the noun *capital* the `capital` command would consume — still
+    /// gets its Glossary heard-as forms, skips English phonetic repair, and retrieves no
+    /// suggestions: the same `cube cuttle` in English is repaired and suggested.
+    @Test func anotherLanguageKeepsItsWordsThroughTheStopPath() async throws {
+        var settings = VoiceCore.Settings()
+        settings.glossary = [ProtectedTerm(canonical: "kubectl", spokenAliases: ["cube cuddle"])]
+        let inserter = CapturingInserter()
+        let coordinator = makeCoordinator(
+            asr: FakeASR(
+                behavior: .text("O comitê comprou um carro e disse que a capital usa cube cuddle e cube cuttle.")),
+            inserter: inserter,
+            settings: settings
+        )
+
+        await driveUtterance(coordinator)
+        await drain()
+
+        let delivered = "O comitê comprou um carro e disse que a capital usa kubectl e cube cuttle."
+        #expect(coordinator.lastTranscript == delivered)
+        #expect(inserter.insertedText == delivered)
+        #expect(coordinator.suggestionTask == nil)
+        #expect(coordinator.pendingSuggestions.isEmpty)
+    }
+
     @Test func graniteSessionPersistsEndToEndTelemetry() async throws {
         guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
 

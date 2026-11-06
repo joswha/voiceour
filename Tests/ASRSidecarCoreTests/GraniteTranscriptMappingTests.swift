@@ -57,7 +57,7 @@ struct GraniteTranscriptMappingTests {
 
         #expect(transcript == GraniteTranscriptMapping.emptyTranscript)
         #expect(transcript.text == "")
-        #expect(transcript.language == "en")
+        #expect(transcript.language == nil)
         #expect(transcript.segments == nil)
         #expect(transcript.confidence == nil)
         #expect(transcript.confidenceMode == nil)
@@ -193,7 +193,16 @@ struct GraniteTranscriptMappingTests {
         let mean = (Double(Float(0.95)) + Double(Float(0.25)) + Double(Float(0.875)) + Double(Float(0.5))) / 4
         #expect(isClose(transcript.confidence, mean))
         #expect(transcript.confidenceMode == .greedyTokenProb)
-        #expect(transcript.language == "en")
+        #expect(transcript.language == nil)
+    }
+
+    /// Granite emits no language tag, so the transcript names the language its words show.
+    @Test func languageComesFromTheText() {
+        let french = map([" Le", " chat", " est", " sur", " la", " table", "."].map { token($0) })
+        #expect(french.text == "Le chat est sur la table.")
+        #expect(french.language == "fr")
+        let english = map([" The", " build", " is", " on", " the", " table", "."].map { token($0) })
+        #expect(english.language == "en")
     }
 
     /// Special tokens carry no text, start no word, and do not enter the mean.

@@ -11,6 +11,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 ### Added
 
 - **Island garage.** Settings ▸ Island customizes the recording island with a live showroom preview: twelve looks, Surprise Me, and options for its metal, coat, finish, room, colour temperature, underglow, brightness, contrast, size, build, crown, taper and motion. A look dresses the floating island and the notch collar alike. Every colour comes from the metal, its coat or the light in the room; nothing is painted on. A change shows the next time the island appears and can be undone with ⌘Z, and Dock Island returns a free island to its dock.
+- **Seven dictation languages.** Speak English, French, German, Spanish, Portuguese, Italian or Japanese, with no language setting: Voiceour reads the language from the transcript's own words. English keeps its spoken formatting commands, filler removal, repeat collapse, phonetic repair and term suggestions; the other six keep every word they were heard with — a Portuguese *um* or a German *um … zu* is no longer deleted as a filler, a Spanish *capital* no longer uppercases the next word, and a German *die die* is no longer collapsed — and still get their Glossary heard-as forms. Japanese words on Home count each kana or kanji character.
 
 ### Changed
 

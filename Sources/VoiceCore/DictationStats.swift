@@ -296,23 +296,54 @@ public struct DictationStatsLedger: Codable, Equatable, Sendable {
 /// The app's one word count.
 ///
 /// Contiguous runs of non-whitespace, which is what a reader means by "words"
-/// for dictated prose and what the transcript journal has always reported. Kept
-/// here rather than on `RecentSession` because the stats ledger counts words for
-/// sessions it never holds a transcript of.
+/// for dictated prose and what the transcript journal has always reported. Text
+/// written without spaces counts each kana or Han character as a word, the usual
+/// count for Japanese: a whole sentence is otherwise one run. Kept here rather
+/// than on `RecentSession` because the stats ledger counts words for sessions it
+/// never holds a transcript of.
 public enum WordCount {
     public static func count(in text: String) -> Int {
         var count = 0
         var isInWord = false
 
         for character in text {
-            if character.isWhitespace {
-                isInWord = false
-            } else if !isInWord {
+            switch UnspacedScript(character) {
+            case .character:
                 count += 1
-                isInWord = true
+                isInWord = false
+            case .punctuation:
+                isInWord = false
+            case nil where character.isWhitespace:
+                isInWord = false
+            case nil:
+                if !isInWord {
+                    count += 1
+                    isInWord = true
+                }
             }
         }
 
         return count
+    }
+
+    /// Japanese script: kana (with the prolonged-sound mark), CJK ideographs and
+    /// the ideographic iteration and zero marks count; ideographic punctuation
+    /// such as `、` and `。` separates like a space.
+    private enum UnspacedScript {
+        case character
+        case punctuation
+
+        init?(_ character: Character) {
+            guard let scalar = character.unicodeScalars.first else { return nil }
+            switch scalar.value {
+            case 0x3005, 0x3007, 0x3040...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9F, 0x3400...0x4DBF,
+                0x4E00...0x9FFF, 0xF900...0xFAFF:
+                self = .character
+            case 0x3000...0x303F, 0xFF01...0xFF0F, 0xFF1A...0xFF20, 0xFF3B...0xFF40, 0xFF5B...0xFF65:
+                self = .punctuation
+            default:
+                return nil
+            }
+        }
     }
 }

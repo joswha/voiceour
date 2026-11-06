@@ -6,7 +6,7 @@
 
 <p><strong>Tap <code>fn</code> to dictate where your cursor is.</strong></p>
 
-<sub>macOS 27+ · Apple Silicon only · English only · initial 0.51 GB model download</sub>
+<sub>macOS 27+ · Apple Silicon only · English, French, German, Spanish, Portuguese, Italian, Japanese · initial 0.51 GB model download</sub>
 
 </div>
 
@@ -45,7 +45,9 @@ This README is Voiceour's product and technical contract: what the app does, how
 
 Three deterministic stages run after recognition, in this order, and nothing else rewrites the transcript. No language model or network service touches it, and the same transcript and glossary always produce the same text.
 
-1. **Literal composition** always runs. It turns spoken formatting commands into characters:
+There is no language setting: the recognizer transcribes the language you speak, and Voiceour reads that language from the transcript's own words — Japanese by its script, the others by their most common short words. The spoken commands, filler words, repeat collapse and phonetic repair below are English rules, and their words are ordinary words elsewhere: Portuguese *um* means "a", Spanish *capital* is a capital city, German *die die* is grammar. They apply to English and to a transcript too short or too code-like to name a language. A French, German, Spanish, Portuguese, Italian or Japanese transcript keeps every word it was heard with; it gets whitespace normalization and its Glossary heard-as forms, and a one-word term spelled like an ordinary word, such as *Vue*, leaves that word in its prose alone.
+
+1. **Literal composition** runs on every English or undetermined transcript. It turns spoken formatting commands into characters:
    - `spell …`, `spell that …`, and `letter by letter …` join the words that follow into one token; inside that run, `capital X` or `uppercase X` uppercases a word and `dash`, `dash dash`, `dot` and `underscore` become `-`, `--`, `.` and `_`.
    - `snake case …` produces `lower_snake_case`, and `camel case …` produces `lowerCamelCase`.
    - `capital word` or `uppercase word` uppercases that one word.
@@ -55,7 +57,7 @@ Three deterministic stages run after recognition, in this order, and nothing els
 2. **Cleanup**, on by default, normalizes whitespace, removes the fillers *um, uh, uhm, erm, mmm,* and *hmm*, collapses an immediately repeated phrase of up to four words, restores a sentence's capital letter where a removal exposed a lower-case word, and finally replaces every Glossary heard-as form with its term. A term also corrects the case of its own spelling — *Kubectl* becomes *kubectl* — unless it is a single ordinary English word or two characters or shorter: *Go*, *Rust* or *Swift* in the Glossary never turns the *go*, *rust* or *swift* of ordinary prose into the term, though their heard-as forms still apply. Tokens that look like code — flags, paths, numbers, internal capitals — and Glossary spellings are never treated as fillers or recased, and a taught form that itself contains a filler or a stutter is left intact so it can still match.
 3. **Vocabulary repair** runs whenever cleanup does. It rewrites a span of up to five words only when it is a near-exact phonetic match for a Glossary term. Terms that are ordinary English words, or two characters or shorter, are never repair targets, and a multi-word span made entirely of ordinary words is never rewritten — the guard that keeps *I am* from becoming *IAM*.
 
-Turning Cleanup off in Settings skips stages 2 and 3 together; literal composition still runs. A transcript that comes out empty ends the session as cancelled and delivers nothing. History keeps both the recognizer's raw text and the delivered text.
+Turning Cleanup off in Settings skips stages 2 and 3 together; literal composition still runs on English. A transcript that comes out empty ends the session as cancelled and delivers nothing. History keeps both the recognizer's raw text and the delivered text.
 
 ### Glossary
 
@@ -68,7 +70,7 @@ Turning Cleanup off in Settings skips stages 2 and 3 together; literal compositi
 ### History and Home
 
 - **History** holds the newest 500 dictations delivered to non-secure targets, grouped by day, with search and an app filter. One transcript is open at a time. A click copies the whole transcript; selecting words and pressing ⌘T teaches a correction. Each row's context menu offers Copy Transcript, Fix / Teach a Word, Show Only *App*, and Delete. Raw recognizer text, when it differs, and a Details fold holding the target, stage timings, and the recognizer's least-confident word are collapsed until asked for.
-- **Home** reads an aggregate ledger that outlives the 500-row History cap: total dictation time, words, time saved against typing at 40 words per minute, average speaking speed, active days, current and longest streaks, the five apps dictated into most, and an activity grid of 12 to 30 weeks depending on window width. The ledger keeps no transcript text.
+- **Home** reads an aggregate ledger that outlives the 500-row History cap: total dictation time, words, time saved against typing at 40 words per minute, average speaking speed, active days, current and longest streaks, the five apps dictated into most, and an activity grid of 12 to 30 weeks depending on window width. Words are runs of text between spaces; Japanese, written without them, counts each kana or kanji character. The ledger keeps no transcript text.
 - Settings → **Clear History** erases History and the Home ledger together. **Clear Vocabulary** removes every term you taught or imported and returns the surviving bundled terms to their shipped forms.
 
 ### Menu, island, and console
@@ -176,14 +178,14 @@ The record-start target only labels the menu's *Will paste into …* line; it ne
 
 ## Model and network contract
 
-Voiceour's recognizer is IBM's Granite Speech 5.0 TurboCTC 470M, decoded locally on the vendored ggml under `Vendor/ggml/`, Metal first with a CPU fallback, through Voiceour's port of transcribe.cpp under `Vendor/granite/`. Voiceour supports English dictation. Granite downloads one artifact, `granite-speech-5.0-470m-turboctc-Q8_0.gguf`, from `vladers/granite-speech-5.0-470m-turboctc-GGUF` at `bd7db273aa69a26fc81e370c84597fa738fe2ad0`:
+Voiceour's recognizer is IBM's Granite Speech 5.0 TurboCTC 470M, decoded locally on the vendored ggml under `Vendor/ggml/`, Metal first with a CPU fallback, through Voiceour's port of transcribe.cpp under `Vendor/granite/`. Voiceour dictates English, French, German, Spanish, Portuguese, Italian and Japanese with it. Granite downloads one artifact, `granite-speech-5.0-470m-turboctc-Q8_0.gguf`, from `vladers/granite-speech-5.0-470m-turboctc-GGUF` at `bd7db273aa69a26fc81e370c84597fa738fe2ad0`:
 
 | file | SHA-256 | download | cache after first load |
 | --- | --- | --- | --- |
 | `granite-speech-5.0-470m-turboctc-Q8_0.gguf` | `fc34cbe71f979a6aeb8bea08bfac88d5c62c1736c0bc845827e37c90f28e336c` | 505,663,136 bytes | about 0.51 GB |
 
 - **Selection.** A launch runs the backend named by `--asr-backend`, else by `VOICEOUR_ASR_BACKEND`, else — in a `--debug` launch only — the Backend picker's saved choice, else Granite. An invalid value falls through to the next source, and the retired ids `mlx`, `ark-0.6b`, `ark-3b`, `apple` and `parakeet` select Granite. A release launch never restores a saved backend: a release build has no picker, and every launch saves the backend it resolved.
-- **Source.** That file is the Q8_0 member of a GGUF set the maintainers publish, converted from `ibm-granite/granite-speech-5.0-470m-turboctc` at `1dd23f46f6d4e6eae2531982ba2e33220086dd97`, IBM's October 21, 2026 multilingual checkpoint, licensed Apache-2.0. The repository's `conversion/build.sh` rebuilds every file in it byte for byte from IBM's files, and its card records how each was verified and measured. [NOTICE](NOTICE) carries the attribution. Voiceour uses it for English dictation only.
+- **Source.** That file is the Q8_0 member of a GGUF set the maintainers publish, converted from `ibm-granite/granite-speech-5.0-470m-turboctc` at `1dd23f46f6d4e6eae2531982ba2e33220086dd97`, IBM's October 21, 2026 multilingual checkpoint, licensed Apache-2.0. The repository's `conversion/build.sh` rebuilds every file in it byte for byte from IBM's files, and its card records how each was verified and measured. [NOTICE](NOTICE) carries the attribution.
 - **One artifact.** There is no model choice: Settings ▸ Model names the file and its 0.51 GB download.
 - **Cache.** `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` holds the file and its manifest. The file is mapped read-only and no acceleration file is written, so the cache is the size of the download. The directory stays until you delete it. A Granite file that an earlier build cached under a pin Voiceour has since replaced is cleared there, and the current file downloads in its place; a `VOICEOUR_MODEL_CACHE` directory is never cleared.
 - **Download.** Only the sidecar's background load downloads; until the model is ready a dictation is refused rather than left waiting. The file comes from `https://huggingface.co/vladers/granite-speech-5.0-470m-turboctc-GGUF/resolve/bd7db273aa69a26fc81e370c84597fa738fe2ad0/granite-speech-5.0-470m-turboctc-Q8_0.gguf`. Voiceour requires the remaining download bytes plus 256 MiB of free disk before fetching, makes up to three resumable attempts, and verifies the completed file against the digest above before accepting it. A cached file is reused only when its manifest and size match the pin exactly. A cached file that fails to load is hashed again; if its bytes no longer match, it is removed and downloaded again in the background, once per process.
@@ -231,7 +233,7 @@ These are product decisions, not deferred roadmap items. Feature requests that c
 - **No saved audio.**
 - **No telemetry, crash reporting, account, update check, or stored credential.**
 - **No second recognizer.** Granite is the only recognizer; the fake backend exists for development.
-- **No language picker.** Voiceour supports English only.
+- **No language picker.** The recognizer hears the language spoken; the seven languages above are the ones measured.
 - **No control socket or terminal client.** Microphone and Accessibility grants stay inside the signed app.
 - **No Intel or universal build.** The vendored ggml drop is arm64-only by design.
 
@@ -350,7 +352,7 @@ Files stay local. [Runtime and data](#runtime-and-data) lists what they hold and
 <details>
 <summary><strong>Which languages does it support?</strong></summary>
 
-English only, with no language picker. The Granite checkpoint is multilingual, but Voiceour uses it for English only.
+English, French, German, Spanish, Portuguese, Italian and Japanese, with no language picker: speak any of them and the transcript comes back in that language. The text stage reads the language from the transcript and applies its English-only rules — spoken formatting commands, filler removal, repeat collapse and phonetic repair — to English alone. [Measured error rates](docs/benchmarks.md#multilingual-text-stage--2026-11-06) are from FLEURS read speech.
 
 </details>
 

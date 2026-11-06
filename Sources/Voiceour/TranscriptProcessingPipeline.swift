@@ -211,15 +211,14 @@ extension DictationCoordinator {
             let cleanupSpan = StopPath.signposter.beginInterval(StopPath.Stage.cleanup)
             let rawTranscript = result.transcript.text
             let activeTerms = vocabulary.terms
-            let composed = LiteralComposition.apply(rawTranscript)
-            let cleaned =
-                settings.cleanupEnabled ? CleanupEngine.clean(composed, glossary: activeTerms) : composed
-            let deterministic: String
-            if settings.cleanupEnabled, let engine = repairEngine(for: activeTerms) {
-                deterministic = engine.repair(cleaned).text
-            } else {
-                deterministic = cleaned
-            }
+            let textStage = DictationTextStage.apply(
+                rawTranscript,
+                cleanupEnabled: settings.cleanupEnabled,
+                glossary: activeTerms,
+                repairEngine: settings.cleanupEnabled ? repairEngine(for: activeTerms) : nil
+            )
+            let englishRules = DictationLanguage.usesEnglishRules(textStage.language)
+            let deterministic = textStage.text
             lastTranscript = deterministic
             StopPath.signposter.endInterval(StopPath.Stage.cleanup, cleanupSpan)
             try ensureCurrentProcessing(generation)
@@ -327,15 +326,19 @@ extension DictationCoordinator {
             // .recordingStart token, and cancel/error paths invalidate .processing.
             let spawnStartToken = generations.currentToken(.recordingStart)
             suggestionTask?.cancel()
-            suggestionTask = Task.detached(priority: .utility) { [weak self, finalText, vocabulary] in
-                let suggestions = Self.suggestions(in: finalText, snapshot: vocabulary)
-                await MainActor.run { [weak self] in
-                    guard let self,
-                        !Task.isCancelled,
-                        self.generations.isCurrent(generation),
-                        self.generations.isCurrent(spawnStartToken)
-                    else { return }
-                    self.pendingSuggestions = suggestions
+            // Retrieval matches English phonetics; another language's words would
+            // only propose rules the user has no reason to accept.
+            if englishRules {
+                suggestionTask = Task.detached(priority: .utility) { [weak self, finalText, vocabulary] in
+                    let suggestions = Self.suggestions(in: finalText, snapshot: vocabulary)
+                    await MainActor.run { [weak self] in
+                        guard let self,
+                            !Task.isCancelled,
+                            self.generations.isCurrent(generation),
+                            self.generations.isCurrent(spawnStartToken)
+                        else { return }
+                        self.pendingSuggestions = suggestions
+                    }
                 }
             }
             state = DictationPolicy.sessionState(for: outcome)

@@ -217,11 +217,9 @@ private struct SpotSetup {
         }
     }
 
-    /// The app's text stage, in the app's order, with cleanup enabled.
+    /// The app's text stage, with cleanup enabled.
     func textStage(_ raw: String) -> String {
-        let composed = LiteralComposition.apply(raw)
-        let cleaned = CleanupEngine.clean(composed, glossary: activeTerms)
-        return engine.repair(cleaned).text
+        DictationTextStage.apply(raw, cleanupEnabled: true, glossary: activeTerms, repairEngine: engine).text
     }
 }
 
@@ -369,5 +367,49 @@ struct GraniteTokenizeCommand {
         var id: String
         var text: String
         var ids: [Int32]?
+    }
+}
+
+/// Labels each text with `DictationLanguage.detect`. Input rows are `{"id": …, "text": …}`; output rows
+/// add `"language"` (an ISO 639-1 code, or null when undetermined).
+struct DetectLanguageCommand {
+    var input: URL
+    var output: URL
+
+    static func parse(_ arguments: [String]) throws -> DetectLanguageCommand {
+        var input: URL?
+        var output: URL?
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let parsed = BenchCLI.splitOption(arguments[index])
+            switch parsed.name {
+            case "--input": input = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
+            case "--output": output = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
+            default: throw BenchError.usage("unknown option: \(arguments[index])")
+            }
+            index = arguments.index(after: index)
+        }
+        guard let input, let output else { throw BenchError.usage("detect-language requires --input and --output") }
+        return DetectLanguageCommand(input: input, output: output)
+    }
+
+    func run() throws {
+        let reader = try JSONLLineReader(url: input)
+        let writer = try JSONLWriter(url: output)
+        var count = 0
+        while let line = try reader.nextLine() {
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            let row = try JSONDecoder().decode(LanguageRow.self, from: Data(line.utf8))
+            try writer.write(
+                LanguageRow(id: row.id, text: row.text, language: DictationLanguage.detect(row.text)?.rawValue))
+            count += 1
+        }
+        print("wrote \(count) detect-language rows to \(output.path)")
+    }
+
+    private struct LanguageRow: Codable {
+        var id: String
+        var text: String
+        var language: String?
     }
 }

@@ -20,6 +20,8 @@ struct VoiceourBenchMain {
                 try GraniteSpotCommand.parse(Array(arguments.dropFirst())).run()
             } else if arguments.first == "granite-tokenize" {
                 try GraniteTokenizeCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "detect-language" {
+                try DetectLanguageCommand.parse(Array(arguments.dropFirst())).run()
             } else {
                 let options = try BenchCLI.parse(arguments)
                 try await BenchRunner(options: options).run()
@@ -128,6 +130,7 @@ enum BenchCLI {
           voiceour-bench granite-spot --input <manifest.jsonl> --output <rows.jsonl>
               [--glossary <repair.vocabulary.json>] [--model <granite.gguf>]
           voiceour-bench granite-tokenize --input <texts.jsonl> --output <ids.jsonl> [--model <granite.gguf>]
+          voiceour-bench detect-language --input <texts.jsonl> --output <languages.jsonl>
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
@@ -596,8 +599,11 @@ struct BenchRunner {
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
             let cleanupStart = BenchClock.mark()
-            cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
-            finalText = repair.map { $0.engine.repair(cleanedText).text } ?? cleanedText
+            let language = DictationLanguage.detect(rawTranscript)
+            cleanedText = CleanupEngine.clean(rawTranscript, glossary: [], language: language)
+            finalText =
+                DictationLanguage.usesEnglishRules(language)
+                ? repair.map { $0.engine.repair(cleanedText).text } ?? cleanedText : cleanedText
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
         } catch {
             rowError = BenchError.describe(error)
