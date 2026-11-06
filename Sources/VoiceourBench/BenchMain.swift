@@ -255,6 +255,70 @@ struct LoadedRepairEngine {
     }
 }
 
+/// A glossary file read the way the app reads its vocabulary snapshot: the active terms, the app's
+/// repair engine over them, and the spotting targets of their canonicals.
+///
+/// The file is a repair vocabulary (`surfaces` + `protected_surfaces`, no aliases) or the app's
+/// word-list import shape, `[{"term": …, "heard_as": […]}]`, whose forms become heard-as aliases
+/// for the text stage only: a heard-as form is never a spotting variant.
+struct BenchGlossary {
+    let terms: [ProtectedTerm]
+    let engine: VocabularyRepairEngine
+    let targets: TermSpotTargets
+    let sha256: String
+
+    static func load(_ url: URL) throws -> BenchGlossary {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw BenchError.io("cannot read glossary \(url.path): \(BenchError.describe(error))")
+        }
+        let terms: [ProtectedTerm]
+        if let list = try? JSONDecoder().decode([Entry].self, from: data) {
+            terms = list.map { ProtectedTerm(canonical: $0.term, spokenAliases: $0.heardAs ?? []) }
+        } else {
+            do {
+                let vocabulary = try JSONDecoder().decode(RepairVocabulary.self, from: data)
+                terms = (vocabulary.surfaces + vocabulary.protectedSurfaces).map {
+                    ProtectedTerm(canonical: $0, spokenAliases: [])
+                }
+            } catch {
+                throw BenchError.io("cannot decode glossary \(url.path): \(BenchError.describe(error))")
+            }
+        }
+        let ordinary = RepairVocabulary.bundledOrdinaryWords
+        return BenchGlossary(
+            terms: terms,
+            engine: VocabularyRepairEngine(
+                vocabulary: RepairVocabulary.fromActiveTerms(terms, ordinaryWords: ordinary)),
+            targets: TermSpotTargets(terms: terms, ordinaryWords: ordinary),
+            sha256: try BenchRunner.sha256(of: url)
+        )
+    }
+
+    /// The app's text stage with cleanup enabled, spotting with `spotting` when given.
+    func textStage(_ raw: String, spotting: TermSpotEvidence? = nil) -> String {
+        DictationTextStage.apply(
+            raw,
+            spotting: spotting,
+            cleanupEnabled: true,
+            glossary: terms,
+            repairEngine: engine
+        ).text
+    }
+
+    private struct Entry: Decodable {
+        var term: String
+        var heardAs: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case term
+            case heardAs = "heard_as"
+        }
+    }
+}
+
 struct RepairVerificationCommand {
     var fixtures: URL
     var vocabulary: URL
@@ -429,14 +493,15 @@ struct BenchRunner {
     private func runPipeline() async throws {
         let manifestSHA256 = try Self.sha256(of: options.input)
         let audioManifestSHA256 = try Self.audioManifestSHA256(of: options.input)
-        let repair = try options.vocabulary.map(LoadedRepairEngine.load)
+        let glossary = try options.vocabulary.map(BenchGlossary.load)
+        let spotTerms = glossary?.targets.spotTerms ?? []
         let writer = try JSONLWriter(url: options.output)
         try writer.write(
             meta(
                 mode: .pipeline,
                 manifestSHA256: manifestSHA256,
                 audioManifestSHA256: audioManifestSHA256,
-                vocabularySHA256: repair?.sha256
+                vocabularySHA256: glossary?.sha256
             )
         )
         let reader = try JSONLLineReader(url: options.input)
@@ -457,7 +522,7 @@ struct BenchRunner {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
 
-            let outputRow = await processPipelineRow(inputRow, asr: asr, repair: repair)
+            let outputRow = await processPipelineRow(inputRow, asr: asr, glossary: glossary, spotTerms: spotTerms)
             try writer.write(outputRow)
             rowCount += 1
             print("processed \(inputRow.id)")
@@ -566,10 +631,14 @@ struct BenchRunner {
         return data
     }
 
+    /// Without a glossary, `final_text` is `cleaned_text`: glossary-free cleanup under the
+    /// transcript's detected language. With one, the request spots its targets and `final_text` is
+    /// the app's text stage over the result, exactly as a dictation with that vocabulary.
     private func processPipelineRow(
         _ input: PipelineInputRow,
         asr: any ASRClienting,
-        repair: LoadedRepairEngine?
+        glossary: BenchGlossary?,
+        spotTerms: [ASRSpotTerm]
     ) async -> BenchOutputRow {
         let totalStart = BenchClock.mark()
         var rawTranscript = ""
@@ -585,7 +654,7 @@ struct BenchRunner {
             let asrStart = BenchClock.mark()
             let result: ASRResult
             do {
-                result = try await asr.transcribe(audio, timeoutMs: options.timeoutMs)
+                result = try await asr.transcribe(audio, timeoutMs: options.timeoutMs, spotTerms: spotTerms)
                 timings.asr = BenchClock.elapsedMilliseconds(since: asrStart)
             } catch {
                 timings.asr = BenchClock.elapsedMilliseconds(since: asrStart)
@@ -599,11 +668,13 @@ struct BenchRunner {
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
             let cleanupStart = BenchClock.mark()
-            let language = DictationLanguage.detect(rawTranscript)
-            cleanedText = CleanupEngine.clean(rawTranscript, glossary: [], language: language)
+            cleanedText = CleanupEngine.clean(
+                rawTranscript, glossary: [], language: DictationLanguage.detect(rawTranscript))
             finalText =
-                DictationLanguage.usesEnglishRules(language)
-                ? repair.map { $0.engine.repair(cleanedText).text } ?? cleanedText : cleanedText
+                glossary.map {
+                    $0.textStage(
+                        rawTranscript, spotting: TermSpotEvidence(transcript: result.transcript, targets: $0.targets))
+                } ?? cleanedText
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
         } catch {
             rowError = BenchError.describe(error)

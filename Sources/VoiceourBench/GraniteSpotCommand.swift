@@ -50,16 +50,16 @@ struct GraniteSpotCommand {
     func run() throws {
         let modelURL = model ?? ModelCache.granite().modelURL
         let context = try GraniteContext(modelPath: modelURL.path)
-        let setup = try SpotSetup(glossary: glossary, encoder: try context.makeEncoder())
+        let setup = SpotSetup(glossary: try BenchGlossary.load(glossary), encoder: try context.makeEncoder())
         let writer = try JSONLWriter(url: output)
         try writer.write(
             SpotMeta(
                 model: modelURL.lastPathComponent,
                 modelSHA256: try BenchRunner.sha256(of: modelURL),
                 manifestSHA256: try BenchRunner.sha256(of: input),
-                glossarySHA256: try BenchRunner.sha256(of: glossary),
-                targets: setup.targets,
-                protectedSurfaces: setup.protectedSurfaces,
+                glossarySHA256: setup.glossary.sha256,
+                targets: setup.targets.canonicals,
+                protectedSurfaces: setup.targets.protectedSurfaces,
                 patterns: setup.patterns.map {
                     SpotPatternRecord(
                         term: $0.term,
@@ -107,7 +107,7 @@ struct GraniteSpotCommand {
         let spots = GraniteTermSpotting.spots(from: candidates, raw: raw)
         let spotMicroseconds = (DispatchTime.now().uptimeNanoseconds - spotStart) / 1_000
 
-        let baseline = setup.textStage(transcript.text)
+        let baseline = setup.glossary.textStage(transcript.text)
         var special: [String: Int] = [:]
         for token in raw.tokens where token.isSpecial {
             special[String(decoding: token.bytes, as: UTF8.self), default: 0] += 1
@@ -121,7 +121,9 @@ struct GraniteSpotCommand {
             decodeMs: decodeMs,
             spotMicroseconds: Int(spotMicroseconds),
             specialTokens: special,
-            spots: spots.map { SpotRecord(spot: $0, words: words, setup: setup) },
+            spots: zip(spots, candidates).map {
+                SpotRecord(spot: $0, candidate: $1, msPerFrame: raw.msPerFrame, words: words, setup: setup)
+            },
             finals: wordsMatch ? Self.finals(words: words, spots: spots, baseline: baseline, setup: setup) : []
         )
     }
@@ -130,10 +132,11 @@ struct GraniteSpotCommand {
     /// grouped by the spots their thresholds admit, so each distinct admitted set renders once.
     private static func finals(words: [String], spots: [TermSpot], baseline: String, setup: SpotSetup) -> [SpotFinal] {
         guard !spots.isEmpty else { return [] }
+        let targets = setup.targets
         var bySignature: [[Int]: [Int]] = [:]
         for (index, policy) in grid.enumerated() {
             let passing = spots.indices.filter {
-                TermSpotting.accepts(spots[$0], words: words, ordinaryWords: setup.ordinaryWords, policy: policy)
+                TermSpotting.accepts(spots[$0], words: words, ordinaryWords: targets.ordinaryWords, policy: policy)
             }
             if !passing.isEmpty { bySignature[passing, default: []].append(index) }
         }
@@ -144,14 +147,14 @@ struct GraniteSpotCommand {
                 let changed = TermSpotting.apply(
                     words: words,
                     spots: passing.map { spots[$0] },
-                    canonicals: setup.targets,
-                    protectedSurfaces: setup.protectedSurfaces,
-                    ordinaryWords: setup.ordinaryWords,
+                    canonicals: targets.canonicals,
+                    protectedSurfaces: targets.protectedSurfaces,
+                    ordinaryWords: targets.ordinaryWords,
                     policy: grid[points[0]]
                 )
             else { continue }
             let spottedRaw = changed.joined(separator: " ")
-            let final = rendered[spottedRaw] ?? setup.textStage(spottedRaw)
+            let final = rendered[spottedRaw] ?? setup.glossary.textStage(spottedRaw)
             rendered[spottedRaw] = final
             if final != baseline { finals[final, default: []].append(contentsOf: points) }
         }
@@ -159,67 +162,18 @@ struct GraniteSpotCommand {
     }
 }
 
-/// The glossary of one run: targets, protected surfaces, their spotting patterns and the text stage.
+/// The glossary of one run with its targets' spotting patterns, encoded by the run's model.
 private struct SpotSetup {
-    let activeTerms: [ProtectedTerm]
-    let targets: [String]
-    let protectedSurfaces: [String]
-    let patterns: [CTCSpotPattern]
+    let glossary: BenchGlossary
     let variantTexts: [[String]]
-    let ordinaryWords: Set<String>
-    let engine: VocabularyRepairEngine
+    let patterns: [CTCSpotPattern]
 
-    /// `glossary` is either a repair vocabulary (`surfaces` + `protected_surfaces`, no aliases) or the
-    /// app's word-list import shape, `[{"term": …, "heard_as": […]}]`, whose forms become aliases.
-    init(glossary: URL, encoder: GraniteBPEEncoder) throws {
-        let data = try Data(contentsOf: glossary)
-        let entries: [(canonical: String, heardAs: [String])]
-        if let list = try? JSONDecoder().decode([GlossaryEntry].self, from: data) {
-            entries = list.map { ($0.term, $0.heardAs ?? []) }
-        } else {
-            let vocabulary = try JSONDecoder().decode(RepairVocabulary.self, from: data)
-            entries = (vocabulary.surfaces + vocabulary.protectedSurfaces).map { ($0, []) }
-        }
-        let ordinary = RepairVocabulary.bundledOrdinaryWords
-        activeTerms = entries.map { ProtectedTerm(canonical: $0.canonical, spokenAliases: $0.heardAs) }
-        engine = VocabularyRepairEngine(
-            vocabulary: RepairVocabulary.fromActiveTerms(activeTerms, ordinaryWords: ordinary)
-        )
-        let targetEntries = entries.filter { TermSpotting.isTarget($0.canonical, ordinaryWords: ordinary) }
-        targets = targetEntries.map(\.canonical)
-        protectedSurfaces = entries.map(\.canonical).filter { !TermSpotting.isTarget($0, ordinaryWords: ordinary) }
-        ordinaryWords = ordinary
+    var targets: TermSpotTargets { glossary.targets }
 
-        var patterns: [CTCSpotPattern] = []
-        var variantTexts: [[String]] = []
-        for (term, entry) in targetEntries.enumerated() {
-            let variants = TermSpotting.variants(for: entry.canonical, heardAs: entry.heardAs)
-            variantTexts.append(variants)
-            var seen: Set<[Int32]> = []
-            for (variant, text) in variants.enumerated() {
-                let ids = encoder.encode(text)
-                if !ids.isEmpty, seen.insert(ids).inserted {
-                    patterns.append(CTCSpotPattern(term: term, variant: variant, tokens: ids))
-                }
-            }
-        }
-        self.patterns = patterns
-        self.variantTexts = variantTexts
-    }
-
-    private struct GlossaryEntry: Decodable {
-        var term: String
-        var heardAs: [String]?
-
-        enum CodingKeys: String, CodingKey {
-            case term
-            case heardAs = "heard_as"
-        }
-    }
-
-    /// The app's text stage, with cleanup enabled.
-    func textStage(_ raw: String) -> String {
-        DictationTextStage.apply(raw, cleanupEnabled: true, glossary: activeTerms, repairEngine: engine).text
+    init(glossary: BenchGlossary, encoder: GraniteBPEEncoder) {
+        self.glossary = glossary
+        variantTexts = glossary.targets.variants
+        patterns = GraniteTermSpotting.patterns(for: variantTexts, encoder: encoder)
     }
 }
 
@@ -265,9 +219,9 @@ private struct SpotRecord: Encodable {
     var score: Double
     var tokenCount: Int
 
-    init(spot: TermSpot, words: [String], setup: SpotSetup) {
+    init(spot: TermSpot, candidate: CTCSpotCandidate, msPerFrame: Int, words: [String], setup: SpotSetup) {
         term = spot.term
-        canonical = setup.targets[spot.term]
+        canonical = setup.targets.canonicals[spot.term]
         variant = spot.variant
         variantText = setup.variantTexts[spot.term][spot.variant]
         firstWord = spot.firstWord
@@ -275,8 +229,8 @@ private struct SpotRecord: Encodable {
         if let first = spot.firstWord, let last = spot.lastWord, last < words.count {
             coveredText = words[first...last].joined(separator: " ")
         }
-        startMs = spot.startMs
-        endMs = spot.endMs
+        startMs = candidate.startFrame * msPerFrame
+        endMs = (candidate.endFrame + 1) * msPerFrame
         score = spot.score
         tokenCount = spot.tokenCount
     }
