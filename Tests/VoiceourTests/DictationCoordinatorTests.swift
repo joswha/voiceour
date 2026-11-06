@@ -623,6 +623,16 @@ struct DictationCoordinatorTests {
                 sidecarExecutableURL: testProductsDirectory().appendingPathComponent("voiceour-asr")
             )
         )
+        // The app preloads the model at launch, so a dictation meets a loaded model. A hosted
+        // runner takes about 40 s to load it cold, past the 30 s dictation deadline this test
+        // would otherwise measure the load against.
+        await asr.warmUp()
+        var modelLoaded = false
+        for _ in 0..<960 where !modelLoaded {
+            modelLoaded = (try? await asr.health(timeoutMs: 5_000))?.modelLoaded == true
+            if !modelLoaded { try await Task.sleep(for: .milliseconds(250)) }
+        }
+        try #require(modelLoaded, "Granite did not load within 240 s")
         let coordinator = makeCoordinator(
             recorder: recorder,
             asr: asr,
