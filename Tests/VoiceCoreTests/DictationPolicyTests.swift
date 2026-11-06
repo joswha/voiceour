@@ -8,11 +8,11 @@ struct DictationPolicyTests {
     @Test func launchOptionsParsesSeparateArguments() {
         let options = LaunchOptions(arguments: [
             "--repo-root", "/tmp/repo",
-            "--asr-backend", "PARAKEET",
+            "--asr-backend", "GRANITE",
         ])
 
         #expect(options.repoRoot == "/tmp/repo")
-        #expect(options.asrBackend == "parakeet")
+        #expect(options.asrBackend == "granite")
     }
 
     @Test func launchOptionsParsesInlineArguments() {
@@ -30,19 +30,19 @@ struct DictationPolicyTests {
 
         #expect(options.asrBackend == nil)
         #expect(LaunchOptions.validBackend(" fake ") == "fake")
-        #expect(LaunchOptions.validBackend("PARAKEET") == "parakeet")
+        #expect(LaunchOptions.validBackend("GRANITE") == "granite")
         #expect(LaunchOptions.validBackend("sherpa") == nil)
     }
 
-    /// A retired Python-sidecar backend id from an argument, the environment or a
-    /// debug-persisted choice still names a real backend: it normalizes to Parakeet, which
-    /// replaced them, instead of failing validation.
-    @Test func retiredBackendIdsNormalizeToParakeet() {
-        #expect(LaunchOptions.validBackend("mlx") == "parakeet")
-        #expect(LaunchOptions.validBackend("MLX") == "parakeet")
-        #expect(LaunchOptions.validBackend("ark-0.6b") == "parakeet")
-        #expect(LaunchOptions.validBackend("ark-3b") == "parakeet")
-        #expect(LaunchOptions(arguments: ["--asr-backend=mlx"]).asrBackend == "parakeet")
+    /// A retired backend id from an argument, the environment or a debug-persisted choice still
+    /// names a real backend: it normalizes to Granite, the one recognizer, instead of failing
+    /// validation and dropping the install to the fake backend.
+    @Test func retiredBackendIdsNormalizeToGranite() {
+        for retired in ["parakeet", "PARAKEET", " Parakeet ", "mlx", "MLX", "ark-0.6b", "ark-3b", "apple"] {
+            #expect(LaunchOptions.validBackend(retired) == "granite")
+        }
+        #expect(LaunchOptions(arguments: ["--asr-backend=mlx"]).asrBackend == "granite")
+        #expect(LaunchOptions(arguments: ["--asr-backend", "parakeet"]).asrBackend == "granite")
     }
 
     /// A persisted backend is the debug picker's saved choice, honored only in a `--debug`
@@ -56,20 +56,19 @@ struct DictationPolicyTests {
             #expect(LaunchOptions.persistedBackend(persisted, validBackendIDs: ids, allowsDevBackend: false) == nil)
         }
         #expect(LaunchOptions.persistedBackend("fake", validBackendIDs: ids, allowsDevBackend: true) == "fake")
-        #expect(LaunchOptions.persistedBackend("parakeet", validBackendIDs: ids, allowsDevBackend: true) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("parakeet", validBackendIDs: ids, allowsDevBackend: true) == "granite")
         #expect(LaunchOptions.persistedBackend("granite", validBackendIDs: ids, allowsDevBackend: true) == "granite")
-        #expect(LaunchOptions.persistedBackend("apple", validBackendIDs: ids, allowsDevBackend: true) == "parakeet")
+        #expect(LaunchOptions.persistedBackend("apple", validBackendIDs: ids, allowsDevBackend: true) == "granite")
         #expect(LaunchOptions.persistedBackend("sherpa", validBackendIDs: ids, allowsDevBackend: true) == nil)
     }
 
-    /// Either real backend is selectable per launch, case-insensitively, split or inline. The
-    /// sidecars' wire ids are not selectors.
-    @Test func eitherRealBackendIsSelectablePerLaunch() {
-        #expect(LaunchOptions(arguments: ["--asr-backend", "parakeet"]).asrBackend == "parakeet")
+    /// Both registered backends are selectable per launch, case-insensitively, split or inline.
+    /// The sidecars' wire ids are not selectors.
+    @Test func eachRegisteredBackendIsSelectablePerLaunch() {
+        #expect(LaunchOptions(arguments: ["--asr-backend", "fake"]).asrBackend == "fake")
         #expect(LaunchOptions(arguments: ["--asr-backend=GRANITE"]).asrBackend == "granite")
-        #expect(LaunchOptions.validBackend(" Parakeet ") == "parakeet")
+        #expect(LaunchOptions.validBackend(" Granite ") == "granite")
         #expect(LaunchOptions.validBackend("granite-ctc") == nil)
-        #expect(LaunchOptions.validBackend("parakeet-cpp") == nil)
     }
 
     /// Argument beats environment beats the debug-persisted choice beats the default; an
@@ -92,23 +91,21 @@ struct DictationPolicyTests {
         }
 
         #expect(resolve() == "granite")
-        // A release launch never restores a saved backend, the former default included.
-        #expect(resolve(persisted: "parakeet") == "granite")
+        // A release launch never restores a saved backend.
         #expect(resolve(persisted: "fake") == "granite")
-        #expect(resolve(persisted: "parakeet", allowsDevBackend: true) == "parakeet")
         #expect(resolve(persisted: "fake", allowsDevBackend: true) == "fake")
-        #expect(resolve(environment: "parakeet", persisted: "granite", allowsDevBackend: true) == "parakeet")
-        #expect(resolve(argument: "parakeet", environment: "granite") == "parakeet")
+        #expect(resolve(environment: "fake", persisted: "granite", allowsDevBackend: true) == "fake")
+        #expect(resolve(argument: "fake", environment: "granite") == "fake")
         #expect(
-            resolve(argument: "granite", environment: "parakeet", persisted: "fake", allowsDevBackend: true)
+            resolve(argument: "granite", environment: "fake", persisted: "fake", allowsDevBackend: true)
                 == "granite"
         )
         // Invalid values fall through to the next source.
-        #expect(resolve(argument: "sherpa", environment: "PARAKEET") == "parakeet")
-        #expect(resolve(environment: "granite-ctc", persisted: "parakeet", allowsDevBackend: true) == "parakeet")
+        #expect(resolve(argument: "sherpa", environment: "FAKE") == "fake")
+        #expect(resolve(environment: "granite-ctc", persisted: "fake", allowsDevBackend: true) == "fake")
         #expect(resolve(environment: "sherpa", persisted: "nonsense", allowsDevBackend: true) == "granite")
         // A retired id normalizes at its own level, so it still outranks a lower source.
-        #expect(resolve(environment: "mlx", persisted: "granite", allowsDevBackend: true) == "parakeet")
+        #expect(resolve(environment: "parakeet", persisted: "fake", allowsDevBackend: true) == "granite")
     }
 
     @Test func launchOptionsIgnoresMissingValues() {

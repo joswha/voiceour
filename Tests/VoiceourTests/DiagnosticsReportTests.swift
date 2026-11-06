@@ -12,7 +12,7 @@ import VoiceMac
 @Suite("DiagnosticsReport")
 struct DiagnosticsReportTests {
     @Test func diagnosticsReportNamesTheModelPinAndStoragePaths() {
-        let coordinator = makeCoordinator(backend: "parakeet")
+        let coordinator = makeCoordinator(backend: "granite")
         RenderOverrides.settingsPath = "/pinned/settings.json"
         RenderOverrides.recentSessionsPath = "/pinned/recent-sessions.json"
         defer {
@@ -27,7 +27,7 @@ struct DiagnosticsReportTests {
             synthPaste: .notDetermined
         )
 
-        #expect(report.contains("ggml-org/parakeet-GGUF"))
+        #expect(report.contains(GraniteModelContract.modelId))
         // No probe has answered in this test, which is itself a named status.
         #expect(report.contains("status: unknown"))
         // No selection saved means automatic device choice, and the report says so.
@@ -37,25 +37,12 @@ struct DiagnosticsReportTests {
         #expect(report.contains(DiagnosticsReport.selfTestCommand))
     }
 
-    /// Parakeet keeps the exact `<id>@<rev> (<variant>)` spelling bug reports already carry,
-    /// naming the variant the sidecar was launched with rather than the saved one.
-    @Test func parakeetIdentifierNamesTheActiveVariant() {
-        var settings = VoiceCore.Settings()
-        settings.asrModelVariant = .f16
-        let coordinator = makeCoordinator(backend: "parakeet", variant: .q8, settings: settings)
-
-        #expect(
-            DiagnosticsReport.modelIdentifier(coordinator)
-                == "ggml-org/parakeet-GGUF@35156454d1a39de06863303dd209fd2bed6ee079 (q8_0)"
-        )
-    }
-
-    /// Granite names its own pin and file, never a Parakeet quantization tag — even with a
-    /// Parakeet variant saved and active, which Granite does not read.
+    /// Granite names its own pin and file in the `<id>@<rev> (<file>)` spelling bug reports
+    /// carry — even with a variant tag saved in settings, which no backend reads.
     @Test func graniteIdentifierNamesItsOwnPinAndFile() {
         var settings = VoiceCore.Settings(asrBackend: "granite")
         settings.asrModelVariant = .q8
-        let coordinator = makeCoordinator(backend: "granite", variant: .q8, settings: settings)
+        let coordinator = makeCoordinator(backend: "granite", settings: settings)
 
         let identifier = DiagnosticsReport.modelIdentifier(coordinator)
         #expect(
@@ -65,7 +52,6 @@ struct DiagnosticsReportTests {
                 + " (granite-speech-5.0-470m-turboctc-Q8_0.gguf)"
         )
         #expect(!identifier.contains("q8_0)"))
-        #expect(!identifier.contains("parakeet"))
     }
 
     /// A model-less backend keeps its descriptor's own label, and an unregistered id its id.
@@ -76,18 +62,16 @@ struct DiagnosticsReportTests {
         #expect(DiagnosticsReport.modelIdentifier(makeCoordinator(backend: "future-backend")) == "future-backend")
     }
 
-    /// The active artifact follows the running backend: Granite's fixed pin regardless of
-    /// the Parakeet variant, Parakeet's selected variant otherwise.
+    /// The active artifact follows the running backend: Granite's fixed pin, none for fake.
     @Test func activeModelArtifactFollowsTheRunningBackend() {
-        #expect(makeCoordinator(backend: "granite", variant: .q8).activeModelArtifact == .granite)
-        #expect(makeCoordinator(backend: "parakeet", variant: .q8).activeModelArtifact == .parakeet(.q8))
-        #expect(makeCoordinator(backend: "parakeet", variant: .f16).activeModelArtifact == .parakeet(.f16))
+        #expect(makeCoordinator(backend: "granite").activeModelArtifact == .granite)
+        #expect(makeCoordinator(backend: "fake").activeModelArtifact == nil)
     }
 
-    /// Mid-download, the readout and the report size Granite's own 0.51 GB artifact rather
-    /// than a Parakeet variant's 1.26 GB, for the artifact the running backend resolves.
+    /// Mid-download, the readout and the report size Granite's own 0.51 GB artifact, the one
+    /// the running backend resolves.
     @Test func graniteDownloadIsSizedFromItsOwnArtifact() {
-        let coordinator = makeCoordinator(backend: "granite", variant: .f16)
+        let coordinator = makeCoordinator(backend: "granite")
         let artifact = coordinator.activeModelArtifact
 
         #expect(
@@ -101,31 +85,14 @@ struct DiagnosticsReportTests {
         )
     }
 
-    /// The Parakeet download readout keeps its committed sentence and byte count.
-    @Test func parakeetDownloadKeepsItsVariantSize() {
-        let coordinator = makeCoordinator(backend: "parakeet", variant: .f16)
-        let artifact = coordinator.activeModelArtifact
-
-        #expect(
-            ConsoleReadiness.downloadDetail(
-                modelLabel: ConsoleReadiness.activeModelLabel(coordinator), artifact: artifact)
-                == "ggml-org/parakeet-GGUF — 1.26 GB."
-        )
-        #expect(
-            DiagnosticsReport.downloadLine(fraction: 0.42, artifact: artifact)
-                == "  download: 42% of 1255897319 bytes"
-        )
-    }
-
     @Test func gigabytesIsDecimalAndLocaleIndependent() {
         #expect(ConsoleReadiness.gigabytes(GraniteModelContract.sizeBytes) == "0.51 GB")
-        #expect(ConsoleReadiness.gigabytes(ASRModelVariant.f16.sizeBytes) == "1.26 GB")
-        #expect(ConsoleReadiness.gigabytes(ASRModelVariant.q8.sizeBytes * 2) == "1.34 GB")
+        #expect(ConsoleReadiness.gigabytes(1_255_897_319) == "1.26 GB")
+        #expect(ConsoleReadiness.gigabytes(1_337_514_238) == "1.34 GB")
     }
 
     private func makeCoordinator(
         backend: String,
-        variant: ASRModelVariant? = nil,
         settings: VoiceCore.Settings? = nil,
         health: ASRBackendHealth = FakeASR.ready
     ) -> DictationCoordinator {
@@ -138,7 +105,6 @@ struct DiagnosticsReportTests {
             hotkey: FakeHotkey(),
             settings: settings ?? VoiceCore.Settings(asrBackend: backend),
             activeASRBackend: backend,
-            activeModelVariant: variant,
             settingsStore: SettingsStore(),
             recentSessionStore: RecentSessionStore(
                 url: FileManager.default.temporaryDirectory

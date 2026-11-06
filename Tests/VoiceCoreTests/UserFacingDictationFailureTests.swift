@@ -53,7 +53,7 @@ import Testing
     @Test func eachAcquisitionFailureReadsAsItsOwnRemedy() {
         let noRoom = UserFacingDictationFailure(
             code: .insufficientDiskSpace,
-            detail: "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+            detail: "needs 774098592 bytes free for granite-speech-5.0-470m-turboctc-Q8_0.gguf, volume has 402653184"
         )
         #expect(noRoom.title == "DISK FULL")
         #expect(
@@ -61,8 +61,8 @@ import Testing
                 == "Voiceour needs more free space on this Mac before it can download the speech model.")
         // Freeing space is the remedy; repeating the request is not one.
         #expect(noRoom.isRetryable == false)
-        #expect(noRoom.detail?.contains("1342177280") == true)
-        #expect(!noRoom.cause.contains("1342177280"))
+        #expect(noRoom.detail?.contains("774098592") == true)
+        #expect(!noRoom.cause.contains("774098592"))
 
         // One code for every transport reason, and the HTTP status stays out of the sentence.
         let refused = UserFacingDictationFailure(code: .modelDownloadFailed, detail: "HTTP 403")

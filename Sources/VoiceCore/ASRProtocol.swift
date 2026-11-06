@@ -2,83 +2,21 @@ import Foundation
 
 public let asrProtocolVersion = 1
 
-/// The pinned model repository every real decode loads from.
+/// Precision tags of a model variant setting no backend reads.
 ///
-/// One Hugging Face repository at one revision holding several conversions of the same
-/// checkpoint. `ASRModelVariant` names those artifacts; this is the identity they all share,
-/// which is what the backend registry advertises and what the sidecar's `expected_model`
-/// check compares. It must move together with `Vendor/parakeet` and the protocol fixtures.
-public enum ASRModelContract {
-    public static let modelId = "ggml-org/parakeet-GGUF"
-    public static let revision = "35156454d1a39de06863303dd209fd2bed6ee079"
-}
-
-/// The interchangeable weight artifacts of the pinned repository.
-///
-/// Every case is the same checkpoint at the same revision converted at a different precision:
-/// same vocabulary, same TDT decoder, same wire protocol, and the same transcripts to within
-/// the accuracy the committed corpus can resolve. The selection is a disk and memory
-/// trade, never a quality claim. `f16` remains the default; measured decode-speed ordering
-/// depends on the OS and toolchain, as recorded in README.md.
-///
-/// The raw value is the artifact's quantization tag: it is the only part of the file name that
-/// varies, and it keeps a persisted choice readable.
+/// Every recognizer Voiceour runs has exactly one artifact, so nothing resolves a variant: the
+/// type, `Settings.asrModelVariant` and its `asr_model_variant` key are kept only for VoiceCore's
+/// external consumers (../syncour compiles against them, and its settings round-trip the key).
+/// Its cases are the retired Parakeet conversions' quantization tags. NEVER give Granite a case.
 public enum ASRModelVariant: String, Codable, Equatable, CaseIterable, Sendable {
     case f16
     case q8 = "q8_0"
 
-    /// The compiled default, and where a stale or unknown persisted value lands.
+    /// Where an absent, stale or unknown persisted value lands.
     public static let `default` = ASRModelVariant.f16
 
-    /// How the app names the selection to the sidecar it spawns. The launch environment is an
-    /// allowlist that already passes `VOICEOUR_*`, so both sides read this one constant.
-    public static let environmentKey = "VOICEOUR_MODEL_VARIANT"
-
-    public var fileName: String { "ggml-parakeet-tdt-0.6b-v3-\(rawValue).bin" }
-
-    public var sha256: String {
-        switch self {
-        case .f16: return "833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f"
-        case .q8: return "4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e"
-        }
-    }
-
-    public var sizeBytes: Int64 {
-        switch self {
-        case .f16: return 1_255_897_319
-        case .q8: return 668_757_119
-        }
-    }
-
-    /// What Settings calls it. Deliberately not the quantization tag: the reader is choosing a
-    /// footprint, and `q8_0` names the conversion rather than the consequence.
-    public var displayName: String {
-        switch self {
-        case .f16: return "Balanced"
-        case .q8: return "Compact"
-        }
-    }
-
-    /// Its own directory under the app's cache, so two artifacts can never share one manifest.
-    ///
-    /// `f16` keeps the directory name it has always had: an existing install must not be
-    /// orphaned into re-downloading 1.26 GB the first time this build runs.
-    public var cacheDirectoryName: String {
-        switch self {
-        case .f16: return "parakeet-tdt-0.6b-v3-ggml"
-        case .q8: return "parakeet-tdt-0.6b-v3-ggml-q8_0"
-        }
-    }
-
-    public var downloadURL: URL {
-        URL(
-            string:
-                "https://huggingface.co/\(ASRModelContract.modelId)/resolve/\(ASRModelContract.revision)/\(fileName)"
-        )!
-    }
-
-    /// Resolves a persisted or environment value, degrading to `default` rather than trapping:
-    /// a variant written by a future build must not stop dictation working.
+    /// Resolves a persisted value, degrading to `default` rather than trapping: a value written
+    /// by another build must not quarantine the settings file.
     public static func resolved(_ rawValue: String?) -> ASRModelVariant {
         guard let rawValue, let variant = ASRModelVariant(rawValue: rawValue) else { return .default }
         return variant
@@ -87,7 +25,7 @@ public enum ASRModelVariant: String, Codable, Equatable, CaseIterable, Sendable 
 
 /// Granite Speech 5.0 TurboCTC 470M (IBM, Apache-2.0), Oct-21 multilingual checkpoint, the Q8_0 file of the
 /// reproducible GGUF set the maintainers publish: every file there rebuilds byte for byte from IBM's checkpoint.
-/// The default recognizer's pin.
+/// The recognizer's pin. It must move together with `Vendor/granite` and the protocol fixtures.
 public enum GraniteModelContract {
     public static let modelId = "vladers/granite-speech-5.0-470m-turboctc-GGUF"
     public static let revision = "bd7db273aa69a26fc81e370c84597fa738fe2ad0"
@@ -122,17 +60,15 @@ extension GraniteModelContract {
 /// The one weight artifact a running model-backed backend loads, whichever backend that is.
 ///
 /// Every surface that names or sizes "the model" — the download readout, Diagnostics, the
-/// Settings Model section, benchmark metadata — reads this instead of assuming the artifact
-/// is a Parakeet variant: a Granite run must never be stamped with a Parakeet file or size.
+/// Settings Model section, benchmark metadata — reads this rather than restating the pin.
 public struct ASRModelArtifact: Equatable, Sendable {
     public let modelId: String
     public let revision: String
     public let file: String
     public let sizeBytes: Int64
-    /// What a reader calls it: the Parakeet variant's Settings name, or Granite's model name.
+    /// What a reader calls it: the model's name.
     public let displayName: String
-    /// What tells this artifact apart within its pinned revision: Parakeet's quantization tag
-    /// (every variant shares one id and revision), Granite's file name.
+    /// What tells this artifact apart within its pinned revision: its file name.
     public let tag: String
 
     public init(modelId: String, revision: String, file: String, sizeBytes: Int64, displayName: String, tag: String) {
@@ -142,17 +78,6 @@ public struct ASRModelArtifact: Equatable, Sendable {
         self.sizeBytes = sizeBytes
         self.displayName = displayName
         self.tag = tag
-    }
-
-    public static func parakeet(_ variant: ASRModelVariant) -> ASRModelArtifact {
-        ASRModelArtifact(
-            modelId: ASRModelContract.modelId,
-            revision: ASRModelContract.revision,
-            file: variant.fileName,
-            sizeBytes: variant.sizeBytes,
-            displayName: variant.displayName,
-            tag: variant.rawValue
-        )
     }
 
     public static let granite = ASRModelArtifact(
@@ -420,7 +345,7 @@ public struct ASRCancelRequest: Codable, Equatable, Sendable {
 public enum ASRConfidenceMode: String, Codable, Equatable, Sendable {
     /// No confidence basis at all: the value, if any, is not a decoder posterior.
     case none
-    /// Mean of greedy decoder token posteriors: TDT for Parakeet, CTC first-frame posterior for Granite.
+    /// Mean of greedy decoder token posteriors (for Granite, the CTC first-frame posterior).
     case greedyTokenProb = "greedy_token_prob"
 }
 
@@ -458,26 +383,19 @@ public struct ASRTranscript: Codable, Equatable, Sendable {
     public var segments: [ASRSegment]?
     public var confidence: Double?
     public var confidenceMode: ASRConfidenceMode?
-    /// Second-opinion transcripts from the optional assist models, decoded from the
-    /// same audio in configuration order. Optional in both directions: a sidecar
-    /// without assist models omits it and a client that ignores it decodes
-    /// unchanged. The client-side text stage arbitrates each in order after cleanup.
-    public var assistTexts: [String]?
 
     public init(
         text: String,
         language: String?,
         segments: [ASRSegment]?,
         confidence: Double? = nil,
-        confidenceMode: ASRConfidenceMode? = nil,
-        assistTexts: [String]? = nil
+        confidenceMode: ASRConfidenceMode? = nil
     ) {
         self.text = text
         self.language = language
         self.segments = segments
         self.confidence = confidence
         self.confidenceMode = confidenceMode
-        self.assistTexts = assistTexts
     }
 }
 

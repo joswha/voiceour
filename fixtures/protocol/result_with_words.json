@@ -2,9 +2,9 @@
   "type": "result",
   "protocol_version": 1,
   "request_id": "00000000-0000-0000-0000-000000000003",
-  "backend_id": "parakeet-cpp",
-  "model_id": "ggml-org/parakeet-GGUF",
-  "model_revision": "35156454d1a39de06863303dd209fd2bed6ee079",
+  "backend_id": "granite-ctc",
+  "model_id": "vladers/granite-speech-5.0-470m-turboctc-GGUF",
+  "model_revision": "bd7db273aa69a26fc81e370c84597fa738fe2ad0",
   "transcript": {
     "text": "get status",
     "language": "en",

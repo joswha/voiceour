@@ -1,10 +1,9 @@
-import CParakeet
 import CryptoKit
 import Foundation
 import VoiceCore
 
 /// Failures the cache raises on its own; anything else surfaces as the underlying error.
-public enum ParakeetModelCacheError: Error, Equatable, CustomStringConvertible {
+public enum ModelCacheError: Error, Equatable, CustomStringConvertible {
     /// A manifest exists but names a different model or revision. Never overwritten
     /// automatically: the directory may hold a deliberately pinned older artifact.
     case manifestMismatch(String)
@@ -44,7 +43,7 @@ public enum ParakeetModelCacheError: Error, Equatable, CustomStringConvertible {
 ///
 /// Later launches re-check every manifest field and the artifact's byte count. The artifact
 /// bytes themselves are hashed at download and after a load failure, not on every cold start.
-public struct ParakeetModelManifest: Codable, Equatable, Sendable {
+public struct ModelManifest: Codable, Equatable, Sendable {
     public var modelId: String
     public var revision: String
     public var file: String
@@ -67,20 +66,9 @@ public struct ParakeetModelManifest: Codable, Equatable, Sendable {
         self.sizeBytes = sizeBytes
     }
 
-    /// The artifact for one variant of the pinned repository.
-    public static func pinned(_ variant: ASRModelVariant) -> ParakeetModelManifest {
-        ParakeetModelManifest(
-            modelId: ASRModelContract.modelId,
-            revision: ASRModelContract.revision,
-            file: variant.fileName,
-            sha256: variant.sha256,
-            sizeBytes: variant.sizeBytes
-        )
-    }
-
-    /// The one Granite Speech 5 TurboCTC artifact. Granite is a single conversion, so unlike
-    /// Parakeet there is no variant to select and nothing beside it to retire.
-    public static let granite = ParakeetModelManifest(
+    /// The one Granite Speech 5 TurboCTC artifact: a single conversion, so there is no variant
+    /// to select and nothing beside it to retire.
+    public static let granite = ModelManifest(
         modelId: GraniteModelContract.modelId,
         revision: GraniteModelContract.revision,
         file: GraniteModelContract.fileName,
@@ -94,11 +82,11 @@ public struct ParakeetModelManifest: Codable, Equatable, Sendable {
 /// Unlike the Hugging Face snapshot layout it replaces, this is a flat directory with two
 /// entries and no shared global cache: the sidecar owns it, and deleting it is a complete
 /// uninstall of the model.
-public struct ParakeetModelCache: Sendable {
+public struct ModelCache: Sendable {
     public let directory: URL
     /// What must be in the directory. Defaults to the shipped pin; tests substitute a
     /// small artifact so the real download, verify and rename path is exercised for real.
-    public let artifact: ParakeetModelManifest
+    public let artifact: ModelManifest
     public let source: URL
     /// Configuration every download attempt is made with. Tests inject one whose
     /// `protocolClasses` carries a stub so the resume, restart and retry paths run without a
@@ -107,12 +95,6 @@ public struct ParakeetModelCache: Sendable {
     /// Pause between download attempts. A test seam: the shipped value is a courtesy to a
     /// server that just dropped us, and a unit suite must not sleep through it.
     public let retryDelay: TimeInterval
-    /// Whether the directories beside `directory` are this cache's variants to retire.
-    ///
-    /// False for a `VOICEOUR_MODEL_CACHE` override, which names one directory its caller owns:
-    /// what sits next to it is none of this cache's business. Decided by whoever chose
-    /// `directory`, because that is the only place that knows where the path came from.
-    public let ownsVariantRoot: Bool
     /// Pins an earlier build cached in `directory` and this one replaced. A manifest naming one
     /// of them is cleared for this cache's download instead of refused. Empty for a
     /// `VOICEOUR_MODEL_CACHE` override: whatever its caller keeps there stays theirs.
@@ -128,9 +110,9 @@ public struct ParakeetModelCache: Sendable {
     ///
     /// The artifact streams into a `.download` file inside `directory` and is then *renamed*
     /// onto its final name, so the peak requirement is one copy of it rather than two, and this
-    /// is margin rather than a second copy. 256 MiB — a fifth of the `f16` artifact — buys two
+    /// is margin rather than a second copy. 256 MiB — half the Granite artifact — buys two
     /// things. `volumeAvailableCapacityForImportantUsage` is a forecast and not a reservation,
-    /// so another process may take space during the minutes a 1.26 GB transfer runs; and a
+    /// so another process may take space during the minutes a half-gigabyte transfer runs; and a
     /// download that only just fits leaves the volume with nothing, which is where the manifest
     /// write, APFS metadata and every other app on the machine start failing instead.
     public static let downloadHeadroomBytes: Int64 = 256 * 1024 * 1024
@@ -143,160 +125,67 @@ public struct ParakeetModelCache: Sendable {
 
     public init(
         directory: URL,
-        artifact: ParakeetModelManifest = .pinned(.default),
-        source: URL = ASRModelVariant.default.downloadURL,
-        ownsVariantRoot: Bool = true,
+        artifact: ModelManifest = .granite,
+        source: URL = GraniteModelContract.downloadURL,
         supersededPins: [ASRExpectedModel] = [],
-        sessionConfiguration: URLSessionConfiguration = ParakeetModelCache.defaultSessionConfiguration(),
+        sessionConfiguration: URLSessionConfiguration = ModelCache.defaultSessionConfiguration(),
         retryDelay: TimeInterval = 2,
-        availableCapacity: @escaping @Sendable (URL) -> Int64? = ParakeetModelCache.volumeAvailableCapacity
+        availableCapacity: @escaping @Sendable (URL) -> Int64? = ModelCache.volumeAvailableCapacity
     ) {
         self.directory = directory
         self.artifact = artifact
         self.source = source
-        self.ownsVariantRoot = ownsVariantRoot
         self.supersededPins = supersededPins
         self.sessionConfiguration = sessionConfiguration
         self.retryDelay = retryDelay
         self.availableCapacity = availableCapacity
     }
 
-    /// The cache for one variant: `VOICEOUR_MODEL_CACHE` when set, else the app cache directory.
-    ///
-    /// The override names one explicit directory, so it deliberately does not gain a per-variant
-    /// subdirectory: a caller who pins the path owns what lands there.
-    public static func standard(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> ParakeetModelCache {
-        let variant = ASRModelVariant.resolved(environment[ASRModelVariant.environmentKey])
-        if let override = environment["VOICEOUR_MODEL_CACHE"], !override.isEmpty {
-            return ParakeetModelCache(
-                directory: URL(fileURLWithPath: override, isDirectory: true),
-                artifact: .pinned(variant),
-                source: variant.downloadURL,
-                ownsVariantRoot: false
-            )
-        }
-        return ParakeetModelCache(
-            directory: Self.variantDirectory(variant),
-            artifact: .pinned(variant),
-            source: variant.downloadURL
-        )
-    }
-
-    private static func variantDirectory(_ variant: ASRModelVariant) -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Voiceour", isDirectory: true)
-            .appendingPathComponent(variant.cacheDirectoryName, isDirectory: true)
-    }
-
     /// The Granite cache: `VOICEOUR_MODEL_CACHE` when set, else its own app cache directory.
     ///
-    /// Never owns a variant root, whichever directory it names: Granite has one artifact, so it
-    /// has no siblings to retire, and the Parakeet directories beside its default are not its
-    /// business. `VOICEOUR_MODEL_VARIANT` is ignored, because it names Parakeet precisions. Only
-    /// the app directory replaces a superseded Granite pin; an override's contents are its
-    /// caller's.
+    /// The override names one explicit directory its caller owns, so it gains no subdirectory and
+    /// nothing in it is ever replaced on this cache's initiative: only the app directory replaces
+    /// a superseded Granite pin.
     public static func granite(
         environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> ParakeetModelCache {
+    ) -> ModelCache {
         if let override = environment["VOICEOUR_MODEL_CACHE"], !override.isEmpty {
-            return ParakeetModelCache(
+            return ModelCache(
                 directory: URL(fileURLWithPath: override, isDirectory: true),
                 artifact: .granite,
-                source: GraniteModelContract.downloadURL,
-                ownsVariantRoot: false
+                source: GraniteModelContract.downloadURL
             )
         }
-        return ParakeetModelCache(
+        return ModelCache(
             directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Voiceour", isDirectory: true)
                 .appendingPathComponent(GraniteModelContract.cacheDirectoryName, isDirectory: true),
             artifact: .granite,
             source: GraniteModelContract.downloadURL,
-            ownsVariantRoot: false,
             supersededPins: GraniteModelContract.supersededPins
         )
-    }
-
-    /// Deletes the cached artifacts of every variant other than this cache's own.
-    ///
-    /// Called once this cache's artifact has *loaded*, which is why the ordering matters more
-    /// than it looks: only one variant is ever wanted, so without this a switch would leave the
-    /// superseded artifact — up to 1.26 GB — on disk forever, but delete it any earlier and a
-    /// selected artifact that turns out to be unloadable takes the last good weights with it.
-    ///
-    /// Resolved from this cache's own directory rather than from the caches root, so the rule is
-    /// "retire my siblings" and a test can exercise it in a temporary directory. A cache that
-    /// does not own its variant root retires nothing.
-    public func removeSupersededVariants() {
-        guard ownsVariantRoot else { return }
-        let parent = directory.deletingLastPathComponent()
-        for variant in ASRModelVariant.allCases where variant.fileName != artifact.file {
-            try? FileManager.default.removeItem(
-                at: parent.appendingPathComponent(variant.cacheDirectoryName, isDirectory: true)
-            )
-        }
     }
 
     public var modelURL: URL { directory.appendingPathComponent(artifact.file) }
     public var manifestURL: URL { directory.appendingPathComponent("manifest.json") }
 
-    /// Persistent file-backed ggml weights derived from this exact pinned artifact.
-    ///
-    /// The complete digest and byte count are both part of the name. The C++ manifest versions
-    /// the in-file tensor layout; this path identity prevents two source artifacts from ever
-    /// sharing writable derived bytes before that manifest is consulted.
-    public var weightArenaURL: URL {
-        directory.appendingPathComponent(
-            "weights-\(artifact.sha256.lowercased())-\(artifact.sizeBytes).arena"
-        )
-    }
-
-    public var weightArenaManifestURL: URL {
-        URL(fileURLWithPath: weightArenaURL.path + ".manifest")
-    }
-
-    public var weightArenaLockURL: URL {
-        URL(fileURLWithPath: weightArenaURL.path + ".lock")
-    }
-
-    public var weightArenaTemporaryURL: URL {
-        URL(fileURLWithPath: weightArenaURL.path + ".tmp")
-    }
-
-    public var weightArenaManifestTemporaryURL: URL {
-        URL(fileURLWithPath: weightArenaManifestURL.path + ".tmp")
-    }
-
-    /// Removes a corrupt source artifact and all derived bytes carrying its identity.
-    ///
-    /// The lock file deliberately remains. Unlinking a lock inode while another process holds
-    /// it permits a new opener to lock a different inode and creates two simultaneous writers.
-    public func removeCorruptModelAndDerivedCache() {
-        removeModelAndManifest()
-        _ = parakeet_remove_weight_arena(weightArenaURL.path)
-    }
-
-    /// Removes the artifact and its manifest and nothing else.
-    ///
-    /// What a cache without derived bytes — Granite's, which derives no weight arena — removes
-    /// after its artifact fails digest re-verification.
+    /// Removes the artifact and its manifest and nothing else: what a load failure whose digest
+    /// re-verification fails clears before the one reacquisition.
     public func removeModelAndManifest() {
         for url in [modelURL, manifestURL] {
             try? FileManager.default.removeItem(at: url)
         }
     }
 
-    public func manifest() -> ParakeetModelManifest? {
+    public func manifest() -> ModelManifest? {
         guard let data = try? Data(contentsOf: manifestURL) else { return nil }
-        return try? JSONDecoder().decode(ParakeetModelManifest.self, from: data)
+        return try? JSONDecoder().decode(ModelManifest.self, from: data)
     }
 
     /// True only when the manifest exactly names this build's pin and the pinned file has the
     /// pinned byte count. Comparing every manifest field prevents a partial or hand-edited
-    /// manifest from lending another artifact the pin's identity without hashing 1.26 GB on
-    /// every launch.
+    /// manifest from lending another artifact the pin's identity without hashing the whole
+    /// artifact on every launch.
     public func cacheOK() -> Bool {
         guard let manifest = manifest() else { return false }
         guard manifest.modelId == artifact.modelId else { return false }
@@ -315,7 +204,7 @@ public struct ParakeetModelCache: Sendable {
     /// 0...1 and is called at most once per 5% of the transfer.
     ///
     /// A partial `.download` file is deliberately left in place on failure, both between
-    /// attempts and across process restarts: 1.26 GB over a hotel connection is not something
+    /// attempts and across process restarts: half a gigabyte over a hotel connection is not something
     /// to start over because one TCP connection died.
     public func ensureModel(progress: ((Double) -> Void)? = nil) throws {
         if cacheOK() { return }
@@ -340,7 +229,7 @@ public struct ParakeetModelCache: Sendable {
 
     /// Refuses a download the volume cannot finish, before a byte of it is fetched.
     ///
-    /// Without this the reader waits out a 1.26 GB transfer only to be told the write failed —
+    /// Without this the reader waits out a half-gigabyte transfer only to be told the write failed —
     /// the same answer an hour later, after spending the bandwidth to hear it.
     ///
     /// Only the bytes still missing are required: a resumed transfer already owns what is on
@@ -352,7 +241,7 @@ public struct ParakeetModelCache: Sendable {
         let alreadyFetched = fileSize(at: partial) ?? 0
         let needed = max(0, artifact.sizeBytes - alreadyFetched) + Self.downloadHeadroomBytes
         guard available < needed else { return }
-        throw ParakeetModelCacheError.insufficientDiskSpace(
+        throw ModelCacheError.insufficientDiskSpace(
             "needs \(needed) bytes free for \(artifact.file), volume has \(available)"
         )
     }
@@ -361,7 +250,7 @@ public struct ParakeetModelCache: Sendable {
     ///
     /// `.volumeAvailableCapacityForImportantUsage` is the key Apple documents for deciding
     /// whether a file can be downloaded: unlike the raw free-byte count it includes space the
-    /// system would purge to make room, so it is the honest number to hold a 1.26 GB artifact
+    /// system would purge to make room, so it is the honest number to hold a model artifact
     /// against.
     ///
     /// Asked of the nearest existing ancestor, because the cache directory does not exist before
@@ -385,9 +274,9 @@ public struct ParakeetModelCache: Sendable {
     /// cannot load under this one. It is cleared, weight file and manifest, and the download
     /// proceeds.
     ///
-    /// `file` is part of the comparison because every variant shares `modelId` and `revision`:
-    /// on those two alone this guard would pass for any of them, and a download would clobber
-    /// the manifest while leaving the previous weight file orphaned beside it.
+    /// `file` is part of the comparison because one repository revision can hold several files:
+    /// on `modelId` and `revision` alone this guard would pass for any of them, and a download
+    /// would clobber the manifest while leaving the previous weight file orphaned beside it.
     private func requireMatchingManifestOrAbsent() throws {
         guard let existing = manifest() else { return }
         let existingPin = ASRExpectedModel(modelId: existing.modelId, revision: existing.revision, file: existing.file)
@@ -401,7 +290,7 @@ public struct ParakeetModelCache: Sendable {
             existing.modelId == artifact.modelId && existing.revision == artifact.revision
             && existing.file == artifact.file
         guard matches else {
-            throw ParakeetModelCacheError.manifestMismatch(
+            throw ModelCacheError.manifestMismatch(
                 "manifest has model_id=\(existing.modelId) revision=\(existing.revision) file=\(existing.file)"
             )
         }
@@ -411,13 +300,13 @@ public struct ParakeetModelCache: Sendable {
         let size = fileSize(at: url) ?? -1
         guard size == artifact.sizeBytes else {
             try? FileManager.default.removeItem(at: url)
-            throw ParakeetModelCacheError.artifactMismatch(
+            throw ModelCacheError.artifactMismatch(
                 "downloaded \(size) bytes, expected \(artifact.sizeBytes)"
             )
         }
         guard digest == artifact.sha256 else {
             try? FileManager.default.removeItem(at: url)
-            throw ParakeetModelCacheError.artifactMismatch("sha256 \(digest), expected \(artifact.sha256)")
+            throw ModelCacheError.artifactMismatch("sha256 \(digest), expected \(artifact.sha256)")
         }
     }
 
@@ -429,7 +318,7 @@ public struct ParakeetModelCache: Sendable {
     /// Verifies the cached model's bytes against the pinned digest.
     ///
     /// Not part of the normal path — `cacheOK()` checks the manifest pin and byte count, because
-    /// hashing 1.26 GB on every start would dominate the cold path. This is what a *load failure*
+    /// hashing the whole artifact on every start would dominate the cold path. This is what a *load failure*
     /// pays (~1-2 s) to tell a corrupt cache apart from a broken runtime.
     public func verifyModelDigestOnDisk() -> Bool {
         guard let size = fileSize(at: modelURL) else { return false }
@@ -440,14 +329,14 @@ public struct ParakeetModelCache: Sendable {
     /// Streams the artifact to `destination` and returns its lowercase hex SHA-256.
     ///
     /// Hand-rolled rather than `URLSession.download` because the digest has to be computed as
-    /// the bytes arrive: buffering 1.26 GB to hash afterwards is the one thing a model download
+    /// the bytes arrive: buffering the whole artifact to hash afterwards is the one thing a model download
     /// on a laptop must not do. Blocking is deliberate — the only caller is a worker thread.
     ///
     /// Retries `downloadAttempts` times, resuming from whatever the previous attempt left on
     /// disk. The temporary file survives a failed attempt on purpose; only `verify` deletes it,
     /// because corrupt bytes must never seed a resume.
     private func streamArtifact(to destination: URL, progress: ((Double) -> Void)?) throws -> String {
-        var lastError: Error = ParakeetModelCacheError.downloadFailed("no attempt was made")
+        var lastError: Error = ModelCacheError.downloadFailed("no attempt was made")
         for attempt in 1...Self.downloadAttempts {
             if attempt > 1, retryDelay > 0 { Thread.sleep(forTimeInterval: retryDelay) }
             do {
@@ -456,7 +345,7 @@ public struct ParakeetModelCache: Sendable {
                 lastError = error
             }
         }
-        throw ParakeetModelCacheError.downloadFailed(
+        throw ModelCacheError.downloadFailed(
             "\(Self.downloadAttempts) attempts failed, last: \(lastError)"
         )
     }
@@ -465,7 +354,7 @@ public struct ParakeetModelCache: Sendable {
     private func attemptStream(to destination: URL, progress: ((Double) -> Void)?) throws -> String {
         if !FileManager.default.fileExists(atPath: destination.path) {
             guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
-                throw ParakeetModelCacheError.downloadFailed("cannot create \(destination.path)")
+                throw ModelCacheError.downloadFailed("cannot create \(destination.path)")
             }
         }
         let handle = try FileHandle(forWritingTo: destination)
@@ -571,7 +460,7 @@ private final class ArtifactSink: @unchecked Sendable {
         case 206 where resumeRequested:
             return true
         default:
-            failure = ParakeetModelCacheError.downloadFailed("HTTP \(http.statusCode)")
+            failure = ModelCacheError.downloadFailed("HTTP \(http.statusCode)")
             return false
         }
     }

@@ -22,7 +22,7 @@ public enum RecorderError: Error, LocalizedError {
 }
 
 /// The one 16 kHz mono interleaved Int16 WAV the capture path writes. The format is
-/// also `parakeet`'s input contract, so the construction lives in exactly one place:
+/// also the sidecar's input contract, so the construction lives in exactly one place:
 /// a drift surfaces only as audio the backend cannot read.
 struct CaptureWAVTarget {
     let url: URL

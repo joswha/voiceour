@@ -8,7 +8,7 @@ import VoiceCore
 /// the loop keeps running after a malformed frame, answers health mid-life, honours cancel, and
 /// never writes anything but protocol JSON to stdout. They run the actual shipped executable,
 /// so a regression in argument handling or startup shows up here rather than at first dictation.
-// Ten minutes rather than one: the opt-in VOICEOUR_PARAKEET_INTEGRATION cases decode two
+// Ten minutes rather than one: the opt-in VOICEOUR_GRANITE_INTEGRATION cases decode two
 // minutes of audio twice and poll a 60 s idle timer. The limit is a hang diagnostic, not a
 // performance budget — a hung synchronous call still blocks the binary, but the expired test
 // is named with a timeLimitExceeded issue instead of the run dying anonymously.
@@ -155,14 +155,13 @@ struct SidecarProcessTests {
         }
     }
 
-    /// Preload and the first transcribe race for the model, and the parakeet context owns ggml's
-    /// Metal device. When both sides could build a context, the loser's deallocation tore the
-    /// device down under the winner and every later encode failed with "command buffer failed
-    /// with status 1" — 256 of 256 benchmark rows, while `--prove` and a hand-driven dictation
-    /// both passed because preload always won those. Needs the model cache; opt in with
-    /// `VOICEOUR_PARAKEET_INTEGRATION=1`.
+    /// Preload and the first transcribe race for the model, and a native model context owns
+    /// ggml's Metal device. When both sides could build a context, the loser's deallocation tore
+    /// the device down under the winner and every later encode failed with "command buffer failed
+    /// with status 1", while `--prove` and a hand-driven dictation both passed because preload
+    /// always won those. Needs the model cache; opt in with `VOICEOUR_GRANITE_INTEGRATION=1`.
     @Test func preloadAndAnImmediateTranscribeShareOneModel() throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
         let audio = try RealAudioFixture()
 
         let session = try Sidecar.run(
@@ -171,7 +170,7 @@ struct SidecarProcessTests {
                 transcribeRequest(id: "t2", audio: audio.meta),
                 transcribeRequest(id: "t3", audio: audio.meta),
             ],
-            environment: ["VOICEOUR_ASR_BACKEND": "parakeet", "VOICEOUR_PRELOAD": "1"],
+            environment: ["VOICEOUR_ASR_BACKEND": "granite", "VOICEOUR_PRELOAD": "1"],
             timeout: 300
         )
 
@@ -219,11 +218,10 @@ struct SidecarProcessTests {
         #expect(error["detail"] as? String == "request_id already in flight")
     }
 
-    /// The first exercise of parakeet.cpp's dynamic-encoder path: past 5000 mel frames the
-    /// runtime rebuilds its graph rather than using the static one, and nothing in this
-    /// repository had ever decoded audio long enough to reach it.
+    /// Long dictation: two minutes of audio decodes in one request, health stays answerable
+    /// meanwhile, and the process survives it.
     @Test func twoMinutesOfAudioDecodesAndLeavesTheProcessAlive() throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
         let long = try TemporaryWAV(pcm: RealAudioFixture().tiledPayload(seconds: 120))
         defer { long.remove() }
 
@@ -232,7 +230,7 @@ struct SidecarProcessTests {
                 transcribeRequest(id: "long", audio: long.meta, durationMs: 120_000),
                 request("health", id: "after"),
             ],
-            environment: ["VOICEOUR_ASR_BACKEND": "parakeet", "VOICEOUR_PRELOAD": "1"],
+            environment: ["VOICEOUR_ASR_BACKEND": "granite", "VOICEOUR_PRELOAD": "1"],
             timeout: 900
         )
 
@@ -245,10 +243,11 @@ struct SidecarProcessTests {
         #expect((transcript["text"] as? String)?.lowercased().contains("hello") == true)
     }
 
-    /// Cancel must reach a running decode, and the answer must be `cancelled` rather than the
-    /// `inference_failed` that parakeet.cpp's abort callback used to be reported as.
+    /// Cancel must reach a running decode, and the answer must be `cancelled`, never
+    /// `inference_failed`. Granite polls cancellation at stage boundaries, so the answer can
+    /// wait out one graph compute.
     @Test func cancellingATwoMinuteDecodeAnswersCancelledQuickly() throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
         let long = try TemporaryWAV(pcm: RealAudioFixture().tiledPayload(seconds: 120))
         defer { long.remove() }
 
@@ -257,7 +256,7 @@ struct SidecarProcessTests {
                 transcribeRequest(id: "long", audio: long.meta, durationMs: 120_000),
                 request("cancel", id: "long"),
             ],
-            environment: ["VOICEOUR_ASR_BACKEND": "parakeet", "VOICEOUR_PRELOAD": "1"],
+            environment: ["VOICEOUR_ASR_BACKEND": "granite", "VOICEOUR_PRELOAD": "1"],
             timeout: 900,
             pauses: [1: 0.1]
         )
@@ -271,7 +270,7 @@ struct SidecarProcessTests {
     /// The idle unload, end to end in one process: transcribe, wait past the deadline, watch
     /// `model_loaded` go false, then transcribe again and still get the right words.
     @Test func anIdleModelUnloadsAndTheNextTranscribeReloadsIt() throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
+        guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
         let audio = try RealAudioFixture()
         // The timer ticks once a minute, so the observable deadline is the tick, not the 2 s.
         var lines = [transcribeRequest(id: "t1", audio: audio.meta)]
@@ -285,7 +284,7 @@ struct SidecarProcessTests {
         let session = try Sidecar.run(
             lines: lines,
             environment: [
-                "VOICEOUR_ASR_BACKEND": "parakeet",
+                "VOICEOUR_ASR_BACKEND": "granite",
                 "VOICEOUR_PRELOAD": "1",
                 "VOICEOUR_IDLE_UNLOAD_MS": "2000",
             ],

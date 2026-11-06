@@ -1,20 +1,17 @@
 // swift-tools-version: 6.4
 import PackageDescription
 
-// Feature guards for the vendored ggml/parakeet.cpp sources under Vendor/parakeet.
+// Feature guards for the vendored ggml sources under Vendor/ggml (Vendor/ggml/NOTICE.md).
 // They mirror the upstream CMake configuration this vendor drop was verified against:
 // -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_BLAS=ON with the Accelerate vendor.
 // The union of per-CMake-target defines is safe on one SwiftPM target: they are feature
 // guards, and ggml-backend-reg.cpp needs GGML_USE_{CPU,BLAS,METAL} to register backends.
-let sharedDefines: [(String, String?)] = [
+let ggmlDefines: [(String, String?)] = [
     ("_DARWIN_C_SOURCE", nil),
     ("GGML_SCHED_MAX_COPIES", "4"),
     ("GGML_USE_CPU", nil),
     ("GGML_USE_BLAS", nil),
-    ("GGML_USE_METAL", nil)
-]
-
-let ggmlDefines: [(String, String?)] = sharedDefines + [
+    ("GGML_USE_METAL", nil),
     // CMake-generated in upstream (ggml/CMakeLists.txt:6-9, :410-411); pinned here because
     // SwiftPM has no configure step. Values are ggml 0.19.0 at whisper.cpp 592feef0.
     ("GGML_VERSION", "\"0.19.0\""),
@@ -46,18 +43,6 @@ let ggmlCxxSettings: [CXXSetting] =
     + ggmlHeaderPaths.map { CXXSetting.headerSearchPath($0) }
     + [.define("NDEBUG", .when(configuration: .release))]
 
-let parakeetDefines: [(String, String?)] = sharedDefines + [
-    ("PARAKEET_VERSION", "\"1.9.2\"")
-]
-
-let parakeetCSettings: [CSetting] =
-    parakeetDefines.map { CSetting.define($0.0, to: $0.1) }
-    + [.define("NDEBUG", .when(configuration: .release))]
-
-let parakeetCxxSettings: [CXXSetting] =
-    parakeetDefines.map { CXXSetting.define($0.0, to: $0.1) }
-    + [.define("NDEBUG", .when(configuration: .release))]
-
 // CGranite: Voiceour's adapted transcribe.cpp Granite Speech 5 TurboCTC port (Vendor/granite/NOTICE.md).
 // It uses only CGgml's public headers plus Accelerate (cblas/vDSP), hence the new-LAPACK guard.
 let graniteDefines: [(String, String?)] = [
@@ -79,17 +64,13 @@ let package = Package(
         .executable(name: "Voiceour", targets: ["Voiceour"]),
         .executable(name: "voiceour-bench", targets: ["VoiceourBench"]),
         .executable(name: "voiceour-asr", targets: ["VoiceourASR"]),
-        .executable(
-            name: "parakeet-mixed-quantize",
-            targets: ["ParakeetMixedQuantize"]
-        ),
         .library(name: "VoiceCore", targets: ["VoiceCore"]),
         .library(name: "VoiceMac", targets: ["VoiceMac"])
     ],
     targets: [
         .target(
             name: "CGgml",
-            path: "Vendor/parakeet/ggml",
+            path: "Vendor/ggml/ggml",
             exclude: [
                 "embed/ggml-metal-embed.metal",
                 "embed/regenerate.sh",
@@ -105,21 +86,6 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit")
             ]
-        ),
-        .executableTarget(
-            name: "ParakeetMixedQuantize",
-            dependencies: ["CGgml"]
-        ),
-        .target(
-            name: "CParakeet",
-            dependencies: ["CGgml"],
-            path: "Vendor/parakeet",
-            exclude: ["ggml", "NOTICE.md", "LICENSE"],
-            sources: ["src"],
-            publicHeadersPath: "include",
-            cSettings: parakeetCSettings,
-            cxxSettings: parakeetCxxSettings,
-            linkerSettings: [.linkedLibrary("c++")]
         ),
         .target(
             name: "CGranite",
@@ -137,7 +103,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Voiceour",
-            dependencies: ["VoiceCore", "VoiceMac"]
+            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"]
         ),
         .target(
             name: "VoiceCore",
@@ -149,15 +115,12 @@ let package = Package(
         ),
         .target(
             name: "ASRSidecarCore",
-            dependencies: ["VoiceCore", "CParakeet", "CGranite"],
-            linkerSettings: [
-                .linkedFramework("CoreML"),
-                .linkedFramework("Foundation")
-            ]
+            dependencies: ["VoiceCore", "CGranite"],
+            linkerSettings: [.linkedFramework("Foundation")]
         ),
         .executableTarget(
             name: "VoiceourASR",
-            dependencies: ["ASRSidecarCore", "VoiceCore"]
+            dependencies: ["ASRSidecarCore", "CGgml", "VoiceCore"]
         ),
         .executableTarget(
             name: "ASRSidecarStub",
@@ -165,8 +128,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "VoiceourBench",
-            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"],
-            linkerSettings: [.linkedFramework("CoreAI")]
+            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"]
         ),
         .testTarget(
             name: "VoiceCoreTests",

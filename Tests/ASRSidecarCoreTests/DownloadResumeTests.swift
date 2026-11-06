@@ -23,7 +23,7 @@ struct ScriptedResponse {
 
 /// A `URLProtocol` that replays a script, one entry per request.
 ///
-/// The real `ParakeetModelCache` transfer runs through it unchanged: same delegate, same sink,
+/// The real `ModelCache` transfer runs through it unchanged: same delegate, same sink,
 /// same digest. Only the bytes' origin is substituted, which is the point — the resume, restart
 /// and retry paths are exactly what a network cannot be asked to reproduce on demand.
 // `deliveryQueue` serializes asynchronous delivery; `state` protects the shared script.
@@ -113,7 +113,7 @@ final class ScriptedDownloadProtocol: URLProtocol, @unchecked Sendable {
 struct DownloadResumeTests {
     private func temporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("parakeet-resume-tests-" + UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("model-cache-resume-tests-" + UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -121,8 +121,8 @@ struct DownloadResumeTests {
     /// 4 KiB of deterministic bytes: large enough that a truncated prefix is a real partial.
     private let payload = Data((0..<4096).map { UInt8($0 % 251) })
 
-    private func artifact(for bytes: Data) -> ParakeetModelManifest {
-        ParakeetModelManifest(
+    private func artifact(for bytes: Data) -> ModelManifest {
+        ModelManifest(
             modelId: "test/tiny",
             revision: "0123456789abcdef",
             file: "tiny.bin",
@@ -131,10 +131,10 @@ struct DownloadResumeTests {
         )
     }
 
-    private func makeCache(directory: URL) -> ParakeetModelCache {
+    private func makeCache(directory: URL) -> ModelCache {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScriptedDownloadProtocol.self]
-        return ParakeetModelCache(
+        return ModelCache(
             directory: directory,
             artifact: artifact(for: payload),
             source: URL(string: "https://example.invalid/tiny.bin")!,
@@ -191,7 +191,7 @@ struct DownloadResumeTests {
         let directory = temporaryDirectory()
         let cache = makeCache(directory: directory)
 
-        #expect(throws: ParakeetModelCacheError.self) { try cache.ensureModel() }
+        #expect(throws: ModelCacheError.self) { try cache.ensureModel() }
         #expect(!cache.cacheOK())
 
         // The partial survives: 1.26 GB is not re-fetched because three connections died.
@@ -220,7 +220,7 @@ struct DownloadResumeTests {
         )
         let cache = makeCache(directory: temporaryDirectory())
 
-        #expect(throws: ParakeetModelCacheError.self) { try cache.ensureModel() }
+        #expect(throws: ModelCacheError.self) { try cache.ensureModel() }
         #expect(!cache.cacheOK())
     }
 

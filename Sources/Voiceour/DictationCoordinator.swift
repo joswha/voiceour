@@ -106,10 +106,6 @@ public final class DictationCoordinator {
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
-    /// The artifact the running sidecar was launched with, as opposed to
-    /// `settings.asrModelVariant`, which is what the next launch will use. Keeping both is what
-    /// lets Settings say a selection needs a restart instead of lying about what is loaded.
-    private let activeVariant: ASRModelVariant
     var inputMeteringTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var processingTaskIdentity: UUID?
@@ -166,7 +162,6 @@ public final class DictationCoordinator {
         hotkey: HotkeyBinding,
         settings: VoiceCore.Settings = VoiceCore.Settings(),
         activeASRBackend: String? = nil,
-        activeModelVariant: ASRModelVariant? = nil,
         settingsStore: SettingsStore = SettingsStore(),
         recentSessionStore: RecentSessionStore = RecentSessionStore(),
         dictationStatsStore: DictationStatsStore = DictationStatsStore(),
@@ -189,7 +184,6 @@ public final class DictationCoordinator {
         self.hotkey = hotkey
         self.settings = settings
         self.activeASRBackend = activeASRBackend ?? settings.asrBackend
-        self.activeVariant = activeModelVariant ?? settings.asrModelVariant
         self.settingsStore = settingsStore
         self.recentSessionStore = recentSessionStore
         self.recentSessionSnapshotSave = recentSessionSnapshotSave
@@ -273,14 +267,11 @@ public final class DictationCoordinator {
     }
 
     public var activeBackend: String { activeASRBackend }
-    public var activeModelVariant: ASRModelVariant { activeVariant }
 
-    /// The weights the running sidecar loads: the active backend's own artifact, which for
-    /// Parakeet is the active variant's and for Granite its one fixed pin. Nil for the fake
-    /// backend and for an id no descriptor claims. Every size and identity readout reads this,
-    /// never `activeModelVariant`, so a Granite run is never described as a Parakeet file.
+    /// The weights the running sidecar loads: the active backend's own artifact. Nil for the
+    /// fake backend and for an id no descriptor claims. Every size and identity readout reads this.
     public var activeModelArtifact: ASRModelArtifact? {
-        ASRBackendRegistry.builtIn.descriptor(for: activeASRBackend)?.modelArtifact(for: activeVariant)
+        ASRBackendRegistry.builtIn.descriptor(for: activeASRBackend)?.modelArtifact
     }
 
     /// True while this install still owes its reader the first-run guidance: the
@@ -521,6 +512,9 @@ public final class DictationCoordinator {
     public static func live() -> DictationCoordinator {
         Task.detached(priority: .utility) {
             RecordingScavenger.sweep(directory: CaptureTemporaryFile.directory)
+            // Gigabytes of retired recognizer weights; off-main so a slow volume never
+            // delays launch.
+            RetiredModelCacheSweep.sweep()
         }
 
         let store = SettingsStore()
@@ -556,17 +550,9 @@ public final class DictationCoordinator {
 
         let permissions = SystemPermissions()
         let tracker = WorkspaceTargetTracker()
-        // The environment override exists for the same reason the backend has one: a benchmark
-        // or a harness run must be able to pin the artifact without editing the user's settings.
-        let modelVariant = ASRModelVariant.resolved(
-            env[ASRModelVariant.environmentKey] ?? settings.asrModelVariant.rawValue
-        )
         let components = registry.liveComponents(
             for: backend,
-            context: ASRBackendContext(
-                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
-                modelVariant: modelVariant
-            )
+            context: ASRBackendContext(sidecarExecutableURL: ASRBackendContext.siblingSidecarURL())
         )
         let recorder = components.recorder
         let asr = components.client
@@ -585,7 +571,6 @@ public final class DictationCoordinator {
             hotkey: KeyboardShortcutsBinder(),
             settings: settings,
             activeASRBackend: backend,
-            activeModelVariant: modelVariant,
             settingsStore: store,
             audioMuter: audioMuter,
             sessionCues: sessionCues

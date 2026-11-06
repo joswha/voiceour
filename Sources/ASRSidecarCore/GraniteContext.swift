@@ -27,7 +27,7 @@ public enum GraniteContextError: Error, Equatable, CustomStringConvertible {
 ///
 /// `granite_transcribe` replaces the context's previous results, so a context serves one decode
 /// at a time; the backend serializes every call through its decode lock. The class is
-/// deliberately not `Sendable`, exactly like `ParakeetContext`: serialization is the caller's
+/// deliberately not `Sendable`: serialization is the caller's
 /// job, and a type that looked concurrency-safe would invite a second caller.
 public final class GraniteContext {
     private let context: OpaquePointer

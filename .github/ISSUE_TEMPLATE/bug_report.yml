@@ -47,16 +47,6 @@ body:
       description: The release you downloaded, or the commit you built.
     validations:
       required: true
-  - type: dropdown
-    id: model-variant
-    attributes:
-      label: Model variant
-      options:
-        - Balanced (f16, default)
-        - Compact (q8_0)
-        - Not sure
-    validations:
-      required: true
   - type: checkboxes
     id: permissions
     attributes:

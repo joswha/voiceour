@@ -1,7 +1,7 @@
 // granite.h — Voiceour's native Granite Speech 5 TurboCTC inference (offline, one utterance per call).
 //
 // Adapted from transcribe.cpp (MIT) src/arch/granite5_ctc at 5700f127e38dd53c4735ea23ef743b4b538eacd4,
-// built against the ggml vendored in Vendor/parakeet/ggml (0.19.0). See Vendor/granite/NOTICE.md.
+// built against the ggml vendored in Vendor/ggml (0.19.0). See Vendor/granite/NOTICE.md.
 #ifndef GRANITE_H
 #define GRANITE_H
 

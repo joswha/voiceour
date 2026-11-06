@@ -153,7 +153,7 @@
             /// Nothing dictated yet: no sessions, bundled glossary, dev backend.
             case firstRun
             /// A fresh install on the real backend, part-way through acquiring its
-            /// 1.26 GB artifact, with no permission answered yet. What a reader
+            /// 0.51 GB artifact, with no permission answered yet. What a reader
             /// actually meets on the launch that installed the app.
             case firstRunDownloading
             /// A fresh install on the real backend with the model already on disk
@@ -163,9 +163,6 @@
             /// A fresh install whose acquisition failed and said why. The sidecar's
             /// own verdict, which outranks every inferred readout.
             case firstRunAcquisitionFailed
-            /// `firstRunDownloading` on Granite, the default recognizer: the same card, sized
-            /// and named from Granite's own 0.51 GB artifact rather than a Parakeet variant's.
-            case firstRunGraniteDownloading
             /// An install that has completed a dictation and has nothing left to
             /// show: history and lifetime figures erased. Zeroed like `firstRun`,
             /// but owed no guidance, so Home keeps its caption instead of the card.
@@ -187,12 +184,9 @@
             case sidecarFailure
             /// Real backend, healthy sidecar, every permission granted.
             case backendReady
-            /// `backendReady` on Granite, the default recognizer: Settings ▸ Model names its one
-            /// artifact instead of offering the Parakeet variant picker.
-            case graniteReady
             /// Real backend whose health probe fails, permissions denied.
             case backendUnavailable
-            /// Real backend part-way through acquiring its 1.26 GB artifact.
+            /// Real backend part-way through acquiring its 0.51 GB artifact.
             case backendDownloading
             /// One dictation driven end to end: `lastTranscript` and `lastOutcome`
             /// are populated and exactly one session was recorded.
@@ -251,14 +245,6 @@
                     health: failedAcquisitionHealth,
                     permissions: .notDetermined
                 )
-            case .firstRunGraniteDownloading:
-                return make(
-                    sessions: [],
-                    settings: settings(backend: graniteBackend),
-                    backend: graniteBackend,
-                    health: downloadingHealth(backendId: graniteWireBackend),
-                    permissions: .notDetermined
-                )
             case .erasedFigures:
                 return make(
                     sessions: [],
@@ -282,12 +268,6 @@
                 return makeSidecarFailure()
             case .backendReady:
                 return makeBackendReady(island: .stock)
-            case .graniteReady:
-                return makeBackendReady(
-                    island: .stock,
-                    backend: graniteBackend,
-                    health: readyHealth(backendId: graniteWireBackend)
-                )
             case .islandLook:
                 return makeBackendReady(island: IslandLook.arcticPlatinum.appearance)
             case .islandCustom:
@@ -445,18 +425,13 @@
 
         // MARK: Composition
 
-        /// Parakeet's canonical picker id: what `Settings.asrBackend` stores and what the
-        /// registry resolves a descriptor from. Not `parakeet-cpp`, which is the id the
-        /// sidecar reports for itself. Most fixtures run Parakeet, the selectable
-        /// alternative, so its variant picker, readiness and 1.26 GB download stay covered
-        /// and the model-selection flow has a picker to drive.
-        private static let realBackend = "parakeet"
-
-        /// The default recognizer's picker id, and the id its sidecar reports. The fixture
-        /// injects nothing else: the coordinator derives Granite's artifact (name, size,
-        /// identifier) from the active backend, exactly as a live launch does.
-        private static let graniteBackend = "granite"
-        private static let graniteWireBackend = "granite-ctc"
+        /// Granite's canonical picker id: what `Settings.asrBackend` stores and what the
+        /// registry resolves a descriptor from. Not `granite-ctc`, which is the id the
+        /// sidecar reports for itself. The fixture injects nothing else: the coordinator
+        /// derives Granite's artifact (name, size, identifier) from the active backend,
+        /// exactly as a live launch does.
+        private static let realBackend = "granite"
+        private static let realWireBackend = "granite-ctc"
 
         // `nonisolated` because it is a default argument of `make`, and default
         // argument expressions are evaluated outside the enum's main-actor context.
@@ -468,11 +443,11 @@
             cacheOk: true
         )
 
-        private static let realBackendHealth = readyHealth(backendId: "parakeet-cpp")
+        private static let realBackendHealth = readyHealth(backendId: realWireBackend)
 
         /// Mid-acquisition: no cache yet, so `ready` is false and the fraction is what the
         /// System pane reads.
-        private static let downloadingBackendHealth = downloadingHealth(backendId: "parakeet-cpp")
+        private static let downloadingBackendHealth = downloadingHealth(backendId: realWireBackend)
 
         /// A model-backed sidecar with its artifact cached and loaded, reporting as `backendId`.
         private static func readyHealth(backendId: String) -> ASRBackendHealth {
@@ -503,14 +478,14 @@
         /// and which outranks every inferred readout — the one branch a failure that
         /// refuses in microseconds can be observed through.
         private static let failedAcquisitionHealth = ASRBackendHealth(
-            backendId: "parakeet-cpp",
+            backendId: realWireBackend,
             backendStatus: .modelMissing,
             ready: false,
             modelLoaded: false,
             cacheOk: false,
             lastAcquisitionError: ASRAcquisitionFailure(
                 code: .insufficientDiskSpace,
-                detail: "needs 1.26 GB, 384 MB free"
+                detail: "needs 0.77 GB, 384 MB free"
             )
         )
 
@@ -620,23 +595,18 @@
 
         /// Real backend, healthy sidecar, every permission granted and the Yeti selected:
         /// the Settings page of a working install, wearing `island`. One builder, so the
-        /// Garage fixtures differ from `backendReady` in their look and nothing else, and
-        /// `graniteReady` in its backend and nothing else.
-        private static func makeBackendReady(
-            island: IslandAppearance,
-            backend: String = realBackend,
-            health: ASRBackendHealth? = nil
-        ) -> DictationCoordinator {
+        /// Garage fixtures differ from `backendReady` in their look and nothing else.
+        private static func makeBackendReady(island: IslandAppearance) -> DictationCoordinator {
             make(
                 sessions: history,
                 settings: settings(
-                    backend: backend,
+                    backend: realBackend,
                     preferredMicrophoneUID: "harness-usb-yeti",
                     preferredMicrophoneName: "Yeti Stereo Microphone",
                     island: island
                 ),
-                backend: backend,
-                health: health ?? realBackendHealth
+                backend: realBackend,
+                health: realBackendHealth
             )
         }
 

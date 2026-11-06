@@ -10,11 +10,11 @@ struct VendorPinConsistencyTests {
             encoding: .utf8
         )
         let notice = try String(
-            contentsOf: root.appendingPathComponent("Vendor/parakeet/NOTICE.md"),
+            contentsOf: root.appendingPathComponent("Vendor/ggml/NOTICE.md"),
             encoding: .utf8
         )
         let script = try String(
-            contentsOf: root.appendingPathComponent("scripts/vendor_parakeet.sh"),
+            contentsOf: root.appendingPathComponent("scripts/vendor_ggml.sh"),
             encoding: .utf8
         )
 
@@ -24,11 +24,11 @@ struct VendorPinConsistencyTests {
         )
         let noticePin = try #require(
             commit(onLineContaining: "Commit", in: notice),
-            "Vendor/parakeet/NOTICE.md lacked Commit with an adjacent 40-hex commit"
+            "Vendor/ggml/NOTICE.md lacked Commit with an adjacent 40-hex commit"
         )
         let scriptPin = try #require(
             commit(onLineContaining: "PIN=", in: script),
-            "scripts/vendor_parakeet.sh lacked PIN= with an adjacent 40-hex commit"
+            "scripts/vendor_ggml.sh lacked PIN= with an adjacent 40-hex commit"
         )
 
         #expect(packagePin == noticePin)

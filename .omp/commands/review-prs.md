@@ -39,7 +39,7 @@ Assign each PR's number, head ref, author, and the workflow below. Agents work i
 2. Check `git log origin/main` and `gh search prs` for an already-landed equivalent.
 3. Decide:
    - `slop` — AI-generated noise, broken, off-spec, or net-negative. Drop with a 1–2 line justification; no checkout.
-   - `out-of-scope` — the change is refused by a standing product decision, not by its quality. Drop with the citation. The recurring ones: a universal or Intel build (the vendored parakeet/ggml drop is arm64-only by design and asserts it at compile time); network text processing, telemetry, crash reporting, accounts, or an update check (local-first policy allows exactly one network path, the pinned model artifact); a "paste everywhere" switch (`InsertionSafetyPolicy` is the single class-to-disposition mapping and only `.normalText` may paste); clipboard save-and-restore (the previous clipboard is never read, saved, restored, or cleared); persisting audio; a keychain-backed feature (this bundle ships no provisioning profile and `SecItemAdd` returns `errSecMissingEntitlement`).
+   - `out-of-scope` — the change is refused by a standing product decision, not by its quality. Drop with the citation. The recurring ones: a universal or Intel build (the vendored ggml drop is arm64-only by design and asserts it at compile time); network text processing, telemetry, crash reporting, accounts, or an update check (local-first policy allows exactly one network path, the pinned model artifact); a "paste everywhere" switch (`InsertionSafetyPolicy` is the single class-to-disposition mapping and only `.normalText` may paste); clipboard save-and-restore (the previous clipboard is never read, saved, restored, or cleared); persisting audio; a keychain-backed feature (this bundle ships no provisioning profile and `SecItemAdd` returns `errSecMissingEntitlement`).
    - `superseded` — already fixed or merged in `main` or a newer PR. Drop with a pointer.
    - `worthy` — proceed.
 
@@ -57,9 +57,9 @@ MUST use `github pr_checkout`, never raw `gh pr checkout`: it creates a dedicate
 
 Nothing to symlink, and one thing not to:
 
-- The expensive download — the 1.26 GB `f16` or 669 MB `q8_0` model artifact — already lives at `~/Library/Caches/Voiceour/<variant>/`, outside any checkout, so every worktree shares it with no setup.
-- NEVER symlink `.build` between checkouts. SwiftPM keys its build database to the scratch path, and one shared scratch directory also serializes the parallel builds this command exists to run. Each worktree pays one cold build, including the vendored parakeet/ggml compile.
-- `VOICEOUR_MODEL_CACHE` names one directory its caller owns. Set it only to pin a variant deliberately; leaving it unset is what shares the cache.
+- The expensive download — the 0.51 GB Granite model artifact — already lives at `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/`, outside any checkout, so every worktree shares it with no setup.
+- NEVER symlink `.build` between checkouts. SwiftPM keys its build database to the scratch path, and one shared scratch directory also serializes the parallel builds this command exists to run. Each worktree pays one cold build, including the vendored ggml compile.
+- `VOICEOUR_MODEL_CACHE` names one directory its caller owns. Set it only to exercise a cold download deliberately; leaving it unset is what shares the cache.
 
 #### Rebase
 
@@ -77,12 +77,12 @@ Correctness, regressions, security, breaking-change impact, and test coverage fo
 - `Sources/VoiceCore` imports Foundation only. AppKit, SwiftUI, AVFoundation, Accessibility, CoreGraphics event posting, pasteboard, process launch, and Keychain APIs there are a hard violation.
 - Insertion safety: the class-to-disposition mapping unchanged; bundle id, pid, safety class, and secure-input flag re-checked before the pasteboard write and again before Cmd-V; a secure target still reaching neither the journal nor the ledger.
 - Wire protocol: models, client encoding, server decoding, and `fixtures/protocol/**` changed together. A field or request type present on only one side is a broken change.
-- Model contract: id, revision, every variant's filename, digest and size, descriptor metadata, cache manifest, docs, fixtures, and tests move as one unit. `make check-docs` is the gate.
+- Model contract: id, revision, filename, digest and size, superseded pins, descriptor metadata, cache manifest, docs, fixtures, and tests move as one unit. `make check-docs` is the gate.
 - Persistence: no suppressed write failure, load failures still quarantining as `<name>.corrupt-<ISO8601>`, the ledger folded at exactly the site the transcript is journaled.
 - Concurrency: observable state main-actor isolated; blocking capture, file IO, hashing, and model work off the main actor; stale generations still rejected.
 - `RenderOverrides`: every new field defaults to nil or false, and the seam substitutes an input or selects a path production already reaches. A branch that exists only to make a golden pass is a blocker.
 - UI changes carry their goldens. `fixtures/ui/**` changed → read the `.ax.diff` or `.flow.diff` and confirm the change is the one the PR describes. Error-severity lint findings and red flows cannot be blessed.
-- Vendored files: each local change marked `VOICEOUR PATCH` and listed in `Vendor/parakeet/NOTICE.md`; `scripts/vendor_parakeet.sh --check` clean; no `-mcpu=native`.
+- Vendored files: each local ggml change marked `VOICEOUR PATCH`, carried by an ordered `Vendor/ggml/patches/*.patch` and listed in `Vendor/ggml/NOTICE.md`; `scripts/vendor_ggml.sh --check` clean; `Vendor/granite/NOTICE.md` maps every port file; no `-mcpu=native`.
 
 #### Verify
 

@@ -27,21 +27,22 @@ public struct LaunchOptions: Equatable, Sendable {
     }
 
     /// Backend ids accepted when validation is not supplied by a registry.
-    public static let defaultBackendIDs: Set<String> = ["fake", "parakeet", "granite"]
+    public static let defaultBackendIDs: Set<String> = ["fake", "granite"]
 
     /// Backend ids that existed in shipped builds and no longer do.
     ///
-    /// `mlx`, `ark-0.6b` and `ark-3b` ran the same Parakeet family through the retired Python
-    /// sidecar. `apple` was the opt-in system transcriber, deleted after it lost every content
-    /// axis to the local sidecar and nearly tripled ASR p95. Every source of a backend id —
-    /// launch argument, environment, persisted settings — funnels through `validBackend`, so
-    /// normalizing here means an existing install keeps working instead of silently dropping to
-    /// the fake one.
+    /// `parakeet` was the NVIDIA Parakeet TDT recognizer; `mlx`, `ark-0.6b` and `ark-3b` ran
+    /// the same family through an earlier Python sidecar; `apple` was the opt-in system
+    /// transcriber. Every one now runs Granite, the one local recognizer. Every source of a
+    /// backend id — launch argument, environment, persisted settings — funnels through
+    /// `validBackend`, so normalizing here means an existing install keeps real dictation instead
+    /// of silently dropping to the fake backend, and `client(for: "parakeet")` callers get Granite.
     public static let retiredBackendIDs: [String: String] = [
-        "mlx": "parakeet",
-        "ark-0.6b": "parakeet",
-        "ark-3b": "parakeet",
-        "apple": "parakeet",
+        "parakeet": "granite",
+        "mlx": "granite",
+        "ark-0.6b": "granite",
+        "ark-3b": "granite",
+        "apple": "granite",
     ]
 
     /// Normalizes a backend id, rejecting anything unregistered.

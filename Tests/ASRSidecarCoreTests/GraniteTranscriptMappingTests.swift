@@ -51,12 +51,11 @@ struct GraniteTranscriptMappingTests {
         return abs(value - expected) < 1e-6
     }
 
-    /// The empty shape is the one `TokenMapping` already produces, so the client cannot tell
-    /// which backend found nothing to transcribe.
-    @Test func noTokensProduceTheSameEmptyTranscriptAsParakeet() {
+    /// No tokens map to the protocol's empty transcript shape.
+    @Test func noTokensProduceTheEmptyTranscript() {
         let transcript = map([])
 
-        #expect(transcript == TokenMapping.transcript(from: []))
+        #expect(transcript == GraniteTranscriptMapping.emptyTranscript)
         #expect(transcript.text == "")
         #expect(transcript.language == "en")
         #expect(transcript.segments == nil)

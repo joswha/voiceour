@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PIN=592feef04a1802b18cbeffd0fd0eb5d02570c2ec
-# Every upstream-derived file shipped under Vendor/parakeet.
+# Every upstream-derived file shipped under Vendor/ggml (whisper.cpp's ggml, upstream-relative paths).
 MANIFEST=(
     'LICENSE'
     'ggml/include/ggml-alloc.h'
@@ -73,37 +73,13 @@ MANIFEST=(
     'ggml/src/ggml.c'
     'ggml/src/ggml.cpp'
     'ggml/src/gguf.cpp'
-    'include/parakeet.h'
-    'src/parakeet-arch.h'
-    'src/parakeet.cpp'
 )
 LOCAL_FILES=(
     'NOTICE.md'
-    'patches/0001-tdt-duration-argmax-raw-logits.patch'
-    'patches/0002-encoder-sched-reservation-high-water-mark.patch'
-    'patches/0003-skip-graph-reorder-for-single-command-buffer-graphs.patch'
-    'patches/0004-consume-rel-position-shift-as-strided-view.patch'
-    'patches/0005-relative-position-matmul-operands-as-views.patch'
-    'patches/0006-fold-rel-position-roll-into-view-offset.patch'
-    'patches/0007-one-graph-per-decode-step.patch'
-    'patches/0008-conv-subsampling-bias-add-materialises-layout.patch'
-    'patches/0009-pointwise-conv-needs-no-im2col.patch'
-    'patches/0010-poll-command-buffer-before-blocking.patch'
-    'patches/0011-merge-conv-module-right-pads.patch'
-    'patches/0012-three-encode-threads.patch'
-    'patches/0013-file-backed-weight-arena.patch'
-    'patches/0014-greedy-decode-step-callback.patch'
-    'patches/0015-record-authoritative-loader.patch'
-    'patches/0016-external-encoder-seam.patch'
-    'patches/0017-cpu-tail-backend.patch'
-    'patches/0018-persistent-cpu-threadpool.patch'
-    'patches/0019-tail-q8-load-repack.patch'
-    'patches/0020-bias-variant-conformer-support.patch'
-    'patches/0021-plain-rnnt-decoder-support.patch'
-    'patches/0022-multitalker-streaming-encoder-support.patch'
-    'patches/0023-bench-observability-seams.patch'
-    'patches/0024-bench-encode-stored-mel-seam.patch'
-    'patches/0025-macos27-warning-clean-build.patch'
+    'patches/0001-skip-graph-reorder-for-single-command-buffer-graphs.patch'
+    'patches/0002-poll-command-buffer-before-blocking.patch'
+    'patches/0003-three-encode-threads.patch'
+    'patches/0004-macos27-warning-clean-build.patch'
     'ggml/include/module.modulemap'
     'ggml/embed/ggml-metal-embed.metal'
     'ggml/embed/ggml-metal-embed.c'
@@ -114,7 +90,7 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-VENDOR_ROOT="$REPO_ROOT/Vendor/parakeet"
+VENDOR_ROOT="$REPO_ROOT/Vendor/ggml"
 
 usage() {
     echo "usage: $0 --check | $0 <upstream-checkout> [--check]" >&2
@@ -142,15 +118,15 @@ apply_patches() {
     local patches=("$VENDOR_ROOT"/patches/*.patch)
 
     if [[ ! -e "${patches[0]}" ]]; then
-        echo "error: no patch files found under Vendor/parakeet/patches" >&2
+        echo "error: no patch files found under Vendor/ggml/patches" >&2
         return 1
     fi
 
     for patch in "${patches[@]}"; do
         echo "[vendor] applying $(basename -- "$patch")"
         if [[ "$destination_root" == "$VENDOR_ROOT" ]]; then
-            git -C "$REPO_ROOT" apply --check --directory=Vendor/parakeet "$patch"
-            git -C "$REPO_ROOT" apply --directory=Vendor/parakeet "$patch"
+            git -C "$REPO_ROOT" apply --check --directory=Vendor/ggml "$patch"
+            git -C "$REPO_ROOT" apply --directory=Vendor/ggml "$patch"
         else
             (
                 cd -- "$destination_root"
@@ -194,7 +170,7 @@ check_file_set() {
     done < <(find "$VENDOR_ROOT" \( -type f -o -type l \) -print)
 
     if ((unexpected != 0)); then
-        echo "error: Vendor/parakeet contains files outside the vendor manifest" >&2
+        echo "error: Vendor/ggml contains files outside the vendor manifest" >&2
         return 1
     fi
 }

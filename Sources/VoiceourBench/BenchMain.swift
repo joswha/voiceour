@@ -1,4 +1,3 @@
-import ASRSidecarCore
 import CryptoKit
 import Darwin
 import Dispatch
@@ -17,18 +16,6 @@ struct VoiceourBenchMain {
             }
             if arguments.first == "repair-verify" {
                 try RepairVerificationCommand.parse(Array(arguments.dropFirst())).run()
-            } else if arguments.first == "glossary-conditioning" {
-                try GlossaryConditioningCommand.parse(Array(arguments.dropFirst())).run()
-            } else if arguments.first == "external-encoder" {
-                try await ExternalEncoderCommand.parse(Array(arguments.dropFirst())).run()
-            } else if arguments.first == "tail-bench" {
-                try TailBenchCommand.parse(Array(arguments.dropFirst())).run()
-            } else if arguments.first == "mel-bench" {
-                try MelBenchCommand.parse(Array(arguments.dropFirst())).run()
-            } else if arguments.first == "encoder-bench" {
-                try EncoderBenchCommand.parse(Array(arguments.dropFirst())).run()
-            } else if arguments.first == "combined-bench" {
-                try CombinedBenchCommand.parse(Array(arguments.dropFirst())).run()
             } else if arguments.first == "granite-spot" {
                 try GraniteSpotCommand.parse(Array(arguments.dropFirst())).run()
             } else if arguments.first == "granite-tokenize" {
@@ -80,16 +67,6 @@ enum BenchError: Error, CustomStringConvertible {
         if let benchError = error as? BenchError {
             return benchError.description
         }
-        // In-process Parakeet errors describe themselves; without this the bridged NSError
-        // would report only "error 2", which is useless to a research run that just stopped.
-        if let contextError = error as? ParakeetContextError {
-            return contextError.description
-        }
-        // The Core AI adapter's errors name the artifact and the violated contract; the bridged
-        // NSError would reduce a contract failure to a numeric code.
-        if let coreAIError = error as? CoreAIEncoderError {
-            return coreAIError.description
-        }
         if let asrError = error as? ASRErrorMessage {
             if let detail = asrError.detail, !detail.isEmpty {
                 return "\(asrError.code.rawValue): \(detail)"
@@ -127,25 +104,15 @@ enum BenchError: Error, CustomStringConvertible {
 
 enum BenchCommand: String {
     case pipeline
-    case tdtLattice = "tdt-lattice"
-    case rawDecode = "raw-decode"
-    case dumpStates = "dump-states"
-    case stageProfile = "stage-profile"
 }
 
 struct BenchOptions {
     var command: BenchCommand
     var input: URL
-    /// The results file; for `dump-states`, the `--output-dir` directory.
     var output: URL
-    var backend: String?
+    var backend: String
     var timeoutMs: Int
     var vocabulary: URL?
-    var model: URL?
-    /// `stage-profile` measured passes, each after warmup pass 0.
-    var passes: Int
-    /// `stage-profile --sidecar`: also time every row through the real sidecar.
-    var sidecar: Bool
 }
 
 enum BenchCLI {
@@ -156,63 +123,25 @@ enum BenchCLI {
           voiceour-bench pipeline --input <manifest.jsonl> --output <results.jsonl>
               [--backend \(backendChoices)] [--timeout-ms 120000]
               [--vocabulary <repair.vocabulary.json>]
-          voiceour-bench tdt-lattice --input <manifest.jsonl> --output <lattice.jsonl>
-          voiceour-bench raw-decode --input <manifest.jsonl> --output <results.jsonl>
-              --model <model.gguf|bin> [--vocabulary <repair.vocabulary.json>]
-          voiceour-bench dump-states --input <manifest.jsonl> --output-dir <dump/>
-              [--model <model.bin>]
-          voiceour-bench stage-profile --input <manifest.jsonl> --output <profile.jsonl>
-              [--passes 1] [--sidecar] [--timeout-ms 120000]
-              [--vocabulary <repair.vocabulary.json>]
-          voiceour-bench glossary-conditioning dump-states --input <manifest.jsonl>
-              --output-dir <state-dump/> --model <model.bin> [--lattice <lattice.jsonl>]
-              [--vocabulary <repair.vocabulary.json>]
-          voiceour-bench glossary-conditioning replay-states --input <manifest.jsonl>
-              --states <states.f32> --index <index.jsonl> --output <rows.jsonl>
-              --model <model.bin> [--vocabulary <repair.vocabulary.json>]
-          voiceour-bench external-encoder --engine coreml|coreai --input <manifest.jsonl>
-              --output <results.jsonl> --model <model.bin> [--coreai-model <encoder.aimodel|.aimodelc>]
-              [--coreai-compute default|neural-engine|cpu] [--coreai-cache none|default|persistent]
-              [--vocabulary <repair.vocabulary.json>]
           voiceour-bench repair-verify --fixtures <directory>
               [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
           voiceour-bench granite-spot --input <manifest.jsonl> --output <rows.jsonl>
               [--glossary <repair.vocabulary.json>] [--model <granite.gguf>]
           voiceour-bench granite-tokenize --input <texts.jsonl> --output <ids.jsonl> [--model <granite.gguf>]
-          voiceour-bench tail-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
-              [--rust-tail-lib <libtdt_tail.dylib> [--rust-arms a,b]] [--states-dir <states/>]
-              [--cpp-elapsed decode|tail|wall]
-          voiceour-bench mel-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
-              [--rust-mel-lib <libmel_frontend.dylib> [--rust-arms a,b]] [--transcripts]
-          voiceour-bench encoder-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
-              [--rust-encoder-lib <libencoder_ENGINE.dylib>[,...] [--rust-arms ENGINE:arm,...]]
-          voiceour-bench combined-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
-              --rust-mel-lib <libmel_frontend.dylib> --rust-tail-lib <libtdt_tail.dylib>
-              [--arms native,native@aa,rust-tail,rust-mel,rust-mel-tail,c-control]
-              [--rust-mel-arm best] [--rust-tail-arm best] [--c-tail-arm c-best]
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
 
-    /// The registry backend the in-process commands decode with. `raw-decode`, `stage-profile`,
-    /// `tdt-lattice` and `dump-states` construct `ParakeetContext` themselves, so Parakeet is
-    /// their default — and `raw-decode`'s only — backend; `pipeline` runs the registry default.
-    static let inProcessBackend = "parakeet"
-
     static func parse(_ arguments: [String]) throws -> BenchOptions {
         guard let commandValue = arguments.first, let command = BenchCommand(rawValue: commandValue) else {
-            throw BenchError.usage("expected subcommand: pipeline or tdt-lattice")
+            throw BenchError.usage("expected subcommand: pipeline or repair-verify")
         }
 
         var input: URL?
         var output: URL?
-        var outputDirectory: URL?
         var backend: String?
         var timeoutMs = 120_000
         var vocabulary: URL?
-        var model: URL?
-        var passes: Int?
-        var sidecar = false
 
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
@@ -222,23 +151,8 @@ enum BenchCLI {
                 input = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--output":
                 output = fileURL(try value(for: parsed, in: arguments, index: &index))
-            case "--output-dir":
-                outputDirectory = fileURL(try value(for: parsed, in: arguments, index: &index))
-            case "--passes":
-                let value = try value(for: parsed, in: arguments, index: &index)
-                guard let parsedPasses = Int(value), parsedPasses > 0 else {
-                    throw BenchError.usage("--passes must be a positive integer")
-                }
-                passes = parsedPasses
-            case "--sidecar":
-                guard parsed.inlineValue == nil else {
-                    throw BenchError.usage("--sidecar takes no value")
-                }
-                sidecar = true
             case "--vocabulary":
                 vocabulary = fileURL(try value(for: parsed, in: arguments, index: &index))
-            case "--model":
-                model = fileURL(try value(for: parsed, in: arguments, index: &index))
             case "--backend":
                 let value = try value(for: parsed, in: arguments, index: &index)
                 guard
@@ -264,51 +178,15 @@ enum BenchCLI {
         }
 
         guard let input else { throw BenchError.usage("missing --input") }
-        let destination: URL
-        if command == .dumpStates {
-            guard output == nil else { throw BenchError.usage("dump-states writes --output-dir, not --output") }
-            guard let outputDirectory else { throw BenchError.usage("missing --output-dir") }
-            destination = outputDirectory
-        } else {
-            guard outputDirectory == nil else {
-                throw BenchError.usage("--output-dir is only valid for dump-states")
-            }
-            guard let output else { throw BenchError.usage("missing --output") }
-            destination = output
-        }
-        if vocabulary != nil, command != .pipeline, command != .rawDecode, command != .stageProfile {
-            throw BenchError.usage("--vocabulary is only valid for pipeline, raw-decode and stage-profile")
-        }
-        if command == .rawDecode, model == nil {
-            throw BenchError.usage("raw-decode requires --model")
-        }
-        let resolvedBackend =
-            backend ?? (command == .pipeline ? ASRBackendRegistry.builtIn.defaultDescriptor.id : inProcessBackend)
-        // raw-decode builds a Parakeet context on the file it is handed; it has no dispatch to
-        // any other engine, so a Granite run would silently decode with Parakeet's code path.
-        if command == .rawDecode, resolvedBackend != inProcessBackend {
-            throw BenchError.usage(
-                "raw-decode decodes Parakeet checkpoints only; --backend \(resolvedBackend) is not supported "
-                    + "(use pipeline --backend \(resolvedBackend))"
-            )
-        }
-        if model != nil, command != .rawDecode, command != .dumpStates {
-            throw BenchError.usage("--model is only valid for raw-decode and dump-states")
-        }
-        if passes != nil || sidecar, command != .stageProfile {
-            throw BenchError.usage("--passes and --sidecar are only valid for stage-profile")
-        }
+        guard let output else { throw BenchError.usage("missing --output") }
 
         return BenchOptions(
             command: command,
             input: input,
-            output: destination,
-            backend: resolvedBackend,
+            output: output,
+            backend: backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id,
             timeoutMs: timeoutMs,
-            vocabulary: vocabulary,
-            model: model,
-            passes: passes ?? 1,
-            sidecar: sidecar
+            vocabulary: vocabulary
         )
     }
 
@@ -351,16 +229,6 @@ enum BenchCLI {
 
 struct LoadedRepairEngine {
     var engine: VocabularyRepairEngine
-    var relaxedEngine: VocabularyRepairEngine
-    var ordinaryWords: Set<String>
-    var spokenAliasRules: [AssistArbitration.SpokenAliasRule]
-    /// Every taught canonical surface — eligible and protected alike — retained for
-    /// assist arbitration. Protected surfaces are excluded from phonetic repair
-    /// because they collide with ordinary words, but arbitration only ever fires on
-    /// an exact cased surface one whole transcript contains and the other lacks, and
-    /// it adopts a complete real transcript rather than splicing a term, so the
-    /// ordinary-word hazard that reserves them from repair does not apply here.
-    var surfaces: [String]
     var sha256: String
 
     static func load(_ url: URL) throws -> LoadedRepairEngine {
@@ -377,242 +245,10 @@ struct LoadedRepairEngine {
         } catch {
             throw BenchError.io("cannot decode vocabulary \(url.path): \(BenchError.describe(error))")
         }
-        let surfaces = vocabulary.surfaces + vocabulary.protectedSurfaces
-        var relaxedVocabulary = vocabulary
-        relaxedVocabulary.phoneticThreshold = AssistArbitration.relaxedPhoneticThreshold
         return LoadedRepairEngine(
             engine: VocabularyRepairEngine(vocabulary: vocabulary),
-            relaxedEngine: VocabularyRepairEngine(vocabulary: relaxedVocabulary),
-            ordinaryWords: Set(vocabulary.ordinaryWords.lazy.map { $0.lowercased() }),
-            spokenAliasRules: AssistArbitration.spokenAliasRules(for: surfaces),
-            surfaces: surfaces,
             sha256: try BenchRunner.sha256(of: url)
         )
-    }
-}
-
-/// Second-opinion arbitration between the primary transcript and the assist model's,
-/// both after the identical cleanup + repair stage. Strict repair adopts a complete
-/// transcript only for an exact taught-surface superset. A lower-threshold phonetic
-/// repair may drive the same whole-transcript choice only when independent decoders
-/// produced at least two distinct spellings that map to the same canonical surface.
-/// Repeated copies of one homophone are one observation, not consensus.
-enum AssistArbitration {
-    static let relaxedPhoneticThreshold = 0.80
-    private static let minimumDistinctPhoneticForms = 2
-
-    struct RelaxedCandidate {
-        var text: String
-        var events: [RepairEvent]
-    }
-
-    struct SpokenAliasRule {
-        var canonical: String
-        var expression: NSRegularExpression
-    }
-
-    static func spokenAliasRules(for surfaces: [String]) -> [SpokenAliasRule] {
-        surfaces.compactMap { surface in
-            let scalars = Array(surface.unicodeScalars)
-            guard scalars.count >= 3,
-                let letter = scalars.first,
-                CharacterSet.letters.contains(letter),
-                scalars.dropFirst().allSatisfy({ $0 == "+" })
-            else {
-                return nil
-            }
-            let repeatedPlus = Array(repeating: "plus", count: scalars.count - 1)
-                .joined(separator: "\\s+")
-            let pattern =
-                "(?<!\\w)"
-                + NSRegularExpression.escapedPattern(for: String(letter))
-                + "\\s+"
-                + repeatedPlus
-                + "(?!\\w)"
-            guard
-                let expression = try? NSRegularExpression(
-                    pattern: pattern,
-                    options: .caseInsensitive
-                )
-            else {
-                return nil
-            }
-            return SpokenAliasRule(canonical: surface, expression: expression)
-        }
-    }
-
-    static func protectSpokenAliases(in rawTexts: [String], surfaces: [String]) -> [String] {
-        protectSpokenAliases(in: rawTexts, rules: spokenAliasRules(for: surfaces))
-    }
-
-    static func protectSpokenAliases(
-        in rawTexts: [String],
-        rules: [SpokenAliasRule]
-    ) -> [String] {
-        var protected = rawTexts
-        for rule in rules {
-            let supportingSources = protected.lazy.filter { text in
-                let range = NSRange(text.startIndex..., in: text)
-                return rule.expression.firstMatch(in: text, range: range) != nil
-            }.count
-            guard supportingSources >= 2 else { continue }
-            let replacement = NSRegularExpression.escapedTemplate(for: rule.canonical)
-            protected = protected.map { text in
-                let range = NSRange(text.startIndex..., in: text)
-                return rule.expression.stringByReplacingMatches(
-                    in: text,
-                    range: range,
-                    withTemplate: replacement
-                )
-            }
-        }
-        return protected
-    }
-
-    static func arbitrate(primary: String, assist: String, surfaces: [String]) -> String {
-        let primaryTerms = taughtSurfaces(in: primary, surfaces: surfaces)
-        let assistTerms = taughtSurfaces(in: assist, surfaces: surfaces)
-        if !assistTerms.subtracting(primaryTerms).isEmpty,
-            primaryTerms.subtracting(assistTerms).isEmpty
-        {
-            return assist
-        }
-        return primary
-    }
-
-    static func arbitrateRelaxed(
-        primary: String,
-        candidates: [RelaxedCandidate],
-        surfaces: [String],
-        ordinaryWords: Set<String> = []
-    ) -> String {
-        let taught = Set(surfaces)
-        var evidenceBySurface: [String: [(source: Int, form: String)]] = [:]
-        for (source, candidate) in candidates.enumerated() {
-            for event in candidate.events
-            where event.kind == "phonetic"
-                && taught.contains(event.after)
-                && permitsRelaxedPhoneticSurface(event.after)
-            {
-                let normalized = normalizedEvidenceForm(event.before)
-                guard !normalized.isEmpty else { continue }
-                evidenceBySurface[event.after, default: []].append((source, normalized))
-            }
-        }
-        let approved: Set<String> = Set(
-            evidenceBySurface.compactMap { surface, evidence in
-                guard hasDiverseSourceEvidence(evidence) else { return nil }
-                let forms = Set(evidence.map(\.form))
-                if isTitleCaseSurface(surface),
-                    forms.allSatisfy({ isOrdinaryPhrase($0, words: ordinaryWords) })
-                {
-                    return nil
-                }
-                return surface
-            }
-        )
-
-        var selected = primary
-        for candidate in candidates {
-            let selectedTerms = taughtSurfaces(in: selected, surfaces: surfaces)
-            let candidateTerms = taughtSurfaces(in: candidate.text, surfaces: surfaces)
-            let added = candidateTerms.subtracting(selectedTerms)
-            let candidatePhoneticSurfaces = Set(
-                candidate.events.lazy
-                    .filter { $0.kind == "phonetic" && taught.contains($0.after) }
-                    .map(\.after)
-            )
-            guard candidatePhoneticSurfaces.isSubset(of: approved) else { continue }
-            if !added.isEmpty,
-                added.isSubset(of: approved),
-                selectedTerms.subtracting(candidateTerms).isEmpty
-            {
-                selected = candidate.text
-            }
-        }
-        return selected
-    }
-    private static func hasDiverseSourceEvidence(
-        _ evidence: [(source: Int, form: String)]
-    ) -> Bool {
-        for left in evidence.indices {
-            for right in evidence.indices where right > left {
-                if evidence[left].source != evidence[right].source,
-                    evidence[left].form != evidence[right].form
-                {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private static func normalizedEvidenceForm(_ form: String) -> String {
-        form.unicodeScalars
-            .split(whereSeparator: { !CharacterSet.alphanumerics.contains($0) })
-            .map { String(String.UnicodeScalarView($0)).lowercased() }
-            .joined(separator: " ")
-    }
-
-    private static func permitsRelaxedPhoneticSurface(_ surface: String) -> Bool {
-        var foundLetter = false
-        for scalar in surface.unicodeScalars where CharacterSet.letters.contains(scalar) {
-            if foundLetter, CharacterSet.uppercaseLetters.contains(scalar) {
-                return false
-            }
-            foundLetter = true
-        }
-        return true
-    }
-
-    private static func isTitleCaseSurface(_ surface: String) -> Bool {
-        guard let first = surface.unicodeScalars.first(where: CharacterSet.letters.contains) else {
-            return false
-        }
-        return CharacterSet.uppercaseLetters.contains(first)
-    }
-
-    private static func isOrdinaryPhrase(_ phrase: String, words: Set<String>) -> Bool {
-        let tokens = phrase.unicodeScalars
-            .split(whereSeparator: { !CharacterSet.alphanumerics.contains($0) })
-            .map { String(String.UnicodeScalarView($0)).lowercased() }
-        return !tokens.isEmpty && tokens.allSatisfy { isOrdinaryWord($0, words: words) }
-    }
-
-    private static func isOrdinaryWord(_ word: String, words: Set<String>) -> Bool {
-        if words.contains(word) {
-            return true
-        }
-        let suffixLengths = word.hasSuffix("ing") ? [3] : word.hasSuffix("es") || word.hasSuffix("ed") ? [2] : [1]
-        return suffixLengths.contains { length in
-            word.count > length + 1 && words.contains(String(word.dropLast(length)))
-        }
-    }
-
-    /// Case-sensitive exact-surface presence with word boundaries, mirroring the
-    /// scorer's `contains_exact_term`: `(?<!\w)` / `(?!\w)` guards are applied only
-    /// when the surface's own edge is a word character.
-    static func taughtSurfaces(in text: String, surfaces: [String]) -> Set<String> {
-        var found: Set<String> = []
-        for surface in surfaces where !surface.isEmpty {
-            guard text.contains(surface) else { continue }
-            let first = surface.unicodeScalars.first.map(isWordScalar) == true
-            let last = surface.unicodeScalars.last.map(isWordScalar) == true
-            let pattern =
-                (first ? "(?<!\\w)" : "")
-                + NSRegularExpression.escapedPattern(for: surface)
-                + (last ? "(?!\\w)" : "")
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            let range = NSRange(text.startIndex..., in: text)
-            if regex.firstMatch(in: text, range: range) != nil {
-                found.insert(surface)
-            }
-        }
-        return found
-    }
-
-    private static func isWordScalar(_ scalar: Unicode.Scalar) -> Bool {
-        scalar == "_" || CharacterSet.alphanumerics.contains(scalar)
     }
 }
 
@@ -775,33 +411,15 @@ struct BenchRunner {
         switch options.command {
         case .pipeline:
             try await runPipeline()
-        case .tdtLattice:
-            try TDTLatticeCommand(options: options).run()
-        case .rawDecode:
-            try RawDecodeCommand(options: options).run()
-        case .dumpStates:
-            try DumpStatesCommand(options: options).run()
-        case .stageProfile:
-            try await StageProfileCommand(options: options).run()
         }
     }
-
-    /// The artifact this run loads. Resolved from the environment exactly as the app resolves
-    /// it, and read once so the emitted metadata cannot name a different file than the one the
-    /// client was launched with.
-    static let modelVariant = ASRModelVariant.resolved(
-        ProcessInfo.processInfo.environment[ASRModelVariant.environmentKey]
-    )
 
     /// The registry's client for `backend`, which for every registered backend is
     /// the sidecar client: this benchmark transcribes files and never records.
     static func makeASRClient(backend: String) -> any ASRClienting {
         ASRBackendRegistry.builtIn.client(
             for: backend,
-            context: ASRBackendContext(
-                sidecarExecutableURL: ASRBackendContext.siblingSidecarURL(),
-                modelVariant: modelVariant
-            )
+            context: ASRBackendContext(sidecarExecutableURL: ASRBackendContext.siblingSidecarURL())
         )
     }
 
@@ -819,7 +437,7 @@ struct BenchRunner {
             )
         )
         let reader = try JSONLLineReader(url: options.input)
-        let asr = Self.makeASRClient(backend: options.backend ?? ASRBackendRegistry.builtIn.defaultDescriptor.id)
+        let asr = Self.makeASRClient(backend: options.backend)
         let decoder = JSONDecoder()
         var lineNumber = 0
         var rowCount = 0
@@ -865,25 +483,14 @@ struct BenchRunner {
     }
 
     /// Model identity is the backend's own artifact, read from its descriptor and never
-    /// branched on here: a stale branch would stamp Parakeet's identity — or Parakeet's file —
-    /// onto every other backend's rows and make the whole record untrustworthy.
+    /// branched on here: a stale branch would stamp one backend's identity onto another
+    /// backend's rows and make the whole record untrustworthy.
     ///
     /// A backend with no model at all — `fake` — reports its own name rather than
     /// borrowing another backend's model, and names no file.
-    ///
-    /// The file is the loaded artifact: every Parakeet variant shares one id and revision, so
-    /// a record without the file name makes two runs on different weights look like the same
-    /// model to a comparison. Granite's is its one pinned GGUF, whatever the variant says.
-    static func modelIdentity(
-        for backend: String?,
-        variant: ASRModelVariant = BenchRunner.modelVariant
-    ) -> (id: String, revision: String, file: String?) {
-        guard
-            let backend,
-            let artifact = ASRBackendRegistry.builtIn.descriptor(for: backend)?.modelArtifact(for: variant)
-        else {
-            let name = backend ?? "none"
-            return (name, name, nil)
+    static func modelIdentity(for backend: String) -> (id: String, revision: String, file: String?) {
+        guard let artifact = ASRBackendRegistry.builtIn.descriptor(for: backend)?.modelArtifact else {
+            return (backend, backend, nil)
         }
         return (artifact.modelId, artifact.revision, artifact.file)
     }
@@ -989,45 +596,8 @@ struct BenchRunner {
             confidenceMode = result.transcript.confidenceMode?.rawValue
 
             let cleanupStart = BenchClock.mark()
-            if let repair {
-                let rawCandidates = [rawTranscript] + (result.transcript.assistTexts ?? [])
-                let protectedRaws = AssistArbitration.protectSpokenAliases(
-                    in: rawCandidates,
-                    rules: repair.spokenAliasRules
-                )
-                cleanedText = CleanupEngine.clean(protectedRaws[0], glossary: [])
-                finalText = repair.engine.repair(cleanedText).text
-                let primaryRelaxed = repair.relaxedEngine.repair(cleanedText)
-                var relaxedCandidates = [
-                    AssistArbitration.RelaxedCandidate(
-                        text: primaryRelaxed.text,
-                        events: primaryRelaxed.events
-                    )
-                ]
-                relaxedCandidates.reserveCapacity(protectedRaws.count)
-                for assistRaw in protectedRaws.dropFirst() {
-                    let assistCleaned = CleanupEngine.clean(assistRaw, glossary: [])
-                    let assistFinal = repair.engine.repair(assistCleaned).text
-                    finalText = AssistArbitration.arbitrate(
-                        primary: finalText,
-                        assist: assistFinal,
-                        surfaces: repair.surfaces
-                    )
-                    let relaxed = repair.relaxedEngine.repair(assistCleaned)
-                    relaxedCandidates.append(
-                        AssistArbitration.RelaxedCandidate(text: relaxed.text, events: relaxed.events)
-                    )
-                }
-                finalText = AssistArbitration.arbitrateRelaxed(
-                    primary: finalText,
-                    candidates: relaxedCandidates,
-                    surfaces: repair.surfaces,
-                    ordinaryWords: repair.ordinaryWords
-                )
-            } else {
-                cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
-                finalText = cleanedText
-            }
+            cleanedText = CleanupEngine.clean(rawTranscript, glossary: [])
+            finalText = repair.map { $0.engine.repair(cleanedText).text } ?? cleanedText
             timings.cleanup = BenchClock.elapsedMilliseconds(since: cleanupStart)
         } catch {
             rowError = BenchError.describe(error)
@@ -1091,13 +661,6 @@ struct BenchClock {
 
     static func elapsedMilliseconds(since start: UInt64) -> Int {
         let end = DispatchTime.now().uptimeNanoseconds
-        guard end >= start else { return 0 }
-        return Int((end - start) / 1_000_000)
-    }
-
-    /// Milliseconds between two marks, for a stage whose end is stamped inside a callback
-    /// rather than at the call site.
-    static func milliseconds(from start: UInt64, to end: UInt64) -> Int {
         guard end >= start else { return 0 }
         return Int((end - start) / 1_000_000)
     }
@@ -1212,12 +775,12 @@ struct PipelineInputRow: Decodable {
 struct BenchMeta: Encodable {
     var type = "bench_meta"
     var mode: String
-    var backend: String?
+    var backend: String
     var modelId: String
     var modelRevision: String
-    /// The loaded weight file, absent for a backend that has no model. `model_id` and
-    /// `model_revision` are shared by every variant of the pinned repository, so this is the
-    /// only field that tells two artifacts' runs apart.
+    /// The loaded weight file, absent for a backend that has no model. A pinned repository
+    /// can hold several artifacts under one `model_id` and `model_revision`, so this is the
+    /// field that tells two artifacts' runs apart.
     var modelFile: String?
     var manifestSHA256: String
     var audioManifestSHA256: String
@@ -1241,11 +804,7 @@ struct BenchMeta: Encodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
         try container.encode(mode, forKey: .mode)
-        if let backend {
-            try container.encode(backend, forKey: .backend)
-        } else {
-            try container.encodeNil(forKey: .backend)
-        }
+        try container.encode(backend, forKey: .backend)
         try container.encode(modelId, forKey: .modelId)
         try container.encode(modelRevision, forKey: .modelRevision)
         if let modelFile {
@@ -1310,9 +869,6 @@ struct BenchOutputRow: Encodable {
     var error: String?
     var confidence: Double?
     var confidenceMode: String?
-    /// Per-stage encoder measurement, present only for the `external-encoder` mode and
-    /// encoded only when present, so every other mode's rows stay byte-identical.
-    var encoder: EncoderRowTimings?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -1325,7 +881,6 @@ struct BenchOutputRow: Encodable {
         case error
         case confidence
         case confidenceMode = "confidence_mode"
-        case encoder
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1352,6 +907,5 @@ struct BenchOutputRow: Encodable {
         if let confidenceMode {
             try container.encode(confidenceMode, forKey: .confidenceMode)
         }
-        try container.encodeIfPresent(self.encoder, forKey: .encoder)
     }
 }

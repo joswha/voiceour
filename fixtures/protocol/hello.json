@@ -2,7 +2,7 @@
   "type": "hello",
   "protocol_version": 1,
   "sidecar_version": "1.0.0",
-  "backend_id": "parakeet-cpp",
+  "backend_id": "granite-ctc",
   "backend_status": "ready",
   "capabilities": {
     "final_utterance": true

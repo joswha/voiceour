@@ -39,7 +39,7 @@ public final class SidecarServer: @unchecked Sendable {
         return shutdownRequested
     }
 
-    /// Decodes are serialized: the parakeet context is not thread safe, and the retired
+    /// Decodes are serialized: a native model context is not thread safe, and the retired
     /// Python sidecar serialized them the same way through a single-worker executor.
     private let decodeQueue = DispatchQueue(label: "voiceour.asr.decode")
     private let inflight = InflightRegistry()

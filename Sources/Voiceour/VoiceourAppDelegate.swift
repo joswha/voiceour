@@ -169,18 +169,16 @@ final class VoiceourAppDelegate: NSObject, NSApplicationDelegate {
         return result
     }
 
-    /// The environment a restart hands its successor, minus the overrides that would outrank the
-    /// settings the user just changed.
+    /// The environment a restart hands its successor, minus the override that would outrank the
+    /// setting the user just changed.
     ///
-    /// Bootstrap reads the environment ahead of the persisted value for both the backend and the
-    /// model variant, so leaving either here would restart the app into the old selection and make
-    /// the restart-to-apply button look broken.
+    /// Bootstrap reads the environment ahead of the persisted backend, so leaving it here would
+    /// restart the app into the old selection and make the restart-to-apply button look broken.
     static func restartEnvironment(from environment: [String: String] = ProcessInfo.processInfo.environment) -> [String:
         String]
     {
         var result = environment
         result.removeValue(forKey: "VOICEOUR_ASR_BACKEND")
-        result.removeValue(forKey: ASRModelVariant.environmentKey)
         return result
     }
 

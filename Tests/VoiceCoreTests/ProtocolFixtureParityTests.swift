@@ -16,7 +16,6 @@ struct ProtocolFixtureParityTests {
             "transcribe.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
             "result.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "result_with_words.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
-            "result_with_assist.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "cancel.json": { _ = try ASRWire.decode(ASRCancelRequest.self, from: $0) },
             "cancelled.json": { _ = try ASRWire.decode(ASRCancelledMessage.self, from: $0) },
             "error.json": { _ = try ASRWire.decode(ASRErrorMessage.self, from: $0) },
@@ -40,18 +39,18 @@ struct ProtocolFixtureParityTests {
     }
 
     /// The fixtures are the wire's committed shape, so the request one has to name the artifact
-    /// a default install actually asks for. Without `file` the pinned repository's variants are
+    /// an install actually asks for. Without `file` two files of one revision are
     /// indistinguishable on the wire, which is the whole reason the field exists — a fixture
-    /// that drops it, or names the artifact of a variant that is no longer the default, is a
-    /// protocol document that no shipped client would produce.
-    @Test func transcribeFixtureNamesTheDefaultVariantOfThePinnedRepository() throws {
+    /// that drops it, or names another artifact, is a protocol document that no shipped client
+    /// would produce.
+    @Test func transcribeFixtureNamesThePinnedGraniteArtifact() throws {
         let fixtureURL = repoRoot().appendingPathComponent("fixtures/protocol/transcribe.json")
         let request = try ASRWire.decode(ASRTranscribeRequest.self, from: Data(contentsOf: fixtureURL))
 
         let pinned = ASRExpectedModel(
-            modelId: ASRModelContract.modelId,
-            revision: ASRModelContract.revision,
-            file: ASRModelVariant.default.fileName
+            modelId: GraniteModelContract.modelId,
+            revision: GraniteModelContract.revision,
+            file: GraniteModelContract.fileName
         )
 
         #expect(request.expectedModel == pinned)
@@ -105,31 +104,6 @@ struct ProtocolFixtureParityTests {
         #expect(try ASRWire.decode(ASRHealthResponse.self, from: line) == sent)
     }
 
-    /// `assist_texts` is optional in both directions: the plain `result.json` fixture omits it
-    /// and must decode to nil, the assist fixture carries it and must surface the exact texts
-    /// in order, and the value must survive the shipped coder's snake-case round trip.
-    @Test func assistTextsAreOptionalOnTheWireAndSurviveTheCoder() throws {
-        let fixtures = repoRoot().appendingPathComponent("fixtures/protocol", isDirectory: true)
-        let plain = try ASRWire.decode(
-            ASRResult.self,
-            from: Data(contentsOf: fixtures.appendingPathComponent("result.json"))
-        )
-        #expect(plain.transcript.assistTexts == nil)
-
-        let assisted = try ASRWire.decode(
-            ASRResult.self,
-            from: Data(contentsOf: fixtures.appendingPathComponent("result_with_assist.json"))
-        )
-        #expect(
-            assisted.transcript.assistTexts == ["install kubectl on the cluster", "install kubectl on the cluster now"])
-
-        let encoded = try ASRWire.encodeLine(assisted)
-        let decoded = try ASRWire.decode(ASRResult.self, from: encoded)
-        #expect(
-            decoded.transcript.assistTexts == ["install kubectl on the cluster", "install kubectl on the cluster now"])
-        #expect(decoded == assisted)
-    }
-
     @Test func resultWithWordsDecodesPopulatedWordEvidence() throws {
         let fixtureURL = repoRoot()
             .appendingPathComponent("fixtures/protocol/result_with_words.json")
@@ -165,11 +139,11 @@ struct ProtocolFixtureParityTests {
         #expect(lastWord.endMs == 620)
         #expect(lastWordConfidence == 0.91)
 
-        #expect(result.backendId == "parakeet-cpp")
+        #expect(result.backendId == "granite-ctc")
         // A reply attributed to the real backend has to claim the revision that backend loads:
         // this fixture answers the request in `transcribe.json`, and a client that pins one
         // revision while the recorded reply names another documents an exchange it would reject.
-        #expect(result.modelId == ASRModelContract.modelId)
-        #expect(result.modelRevision == ASRModelContract.revision)
+        #expect(result.modelId == GraniteModelContract.modelId)
+        #expect(result.modelRevision == GraniteModelContract.revision)
     }
 }

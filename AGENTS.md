@@ -36,12 +36,12 @@ Platform: Swift tools 6.4, Swift 6 language mode, macOS 27, arm64 only. Names: `
 | `Sources/VoiceCore/` | Foundation-only models, settings, state, text stages, glossary, ASR wire types, history/ledger, failures, safety policy |
 | `Sources/VoiceMac/` | macOS adapters: capture, fake audio, sidecar, focus, pasteboard, permissions, hotkeys, muting, installed apps, word-list import; NEVER SwiftUI |
 | `Sources/Voiceour/` | SwiftUI and orchestration; `DictationCoordinator` stays `@MainActor`; stop path in `TranscriptProcessingPipeline.swift` |
-| `Sources/ASRSidecarCore/` | Acquisition/cache, WAV, Parakeet context/token mapping, Granite context/transcript mapping, optional CoreML, backends, server; imports `VoiceCore` + `CParakeet` + `CGranite`, NEVER `VoiceMac` |
-| `Sources/VoiceourASR/` | Signed sibling `voiceour-asr`; vendored parakeet.cpp/ggml + Granite port; NDJSON v1 |
+| `Sources/ASRSidecarCore/` | Acquisition/cache (`ModelCache`), WAV, Granite context/transcript mapping, backends, server; imports `VoiceCore` + `CGranite`, NEVER `VoiceMac` |
+| `Sources/VoiceourASR/` | Signed sibling `voiceour-asr`; vendored ggml + Granite port; NDJSON v1 |
 | `Sources/VoiceourBench/` | `voiceour-bench`: production-path measurement |
-| `Sources/ASRSidecarStub/`, `Sources/ParakeetMixedQuantize/` | `ASRSidecarStub` protocol helper / `parakeet-mixed-quantize` research tool; non-shipping |
+| `Sources/ASRSidecarStub/` | `ASRSidecarStub` protocol helper; non-shipping |
 | `Sources/Voiceour/UIHarness/` | Compile-gated scene/flow renderer, AX/PNG reports, lint, mercury benchmark |
-| `Vendor/parakeet/` | Native sources, pin, ordered patches, embedded Metal |
+| `Vendor/ggml/` | `CGgml`: ggml sources (upstream-relative), pin, ordered patches, embedded Metal; `NOTICE.md`, `LICENSE` |
 | `Vendor/granite/` | `CGranite`: adapted transcribe.cpp Granite port on `CGgml`; frozen `include/granite.h`, `NOTICE.md` file map, `LICENSE` |
 | `Tests/`, `fixtures/protocol/`, `fixtures/ui/` | Swift Testing suites; protocol-v1 fixtures; AX/digest/flow goldens |
 | `bench/`, `benchmarks/` | Non-shipping Python tooling; prepared data and committed measurement reports |
@@ -51,7 +51,7 @@ Platform: Swift tools 6.4, Swift 6 language mode, macOS 27, arm64 only. Names: `
 - Production targets MUST NOT import `Voiceour`; tests may.
 - MUST preserve injection for recording, ASR, targets, insertion, permissions, hotkeys, muting, settings, recent sessions.
 - `../syncour` consumes `VoiceCore` and `VoiceMac` by path dependency. Their public APIs are external contracts; Syncour's owner handles its platform/toolchain migration.
-- Registered backends, picker order `fake`, `parakeet`, `granite`: `granite` (default recognizer; [Granite contract](#granite-default-model)), `parakeet` (alternative, explicit selection only), `fake` (deterministic development). Retired `mlx`, `ark-0.6b`, `ark-3b`, `apple` ids normalize to `parakeet`.
+- Registered backends, picker order `fake`, `granite`: `granite` (default and only recognizer; [model contract](#model-contract-and-vendor-rules)), `fake` (deterministic development). Retired `mlx`, `ark-0.6b`, `ark-3b`, `apple`, `parakeet` ids normalize to `granite` (`LaunchOptions.retiredBackendIDs`).
 - `voiceour-asr` is the only child process. Pinned model acquisition is the only network path.
 
 ## Runtime flow
@@ -79,7 +79,7 @@ idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> c
 - Compile `VocabularyCompiler` snapshot once after finalization, before ASR. Apply text stages once after ASR; snapshot delivery target next.
 - Failures MUST use `UserFacingDictationFailure`: title, plain cause, retryability, recovery destination. Raw codes MUST NOT be primary UI text.
 - Wire `SidecarASRClientError.protocolError` preserves its code/detail. Local timeout → `timeout`; launch/no greeting/process exit/pipe write → `backend_unavailable`; incompatible greeting/unexpected response → `incompatible_protocol`. Preserve the public client error enum.
-- Muting applies to every model-backed backend (`parakeet`, `granite`), never `fake`. Start cue before mute; begin restore immediately when capture ends, without awaiting the 120 ms fade; end cue after restore.
+- Muting applies to `granite`, never `fake`. Start cue before mute; begin restore immediately when capture ends, without awaiting the 120 ms fade; end cue after restore.
 - Mute ownership is durable and device-UID-bound. Unresolved UID → retain ownership and refuse another mute. Clear only after a real restore attempt. Disk-loaded/interrupted fades restore partial volumes; completed live fades retain the user-adjusted-volume check.
 - A duplicate bundled instance MUST quit at launch. Quit MUST discard active work and restore audio before exit.
 
@@ -139,7 +139,7 @@ Order: `LiteralComposition.apply` always; `CleanupEngine.clean` + `VocabularyRep
 NDJSON v1 over stdin/stdout; stdout protocol-only, stderr continuously drained.
 
 - MUST validate version 1 on every response, not just `hello`; mismatch is connection-fatal.
-- Startup `hello`: sidecar version, backend id/status, capabilities. Requests: `health`, `transcribe`, `cancel`. Wire `backend_id` (hello/result) is the implementation id, not the registry id: `parakeet-cpp`, `granite-ctc`, `fake`.
+- Startup `hello`: sidecar version, backend id/status, capabilities. Requests: `health`, `transcribe`, `cancel`. Wire `backend_id` (hello/result) is the implementation id, not the registry id: `granite-ctc`, `fake`.
 - Decode work serialized; health/cancel remain readable on the reader thread. Every decode request MUST produce exactly one terminal `result`, `error`, or `cancelled` with the original request id.
 - `health`: `ready`, `model_loaded`, `cache_ok`; optional download fraction, warming state, unresolved acquisition failure. Failure = `ASRErrorCode` + diagnostic detail; both omission and presence MUST decode. No parallel taxonomy.
 - `transcribe`: id, WAV metadata, `expected_model` (`model_id`, `revision`, `file`), timeout. WAV header is authoritative: 16 kHz mono 16-bit PCM. Dictation client deadline 30 s; timeout → `cancel`, 500 ms grace, kill child.
@@ -155,79 +155,49 @@ NDJSON v1 over stdin/stdout; stdout protocol-only, stderr continuously drained.
 
 ## Model contract and vendor rules
 
-`granite` is the default recognizer ([contract](#granite-default-model)); `parakeet` is the alternative, run only when `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the `--debug` picker selects it. Parakeet model `ggml-org/parakeet-GGUF`, revision `35156454d1a39de06863303dd209fd2bed6ee079`; two conversions of one checkpoint:
-
-| variant | file | SHA-256 | bytes |
-| --- | --- | --- | ---: |
-| `f16` — Balanced | `ggml-parakeet-tdt-0.6b-v3-f16.bin` | `833bffc9513b2cae867ee9e51633cfd11e4d51aaa5597c8ac02159385a2b426f` | 1,255,897,319 |
-| `q8_0` — Compact | `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | `4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e` | 668,757,119 |
-
-- Default/unknown/stale Parakeet variant → `f16`. `q8_0` artifact is 587 MB smaller. Corpus cannot resolve an accuracy difference. NEVER claim superior accuracy or unqualified speed; changing the default variant requires cross-SoC replication + [paired real-speaker gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate). [Dated measurements](docs/performance-roadmap.md) are not shipping promises.
-- MUST update id/revision/filenames/digests/sizes, descriptors, manifest, README, AGENTS, NOTICE, fixtures, tests as one contract. `make check-docs` extracts pins from `Sources/VoiceCore/ASRProtocol.swift` (`ASRModelContract`, `ASRModelVariant`, `GraniteModelContract`); both root docs MUST name/hash every artifact.
-- Cache root: `~/Library/Caches/Voiceour/`. Preserve `f16` directory `parakeet-tdt-0.6b-v3-ggml`; `q8_0` uses `parakeet-tdt-0.6b-v3-ggml-q8_0`. `manifest.json`: `model_id`, `revision`, `file`, `sha256`, `size_bytes`.
-- `cacheOK` = full manifest matches selected pin AND file size matches; no hash here. Download completion verifies digest. Load failure rehashes; mismatch removes artifact/manifest/base arena and reacquires once/process.
-- Acquisition: preload thread only; ephemeral session; three resumable attempts; remaining bytes + 256 MiB free required before fetching.
-- Variant precedence: `VOICEOUR_MODEL_VARIANT` > persisted `asr_model_variant`; invalid env → `f16`. App MUST write resolved variant last/unconditionally to the Parakeet sidecar env and strip it from fake/Granite sidecar env. Every decode MUST carry `expected_model.file`; shared id/revision cannot distinguish variants.
-- Variant/backend changes require restart. Keep `DictationCoordinator.activeModelVariant` separate from `settings.asrModelVariant`; Settings shows *Restart to apply*. Restart removes `VOICEOUR_ASR_BACKEND` + `VOICEOUR_MODEL_VARIANT` overrides.
-- One Parakeet variant resident. Delete other variant directories only after selected weights load successfully, never at selection time. NEVER prune under caller-owned `VOICEOUR_MODEL_CACHE`. Changing `HOME` does not relocate the cache; cold-download checks need an explicit empty cache directory.
-- Derived `weights-<sha256>-<size>.arena`: exact layout manifest, cross-process `flock`, physically reserved storage, fsynced temporaries, atomic rename. Warm mapping is read-only after manifest match. Stale/partial arena → rebuild; creation failure → ordinary buffers. Artifact + arena ≈ twice artifact size.
-- Vendor pin: `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage); preserve upstream-relative paths.
-- Every upstream-file change MUST carry `VOICEOUR PATCH`, an ordered `patches/*.patch`, and a `Vendor/parakeet/NOTICE.md` entry. Fix warnings at source; NEVER suppress them.
-- `scripts/vendor_parakeet.sh --check`: exact file set + byte-reproducible embedded Metal; with upstream checkout, exact pin-plus-patches equality.
-- NEVER add `-mcpu=native` or attempt a universal build. `Vendor/parakeet/ggml/embed/ggml-metal-embed.c` enforces arm64. Intel would require x86 `ggml/src/ggml-cpu/arch/x86/{quants.c,repack.cpp}`, manifest/NOTICE changes, and per-architecture targets: SwiftPM has no architecture build condition.
-
-### Granite default model
-
-Backend `granite`: the default recognizer, `ASRBackendRegistry.defaultDescriptor`. A persisted backend, whatever its id, is honored only under `--debug` (`LaunchOptions.persistedBackend`): a release build has no picker and every launch writes its resolved backend into settings, so honoring the file would pin a release install to an earlier launch's choice. Precedence: [`VOICEOUR_ASR_BACKEND`](#environment-seams). Model `vladers/granite-speech-5.0-470m-turboctc-GGUF`, revision `bd7db273aa69a26fc81e370c84597fa738fe2ad0`: the Q8_0 file of the maintainers' reproducible GGUF set of `ibm-granite/granite-speech-5.0-470m-turboctc` @ `1dd23f46f6d4e6eae2531982ba2e33220086dd97` (IBM, Apache-2.0), whose `conversion/build.sh` rebuilds every file byte for byte:
+Backend `granite` is the only recognizer and the default, `ASRBackendRegistry.defaultDescriptor`. A persisted backend, whatever its id, is honored only under `--debug` (`LaunchOptions.persistedBackend`): a release build has no picker and every launch writes its resolved backend into settings, so honoring the file would pin a release install to an earlier launch's choice. Precedence: [`VOICEOUR_ASR_BACKEND`](#environment-seams). Model `vladers/granite-speech-5.0-470m-turboctc-GGUF`, revision `bd7db273aa69a26fc81e370c84597fa738fe2ad0`: the Q8_0 file of the maintainers' reproducible GGUF set of `ibm-granite/granite-speech-5.0-470m-turboctc` @ `1dd23f46f6d4e6eae2531982ba2e33220086dd97` (IBM, Apache-2.0), whose `conversion/build.sh` rebuilds every file byte for byte:
 
 | file | SHA-256 | bytes |
 | --- | --- | ---: |
 | `granite-speech-5.0-470m-turboctc-Q8_0.gguf` | `fc34cbe71f979a6aeb8bea08bfac88d5c62c1736c0bc845827e37c90f28e336c` | 505,663,136 |
 
-- `GraniteModelContract` (VoiceCore) owns the pin, one `public static let` per line: `make check-docs` and `scripts/bundle.sh` parse it. NEVER an `ASRModelVariant` case; that enum means Parakeet precisions. `ASRModelArtifact` carries the running artifact to readiness, diagnostics, bench metadata.
-- Single artifact: no variant, ignores `VOICEOUR_MODEL_VARIANT` and every Parakeet experimental seam. Settings ▸ Model shows the fixed model (`voice.model.granite`) only while `granite` is the ACTIVE backend; otherwise the Parakeet picker. Diagnostics identifier `<id>@<rev> (<file>)`.
-- Cache `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/` + five-field `manifest.json`; same acquisition, `cacheOK`, digest, idle-unload and reacquire-once rules through the shared cache code. NEVER pruned by either backend; Granite prunes nothing. Load-failure digest mismatch removes GGUF + manifest only. A manifest naming one of `GraniteModelContract.supersededPins` in the app directory is cleared (its GGUF + manifest) and the current pin acquired; under `VOICEOUR_MODEL_CACHE` it is refused like any mismatch. Re-pinning MUST append the replaced pin to `supersededPins`.
+- `GraniteModelContract` (VoiceCore) owns the pin, one `public static let` per line: `make check-docs` and `scripts/bundle.sh` parse it. `ASRModelArtifact.granite` carries the running artifact to readiness, diagnostics, bench metadata; `ASRBackendDescriptor.modelArtifact` is that artifact, `nil` for `fake`.
+- MUST update id/revision/file/digest/size, `supersededPins`, descriptors, manifest, README, AGENTS, NOTICE, fixtures, tests as one contract. `make check-docs` extracts pins from `GraniteModelContract` in `Sources/VoiceCore/ASRProtocol.swift`; both root docs MUST name/hash the artifact; NOTICE credits the file and the source checkpoint/revision.
+- `ASRModelVariant` is an enum of retired Parakeet precision tags (`f16`, `q8` = `q8_0`, `default`) read by no backend, kept only for VoiceCore's external consumers (`../syncour`); the persisted `asr_model_variant` key still round-trips. NEVER give Granite an `ASRModelVariant` case or select a model from it.
+- Single artifact, no variant. Settings ▸ Model always shows the fixed model (`voice.model.granite`). Diagnostics identifier `<id>@<rev> (<file>)`. Backend changes require restart; restart removes the `VOICEOUR_ASR_BACKEND` override.
+- Cache root: `~/Library/Caches/Voiceour/`. Granite directory `granite-speech-5.0-470m-turboctc-q8_0/` + `manifest.json`: `model_id`, `revision`, `file`, `sha256`, `size_bytes`. `ModelCache` owns acquisition, `cacheOK`, digest, idle-unload, reacquire-once.
+- `cacheOK` = full manifest matches the pin AND file size matches; no hash here. Download completion verifies digest. Load failure rehashes; mismatch removes GGUF + manifest and reacquires once/process.
+- Acquisition: preload thread only; ephemeral session; three resumable attempts; remaining bytes + 256 MiB free required before fetching.
+- Granite prunes nothing in its cache. A manifest naming one of `GraniteModelContract.supersededPins` in the app directory is cleared (its GGUF + manifest) and the current pin acquired; under `VOICEOUR_MODEL_CACHE` it is refused like any mismatch. Re-pinning MUST append the replaced pin to `supersededPins`. NEVER delete under caller-owned `VOICEOUR_MODEL_CACHE`. Changing `HOME` does not relocate the cache; cold-download checks need an explicit empty cache directory.
+- Retired Parakeet cache directories `parakeet-tdt-0.6b-v3-ggml` and `parakeet-tdt-0.6b-v3-ggml-q8_0` are swept at launch from the app cache root only, never under `VOICEOUR_MODEL_CACHE`; failures are logged and never block launch.
 - No arena. GGUF mapped read-only (`MAP_SHARED`, `PROT_READ`) into backend buffers when the device accepts host pointers, else uploaded; NEVER write mapped memory. Cache ≈ artifact size.
 - Cancellation: abort callback polled only at `granite.h` stage boundaries (before frontend, before graph compute, after compute/before CTC decode); a cancel can wait one full graph compute. NEVER install a Metal abort callback (vendored Metal `n_cb=3`).
 - Short input: right-pad zeros to the minimum sample count yielding one encoder frame after both subsamplers, computed from hparams (1,120 for the pin); 0 samples → empty transcript.
 - Transcript: special tokens never text. `<|nospeech|>` emitted and decoded text has no Unicode letter/number → empty transcript. Language `en`; `greedyTokenProb` = CTC first-frame posterior; word times = frame × `granite_ms_per_frame`.
 - Promotion record: repository owners made `granite` the default on 2026-11-03 by explicit decision with three blockers open: the [paired real-speaker gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate) rejected it on public corpora, no cross-SoC replication, personal-repository artifact (since rebuilt reproducibly from IBM's files). [Measurements](docs/benchmarks.md#granite-evaluation-backend--2026-11-03).
-- `Vendor/granite/`: adapted MIT port of transcribe.cpp `src/arch/granite5_ctc` @ `5700f127e38dd53c4735ea23ef743b4b538eacd4` onto `Vendor/parakeet/ggml`; not a verbatim drop. `NOTICE.md` MUST map every file to its upstream source and adaptations; `LICENSE` is upstream's verbatim. NEVER vendor or change ggml there; ggml changes follow the Parakeet patch rules. `granite.h` declarations frozen; additive only. Native logs only via `granite_log_set` (honours `VOICEOUR_ASR_LOG`), NEVER stdout. Fix warnings at source.
+- `Vendor/granite/`: adapted MIT port of transcribe.cpp `src/arch/granite5_ctc` @ `5700f127e38dd53c4735ea23ef743b4b538eacd4` onto `Vendor/ggml`; not a verbatim drop. `NOTICE.md` MUST map every file to its upstream source and adaptations; `LICENSE` is upstream's verbatim. NEVER vendor or change ggml there; ggml changes follow the `Vendor/ggml` patch rules below. `granite.h` declarations frozen; additive only. Native logs only via `granite_log_set` (honours `VOICEOUR_ASR_LOG`), NEVER stdout. Fix warnings at source.
+- Vendor pin: `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage); `Vendor/ggml/` preserves upstream-relative paths (`Vendor/ggml/ggml/...`, `Vendor/ggml/LICENSE`).
+- Every ggml upstream-file change MUST carry `VOICEOUR PATCH`, an ordered `Vendor/ggml/patches/*.patch`, and a `Vendor/ggml/NOTICE.md` entry. Fix warnings at source; NEVER suppress them.
+- `scripts/vendor_ggml.sh --check`: exact file set + byte-reproducible embedded Metal; with upstream checkout, exact pin-plus-patches equality.
+- NEVER add `-mcpu=native` or attempt a universal build. `Vendor/ggml/ggml/embed/ggml-metal-embed.c` enforces arm64. Intel would require x86 `ggml/src/ggml-cpu/arch/x86/{quants.c,repack.cpp}`, manifest/NOTICE changes, and per-architecture targets: SwiftPM has no architecture build condition.
 
 ## Environment seams
 
-Overrides apply to one run, never persist settings. App code MUST NOT enable experimental sidecar seams.
+Overrides apply to one run, never persist settings.
 
 | variable | reader / contract |
 | --- | --- |
-| `VOICEOUR_ASR_BACKEND` | App: `--asr-backend` > env > persisted setting (any id, `--debug` launches only) > `granite`; invalid values fall through to the next source. Values `granite`, `parakeet`, `fake`. Standalone sidecar default: `fake`; `voiceour-asr --prove` default: `granite`, `parakeet` selects Parakeet. |
-| `VOICEOUR_MODEL_VARIANT` | App/sidecar, Parakeet only: `f16` or `q8_0`; overrides Settings. Granite ignores it. |
-| `VOICEOUR_MODEL_CACHE` | Sidecar, Parakeet and Granite: caller-owned single directory; no variant subdirectory or pruning. |
+| `VOICEOUR_ASR_BACKEND` | App: `--asr-backend` > env > persisted setting (any id, `--debug` launches only) > `granite`; invalid values fall through to the next source. Values `granite`, `fake`. Standalone sidecar default: `fake`; `voiceour-asr --prove` runs Granite only. |
+| `VOICEOUR_MODEL_CACHE` | Sidecar, Granite: caller-owned single directory; no subdirectory or pruning. |
 | `VOICEOUR_SUPPORT_DIR` | App: exact support-directory replacement. |
 | `VOICEOUR_PRELOAD` | Sidecar: `1` starts preload; app always sets it. |
 | `VOICEOUR_IDLE_UNLOAD_MS` | Sidecar: default 1,800,000 ms; ≤0 disables idle release. |
-| `VOICEOUR_ASR_LOG` | Sidecar, Parakeet and Granite native logs: `debug`, `warn`, `error`, `none`; default info. |
+| `VOICEOUR_ASR_LOG` | Sidecar, Granite native logs: `debug`, `warn`, `error`, `none`; default info. |
 | `VOICEOUR_FAKE_DELAY_MS` | Fake backend: transcription delay for cancellation tests. |
-| `VOICEOUR_COREML_ENCODER_TINY`, `VOICEOUR_COREML_ENCODER_SHORT`, `VOICEOUR_COREML_ENCODER` | Sidecar: experimental tiers covering ≤6/8/15 s respectively. |
-| `VOICEOUR_COREML_TINY_MAX_S`, `VOICEOUR_COREML_SHORT_MAX_S`, `VOICEOUR_COREML_MAX_S` | Lower the corresponding bound only; raising it fails. |
-| `VOICEOUR_COREML_WARM` | `tiers` primes configured tiers on each context creation. |
-| `VOICEOUR_TAIL_BACKEND` | `cpu` selects CPU/Accelerate TDT prediction/joint tail. |
-| `VOICEOUR_TAIL_QUANT` | `q8_0`: CPU-tail-only repack of seven 2-D f16 matmul weights. |
-| `VOICEOUR_CPU_POOL` | `persistent`: one ggml CPU threadpool sized to decode threads. |
-| `VOICEOUR_ASSIST_MODEL`, `VOICEOUR_ASSIST_MODEL_2` … `_5`; `VOICEOUR_ASSIST_MAX_S`, `VOICEOUR_ASSIST_MODEL_3_MAX_S` … `_5_MAX_S` | Research-only second-opinion models/caps; configured-model failure is fatal. |
-| `VOICEOUR_PARAKEET_INTEGRATION`, `VOICEOUR_GRANITE_INTEGRATION`, `VOICEOUR_CAPTURE_INTEGRATION` | Tests: set `1` to opt into real Parakeet model / real Granite model / real microphone suites. |
+| `VOICEOUR_GRANITE_INTEGRATION`, `VOICEOUR_CAPTURE_INTEGRATION` | Tests: set `1` to opt into real Granite model / real microphone suites. |
 | `VOICEOUR_GRANITE_MODEL` | Granite integration tests: explicit GGUF path; default the Granite cache. |
 | `VOICEOUR_CODESIGN_IDENTITY`, `VOICEOUR_CODESIGN_KEYCHAIN` | `scripts/bundle.sh`: signing pins; [precedence below](#macos-permissions-and-signing). |
 | `VOICEOUR_REPO_ROOT` | Harness / `scripts/console_shot.sh`: fixture/capture root. |
-
-Experimental constraints:
-
-- Unknown seam values other than unset/`default` MUST fail startup. Validate CoreML paths/bounds during backend construction: existing `.mlmodelc` or `.mlpackage`, in-range bound. NEVER silently fall back to Metal.
-- Shortest configured CoreML tier covering the utterance wins; longer audio uses native execution. Tiers load lazily; load/prediction failure fails that request, not retries elsewhere.
-- `VOICEOUR_TAIL_QUANT=q8_0` preserves pinned artifact bytes/digest; caches separate `.tail-q8` arena. Zero converted records → load failure.
-- `VOICEOUR_COREML_WARM=tiers`: own thread, throwaway clients, no decode state/lock. Prime failure logs and remains lazy. Cold ANE specialization ≈20 s/tier; system cache is purgeable.
-- Experimental paths are deterministic, not byte-identical to native Metal. Non-inferiority evidence: `research/bet2-ane-encoder.md`, `research/bet3-quantization.md`. No compiled encoder artifacts ship.
-- Benchmark-only `voiceour-bench external-encoder --engine coreai`: static 15 s Core AI versus one CoreML tier; native mel + four-thread ggml tail. ABI: `mel` float32 `[1,128,1501]`, `mel_length` int32 `[1]`, `encoder` float32 `[1,1024,188]`, `encoder_length` int32 `[1]`. `ParakeetContext.nativeMel` copies frame-major mel for async use; external-state decode retains mel recomputation. App/backend/env/settings MUST NOT select Core AI. [Experiment reference](docs/benchmarks.md#core-ai-encoder-experiment).
 
 ## Native UI contract
 
@@ -303,8 +273,8 @@ Experimental constraints:
 
 ## Local-first and network policy
 
-- Only compiled model URLs: each backend's own pinned host/repository/revision and digest. NEVER network text processing, telemetry, crash reporting, accounts, update checks, arbitrary URLs, or a third recognizer beyond `granite` (default) and `parakeet` (explicit alternative).
-- Sidecar env allowlist: `PATH`, `HOME`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` + lowercase forms, `SSL_CERT_FILE`, `VOICEOUR_*`. NEVER inherit full parent env. Always write `VOICEOUR_ASR_BACKEND`, `VOICEOUR_PRELOAD=1`; Parakeet model variant last.
+- Only compiled model URL: Granite's pinned host/repository/revision and digest. NEVER network text processing, telemetry, crash reporting, accounts, update checks, arbitrary URLs, or a second recognizer beyond `granite`.
+- Sidecar env allowlist: `PATH`, `HOME`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` + lowercase forms, `SSL_CERT_FILE`, `VOICEOUR_*`. NEVER inherit full parent env. Always write `VOICEOUR_ASR_BACKEND`, `VOICEOUR_PRELOAD=1`.
 - No credential UI, credential environment contract, configurable base URL, secret store, or keychain item. `Resources/Voiceour.entitlements`: audio-input only; no provisioning profile. Data-protection Keychain is unavailable: `SecItemAdd` returns `errSecMissingEntitlement` (-34018); ad-hoc `keychain-access-groups` fails AMFI. NEVER add a feature depending on it.
 
 ## Swift conventions
@@ -337,8 +307,7 @@ Use the smallest proving command. `make` lists the catalogue.
 | Fake debug app / real bundle | `make dev` / `make run` |
 | Stop / status / logs | `make stop` / `make status` / `make logs` |
 | Generate local audio fixture | `make fixture` |
-| Default (Granite) model fixture proof | `make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
-| Parakeet fixture proof | `make build && VOICEOUR_ASR_BACKEND=parakeet .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
+| Granite model fixture proof | `make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wav` |
 | Scene gate / bless / inventory | `make ui-snap` / `make ui-update` / `make ui-list` |
 | Flow gate / bless / inventory | `make ui-flow` / `make ui-flow-update` / `make ui-flow-list` |
 | All local scenes + flows | `make ui-all` |
@@ -349,14 +318,14 @@ Use the smallest proving command. `make` lists the catalogue.
 | LibriSpeech / FLEURS | `make bench-stt N=64` / `make bench-e2e N=64` |
 | Technical terms | `make bench-techterms` |
 | U-WER comparison | `make bench-gate BASELINE=... CANDIDATE=...` |
-| Vendor integrity / refresh | `scripts/vendor_parakeet.sh --check` / `scripts/vendor_parakeet.sh <upstream>` |
+| Vendor integrity / refresh | `scripts/vendor_ggml.sh --check` / `scripts/vendor_ggml.sh <upstream>` |
 | Ordinary-word resource | `scripts/generate_ordinary_words.py` |
 | App icon | `scripts/make_icon.sh` |
 | Delete `.build` | `make clean` |
 
 - `make check` order: build, format-check, check-docs, lint-python, test, ui-flow, ui-mercury-bench, test-python, self-test, bench-smoke.
 - `make self-test`: `--self-test`, cleanup + classification only; no backend construction.
-- `bench-stt`/`bench-e2e`/`bench-techterms` default `BACKEND=granite` (`N=200` for the first two); `BACKEND=parakeet` runs the Parakeet pipeline; `bench-smoke` always uses `fake`. `voiceour_bench.run --backend` defaults to `granite`, `voiceour-bench pipeline` to the registry default. `voiceour-bench raw-decode` is Parakeet-only and refuses other backends. Parakeet-vs-Granite comparison uses the [paired gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate), never `make bench-gate` (same-model only). MUST retain `uv --no-config`. [Benchmark reference](docs/benchmarks.md).
+- `bench-stt`/`bench-e2e`/`bench-techterms` default `BACKEND=granite` (`N=200` for the first two); `BACKEND=fake` measures the fake path; `bench-smoke` always uses `fake`. `voiceour_bench.run --backend` (`granite`, `fake`) defaults to `granite`, `voiceour-bench pipeline` to the registry default; `voiceour-bench` offers `pipeline` and `repair-verify`. Comparing two models or configurations uses the [paired gate](docs/benchmarks.md#paired-fixed-corpus-promotion-gate) on any two runs, never `make bench-gate` (same-model only). MUST retain `uv --no-config`. [Benchmark reference](docs/benchmarks.md).
 - Real-model/microphone checks require task relevance and available prerequisites; microphone also requires explicit interruption consent.
 
 ## Fast iteration runtime
@@ -365,9 +334,9 @@ Use the smallest proving command. `make` lists the catalogue.
 - `make run`: rebuild on `Package.swift`, `scripts/bundle.sh`, `Sources/`, `Resources/`, `Vendor/` changes; stop existing instance; launch. Launching over a live instance verifies the OLD binary: the new duplicate quits. `.env`/signing changes require `make bundle` explicitly.
 - `make dev`: unbundled debug executable, fake unless `VOICEOUR_ASR_BACKEND` set; stops nothing.
 - `make stop`/`make status` match process name `Voiceour`. Sidecar exits after stdin EOF + bounded shutdown; check lingering `voiceour-asr` when relevant. MUST verify intended PID/bundle with `make status`.
-- `make run`/`make dev` source root `.env` and export every key; bundling reads signing pins. `make run` forwards backend/variant/support names via `open --env`; MUST add forwarding for new app-read env names, NEVER assume LaunchServices inheritance.
+- `make run`/`make dev` source root `.env` and export every key; bundling reads signing pins. `make run` forwards backend/support names via `open --env`; MUST add forwarding for new app-read env names, NEVER assume LaunchServices inheritance.
 - Run/dev flags use `ARGS`, e.g. `make run ARGS="--debug --show-console"`. Supported: `--debug`, `--show-console`, `--console-section=<home|glossary|history|settings>`, `--no-activate`, `--asr-backend <id>`, `--self-test`; `--ui-harness` only with `-DUI_HARNESS`.
-- Logs: subsystem `com.voiceour.app`, categories `hotkey`, `audio`. `stop-path` signposts require Instruments/`xctrace`.
+- Logs: subsystem `com.voiceour.app`, categories `hotkey`, `audio`, `model` (retired model-cache sweep failures). `stop-path` signposts require Instruments/`xctrace`.
 
 ## Offscreen UI harness
 
@@ -439,7 +408,7 @@ Binary substitutes `scripts/release.sh --binary --dry-run`, then `scripts/releas
 ## Documentation rules
 
 - README: product behavior, architecture, data, model/network, safety, development, verification. AGENTS: engineering invariants, boundaries, workflow, protocol/vendor, UI/harness, release. MUST update the owning contract in the same change.
-- Specialist references: `docs/ui-harness.md`, `docs/mercury-renderer.md`, `docs/benchmarks.md`, `docs/performance-roadmap.md`, `docs/rust-evaluation.md`, `research/`. Derivations/measurements/runbooks only; link back to roots; NEVER redefine product policy or promote dated evidence into shipping claims.
+- Specialist references: `docs/ui-harness.md`, `docs/mercury-renderer.md`, `docs/benchmarks.md`, `docs/performance-roadmap.md`, `research/`. Derivations/measurements/runbooks only; link back to roots; NEVER redefine product policy or promote dated evidence into shipping claims.
 - `CONTRIBUTING.md`: PR gates. `SECURITY.md`: reporting. `CHANGELOG.md`: user-visible changes/release notes.
 - One owner per topic; link elsewhere. Declarative current-state prose, not deletion history. Archive useful superseded records under `docs/archive/` with date/notice; `docs/superpowers/` contains historical plans. NEVER add new plan/redirect documents.
 - Every documented command MUST exist. `make check-docs` checks model pins and make/script references in roots, CONTRIBUTING, top-level docs. Preserve linked headings.

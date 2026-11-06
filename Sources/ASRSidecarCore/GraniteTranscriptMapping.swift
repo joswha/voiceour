@@ -48,7 +48,7 @@ public struct GraniteRawResult: Equatable, Sendable {
 /// non-special token, decoded as UTF-8 (lossily), with runs of ASCII whitespace collapsed to one
 /// space and trimmed at both ends. Words start at a token whose bytes begin with a space (the
 /// SentencePiece meta-space the native side already rendered) and carry the *minimum* of their
-/// tokens' posteriors, the same rule `TokenMapping` applies to Parakeet.
+/// tokens' posteriors.
 public enum GraniteTranscriptMapping {
     public static func transcript(from raw: GraniteRawResult) -> ASRTranscript {
         let textTokens = raw.tokens.filter { !$0.isSpecial }
@@ -78,7 +78,7 @@ public enum GraniteTranscriptMapping {
         )
     }
 
-    /// The same shape `TokenMapping` returns for a decode without tokens.
+    /// The transcript of a decode without tokens.
     static var emptyTranscript: ASRTranscript {
         ASRTranscript(text: "", language: "en", segments: nil, confidence: nil, confidenceMode: nil)
     }

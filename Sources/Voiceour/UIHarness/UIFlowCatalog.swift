@@ -98,13 +98,6 @@
             static let autoStopDuration = UIQuery.id("voice.auto-stop.duration")
             static let cleanup = UIQuery.id("voice.cleanup.toggle")
 
-            static let modelPickerCompact = UIQuery.label("Compact")
-            static let modelRestart = UIQuery.id("voice.model.restart")
-            static let modelSummaryCompact = UIQuery.value(
-                "Downloads 0.67 GB; uses about 1.34 GB after first load. "
-                    + "Same measured accuracy, slightly slower."
-            )
-
             static let backendRecheck = UIQuery.id("system.backend.recheck")
             static let backendStatus = UIQuery.id("system.backend.status")
 
@@ -441,33 +434,6 @@
                         .check(
                             "disabled",
                             [.value(Selector.cleanup, .equals("0")), .model(.cleanupEnabled, .equals("false"))]
-                        ),
-                    ]),
-                // The restart affordance is the whole switching mechanism: the picker only
-                // records a choice, and a selection that never offers the restart would leave
-                // the app running the previous weights with no way to notice.
-                UIFlow(
-                    id: "voice.model-selection",
-                    title: "Choosing a smaller model records the choice and asks for a restart",
-                    tags: ["voice", "console", "settings", "model"],
-                    host: .console(.settings),
-                    fixture: .static(.populated),
-                    steps: [
-                        .check(
-                            "balanced-in-use",
-                            [
-                                .model(.selectedModelVariant, .equals("f16")),
-                                .absent(Selector.modelRestart),
-                            ]
-                        ),
-                        .act(.press(Selector.modelPickerCompact)),
-                        .check(
-                            "compact-pending-restart",
-                            [
-                                .model(.selectedModelVariant, .equals("q8_0")),
-                                .exists(Selector.modelRestart),
-                                .exists(Selector.modelSummaryCompact),
-                            ]
                         ),
                     ]),
                 UIFlow(
@@ -974,7 +940,7 @@
                             [
                                 .value(Selector.backendStatus, .equals("READY")),
                                 .text(
-                                    .equals("PARAKEET is configured for local transcription."),
+                                    .equals("GRANITE is configured for local transcription."),
                                     .exactly(1)
                                 ),
                             ]

@@ -108,7 +108,7 @@ enum DiagnosticsReport {
         guard let descriptor = ASRBackendRegistry.builtIn.descriptor(for: coordinator.activeBackend) else {
             return coordinator.activeBackend
         }
-        // The artifact is named too: Parakeet's variants share one id and revision, so without
+        // The artifact is named too: a repository revision can hold several files, so without
         // it a bug report cannot say which weights produced the transcript it is about.
         return coordinator.activeModelArtifact?.identifier ?? descriptor.modelLabel
     }
@@ -190,8 +190,7 @@ enum DiagnosticsReport {
 }
 
 extension DiagnosticsReport {
-    /// The report's download line, sized from the running backend's own artifact: a Granite
-    /// download is never reported in a Parakeet variant's bytes.
+    /// The report's download line, sized from the running backend's own artifact.
     static func downloadLine(fraction: Double, artifact: ASRModelArtifact?) -> String {
         let percent = Int(fraction * 100)
         guard let artifact else { return "  download: \(percent)%" }

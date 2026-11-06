@@ -7,6 +7,6 @@ mkdir -p "$OUT_DIR"
 # conversion. The intermediate is not a fixture and does not survive the script.
 AIFF="$OUT_DIR/hello.aiff"
 trap 'rm -f "$AIFF"' EXIT
-say -o "$AIFF" "hello world testing NVIDIA Parakeet and NSPasteboard"
+say -o "$AIFF" "hello world testing kubectl and NSPasteboard"
 afconvert -f WAVE -d LEI16@16000 -c 1 "$AIFF" "$OUT_DIR/hello_16k_mono.wav"
 printf '%s\n' "$OUT_DIR/hello_16k_mono.wav"

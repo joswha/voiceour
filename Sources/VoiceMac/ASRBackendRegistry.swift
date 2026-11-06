@@ -8,17 +8,13 @@ public struct ASRBackendContext: Sendable {
     /// executable: SwiftPM's products directory and an app bundle's `Contents/MacOS` are both
     /// flat, so one rule covers `swift run`, the benchmark and the shipped bundle.
     public let sidecarExecutableURL: URL
-    /// Which artifact of the Parakeet repository this launch should load. Held here rather than
-    /// on the descriptor because it is the user's current selection, not a property of the
-    /// backend: the descriptor set is compiled, the selection changes. Backends with one fixed
-    /// artifact (Granite) and backends with none (fake) ignore it.
-    public let modelVariant: ASRModelVariant
 
+    /// `modelVariant` is read by no backend: every recognizer has one fixed artifact. The
+    /// parameter stays for VoiceCore/VoiceMac's external consumers (../syncour), whose call
+    /// sites pass it.
     public init(sidecarExecutableURL: URL, modelVariant: ASRModelVariant = .default) {
         self.sidecarExecutableURL = sidecarExecutableURL
-        self.modelVariant = modelVariant
     }
-
     /// The sibling lookup itself, so every caller resolves it identically.
     public static func siblingSidecarURL(
         of executableURL: URL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
@@ -51,28 +47,22 @@ public struct ASRBackendDescriptor: Sendable {
     /// a display string ("no model · synthetic transcripts") that no consumer
     /// can act on. Benchmark metadata, Diagnostics, the download readout and the
     /// sidecar's `expected_model` all need the artifact itself. Nil where the
-    /// backend loads no model of its own; otherwise resolved from the launch's
-    /// Parakeet variant, which only Parakeet's resolver reads.
-    private let resolveModelArtifact: (@Sendable (ASRModelVariant) -> ASRModelArtifact)?
+    /// backend loads no model of its own.
+    public let modelArtifact: ASRModelArtifact?
     public let makeComponents: @Sendable (ASRBackendContext) -> ASRBackendComponents
 
     public init(
         id: String,
         displayName: String,
         modelLabel: String,
-        modelArtifact: (@Sendable (ASRModelVariant) -> ASRModelArtifact)?,
+        modelArtifact: ASRModelArtifact?,
         makeComponents: @escaping @Sendable (ASRBackendContext) -> ASRBackendComponents
     ) {
         self.id = id
         self.displayName = displayName
         self.modelLabel = modelLabel
-        self.resolveModelArtifact = modelArtifact
+        self.modelArtifact = modelArtifact
         self.makeComponents = makeComponents
-    }
-
-    /// The artifact this backend loads when launched with `variant`, or nil for a model-less one.
-    public func modelArtifact(for variant: ASRModelVariant) -> ASRModelArtifact? {
-        resolveModelArtifact?(variant)
     }
 }
 
@@ -89,7 +79,6 @@ public struct ASRBackendDescriptor: Sendable {
 public struct ASRBackendRegistry: Sendable {
     public let descriptors: [ASRBackendDescriptor]
     private static let fakeBackendID = "fake"
-    private static let parakeetBackendID = "parakeet"
     private static let graniteBackendID = "granite"
 
     public init(descriptors: [ASRBackendDescriptor]) {
@@ -100,7 +89,7 @@ public struct ASRBackendRegistry: Sendable {
         Set(descriptors.map(\.id))
     }
 
-    /// The backend used when no id resolves: Granite, the default local recognizer. It is
+    /// The backend used when no id resolves: Granite, the local recognizer. It is
     /// the fallback for a stale or unknown `settings.asrBackend` too, so a value from a
     /// future build degrades to real dictation rather than to synthetic text.
     public var defaultDescriptor: ASRBackendDescriptor {
@@ -139,43 +128,18 @@ public struct ASRBackendRegistry: Sendable {
                 )
             }
         ),
-        // Selectable alternative: two variants of one checkpoint, reached only through
-        // `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the debug picker.
-        ASRBackendDescriptor(
-            id: Self.parakeetBackendID,
-            displayName: "PARAKEET",
-            modelLabel: ASRModelContract.modelId,
-            modelArtifact: { ASRModelArtifact.parakeet($0) },
-            makeComponents: { context in
-                ASRBackendComponents(
-                    recorder: MicrophoneRecorder(),
-                    client: SidecarASRClient(
-                        sidecarExecutableURL: context.sidecarExecutableURL,
-                        backend: Self.parakeetBackendID,
-                        modelVariant: context.modelVariant,
-                        // The artifact is part of the pin because the repository holds several:
-                        // without `file` a sidecar still serving the previously selected variant
-                        // would pass the check.
-                        expectedModel: ASRModelArtifact.parakeet(context.modelVariant).expectedModel
-                    ),
-                    usesSystemAudioMuter: true
-                )
-            }
-        ),
-        // The default recognizer. One fixed artifact, so no variant reaches its sidecar (the
-        // client strips an inherited one too).
+        // The recognizer and the default: one fixed artifact.
         ASRBackendDescriptor(
             id: Self.graniteBackendID,
             displayName: "GRANITE",
             modelLabel: GraniteModelContract.modelId,
-            modelArtifact: { _ in ASRModelArtifact.granite },
+            modelArtifact: .granite,
             makeComponents: { context in
                 ASRBackendComponents(
                     recorder: MicrophoneRecorder(),
                     client: SidecarASRClient(
                         sidecarExecutableURL: context.sidecarExecutableURL,
                         backend: Self.graniteBackendID,
-                        modelVariant: nil,
                         expectedModel: GraniteModelContract.expectedModel
                     ),
                     usesSystemAudioMuter: true

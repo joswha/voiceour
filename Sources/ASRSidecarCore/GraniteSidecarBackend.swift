@@ -9,14 +9,12 @@ protocol GraniteRuntimeContext: AnyObject {
 
 extension GraniteContext: GraniteRuntimeContext {}
 
-/// The default recognizer: Granite Speech 5 TurboCTC over the pinned Q8_0 GGUF.
+/// The recognizer: Granite Speech 5 TurboCTC over the pinned Q8_0 GGUF.
 ///
-/// Mirrors `ParakeetSidecarBackend`'s observable contract — health and readiness, preload
-/// acquisition and its latched failure, request-path refusal while the model is missing, the
-/// load-failure digest re-verification and single re-acquisition, idle unload, cancellation and
-/// fatal-failure semantics — over a single artifact with none of Parakeet's variants or
-/// experimental seams. It never prunes: it has no siblings, and the Parakeet directories are
-/// not its business.
+/// Observable contract: health and readiness, preload acquisition and its latched failure,
+/// request-path refusal while the model is missing, the load-failure digest re-verification and
+/// single re-acquisition, idle unload, cancellation and fatal-failure semantics, over a single
+/// artifact. It never prunes: its cache holds one artifact and nothing beside it is its business.
 ///
 /// State shared by the reader thread (`health`), decode queue (`transcribe`) and preload thread
 /// (`warmUp`) lives behind `stateLock`. Context construction is serialized by `loadLock`, and
@@ -24,7 +22,7 @@ extension GraniteContext: GraniteRuntimeContext {}
 public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPreloading, @unchecked Sendable {
     public let backendId = "granite-ctc"
 
-    private let cache: ParakeetModelCache
+    private let cache: ModelCache
     private let log: (String) -> Void
     private let contextFactory: (String) throws -> any GraniteRuntimeContext
 
@@ -65,7 +63,7 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
     static let warmUpSampleCount = 8_000
 
     public convenience init(
-        cache: ParakeetModelCache,
+        cache: ModelCache,
         log: @escaping (String) -> Void,
         idleUnloadMs: Int = 1_800_000
     ) {
@@ -78,7 +76,7 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
     }
 
     init(
-        cache: ParakeetModelCache,
+        cache: ModelCache,
         log: @escaping (String) -> Void,
         idleUnloadMs: Int,
         contextFactory: @escaping (String) throws -> any GraniteRuntimeContext
@@ -137,7 +135,7 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         do {
             loaded = try acquireModel(isShuttingDown: isShuttingDown)
         } catch {
-            withState { $0.lastAcquisitionError = ParakeetSidecarBackend.acquisitionFailure(for: error) }
+            withState { $0.lastAcquisitionError = Self.acquisitionFailure(for: error) }
             throw error
         }
         // A warm decode owns Metal buffers too, so shutdown must never begin one after EOF.
@@ -163,6 +161,15 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         // shutdown would immediately have to tear down from another thread.
         guard !isShuttingDown() else { return nil }
         return try loadContext()
+    }
+
+    /// The wire shape of an acquisition failure. `ModelCacheError` carries its own code so the
+    /// taxonomy stays in one place; anything else here came out of the context build.
+    static func acquisitionFailure(for error: Error) -> ASRAcquisitionFailure {
+        if let cacheError = error as? ModelCacheError {
+            return ASRAcquisitionFailure(code: cacheError.wireCode, detail: cacheError.description)
+        }
+        return ASRAcquisitionFailure(code: .modelLoadFailed, detail: String(describing: error))
     }
 
     private func withState(_ body: (GraniteSidecarBackend) -> Void) {
@@ -278,7 +285,7 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
 
         do {
             return .ready(samples, try loadContext())
-        } catch let error as ParakeetModelCacheError {
+        } catch let error as ModelCacheError {
             if case .manifestMismatch = error {
                 return .failure(code: .manifestMismatch, detail: error.description)
             }
@@ -296,7 +303,6 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
             return .failure(code: .modelLoadFailed, detail: detail)
         }
         log("cached model failed digest re-verification after a load failure; removing it")
-        // Granite derives nothing from the artifact, so there is no weight arena to remove.
         cache.removeModelAndManifest()
         reacquireOnce()
         return .failure(
@@ -305,9 +311,20 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         )
     }
 
-    /// Re-acquires the artifact the load-failure path just deleted, at most once per process,
-    /// off the caller's thread. See `ParakeetSidecarBackend.reacquireOnce` for why both the
-    /// re-acquisition and its one-attempt latch are required.
+    /// Re-acquires the artifact the load-failure path just deleted, at most once per process.
+    ///
+    /// The deletion leaves the sidecar with no weights at all, and nothing else in the process
+    /// would fetch them again: every later `transcribe` would answer `model_not_installed` —
+    /// which the app presents as "the speech model has not finished downloading yet" — until the
+    /// reader found the menu's retry or relaunched. This is what makes that sentence, and the
+    /// promise in the failure detail, true.
+    ///
+    /// Off the caller's thread because the caller is a decode inside the client's 30 s timeout,
+    /// which a fresh half-gigabyte transfer cannot fit. Latched at one attempt because an
+    /// automatic re-download must never become a loop; it cannot become one on its own either,
+    /// since `ensureModel` verifies the digest before the bytes are moved into place, so a load
+    /// failure over freshly fetched bytes finds a matching digest and reports a broken runtime
+    /// instead of deleting them again. The latch is the second brake, not the only one.
     private func reacquireOnce() {
         stateLock.lock()
         let claimed = !reacquisitionSpent
@@ -360,16 +377,20 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
 
     // MARK: - Idle unload
 
+    /// Whether a loaded model has now been idle long enough to release.
+    ///
+    /// Split out from the timer so the decision is testable without a loadable model; the
+    /// process-level behaviour is covered by the integration test in `SidecarProcessTests`.
+    static func isIdleUnloadDue(idleUnloadMs: Int, contextLoaded: Bool, idleMs: Int) -> Bool {
+        idleUnloadMs > 0 && contextLoaded && idleMs >= idleUnloadMs
+    }
+
     func shouldUnloadNow(now: DispatchTime) -> Bool {
         stateLock.lock()
         let loaded = context != nil
         let idleMs = Self.elapsedMs(from: lastDecodeEndedAt, to: now)
         stateLock.unlock()
-        return ParakeetSidecarBackend.isIdleUnloadDue(
-            idleUnloadMs: idleUnloadMs,
-            contextLoaded: loaded,
-            idleMs: idleMs
-        )
+        return Self.isIdleUnloadDue(idleUnloadMs: idleUnloadMs, contextLoaded: loaded, idleMs: idleMs)
     }
 
     private static func elapsedMs(from start: DispatchTime, to end: DispatchTime) -> Int {

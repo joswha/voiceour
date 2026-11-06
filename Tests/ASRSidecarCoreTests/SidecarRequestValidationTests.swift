@@ -4,12 +4,14 @@ import VoiceCore
 
 @testable import ASRSidecarCore
 
-/// The `expected_model` check is what stands between a restart-to-apply model selection and a
-/// transcript produced by the wrong weights. Every artifact of the pinned repository shares its
-/// model id and revision, so `file` is the only field in the request that can tell a sidecar
-/// serving the previous selection from one serving the current one.
+/// The `expected_model` check is what stands between a transcript and the wrong weights. Every
+/// file of the pinned repository revision shares its model id and revision, so `file` is the
+/// only field in the request that can tell one artifact of that revision from another.
 @Suite("SidecarRequestValidationTests")
 struct SidecarRequestValidationTests {
+    /// Another conversion in the pinned revision's reproducible GGUF set.
+    private static let otherFile = "granite-speech-5.0-470m-turboctc-F16.gguf"
+
     /// Validation reaches its verdict on the model before it looks at the audio, so pointing at
     /// a real file is what keeps a rejection attributable to the artifact rather than the path.
     private func temporaryAudioFile() throws -> URL {
@@ -44,8 +46,8 @@ struct SidecarRequestValidationTests {
     ) -> SidecarRequestValidation.Outcome {
         SidecarRequestValidation.validate(
             request,
-            modelId: ASRModelContract.modelId,
-            modelRevision: ASRModelContract.revision,
+            modelId: GraniteModelContract.modelId,
+            modelRevision: GraniteModelContract.revision,
             modelFile: file
         )
     }
@@ -60,20 +62,20 @@ struct SidecarRequestValidationTests {
         return url
     }
 
-    /// The request pins the artifact the app selected; this sidecar still holds the other one.
-    /// Model id and revision match, which is exactly why they cannot catch it.
+    /// The request pins one artifact; this sidecar holds another of the same revision. Model id
+    /// and revision match, which is exactly why they cannot catch it.
     @Test func aRequestNamingADifferentArtifactOfThePinnedRevisionIsRefused() throws {
         let audio = try temporaryAudioFile()
         let outcome = validate(
             request(
                 audio: audio,
                 expecting: ASRExpectedModel(
-                    modelId: ASRModelContract.modelId,
-                    revision: ASRModelContract.revision,
-                    file: ASRModelVariant.q8.fileName
+                    modelId: GraniteModelContract.modelId,
+                    revision: GraniteModelContract.revision,
+                    file: Self.otherFile
                 )
             ),
-            loaded: ASRModelVariant.f16.fileName
+            loaded: GraniteModelContract.fileName
         )
 
         let rejection = try #require(failure(outcome), "a stale artifact must not transcribe")
@@ -89,12 +91,12 @@ struct SidecarRequestValidationTests {
             request(
                 audio: audio,
                 expecting: ASRExpectedModel(
-                    modelId: ASRModelContract.modelId,
-                    revision: ASRModelContract.revision,
-                    file: ASRModelVariant.q8.fileName
+                    modelId: GraniteModelContract.modelId,
+                    revision: GraniteModelContract.revision,
+                    file: Self.otherFile
                 )
             ),
-            loaded: ASRModelVariant.q8.fileName
+            loaded: Self.otherFile
         )
 
         #expect(acceptedPath(outcome)?.path == audio.path)
@@ -108,12 +110,12 @@ struct SidecarRequestValidationTests {
             request(
                 audio: audio,
                 expecting: ASRExpectedModel(
-                    modelId: ASRModelContract.modelId,
-                    revision: ASRModelContract.revision,
+                    modelId: GraniteModelContract.modelId,
+                    revision: GraniteModelContract.revision,
                     file: ""
                 )
             ),
-            loaded: ASRModelVariant.f16.fileName
+            loaded: GraniteModelContract.fileName
         )
 
         #expect(acceptedPath(outcome)?.path == audio.path)

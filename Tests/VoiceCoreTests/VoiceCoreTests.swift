@@ -205,7 +205,7 @@ struct VoiceCoreTests {
     @Test func settingsJSONWithAnUnknownModelVariantKeepsTheDefaultAndTheRestOfTheFile() throws {
         let json = """
             {
-              "asr_backend": "parakeet",
+              "asr_backend": "granite",
               "asr_model_variant": "q3_k_xxs",
               "mute_system_audio_during_capture": false
             }
@@ -214,20 +214,19 @@ struct VoiceCoreTests {
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
 
         #expect(settings.asrModelVariant == .default)
-        #expect(settings.asrBackend == "parakeet")
+        #expect(settings.asrBackend == "granite")
         #expect(settings.muteSystemAudioDuringCapture == false)
     }
 
-    /// A settings file written before the selection existed keeps dictating with the artifact
-    /// it already has on disk, which is the default one.
+    /// A settings file without the key decodes to the default tag.
     @Test func settingsJSONWithoutAModelVariantKeepsTheDefault() throws {
-        let settings = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "parakeet"}"#.utf8))
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "granite"}"#.utf8))
 
         #expect(settings.asrModelVariant == .default)
     }
 
-    /// The persisted form is the artifact's quantization tag, not the case name and not the
-    /// display name: it is what the sidecar is launched with and what a reader sees in the file.
+    /// The persisted form is the raw tag, not the case name: no backend reads it, but VoiceCore's
+    /// external consumers round-trip the `asr_model_variant` key through this coder.
     @Test func settingsModelVariantRoundTripsThroughItsPersistedTag() throws {
         var settings = Settings()
         settings.asrModelVariant = .q8
@@ -256,7 +255,7 @@ struct VoiceCoreTests {
         let decoded = try JSONDecoder().decode(Settings.self, from: data)
         #expect(decoded == settings)
 
-        let legacy = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "parakeet"}"#.utf8))
+        let legacy = try JSONDecoder().decode(Settings.self, from: Data(#"{"asr_backend": "granite"}"#.utf8))
         #expect(legacy.preferredMicrophoneUID == nil)
         #expect(legacy.preferredMicrophoneName == nil)
     }
@@ -267,7 +266,7 @@ struct VoiceCoreTests {
     @Test func settingsJSONWithRetiredMuteScopeKeyStillDecodes() throws {
         let json = """
             {
-              "asr_backend": "parakeet",
+              "asr_backend": "granite",
               "mute_system_audio_during_capture": true,
               "mute_scope": "builtInOutputOnly"
             }
@@ -275,7 +274,7 @@ struct VoiceCoreTests {
 
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
 
-        #expect(settings.asrBackend == "parakeet")
+        #expect(settings.asrBackend == "granite")
         #expect(settings.muteSystemAudioDuringCapture == true)
     }
 
@@ -287,7 +286,7 @@ struct VoiceCoreTests {
     @Test func settingsJSONWithRetiredTermKeysStillDecodes() throws {
         let json = """
             {
-              "asr_backend": "parakeet",
+              "asr_backend": "granite",
               "glossary": [
                 {
                   "canonical": "Kubernetes",
@@ -316,7 +315,7 @@ struct VoiceCoreTests {
     @Test func settingsJSONWithRetiredMercuryWorldKeyStillDecodes() throws {
         let json = """
             {
-              "asr_backend": "parakeet",
+              "asr_backend": "granite",
               "mute_system_audio_during_capture": false,
               "mercury_world": "spectral_weather"
             }
@@ -324,7 +323,7 @@ struct VoiceCoreTests {
 
         let settings = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
 
-        #expect(settings.asrBackend == "parakeet")
+        #expect(settings.asrBackend == "granite")
         #expect(settings.muteSystemAudioDuringCapture == false)
         #expect(settings.island == .stock)
         let reencoded = String(decoding: try JSONEncoder().encode(settings), as: UTF8.self)
@@ -444,7 +443,7 @@ struct VoiceCoreTests {
             insertMs: 18,
             startLatencyMs: 42,
             stopReleaseToInsertionOutcomeMs: 211,
-            asrBackendId: "parakeet-cpp",
+            asrBackendId: "granite-ctc",
             asrLoadMs: 7,
             asrInferenceMs: 103,
             asrTotalMs: 110

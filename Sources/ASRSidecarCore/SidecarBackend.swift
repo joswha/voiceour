@@ -37,7 +37,7 @@ public protocol SidecarBackend: AnyObject, Sendable {
     func warmUp() throws
     /// Release native resources before the process exits.
     ///
-    /// Not optional hygiene for the parakeet backend: ggml's Metal device is owned by a C++
+    /// Not optional hygiene for a model-backed backend: ggml's Metal device is owned by a C++
     /// static, and `exit()` runs its destructor, which asserts that no residency set still
     /// holds a buffer. A live context at exit turns a clean shutdown into SIGABRT.
     func shutdown()

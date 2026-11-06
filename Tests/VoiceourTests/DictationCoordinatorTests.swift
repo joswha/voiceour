@@ -581,8 +581,8 @@ struct DictationCoordinatorTests {
             })
     }
 
-    @Test func parakeetSessionPersistsEndToEndTelemetry() async throws {
-        guard ProcessInfo.processInfo.environment["VOICEOUR_PARAKEET_INTEGRATION"] != nil else { return }
+    @Test func graniteSessionPersistsEndToEndTelemetry() async throws {
+        guard ProcessInfo.processInfo.environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
 
         let fixture = temporarySessionStore()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -593,7 +593,7 @@ struct DictationCoordinatorTests {
         // Through the registry, so this measures the client the app actually
         // builds — including the model it pins the sidecar to.
         let asr = ASRBackendRegistry.builtIn.client(
-            for: "parakeet",
+            for: "granite",
             context: ASRBackendContext(
                 sidecarExecutableURL: testProductsDirectory().appendingPathComponent("voiceour-asr")
             )
@@ -623,13 +623,13 @@ struct DictationCoordinatorTests {
         let insertMs = try #require(stages.insertMs)
 
         #expect(coordinator.lastOutcome == .pasteAttempted)
-        #expect(stages.asrBackendId == "parakeet-cpp")
+        #expect(stages.asrBackendId == "granite-ctc")
         #expect((stages.asrInferenceMs ?? 0) > 0)
         #expect((stages.asrTotalMs ?? 0) >= (stages.asrInferenceMs ?? 0))
         #expect(endToEndMs >= hostASRMs + insertMs)
         #expect(!fileExists(recorder.producedURL))
         let telemetry =
-            "parakeet coordinator telemetry: endToEnd=\(endToEndMs)ms "
+            "granite coordinator telemetry: endToEnd=\(endToEndMs)ms "
             + "hostASR=\(hostASRMs)ms insert=\(insertMs)ms "
             + "backend=\(stages.asrBackendId ?? "nil") "
             + "load=\(stages.asrLoadMs ?? -1)ms "
@@ -1651,8 +1651,8 @@ struct DictationCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let result = ASRResult(
             requestId: "req",
-            backendId: "parakeet",
-            modelId: "parakeet",
+            backendId: "granite-ctc",
+            modelId: "granite",
             modelRevision: "pinned",
             transcript: ASRTranscript(
                 text: "hello wrold",
@@ -2110,11 +2110,12 @@ struct DictationCoordinatorTests {
     /// was refused. The sidecar's own verdict is the only thing that can see this.
     @Test func acquisitionTransitionSurfacesAnErrorReportedOnTheFirstProbe() {
         let refused = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false,
             lastAcquisitionError: ASRAcquisitionFailure(
                 code: .insufficientDiskSpace,
-                detail: "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+                detail: "needs 774098592 bytes free for granite-speech-5.0-470m-turboctc-Q8_0.gguf, "
+                    + "volume has 402653184"
             )
         )
 
@@ -2125,7 +2126,7 @@ struct DictationCoordinatorTests {
                 == .reported(
                     code: .insufficientDiskSpace,
                     detail:
-                        "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+                        "needs 774098592 bytes free for granite-speech-5.0-470m-turboctc-Q8_0.gguf, volume has 402653184"
                 )
         )
     }
@@ -2134,11 +2135,11 @@ struct DictationCoordinatorTests {
     /// and it carries the code — DOWNLOAD DAMAGED is not DOWNLOAD FAILED.
     @Test func aReportedErrorOutranksTheStoppedDownloadInference() {
         let downloading = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.8
         )
         let stopped = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false,
             lastAcquisitionError: ASRAcquisitionFailure(
                 code: .artifactMismatch, detail: "sha256 deadbeef, expected 833bffc9"
@@ -2157,7 +2158,7 @@ struct DictationCoordinatorTests {
     /// would repaint DOWNLOAD FAILED over its own progress.
     @Test func anAcquisitionInFlightOutranksAStillLatchedError() {
         let retrying = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.1,
             lastAcquisitionError: ASRAcquisitionFailure(code: .modelDownloadFailed, detail: "HTTP 429")
         )
@@ -2173,12 +2174,12 @@ struct DictationCoordinatorTests {
     /// good cache and no reported error clears the app's copy too.
     @Test func aClearedLatchClearsThePublishedFailure() {
         let refused = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false,
             lastAcquisitionError: ASRAcquisitionFailure(code: .modelDownloadFailed, detail: "offline")
         )
         let recovered = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .ready,
+            backendId: "granite-ctc", backendStatus: .ready,
             ready: true, modelLoaded: true, cacheOk: true
         )
 
@@ -2194,11 +2195,11 @@ struct DictationCoordinatorTests {
     /// a transport failure over a cached model is no fault at all.
     @Test func aReportedErrorNeverTurnsAnUnansweredProbeIntoADownloadFailure() {
         let cached = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .ready,
+            backendId: "granite-ctc", backendStatus: .ready,
             ready: true, modelLoaded: true, cacheOk: true
         )
         let refused = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false,
             lastAcquisitionError: ASRAcquisitionFailure(code: .insufficientDiskSpace, detail: "no room")
         )
@@ -2221,16 +2222,16 @@ struct DictationCoordinatorTests {
     /// answer publishes a user-facing failure, and it is the disk-space sentence rather
     /// than "could not be downloaded" or a raw code. The byte budget stays a diagnostic.
     @Test func aRefusalReportedOnTheFirstProbeReachesTheAcquisitionFailure() async throws {
-        let detail = "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+        let detail = "needs 774098592 bytes free for granite-speech-5.0-470m-turboctc-Q8_0.gguf, volume has 402653184"
         let asr = FakeASR(
             behavior: .text("never transcribed"),
             backendHealth: ASRBackendHealth(
-                backendId: "parakeet", backendStatus: .modelMissing,
+                backendId: "granite-ctc", backendStatus: .modelMissing,
                 ready: false, modelLoaded: false, cacheOk: false,
                 lastAcquisitionError: ASRAcquisitionFailure(code: .insufficientDiskSpace, detail: detail)
             )
         )
-        let coordinator = makeCoordinator(asr: asr, activeASRBackend: "parakeet")
+        let coordinator = makeCoordinator(asr: asr, activeASRBackend: "granite")
 
         // The first probe of the process: nothing precedes it, which is exactly the state
         // the transition inference cannot read.
@@ -2258,11 +2259,11 @@ struct DictationCoordinatorTests {
     /// transition "was downloading/warming, now neither, cache still absent".
     @Test func acquisitionTransitionInfersFailureFromAStoppedDownload() {
         let downloading = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.4
         )
         let stopped = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false
         )
 
@@ -2275,11 +2276,11 @@ struct DictationCoordinatorTests {
 
     @Test func acquisitionTransitionClearsOnceTheCacheIsGood() {
         let downloading = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.9
         )
         let cached = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .ready,
+            backendId: "granite-ctc", backendStatus: .ready,
             ready: true, modelLoaded: true, cacheOk: true
         )
 
@@ -2303,7 +2304,7 @@ struct DictationCoordinatorTests {
     /// An offline relaunch with a cached model is not an acquisition failure.
     @Test func acquisitionTransitionIgnoresTransportErrorWhenTheModelIsCached() {
         let cached = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .ready,
+            backendId: "granite-ctc", backendStatus: .ready,
             ready: true, modelLoaded: true, cacheOk: true
         )
 
@@ -2316,7 +2317,7 @@ struct DictationCoordinatorTests {
 
     @Test func acquisitionTransitionStaysQuietAcrossIdleProbes() {
         let idle = ASRBackendHealth(
-            backendId: "parakeet", backendStatus: .modelMissing,
+            backendId: "granite-ctc", backendStatus: .modelMissing,
             ready: false, modelLoaded: false, cacheOk: false
         )
 
@@ -2337,11 +2338,11 @@ struct DictationCoordinatorTests {
         let asr = FakeASR(
             behavior: .text("never transcribed"),
             backendHealth: ASRBackendHealth(
-                backendId: "parakeet", backendStatus: .modelMissing,
+                backendId: "granite-ctc", backendStatus: .modelMissing,
                 ready: false, modelLoaded: false, cacheOk: false, downloadFraction: 0.43
             )
         )
-        let coordinator = makeCoordinator(recorder: recorder, asr: asr, activeASRBackend: "parakeet")
+        let coordinator = makeCoordinator(recorder: recorder, asr: asr, activeASRBackend: "granite")
         coordinator.refreshBackendHealth(force: true)
         await waitUntil { coordinator.backendHealth != nil }
 
@@ -2363,11 +2364,11 @@ struct DictationCoordinatorTests {
         let asr = FakeASR(
             behavior: .text("transcribed"),
             backendHealth: ASRBackendHealth(
-                backendId: "parakeet", backendStatus: .ready,
+                backendId: "granite-ctc", backendStatus: .ready,
                 ready: true, modelLoaded: false, cacheOk: true, warming: true
             )
         )
-        let coordinator = makeCoordinator(recorder: recorder, asr: asr, activeASRBackend: "parakeet")
+        let coordinator = makeCoordinator(recorder: recorder, asr: asr, activeASRBackend: "granite")
         coordinator.refreshBackendHealth(force: true)
         await waitUntil { coordinator.backendHealth != nil }
 
@@ -2386,7 +2387,7 @@ struct DictationCoordinatorTests {
         let coordinator = makeCoordinator(
             recorder: recorder,
             asr: FakeASR(behavior: .text("transcribed")),
-            activeASRBackend: "parakeet"
+            activeASRBackend: "granite"
         )
 
         #expect(coordinator.backendHealth == nil)
@@ -2647,7 +2648,7 @@ struct DictationCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
         let coordinator = makeCoordinator(
             permissions: DeniedMicrophonePermissions(),
-            activeASRBackend: "parakeet",
+            activeASRBackend: "granite",
             settingsStore: store
         )
         coordinator.start()

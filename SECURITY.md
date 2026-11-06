@@ -25,4 +25,4 @@ Report any behavior that violates those boundaries through the private channel a
 
 ## Third-party code
 
-Vendored parakeet.cpp and ggml sources under `Vendor/parakeet/` come from a pinned upstream commit; every local change is marked `VOICEOUR PATCH` and listed in `Vendor/parakeet/NOTICE.md`. See [NOTICE](NOTICE) for attribution of third-party source and model artifacts.
+Vendored ggml sources under `Vendor/ggml/` come from a pinned upstream commit; every local change is marked `VOICEOUR PATCH` and listed in `Vendor/ggml/NOTICE.md`. `Vendor/granite/` is an adapted port of transcribe.cpp's Granite implementation, mapped file by file in `Vendor/granite/NOTICE.md`. See [NOTICE](NOTICE) for attribution of third-party source and model artifacts.

@@ -48,19 +48,17 @@ cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 # MIT requires the ggml copyright and permission notice to accompany every copy of the
 # software, and a user who is handed only a zipped .app receives no file from the source
 # tree. So the notice is assembled into the bundle itself. The licence bodies are read out of
-# Vendor/parakeet/LICENSE and Vendor/granite/LICENSE rather than inlined here: a second copy
+# Vendor/ggml/LICENSE and Vendor/granite/LICENSE rather than inlined here: a second copy
 # of a licence text is a copy that silently goes stale the next time a vendor pin moves. The
 # pins are extracted from Package.swift, Vendor/granite/include/granite.h and
 # Sources/VoiceCore/ASRProtocol.swift for the same reason, the same discipline
 # scripts/check_docs.sh applies to the model pins. Nothing here varies between runs, so
 # repeated builds produce byte-identical output.
 LICENSES="$APP/Contents/Resources/THIRD-PARTY-LICENSES.txt"
-VENDOR="$ROOT/Vendor/parakeet"
+VENDOR="$ROOT/Vendor/ggml"
 GRANITE_VENDOR="$ROOT/Vendor/granite"
 CONTRACT="$ROOT/Sources/VoiceCore/ASRProtocol.swift"
 ggml_commit=$(sed -n 's/^ *("GGML_COMMIT", "\\"\([0-9a-f]*\)\\"").*/\1/p' "$ROOT/Package.swift")
-model_id=$(sed -n '/^public enum ASRModelContract/,/^}/s/.*modelId = "\(.*\)"/\1/p' "$CONTRACT")
-model_revision=$(sed -n '/^public enum ASRModelContract/,/^}/s/.*revision = "\(.*\)"/\1/p' "$CONTRACT")
 transcribe_cpp_commit=$(sed -n 's|^// Adapted from transcribe.cpp (MIT) src/arch/granite5_ctc at \([0-9a-f]\{40\}\),.*|\1|p' "$GRANITE_VENDOR/include/granite.h")
 granite_field() {
   sed -n "/^public enum GraniteModelContract/,/^}/s/^ *public static let $1 = \"\([^\"]*\)\".*/\1/p" "$CONTRACT"
@@ -70,7 +68,7 @@ granite_revision=$(granite_field revision)
 granite_file=$(granite_field fileName)
 granite_source=$(granite_field sourceCheckpoint)
 granite_source_revision=$(granite_field sourceRevision)
-for pin in "$ggml_commit" "$model_id" "$model_revision" "$transcribe_cpp_commit" \
+for pin in "$ggml_commit" "$transcribe_cpp_commit" \
   "$granite_model_id" "$granite_revision" "$granite_file" "$granite_source" "$granite_source_revision"; do
   case "$pin" in
     '' | *'
@@ -115,14 +113,14 @@ Voiceour third-party licences
 
 Voiceour itself is MIT licensed; its LICENSE accompanies the source repository. This file
 carries the notices of the third-party code compiled into this bundle, and of the speech
-models the app can download at runtime.
+model the app downloads at runtime.
 
 
 ================================================================================
-parakeet.cpp and ggml -- MIT
+ggml -- MIT
 ================================================================================
 
-The voiceour-asr sidecar in Contents/MacOS links parakeet.cpp and ggml, vendored from
+The voiceour-asr sidecar in Contents/MacOS links ggml, vendored from
 https://github.com/ggml-org/whisper.cpp at commit
 $ggml_commit. The upstream licence follows verbatim.
 
@@ -165,36 +163,13 @@ EOF
 
 
 ================================================================================
-Parakeet speech model weights -- CC BY 4.0
-================================================================================
-
-No model weights are contained in this bundle or in the Voiceour source repository. By
-default, on first use the app downloads the Granite model below into a local cache; when the
-Parakeet backend is selected instead, it downloads one GGUF conversion of NVIDIA's Parakeet
-TDT 0.6B v3 speech recognition checkpoint into a cache of its own. The running backend's
-download is the only network access the app makes. The Parakeet weights are not Voiceour's
-work and are not MIT licensed:
-
-    Model:        NVIDIA Parakeet TDT 0.6B v3
-    Creator:      NVIDIA Corporation
-    Licence:      Creative Commons Attribution 4.0 International (CC BY 4.0)
-                  https://creativecommons.org/licenses/by/4.0/
-    Upstream:     https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-    Conversion:   https://huggingface.co/$model_id
-                  revision $model_revision
-
-CC BY 4.0 permits use, redistribution and commercial use with attribution. The conversion
-repository above is labelled MIT on Hugging Face; a re-publisher cannot relicense someone
-else's weights, so the governing terms remain NVIDIA's CC BY 4.0.
-
-
-================================================================================
 Granite speech model weights -- Apache-2.0
 ================================================================================
 
-The Granite backend, the default recognizer, downloads one GGUF conversion of IBM's Granite
-Speech 5.0 470M TurboCTC checkpoint into a local cache of its own. Those weights are not
-contained in this bundle, are not Voiceour's work and are not MIT licensed:
+No model weights are contained in this bundle or in the Voiceour source repository. On first
+use the app downloads one GGUF conversion of IBM's Granite Speech 5.0 470M TurboCTC
+checkpoint into a local cache; that download is the only network access the app makes.
+Those weights are not Voiceour's work and are not MIT licensed:
 
     Model:        IBM Granite Speech 5.0 470M TurboCTC
     Creator:      IBM

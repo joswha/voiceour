@@ -28,11 +28,11 @@ struct WordListImporterTests {
     @Test func plainNewlineListImportsAndTagsTerms() throws {
         try withTempDirectory { directory in
             let file = directory.appendingPathComponent("words.txt")
-            try write("Kubernetes\nGraphQL\nParakeet\n", to: file)
+            try write("Kubernetes\nGraphQL\nGranite\n", to: file)
 
             let terms = try WordListImporter.importWordList(from: file)
 
-            #expect(terms.map(\.canonical) == ["Kubernetes", "GraphQL", "Parakeet"])
+            #expect(terms.map(\.canonical) == ["Kubernetes", "GraphQL", "Granite"])
 
             for term in terms {
                 #expect(term.source == .manualImport)

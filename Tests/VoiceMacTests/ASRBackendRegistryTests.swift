@@ -17,9 +17,9 @@ struct ASRBackendRegistryTests {
         sidecarExecutableURL: URL(fileURLWithPath: "/tmp/voiceour-asr")
     )
 
-    @Test func builtInCarriesTheThreeBackendsInPickerOrder() {
-        #expect(registry.descriptors.map(\.id) == ["fake", "parakeet", "granite"])
-        #expect(registry.backendIDs == ["fake", "parakeet", "granite"])
+    @Test func builtInCarriesTheTwoBackendsInPickerOrder() {
+        #expect(registry.descriptors.map(\.id) == ["fake", "granite"])
+        #expect(registry.backendIDs == ["fake", "granite"])
         // Granite is the default; the picker order does not follow it.
         #expect(registry.defaultDescriptor.id == "granite")
     }
@@ -28,36 +28,16 @@ struct ASRBackendRegistryTests {
         let fake = try #require(registry.descriptor(for: "fake"))
         #expect(fake.displayName == "FAKE")
         #expect(fake.modelLabel == "no model · synthetic transcripts")
-        #expect(fake.modelArtifact(for: .default) == nil)
-
-        let parakeet = try #require(registry.descriptor(for: "parakeet"))
-        #expect(parakeet.displayName == "PARAKEET")
-        #expect(parakeet.modelLabel == ASRModelContract.modelId)
-        #expect(parakeet.modelArtifact(for: .f16) == .parakeet(.f16))
-        #expect(parakeet.modelArtifact(for: .q8) == .parakeet(.q8))
+        #expect(fake.modelArtifact == nil)
 
         let granite = try #require(registry.descriptor(for: "granite"))
         #expect(granite.displayName == "GRANITE")
         #expect(granite.modelLabel == GraniteModelContract.modelId)
-        // One fixed artifact: the Parakeet variant selection never changes it.
-        for variant in ASRModelVariant.allCases {
-            #expect(granite.modelArtifact(for: variant) == .granite)
-        }
+        #expect(granite.modelArtifact == .granite)
     }
 
-    /// The artifact values every readout and the bench stamp read: Parakeet's keep the
-    /// variant's own file, size and tag, Granite's are exactly its contract.
+    /// The artifact values every readout and the bench stamp read are exactly Granite's contract.
     @Test func modelArtifactsCarryTheirContracts() {
-        let q8 = ASRModelArtifact.parakeet(.q8)
-        #expect(q8.modelId == ASRModelContract.modelId)
-        #expect(q8.revision == ASRModelContract.revision)
-        #expect(q8.file == ASRModelVariant.q8.fileName)
-        #expect(q8.sizeBytes == ASRModelVariant.q8.sizeBytes)
-        #expect(q8.displayName == "Compact")
-        #expect(q8.identifier == "ggml-org/parakeet-GGUF@35156454d1a39de06863303dd209fd2bed6ee079 (q8_0)")
-        #expect(q8.expectedModel.file == ASRModelVariant.q8.fileName)
-        #expect(q8.expectedModel.modelId == ASRModelContract.modelId)
-
         let granite = ASRModelArtifact.granite
         #expect(granite.modelId == "vladers/granite-speech-5.0-470m-turboctc-GGUF")
         #expect(granite.revision == "bd7db273aa69a26fc81e370c84597fa738fe2ad0")
@@ -90,40 +70,29 @@ struct ASRBackendRegistryTests {
         #expect(!components.usesSystemAudioMuter)
     }
 
-    @Test func parakeetBackendUsesTheRealRecorderAndTheMuter() {
-        let components = registry.liveComponents(for: "parakeet", context: context)
-
-        #expect(components.recorder is MicrophoneRecorder)
-        #expect(components.client is SidecarASRClient)
-        #expect(components.usesSystemAudioMuter)
-        #expect(registry.client(for: "parakeet", context: context) is SidecarASRClient)
-    }
-
-    /// Granite is model-backed exactly like Parakeet: a real recorder and the muter. Its client
-    /// launches the `granite` sidecar, pins Granite's own artifact on every transcribe, and
-    /// hands that sidecar no Parakeet variant — not even one inherited from the environment.
+    /// Granite is model-backed: a real recorder and the muter. Its client launches the
+    /// `granite` sidecar and pins Granite's own artifact on every transcribe, whatever variant
+    /// an external caller's context passes.
     @Test func graniteBackendUsesTheRealRecorderTheMuterAndItsOwnPin() throws {
-        let components = registry.liveComponents(for: "granite", context: q8Context)
+        let context = ASRBackendContext(
+            sidecarExecutableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
+            modelVariant: .q8
+        )
+        let components = registry.liveComponents(for: "granite", context: context)
 
         #expect(components.recorder is MicrophoneRecorder)
         #expect(components.usesSystemAudioMuter)
         let client = try #require(components.client as? SidecarASRClient)
         #expect(client.expectedModel == GraniteModelContract.expectedModel)
         #expect(client.launch.environment["VOICEOUR_ASR_BACKEND"] == "granite")
-        #expect(client.launch.environment[ASRModelVariant.environmentKey] == nil)
     }
 
-    /// Parakeet's client still carries the launch's variant, in its pin and its environment.
-    @Test func parakeetClientPinsTheContextVariant() throws {
-        let components = registry.liveComponents(for: "parakeet", context: q8Context)
+    /// The retired `parakeet` id, which external callers still pass, yields Granite's client.
+    @Test func theRetiredParakeetIdYieldsGranite() throws {
+        let client = try #require(registry.client(for: "parakeet", context: context) as? SidecarASRClient)
 
-        let client = try #require(components.client as? SidecarASRClient)
-        #expect(client.expectedModel == ASRModelArtifact.parakeet(.q8).expectedModel)
-        #expect(client.launch.environment[ASRModelVariant.environmentKey] == "q8_0")
-    }
-
-    private var q8Context: ASRBackendContext {
-        ASRBackendContext(sidecarExecutableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"), modelVariant: .q8)
+        #expect(client.expectedModel == GraniteModelContract.expectedModel)
+        #expect(client.launch.environment["VOICEOUR_ASR_BACKEND"] == "granite")
     }
 
     /// A stale `settings.asrBackend` written by a future build must not crash the
@@ -142,13 +111,14 @@ struct ASRBackendRegistryTests {
 
     @Test func launchOptionValidationCanBeDrivenByTheRegistry() {
         let ids = registry.backendIDs
-        #expect(VoiceCore.LaunchOptions.validBackend("PARAKEET", validBackendIDs: ids) == "parakeet")
+        #expect(VoiceCore.LaunchOptions.validBackend("GRANITE", validBackendIDs: ids) == "granite")
         #expect(VoiceCore.LaunchOptions.validBackend("  fake ", validBackendIDs: ids) == "fake")
         #expect(VoiceCore.LaunchOptions.validBackend(" Granite\n", validBackendIDs: ids) == "granite")
         // Retired ids normalize before the membership test, so an "mlx" from any source still
         // resolves against the live registry rather than falling through to the default.
-        #expect(VoiceCore.LaunchOptions.validBackend("MLX", validBackendIDs: ids) == "parakeet")
-        #expect(VoiceCore.LaunchOptions.validBackend("ARK-0.6B", validBackendIDs: ids) == "parakeet")
+        #expect(VoiceCore.LaunchOptions.validBackend("MLX", validBackendIDs: ids) == "granite")
+        #expect(VoiceCore.LaunchOptions.validBackend("ARK-0.6B", validBackendIDs: ids) == "granite")
+        #expect(VoiceCore.LaunchOptions.validBackend("Parakeet", validBackendIDs: ids) == "granite")
         #expect(VoiceCore.LaunchOptions.validBackend("quantum-ears", validBackendIDs: ids) == nil)
         #expect(VoiceCore.LaunchOptions.validBackend(nil, validBackendIDs: ids) == nil)
         // The wire id is the sidecar's self-report, never a selector.

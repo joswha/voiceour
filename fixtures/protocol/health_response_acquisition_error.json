@@ -7,6 +7,6 @@
   "cache_ok": false,
   "last_acquisition_error": {
     "code": "insufficient_disk_space",
-    "detail": "needs 1342177280 bytes free for ggml-parakeet-tdt-0.6b-v3-f16.bin, volume has 402653184"
+    "detail": "needs 774098592 bytes free for granite-speech-5.0-470m-turboctc-Q8_0.gguf, volume has 402653184"
   }
 }

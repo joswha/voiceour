@@ -102,23 +102,17 @@ struct ConsoleSettingsTab: View {
                 cueRow
             }
 
-            // Not debug-gated, unlike Backend below. While Parakeet runs, two artifacts
-            // of it ship and the difference between them is about 1.17 GB of combined
-            // cache after first load, a trade only the reader can make. Granite, the
-            // default recognizer, pins one artifact, so the section names it instead.
+            // Not debug-gated, unlike Backend below: the one model Voiceour transcribes with,
+            // what it downloads and what it keeps on disk.
             Section("Model") {
-                if let artifact = runningGraniteArtifact {
-                    graniteModelRow(artifact)
-                } else {
-                    modelVariantRow
-                }
+                modelRowContent
             }
 
             // Granite is the one recognizer a release launch selects, so a release build
-            // has nothing to choose between: the picker exists to reach `fake` and
-            // Parakeet during development, and a release user who found it could only
-            // move their own dictation to synthetic text or to a recognizer they did not
-            // ask for. The running model is still stated by the Readiness rows below.
+            // has nothing to choose between: the picker exists to reach `fake` during
+            // development, and a release user who found it could only move their own
+            // dictation to synthetic text. The running model is still stated by the
+            // Readiness rows below.
             if LaunchOptions.showsDebugPanes {
                 Section("Backend") {
                     backendRow
@@ -419,79 +413,12 @@ struct ConsoleSettingsTab: View {
 
     // MARK: Model
 
-    /// The picker states what is *saved* and its caption states what that choice
-    /// costs; the mark states whether the sidecar is already running it. The
-    /// artifact is chosen when the sidecar launches and cannot be swapped under a
-    /// loaded model, so this is restart-to-apply on the same path the Backend
-    /// picker below uses.
-    private var modelVariantRow: some View {
-        ConsoleRow(caption: modelVariantSummary) {
-            Picker("Speech model", selection: settingBinding(coordinator, \.asrModelVariant)) {
-                ForEach(ASRModelVariant.allCases, id: \.self) { variant in
-                    Text(variant.displayName).tag(variant)
-                }
-            }
-            // Radio buttons rather than a segmented control: two options that each need a
-            // sentence of explanation read better stacked, and a segmented control answers an
-            // accessibility press with false while still changing selection, which leaves the
-            // offscreen flow unable to drive the one control this feature turns on.
-            .pickerStyle(.radioGroup)
-            .accessibilityIdentifier("voice.model.picker")
-
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                ConsoleStateMark(
-                    modelRestartRequired ? "RESTART TO APPLY" : "IN USE",
-                    modelRestartRequired ? .warn : .neutral
-                )
-
-                if modelRestartRequired && restartAvailable {
-                    Button("Restart Voiceour") { restartApplication() }
-                        .accessibilityLabel("Restart Voiceour to apply speech model")
-                        .accessibilityIdentifier("voice.model.restart")
-                }
-            }
-        }
-    }
-
-    private var modelRestartRequired: Bool {
-        coordinator.settings.asrModelVariant != coordinator.activeModelVariant
-    }
-
-    /// What the choice costs, stated about the *selected* variant because that is
-    /// the option the reader is weighing — the Readiness rows below stay with what
-    /// is loaded.
-    ///
-    /// Sized through `ConsoleReadiness.gigabytes`, the download readout's own
-    /// locale-independent spelling, so no committed golden encodes a region.
-    ///
-    /// Compact is never sold as faster or better. The committed corpus puts the two
-    /// at the same word error rate and Compact at lower throughput, so the disk is
-    /// the only honest reason to pick it.
-    private var modelVariantSummary: String {
-        let variant = coordinator.settings.asrModelVariant
-        let downloadText = ConsoleReadiness.gigabytes(variant.sizeBytes)
-        let cacheText = ConsoleReadiness.gigabytes(variant.sizeBytes * 2)
-        switch variant {
-        case .f16:
-            return "Downloads \(downloadText); uses about \(cacheText) after first load. Default and faster."
-        case .q8:
-            return "Downloads \(downloadText); uses about \(cacheText) after first load. "
-                + "Same measured accuracy, slightly slower."
-        }
-    }
-
-    /// Granite's artifact while Granite is the *running* backend, else nil. Keyed on the
-    /// active backend, not the saved one: a pending switch must not relabel the model the
-    /// sidecar has loaded, and the Backend row already says the switch needs a restart.
-    private var runningGraniteArtifact: ASRModelArtifact? {
-        coordinator.activeBackend == "granite" ? coordinator.activeModelArtifact : nil
-    }
-
-    /// Granite pins one artifact, so there is nothing to choose and no variant to restart
-    /// into: the row names the model that loads, what it downloads, and its cache, which is
-    /// the download alone because the file is mapped read-only and no arena is written.
-    private func graniteModelRow(_ artifact: ASRModelArtifact) -> some View {
-        ConsoleRow(
+    /// Granite pins one artifact, so there is nothing to choose and nothing to restart into:
+    /// the row names the model, what it downloads, and its cache, which is the download alone
+    /// because the file is mapped read-only and nothing is derived from it.
+    private var modelRowContent: some View {
+        let artifact = ASRModelArtifact.granite
+        return ConsoleRow(
             caption: "Downloads \(ConsoleReadiness.gigabytes(artifact.sizeBytes)); "
                 + "uses about \(ConsoleReadiness.gigabytes(artifact.sizeBytes)) after first load."
         ) {

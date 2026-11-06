@@ -79,16 +79,17 @@ public struct ProtectedTerm: Codable, Equatable, Identifiable, Sendable {
 public struct Settings: Codable, Equatable, Sendable {
     public var cleanupEnabled: Bool
     /// The backend the last launch resolved, and under `--debug` the Backend picker's saved
-    /// choice. `granite` is the default local recognizer; `parakeet` runs only when chosen
-    /// through `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the debug pane; `fake` exists for
-    /// development and the offscreen harness. A release launch never restores this value
+    /// choice. `granite` is the local recognizer and the default; `fake` runs only when chosen
+    /// through `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the debug pane, for development and
+    /// the offscreen harness. A release launch never restores this value
     /// (`LaunchOptions.persistedBackend`).
     public var asrBackend: String
-    /// Which artifact of the pinned model repository the sidecar loads.
+    /// Read by no backend: kept, with its `asr_model_variant` key, for VoiceCore's external
+    /// consumers (see `ASRModelVariant`), so their settings files round-trip it.
     ///
-    /// Stored as its raw tag and resolved through `ASRModelVariant.resolved`, so a value
-    /// written by a future build degrades to the default instead of throwing — a decode failure
-    /// here would quarantine the whole settings file over one unknown word.
+    /// Stored as its raw tag and resolved through `ASRModelVariant.resolved`, so an unknown
+    /// value degrades to the default instead of throwing — a decode failure here would
+    /// quarantine the whole settings file over one unknown word.
     public var asrModelVariant: ASRModelVariant
     public var glossary: [ProtectedTerm]
     public var muteSystemAudioDuringCapture: Bool

@@ -4,7 +4,7 @@ import VoiceCore
 /// Deterministic backend used by tests, smoke runs and fake development.
 ///
 /// It needs no model, microphone or network. The standalone sidecar defaults to it;
-/// the app defaults to Parakeet. Swift protocol tests and the benchmark smoke assert
+/// the app defaults to Granite. Swift protocol tests and the benchmark smoke assert
 /// its deterministic transcript contract.
 public final class FakeASRBackend: SidecarBackend {
     public let backendId = "fake"

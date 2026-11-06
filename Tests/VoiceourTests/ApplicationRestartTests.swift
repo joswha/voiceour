@@ -27,7 +27,7 @@ struct ApplicationRestartTests {
     @Test func restartDropsStaleBackendOverridesAndKeepsTheConsoleOpen() {
         let arguments = VoiceourAppDelegate.restartArguments(from: [
             "--repo-root", "/tmp/voiceour",
-            "--asr-backend", "parakeet",
+            "--asr-backend", "granite",
             "--asr-backend=fake",
             "--no-activate",
         ])
@@ -53,16 +53,17 @@ struct ApplicationRestartTests {
             ])
     }
 
-    @Test func restartRemovesOnlyTheEngineSelectionEnvironmentOverrides() {
+    @Test func restartRemovesOnlyTheBackendEnvironmentOverride() {
         let environment = VoiceourAppDelegate.restartEnvironment(from: [
             "VOICEOUR_ASR_BACKEND": "mlx",
-            "VOICEOUR_MODEL_VARIANT": "q8_0",
+            "VOICEOUR_MODEL_CACHE": "/tmp/granite-cache",
             "VOICEOUR_REPO_ROOT": "/tmp/voiceour",
             "PATH": "/usr/bin",
         ])
 
         #expect(
             environment == [
+                "VOICEOUR_MODEL_CACHE": "/tmp/granite-cache",
                 "VOICEOUR_REPO_ROOT": "/tmp/voiceour",
                 "PATH": "/usr/bin",
             ])

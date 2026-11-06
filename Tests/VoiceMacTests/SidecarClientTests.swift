@@ -15,7 +15,7 @@ struct SidecarClientTests {
     @Test func sidecarLaunchEnvironmentAllowsRequiredVariablesButDropsSecrets() {
         let configuration = SidecarLaunchConfiguration.sidecar(
             executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
-            backend: "parakeet",
+            backend: "granite",
             parentEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "HOME": "/Users/test",
@@ -32,59 +32,28 @@ struct SidecarClientTests {
         #expect(configuration.environment["VOICEOUR_MODEL_CACHE"] == "/tmp/model-cache")
         #expect(configuration.environment["HTTPS_PROXY"] == "https://proxy.example")
         #expect(configuration.environment["https_proxy"] == "https://lowercase-proxy.example")
-        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "parakeet")
+        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "granite")
         #expect(configuration.environment["VOICEOUR_PRELOAD"] == "1")
         #expect(configuration.environment["OPENAI_API_KEY"] == nil)
         #expect(configuration.environment["GITHUB_TOKEN"] == nil)
     }
 
-    /// The selection reaches the sidecar as one environment value, and it has to outrank an
-    /// inherited one: a `VOICEOUR_MODEL_VARIANT` exported in the shell that launched the app
-    /// would otherwise decide which weights load instead of the reader's own choice.
-    @Test func sidecarLaunchEnvironmentCarriesTheSelectedVariantOverAnInheritedOne() {
-        let configuration = SidecarLaunchConfiguration.sidecar(
-            executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
-            backend: "parakeet",
-            modelVariant: .q8,
-            parentEnvironment: [ASRModelVariant.environmentKey: "f16"]
-        )
-
-        #expect(configuration.environment[ASRModelVariant.environmentKey] == "q8_0")
-    }
-
-    /// A backend that loads no weights is told nothing about them. Handing the fake sidecar a
-    /// variant is the same category of lie as handing it Parakeet's model id: a claim about
-    /// weights it never reads. An inherited one is removed too, not merely left unset.
-    @Test func sidecarLaunchEnvironmentOmitsTheVariantForABackendThatPinsNone() {
+    /// The launch writes the backend and the preload switch over any inherited value, and every
+    /// other Voiceour control passes through unchanged, the cache override included.
+    @Test func sidecarLaunchEnvironmentWritesBackendAndPreloadAndPassesControlsThrough() {
         let configuration = SidecarLaunchConfiguration.sidecar(
             executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
             backend: "fake",
-            parentEnvironment: ["PATH": "/usr/bin:/bin", ASRModelVariant.environmentKey: "q8_0"]
-        )
-
-        #expect(configuration.environment[ASRModelVariant.environmentKey] == nil)
-        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "fake")
-    }
-
-    /// Granite loads one fixed artifact. A `VOICEOUR_MODEL_VARIANT` exported for Parakeet in the
-    /// launching shell must not reach its sidecar: the Granite sidecar ignores it, and the
-    /// environment it is handed says so rather than carrying a Parakeet selection it never reads.
-    @Test func graniteLaunchEnvironmentDropsAnInheritedParakeetVariant() {
-        let configuration = SidecarLaunchConfiguration.sidecar(
-            executableURL: URL(fileURLWithPath: "/tmp/voiceour-asr"),
-            backend: "granite",
-            modelVariant: nil,
             parentEnvironment: [
                 "PATH": "/usr/bin:/bin",
-                ASRModelVariant.environmentKey: "q8_0",
+                "VOICEOUR_ASR_BACKEND": "granite",
+                "VOICEOUR_PRELOAD": "0",
                 "VOICEOUR_MODEL_CACHE": "/tmp/granite-cache",
             ]
         )
 
-        #expect(configuration.environment[ASRModelVariant.environmentKey] == nil)
-        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "granite")
+        #expect(configuration.environment["VOICEOUR_ASR_BACKEND"] == "fake")
         #expect(configuration.environment["VOICEOUR_PRELOAD"] == "1")
-        // Every other Voiceour control still passes through, the cache override included.
         #expect(configuration.environment["VOICEOUR_MODEL_CACHE"] == "/tmp/granite-cache")
     }
 
@@ -301,9 +270,9 @@ struct SidecarClientTests {
         let client = SidecarASRClient(
             launch: stubLaunch("echo-result", requestFile.path),
             expectedModel: ASRExpectedModel(
-                modelId: ASRModelContract.modelId,
-                revision: ASRModelContract.revision,
-                file: ASRModelVariant.q8.fileName
+                modelId: GraniteModelContract.supersededPins[0].modelId,
+                revision: GraniteModelContract.supersededPins[0].revision,
+                file: GraniteModelContract.supersededPins[0].file
             )
         )
         let result = try await client.transcribe(sampleAudio(), timeoutMs: 1_234)
@@ -314,9 +283,9 @@ struct SidecarClientTests {
         #expect(decoded.protocolVersion == 1)
         #expect(decoded.type == "transcribe")
         #expect(!decoded.requestId.isEmpty)
-        #expect(decoded.expectedModel?.modelId == ASRModelContract.modelId)
-        #expect(decoded.expectedModel?.revision == ASRModelContract.revision)
-        #expect(decoded.expectedModel?.file == ASRModelVariant.q8.fileName)
+        #expect(decoded.expectedModel?.modelId == GraniteModelContract.supersededPins[0].modelId)
+        #expect(decoded.expectedModel?.revision == GraniteModelContract.supersededPins[0].revision)
+        #expect(decoded.expectedModel?.file == GraniteModelContract.supersededPins[0].file)
         #expect(decoded.timeoutMs == 1_234)
 
         guard let raw = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
@@ -329,12 +298,12 @@ struct SidecarClientTests {
         #expect(raw["protocol_version"] as? Int == 1)
         #expect(raw["type"] as? String == "transcribe")
         #expect((raw["request_id"] as? String)?.isEmpty == false)
-        #expect(expectedModel["model_id"] as? String == ASRModelContract.modelId)
-        #expect(expectedModel["revision"] as? String == ASRModelContract.revision)
+        #expect(expectedModel["model_id"] as? String == GraniteModelContract.supersededPins[0].modelId)
+        #expect(expectedModel["revision"] as? String == GraniteModelContract.supersededPins[0].revision)
         // `file` is what tells one artifact of the pinned revision from another, so it has to
         // reach the wire under exactly that key and carry the client's own artifact — not the
         // default, which would agree with a stale sidecar by accident.
-        #expect(expectedModel["file"] as? String == ASRModelVariant.q8.fileName)
+        #expect(expectedModel["file"] as? String == GraniteModelContract.supersededPins[0].file)
         #expect(raw["timeout_ms"] as? Int == 1_234)
         #expect(audio["path"] as? String == "/tmp/sidecar-client-test.wav")
         #expect(audio["format"] as? String == "wav")
@@ -351,8 +320,8 @@ struct SidecarClientTests {
         #expect(raw["bias_snapshot_id"] == nil)
     }
 
-    /// Granite's pin reaches the wire under the same three snake-case keys as Parakeet's, with
-    /// Granite's own repository, revision and GGUF file.
+    /// Granite's pin reaches the wire under exactly three snake-case keys, with Granite's own
+    /// repository, revision and GGUF file.
     @Test func transcribeRequestEncodingCarriesTheGranitePin() async throws {
         let temp = try makeTemporaryDirectory()
         let requestFile = temp.appendingPathComponent("request.json")
@@ -376,9 +345,8 @@ struct SidecarClientTests {
     }
 
     /// A client with no pinned model leaves `expected_model` off the wire
-    /// instead of borrowing another backend's. The fake sidecar used to be
-    /// handed Parakeet's id and revision — a claim about weights it never
-    /// loads, and a manifest mismatch the day a backend starts checking.
+    /// instead of borrowing another backend's: a claim about weights the fake
+    /// sidecar never loads would be a manifest mismatch the day it checked.
     @Test func transcribeOmitsExpectedModelWhenTheClientPinsNone() async throws {
         let temp = try makeTemporaryDirectory()
         let requestFile = temp.appendingPathComponent("request.json")

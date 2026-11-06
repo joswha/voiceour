@@ -5,7 +5,9 @@ Voiceour source code is licensed under the MIT License.
 Third-party components used by the repository:
 
 - Swift Testing — Apache-2.0 with Runtime Library Exception — https://github.com/swiftlang/swift-testing
-- whisper.cpp's Parakeet TDT implementation and ggml, vendored under `Vendor/parakeet/` — MIT License — https://github.com/ggml-org/whisper.cpp @ `592feef04a1802b18cbeffd0fd0eb5d02570c2ec`
+- ggml, vendored from whisper.cpp under `Vendor/ggml/` — MIT License — https://github.com/ggml-org/whisper.cpp @
+  `592feef04a1802b18cbeffd0fd0eb5d02570c2ec`. `Vendor/ggml/NOTICE.md` lists every local patch and
+  `Vendor/ggml/LICENSE` carries the full licence text.
 - transcribe.cpp's Granite Speech 5 TurboCTC implementation (`src/arch/granite5_ctc`), adapted onto
   that vendored ggml under `Vendor/granite/` — MIT License — https://github.com/handy-computer/transcribe.cpp @
   `5700f127e38dd53c4735ea23ef743b4b538eacd4`. `Vendor/granite/` is a port, not a verbatim copy;
@@ -37,41 +39,9 @@ licence. `benchmarks/DATA-LICENSE.md` carries the full attribution: creators, ti
 URI, warranty disclaimer, previous modifications, and exactly which files and JSON keys hold
 corpus text.
 
-Parakeet model chain:
-
-When Parakeet is selected, the ASR sidecar loads one artifact of `ggml-org/parakeet-GGUF` at
-revision `35156454d1a39de06863303dd209fd2bed6ee079`. That revision holds two conversions of the
-same checkpoint, and the app can be pointed at either:
-
-- `ggml-parakeet-tdt-0.6b-v3-f16.bin` — Parakeet's default variant
-- `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` — the Compact selection
-
-Both were converted from `nvidia/parakeet-tdt-0.6b-v3`, which is licensed under Creative
-Commons Attribution 4.0 International (CC BY 4.0),
-https://creativecommons.org/licenses/by/4.0/legalcode.en. They are downloaded and cached at
-runtime on first use of that backend; neither is bundled with the app or committed to this
-repository.
-
-NVIDIA does not endorse, sponsor or certify Voiceour.
-
-Voiceour does not modify the weights. It loads a third-party format conversion of the
-`nvidia/parakeet-tdt-0.6b-v3` checkpoint: `ggml-org/parakeet-GGUF` re-encoded that checkpoint
-from NeMo into ggml, and quantised it for the `q8_0` artifact. Neither artifact is retrained
-or fine-tuned. That conversion repository tags itself `license: mit`; a re-publisher cannot
-relicense the checkpoint it converted, so CC BY 4.0 above is the licence that governs and this
-notice is deliberately not aligned to that tag.
-
-The licensor offers the weights as-is, gives no representations or warranties about them, and
-limits liability; sections 5 and 6 of the licence linked above state the disclaimer of
-warranties and limitation of liability that apply. `nvidia/parakeet-tdt-0.6b-v3` supplies no
-copyright notice, so none is restated here.
-
-These weights are not covered by Voiceour's MIT licence, which covers Voiceour's own source
-code. Their use is governed by CC BY 4.0.
-
 Granite model chain:
 
-The Granite backend, the default recognizer, loads one artifact,
+The Granite backend, Voiceour's recognizer, loads one artifact,
 `granite-speech-5.0-470m-turboctc-Q8_0.gguf`, of
 `vladers/granite-speech-5.0-470m-turboctc-GGUF` at revision
 `bd7db273aa69a26fc81e370c84597fa738fe2ad0`. It is downloaded and cached at runtime on first use;

@@ -1,6 +1,6 @@
 import ASRSidecarCore
+import CGgml
 import CGranite
-import CParakeet
 import Foundation
 import Synchronization
 import VoiceCore
@@ -15,7 +15,7 @@ private func logLine(_ message: String) {
     try? standardError.write(contentsOf: Data((message + "\n").utf8))
 }
 
-/// Threshold for the native runtimes' own logging (ggml, parakeet, granite), from `VOICEOUR_ASR_LOG`.
+/// Threshold for the native runtimes' own logging (ggml, granite), from `VOICEOUR_ASR_LOG`.
 ///
 /// The vendored runtime is chatty at INFO: one line per Metal pipeline it compiles, which is
 /// hundreds on a cold start. Levels are ggml's own (`ggml_log_level`): DEBUG 1, INFO 2, WARN 3,
@@ -37,9 +37,8 @@ private func installNativeLogging(_ environment: [String: String]) {
         default: state.threshold = 2
         }
     }
-    // `parakeet_log_set` forwards the same callback to `ggml_log_set`, so one install covers
-    // both loggers (Vendor/parakeet/src/parakeet.cpp:3883-3887). The callback takes no captures.
-    parakeet_log_set(
+    // ggml's logger is process-wide; the callback takes no captures.
+    ggml_log_set(
         { level, text, _ in
             guard let text else { return }
             logState.withLock { state in
@@ -75,13 +74,6 @@ private func makeBackend(_ environment: [String: String]) throws -> SidecarBacke
     switch environment["VOICEOUR_ASR_BACKEND"] ?? "fake" {
     case "fake":
         return FakeASRBackend(environment: environment)
-    case "parakeet":
-        return try ParakeetSidecarBackend(
-            cache: .standard(environment: environment),
-            environment: environment,
-            log: logLine,
-            idleUnloadMs: idleUnloadMs(environment)
-        )
     case "granite":
         return GraniteSidecarBackend(
             cache: .granite(environment: environment),
@@ -103,28 +95,16 @@ private func idleUnloadMs(_ environment: [String: String]) -> Int {
 /// machine can go from no model to a real local transcript, and the replacement for the
 /// retired `scripts/phase0_asr_proof.py`.
 ///
-/// It drives the same backend type the protocol loop uses — `GraniteSidecarBackend`, the
-/// default recognizer, unless `VOICEOUR_ASR_BACKEND=parakeet` selects `ParakeetSidecarBackend`
-/// — so a green `--prove` is evidence about the real path rather than about a parallel one.
+/// It drives the same backend type the protocol loop uses, `GraniteSidecarBackend`, so a green
+/// `--prove` is evidence about the real path rather than about a parallel one.
 private func prove(wavPath: String, environment: [String: String]) -> Int32 {
     // No idle unload: --prove is one load and one decode, and a timer would only add a way
     // for the measurement to change under it.
-    let backend: SidecarBackend
-    if environment["VOICEOUR_ASR_BACKEND"] == "parakeet" {
-        do {
-            backend = try ParakeetSidecarBackend(
-                cache: .standard(environment: environment),
-                environment: environment,
-                log: logLine,
-                idleUnloadMs: 0
-            )
-        } catch {
-            logLine("prove: sidecar startup failed: \(error)")
-            return 1
-        }
-    } else {
-        backend = GraniteSidecarBackend(cache: .granite(environment: environment), log: logLine, idleUnloadMs: 0)
-    }
+    let backend: SidecarBackend = GraniteSidecarBackend(
+        cache: .granite(environment: environment),
+        log: logLine,
+        idleUnloadMs: 0
+    )
     defer { backend.shutdown() }
 
     let loadStart = DispatchTime.now().uptimeNanoseconds

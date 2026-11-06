@@ -304,8 +304,6 @@
                 return scalarProbe(coordinator.settings.cleanupEnabled)
             case .activeBackend:
                 return quotedProbe(coordinator.activeBackend)
-            case .selectedModelVariant:
-                return quotedProbe(coordinator.settings.asrModelVariant.rawValue)
             case .processingInFlight:
                 return scalarProbe(coordinator.isProcessingInFlight)
             case .deliveredText:

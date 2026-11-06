@@ -48,7 +48,7 @@ struct GraniteSidecarBackendTests {
         }
     }
 
-    /// Empty `expected_model` fields are wildcards, exactly as for Parakeet.
+    /// Empty `expected_model` fields are wildcards.
     @Test func emptyExpectedModelFieldsAreWildcards() throws {
         let fixture = try GraniteFixture(installed: true)
         defer { fixture.remove() }
@@ -66,10 +66,10 @@ struct GraniteSidecarBackendTests {
     }
 
     @Test(arguments: [
-        (ASRExpectedModel(modelId: "", revision: "", file: "ggml-parakeet-tdt-0.6b-v3-f16.bin"), "file"),
+        (ASRExpectedModel(modelId: "", revision: "", file: GraniteModelContract.supersededPins[0].file), "file"),
         (
             ASRExpectedModel(
-                modelId: ASRModelContract.modelId,
+                modelId: GraniteModelContract.supersededPins[0].modelId,
                 revision: GraniteModelContract.revision,
                 file: GraniteModelContract.fileName
             ), "model_id"
@@ -77,7 +77,7 @@ struct GraniteSidecarBackendTests {
         (
             ASRExpectedModel(
                 modelId: GraniteModelContract.modelId,
-                revision: ASRModelContract.revision,
+                revision: GraniteModelContract.supersededPins[0].revision,
                 file: GraniteModelContract.fileName
             ), "revision"
         ),
@@ -388,48 +388,17 @@ struct GraniteSidecarBackendTests {
         defer { fixture.remove() }
         let backend = fixture.backend(context: ScriptedGraniteContext())
 
-        #expect(throws: ParakeetModelCacheError.self) { try backend.warmUp() }
+        #expect(throws: ModelCacheError.self) { try backend.warmUp() }
 
-        let reported = try #require(backend.health().lastAcquisitionError)
+        let health = backend.health()
+        let reported = try #require(health.lastAcquisitionError)
         #expect(reported.code == .insufficientDiskSpace)
-        #expect(backend.health().warming == nil)
-    }
-
-    /// Loading Granite never retires anything, even when its directory sits among the Parakeet
-    /// variant directories and the cache were (wrongly) told it owns that root.
-    @Test func loadingGraniteNeverPrunesTheParakeetVariants() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("granite-no-prune-" + UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let parakeetDirectories = ASRModelVariant.allCases.map {
-            root.appendingPathComponent($0.cacheDirectoryName, isDirectory: true)
-        }
-        for (directory, variant) in zip(parakeetDirectories, ASRModelVariant.allCases) {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Data("weights".utf8).write(to: directory.appendingPathComponent(variant.fileName))
-        }
-        let bytes = Data("granite weights".utf8)
-        let artifact = graniteTestArtifact(for: bytes)
-        let cache = ParakeetModelCache(
-            directory: root.appendingPathComponent(GraniteModelContract.cacheDirectoryName, isDirectory: true),
-            artifact: artifact,
-            ownsVariantRoot: true
-        )
-        try FileManager.default.createDirectory(at: cache.directory, withIntermediateDirectories: true)
-        try bytes.write(to: cache.modelURL)
-        try JSONEncoder().encode(artifact).write(to: cache.manifestURL)
-        let backend = GraniteSidecarBackend(
-            cache: cache,
-            log: { _ in },
-            idleUnloadMs: 0,
-            contextFactory: { _ in ScriptedGraniteContext() }
-        )
-
-        try backend.warmUp()
-
-        for directory in parakeetDirectories {
-            #expect(FileManager.default.fileExists(atPath: directory.path))
-        }
+        // The byte budget the user has to act on, carried as a diagnostic.
+        #expect(reported.detail?.contains("bytes free for \(GraniteModelContract.fileName)") == true)
+        // Indistinguishable from a preload that has not started, but for the field above.
+        #expect(health.downloadFraction == nil)
+        #expect(health.warming == nil)
+        #expect(!health.cacheOk)
     }
 
     @Test func idleUnloadIsDueOnlyOnceLoadedAndIdle() throws {
@@ -464,7 +433,7 @@ struct GraniteSidecarBackendTests {
         guard environment["VOICEOUR_GRANITE_INTEGRATION"] != nil else { return }
         let modelPath =
             environment["VOICEOUR_GRANITE_MODEL"].flatMap { $0.isEmpty ? nil : $0 }
-            ?? ParakeetModelCache.granite(environment: [:]).modelURL.path
+            ?? ModelCache.granite(environment: [:]).modelURL.path
         try #require(FileManager.default.fileExists(atPath: modelPath), "no Granite model at \(modelPath)")
         let fixture = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -497,8 +466,8 @@ struct GraniteSidecarBackendTests {
 
 // MARK: - Fixtures
 
-private func graniteTestArtifact(for bytes: Data) -> ParakeetModelManifest {
-    ParakeetModelManifest(
+private func graniteTestArtifact(for bytes: Data) -> ModelManifest {
+    ModelManifest(
         modelId: GraniteModelContract.modelId,
         revision: GraniteModelContract.revision,
         file: GraniteModelContract.fileName,
@@ -511,7 +480,7 @@ private func graniteTestArtifact(for bytes: Data) -> ParakeetModelManifest {
 /// its published copy as a `file://` source, and a 16 kHz mono WAV.
 private struct GraniteFixture {
     let root: URL
-    let cache: ParakeetModelCache
+    let cache: ModelCache
     let artifactBytes = Data("granite stand-in weights".utf8)
     let audio: URL
 
@@ -521,11 +490,10 @@ private struct GraniteFixture {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let source = root.appendingPathComponent("published.gguf")
         try artifactBytes.write(to: source)
-        cache = ParakeetModelCache(
+        cache = ModelCache(
             directory: root.appendingPathComponent("model", isDirectory: true),
             artifact: graniteTestArtifact(for: artifactBytes),
             source: source,
-            ownsVariantRoot: false,
             retryDelay: 0,
             availableCapacity: { _ in availableCapacity }
         )

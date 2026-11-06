@@ -11,9 +11,9 @@
     "byte_count": 172800
   },
   "expected_model": {
-    "model_id": "ggml-org/parakeet-GGUF",
-    "revision": "35156454d1a39de06863303dd209fd2bed6ee079",
-    "file": "ggml-parakeet-tdt-0.6b-v3-f16.bin"
+    "model_id": "vladers/granite-speech-5.0-470m-turboctc-GGUF",
+    "revision": "bd7db273aa69a26fc81e370c84597fa738fe2ad0",
+    "file": "granite-speech-5.0-470m-turboctc-Q8_0.gguf"
   },
   "timeout_ms": 30000
 }

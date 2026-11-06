@@ -114,8 +114,8 @@
                 let readyLink = UIAdapterLink(gate: .backendHealth)
                 let coordinator = UIFixtures.make(
                     sessions: UIFixtures.history,
-                    settings: UIFixtures.settings(backend: "parakeet"),
-                    backend: "parakeet",
+                    settings: UIFixtures.settings(backend: "granite"),
+                    backend: "granite",
                     asrOverride: UIRecoveringASR(
                         unavailableLink: unavailableLink,
                         readyLink: readyLink

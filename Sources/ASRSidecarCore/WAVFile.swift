@@ -25,7 +25,7 @@ public enum WAVFile {
     public static let requiredChannels = 1
     public static let requiredBitsPerSample = 16
 
-    /// Decodes to the normalized `[-1, 1)` float samples parakeet.cpp expects.
+    /// Decodes to the normalized `[-1, 1)` float samples the native recognizer expects.
     public static func readSamples(at url: URL) throws -> [Float] {
         try readSamples(from: try Data(contentsOf: url, options: .mappedIfSafe))
     }

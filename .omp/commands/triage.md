@@ -36,7 +36,7 @@ persistence|fbca04|Settings, history, and lifetime-ledger files
 benchmarks|d0e0e3|bench/ tooling, datasets, reports, gates
 packaging|5319e7|Bundle, signing, notarization, release artifacts
 harness|e99695|Offscreen UI harness, scenes, flows, goldens
-vendor|ededed|Vendored parakeet.cpp and ggml
+vendor|ededed|Vendored ggml and the Granite port
 os:macos27|c2e0c6|Reproduced on or specific to a macOS 27 point release
 LABELS
 ```
@@ -94,7 +94,7 @@ Read the title, the body, and every comment; the comments usually carry the repr
 - `benchmarks` — `bench/` tooling, datasets, reports, gates.
 - `packaging` — bundling, signing, notarization, Gatekeeper, release assets, first-launch trust.
 - `harness` — the offscreen UI harness, scenes, flows, goldens, lint.
-- `vendor` — vendored parakeet.cpp or ggml, the pin, the patch ledger.
+- `vendor` — vendored ggml or the transcribe.cpp Granite port, the pins, the patch ledger.
 
 **macOS version** — only when material to reproduction or root cause
 - `os:macos27` — the deployment floor and the only shipping path; use it to pin a point release (`27.x`) that reproduces or fixes the issue. A report from an older macOS is `wontfix`: the app does not launch there.

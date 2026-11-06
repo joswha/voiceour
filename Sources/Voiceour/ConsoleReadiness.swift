@@ -108,8 +108,7 @@ enum ConsoleReadiness {
     }
 
     /// The downloading readout's sentence: the running backend's model label, sized from
-    /// its own artifact (Granite's download is not a Parakeet variant's), or the bare label
-    /// for a backend without a pinned artifact.
+    /// its own artifact, or the bare label for a backend without a pinned artifact.
     static func downloadDetail(modelLabel: String, artifact: ASRModelArtifact?) -> String {
         artifact.map { "\(modelLabel) — \(gigabytes($0.sizeBytes))." } ?? "\(modelLabel)."
     }

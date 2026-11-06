@@ -10,7 +10,7 @@ Autonomous cleanup-loop iteration: discover ONE target → complete execution �
 - Behavior-preserving ONLY: menu, console, overlay, hotkey gesture, insertion disposition, wire protocol, persisted file shapes, rendered output NEVER change.
 - Goldens are the oracle, not the obstacle. `fixtures/ui/**` and `fixtures/protocol/**` MUST come out byte-identical. A cleanup run that blesses a golden is a failed cleanup run.
 - Every iteration MUST yield a named concrete quality win: duplicate implementation gone, responsibility extracted, dead cluster removed, guard clutter deleted. Deletion favored: net-negative LOC expected and the candidate tie-breaker; a justified net-neutral split or boundary fix is acceptable only with a real win. Report LOC delta either way.
-- NEVER touch vendored code: `Vendor/parakeet/**` is pinned upstream with its own integrity gate.
+- NEVER touch vendored code: `Vendor/ggml/**` is pinned upstream with its own integrity gate.
 - Complete the cutover this run: migrate every callsite, delete the original. NEVER half-migrate, NEVER leave a `typealias` or forwarding wrapper behind.
 - No target above bar → output exactly `CLEAN: no target above threshold` and stop.
 </critical>
@@ -125,7 +125,7 @@ In order; each is a hard gate.
 4. Touched `Sources/Voiceour` → `make ui-all`, and `git status --porcelain fixtures/ui` MUST be empty. A moved digest or journal means rendering changed.
 5. Touched wire types → `make test` covers `ProtocolFixtureParityTests`, and `git status --porcelain fixtures/protocol` MUST be empty.
 6. Touched a documented contract → `make check-docs`.
-7. Touched `Vendor/**` by accident → revert it, then `scripts/vendor_parakeet.sh --check`.
+7. Touched `Vendor/**` by accident → revert it, then `scripts/vendor_ggml.sh --check`.
 
 ## 6. Commit
 

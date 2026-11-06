@@ -31,7 +31,6 @@ struct SidecarLaunchConfiguration: Sendable {
     static func sidecar(
         executableURL: URL,
         backend: String = "fake",
-        modelVariant: ASRModelVariant? = nil,
         parentEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> SidecarLaunchConfiguration {
         // The helper receives only process basics and Voiceour controls, not unrelated API keys
@@ -50,15 +49,6 @@ struct SidecarLaunchConfiguration: Sendable {
         }
         environment["VOICEOUR_ASR_BACKEND"] = backend
         environment["VOICEOUR_PRELOAD"] = "1"
-        // Set last and unconditionally for a backend that takes a variant, so an inherited
-        // VOICEOUR_MODEL_VARIANT from the parent shell cannot outrank the user's selection.
-        // Removed for every other backend (fake, Granite's single fixed artifact): a Parakeet
-        // selection must never reach a sidecar it does not describe.
-        if let modelVariant {
-            environment[ASRModelVariant.environmentKey] = modelVariant.rawValue
-        } else {
-            environment.removeValue(forKey: ASRModelVariant.environmentKey)
-        }
         return SidecarLaunchConfiguration(
             executableURL: executableURL,
             arguments: [],
@@ -88,8 +78,7 @@ public final class SidecarASRClient: ASRClienting {
     let launch: SidecarLaunchConfiguration
     /// The model this client's sidecar must have loaded, echoed on every
     /// transcribe so a stale cache fails as a mismatch instead of quietly
-    /// transcribing with other weights. Nil for a backend that pins no model —
-    /// the fake sidecar used to be told to expect Parakeet.
+    /// transcribing with other weights. Nil for a backend that pins no model.
     let expectedModel: ASRExpectedModel?
 
     init(launch: SidecarLaunchConfiguration, expectedModel: ASRExpectedModel? = nil) {
@@ -101,14 +90,12 @@ public final class SidecarASRClient: ASRClienting {
     public convenience init(
         sidecarExecutableURL: URL,
         backend: String = ProcessInfo.processInfo.environment["VOICEOUR_ASR_BACKEND"] ?? "fake",
-        modelVariant: ASRModelVariant? = nil,
         expectedModel: ASRExpectedModel? = nil
     ) {
         self.init(
             launch: .sidecar(
                 executableURL: sidecarExecutableURL,
-                backend: backend,
-                modelVariant: modelVariant
+                backend: backend
             ),
             expectedModel: expectedModel
         )

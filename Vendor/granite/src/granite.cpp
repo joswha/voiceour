@@ -173,7 +173,7 @@ struct GgufGuard {
     }
 };
 
-// GPU (when requested and present) -> accelerators (Accelerate BLAS) -> mandatory CPU, as Parakeet.
+// GPU (when requested and present) -> accelerators (Accelerate BLAS) -> mandatory CPU.
 bool init_backends(granite_context * ctx, bool use_gpu) {
     ggml_backend_t gpu = nullptr;
     if (use_gpu) {

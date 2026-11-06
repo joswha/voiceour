@@ -2,7 +2,7 @@
 
 `Vendor/granite` is Voiceour's native inference for IBM Granite Speech 5.0 TurboCTC (`granite_speech5_ctc`
 GGUF). It is an adapted, reduced port of the `granite5_ctc` family of **transcribe.cpp**, built against the
-ggml already vendored in `Vendor/parakeet/ggml` (0.19.0, SwiftPM target `CGgml`). It does not link or vendor
+ggml vendored in `Vendor/ggml` (0.19.0, SwiftPM target `CGgml`). It does not link or vendor
 transcribe.cpp or its newer ggml.
 
 - Upstream: <https://github.com/handy-computer/transcribe.cpp>
@@ -42,8 +42,8 @@ API and ggml substitutions:
   `caps.buffer_from_host_ptr` only. Upstream's pre-Apple7 Metal exclusion is dropped (Voiceour is
   arm64-only, all Apple7+).
 - Backends: requested GPU device (Metal) first, then accelerator devices (Accelerate BLAS), then the
-  mandatory CPU fallback — Parakeet's order in `Vendor/parakeet/src/parakeet.cpp`. No explicit-device or
-  discrete-before-integrated selection. CPU-only when `use_gpu` is false or no GPU device exists.
+  mandatory CPU fallback. No explicit-device or discrete-before-integrated selection. CPU-only when
+  `use_gpu` is false or no GPU device exists.
 - Weights: when `map_weights` and the primary device accepts host pointers, the whole GGUF is mapped
   `PROT_READ`/`MAP_SHARED`, wrapped with `ggml_backend_dev_buffer_from_host_ptr`, and each tensor whose type,
   size, contiguity, bounds, alignment and allocation size match is placed at its file address with
@@ -58,7 +58,7 @@ API and ggml substitutions:
   16 MiB `no_alloc` metadata context per run; the scheduler is reset and the metadata context freed after
   every run, on every exit path. Upstream recreated the scheduler per run through its public wrapper.
 - Logging goes through `granite_log_set` (stderr when unset), one line per message prefixed `granite: `.
-  Nothing is ever written to stdout. ggml's own logger is not touched (it is shared with Parakeet).
+  Nothing is ever written to stdout. ggml's own logger is not touched; its default writes to stderr.
 
 Behaviour changes required by Voiceour's contract:
 

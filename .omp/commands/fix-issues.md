@@ -80,7 +80,7 @@ Three exits:
   </critical>
 
   Reproduced in the real app → **c**, with the manual procedure written down as the repro and status `repro-manual`; the fix still lands with whatever unit-level test its root cause admits.
-- Not reproduced at all → stop. Delete the test. Report `unreproduced` with the hypothesis, the evidence of non-failure, and the exact unblockers: macOS version, Apple Silicon generation, model variant, input device, target app bundle id, Accessibility trust state, or the author's own repro snippet.
+- Not reproduced at all → stop. Delete the test. Report `unreproduced` with the hypothesis, the evidence of non-failure, and the exact unblockers: macOS version, Apple Silicon generation, input device, target app bundle id, Accessibility trust state, or the author's own repro snippet.
 
 Out of scope or not a bug — user configuration, intended behavior, duplicate, or a standing product decision — → stop and report `not-a-bug` with an explanation postable to the issue.
 
@@ -103,8 +103,8 @@ Branch `fix/issue-<N>`, or `fix/issue-<N>-<slug>` when one issue takes several. 
 
 Nothing to link, and one thing not to:
 
-- The model artifact already lives at `~/Library/Caches/Voiceour/<variant>/`, outside any checkout, so every worktree shares the 1.26 GB download with no setup. Leave `VOICEOUR_MODEL_CACHE` unset — it names one directory its caller owns, and setting it opts out of the shared cache.
-- NEVER symlink `.build` between checkouts. SwiftPM keys its build database to the scratch path, and a shared scratch directory serializes the parallel builds this command exists to run. Each worktree pays one cold build, vendored parakeet/ggml included.
+- The model artifact already lives at `~/Library/Caches/Voiceour/granite-speech-5.0-470m-turboctc-q8_0/`, outside any checkout, so every worktree shares the 0.51 GB download with no setup. Leave `VOICEOUR_MODEL_CACHE` unset — it names one directory its caller owns, and setting it opts out of the shared cache.
+- NEVER symlink `.build` between checkouts. SwiftPM keys its build database to the scratch path, and a shared scratch directory serializes the parallel builds this command exists to run. Each worktree pays one cold build, vendored ggml included.
 
 ### e. Fix
 

@@ -51,7 +51,7 @@ help:
 	               printf "  %-16s %s\n", substr(line, 1, split_at - 1), substr(line, split_at + 2) }' $(MAKEFILE_LIST)
 	@printf '\nLaunch flags: make run ARGS="--debug --show-console"\n'
 	@printf 'A .env at the repo root is sourced by run and dev: VOICEOUR_ASR_BACKEND,\n'
-	@printf 'VOICEOUR_MODEL_VARIANT, VOICEOUR_SUPPORT_DIR.\n'
+	@printf 'VOICEOUR_SUPPORT_DIR.\n'
 
 #> Build and run
 .PHONY: build run dev stop status logs clean
@@ -71,7 +71,6 @@ run: $(APP_BINARY)
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 	set --; \
 	if [ -n "$${VOICEOUR_ASR_BACKEND:-}" ]; then set -- "$$@" --env "VOICEOUR_ASR_BACKEND=$$VOICEOUR_ASR_BACKEND"; fi; \
-	if [ -n "$${VOICEOUR_MODEL_VARIANT:-}" ]; then set -- "$$@" --env "VOICEOUR_MODEL_VARIANT=$$VOICEOUR_MODEL_VARIANT"; fi; \
 	if [ -n "$${VOICEOUR_SUPPORT_DIR:-}" ]; then set -- "$$@" --env "VOICEOUR_SUPPORT_DIR=$$VOICEOUR_SUPPORT_DIR"; fi; \
 	open -n "$(APP)" "$$@" $(if $(ARGS),--args $(ARGS),)
 	@for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
@@ -86,8 +85,8 @@ run: $(APP_BINARY)
 # macOS 26, that launch does propagate this shell's environment — a bare `open -n` was
 # observed delivering an unforwarded VOICEOUR_* name to the app — but nothing documents
 # that as a contract, and `open --env` exists precisely because it is not one. So each
-# name the app itself reads is forwarded explicitly above: the backend and the model
-# variant from Sources/Voiceour/DictationCoordinator.swift, the support directory from
+# name the app itself reads is forwarded explicitly above: the backend from
+# Sources/Voiceour/DictationCoordinator.swift, the support directory from
 # Sources/VoiceCore/AppSupportPaths.swift. Add the forward here when the app learns to
 # read another one, rather than relying on a macOS version's inheritance behaviour.
 
@@ -269,8 +268,7 @@ ui-all: ui-snap ui-flow
 .PHONY: bench-smoke bench-stt bench-e2e bench-techterms bench-gate
 
 N ?= 200
-# Granite is the default recognizer and the default here. BACKEND=parakeet measures the
-# selectable Parakeet backend through the same pipeline; BACKEND=fake measures the fake path.
+# Granite is the recognizer and the default here; BACKEND=fake measures the fake path.
 BACKEND ?= granite
 
 ## bench-smoke: offline fake-backend smoke run
@@ -290,8 +288,8 @@ bench-techterms:
 	cd bench && uv --no-config run python -m voiceour_bench.run --tier techterms --mode stt --backend $(BACKEND)
 
 # Usage: make bench-gate BASELINE=benchmarks/results/<a>.json CANDIDATE=benchmarks/results/<b>.json
-# Same-model regressions only: it refuses a cross-backend/model pair, so Parakeet versus
-# Granite goes through voiceour-bench-paired-gate (docs/benchmarks.md).
+# Same-model regressions only: it refuses a cross-backend/model pair, so comparing two
+# models goes through voiceour-bench-paired-gate (docs/benchmarks.md).
 ## bench-gate: U-WER regression gate between two reports
 bench-gate:
 	cd bench && uv --no-config run python -m voiceour_bench.compare ../$(BASELINE) ../$(CANDIDATE) --gate uwer_final:0.0035

@@ -48,7 +48,7 @@ struct GraniteSpotCommand {
     }
 
     func run() throws {
-        let modelURL = model ?? ParakeetModelCache.granite().modelURL
+        let modelURL = model ?? ModelCache.granite().modelURL
         let context = try GraniteContext(modelPath: modelURL.path)
         let setup = try SpotSetup(glossary: glossary, encoder: try context.makeEncoder())
         let writer = try JSONLWriter(url: output)
@@ -351,7 +351,7 @@ struct GraniteTokenizeCommand {
     }
 
     func run() throws {
-        let modelURL = model ?? ParakeetModelCache.granite().modelURL
+        let modelURL = model ?? ModelCache.granite().modelURL
         let encoder = try GraniteContext(modelPath: modelURL.path, useGPU: false).makeEncoder()
         let reader = try JSONLLineReader(url: input)
         let writer = try JSONLWriter(url: output)
