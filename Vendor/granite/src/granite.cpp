@@ -771,3 +771,50 @@ int32_t granite_nospeech_token_id(const granite_context * ctx) {
 int32_t granite_n_frames(const granite_context * ctx) {
     return ctx != nullptr ? ctx->n_frames : 0;
 }
+
+int32_t granite_n_vocab(const granite_context * ctx) {
+    return ctx != nullptr ? ctx->hp.output_dim : 0;
+}
+
+int32_t granite_blank_id(const granite_context * ctx) {
+    return ctx != nullptr ? ctx->hp.blank_id : -1;
+}
+
+const float * granite_logits(const granite_context * ctx) {
+    if (ctx == nullptr || ctx->n_frames <= 0) {
+        return nullptr;
+    }
+    return ctx->logits.data();
+}
+
+const char * granite_vocab_piece(const granite_context * ctx, int32_t id, size_t * length) {
+    if (ctx == nullptr || id < 0 || static_cast<size_t>(id) >= ctx->vocab.pieces.size()) {
+        if (length != nullptr) {
+            *length = 0;
+        }
+        return nullptr;
+    }
+    const std::string & piece = ctx->vocab.pieces[static_cast<size_t>(id)];
+    if (length != nullptr) {
+        *length = piece.size();
+    }
+    return piece.data();
+}
+
+int32_t granite_n_merges(const granite_context * ctx) {
+    return ctx != nullptr ? static_cast<int32_t>(ctx->vocab.merges.size()) : 0;
+}
+
+const char * granite_merge(const granite_context * ctx, int32_t i, size_t * length) {
+    if (ctx == nullptr || i < 0 || static_cast<size_t>(i) >= ctx->vocab.merges.size()) {
+        if (length != nullptr) {
+            *length = 0;
+        }
+        return nullptr;
+    }
+    const std::string & merge = ctx->vocab.merges[static_cast<size_t>(i)];
+    if (length != nullptr) {
+        *length = merge.size();
+    }
+    return merge.data();
+}

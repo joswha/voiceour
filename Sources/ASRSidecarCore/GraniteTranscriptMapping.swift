@@ -84,6 +84,20 @@ public enum GraniteTranscriptMapping {
     }
 
     static func words(from textTokens: [GraniteRawToken], msPerFrame: Int) -> [ASRWord] {
+        wordGroups(from: textTokens).map { group in
+            ASRWord(
+                text: group.text,
+                startMs: Int(group.tokens[0].frameBegin) * msPerFrame,
+                endMs: Int(group.tokens[group.tokens.count - 1].frameEnd) * msPerFrame,
+                confidence: group.tokens.map { Double($0.probability) }.min()
+            )
+        }
+    }
+
+    /// The transcript's words as token groups, in order: a word starts at a token whose bytes begin
+    /// with a space, and groups whose collapsed text is empty are dropped. Index `i` here is word `i`
+    /// of the transcript, which is what lets frame-level evidence name words.
+    static func wordGroups(from textTokens: [GraniteRawToken]) -> [(tokens: [GraniteRawToken], text: String)] {
         var groups: [[GraniteRawToken]] = []
         for token in textTokens {
             if groups.isEmpty || token.bytes.first == asciiSpace {
@@ -93,15 +107,8 @@ public enum GraniteTranscriptMapping {
             }
         }
         return groups.compactMap { group in
-            guard let first = group.first, let last = group.last else { return nil }
             let text = collapsedText(group.flatMap(\.bytes))
-            guard !text.isEmpty else { return nil }
-            return ASRWord(
-                text: text,
-                startMs: Int(first.frameBegin) * msPerFrame,
-                endMs: Int(last.frameEnd) * msPerFrame,
-                confidence: group.map { Double($0.probability) }.min()
-            )
+            return text.isEmpty ? nil : (group, text)
         }
     }
 

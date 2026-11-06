@@ -29,6 +29,10 @@ struct VoiceourBenchMain {
                 try EncoderBenchCommand.parse(Array(arguments.dropFirst())).run()
             } else if arguments.first == "combined-bench" {
                 try CombinedBenchCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "granite-spot" {
+                try GraniteSpotCommand.parse(Array(arguments.dropFirst())).run()
+            } else if arguments.first == "granite-tokenize" {
+                try GraniteTokenizeCommand.parse(Array(arguments.dropFirst())).run()
             } else {
                 let options = try BenchCLI.parse(arguments)
                 try await BenchRunner(options: options).run()
@@ -172,6 +176,9 @@ enum BenchCLI {
               [--vocabulary <repair.vocabulary.json>]
           voiceour-bench repair-verify --fixtures <directory>
               [--vocabulary <repair.vocabulary.json>] [--repetitions 20]
+          voiceour-bench granite-spot --input <manifest.jsonl> --output <rows.jsonl>
+              [--glossary <repair.vocabulary.json>] [--model <granite.gguf>]
+          voiceour-bench granite-tokenize --input <texts.jsonl> --output <ids.jsonl> [--model <granite.gguf>]
           voiceour-bench tail-bench --dumps <dump/> --output <rows.jsonl> [--passes 1] [--limit K]
               [--rust-tail-lib <libtdt_tail.dylib> [--rust-arms a,b]] [--states-dir <states/>]
               [--cpp-elapsed decode|tail|wall]

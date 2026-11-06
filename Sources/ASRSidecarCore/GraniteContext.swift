@@ -31,9 +31,13 @@ public enum GraniteContextError: Error, Equatable, CustomStringConvertible {
 /// job, and a type that looked concurrency-safe would invite a second caller.
 public final class GraniteContext {
     private let context: OpaquePointer
-    /// Model constants, read once: neither changes for the lifetime of a context.
+    /// Model constants, read once: none changes for the lifetime of a context.
     public let msPerFrame: Int
     public let nospeechTokenId: Int32
+    /// CTC output dimension, the blank included.
+    public let vocabularySize: Int
+    /// Vocabulary id of the CTC blank.
+    public let blankId: Int32
 
     public init(modelPath: String, useGPU: Bool = true, threadCount: Int32 = 6, mapWeights: Bool = true) throws {
         var params = granite_context_default_params()
@@ -46,6 +50,8 @@ public final class GraniteContext {
         self.context = context
         msPerFrame = Int(granite_ms_per_frame(context))
         nospeechTokenId = granite_nospeech_token_id(context)
+        vocabularySize = Int(granite_n_vocab(context))
+        blankId = granite_blank_id(context)
     }
 
     deinit {
@@ -83,6 +89,44 @@ public final class GraniteContext {
         case GRANITE_ERR_CANCELLED: throw GraniteContextError.cancelled
         case GRANITE_ERR_BACKEND: throw GraniteContextError.backendFailed
         default: throw GraniteContextError.unexpectedStatus(status.rawValue)
+        }
+    }
+
+    /// Runs `body` over the last successful run's CTC logits, frame-major: `frames` rows of
+    /// `vocabularySize` floats, before softmax. Nil when that run produced no frame. No copy: the
+    /// buffer is the native one and is valid only inside `body`, since the next run overwrites it.
+    public func withLastLogits<Result>(
+        _ body: (_ logits: UnsafeBufferPointer<Float>, _ frames: Int) throws -> Result
+    ) rethrows -> Result? {
+        let frames = Int(granite_n_frames(context))
+        guard frames > 0, let pointer = granite_logits(context) else { return nil }
+        return try body(UnsafeBufferPointer(start: pointer, count: frames * vocabularySize), frames)
+    }
+
+    /// The model's own tokenizer tables, as an encoder: raw vocabulary pieces and BPE merges.
+    public func makeEncoder() throws -> GraniteBPEEncoder {
+        var pieces: [String] = []
+        pieces.reserveCapacity(vocabularySize)
+        for id in 0..<vocabularySize {
+            var length = 0
+            let pointer = granite_vocab_piece(context, Int32(id), &length)
+            pieces.append(Self.string(pointer, length))
+        }
+        let mergeCount = Int(granite_n_merges(context))
+        var merges: [String] = []
+        merges.reserveCapacity(mergeCount)
+        for index in 0..<mergeCount {
+            var length = 0
+            let pointer = granite_merge(context, Int32(index), &length)
+            merges.append(Self.string(pointer, length))
+        }
+        return try GraniteBPEEncoder(pieces: pieces, merges: merges)
+    }
+
+    private static func string(_ pointer: UnsafePointer<CChar>?, _ length: Int) -> String {
+        guard let pointer, length > 0 else { return "" }
+        return pointer.withMemoryRebound(to: UInt8.self, capacity: length) {
+            String(decoding: UnsafeBufferPointer(start: $0, count: length), as: UTF8.self)
         }
     }
 

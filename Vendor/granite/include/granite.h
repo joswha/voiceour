@@ -96,6 +96,28 @@ int32_t granite_nospeech_token_id(const struct granite_context * ctx);
 // Encoder frames produced by the last successful run (0 before any run).
 int32_t granite_n_frames(const struct granite_context * ctx);
 
+// CTC output dimension, the blank included (16,384 for the pinned model). 0 for NULL.
+int32_t granite_n_vocab(const struct granite_context * ctx);
+
+// Vocabulary id of the CTC blank. -1 for NULL.
+int32_t granite_blank_id(const struct granite_context * ctx);
+
+// The last run's CTC logits before softmax, frame-major: granite_n_frames rows of granite_n_vocab floats.
+// NULL when that run produced no frame (zero samples, a failure, or no run yet). Valid until the next
+// transcribe or free.
+const float * granite_logits(const struct granite_context * ctx);
+
+// Raw GGUF piece of vocabulary id `id`: U+2581 marks a word start, <0xHH> a byte-fallback piece. Not
+// NUL-terminated. Sets *length; returns NULL with *length = 0 when out of range.
+const char * granite_vocab_piece(const struct granite_context * ctx, int32_t id, size_t * length);
+
+// BPE merges from tokenizer.ggml.merges in rank order; 0 when the GGUF carries none.
+int32_t granite_n_merges(const struct granite_context * ctx);
+
+// Merge i as stored: the left piece, one ASCII space, the right piece. Not NUL-terminated. Sets *length;
+// returns NULL with *length = 0 when out of range.
+const char * granite_merge(const struct granite_context * ctx, int32_t i, size_t * length);
+
 #ifdef __cplusplus
 }
 #endif

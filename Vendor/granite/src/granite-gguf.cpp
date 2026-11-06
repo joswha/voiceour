@@ -569,6 +569,7 @@ bool load_vocab(const gguf_context * gguf, Vocab & vocab) {
 
     static const Gpt2ByteMap byte_map;
     vocab.bytes.assign(n, std::string());
+    vocab.pieces.assign(n, std::string());
     vocab.special.assign(n, 0);
     vocab.nospeech_id = -1;
     for (size_t i = 0; i < n; ++i) {
@@ -577,6 +578,22 @@ bool load_vocab(const gguf_context * gguf, Vocab & vocab) {
         vocab.special[i] = (types[i] == kTokenUnknown || types[i] == kTokenControl || types[i] == kTokenUser) ? 1 : 0;
         if (vocab.nospeech_id < 0 && piece == "<|nospeech|>") {
             vocab.nospeech_id = static_cast<int32_t>(i);
+        }
+        vocab.pieces[i] = piece;
+    }
+
+    // Merges only serve text encoding; decoding never needs them, so a GGUF without them still loads.
+    vocab.merges.clear();
+    const int64_t merges_id = find_key(gguf, "tokenizer.ggml.merges", GGUF_TYPE_ARRAY, false);
+    if (merges_id >= 0) {
+        if (gguf_get_arr_type(gguf, merges_id) != GGUF_TYPE_STRING) {
+            log(GRANITE_LOG_ERROR, "tokenizer.ggml.merges must be a string array");
+            return false;
+        }
+        const size_t n_merges = gguf_get_arr_n(gguf, merges_id);
+        vocab.merges.reserve(n_merges);
+        for (size_t i = 0; i < n_merges; ++i) {
+            vocab.merges.emplace_back(gguf_get_arr_str(gguf, merges_id, i));
         }
     }
     return true;

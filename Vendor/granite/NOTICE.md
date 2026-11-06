@@ -75,6 +75,11 @@ Behaviour changes required by Voiceour's contract:
 - Results: each token carries its CTC run's encoder-frame span (`frame_begin`, `frame_end`), the softmax
   probability at the run's first frame (upstream's `p`), and `is_special`. Upstream published no timing.
   A run's results (including on failure) replace the previous run's.
+- Evidence and tokenizer tables (Voiceour additions, no upstream counterpart in the public ABI):
+  `granite_logits` exposes the host copy of the CTC logits the greedy decode already reads (NULL when the
+  run produced no frame), with `granite_n_vocab` and `granite_blank_id`; `granite_vocab_piece`,
+  `granite_n_merges` and `granite_merge` expose the raw `tokenizer.ggml.tokens` pieces and the optional
+  `tokenizer.ggml.merges`, loaded beside the decode table, so callers can encode text into vocabulary ids.
 - `is_special` is `tokenizer.ggml.token_type` in {UNKNOWN, CONTROL, USER}; for the pinned conversion this
   equals exactly the `tokenizer.json` `added_tokens` with `special: true` (255 ids, verified over the
   whole 16,384-entry vocabulary). Special tokens are still emitted, never filtered, exactly as upstream.

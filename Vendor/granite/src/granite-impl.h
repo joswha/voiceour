@@ -114,9 +114,12 @@ struct Frontend {
     int                 log2n     = 0;
 };
 
-// Decode-only vocabulary: every id's decoded bytes, precomputed at load.
+// Vocabulary: every id's decoded bytes, precomputed at load, plus the raw pieces and BPE merges callers
+// need to encode text into ids.
 struct Vocab {
     std::vector<std::string> bytes;
+    std::vector<std::string> pieces;
+    std::vector<std::string> merges;
     std::vector<uint8_t>     special;
     int32_t                  nospeech_id = -1;
 };
@@ -127,7 +130,8 @@ bool read_hparams(const gguf_context * gguf, HParams & hp);
 // Binds and validates all tensors of the catalog (names, types, shapes, exact count).
 bool bind_weights(const gguf_context * gguf, ggml_context * ctx_meta, const HParams & hp, Weights & w);
 
-// Loads tokenizer.ggml.{model,tokens,token_type} into the decode table.
+// Loads tokenizer.ggml.{model,tokens,token_type} into the decode table and the optional
+// tokenizer.ggml.merges in rank order.
 bool load_vocab(const gguf_context * gguf, Vocab & vocab);
 
 // Frontend. Returns false (after logging) when the clip cannot produce a feature frame.
