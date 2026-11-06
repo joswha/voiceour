@@ -425,9 +425,6 @@ def build_report(
         "error_row_ids": sorted(row["result"]["id"] for row in errors),
         "metrics": metrics,
         "worst_10": worst[:10],
-        "anchors": {"librispeech_parakeet_tdt_0_6b_v3_nemo": {"test_clean_wer": 1.93, "test_other_wer": 3.59}}
-        if tier == "librispeech"
-        else {},
         "inputs": {
             "results_jsonl": _relative_to_repo(results_jsonl),
             "manifest_jsonl": _relative_to_repo(manifest_jsonl),
@@ -462,7 +459,7 @@ def markdown_table(report: dict[str, Any]) -> str:
         ("mode", report["mode"]),
         # The backend is the variable under test in an A/B; two tables that omit
         # it are indistinguishable on screen. So is the weight artifact, which
-        # two variants of the pinned model share every other identity with.
+        # several conversions of one pinned revision share every other identity with.
         ("backend", (report.get("meta") or {}).get("backend")),
         ("model file", (report.get("meta") or {}).get("model_file")),
         ("rows", report["counts"]["successful_rows"]),

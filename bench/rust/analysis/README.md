@@ -115,10 +115,9 @@ way. For a stage-profile file the stage rows count as the timing rows. Failed ca
 **Legacy runs.** A run without a footer cannot prove that a whole row, or a whole arm, was not left out, because
 the grid is checked only against the rows and arms that appear. When its grid is complete, the tool analyzes it and
 warns `incomplete_provenance`; the integrity table shows `grid_only`. A file without `run_meta`, or one that
-declares no `arms` or `passes`, warns the same way and is not checked at all. The B1, B2, B3 and B6 data files of
-runs `20261016-run2` and `20261017-resumed` were written before the footer existed and have complete declared grids
-(counted separately), so they are expected to pass with this warning. The interrupted B4 file of `20261016-run2`
-(2464 of 3072 cells) is refused.
+declares no `arms` or `passes`, warns the same way and is not checked at all. The B3 and B6 data files of runs
+`20261016-run2` and `20261017-resumed` were written before the footer existed and have complete declared grids
+(counted separately), so they are expected to pass with this warning.
 
 **Provenance warnings.** Each `run_meta` is checked for `host.power`. A value that is not AC (or is missing) raises
 `non_ac_power`: a battery run can be power-capped, so its absolute times do not compare with AC runs. Each
@@ -368,9 +367,9 @@ minima can come from different passes, so the shares need not add up to 1. `coun
 `min`, `max` and `total` of the per-row median of each count key.
 
 **Scope of `full`.** Without `--stage-parts` every stage except `full` is treated as a part of it. That is wrong
-when a producer measures some stages outside `full`. The B0 ledger (`voiceour-bench stage-profile`) times `wav_read`,
-`assemble`, `cleanup` and `repair` outside `full`; only `mel`, `encode` and `tail` are native counters inside it.
-Summing all of them overcounts `full` and the tool warns `stage_overcount`. With `--stage-parts mel,encode,tail`:
+when a producer measures some stages outside `full`. A ledger that times `wav_read`, `assemble`, `cleanup` and
+`repair` outside `full`, with only `mel`, `encode` and `tail` as counters inside it, overcounts `full` when summed,
+and the tool warns `stage_overcount`. With `--stage-parts mel,encode,tail`:
 
 - every selected part must exist in each group (an unknown name, `full`, `(unattributed)`, a repeat or an empty
   name is an error), and a sample that lacks a selected part raises `stage_missing_part`;
@@ -462,17 +461,5 @@ the files it has written:
 - Each measured file goes through `paired_stats.py --check` at once. An incomplete grid, a missing completion
   footer, a runtime error or a failed call stops the run. Analysis then refuses such a file again, so a partial
   file is never summarized.
-- B4 runs one Rust candidate per process. All six candidates (`candle:f16w+fused`, `candle:f16+fused`, `mlx:f32`,
-  `mlx:f32-mm16`, `mlx:f16`, `mlx:compiled-f16`) ran in one process before, with about 8.5 GiB of weights resident,
-  risking memory pressure on a 24 GB laptop and letting cache and allocator state carry over. Now each
-  process loads only its own library and measures it against its own native `ggml-metal` and `ggml-metal@aa` arms,
-  on every corpus, with the same passes. The files are `b4.<engine>-<arm>.<corpus>.jsonl`, with `:` and `+` in
-  the arm replaced by `-` (for example `b4.candle-f16w-fused.general96.jsonl`). The analysis step runs once per
-  file, `--all-vs ggml-metal`, so each candidate is compared with the baseline and A/A replicate of its own process.
-  Pooling files is refused (the same arm and row in two files).
-- The candle candidates need `bench/rust/encoder-candle/vendor/`: run
-  `bench/rust/encoder-candle/patches/vendor-candle-metal-kernels.sh` once on a clean checkout, then
-  `cargo build --release` in `bench/rust/encoder-candle`. The runner checks that the vendored directory exists
-  and that the candle library is newer than it.
-- The ledger analysis uses `--stage-profile --stage-parts mel,encode,tail`, because `wav_read`, `assemble`,
-  `cleanup` and `repair` run outside `full`.
+- It runs the `text` (B3, through `bench/rust/voiceour-text/scripts/b3-timing.sh`), `mercury` (B6) and `analyze`
+  sections; with no arguments it runs all three in that order.

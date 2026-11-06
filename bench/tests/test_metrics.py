@@ -364,10 +364,10 @@ def _write_report(
     error_ids: list[str] | None = None,
     uwer: float = 0.1,
     tier: str = "librispeech",
-    backend: str = "parakeet",
+    backend: str = "granite",
     model_id: str = "model",
     model_revision: str = "revision",
-    model_file: str | None = "ggml-parakeet-tdt-0.6b-v3-f16.bin",
+    model_file: str | None = "model-q8_0.gguf",
 ):
     error_ids = error_ids or []
     meta = {
@@ -488,8 +488,8 @@ def test_compare_accepts_identical_row_ids_in_different_order(tmp_path) -> None:
         ("backend", {"backend": "fake"}),
         ("model_id", {"model_id": "other-model"}),
         ("model_revision", {"model_revision": "other-revision"}),
-        # Two conversions of one checkpoint: same id, same revision, different weights.
-        ("model_file", {"model_file": "ggml-parakeet-tdt-0.6b-v3-q8_0.bin"}),
+        # One repository revision can hold several conversions: same id, same revision, different weights.
+        ("model_file", {"model_file": "model-f16.gguf"}),
     ],
 )
 def test_compare_refuses_different_report_provenance(tmp_path, capsys, field, candidate_overrides) -> None:

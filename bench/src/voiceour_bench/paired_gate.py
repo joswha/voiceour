@@ -252,7 +252,7 @@ def _load_report(path: Path) -> _Report:
     except json.JSONDecodeError:
         entries = _read_jsonl(path, raw=raw)
     else:
-        if isinstance(parsed, dict) and parsed.get("type") in ("row", "bench_meta", "encoder_meta"):
+        if isinstance(parsed, dict) and parsed.get("type") in ("row", "bench_meta"):
             entries = [parsed]
         elif isinstance(parsed, dict):
             document = parsed
@@ -281,24 +281,8 @@ def _load_report(path: Path) -> _Report:
         if meta and meta != meta_entries[0]:
             raise GateInputError("PROVENANCE_FAIL", f"{path} has conflicting metadata records")
         meta = dict(meta_entries[0])
-    if not meta:
-        sidecar = path.with_name(path.name + ".meta.json")
-        if sidecar.exists():
-            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
-            if (
-                not isinstance(provenance, dict)
-                or provenance.get("schema_version") != 1
-                or provenance.get("results_sha256") != results_sha256
-                or not isinstance(provenance.get("meta"), dict)
-                or provenance["meta"].get("mode") != "raw-decode"
-            ):
-                raise GateInputError("PROVENANCE_FAIL", f"{sidecar} is not bound to the raw-decode result bytes")
-            meta = dict(provenance["meta"])
-    encoder_entries = [entry for entry in entries if entry.get("type") == "encoder_meta"]
-    if len(encoder_entries) > 1 or (encoder_entries and meta.get("mode") != "external-encoder"):
-        raise GateInputError("PROVENANCE_FAIL", f"{path} has invalid encoder metadata")
 
-    rows = [entry for entry in entries if entry.get("type") not in ("bench_meta", "encoder_meta")]
+    rows = [entry for entry in entries if entry.get("type") != "bench_meta"]
     if not rows:
         raise GateInputError("REPORT_ROWS_MISSING", f"{path} contains no row-level records")
     _validated_ids(rows, str(path))
@@ -1044,14 +1028,10 @@ def evaluate_files(
     validation["report_modes_present"] = all(
         isinstance(mode, str) and bool(mode) for mode in (incumbent_mode, candidate_mode)
     )
-    encoder_modes = ("raw-decode", "external-encoder")
-    validation["report_modes_compatible"] = validation["report_modes_equal"] or (
-        incumbent_mode in encoder_modes and candidate_mode in encoder_modes
-    )
     if not validation["report_modes_present"]:
         reasons.append(_reason("PROVENANCE_FAIL", "both reports must record a non-empty execution mode"))
-    elif not validation["report_modes_compatible"]:
-        reasons.append(_reason("PROVENANCE_FAIL", "incumbent and candidate report modes are not compatible"))
+    elif not validation["report_modes_equal"]:
+        reasons.append(_reason("PROVENANCE_FAIL", "incumbent and candidate report modes differ"))
     if reasons:
         return _early_result(
             manifest_path,

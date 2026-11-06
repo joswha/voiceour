@@ -2,8 +2,8 @@
 
 This is a CPU-only research instrument. It never decodes audio: it replays the
 baseline ``final_text`` values through increasingly permissive vocabulary-only
-repair policies, then scores every output with the same accuracy semantics as
-``autoresearch/score.py``.
+repair policies, then scores every output with ``voiceour_bench.metrics`` U-WER and
+F-WER plus exact canonical-term containment.
 
 Run from ``bench/`` so the pinned benchmark environment supplies RapidFuzz and
 the ``voiceour_bench`` package::

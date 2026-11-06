@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 
 MODELS = {
-    "parakeet": ("nvidia/parakeet-tdt-0.6b-v3",),
     "whisper": ("openai/whisper-large-v3-turbo", "openai/whisper-large-v3"),
     "wav2vec2": ("wav2vec2_asr_base_960h",),
 }
@@ -75,8 +74,8 @@ def check_environment(engine: str, *, exporting: bool) -> None:
     expected = {"coreai-core": "1.0.0b2"}
     if exporting:
         expected.update({"coreai-torch": "0.4.2", "torch": "2.11.0"})
-    if engine in ("parakeet", "whisper"):
-        expected["transformers"] = "5.9.0" if engine == "parakeet" else "4.57.3"
+    if engine == "whisper":
+        expected["transformers"] = "4.57.3"
     if engine == "wav2vec2" and exporting:
         expected["torchaudio"] = "2.11.0"
     actual = versions()

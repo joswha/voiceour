@@ -187,7 +187,7 @@ def main() -> None:
             "Apple system model weights are OS-managed and not independently revision-pinnable.",
             "Process-first timing is not guaranteed model-cold; platform services can retain models.",
             "Per-backend timing boundaries are recorded in metadata; input conversion may differ.",
-            "Client RSS excludes shared Apple model services and may exclude the Parakeet sidecar; "
+            "Client RSS excludes shared Apple model services and may exclude the voiceour-asr sidecar; "
             "not an apples-to-apples model-memory comparison.",
             "Errors/missing outputs are counted; final-text quality treats them as empty outputs, "
             "never silently drops them.",

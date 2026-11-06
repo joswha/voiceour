@@ -302,7 +302,7 @@ struct FoundationLab {
                 throw PrototypeError.message("Baseline object is missing type")
             }
             guard type == "row" else {
-                guard ["bench_meta", "encoder_meta", "capability", "blocked"].contains(type) else {
+                guard ["bench_meta", "capability", "blocked"].contains(type) else {
                     throw PrototypeError.message("Unexpected baseline object type: \(type)")
                 }
                 continue

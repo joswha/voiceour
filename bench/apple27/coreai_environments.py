@@ -15,7 +15,6 @@ BASE = (
     "soundfile",
 )
 ENVIRONMENTS = {
-    "parakeet": (*BASE, "transformers[audio]==5.9.0"),
     "whisper": (*BASE, "transformers==4.57.3"),
     "wav2vec2": (*BASE, "torchaudio==2.11.0"),
 }
@@ -24,8 +23,8 @@ ENVIRONMENTS = {
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Print separate Python 3.12 uv environments; no installs or downloads are executed.",
-        epilog="Both Whisper variants share their environment. Never install Parakeet's Transformers 5.9 "
-        "over Whisper's 4.57.3. Export manifests record every installed dependency version. "
+        epilog="Both Whisper variants share their environment. "
+        "Export manifests record every installed dependency version. "
         "Apple exporter pins coreai-torch 0.4.1; these prototypes explicitly use the existing 0.4.2 toolchain.",
     )
     parser.add_argument("engine", choices=ENVIRONMENTS)

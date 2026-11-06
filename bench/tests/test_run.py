@@ -12,13 +12,14 @@ class _BuildReached(Exception):
     """Raised in place of the release build once argument parsing has succeeded."""
 
 
-def test_parakeet_is_an_accepted_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("backend", ["fake", "granite"])
+def test_every_registered_backend_is_accepted(monkeypatch: pytest.MonkeyPatch, backend: str) -> None:
     def refuse_build(root: Path) -> Path:
         raise _BuildReached
 
     monkeypatch.setattr(run, "_build_swift_runner", refuse_build)
     with pytest.raises(_BuildReached):
-        run.main(["--tier", "smoke", "--mode", "stt", "--backend", "parakeet"])
+        run.main(["--tier", "smoke", "--mode", "stt", "--backend", backend])
 
 
 def test_an_unregistered_backend_is_refused_before_building(monkeypatch: pytest.MonkeyPatch) -> None:

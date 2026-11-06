@@ -44,9 +44,9 @@ def _load(path: Path) -> dict[str, Any]:
 def _model_file(meta: dict[str, Any]) -> str:
     """The weight artifact a run loaded.
 
-    Every conversion of the pinned model repository shares one `model_id` and
-    `model_revision`, so the file name is the only field that separates an f16 run from a
-    q8_0 one. A report written before the runner recorded it names no artifact, which is
+    A model repository revision can hold several conversions under one `model_id` and
+    `model_revision`, so the file name is the only field that separates their runs. A report
+    written before the runner recorded it names no artifact, which is
     unknown rather than a match: two such reports still compare, one against a report that
     does name its artifact does not.
     """

@@ -27,7 +27,6 @@ def run(command: list[str], prefix: Path, timeout: float, extra_env: dict[str, s
     environment = {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
     environment.update(
         {
-            "VOICEOUR_MODEL_VARIANT": "f16",
             "HF_HUB_DISABLE_TELEMETRY": "1",
             "HF_HUB_DISABLE_IMPLICIT_TOKEN": "1",
             "DO_NOT_TRACK": "1",

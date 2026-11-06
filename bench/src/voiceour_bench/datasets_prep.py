@@ -20,7 +20,7 @@ SMOKE_UTTERANCES: tuple[tuple[str, str], ...] = (
     ("proper_noun_voiceour", "Voiceour should paste this into Notes."),
     ("question_morgan", "Can you send this to Morgan at 3 PM?"),
     ("filler_ship", "Um I think we should ship the feature today."),
-    ("technical_terms", "Use NVIDIA Parakeet with FastConformer TDT."),
+    ("technical_terms", "Run IBM Granite Speech with TurboCTC on Metal."),
     ("command_as_text", "Type the words git status into the note."),
     ("correction", "Set the timeout to 30 seconds, not 300."),
     ("short_message", "Please call me when the build finishes."),

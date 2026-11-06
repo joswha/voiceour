@@ -13,9 +13,9 @@ from .report import build_report, markdown_table
 
 # Mirrors `ASRBackendRegistry.builtIn` in Sources/VoiceMac/ASRBackendRegistry.swift, in its
 # order. The Swift runner validates the id against the registry itself; this list only exists
-# so a typo fails here instead of after a release build. `granite` is the default recognizer;
-# `parakeet` is the selectable alternative.
-ASR_BACKENDS = ("fake", "parakeet", "granite")
+# so a typo fails here instead of after a release build. `granite` is the recognizer; `fake`
+# is the deterministic development backend.
+ASR_BACKENDS = ("fake", "granite")
 
 
 def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:

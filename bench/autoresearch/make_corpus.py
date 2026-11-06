@@ -1,9 +1,8 @@
-"""Build the frozen `parakeet-native-latency` benchmark corpus.
+"""Build the frozen 96-row general benchmark corpus (`corpus.manifest.jsonl`).
 
 The corpus is a strict subset of the two frozen promotion corpora in
-`.build/asr-research/`, so the harness workload can never drift away from the
-400/100 accuracy gate that keeps a candidate: every harness row is also a gate
-row.
+`.build/asr-research/`, so a workload measured on it can never drift away from
+the 400/100 accuracy gate: every corpus row is also a gate row.
 
 Selection is deterministic and carries no seed. For each source the rows are
 grouped into fixed duration buckets, each bucket is sorted by row id, and rows

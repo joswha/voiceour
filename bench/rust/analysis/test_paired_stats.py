@@ -964,8 +964,8 @@ class RuntimeErrorTests(TempDirTestCase):
 
 
 def ledger_rows(*, passes=2, row_ids=("s0", "s1", "s2", "s3")):
-    """A stage-profile ledger as `voiceour-bench stage-profile` writes it: wav_read, assemble, cleanup and repair run
-    outside `full`; only mel + encode + tail (here 90 of 100 us) are inside it."""
+    """A stage-profile ledger whose producer times wav_read, assemble, cleanup and repair outside `full`; only
+    mel + encode + tail (here 90 of 100 us) are inside it."""
     rows = [run_meta(["native-full"], passes=passes, bet="B0")]
     for pass_index in range(passes + 1):
         for row_id in row_ids:

@@ -1,3 +1,5 @@
+> Archived 2026-11-06. Historical measurement record: the Parakeet recognizer the mel, TDT decoder and encoder experiments below ran against was deleted on 2026-11-06, together with their crates and `voiceour-bench` subcommands; the text and renderer experiments remain under `bench/rust/`, and current measurement contracts live in [benchmarks.md](../benchmarks.md).
+
 # Rust rewrite evaluation
 
 ## Conclusion
@@ -10,7 +12,7 @@ implementation changes, **not an intrinsic Rust-over-C++ advantage**.
 
 The app's shipping path is unchanged. These are executable experiments under `bench/rust/` and
 `voiceour-bench`, not a new production backend; the shipping recognizer and its runtime remain
-those in [README.md](../README.md#architecture), and building the app needs neither Rust nor MLX.
+those in [README.md](../../README.md#architecture), and building the app needs neither Rust nor MLX.
 This study does not establish that Voiceour is the fastest or most accurate app on macOS. It
 establishes a reproducible improvement over this repository's default at commit `24f1172`
 (2026-10-17) on the tested hardware and inputs; every number below is a dated measurement record.
@@ -49,7 +51,7 @@ require adopting Rust. There is no C control for the optimized mel implementatio
 Raw primary evidence stayed on the measuring Mac under `.build/rust-bench/official/20261017-combined/`
 and is not committed. Every file carries the native executable hash, Rust library hashes, model
 digest checked against its pin, dump/audio provenance, source-state digests, host metadata, and a
-checked completion footer. The [committed proof packet](../benchmarks/results/20261017-rust-combined-proof.json)
+checked completion footer. The [committed proof packet](../../benchmarks/results/20261017-rust-combined-proof.json)
 preserves the per-corpus analyses, A/A and C controls, completed-grid counts, runtime provenance and
 raw-file hashes.
 
@@ -85,7 +87,7 @@ substitutes for the qualified runs.
 
 ### Component results
 
-The [component evidence packet](../benchmarks/results/20261017-rust-component-evaluation.json)
+The [component evidence packet](../../benchmarks/results/20261017-rust-component-evaluation.json)
 retains the paired analyses, controls, warnings, provenance and encoder transcript differences.
 The qualified mel runs measured Rust/native total-time ratios of 0.0842, 0.0955 and 0.0853 across
 General, jargon and LibriSpeech respectively. This roughly elevenfold **stage** acceleration
@@ -172,7 +174,7 @@ rows may share speakers, and no population or multiple-comparison-adjusted super
 
 ## Reproduction
 
-Prerequisites: Apple Silicon, the toolchain in [README.md](../README.md#development), Rust 1.97 or
+Prerequisites: Apple Silicon, the toolchain in [README.md](../../README.md#development), Rust 1.97 or
 later, the verified model cache, and the frozen corpus audio matching the manifests. The committed
 General manifest is `bench/autoresearch/corpus.manifest.jsonl`; the measured jargon and LibriSpeech
 manifests and audio are local, gitignored data under `benchmarks/data/`. Regenerated public data or
@@ -215,7 +217,7 @@ uv --no-config run --project bench python bench/rust/analysis/paired_stats.py \
 Besides `combined`, the same runner exposes `ledger`, `cold`, `tail`, `mel`, `encoder`, `text`,
 `mercury` and `analyze` sections; with no arguments it runs all nine, ending with `combined` and `analyze`.
 Prepare text cases with `bench/rust/voiceour-text/target/release/text-bench gen-inputs` and run
-the [text parity script](../bench/rust/voiceour-text/scripts/b3-parity.sh) before its timing section. Renderer verification is
+the [text parity script](../../bench/rust/voiceour-text/scripts/b3-parity.sh) before its timing section. Renderer verification is
 `bench/rust/swift-mercury-harness/.build/release/swift-mercury-harness verify`.
 
 The analyzer refuses incomplete declared grids, required missing completion footers and invalid

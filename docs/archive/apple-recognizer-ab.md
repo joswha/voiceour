@@ -1,4 +1,4 @@
-> Archived 2026-08-25. Historical measurement record: the macOS system-recognizer backend compared below was deleted on 2026-08-15 and is not a selectable backend; current measurement contracts live in [benchmarks.md](../benchmarks.md) and current Parakeet baselines in [performance-roadmap.md](../performance-roadmap.md).
+> Archived 2026-08-25. Historical measurement record: the macOS system-recognizer backend compared below was deleted on 2026-08-15 and is not a selectable backend; current measurement contracts live in [benchmarks.md](../benchmarks.md) and the Parakeet-era performance baselines in [parakeet-performance-record.md](parakeet-performance-record.md).
 
 # Apple recognizer A/B verdict
 

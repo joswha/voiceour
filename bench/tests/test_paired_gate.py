@@ -98,62 +98,40 @@ def _codes(result: dict) -> set[str]:
     return {reason["code"] for reason in result["decision"]["reasons"]}
 
 
-def _encoder_comparison_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
-    paths = _paths(
+def _rewrite_candidate_mode(paths: tuple[Path, Path, Path], mode: str | None) -> None:
+    candidate = paths[2]
+    records = [json.loads(line) for line in candidate.read_text().splitlines()]
+    if mode is None:
+        records[0].pop("mode")
+    else:
+        records[0]["mode"] = mode
+    _write_jsonl(candidate, records)
+
+
+def _tied_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
+    return _paths(
         tmp_path,
         [
             ("one two", "one two", "one two", "a"),
             ("three four", "three four", "three four", "b"),
         ],
     )
-    native, external = paths[1:]
-    native_records = [json.loads(line) for line in native.read_text().splitlines()]
-    native_meta = native_records.pop(0)
-    native_meta["mode"] = "raw-decode"
-    _write_jsonl(native, native_records)
-    native.with_name(native.name + ".meta.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "meta": native_meta,
-                "results_sha256": hashlib.sha256(native.read_bytes()).hexdigest(),
-            }
-        )
-    )
-    external_records = [json.loads(line) for line in external.read_text().splitlines()]
-    external_records[0]["mode"] = "external-encoder"
-    external_records.insert(1, {"type": "encoder_meta", "engine": "coreai"})
-    _write_jsonl(external, external_records)
-    return paths
 
 
-def test_encoder_comparison_reads_bound_native_provenance_and_encoder_metadata(tmp_path: Path) -> None:
-    result = evaluate_files(*_encoder_comparison_paths(tmp_path), config=_config())
-    assert result["validation"]["report_modes_equal"] is False
-    assert result["validation"]["report_modes_compatible"] is True
-    assert result["validation"]["manifest_pins_match"] is True
-    assert result["validation"]["audio_manifest_pins_match"] is True
-    assert result["accuracy"]["delta_candidate_minus_incumbent"] == 0.0
-
-
-def test_native_provenance_cannot_be_reused_after_result_bytes_change(tmp_path: Path) -> None:
-    paths = _encoder_comparison_paths(tmp_path)
-    native = paths[1]
-    native.write_text(native.read_text().replace("one two", "different words"))
-    with pytest.raises(GateInputError) as raised:
-        evaluate_files(*paths, config=_config())
-    assert raised.value.code == "PROVENANCE_FAIL"
-
-
-def test_encoder_comparison_does_not_accept_an_unrelated_execution_mode(tmp_path: Path) -> None:
-    paths = _encoder_comparison_paths(tmp_path)
-    native = paths[1]
-    sidecar = json.loads(native.with_name(native.name + ".meta.json").read_text())
-    meta = sidecar["meta"]
-    meta["mode"] = "pipeline"
-    rows = [json.loads(line) for line in native.read_text().splitlines()]
-    _write_jsonl(native, [meta, *rows])
+def test_reports_from_different_execution_modes_are_refused(tmp_path: Path) -> None:
+    paths = _tied_paths(tmp_path)
+    _rewrite_candidate_mode(paths, "replay")
     result = evaluate_files(*paths, config=_config())
+    assert result["validation"]["report_modes_equal"] is False
+    assert result["decision"]["status"] == "reject"
+    assert "PROVENANCE_FAIL" in _codes(result)
+
+
+def test_a_report_without_an_execution_mode_is_refused(tmp_path: Path) -> None:
+    paths = _tied_paths(tmp_path)
+    _rewrite_candidate_mode(paths, None)
+    result = evaluate_files(*paths, config=_config())
+    assert result["validation"]["report_modes_present"] is False
     assert result["decision"]["status"] == "reject"
     assert "PROVENANCE_FAIL" in _codes(result)
 
