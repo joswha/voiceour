@@ -169,33 +169,52 @@ private struct SpotSetup {
     let ordinaryWords: Set<String>
     let engine: VocabularyRepairEngine
 
+    /// `glossary` is either a repair vocabulary (`surfaces` + `protected_surfaces`, no aliases) or the
+    /// app's word-list import shape, `[{"term": …, "heard_as": […]}]`, whose forms become aliases.
     init(glossary: URL, encoder: GraniteBPEEncoder) throws {
-        let vocabulary = try JSONDecoder().decode(RepairVocabulary.self, from: Data(contentsOf: glossary))
-        let canonicals = vocabulary.surfaces + vocabulary.protectedSurfaces
+        let data = try Data(contentsOf: glossary)
+        let entries: [(canonical: String, heardAs: [String])]
+        if let list = try? JSONDecoder().decode([GlossaryEntry].self, from: data) {
+            entries = list.map { ($0.term, $0.heardAs ?? []) }
+        } else {
+            let vocabulary = try JSONDecoder().decode(RepairVocabulary.self, from: data)
+            entries = (vocabulary.surfaces + vocabulary.protectedSurfaces).map { ($0, []) }
+        }
         let ordinary = RepairVocabulary.bundledOrdinaryWords
-        activeTerms = canonicals.map { ProtectedTerm(canonical: $0, spokenAliases: []) }
+        activeTerms = entries.map { ProtectedTerm(canonical: $0.canonical, spokenAliases: $0.heardAs) }
         engine = VocabularyRepairEngine(
             vocabulary: RepairVocabulary.fromActiveTerms(activeTerms, ordinaryWords: ordinary)
         )
-        targets = canonicals.filter { TermSpotting.isTarget($0, ordinaryWords: ordinary) }
-        protectedSurfaces = canonicals.filter { !TermSpotting.isTarget($0, ordinaryWords: ordinary) }
+        let targetEntries = entries.filter { TermSpotting.isTarget($0.canonical, ordinaryWords: ordinary) }
+        targets = targetEntries.map(\.canonical)
+        protectedSurfaces = entries.map(\.canonical).filter { !TermSpotting.isTarget($0, ordinaryWords: ordinary) }
         ordinaryWords = ordinary
 
         var patterns: [CTCSpotPattern] = []
         var variantTexts: [[String]] = []
-        for (term, canonical) in targets.enumerated() {
-            let variants = TermSpotting.variants(for: canonical)
+        for (term, entry) in targetEntries.enumerated() {
+            let variants = TermSpotting.variants(for: entry.canonical, heardAs: entry.heardAs)
             variantTexts.append(variants)
             var seen: Set<[Int32]> = []
             for (variant, text) in variants.enumerated() {
                 let ids = encoder.encode(text)
-                if seen.insert(ids).inserted {
+                if !ids.isEmpty, seen.insert(ids).inserted {
                     patterns.append(CTCSpotPattern(term: term, variant: variant, tokens: ids))
                 }
             }
         }
         self.patterns = patterns
         self.variantTexts = variantTexts
+    }
+
+    private struct GlossaryEntry: Decodable {
+        var term: String
+        var heardAs: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case term
+            case heardAs = "heard_as"
+        }
     }
 
     /// The app's text stage, in the app's order, with cleanup enabled.

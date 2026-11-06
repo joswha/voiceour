@@ -72,11 +72,12 @@ public enum TermSpotting {
     }
 
     /// The spellings searched for a target, in a fixed order; the caller keeps one per distinct token
-    /// sequence. The canonical, it with its first scalar uppercased, it lowercased, then each derived
-    /// alias and that alias with its first scalar uppercased.
-    public static func variants(for canonical: String) -> [String] {
+    /// sequence. The canonical, it with its first scalar uppercased, it lowercased, each derived alias
+    /// and that alias with its first scalar uppercased, then each of the user's own heard-as forms
+    /// and that form with its first scalar uppercased. Every variant renders as the canonical.
+    public static func variants(for canonical: String, heardAs: [String] = []) -> [String] {
         var variants = [canonical, uppercasedFirst(canonical), canonical.lowercased()]
-        for alias in Glossary.derivedAliases(for: canonical) {
+        for alias in Glossary.derivedAliases(for: canonical) + heardAs {
             variants.append(alias)
             variants.append(uppercasedFirst(alias))
         }
