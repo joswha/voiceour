@@ -14,8 +14,10 @@ struct ProtocolFixtureParityTests {
                 _ = try ASRWire.decode(ASRHealthResponse.self, from: $0)
             },
             "transcribe.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
+            "transcribe_with_spot_terms.json": { _ = try ASRWire.decode(ASRTranscribeRequest.self, from: $0) },
             "result.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "result_with_words.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
+            "result_with_term_spots.json": { _ = try ASRWire.decode(ASRResult.self, from: $0) },
             "cancel.json": { _ = try ASRWire.decode(ASRCancelRequest.self, from: $0) },
             "cancelled.json": { _ = try ASRWire.decode(ASRCancelledMessage.self, from: $0) },
             "error.json": { _ = try ASRWire.decode(ASRErrorMessage.self, from: $0) },
@@ -145,5 +147,59 @@ struct ProtocolFixtureParityTests {
         // revision while the recorded reply names another documents an exchange it would reject.
         #expect(result.modelId == GraniteModelContract.modelId)
         #expect(result.modelRevision == GraniteModelContract.revision)
+    }
+
+    /// `spot_terms` is optional in both directions: the fixture without it decodes to nil, the one
+    /// with it to its terms in order, and the shipped coder writes it back under the same key.
+    @Test func aTranscribeRequestDecodesWithAndWithoutSpotTerms() throws {
+        let plain = try ASRWire.decode(
+            ASRTranscribeRequest.self,
+            from: Data(contentsOf: repoRoot().appendingPathComponent("fixtures/protocol/transcribe.json"))
+        )
+        #expect(plain.spotTerms == nil)
+        let plainRaw = try #require(
+            try JSONSerialization.jsonObject(with: ASRWire.makeEncoder().encode(plain)) as? [String: Any])
+        #expect(plainRaw["spot_terms"] == nil)
+
+        let spotting = try ASRWire.decode(
+            ASRTranscribeRequest.self,
+            from: Data(
+                contentsOf: repoRoot().appendingPathComponent("fixtures/protocol/transcribe_with_spot_terms.json"))
+        )
+        #expect(spotting.expectedModel == GraniteModelContract.expectedModel)
+        let terms = try #require(spotting.spotTerms)
+        #expect(terms.map(\.variants.first) == ["kubectl", "SwiftUI"])
+        #expect(terms[1].variants == TermSpotting.variants(for: "SwiftUI"))
+        let raw = try #require(
+            try JSONSerialization.jsonObject(with: ASRWire.makeEncoder().encode(spotting)) as? [String: Any])
+        let encoded = try #require(raw["spot_terms"] as? [[String: Any]])
+        #expect(encoded.count == 2)
+        #expect(encoded[0]["variants"] as? [String] == ["kubectl", "Kubectl", "kubectl"])
+    }
+
+    /// `term_spots` is optional in both directions too, and its spots keep their snake-case keys.
+    @Test func aResultDecodesWithAndWithoutTermSpots() throws {
+        let plain = try ASRWire.decode(
+            ASRResult.self,
+            from: Data(contentsOf: repoRoot().appendingPathComponent("fixtures/protocol/result_with_words.json"))
+        )
+        #expect(plain.transcript.termSpots == nil)
+
+        let spotted = try ASRWire.decode(
+            ASRResult.self,
+            from: Data(contentsOf: repoRoot().appendingPathComponent("fixtures/protocol/result_with_term_spots.json"))
+        )
+        #expect(
+            spotted.transcript.termSpots == [
+                TermSpot(term: 0, variant: 0, firstWord: 1, lastWord: 2, score: -3.25, tokenCount: 4)
+            ])
+        #expect(spotted.modelRevision == GraniteModelContract.revision)
+
+        let raw = try #require(
+            try JSONSerialization.jsonObject(with: ASRWire.makeEncoder().encode(spotted)) as? [String: Any])
+        let transcript = try #require(raw["transcript"] as? [String: Any])
+        let spots = try #require(transcript["term_spots"] as? [[String: Any]])
+        #expect(
+            Set(spots[0].keys) == ["term", "variant", "first_word", "last_word", "score", "token_count"])
     }
 }

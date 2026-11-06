@@ -32,6 +32,66 @@ struct GraniteSidecarBackendTests {
         #expect(context.requestSampleCounts == [16])
     }
 
+    /// The request's terms are spotted over the decode's own logits and mapped to its words; the
+    /// tokenizer is built once for the loaded context however many requests spot.
+    @Test func spotsTheRequestsTermsOverTheDecodesLogits() throws {
+        let fixture = try GraniteFixture(installed: true)
+        defer { fixture.remove() }
+        let context = ScriptedGraniteContext(run: .kubectl)
+        let backend = fixture.backend(context: context)
+        var request = fixture.request()
+        request.spotTerms = [
+            ASRSpotTerm(variants: TermSpotting.variants(for: "kubectl")),
+            ASRSpotTerm(variants: TermSpotting.variants(for: "nginx")),
+        ]
+
+        for _ in 0..<2 {
+            guard case .result(let transcript, _, _, _, _) = backend.transcribe(request, isCancelled: { false }) else {
+                Issue.record("a scripted decode must produce a result")
+                return
+            }
+            #expect(transcript.text == "run cube cuddle now")
+            #expect(
+                transcript.termSpots == [
+                    TermSpot(term: 0, variant: 0, firstWord: 1, lastWord: 2, score: -4, tokenCount: 8)
+                ])
+        }
+        #expect(context.encoderBuilds == 1)
+    }
+
+    /// No `spot_terms`, no spotting and no `term_spots`.
+    @Test func aRequestWithoutSpotTermsCarriesNoTermSpots() throws {
+        let fixture = try GraniteFixture(installed: true)
+        defer { fixture.remove() }
+        let context = ScriptedGraniteContext(run: .kubectl)
+        let backend = fixture.backend(context: context)
+
+        guard case .result(let transcript, _, _, _, _) = backend.transcribe(fixture.request(), isCancelled: { false })
+        else {
+            Issue.record("a scripted decode must produce a result")
+            return
+        }
+        #expect(transcript.text == "run cube cuddle now")
+        #expect(transcript.termSpots == nil)
+        #expect(context.encoderBuilds == 0)
+    }
+
+    /// Spotting that cannot run never costs the transcript: it goes out without `term_spots`.
+    @Test func aSpottingFailureStillDeliversTheTranscript() throws {
+        let fixture = try GraniteFixture(installed: true)
+        defer { fixture.remove() }
+        let backend = fixture.backend(context: ScriptedGraniteContext())
+        var request = fixture.request()
+        request.spotTerms = [ASRSpotTerm(variants: TermSpotting.variants(for: "kubectl"))]
+
+        guard case .result(let transcript, _, _, _, _) = backend.transcribe(request, isCancelled: { false }) else {
+            Issue.record("a spotting failure must not fail the decode")
+            return
+        }
+        #expect(transcript.text == "hello world")
+        #expect(transcript.termSpots == nil)
+    }
+
     @Test func theGranitePinIsAccepted() throws {
         let fixture = try GraniteFixture(installed: true)
         defer { fixture.remove() }
@@ -557,21 +617,78 @@ private func writeGraniteWAV(frames: Int, in directory: URL) throws -> URL {
     return url
 }
 
-// `lock` protects the recorded decodes.
+/// What a scripted decode returns, and the logits and tokenizer spotting reads after it.
+private struct ScriptedRun {
+    var tokens: [GraniteRawToken]
+    var pieces: [String]
+    var frames: Int
+    var logits: [Float]
+
+    private static func token(_ id: Int32, _ frames: (Int32, Int32), _ text: String) -> GraniteRawToken {
+        GraniteRawToken(
+            id: id, frameBegin: frames.0, frameEnd: frames.1, probability: 0.9, isSpecial: false,
+            bytes: Array(text.utf8))
+    }
+
+    /// "hello world" with no logits and no tokenizer: spotting over it fails.
+    static let helloWorld = ScriptedRun(
+        tokens: [token(1, (0, 1), " hello"), token(2, (1, 2), " world")],
+        pieces: [],
+        frames: 0,
+        logits: []
+    )
+
+    /// "run cube cuddle now" over 16 frames, where the posteriors spell `▁kubectl` one letter a
+    /// frame across frames 3...10, each letter 0.5 nats below the greedy label: the canonical
+    /// `kubectl` scores −4 over *cube cuddle*. The vocabulary is the blank, the four words, `▁`
+    /// and kubectl's letters, then the 256 byte pieces; there are no merges.
+    static let kubectl: ScriptedRun = {
+        let words = ["<blank>", "▁run", "▁cube", "▁cuddle", "▁now"]
+        let letters = ["▁", "k", "u", "b", "e", "c", "t", "l"]
+        let pieces = words + letters + (0...255).map { String(format: "<0x%02X>", $0) }
+        let frames = 16
+        let greedy: [Int] = [1, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4, 0, 0]
+        var logits = [Float](repeating: 0, count: frames * pieces.count)
+        for frame in 0..<frames {
+            logits[frame * pieces.count + greedy[frame]] = 10
+        }
+        for offset in letters.indices {
+            logits[(3 + offset) * pieces.count + words.count + offset] = 9.5
+        }
+        return ScriptedRun(
+            tokens: [
+                token(1, (0, 3), " run"), token(2, (3, 7), " cube"), token(3, (7, 13), " cuddle"),
+                token(4, (13, 16), " now"),
+            ],
+            pieces: pieces,
+            frames: frames,
+            logits: logits
+        )
+    }()
+}
+
+// `lock` protects the recorded decodes and encoder builds.
 private final class ScriptedGraniteContext: GraniteRuntimeContext, @unchecked Sendable {
     private let lock = NSLock()
     private let failure: GraniteContextError?
     private let onDecode: () -> Void
+    private let run: ScriptedRun
     private var counts: [Int] = []
     private var silentOnly = true
+    private var encoders = 0
 
-    init(failure: GraniteContextError? = nil, onDecode: @escaping () -> Void = {}) {
+    init(failure: GraniteContextError? = nil, run: ScriptedRun = .helloWorld, onDecode: @escaping () -> Void = {}) {
         self.failure = failure
+        self.run = run
         self.onDecode = onDecode
     }
 
     var requestSampleCounts: [Int] { lock.withLock { counts } }
     var sawOnlySilence: Bool { lock.withLock { silentOnly } }
+    var encoderBuilds: Int { lock.withLock { encoders } }
+
+    var vocabularySize: Int { run.pieces.count }
+    let blankId: Int32 = 0
 
     func transcribe(samples: [Float], isCancelled _: @escaping () -> Bool) throws -> GraniteRawResult {
         lock.withLock {
@@ -580,28 +697,19 @@ private final class ScriptedGraniteContext: GraniteRuntimeContext, @unchecked Se
         }
         onDecode()
         if let failure { throw failure }
-        return GraniteRawResult(
-            tokens: [
-                GraniteRawToken(
-                    id: 1,
-                    frameBegin: 0,
-                    frameEnd: 1,
-                    probability: 0.9,
-                    isSpecial: false,
-                    bytes: Array(" hello".utf8)
-                ),
-                GraniteRawToken(
-                    id: 2,
-                    frameBegin: 1,
-                    frameEnd: 2,
-                    probability: 0.8,
-                    isSpecial: false,
-                    bytes: Array(" world".utf8)
-                ),
-            ],
-            msPerFrame: 80,
-            nospeechTokenId: -1
-        )
+        return GraniteRawResult(tokens: run.tokens, msPerFrame: 80, nospeechTokenId: -1)
+    }
+
+    func withLastLogits<Result>(
+        _ body: (_ logits: UnsafeBufferPointer<Float>, _ frames: Int) throws -> Result
+    ) rethrows -> Result? {
+        guard run.frames > 0 else { return nil }
+        return try run.logits.withUnsafeBufferPointer { try body($0, run.frames) }
+    }
+
+    func makeEncoder() throws -> GraniteBPEEncoder {
+        lock.withLock { encoders += 1 }
+        return try GraniteBPEEncoder(pieces: run.pieces, merges: [])
     }
 }
 

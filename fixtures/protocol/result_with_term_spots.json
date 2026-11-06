@@ -1,0 +1,62 @@
+{
+  "type": "result",
+  "protocol_version": 1,
+  "request_id": "00000000-0000-0000-0000-000000000004",
+  "backend_id": "granite-ctc",
+  "model_id": "vladers/granite-speech-5.0-470m-turboctc-GGUF",
+  "model_revision": "bd7db273aa69a26fc81e370c84597fa738fe2ad0",
+  "transcript": {
+    "text": "run cube cuddle now",
+    "language": "en",
+    "segments": [
+      {
+        "start_ms": 0,
+        "end_ms": 1680,
+        "text": "run cube cuddle now",
+        "words": [
+          {
+            "text": "run",
+            "start_ms": 0,
+            "end_ms": 320,
+            "confidence": 0.93
+          },
+          {
+            "text": "cube",
+            "start_ms": 400,
+            "end_ms": 720,
+            "confidence": 0.61
+          },
+          {
+            "text": "cuddle",
+            "start_ms": 720,
+            "end_ms": 1120,
+            "confidence": 0.48
+          },
+          {
+            "text": "now",
+            "start_ms": 1280,
+            "end_ms": 1680,
+            "confidence": 0.95
+          }
+        ]
+      }
+    ],
+    "confidence": 0.7425,
+    "confidence_mode": "greedy_token_prob",
+    "term_spots": [
+      {
+        "term": 0,
+        "variant": 0,
+        "first_word": 1,
+        "last_word": 2,
+        "score": -3.25,
+        "token_count": 4
+      }
+    ]
+  },
+  "timings_ms": {
+    "load": 0,
+    "inference": 412,
+    "total": 412
+  }
+}

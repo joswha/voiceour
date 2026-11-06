@@ -55,6 +55,13 @@ public enum SidecarRequestValidation {
         case failure(code: ASRErrorCode, detail: String?)
     }
 
+    /// Bounds on `spot_terms`. The app sends at most `VocabularyCompiler`'s 100 terms, each a
+    /// canonical of at most 64 characters with its case forms and derived spacings; the bench
+    /// sends a whole research vocabulary. Anything past these is not a vocabulary.
+    static let maxSpotTerms = 1_000
+    static let maxSpotVariants = 64
+    static let maxSpotVariantCharacters = 256
+
     /// An empty `expected_model` field is a wildcard, so an older client that only pins the
     /// model id keeps working against a sidecar whose revision moved.
     public static func validate(
@@ -76,6 +83,9 @@ public enum SidecarRequestValidation {
                 return .failure(code: .manifestMismatch, detail: "expected_model file mismatch")
             }
         }
+        if let detail = spotTermsProblem(request.spotTerms) {
+            return .failure(code: .invalidRequest, detail: detail)
+        }
         let path = URL(fileURLWithPath: request.audio.path)
         guard FileManager.default.fileExists(atPath: path.path) else {
             return .failure(code: .audioNotFound, detail: path.path)
@@ -84,5 +94,23 @@ public enum SidecarRequestValidation {
             return .failure(code: .unsupportedAudioFormat, detail: request.audio.format)
         }
         return .audioPath(path)
+    }
+
+    /// Why `spot_terms` is unusable, or nil when it is absent or within bounds: at most
+    /// `maxSpotTerms` terms, each with 1...`maxSpotVariants` non-empty variants of at most
+    /// `maxSpotVariantCharacters` characters.
+    static func spotTermsProblem(_ terms: [ASRSpotTerm]?) -> String? {
+        guard let terms else { return nil }
+        guard terms.count <= maxSpotTerms else { return "spot_terms holds more than \(maxSpotTerms) terms" }
+        for (index, term) in terms.enumerated() {
+            guard (1...maxSpotVariants).contains(term.variants.count) else {
+                return "spot_terms[\(index)] must hold 1 to \(maxSpotVariants) variants"
+            }
+            guard term.variants.allSatisfy({ !$0.isEmpty && $0.count <= maxSpotVariantCharacters }) else {
+                return
+                    "spot_terms[\(index)] variants must be non-empty and at most \(maxSpotVariantCharacters) characters"
+            }
+        }
+        return nil
     }
 }

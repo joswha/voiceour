@@ -120,4 +120,80 @@ struct SidecarRequestValidationTests {
 
         #expect(acceptedPath(outcome)?.path == audio.path)
     }
+
+    private func request(audio: URL, spotTerms: [ASRSpotTerm]?) -> ASRTranscribeRequest {
+        var request = request(audio: audio, expecting: GraniteModelContract.expectedModel)
+        request.spotTerms = spotTerms
+        return request
+    }
+
+    /// Terms within bounds reach the decode; so does a request with none.
+    @Test func boundedSpotTermsAndNoSpotTermsAreAccepted() throws {
+        let audio = try temporaryAudioFile()
+        let terms = [ASRSpotTerm(variants: TermSpotting.variants(for: "SwiftUI"))]
+        for spotTerms in [terms, [], nil] {
+            let outcome = validate(request(audio: audio, spotTerms: spotTerms), loaded: GraniteModelContract.fileName)
+            #expect(acceptedPath(outcome)?.path == audio.path)
+        }
+    }
+
+    @Test(arguments: [
+        ([ASRSpotTerm(variants: [])], "spot_terms[0] must hold 1 to 64 variants"),
+        (
+            [ASRSpotTerm(variants: ["kubectl"]), ASRSpotTerm(variants: Array(repeating: "kubectl", count: 65))],
+            "spot_terms[1] must hold 1 to 64 variants"
+        ),
+        (
+            [ASRSpotTerm(variants: ["kubectl", ""])],
+            "spot_terms[0] variants must be non-empty and at most 256 characters"
+        ),
+        (
+            [ASRSpotTerm(variants: [String(repeating: "k", count: 257)])],
+            "spot_terms[0] variants must be non-empty and at most 256 characters"
+        ),
+        (
+            Array(repeating: ASRSpotTerm(variants: ["kubectl"]), count: 1_001),
+            "spot_terms holds more than 1000 terms"
+        ),
+    ])
+    func unboundedSpotTermsAreAnInvalidRequest(spotTerms: [ASRSpotTerm], detail: String) throws {
+        let audio = try temporaryAudioFile()
+        let outcome = validate(request(audio: audio, spotTerms: spotTerms), loaded: GraniteModelContract.fileName)
+
+        let rejection = try #require(failure(outcome))
+        #expect(rejection.code == .invalidRequest)
+        #expect(rejection.detail == detail)
+    }
+
+    /// The server decodes `spot_terms` when present and leaves it nil when omitted; a malformed
+    /// one is a schema error answered with the request's own id, like any other field.
+    @Test func theServerDecodesSpotTermsWhenPresentAndOmitted() throws {
+        let base =
+            #"{"type":"transcribe","protocol_version":1,"request_id":"r1","audio":{"path":"/tmp/a.wav","format":"wav","sample_rate_hz":16000,"channels":1,"duration_ms":1,"byte_count":0},"timeout_ms":30000"#
+
+        guard case .transcribe(let omitted) = SidecarRequestParser.parse(base + "}") else {
+            Issue.record("a request without spot_terms must decode")
+            return
+        }
+        #expect(omitted.spotTerms == nil)
+
+        guard
+            case .transcribe(let present) = SidecarRequestParser.parse(
+                base + #","spot_terms":[{"variants":["kubectl","Kubectl"]},{"variants":["SwiftUI"]}]}"#)
+        else {
+            Issue.record("a request with spot_terms must decode")
+            return
+        }
+        #expect(
+            present.spotTerms == [ASRSpotTerm(variants: ["kubectl", "Kubectl"]), ASRSpotTerm(variants: ["SwiftUI"])])
+
+        guard
+            case .malformed(let error) = SidecarRequestParser.parse(base + #","spot_terms":[{"variants":"kubectl"}]}"#)
+        else {
+            Issue.record("a malformed spot_terms must be refused")
+            return
+        }
+        #expect(error.code == .invalidRequest)
+        #expect(error.requestId == "r1")
+    }
 }

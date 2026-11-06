@@ -179,10 +179,28 @@ private struct NormalizedLogits {
 
 /// Places CTC spot candidates on a Granite transcript's words.
 public enum GraniteTermSpotting {
-    /// A word is covered when at least half of its tokens' CTC-run frames lie inside the window. A
-    /// candidate covering no word, a non-contiguous set, or a word with a letter- or digit-bearing
-    /// token entirely outside the window keeps a nil word range: replacing whole words would drop
-    /// that token's text, as in `CSRF-protected`, so the spot cannot be rendered.
+    /// The token patterns for each term's variants, `variants[term][variant]`, encoded with the
+    /// model's own tokenizer. A variant that encodes to nothing, or to a token sequence an earlier
+    /// variant of the same term already has, adds no pattern.
+    public static func patterns(for variants: [[String]], encoder: GraniteBPEEncoder) -> [CTCSpotPattern] {
+        var patterns: [CTCSpotPattern] = []
+        for (term, texts) in variants.enumerated() {
+            var seen: Set<[Int32]> = []
+            for (variant, text) in texts.enumerated() {
+                let ids = encoder.encode(text)
+                if !ids.isEmpty, seen.insert(ids).inserted {
+                    patterns.append(CTCSpotPattern(term: term, variant: variant, tokens: ids))
+                }
+            }
+        }
+        return patterns
+    }
+
+    /// One spot per candidate, in candidate order. A word is covered when at least half of its
+    /// tokens' CTC-run frames lie inside the window. A candidate covering no word, a non-contiguous
+    /// set, or a word with a letter- or digit-bearing token entirely outside the window keeps a nil
+    /// word range: replacing whole words would drop that token's text, as in `CSRF-protected`, so
+    /// the spot cannot be rendered.
     public static func spots(from candidates: [CTCSpotCandidate], raw: GraniteRawResult) -> [TermSpot] {
         let groups = GraniteTranscriptMapping.wordGroups(from: raw.tokens.filter { !$0.isSpecial })
         return candidates.map { candidate in
@@ -211,8 +229,6 @@ public enum GraniteTermSpotting {
                 variant: candidate.variant,
                 firstWord: renderable ? covered.first : nil,
                 lastWord: renderable ? covered.last : nil,
-                startMs: candidate.startFrame * raw.msPerFrame,
-                endMs: (candidate.endFrame + 1) * raw.msPerFrame,
                 score: Double(candidate.score),
                 tokenCount: candidate.tokenCount
             )

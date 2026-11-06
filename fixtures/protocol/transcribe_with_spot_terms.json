@@ -1,0 +1,27 @@
+{
+  "type": "transcribe",
+  "protocol_version": 1,
+  "request_id": "00000000-0000-0000-0000-000000000004",
+  "audio": {
+    "path": "/tmp/voiceour/00000000-0000-0000-0000-000000000004.wav",
+    "format": "wav",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "duration_ms": 2400,
+    "byte_count": 76800
+  },
+  "expected_model": {
+    "model_id": "vladers/granite-speech-5.0-470m-turboctc-GGUF",
+    "revision": "bd7db273aa69a26fc81e370c84597fa738fe2ad0",
+    "file": "granite-speech-5.0-470m-turboctc-Q8_0.gguf"
+  },
+  "timeout_ms": 30000,
+  "spot_terms": [
+    {
+      "variants": ["kubectl", "Kubectl", "kubectl"]
+    },
+    {
+      "variants": ["SwiftUI", "SwiftUI", "swiftui", "swift ui", "Swift ui", "swift u i", "Swift u i"]
+    }
+  ]
+}

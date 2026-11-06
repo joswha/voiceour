@@ -3,7 +3,8 @@ import Foundation
 /// Acoustic evidence that the recognizer's own posteriors spell a glossary term over some words.
 ///
 /// Produced by the sidecar from CTC logits; scored against the greedy path over the same frames.
-/// It is evidence, not an edit: `TermSpotting.apply` alone decides whether text changes.
+/// It is evidence, not an edit: `TermSpotting.apply` alone decides whether text changes. On the
+/// wire it is an element of a transcript's `term_spots`, which carries only spots with a word range.
 public struct TermSpot: Codable, Equatable, Sendable {
     /// Index of the term in the list the spotter searched for.
     public var term: Int
@@ -13,30 +14,17 @@ public struct TermSpot: Codable, Equatable, Sendable {
     /// non-contiguous set of words, which cannot be rendered by replacement.
     public var firstWord: Int?
     public var lastWord: Int?
-    public var startMs: Int
-    public var endMs: Int
     /// The variant's best CTC path score minus the greedy path's over the same frames, in nats: ≤ 0,
     /// and 0 exactly when greedy decoding already spelled the variant there.
     public var score: Double
     /// Tokens in the matched variant.
     public var tokenCount: Int
 
-    public init(
-        term: Int,
-        variant: Int,
-        firstWord: Int?,
-        lastWord: Int?,
-        startMs: Int,
-        endMs: Int,
-        score: Double,
-        tokenCount: Int
-    ) {
+    public init(term: Int, variant: Int, firstWord: Int?, lastWord: Int?, score: Double, tokenCount: Int) {
         self.term = term
         self.variant = variant
         self.firstWord = firstWord
         self.lastWord = lastWord
-        self.startMs = startMs
-        self.endMs = endMs
         self.score = score
         self.tokenCount = tokenCount
     }
@@ -53,6 +41,86 @@ public struct TermSpottingPolicy: Equatable, Sendable {
         self.total = total
         self.perToken = perToken
         self.ordinaryScale = ordinaryScale
+    }
+
+    /// The operating point the app applies. Frozen by the preregistered wave-2 PASS
+    /// (`research/granite-ctc-word-spotting-wave2-2026-11-06.md`): changing it requires a new
+    /// preregistered wave, not a better score.
+    public static let frozen = TermSpottingPolicy(total: 6, perToken: 1.5, ordinaryScale: 1)
+}
+
+/// The terms one utterance spots for, built from its vocabulary snapshot's canonicals.
+///
+/// Targets are the canonicals `TermSpotting.isTarget` admits, in snapshot order: a spot's `term`
+/// indexes `canonicals`. Every other canonical is a protected surface. Only canonicals are read:
+/// a heard-as form is never a spotting variant, because the spellings users teach can be ordinary
+/// speech (wave 2's taught arm).
+public struct TermSpotTargets: Sendable {
+    public let canonicals: [String]
+    public let protectedSurfaces: [String]
+    public let ordinaryWords: Set<String>
+
+    public init(terms: [ProtectedTerm], ordinaryWords: Set<String>) {
+        var canonicals: [String] = []
+        var protectedSurfaces: [String] = []
+        for term in terms {
+            if TermSpotting.isTarget(term.canonical, ordinaryWords: ordinaryWords) {
+                canonicals.append(term.canonical)
+            } else {
+                protectedSurfaces.append(term.canonical)
+            }
+        }
+        self.canonicals = canonicals
+        self.protectedSurfaces = protectedSurfaces
+        self.ordinaryWords = ordinaryWords
+    }
+
+    /// Each target's spellings, `TermSpotting.variants(for:)`, indexed like `canonicals`.
+    public var variants: [[String]] {
+        canonicals.map { TermSpotting.variants(for: $0) }
+    }
+
+    /// The request's `spot_terms`: one entry per target, empty when there is nothing to spot.
+    public var spotTerms: [ASRSpotTerm] {
+        variants.map { ASRSpotTerm(variants: $0) }
+    }
+}
+
+/// What the recognizer returned for spotting: its words and the spots over them, whose `term`
+/// indexes `targets.canonicals`.
+public struct TermSpotEvidence: Sendable {
+    public var words: [String]
+    public var spots: [TermSpot]
+    public var targets: TermSpotTargets
+
+    public init(words: [String], spots: [TermSpot], targets: TermSpotTargets) {
+        self.words = words
+        self.spots = spots
+        self.targets = targets
+    }
+
+    /// The recognizer's words and `termSpots` from `transcript`, for spots over `targets`.
+    public init(transcript: ASRTranscript, targets: TermSpotTargets) {
+        self.init(
+            words: transcript.segments?.flatMap { $0.words ?? [] }.map(\.text) ?? [],
+            spots: transcript.termSpots ?? [],
+            targets: targets
+        )
+    }
+
+    /// `raw` with the spots `TermSpottingPolicy.frozen` accepts rendered, or nil when nothing
+    /// changes. Only when the words joined by single spaces are exactly `raw`: word indices
+    /// address nothing else.
+    func render(over raw: String) -> String? {
+        guard !spots.isEmpty, words.joined(separator: " ") == raw else { return nil }
+        return TermSpotting.apply(
+            words: words,
+            spots: spots,
+            canonicals: targets.canonicals,
+            protectedSurfaces: targets.protectedSurfaces,
+            ordinaryWords: targets.ordinaryWords,
+            policy: .frozen
+        )?.joined(separator: " ")
     }
 }
 
@@ -72,12 +140,12 @@ public enum TermSpotting {
     }
 
     /// The spellings searched for a target, in a fixed order; the caller keeps one per distinct token
-    /// sequence. The canonical, it with its first scalar uppercased, it lowercased, each derived alias
-    /// and that alias with its first scalar uppercased, then each of the user's own heard-as forms
-    /// and that form with its first scalar uppercased. Every variant renders as the canonical.
-    public static func variants(for canonical: String, heardAs: [String] = []) -> [String] {
+    /// sequence. The canonical, it with its first scalar uppercased, it lowercased, then each derived
+    /// alias and that alias with its first scalar uppercased. Every variant renders as the canonical.
+    /// A user's heard-as forms are never variants: wave 2 measured them as ordinary speech.
+    public static func variants(for canonical: String) -> [String] {
         var variants = [canonical, uppercasedFirst(canonical), canonical.lowercased()]
-        for alias in Glossary.derivedAliases(for: canonical) + heardAs {
+        for alias in Glossary.derivedAliases(for: canonical) {
             variants.append(alias)
             variants.append(uppercasedFirst(alias))
         }

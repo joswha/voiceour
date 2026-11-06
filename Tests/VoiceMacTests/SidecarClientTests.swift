@@ -365,6 +365,41 @@ struct SidecarClientTests {
         #expect(raw["expected_model"] == nil)
     }
 
+    /// `spot_terms` reaches the wire in order under its snake-case key when there are terms, and
+    /// stays off it when there are none, so a request without spotting is the plain v1 request.
+    @Test func transcribeEncodesSpotTermsOnlyWhenThereAreSome() async throws {
+        let temp = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let terms = [
+            ASRSpotTerm(variants: ["kubectl", "Kubectl", "kubectl"]),
+            ASRSpotTerm(variants: TermSpotting.variants(for: "SwiftUI")),
+        ]
+
+        let spottingFile = temp.appendingPathComponent("spotting.json")
+        _ = try await SidecarASRClient(launch: stubLaunch("echo-result", spottingFile.path))
+            .transcribe(sampleAudio(), timeoutMs: 5_000, spotTerms: terms)
+        let spotting = try Data(contentsOf: spottingFile)
+        #expect(try ASRWire.decode(ASRTranscribeRequest.self, from: spotting).spotTerms == terms)
+        let raw = try #require(try JSONSerialization.jsonObject(with: spotting) as? [String: Any])
+        let encoded = try #require(raw["spot_terms"] as? [[String: Any]])
+        #expect(encoded.map { $0["variants"] as? [String] } == terms.map(\.variants))
+        #expect(raw["spotTerms"] == nil)
+
+        for call in ["empty", "plain"] {
+            let file = temp.appendingPathComponent("\(call).json")
+            let client = SidecarASRClient(launch: stubLaunch("echo-result", file.path))
+            if call == "empty" {
+                _ = try await client.transcribe(sampleAudio(), timeoutMs: 5_000, spotTerms: [])
+            } else {
+                _ = try await client.transcribe(sampleAudio(), timeoutMs: 5_000)
+            }
+            let data = try Data(contentsOf: file)
+            #expect(try ASRWire.decode(ASRTranscribeRequest.self, from: data).spotTerms == nil)
+            let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(object["spot_terms"] == nil)
+        }
+    }
+
     @Test func sidecarErrorMessageMapsToProtocolError() async throws {
         let client = SidecarASRClient(launch: stubLaunch("error-reply"))
         let error = await thrownError {

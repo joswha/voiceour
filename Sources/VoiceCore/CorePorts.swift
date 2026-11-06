@@ -40,11 +40,18 @@ extension AudioRecording {
 
 public protocol ASRClienting: Sendable {
     func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult
+    /// Transcribes and spots `spotTerms` over the decode; the result's `termSpots` index them.
+    func transcribe(_ audio: RecordedAudio, timeoutMs: Int, spotTerms: [ASRSpotTerm]) async throws -> ASRResult
     func health(timeoutMs: Int) async throws -> ASRBackendHealth
     func warmUp() async
 }
 
 extension ASRClienting {
+    /// A client that cannot spot transcribes alone; its result carries no `termSpots`.
+    public func transcribe(_ audio: RecordedAudio, timeoutMs: Int, spotTerms: [ASRSpotTerm]) async throws -> ASRResult {
+        try await transcribe(audio, timeoutMs: timeoutMs)
+    }
+
     public func warmUp() async {}
 }
 

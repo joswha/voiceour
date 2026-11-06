@@ -4,10 +4,40 @@ import VoiceCore
 /// What the backend needs from a loaded Granite model; `GraniteContext` in production, a
 /// scripted stand-in in tests that cannot load the 506 MB artifact.
 protocol GraniteRuntimeContext: AnyObject {
+    /// CTC output dimension, the blank included.
+    var vocabularySize: Int { get }
+    var blankId: Int32 { get }
     func transcribe(samples: [Float], isCancelled: @escaping () -> Bool) throws -> GraniteRawResult
+    /// Runs `body` over the last run's frame-major CTC logits; nil when that run produced no frame.
+    func withLastLogits<Result>(
+        _ body: (_ logits: UnsafeBufferPointer<Float>, _ frames: Int) throws -> Result
+    ) rethrows -> Result?
+    func makeEncoder() throws -> GraniteBPEEncoder
 }
 
 extension GraniteContext: GraniteRuntimeContext {}
+
+/// The spotting patterns of one loaded context: its tokenizer, built once, and the patterns of the
+/// last `spot_terms` it was asked for. The app sends the same list until its vocabulary changes.
+private final class GraniteSpotTables {
+    weak var context: (any GraniteRuntimeContext)?
+    let encoder: GraniteBPEEncoder
+    var variants: [[String]] = []
+    var patterns: [CTCSpotPattern] = []
+
+    init(context: any GraniteRuntimeContext) throws {
+        self.context = context
+        self.encoder = try context.makeEncoder()
+    }
+
+    func patterns(for terms: [[String]]) -> [CTCSpotPattern] {
+        if terms != variants {
+            patterns = GraniteTermSpotting.patterns(for: terms, encoder: encoder)
+            variants = terms
+        }
+        return patterns
+    }
+}
 
 /// The recognizer: Granite Speech 5 TurboCTC over the pinned Q8_0 GGUF.
 ///
@@ -18,7 +48,7 @@ extension GraniteContext: GraniteRuntimeContext {}
 ///
 /// State shared by the reader thread (`health`), decode queue (`transcribe`) and preload thread
 /// (`warmUp`) lives behind `stateLock`. Context construction is serialized by `loadLock`, and
-/// every `granite_transcribe` by `decodeLock`.
+/// every `granite_transcribe`, with the term spotting over its logits, by `decodeLock`.
 public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPreloading, @unchecked Sendable {
     public let backendId = "granite-ctc"
 
@@ -32,8 +62,11 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
     /// device down under the survivor. Not `stateLock`, so `health()` stays answerable while the
     /// first load compiles Metal pipelines.
     private let loadLock = NSLock()
-    /// Held for the duration of one `granite_transcribe`: a context holds one run's results.
+    /// Held for the duration of one `granite_transcribe` and the spotting over its logits: a
+    /// context holds one run's results.
     private let decodeLock = NSLock()
+    /// Guarded by `decodeLock`. Rebuilt when the loaded context changes.
+    private var spotTables: GraniteSpotTables?
     private var context: (any GraniteRuntimeContext)?
     private var loadMs = 0
     private var loadFailed = false
@@ -206,16 +239,18 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         if isCancelled() { return .cancelled }
 
         // A crash-recovery-truncated WAV can legitimately decode to zero samples: nothing is
-        // wrong with the device, there is simply nothing to transcribe.
+        // wrong with the device, there is simply nothing to transcribe, and nothing to spot.
         if samples.isEmpty {
             let loadMs = stateLock.withLock { self.loadMs }
-            return result(GraniteTranscriptMapping.emptyTranscript, loadMs: loadMs, inferenceMs: 0)
+            var transcript = GraniteTranscriptMapping.emptyTranscript
+            transcript.termSpots = request.spotTerms.map { _ in [] }
+            return result(transcript, loadMs: loadMs, inferenceMs: 0)
         }
 
         let started = DispatchTime.now().uptimeNanoseconds
-        let raw: GraniteRawResult
+        let decoded: (raw: GraniteRawResult, spots: [TermSpot]?)
         do {
-            raw = try decode(context, samples: samples, isCancelled: isCancelled)
+            decoded = try decode(context, samples: samples, isCancelled: isCancelled, spotTerms: request.spotTerms)
         } catch {
             // The abort callback's answer and a client cancel that raced a failure both mean the
             // reader asked for this to stop: answer that rather than an inference failure.
@@ -235,7 +270,9 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         if isCancelled() { return .cancelled }
 
         let loadMs = stateLock.withLock { self.loadMs }
-        return result(GraniteTranscriptMapping.transcript(from: raw), loadMs: loadMs, inferenceMs: inferenceMs)
+        var transcript = GraniteTranscriptMapping.transcript(from: decoded.raw)
+        transcript.termSpots = decoded.spots
+        return result(transcript, loadMs: loadMs, inferenceMs: inferenceMs)
     }
 
     private func result(_ transcript: ASRTranscript, loadMs: Int, inferenceMs: Int) -> SidecarTerminal {
@@ -420,6 +457,7 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         // A decode owns its context for its whole duration: skip a busy tick.
         guard decodeLock.try() else { return }
         defer { decodeLock.unlock() }
+        spotTables = nil
 
         stateLock.lock()
         let idleMs = Self.elapsedMs(from: lastDecodeEndedAt, to: .now())
@@ -437,18 +475,53 @@ public final class GraniteSidecarBackend: SidecarBackend, ShutdownAwareSidecarPr
         return context
     }
 
-    /// Runs one decode with the context held exclusively. The preload throwaway decode and a
-    /// request decode can race on the same context.
+    /// Runs one decode with the context held exclusively, then spots `spotTerms` over its logits
+    /// before the lock lets another run overwrite them. The preload throwaway decode and a request
+    /// decode can race on the same context.
     private func decode(
         _ context: any GraniteRuntimeContext,
         samples: [Float],
-        isCancelled: @escaping () -> Bool
-    ) throws -> GraniteRawResult {
+        isCancelled: @escaping () -> Bool,
+        spotTerms: [ASRSpotTerm]? = nil
+    ) throws -> (raw: GraniteRawResult, spots: [TermSpot]?) {
         decodeLock.lock()
         defer {
             withState { $0.lastDecodeEndedAt = DispatchTime.now() }
             decodeLock.unlock()
         }
-        return try context.transcribe(samples: samples, isCancelled: isCancelled)
+        let raw = try context.transcribe(samples: samples, isCancelled: isCancelled)
+        return (raw, spotTerms.flatMap { spots(for: $0, in: context, raw: raw) })
+    }
+
+    /// The renderable spots for `terms` over the run that produced `raw`. Nil when spotting
+    /// itself fails: the transcript is still owed, so it goes out without `term_spots`. Called
+    /// with `decodeLock` held.
+    private func spots(for terms: [ASRSpotTerm], in context: any GraniteRuntimeContext, raw: GraniteRawResult)
+        -> [TermSpot]?
+    {
+        let tables: GraniteSpotTables
+        if let existing = spotTables, existing.context === context {
+            tables = existing
+        } else {
+            do {
+                tables = try GraniteSpotTables(context: context)
+            } catch {
+                log("term spotting unavailable: \(error)")
+                return nil
+            }
+            spotTables = tables
+        }
+        let patterns = tables.patterns(for: terms.map(\.variants))
+        let candidates =
+            context.withLastLogits { logits, frames in
+                CTCWordSpotter.candidates(
+                    logits: logits,
+                    frames: frames,
+                    vocabulary: context.vocabularySize,
+                    blank: context.blankId,
+                    patterns: patterns
+                )
+            } ?? []
+        return GraniteTermSpotting.spots(from: candidates, raw: raw).filter { $0.firstWord != nil }
     }
 }

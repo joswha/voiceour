@@ -107,11 +107,17 @@ public final class SidecarASRClient: ASRClienting {
     }
 
     public func transcribe(_ audio: RecordedAudio, timeoutMs: Int) async throws -> ASRResult {
+        try await transcribe(audio, timeoutMs: timeoutMs, spotTerms: [])
+    }
+
+    /// `spot_terms` goes on the wire only when there is something to spot.
+    public func transcribe(_ audio: RecordedAudio, timeoutMs: Int, spotTerms: [ASRSpotTerm]) async throws -> ASRResult {
         let request = ASRTranscribeRequest(
             requestId: UUID().uuidString,
             audio: audio.meta,
             expectedModel: expectedModel,
-            timeoutMs: timeoutMs
+            timeoutMs: timeoutMs,
+            spotTerms: spotTerms.isEmpty ? nil : spotTerms
         )
         return try await runRequest(requestId: request.requestId, timeoutMs: timeoutMs) {
             try await self.runtime.transcribe(request)

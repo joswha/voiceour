@@ -303,6 +303,16 @@ public struct ASRExpectedModel: Codable, Equatable, Sendable {
     }
 }
 
+/// One term the sidecar spots for after decoding; its position in `spot_terms` is the term index
+/// a `TermSpot` reports. `variants` are the spellings searched, in `TermSpotting.variants` order.
+public struct ASRSpotTerm: Codable, Equatable, Sendable {
+    public var variants: [String]
+
+    public init(variants: [String]) {
+        self.variants = variants
+    }
+}
+
 public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
     public var type: String
     public var protocolVersion: Int
@@ -310,6 +320,8 @@ public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
     public var audio: ASRAudioMeta
     public var expectedModel: ASRExpectedModel?
     public var timeoutMs: Int
+    /// Terms to spot over the decode's CTC logits; nil (omitted) when there is nothing to spot.
+    public var spotTerms: [ASRSpotTerm]?
 
     public init(
         type: String = "transcribe",
@@ -317,7 +329,8 @@ public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
         requestId: String,
         audio: ASRAudioMeta,
         expectedModel: ASRExpectedModel?,
-        timeoutMs: Int
+        timeoutMs: Int,
+        spotTerms: [ASRSpotTerm]? = nil
     ) {
         self.type = type
         self.protocolVersion = protocolVersion
@@ -325,6 +338,7 @@ public struct ASRTranscribeRequest: Codable, Equatable, Sendable {
         self.audio = audio
         self.expectedModel = expectedModel
         self.timeoutMs = timeoutMs
+        self.spotTerms = spotTerms
     }
 }
 
@@ -383,19 +397,24 @@ public struct ASRTranscript: Codable, Equatable, Sendable {
     public var segments: [ASRSegment]?
     public var confidence: Double?
     public var confidenceMode: ASRConfidenceMode?
+    /// The renderable spots for the request's `spot_terms`: present, possibly empty, when the
+    /// request carried them and the backend spots; omitted otherwise.
+    public var termSpots: [TermSpot]?
 
     public init(
         text: String,
         language: String?,
         segments: [ASRSegment]?,
         confidence: Double? = nil,
-        confidenceMode: ASRConfidenceMode? = nil
+        confidenceMode: ASRConfidenceMode? = nil,
+        termSpots: [TermSpot]? = nil
     ) {
         self.text = text
         self.language = language
         self.segments = segments
         self.confidence = confidence
         self.confidenceMode = confidenceMode
+        self.termSpots = termSpots
     }
 }
 
