@@ -2959,25 +2959,30 @@ private actor FailOnceASR: ASRClienting {
     }
 }
 
-/// Yields the MainActor until `condition` holds or the deadline passes, so
-/// dispatched `Task { @MainActor }` continuations get to run between checks.
+/// Yields the MainActor until `condition` holds or `timeout` worth of polls have
+/// seen it false, so dispatched `Task { @MainActor }` continuations get to run
+/// between checks.
 ///
 /// The ceiling is deliberately far larger than any wait this suite legitimately
 /// needs. It is a hang detector, not a performance assertion: every caller is
 /// waiting for something a fake will definitely deliver, so a slower or busier
 /// machine should take longer, never fail. At 3 s a fully loaded parallel run
-/// tripped it on correct code.
+/// tripped it on correct code. It counts polls rather than reading a clock: on a
+/// hosted runner another suite's synchronous main-actor work held the actor for
+/// minutes, and a wall-clock deadline expired before the coordinator got a single
+/// turn, failing correct code the moment the actor came back.
 @MainActor
 func waitUntil(
     timeout: Duration = .seconds(30),
     _ condition: () -> Bool
 ) async {
-    let deadline = ContinuousClock.now.advanced(by: timeout)
-    while !condition() && ContinuousClock.now < deadline {
-        try? await Task.sleep(for: .milliseconds(5))
+    let interval = Duration.milliseconds(5)
+    for _ in 0..<Int(timeout / interval) {
+        if condition() { return }
+        try? await Task.sleep(for: interval)
     }
     if !condition() {
-        Issue.record("Timed out after \(timeout) waiting for condition")
+        Issue.record("Timed out after \(timeout) of polls waiting for condition")
     }
 }
 
