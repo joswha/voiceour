@@ -80,6 +80,22 @@
             static let detailsTimings = UIQuery.value("Timings")
             static let detailsLeastSure = UIQuery.value("Least sure")
 
+            // The fixture links two Terminal rows to one omp session and gives one of
+            // them a prompt edited before it was sent: a comma the dictation did not
+            // have. Its closed row is addressed by its preview, like the mid-list row.
+            static let sentFold = UIQuery.id("sessions.detail.sent")
+            static let detailsAgent = UIQuery.value("Agent")
+            // SwiftUI publishes a text inside a `LabeledContent` value twice, nested; the
+            // identifier is on the outer node only, so it addresses the title once.
+            static let agentTitle = UIQuery.id("sessions.detail.agent")
+            static let agentRowText =
+                "Post the mouse up before sending the mouse down or AppKit's tracking loop wedges."
+            static let agentRow = UIQuery.labelContains(agentRowText)
+            static let agentTranscript = UIQuery.value(agentRowText)
+            static let sentTextNode = UIQuery.value(
+                "Post the mouse up before sending the mouse down, or AppKit's tracking loop wedges."
+            )
+
             static let addTermButton = UIQuery.id("glossary.add-term")
             static let glossarySearch = UIQuery.id("glossary.search.field")
             static let termCanonical = UIQuery.id("glossary.term.canonical")
@@ -409,6 +425,47 @@
                                 .absent(Selector.detailsTimings),
                                 .absent(Selector.detailsLeastSure),
                                 .absent(Selector.rawFold),
+                            ]
+                        ),
+                    ]),
+                // A linked transcript answers where its text went: a Sent fold, shut
+                // until asked for, holds the prompt as its agent received it, and the
+                // Details fold names the agent session.
+                UIFlow(
+                    id: "sessions.agent-link",
+                    title: "A linked transcript shows its agent session and the text that was sent",
+                    tags: ["sessions", "console", "detail"],
+                    host: .console(.history),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.agentRow)),
+                        .wait(.element(Selector.agentTranscript)),
+                        .check(
+                            "opened",
+                            [
+                                .count(Selector.sentFold, .exactly(1)),
+                                .value(Selector.sentFold, .equals("false")),
+                                .absent(Selector.sentTextNode),
+                                .absent(Selector.rawFold),
+                            ]
+                        ),
+                        .act(.press(Selector.sentFold)),
+                        .wait(.element(Selector.sentTextNode)),
+                        .check(
+                            "sent",
+                            [
+                                .value(Selector.sentFold, .equals("true")),
+                                .count(Selector.sentTextNode, .exactly(1)),
+                            ]
+                        ),
+                        .act(.press(Selector.detailsFold)),
+                        .wait(.element(Selector.detailsAgent)),
+                        .check(
+                            "agent",
+                            [
+                                .count(Selector.detailsAgent, .exactly(1)),
+                                .count(Selector.agentTitle, .exactly(1)),
+                                .value(Selector.agentTitle, .equals("omp · Harness offscreen capture")),
                             ]
                         ),
                     ]),

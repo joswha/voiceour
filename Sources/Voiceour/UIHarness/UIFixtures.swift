@@ -846,7 +846,14 @@
                 bundleId: "com.microsoft.VSCode",
                 appName: "Visual Studio Code",
                 captureMs: 6_200,
-                asrMs: 402
+                asrMs: 402,
+                agentLink: agentLink(
+                    .claudeCode,
+                    sessionId: "5f0c2e8a-1d3b-4c6e-9a7f-2b8d4e6f1a3c",
+                    title: nil,
+                    minutesAgo: 1_720,
+                    sentText: nil
+                )
             ),
             session(
                 index: 6,
@@ -855,7 +862,15 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureMs: 7_900,
-                asrMs: 468
+                asrMs: 468,
+                // The one row whose prompt was edited before it was sent: the comma.
+                agentLink: agentLink(
+                    .omp,
+                    sessionId: agentSession.sessionId,
+                    title: "Harness offscreen capture",
+                    minutesAgo: 2_950,
+                    sentText: "Post the mouse up before sending the mouse down, or AppKit's tracking loop wedges."
+                )
             ),
             session(
                 index: 7,
@@ -884,9 +899,40 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureMs: 6_050,
-                asrMs: 388
+                asrMs: 388,
+                agentLink: agentLink(
+                    .omp,
+                    sessionId: agentSession.sessionId,
+                    title: "Harness offscreen capture",
+                    minutesAgo: 11_600,
+                    sentText: nil
+                )
             ),
         ]
+
+        /// The omp session two Terminal rows were sent into. Rows 1 and 4, which
+        /// scenes and flows open, stay unlinked, so their goldens do not carry it.
+        static let agentSession = AgentSessionKey(agent: .omp, sessionId: "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a")
+
+        /// A link to a prompt sent 40 s after its row was recorded.
+        private static func agentLink(
+            _ agent: CodingAgent,
+            sessionId: String,
+            title: String?,
+            minutesAgo: Int,
+            sentText: String?
+        ) -> AgentSessionLink {
+            .linked(
+                AgentSessionMatch(
+                    agent: agent,
+                    sessionId: sessionId,
+                    workingDirectory: "/Users/dev/voiceour",
+                    sessionTitle: title,
+                    sentAt: pinnedNow.addingTimeInterval(-Double(minutesAgo) * 60 + 40),
+                    sentText: sentText
+                )
+            )
+        }
 
         private static func session(
             index: Int,
@@ -900,7 +946,8 @@
             asrMs: Int,
             /// Nil means cleanup changed nothing, which is the case that draws no RAW row.
             rawTranscript: String? = nil,
-            leastConfidentWord: LeastConfidentWord? = nil
+            leastConfidentWord: LeastConfidentWord? = nil,
+            agentLink: AgentSessionLink? = nil
         ) -> RecentSession {
             RecentSession(
                 id: fixedIdentifier(index),
@@ -921,7 +968,8 @@
                     insertMs: 24,
                     startLatencyMs: 18
                 ),
-                leastConfidentWord: leastConfidentWord
+                leastConfidentWord: leastConfidentWord,
+                agentLink: agentLink
             )
         }
 

@@ -33,6 +33,10 @@ struct ConsoleHistoryTab: View {
     /// The one app history is narrowed to, or nil for every app. Pinned by the
     /// harness because an `NSMenu` popup cannot be driven offscreen.
     @State private var appFilter: String? = RenderOverrides.historyInitialAppFilter
+    /// The one agent session history is narrowed to, or nil for every row. Engaged
+    /// from a row's context menu, an `NSMenu` the offscreen harness cannot open, so
+    /// the harness pins it.
+    @State private var agentSessionFilter: AgentSessionKey? = RenderOverrides.historyInitialAgentSession
     @State private var appFacets: [RecentSessionAppFacet] = []
     @FocusState private var searchFocused: Bool
 
@@ -54,6 +58,9 @@ struct ConsoleHistoryTab: View {
     /// Whether the open transcript's raw text is unfolded. Detail-scoped, so it
     /// closes again with the transcript it was opened on.
     @State private var showsRawTranscript = false
+    /// Whether the open transcript's prompt, as its agent received it, is unfolded.
+    /// Detail-scoped beside Raw and Details and independent of both.
+    @State private var showsSentText = false
     /// Whether the open transcript's own measurements are unfolded. Detail-scoped
     /// beside the raw fold and independent of it: a reader who asked one of those
     /// two questions has not asked the other.
@@ -114,6 +121,7 @@ struct ConsoleHistoryTab: View {
             inputMonitor.onTeach = { beginTeaching(surface: selectedSurface) }
             inputMonitor.start()
             reloadDerivedData()
+            coordinator.resolveAgentSessionLinks()
         }
         .onDisappear {
             inputMonitor.stop()
@@ -124,11 +132,20 @@ struct ConsoleHistoryTab: View {
         }
         .onChange(of: coordinator.recentSessions.map(\.id)) {
             reloadDerivedData()
+            coordinator.resolveAgentSessionLinks()
+        }
+        // Rows are copied into the derived lists, and a link pass changes no id, so
+        // a link lands on screen only through this reload.
+        .onChange(of: coordinator.recentSessions.map(\.agentLink)) {
+            reloadDerivedData()
         }
         .onChange(of: searchText) {
             reloadDerivedData()
         }
         .onChange(of: appFilter) {
+            reloadDerivedData()
+        }
+        .onChange(of: agentSessionFilter) {
             reloadDerivedData()
         }
         .onChange(of: selectedSessionID) { _, newSelection in
@@ -137,7 +154,12 @@ struct ConsoleHistoryTab: View {
             deleteError = nil
             selectedSurface = nil
             showsRawTranscript = false
+            showsSentText = false
             showsSessionDetails = false
+            // An open transcript's prompt may have been sent since the last pass.
+            if newSelection != nil {
+                coordinator.resolveAgentSessionLinks()
+            }
             // A row's own Copy command selects the row it copied, so retiring the
             // confirmation unconditionally here would erase the mark that copy just
             // asked for. Only a move to a different transcript retires it.
@@ -185,10 +207,18 @@ struct ConsoleHistoryTab: View {
         if let appFilter, !appFacets.contains(where: { $0.bundleId == appFilter }) {
             self.appFilter = nil
         }
+        // Same for an agent session whose last linked row is gone, or whose links
+        // were removed with the setting.
+        if let agentSessionFilter,
+            !coordinator.recentSessions.contains(where: { $0.agentLink?.match?.key == agentSessionFilter })
+        {
+            self.agentSessionFilter = nil
+        }
         let filtered = RecentSessionQuery.matches(
             in: coordinator.recentSessions,
             query: query,
             appBundleId: appFilter,
+            agentSession: agentSessionFilter,
             timestamp: { SessionsFormatters.timestamp.string(from: $0) },
             dayHeader: { SessionsFormatters.dayHeader.string(from: $0) }
         )
@@ -268,7 +298,33 @@ struct ConsoleHistoryTab: View {
                 }
             }
 
-            if !query.isEmpty || appFilter != nil {
+            if let agentSessionFilter {
+                HStack(spacing: VoiceourMetrics.Space.xs) {
+                    Text("Agent session: \(agentSessionLabel(agentSessionFilter))")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Button {
+                        self.agentSessionFilter = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .frame(
+                                width: VoiceourMetrics.Control.mini,
+                                height: VoiceourMetrics.Control.mini
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Show all agent sessions")
+                    .accessibilityLabel("Show all agent sessions")
+                    .accessibilityIdentifier("sessions.agent-filter.clear")
+                }
+            }
+
+            if !query.isEmpty || appFilter != nil || agentSessionFilter != nil {
                 ConsoleCaption("\(filteredSessions.count) of \(coordinator.recentSessions.count) sessions match")
             }
         }
@@ -320,6 +376,15 @@ struct ConsoleHistoryTab: View {
     @MainActor
     private func facetLabel(_ facet: RecentSessionAppFacet) -> String {
         AppIdentity.resolve(bundleId: facet.bundleId, persistedName: facet.name).label
+    }
+
+    /// The newest linked row's name for an agent session, which carries the
+    /// session's latest title; the agent's name if no row links to it.
+    private func agentSessionLabel(_ key: AgentSessionKey) -> String {
+        coordinator.recentSessions.lazy
+            .compactMap { $0.agentLink?.match }
+            .first { $0.key == key }?
+            .displayTitle ?? key.agent.displayName
     }
 
     /// `RecentSessionQuery.appFacets`' own total order — count desc, then label,
@@ -380,12 +445,14 @@ struct ConsoleHistoryTab: View {
         }
     }
 
-    /// Empty results imply a non-empty query: a filter validated against the
-    /// facets can never rule out every row on its own. It can still be the
-    /// reason a query found nothing, so it is named and offered back.
+    /// Each filter is validated against the rows, so neither can rule out every
+    /// row on its own; a query can, and so can the app and agent-session filters
+    /// together. Whatever narrowed the list is named and offered back.
     private var noMatches: some View {
         ContentUnavailableView {
-            if let appFilter {
+            if query.isEmpty {
+                Text("Nothing matches these filters")
+            } else if let appFilter {
                 Text("Nothing matches \u{201C}\(query)\u{201D} in \(activeFilterLabel(appFilter))")
             } else {
                 Text("Nothing matches \u{201C}\(query)\u{201D}")
@@ -393,9 +460,14 @@ struct ConsoleHistoryTab: View {
         } description: {
             Text("Search runs over transcript text, timestamps and day names.")
         } actions: {
-            Button("Clear Search") { searchText = "" }
+            if !query.isEmpty {
+                Button("Clear Search") { searchText = "" }
+            }
             if appFilter != nil {
                 Button("Show All Apps") { appFilter = nil }
+            }
+            if agentSessionFilter != nil {
+                Button("Show All Agent Sessions") { agentSessionFilter = nil }
             }
         }
     }
@@ -559,7 +631,7 @@ struct ConsoleHistoryTab: View {
         .contextMenu {
             Button("Copy Transcript") {
                 select(session)
-                copy(session)
+                copy(session.text, from: session, announcement: "Transcript copied to clipboard")
             }
             Button("Fix / Teach a Word\u{2026}") {
                 select(session)
@@ -568,6 +640,15 @@ struct ConsoleHistoryTab: View {
             if let bundleId = session.outcome?.targetBundleId {
                 Button("Show Only \(appLabel(for: session, bundleId: bundleId))") {
                     appFilter = bundleId
+                }
+            }
+            if let match = session.agentLink?.match {
+                Button("Show Only This Agent Session") {
+                    agentSessionFilter = match.key
+                }
+                Button("Copy Resume Command") {
+                    select(session)
+                    copy(match.resumeCommand, from: session, announcement: "Resume command copied to clipboard")
                 }
             }
             Button("Delete Transcript\u{2026}", role: .destructive) {
@@ -671,6 +752,10 @@ struct ConsoleHistoryTab: View {
             rawRow(raw)
         }
 
+        if let sent = session.agentLink?.match?.sentText {
+            sentRow(sent)
+        }
+
         if hasSessionDetails(for: session) {
             detailsRow(for: session)
         }
@@ -724,7 +809,7 @@ struct ConsoleHistoryTab: View {
                 beginTeaching(surface: word)
             },
             onSelectionChange: { selectedSurface = $0 },
-            onPlainClick: { copy(session) }
+            onPlainClick: { copy(session.text, from: session, announcement: "Transcript copied to clipboard") }
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VoiceourMetrics.Space.sm)
@@ -743,7 +828,9 @@ struct ConsoleHistoryTab: View {
         // The gestures are on the text, so VoiceOver — which cannot click into a
         // text view to copy it or drag a selection to teach from it — gets both as
         // named actions on the same element instead.
-        .accessibilityAction(named: "Copy transcript") { copy(session) }
+        .accessibilityAction(named: "Copy transcript") {
+            copy(session.text, from: session, announcement: "Transcript copied to clipboard")
+        }
         .accessibilityAction(named: "Teach a correction") { beginTeaching(surface: selectedSurface) }
     }
 
@@ -795,9 +882,11 @@ struct ConsoleHistoryTab: View {
     }
 
     /// Whether anything at all sits behind the fold. A record with no target, no
-    /// stage timings and no least sure word draws no empty Details row.
+    /// agent session, no stage timings and no least sure word draws no empty
+    /// Details row.
     private func hasSessionDetails(for session: RecentSession) -> Bool {
-        hasTargetDetails(for: session) || session.stages != nil || session.leastConfidentWord != nil
+        hasTargetDetails(for: session) || session.agentLink?.match != nil || session.stages != nil
+            || session.leastConfidentWord != nil
     }
 
     /// The measurements behind the dictation, folded shut. They are evidence about
@@ -809,6 +898,10 @@ struct ConsoleHistoryTab: View {
     private func detailsRow(for session: RecentSession) -> some View {
         DisclosureGroup(isExpanded: $showsSessionDetails) {
             targetRow(for: session)
+
+            if let match = session.agentLink?.match {
+                agentRow(match)
+            }
 
             if let stages = session.stages {
                 metadataRow("Timings", stages.detailLine)
@@ -847,6 +940,26 @@ struct ConsoleHistoryTab: View {
             } label: {
                 Text("Target")
             }
+        }
+    }
+
+    /// The agent session the text was sent into: its name, then the working
+    /// directory and session id a resume needs.
+    private func agentRow(_ match: AgentSessionMatch) -> some View {
+        LabeledContent {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                Text(match.displayTitle)
+                    .accessibilityIdentifier("sessions.detail.agent")
+                Text(match.locationLine)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(match.workingDirectory ?? match.sessionId)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Agent")
         }
     }
 
@@ -901,6 +1014,22 @@ struct ConsoleHistoryTab: View {
         }
     }
 
+    /// The prompt as its agent received it, where it differs from the delivered
+    /// text: edited, or with words added around it. Folded shut like Raw, and for
+    /// the same reason.
+    private func sentRow(_ sent: String) -> some View {
+        DisclosureGroup(isExpanded: $showsSentText) {
+            metadataText(sent, mono: false)
+        } label: {
+            Text("Sent")
+                .accessibilityIdentifier("sessions.detail.sent")
+                // The triangle answers an accessibility press without toggling; see Raw.
+                .accessibilityAction {
+                    showsSentText.toggle()
+                }
+        }
+    }
+
     private func metadataRow(_ label: String, _ value: String) -> some View {
         LabeledContent {
             metadataText(value, mono: false)
@@ -924,11 +1053,11 @@ struct ConsoleHistoryTab: View {
 
     // MARK: Actions
 
-    private func copy(_ session: RecentSession) {
+    private func copy(_ text: String, from session: RecentSession, announcement: String) {
         // The mark and the announcement are claims about the clipboard, so a refused
         // write leaves the row exactly as it was instead of confirming nothing.
-        guard GeneralPasteboard.copy(session.text) != nil else { return }
-        announceCopy()
+        guard GeneralPasteboard.copy(text) != nil else { return }
+        announceCopy(announcement)
         resetCopyFeedbackTask?.cancel()
         // Both directions of the confirmation run through one curve and one
         // Reduce Motion branch; the arrival used to snap and only the exit faded.
@@ -949,12 +1078,12 @@ struct ConsoleHistoryTab: View {
     /// The mark is the confirmation a reader sees; VoiceOver hears the same
     /// sentence, because a mark that appears beside a button the cursor has already
     /// left confirms nothing. A no-op when VoiceOver is not running.
-    private func announceCopy() {
+    private func announceCopy(_ sentence: String) {
         NSAccessibility.post(
             element: NSApp as Any,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: "Transcript copied to clipboard",
+                .announcement: sentence,
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )

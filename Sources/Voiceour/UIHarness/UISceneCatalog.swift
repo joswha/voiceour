@@ -269,6 +269,13 @@
                     fixture: .populated,
                     appFilter: "com.apple.dt.Xcode"
                 ),
+                console(
+                    "console.sessions.agent-filtered",
+                    "History filtered to one agent session",
+                    tab: .history,
+                    fixture: .populated,
+                    agentSession: UIFixtures.agentSession
+                ),
                 // The first-launch measure, which now ends inside the Island showroom: what a
                 // fresh install's Settings tab shows before any scrolling.
                 console(
@@ -714,6 +721,7 @@
             transcriptSelectionSurface: String? = nil,
             deselected: Bool = false,
             appFilter: String? = nil,
+            agentSession: AgentSessionKey? = nil,
             teachingSurface: String? = nil,
             showroomPose: IslandShowroomPose? = nil,
             // Optional rather than `= consoleSize`: a default argument expression is
@@ -746,6 +754,18 @@
                 if let appFilter {
                     return AnyView(
                         UIHarnessFilteredHistoryScope(bundleId: appFilter) {
+                            AnyView(
+                                ConsoleWindowView(
+                                    coordinator: UIFixtures.coordinator(fixture),
+                                    initialTab: tab
+                                )
+                            )
+                        }
+                    )
+                }
+                if let agentSession {
+                    return AnyView(
+                        UIHarnessAgentFilteredHistoryScope(key: agentSession) {
                             AnyView(
                                 ConsoleWindowView(
                                     coordinator: UIFixtures.coordinator(fixture),
@@ -990,6 +1010,29 @@
             content
                 .onDisappear {
                     RenderOverrides.historyInitialAppFilter = previous
+                }
+        }
+    }
+
+    /// Process-wide value seam scoped to the one scene that renders History
+    /// narrowed to a single agent session. The filter is engaged from a row's
+    /// context menu, an `NSMenu` an offscreen window cannot open, so the filtered
+    /// state is pinned rather than performed.
+    private struct UIHarnessAgentFilteredHistoryScope: View {
+        private let content: AnyView
+        private let previous: AgentSessionKey?
+
+        @MainActor
+        init(key: AgentSessionKey, build: @escaping @MainActor () -> AnyView) {
+            content = build()
+            previous = RenderOverrides.historyInitialAgentSession
+            RenderOverrides.historyInitialAgentSession = key
+        }
+
+        var body: some View {
+            content
+                .onDisappear {
+                    RenderOverrides.historyInitialAgentSession = previous
                 }
         }
     }

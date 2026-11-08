@@ -72,6 +72,12 @@ enum RenderOverrides {
     /// reads this as nil, which is every app.
     static var historyInitialAppFilter: String?
 
+    /// Pins History's opening agent-session filter. The filter is engaged from a
+    /// row's context menu, an `NSMenu` the offscreen window can never open, so a
+    /// scene states the filtered list rather than driving the menu. Production
+    /// reads this as nil, which is every row.
+    static var historyInitialAgentSession: AgentSessionKey?
+
     /// Pins History's teach editor open, aimed at this surface. Teaching is
     /// reached by Command-T or the transcript's own `Fix / Teach` item, and
     /// neither can be delivered to a window that never becomes key, so a scene
