@@ -45,13 +45,15 @@ __pycache__/
 .worktrees/
 # A fully-excluded directory can never be re-included, so this excludes the contents
 # rather than the directory itself. This repository's own agent tooling under it is
-# tracked: the invariants omp injects into every session (RULES.md); the slash commands,
-# which encode the release procedure, the triage taxonomy and the cleanup gates; and the
-# two prompt-authoring skills adapted for this repository. Everything else there — session
-# scratch, personal config and the vendored third-party skill packs, which belong to their
-# own upstreams — stays local.
+# tracked: the invariants omp injects into every session (RULES.md) and the trigger rules
+# that enforce the contracts (rules/); the slash commands, which encode the release
+# procedure, the triage taxonomy and the cleanup gates; and the two prompt-authoring
+# skills adapted for this repository. Everything else there — session scratch, personal
+# config and the vendored third-party skill packs, which belong to their own upstreams —
+# stays local.
 .omp/*
 !.omp/RULES.md
+!.omp/rules/
 !.omp/commands/
 !.omp/skills/
 .omp/skills/*
