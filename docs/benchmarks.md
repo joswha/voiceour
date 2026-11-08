@@ -289,15 +289,6 @@ compilation that exhausted disk and the fixed 448-token graph failed ANE program
 failure records sit beside the report's run directory. Private Cloud Compute was hardware
 available but blocked by the missing entitlement, and no cloud request was sent.
 
-## Selective Rust rewrite experiments — 2026-10-17
-
-The [Rust rewrite evaluation](archive/rust-evaluation.md) records benchmark-only mel, decoder,
-encoder, text and renderer implementations, their C/Swift controls, and a directly measured
-combined PCM-to-cleaned-text path on the Parakeet recognizer; isolated stage speedups are not
-app-latency predictions. The text and renderer experiments remain under `bench/rust/`, and
-`bench/rust/run_official.sh` serializes their measurements with power and completion checks.
-Rust is needed only to reproduce them; building the shipping app does not require it.
-
 ## Speech recognizer replacement screen — 2026-11-03
 
 A benchmark-only screen compared Parakeet TDT 0.6B v3, then the default recognizer, with Nemotron

@@ -1,4 +1,4 @@
-> Archived 2026-11-06. Historical measurement record: the Parakeet recognizer the mel, TDT decoder and encoder experiments below ran against was deleted on 2026-11-06, together with their crates and `voiceour-bench` subcommands; the text and renderer experiments remain under `bench/rust/`, and current measurement contracts live in [benchmarks.md](../benchmarks.md).
+> Archived 2026-11-06. Historical measurement record: the Parakeet recognizer the mel, TDT decoder and encoder experiments below ran against was deleted on 2026-11-06, together with their crates and `voiceour-bench` subcommands. The remaining text and renderer experiments and the paired timing analyzer under `bench/rust/` were deleted on 2026-11-08; commit `a78e0791a499a36d9f1883ecdaabf5e836418904` is the last that holds them. Current measurement contracts live in [benchmarks.md](../benchmarks.md).
 
 # Rust rewrite evaluation
 
@@ -217,7 +217,7 @@ uv --no-config run --project bench python bench/rust/analysis/paired_stats.py \
 Besides `combined`, the same runner exposes `ledger`, `cold`, `tail`, `mel`, `encoder`, `text`,
 `mercury` and `analyze` sections; with no arguments it runs all nine, ending with `combined` and `analyze`.
 Prepare text cases with `bench/rust/voiceour-text/target/release/text-bench gen-inputs` and run
-the [text parity script](../../bench/rust/voiceour-text/scripts/b3-parity.sh) before its timing section. Renderer verification is
+the text parity script `bench/rust/voiceour-text/scripts/b3-parity.sh` before its timing section. Renderer verification is
 `bench/rust/swift-mercury-harness/.build/release/swift-mercury-harness verify`.
 
 The analyzer refuses incomplete declared grids, required missing completion footers and invalid
