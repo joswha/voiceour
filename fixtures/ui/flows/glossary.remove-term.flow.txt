@@ -2,4 +2,4 @@ flow: glossary.remove-term
 title: Removing a term asks first
 fixture: static
 transitions: idle
-PASS 1 awaiting-confirmation | model glossaryTermCount == "9" | 9
+PASS 1 awaiting-confirmation | model glossaryTermCount == "7" | 7

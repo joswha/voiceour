@@ -66,8 +66,8 @@
   },
   {
     "name": "repeated_protected_term",
-    "raw": "use NVIDIA Parakeet NVIDIA Parakeet today",
-    "expected": "use NVIDIA Parakeet today"
+    "raw": "use NSPasteboard NSPasteboard today",
+    "expected": "use NSPasteboard today"
   },
   {
     "name": "discourse_phrases_untouched",

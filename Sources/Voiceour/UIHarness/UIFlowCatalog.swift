@@ -892,7 +892,7 @@
                         // `confirmationDialog` cannot be driven by a window that
                         // never becomes key, exactly as History's delete
                         // confirmation is not flow-covered either.
-                        .check("awaiting-confirmation", [.model(.glossaryTermCount, .equals("9"))]),
+                        .check("awaiting-confirmation", [.model(.glossaryTermCount, .equals("7"))]),
                     ]),
             ]
         }

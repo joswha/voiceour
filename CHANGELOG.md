@@ -28,7 +28,7 @@ Cutting a release moves the `Unreleased` bullets beneath a new version heading �
 
 ### Removed
 
-- **Parakeet recognizer.** NVIDIA's Parakeet TDT 0.6B v3 and its Balanced and Compact variants are gone; Granite is the only recognizer. A launch that selects `parakeet` — or a retired backend id — through `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the `--debug` Backend picker runs Granite, and `VOICEOUR_MODEL_VARIANT` has no effect. Launch deletes a Parakeet model cache left by an earlier version from `~/Library/Caches/Voiceour/`, freeing about 1.3 GB for Compact or 2.5 GB for Balanced.
+- **Parakeet recognizer.** NVIDIA's Parakeet TDT 0.6B v3 and its Balanced and Compact variants are gone; Granite is the only recognizer. A launch that selects `parakeet` — or a retired backend id — through `--asr-backend`, `VOICEOUR_ASR_BACKEND` or the `--debug` Backend picker runs Granite, and `VOICEOUR_MODEL_VARIANT` has no effect. Launch deletes a Parakeet model cache left by an earlier version from `~/Library/Caches/Voiceour/`, freeing about 1.3 GB for Compact or 2.5 GB for Balanced. A new install's Glossary no longer starts with *NVIDIA Parakeet* and *FastConformer-TDT*; an existing Glossary keeps them until you delete them.
 
 ### Fixed
 

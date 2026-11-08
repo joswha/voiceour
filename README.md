@@ -62,7 +62,7 @@ Turning Cleanup off in Settings skips stages 1, 3 and 4 together; literal compos
 
 ### Glossary
 
-- A term is a spelling plus the forms it is heard as. A fresh install starts with seven developer terms, such as `CGEvent`, `NSPasteboard` and `kubectl`. Compound spellings also match their spaced-out forms automatically: `SwiftUI` matches *swift ui* and *swift u i*.
+- A term is a spelling plus the forms it is heard as. A fresh install starts with five developer terms, such as `CGEvent`, `NSPasteboard` and `kubectl`. Compound spellings also match their spaced-out forms automatically: `SwiftUI` matches *swift ui* and *swift u i*.
 - A term applies in every app. Vocabulary is never scoped to an app or a project. Each dictation uses a snapshot of at most 100 terms, taken when the recording stops: your own corrections and the bundled terms come first, and the remainder fills in trust and recency order.
 - Terms are added in four explicit ways: **Teach** from a History transcript (select words and press ⌘T, or right-click a word for *Fix / Teach*), the Glossary tab's editors, accepting a learned suggestion, and importing a word list. A word list is a JSON array of spellings, a JSON array of `{"term": …, "heard_as": […]}` rows, or one spelling per line. An import takes up to 500 terms of up to 64 characters, with up to 8 heard-as forms each.
 - An edit that would let one heard-as form mean two different terms is refused as a whole, never partially applied.
