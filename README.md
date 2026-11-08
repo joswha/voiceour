@@ -26,7 +26,7 @@ Home keeps the running totals: how long you have spoken, how much typing it save
 
 </div>
 
-This README is Voiceour's product and technical contract: what the app does, how it is put together, what it stores and sends, and how it is built and verified. [AGENTS.md](AGENTS.md) holds the engineering invariants and maintenance workflows that keep this contract true. When code and this document disagree, one of them is a bug.
+This README is Voiceour's product and technical contract: what the app does, how it is put together, what it stores and sends, and how it is built and verified. [AGENTS.md](AGENTS.md) maps the engineering contracts and invariants that keep this contract true. When code and this document disagree, one of them is a bug.
 
 ## Product contract
 
@@ -248,7 +248,7 @@ cd voiceour
 make build
 ```
 
-`make` on its own prints every target, and [AGENTS.md](AGENTS.md#developer-commands) has the complete command matrix.
+`make` on its own prints every target; [AGENTS.md](AGENTS.md#developer-commands) lists the everyday ones and points to each subsystem's commands.
 
 Start on the fake backend. It needs no model download and no permission grant: synthetic audio through the real pipeline and real UI.
 
@@ -262,7 +262,7 @@ Then run the real app. This assembles `.build/Voiceour.app`, stops any running V
 make run
 ```
 
-Without a configured signing identity, the bundle is ad-hoc signed and not notarized, so its code identity can change on rebuild and macOS may ask for Microphone and Accessibility again. Run `make signing` once to install a stable local `voiceour-dev` identity that `scripts/bundle.sh` picks up automatically. A signing identity named by `VOICEOUR_CODESIGN_IDENTITY`, and optionally `VOICEOUR_CODESIGN_KEYCHAIN`, in the environment or the repository's ignored `.env` takes precedence. Only the Developer ID path in the [release procedure](AGENTS.md#release-procedure) produces a notarized app for distribution; a local development signature is not a distributable release.
+Without a configured signing identity, the bundle is ad-hoc signed and not notarized, so its code identity can change on rebuild and macOS may ask for Microphone and Accessibility again. Run `make signing` once to install a stable local `voiceour-dev` identity that `scripts/bundle.sh` picks up automatically. A signing identity named by `VOICEOUR_CODESIGN_IDENTITY`, and optionally `VOICEOUR_CODESIGN_KEYCHAIN`, in the environment or the repository's ignored `.env` takes precedence. Only the Developer ID path in the [release procedure](docs/release.md) produces a notarized app for distribution; a local development signature is not a distributable release.
 
 ```sh
 make status
@@ -272,7 +272,7 @@ make logs
 
 `make status` reports the running process, whether the bundle is current, and its signer. `make stop` quits every running Voiceour. `make logs` streams the unified log for subsystem `com.voiceour.app`.
 
-Launch flags go through `ARGS`, as in `make run ARGS="--debug --show-console"`; the app also accepts `--console-section=<tab>`, `--no-activate`, and `--asr-backend <id>`. A `.env` at the repository root is sourced by `make run` and `make dev`, and `make run` forwards `VOICEOUR_ASR_BACKEND` and `VOICEOUR_SUPPORT_DIR` to the bundle explicitly. `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory, which is how a cold download is exercised. [AGENTS.md](AGENTS.md#environment-seams) lists every environment seam.
+Launch flags go through `ARGS`, as in `make run ARGS="--debug --show-console"`; the app also accepts `--console-section=<tab>`, `--no-activate`, and `--asr-backend <id>`. A `.env` at the repository root is sourced by `make run` and `make dev`, and `make run` forwards `VOICEOUR_ASR_BACKEND` and `VOICEOUR_SUPPORT_DIR` to the bundle explicitly. `VOICEOUR_MODEL_CACHE` points the model cache at one explicit directory, which is how a cold download is exercised. [docs/runtime.md](docs/runtime.md#environment-seams) lists every environment seam.
 
 ## Verification
 
@@ -325,7 +325,7 @@ make build && .build/debug/voiceour-asr --prove fixtures/audio/hello_16k_mono.wa
 | Focus switch before delivery | Paste into the new target | Tests, multi-display manual |
 | Focus switch after the snapshot | Copy-only | Tests, manual |
 
-Releases — source by default, notarized binary only with a Developer ID — follow the [release procedure](AGENTS.md#release-procedure).
+Releases — source by default, notarized binary only with a Developer ID — follow the [release procedure](docs/release.md).
 
 ## FAQ
 
@@ -424,10 +424,11 @@ Two things that are especially welcome:
 
 ## Documentation
 
-Two documents are authoritative, and a topic is described in exactly one place:
+A topic is described in exactly one place:
 
 - **README.md** (this file) — the product and technical contract: behavior, architecture, data, model and network, safety, non-goals, development, and verification.
-- **[AGENTS.md](AGENTS.md)** — the engineering invariants, boundaries, protocol and vendor rules, UI and harness rules, commands, and release procedure.
+- **[AGENTS.md](AGENTS.md)** — the engineering map: boundaries, the model pin, everyday commands, git rules, and which contract governs each part of the code. [`.omp/RULES.md`](.omp/RULES.md) holds the invariants every change keeps.
+- **Engineering contracts** — [runtime](docs/runtime.md), [text stages and glossary](docs/text-pipeline.md), [ASR sidecar and model](docs/asr.md), [native UI](docs/console-ui.md), [recording island](docs/recording-island.md), [release procedure](docs/release.md), and the harness [invariants](docs/ui-harness.md#invariants).
 
 Specialist documents hold derivations, measurements, and runbooks. They never redefine what the app does:
 

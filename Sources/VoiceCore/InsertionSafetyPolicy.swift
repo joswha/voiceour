@@ -46,7 +46,7 @@ public enum InsertionSafetyPolicy: Sendable {
     ///
     /// There is deliberately no parameter to loosen this. An earlier version let
     /// the caller opt `.unknownRisky` into pasting; nothing in the app ever did,
-    /// but the knob contradicted the rule stated in AGENTS.md and became actively
+    /// but the knob contradicted the rule stated in docs/runtime.md and became actively
     /// dangerous once a failed AX inspection started classifying as
     /// `.unknownRisky` — that class now includes "we were trusted to look and the
     /// focused-element lookup failed", which can be a password field. Absent

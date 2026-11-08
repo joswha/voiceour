@@ -1,6 +1,6 @@
 # Security policy
 
-Voiceour touches the microphone, active workspace, clipboard and keyboard. Its authoritative privacy and safety contracts live in [README.md](README.md#safety-and-permissions); [AGENTS.md](AGENTS.md#privacy-and-insertion-safety) defines the implementation invariants.
+Voiceour touches the microphone, active workspace, clipboard and keyboard. Its authoritative privacy and safety contracts live in [README.md](README.md#safety-and-permissions); [docs/runtime.md](docs/runtime.md#privacy-and-insertion-safety) defines the implementation invariants.
 
 ## Reporting a vulnerability
 

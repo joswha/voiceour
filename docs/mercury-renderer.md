@@ -2,7 +2,7 @@
 
 This document is the durable design record for Voiceour's recording island. It captures the physical model, geometry, optics, display mapping, performance work, rejected alternatives, and measured gates behind the implementation introduced by commits `5be9404` and `f9ac3ca` (2026-08-29).
 
-It is a technical appendix, not a second product specification. [README.md](../README.md#product-contract) states what the island does for the user, and [README.md](../README.md#architecture) and [AGENTS.md](../AGENTS.md) state the binding UI, runtime, and harness invariants it satisfies. This file explains how the renderer meets them and why each alternative was rejected.
+It is a technical appendix, not a second product specification. [README.md](../README.md#product-contract) states what the island does for the user, and [README.md](../README.md#architecture), [recording-island.md](recording-island.md) and [ui-harness.md](ui-harness.md#invariants) state the binding UI, runtime, and harness invariants it satisfies. This file explains how the renderer meets them and why each alternative was rejected.
 
 The implementation is physically motivated rather than a general fluid solver. It uses exact solutions where they buy determinism or stability, measured calibration where the visual target is product-specific, and bounded approximations where dense oracle tests prove that the displayed result cannot move by more than one 8-bit code value.
 
@@ -1523,4 +1523,4 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 
 ## Maintenance rule
 
-This document describes the shipping renderer, not a menu of optional effects. A future change to the field, mode law, body shape, pose ladder, crown, room distribution, paints, look mapping, optics, response, cadence, or hard benchmark must update this document in the same commit. Raw brainstorm artifacts are disposable. Production code, tests, and the benchmark gates are the enforced contract; this file is their derivation and rationale, and README.md and AGENTS.md remain the authority for what the island must do.
+This document describes the shipping renderer, not a menu of optional effects. A future change to the field, mode law, body shape, pose ladder, crown, room distribution, paints, look mapping, optics, response, cadence, or hard benchmark must update this document in the same commit. Raw brainstorm artifacts are disposable. Production code, tests, and the benchmark gates are the enforced contract; this file is their derivation and rationale, and README.md and recording-island.md remain the authority for what the island must do.

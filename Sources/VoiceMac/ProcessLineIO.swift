@@ -512,9 +512,9 @@ final class NDJSONLineReader: Sendable {
 /// Forwards a child process's stderr onward until end of stream.
 /// The caller owns the returned source and stops it at teardown.
 ///
-/// `sink` is a value seam in the shape AGENTS.md already sanctions for
-/// `GeneralPasteboard.writeOverride`: nil on every shipping path, so production
-/// forwards to the host's stderr exactly as before. It exists because a test
+/// `sink` is a value seam in the shape `GeneralPasteboard.writeOverride` already
+/// has: nil on every shipping path, so production forwards to the host's stderr
+/// exactly as before. It exists because a test
 /// that deliberately floods stderr must not put those bytes on the real
 /// descriptor. A single 256 KiB line with no newline stalls a CI log consumer,
 /// the stall backpressures through swiftpm's 64 KiB capture pipe, and the whole

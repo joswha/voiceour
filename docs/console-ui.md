@@ -1,0 +1,48 @@
+# Native UI contract
+
+The console window, History, and the visual vocabulary shared with the menu, Home and the island. The island itself has its own contract, [recording-island.md](recording-island.md). [AGENTS.md](../AGENTS.md) maps the other contracts; [`.omp/RULES.md`](../.omp/RULES.md) holds the invariants every change keeps.
+
+## Console
+
+- Native `Window("Voiceour", id: "main")`, one `TabView`: Home, Glossary, History, Settings. Three grouped `Form`s; Home is a figures page. Last tab reopens unless first-run guidance requires Home.
+- MUST use native controls: `TabView`, grouped `Form`, `Section`, `Toggle`, `Picker`, `TextField`, `LabeledContent`, `Button`, `Slider`, `ColorPicker`, `DisclosureGroup`, search, context menus. NEVER custom chrome, control skins, forced dark window appearance. Preserve system accent, focus, metrics, VoiceOver, accessibility settings.
+- Sliders: integer UI units with an explicit `step`; `.labelsHidden()` + `.accessibilityLabel`/`.accessibilityValue` (the spoken readout); trailing monospaced readout, hidden from AX. NEVER `minimumValueLabel`/`maximumValueLabel`: they publish tiny step buttons (`tiny-hit-target`). Radio `Picker`s stay direct Form rows; an `HStack` wrapper splits one into a group per item.
+- Destructive actions MUST use titled native confirmation dialogs with destructive roles.
+- App styling inside Forms: monospaced code values, `ConsoleStateMark`, `ConsoleCaption`, `ConsoleRow`, `MeterBar`, the Island showroom (production `MercurySurface`). Native-plate meters/marks use system semantic colours; `StatusChip` uses app palette.
+- Ground: `NSGlassEffectView(style: .regular)` behind native section plates; no app tint. Clear only `NSWindow.isOpaque` + `backgroundColor`. Reduce Transparency → `windowBackgroundColor`. NEVER place text directly on sampled desktop or use SwiftUI `.glassEffect` in shipping views.
+- Settings order: Dictation, Audio, Model, debug-only Backend, Island, Readiness, Capture, Privacy, Danger. No General tab.
+- Home/Settings MUST share `ConsoleReadiness` values, sentences, remediation. `DictationPolicy.owesFirstRunGuidance` = `Settings.hasCompletedFirstRun == false` AND both durable records empty; missing flag defaults false. `completeFirstRun()` stays outside the journaling branch: secure delivery completes onboarding; refusal/cancel/failed decode does not.
+- All showing routes MUST use `ConsolePresentation`: menu, `--show-console`, `applicationShouldHandleReopen` (Dock, `open -a`, reopening), `onAppear`. Console open → `.regular`, front/deminiaturized; close → `.accessory`. `--no-activate` or `.prohibited` → no presentation management. Disable miniaturization and restoration.
+
+## History
+
+- Exactly one open transcript; its own grouped `Section` directly below selected row, inside that day. Each day names itself once and renders one–three plates.
+- Closed rows: stamp, outcome mark, word count, destination icon/name, two-line preview. While one opens, others fade to 0.45 (0.8 under Increase Contrast). Open heading omits preview.
+- Transcript is the control; no detail action buttons. Single click copies all delivered text as a plain, non-transient string; transient COPIED TO CLIPBOARD mark + VoiceOver confirmation. Selection/right-click `Fix / Teach “word”` + ⌘T teaches. One footer: selected teaching surface, instruction, or copy confirmation.
+- `HistoryInputMonitor`: margin click/Escape close; ⌘T teaches. Transcript MUST expose named copy/teach accessibility actions.
+- Row context menu: Copy Transcript, Fix / Teach a Word, Show Only *App*, Delete.
+- Raw (only when different) and Details MUST be sibling `DisclosureGroup`s, independent bindings, both closed on each newly opened transcript. Details: Target (friendly app + non-normal safety chip), Timings, least-sure word. No evidence → omit Details. Labels MUST carry ids + explicit default AX actions; the SwiftUI triangle reports successful press without toggling.
+- Search + app filter are ANDed. `Menu`-wrapped inline `Picker` exists only with delivery-target rows. Facets: count descending, display label, bundle id; app name from newest row. One `N of M sessions match` caption. Last matching app row disappears → drop filter. Menu re-sorts resolved labels; `RecentSessionQuery.appFacets` preserves its pure order.
+- `AppIdentity`: installed Finder display name > persisted name > `AppDisplayName.label(bundleId:name:)`; bundle id stays key, never display label. Icon: Home badge (monogram if uninstalled), History `Control.inlineIcon`; Target/filter chip have names only.
+- `InstalledAppCatalog`: sole bundle-id LaunchServices lookup, main-actor/process-lifetime cached. `RenderOverrides.installedApps` pins goldens. Live menu *Will paste into* uses `AppDisplayName` directly.
+
+## Visual vocabulary
+
+`DesignTokens.swift` owns values. App palette belongs to menu, island, Home only.
+
+| token / role | contract |
+| --- | --- |
+| `Ink.void` | opaque sRGB (0.02, 0.03, 0.05) |
+| `Text.high`, `Text.mid`, `Text.low` | (0.89, 0.91, 0.95); (0.64, 0.71, 0.80); (0.51, 0.56, 0.64) |
+| cyan / mint / amber / crimson | active-live-focus / success / degraded-waiting / failure-destructive |
+| `micro`, `caption`, `label` | 10 / 12 / 13 pt |
+| `tileValue`, `metric`, `heroMetric` | 20 / 32 / 64 pt |
+| `hair`, `xs`, `sm`, `md`, `lg`, `xl` | 2 / 4 / 8 / 12 / 16 / 24 pt |
+| controls | 24 / 28 / 32 / 40 pt; compact status marks: 20 pt |
+
+- One dominant signal colour/view. `Alien.bloom`/heat ladder: Home fill/glyph/glow only, NEVER text. Four steps = quartiles of busiest day; Differentiate Without Color substitutes size steps at one hue.
+- `OnGlass` cyan/mint/amber/crimson: system-glass text only, ≥4.5:1 against white and black; not painted/opaque grounds.
+- Home islands remain fixed-dark in either appearance. Paint `Ink.pane` + `glassTint` + specular/`Alien` rims; NEVER stack another material over the glass ground. Declare `surfaceGround` for contrast lint.
+- `MenuBarExtra(.window)`: 280 pt, three whitespace-separated blocks: Status (state, optional mute, Fn, headline), Report (failure/transcript/outcome; absent when empty), Actions (primary + grouped commands). Download/warmup MUST stay visible; re-poll health while acquisition advances.
+- Motion: quick 0.14 s, standard 0.18 s, deliberate 0.22 s. MUST respect Reduce Motion. Animate menu report/state resizing; native console keeps system behavior; resting settings stay static except the Island showroom (live only while visible, still under Reduce Motion).
+- Controls MUST have stable human labels. NEVER encode state only in colour. Chips/marks carry words; Differentiate Without Color adds symbols. Captions stay separate from control AX labels. Gesture-only behavior requires named AX actions; completion announces.

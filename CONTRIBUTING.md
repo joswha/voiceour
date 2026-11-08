@@ -2,7 +2,7 @@
 
 Development is fake-first: you can build, test, and run the app without downloading the model or granting system permissions. `make dev` runs the fake backend in this terminal; `make self-test` is the launch-path check on that same path.
 
-[README.md](README.md#development) owns setup and the product's technical contract. [AGENTS.md](AGENTS.md) owns engineering invariants, verification and release workflows, including the [complete command matrix](AGENTS.md#developer-commands).
+[README.md](README.md#development) owns setup and the product's technical contract. [AGENTS.md](AGENTS.md) maps the engineering contracts and lists the [everyday commands](AGENTS.md#developer-commands).
 
 ## Before you open a PR
 
@@ -23,8 +23,8 @@ CI uses the `xcode-27` preview runner and asserts macOS 27, Xcode 27, SDK 27, Sw
 - Keep the change narrow. Say which observable behavior changes and why.
 - Name the smallest verification that proves the change works.
 - Do not add compatibility shims for internal APIs. Update every caller instead.
-- Update `README.md` for the product contract and `AGENTS.md` for engineering invariants. Specialist docs hold supporting derivations, measurement records and harness details, not competing specifications.
+- Update `README.md` for the product contract and the owning contract doc for engineering rules; [AGENTS.md](AGENTS.md#contracts) maps them. Specialist docs hold supporting derivations, measurement records and harness details, not competing specifications.
 - Add a bullet to [CHANGELOG.md](CHANGELOG.md) under `Unreleased` when the change is user-visible.
-- Do not bump the version or add a release heading to the changelog in a PR. Releasing is a local maintainer operation; [AGENTS.md](AGENTS.md#release-procedure) has the procedure.
+- Do not bump the version or add a release heading to the changelog in a PR. Releasing is a local maintainer operation; [docs/release.md](docs/release.md) has the procedure.
 - Commit intended UI goldens and flow journals together with the behavior change that requires them.
 - Keep build artifacts and raw per-utterance benchmark output out of the commit.

@@ -1,0 +1,47 @@
+# ASR sidecar and model
+
+The `voiceour-asr` protocol, the Granite model contract and the vendored sources. [AGENTS.md](../AGENTS.md) maps the other contracts; [`.omp/RULES.md`](../.omp/RULES.md) holds the invariants every change keeps.
+
+## ASR sidecar protocol
+
+NDJSON v1 over stdin/stdout; stdout protocol-only, stderr continuously drained.
+
+- MUST validate version 1 on every response, not just `hello`; mismatch is connection-fatal.
+- Startup `hello`: sidecar version, backend id/status, capabilities. Requests: `health`, `transcribe`, `cancel`. Wire `backend_id` (hello/result) is the implementation id, not the registry id: `granite-ctc`, `fake`.
+- Decode work serialized; health/cancel remain readable on the reader thread. Every decode request MUST produce exactly one terminal `result`, `error`, or `cancelled` with the original request id.
+- `health`: `ready`, `model_loaded`, `cache_ok`; optional download fraction, warming state, unresolved acquisition failure. Failure = `ASRErrorCode` + diagnostic detail; both omission and presence MUST decode. No parallel taxonomy.
+- `transcribe`: id, WAV metadata, `expected_model` (`model_id`, `revision`, `file`), timeout, optional `spot_terms` (`[{"variants": [String]}]`, position = term index; omitted when empty; sidecar refuses >1,000 terms, 0 or >64 variants, empty or >256-character variants with `invalid_request`). WAV header is authoritative: 16 kHz mono 16-bit PCM. Dictation client deadline 30 s; timeout → `cancel`, 500 ms grace, kill child.
+- `result.transcript.term_spots`: renderable spots only (`term`, `variant`, `first_word`, `last_word`, `score`, `token_count`); present, possibly empty, when the request carried `spot_terms` and the backend spots; omitted otherwise (`fake` never spots). Granite spots on the decode queue under the decode lock, right after the decode and before the next run overwrites its logits: `CTCWordSpotter` over the context's logits with patterns from the context's own tokenizer (encoder built once per loaded context, patterns cached by the exact variant lists). A spotting failure returns the transcript without `term_spots`, never a failed decode. Omission and presence of both fields MUST decode.
+- Request handling NEVER downloads. Cold cache → immediate `model_not_installed`; preload thread acquires.
+- MUST preserve ids end-to-end. Valid responses for retired ids are stale work, not framing errors.
+- One persistent sidecar/client. Timeout, malformed frame, EOF, crash → fail pending work; allow later clean spawn. Inference failure → terminal error then sidecar exit.
+- Line reader MUST pass exact `Data`; validate UTF-8 and reject literal NUL before Foundation's UTF-16/32 detection. NEVER repair malformed bytes; preserve legitimately encoded replacement characters.
+- Invalid JSON/schema/type/version → fail all pending requests and terminate that process. Identity checks MUST discard buffered valid tails and stale callbacks. Invalid greeting → `incompatibleHello`; EOF before greeting → `noHello`.
+- Server owns preload thread; set shutdown before EOF exit; bounded joins only. NEVER follow bounded shutdown with unbounded Darwin `waitUntilExit()`.
+- Successful load MUST clear both load-failure and acquisition-failure latches. Sidecar owns acquisition diagnosis; app infers only where the sidecar states nothing.
+- Serialize model-context construction/freeing under load ownership; concurrent contexts can destroy ggml's shared Metal device. Idle release after 30 minutes; next request reloads.
+- MUST change protocol models, client/server encoding, and `fixtures/protocol/` together.
+
+## Model contract and vendor rules
+
+Backend `granite` is the only recognizer and the default, `ASRBackendRegistry.defaultDescriptor`. A persisted backend, whatever its id, is honored only under `--debug` (`LaunchOptions.persistedBackend`): a release build has no picker and every launch writes its resolved backend into settings, so honoring the file would pin a release install to an earlier launch's choice. Precedence: [`VOICEOUR_ASR_BACKEND`](runtime.md#environment-seams). The pinned artifact is listed under [Model pin](../AGENTS.md#model-pin); `GraniteModelContract` is its source.
+
+- `GraniteModelContract` (VoiceCore) owns the pin, one `public static let` per line: `make check-docs` and `scripts/bundle.sh` parse it. `ASRModelArtifact.granite` carries the running artifact to readiness, diagnostics, bench metadata; `ASRBackendDescriptor.modelArtifact` is that artifact, `nil` for `fake`.
+- MUST update id/revision/file/digest/size, `supersededPins`, descriptors, manifest, README, AGENTS, NOTICE, fixtures, tests as one contract. `make check-docs` extracts pins from `GraniteModelContract` in `Sources/VoiceCore/ASRProtocol.swift`; both root docs MUST name/hash the artifact; NOTICE credits the file and the source checkpoint/revision.
+- `ASRModelVariant` is an enum of retired Parakeet precision tags (`f16`, `q8` = `q8_0`, `default`) read by no backend, kept only for VoiceCore's external consumers (`../syncour`); the persisted `asr_model_variant` key still round-trips. NEVER give Granite an `ASRModelVariant` case or select a model from it.
+- Single artifact, no variant. Settings ▸ Model always shows the fixed model (`voice.model.granite`). Diagnostics identifier `<id>@<rev> (<file>)`. Backend changes require restart; restart removes the `VOICEOUR_ASR_BACKEND` override.
+- Cache root: `~/Library/Caches/Voiceour/`. Granite directory `granite-speech-5.0-470m-turboctc-q8_0/` + `manifest.json`: `model_id`, `revision`, `file`, `sha256`, `size_bytes`. `ModelCache` owns acquisition, `cacheOK`, digest, idle-unload, reacquire-once.
+- `cacheOK` = full manifest matches the pin AND file size matches; no hash here. Download completion verifies digest. Load failure rehashes; mismatch removes GGUF + manifest and reacquires once/process.
+- Acquisition: preload thread only; ephemeral session; three resumable attempts; remaining bytes + 256 MiB free required before fetching.
+- Granite prunes nothing in its cache. A manifest naming one of `GraniteModelContract.supersededPins` in the app directory is cleared (its GGUF + manifest) and the current pin acquired; under `VOICEOUR_MODEL_CACHE` it is refused like any mismatch. Re-pinning MUST append the replaced pin to `supersededPins`. NEVER delete under caller-owned `VOICEOUR_MODEL_CACHE`. Changing `HOME` does not relocate the cache; cold-download checks need an explicit empty cache directory.
+- Retired Parakeet cache directories `parakeet-tdt-0.6b-v3-ggml` and `parakeet-tdt-0.6b-v3-ggml-q8_0` are swept at launch from the app cache root only, never under `VOICEOUR_MODEL_CACHE`; failures are logged and never block launch.
+- No arena. GGUF mapped read-only (`MAP_SHARED`, `PROT_READ`) into backend buffers when the device accepts host pointers, else uploaded; NEVER write mapped memory. Cache ≈ artifact size.
+- Cancellation: abort callback polled only at `granite.h` stage boundaries (before frontend, before graph compute, after compute/before CTC decode); a cancel can wait one full graph compute. NEVER install a Metal abort callback (vendored Metal `n_cb=3`).
+- Short input: right-pad zeros to the minimum sample count yielding one encoder frame after both subsamplers, computed from hparams (1,120 for the pin); 0 samples → empty transcript.
+- Transcript: special tokens never text. `<|nospeech|>` emitted and decoded text has no Unicode letter/number → empty transcript. Language: `DictationLanguage.detect(text)` code, nil when undetermined or empty; `greedyTokenProb` = CTC first-frame posterior; word times = frame × `granite_ms_per_frame`.
+- Promotion record: repository owners made `granite` the default on 2026-11-03 by explicit decision with three blockers open: the [paired real-speaker gate](benchmarks.md#paired-fixed-corpus-promotion-gate) rejected it on public corpora, no cross-SoC replication, personal-repository artifact (since rebuilt reproducibly from IBM's files). [Measurements](benchmarks.md#granite-evaluation-backend--2026-11-03).
+- `Vendor/granite/`: adapted MIT port of transcribe.cpp `src/arch/granite5_ctc` @ `5700f127e38dd53c4735ea23ef743b4b538eacd4` onto `Vendor/ggml`; not a verbatim drop. `NOTICE.md` MUST map every file to its upstream source and adaptations; `LICENSE` is upstream's verbatim. NEVER vendor or change ggml there; ggml changes follow the `Vendor/ggml` patch rules below. `granite.h` declarations frozen; additive only. Native logs only via `granite_log_set` (honours `VOICEOUR_ASR_LOG`), NEVER stdout. Fix warnings at source.
+- Vendor pin: `ggml-org/whisper.cpp` commit `592feef04a1802b18cbeffd0fd0eb5d02570c2ec` (v1.9.2 lineage); `Vendor/ggml/` preserves upstream-relative paths (`Vendor/ggml/ggml/...`, `Vendor/ggml/LICENSE`).
+- Every ggml upstream-file change MUST carry `VOICEOUR PATCH`, an ordered `Vendor/ggml/patches/*.patch`, and a `Vendor/ggml/NOTICE.md` entry. Fix warnings at source; NEVER suppress them.
+- `scripts/vendor_ggml.sh --check`: exact file set + byte-reproducible embedded Metal; with upstream checkout, exact pin-plus-patches equality. `scripts/vendor_ggml.sh <upstream>` refreshes the vendored tree.
+- NEVER add `-mcpu=native` or attempt a universal build. `Vendor/ggml/ggml/embed/ggml-metal-embed.c` enforces arm64. Intel would require x86 `ggml/src/ggml-cpu/arch/x86/{quants.c,repack.cpp}`, manifest/NOTICE changes, and per-architecture targets: SwiftPM has no architecture build condition.

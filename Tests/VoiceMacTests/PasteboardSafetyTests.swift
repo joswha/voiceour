@@ -102,7 +102,7 @@ struct PasteboardSafetyTests {
     /// `.normalText` is the only class the policy will paste into, and nothing can
     /// widen that. The previous version of this policy took a
     /// `copyOnlyUnknownRisky` flag; no production caller ever passed `false`, but
-    /// the knob contradicted the rule in AGENTS.md and became a live fail-open
+    /// the knob contradicted the rule in docs/runtime.md and became a live fail-open
     /// route once a failed AX inspection started resolving to `.unknownRisky`.
     @Test func onlyNormalTextIsEverPasteable() {
         for safety in [TargetSafetyClass.secure, .terminal, .codeEditor, .unknownRisky] {
