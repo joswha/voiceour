@@ -19,6 +19,9 @@ struct AsyncGenerationGate {
         /// The stop pipeline. Bumped by cancel and error paths as well as by a
         /// newer stop, because those also invalidate an in-flight result.
         case processing
+        /// An agent-log link pass. Invalidated when linking is turned off or History is
+        /// cleared, so a late pass cannot write links back.
+        case agentLinking
     }
 
     /// A claim on one scope, taken before launching async work.

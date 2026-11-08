@@ -155,6 +155,23 @@ struct ConsoleSettingsTab: View {
                         Text("Data handling")
                     }
                 }
+                ConsoleRow(
+                    caption:
+                        "Reads the prompt logs omp, Claude Code and Codex keep in your home folder (~/.omp, "
+                        + "~/.claude, ~/.codex) to show which agent session a dictation went into. Nothing "
+                        + "leaves this Mac. Turning this off removes every link."
+                ) {
+                    // Not `settingBinding`: turning linking on resolves History's rows and
+                    // turning it off removes their links, and a bare setting write does neither.
+                    Toggle(
+                        "Link dictations to agent sessions",
+                        isOn: Binding(
+                            get: { coordinator.settings.agentSessionLinkingEnabled },
+                            set: { coordinator.setAgentSessionLinking($0) }
+                        )
+                    )
+                    .accessibilityIdentifier("system.agent-links.toggle")
+                }
             } header: {
                 Text("Privacy")
             }

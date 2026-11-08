@@ -51,15 +51,17 @@ idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> c
 - Settings/history/ledger writes MUST be owner-only, atomic per file, off-main, on one detached FIFO tail. No cross-file transaction. History write failure MUST report “Dictation history could not be saved.” without blocking delivery or later saves.
 - Unreadable settings/history/ledger → quarantine as `<name>.corrupt-<ISO8601>` and report reset + filename. Island values NEVER trigger it: `Settings.island` falls back per field ([Recording island](recording-island.md)). NEVER suppress write failures.
 - History: one file, newest-first, max 500. Fold ledger from the same journaled row in the same main-actor turn; enqueue both snapshots. Secure target → neither; every other disposition → both. Home and first-run checks read both records.
+- Agent session links (`RecentSession.agentLink`): nil = unresolved, `.linked`, or `.unmatched` once the 30-minute send window closes. Only while `Settings.agentSessionLinkingEnabled` (off by default): a pass reads `AgentPromptReading` (`AgentPromptLogReader`: omp, Claude Code, Codex logs under `HOME`; read-only, incremental) and runs `AgentSessionLinker` off-main, one pass at a time, and writes through the journal FIFO; `AsyncGenerationGate` scope `.agentLinking` discards a pass that lands after linking turns off or History clears. Turning linking off removes every link. A malformed link decodes as unresolved, NEVER quarantines History. Matching rules and thresholds live in `AgentSessionLinker`; changing them requires measured link counts on real History.
 - Ledger: sessions/words/seconds by local day and destination bundle id; totals, active days, longest streak; no text/session ids. Prune day buckets >400 days before the recorded day, preserving totals, active-day count, and longest streak. Empty ledger → remove file. Retired `dictation-stats.json` is swept at launch.
 - App buckets MUST NOT be capped/pruned. Keep sessions/words/seconds, last non-nil display name, latest day key.
 - Missing ledger → seed once from remaining History. Missing `captureMs` contributes words and zero seconds. `totalSessions > 0 && apps.isEmpty` → seed app buckets only; NEVER recount totals.
 - Clear History erases History + ledger. Clear Vocabulary removes user terms and restores surviving bundled terms' shipped surfaces.
-- Diagnostics MUST include build/backend/model/health/permissions/microphone/session-count/storage paths. NEVER transcript text.
+- Diagnostics MUST include build/backend/model/health/permissions/microphone/session-count/agent-link setting/storage paths. NEVER transcript text.
 
 ## Local-first and network policy
 
 - Only compiled model URL: Granite's pinned host/repository/revision and digest. NEVER network text processing, telemetry, crash reporting, accounts, update checks, arbitrary URLs, or a second recognizer beyond `granite`.
+- Agent prompt logs are read from the local home folder only while agent session linking is on; NEVER written, uploaded, or read for anything but linking History rows.
 - Sidecar env allowlist: `PATH`, `HOME`, `TMPDIR`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` + lowercase forms, `SSL_CERT_FILE`, `VOICEOUR_*`. NEVER inherit full parent env. Always write `VOICEOUR_ASR_BACKEND`, `VOICEOUR_PRELOAD=1`.
 - No credential UI, credential environment contract, configurable base URL, secret store, or keychain item. `Resources/Voiceour.entitlements`: audio-input only; no provisioning profile. Data-protection Keychain is unavailable: `SecItemAdd` returns `errSecMissingEntitlement` (-34018); ad-hoc `keychain-access-groups` fails AMFI. NEVER add a feature depending on it.
 

@@ -33,6 +33,7 @@ enum DiagnosticsReport {
         lines.append("APPLICATION")
         lines.append("  version: \(appVersion) (build \(appBuild))")
         lines.append("  saved sessions: \(coordinator.recentSessions.count)")
+        lines.append("  agent session links: \(coordinator.settings.agentSessionLinkingEnabled ? "on" : "off")")
         lines.append("  self-test: \(selfTestCommand)")
 
         lines.append("")

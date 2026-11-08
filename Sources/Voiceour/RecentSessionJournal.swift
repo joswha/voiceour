@@ -23,6 +23,7 @@ extension DictationCoordinator {
     @discardableResult
     public func clearRecentSessions() async -> Bool {
         guard !isPreparingForTermination else { return false }
+        generations.invalidate(.agentLinking)
         recentSessions = []
         return await enqueueJournalSnapshot().value
     }

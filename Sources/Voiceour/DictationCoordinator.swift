@@ -103,6 +103,13 @@ public final class DictationCoordinator {
     let dictationStatsStore: DictationStatsStore
     let audioMuter: SystemAudioMuting
     let sessionCues: SessionCuePlaying
+    let agentPrompts: AgentPromptReading
+    /// The agent-log link pass in flight; see `resolveAgentSessionLinks()`.
+    @ObservationIgnored
+    var agentLinkTask: Task<Void, Never>?
+    /// A link pass was asked for while one was in flight; it runs when that one lands.
+    @ObservationIgnored
+    var agentLinkRerunRequested = false
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
@@ -171,6 +178,7 @@ public final class DictationCoordinator {
         },
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
         sessionCues: SessionCuePlaying = NoOpSessionCuePlayer(),
+        agentPrompts: AgentPromptReading = NoAgentPromptReading(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
         },
@@ -190,6 +198,7 @@ public final class DictationCoordinator {
         self.dictationStatsStore = dictationStatsStore
         self.audioMuter = audioMuter
         self.sessionCues = sessionCues
+        self.agentPrompts = agentPrompts
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
         // Two durable files, both moved aside rather than overwritten when they
@@ -573,7 +582,8 @@ public final class DictationCoordinator {
             activeASRBackend: backend,
             settingsStore: store,
             audioMuter: audioMuter,
-            sessionCues: sessionCues
+            sessionCues: sessionCues,
+            agentPrompts: AgentPromptLogReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         )
         if let settingsFailure {
             coordinator.errorMessage = settingsFailure
