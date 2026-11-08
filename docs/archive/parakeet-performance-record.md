@@ -2,7 +2,7 @@
 
 # Parakeet performance record
 
-Measurements were taken on an Apple M4 Pro (10 performance + 4 efficiency cores, 24 GB). Everything below is dated 2026-08-15 on macOS 26.5.2, except the 2026-09-01 quantization correction, which re-measures that one comparison on macOS 26.6.2, and the 2026-09-04 Core ML encoder comparison.
+Measurements were taken on an Apple M4 Pro (10 performance + 4 efficiency cores, 24 GB). Everything below is dated 2026-08-15 on macOS 26.5.2, except the 2026-09-01 quantization correction, which re-measures that one comparison on macOS 26.6.2, the 2026-09-04 Core ML encoder comparison, and the 2026-09-15 Core AI encoder experiment.
 
 ## Model and runtime
 
@@ -17,12 +17,14 @@ Measurements were taken on an Apple M4 Pro (10 performance + 4 efficiency cores,
 
 The 2026-08-15 row-matched f16 reports had zero error rows:
 
-| tier | rows | U-WER | CER | ASR p50 / p95 | RTFx |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| LibriSpeech | 128 | 2.807% | 0.882% | 201.0 / 274.3 ms | 112.96 |
-| FLEURS | 64 | 4.416% | 1.929% | 90.5 / 125.3 ms | 99.93 |
+| tier | rows | U-WER | CER | case F1 | punctuation micro F1 | ASR p50 / p95 | RTFx |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LibriSpeech | 128 | 2.807% | 0.882% | n/a | n/a | 201.0 / 274.3 ms | 112.96 |
+| FLEURS | 64 | 4.416% | 1.929% | 0.9218 | 0.8380 | 90.5 / 125.3 ms | 99.93 |
 
 Reports: `benchmarks/results/20260815T172106Z-librispeech-parakeet-stt.json`, `benchmarks/results/20260815T172117Z-fleurs-parakeet-stt.json`.
+
+The reports carry no host metadata and predate the `model_file`, manifest and audio-manifest pins, so `compare.py` reads their artifact as `unknown` and no current report compares against them.
 
 ## Why f16 was the default
 
@@ -51,3 +53,7 @@ f16 remained the default, because this measurement could not carry a default cha
 Benchmarked against Desert Ant Labs' Voz, an independent export of the same checkpoint: its encoder runs p50 25.07 ms against the palettize6 standard tier's 30.50 ms on this M4 Pro (ratio 0.822, three runs), while additionally applying the joint's 1024→640 projection and returning 240,640 bytes instead of 770,048. The three candidate causes, in order: re-export on the current toolchain (coremlc 3520.5.1 against Voz's 3600.25.2), fp16 Core ML IO, and fusing the joint projection into the graph. Full measurement: [`research/external-voz-evaluation.md`](../../research/external-voz-evaluation.md).
 
 Voz itself was a non-candidate: the same Parakeet TDT 0.6B v3 weights in a 6-bit palettized graph this repository already built. Adopting it would have cost the macOS 14 fallback, a second vendor patch for its 640-channel output, a second pinned model family with four files the Hub publishes no digest for, and CC BY 4.0 traded for a source-available licence with an audit clause — to buy one stage.
+
+## Core AI encoder experiment — 2026-09-15
+
+A benchmark-only `voiceour-bench` route was built to compare a fixed 15 s Core AI export of the Parakeet encoder with one CoreML tier, with the native mel and ggml tail around it. `benchmarks/results/20260915T112526Z-coreai-encoder-experiment.json` records it as `conversion blocked`: the NeMo export stage lived on the devbox and that host was intentionally unreachable. The route and its adapter were unit-tested but never run against a real artifact. The Core AI measurement that did land came through Apple's `coreai-models` Transformers recipe, recorded in [benchmarks.md](../benchmarks.md#macos-27-native-model-prototypes--2026-09-16).

@@ -97,19 +97,6 @@ The gate deliberately refuses population claims. `--frozen-row-conditional` is a
 acknowledgement: `pass` applies only to those byte-pinned rows. Generalization requires a separately
 sealed speaker/session-clustered design and a calibrated population analysis.
 
-## Committed Parakeet baselines — 2026-08-15
-
-Recorded by the maintainer on an Apple M4 Pro under macOS 26.5.2, before the macOS 27 / Swift 6.4 migration. Both runs used the default f16 artifact, identical deterministic row selection, and zero error rows.
-
-| tier | rows | U-WER | CER | case F1 | punctuation micro F1 | ASR p50 / p95 | RTFx |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| LibriSpeech | 128 | 2.807% | 0.882% | n/a | n/a | 201.0 / 274.3 ms | 112.96 |
-| FLEURS | 64 | 4.416% | 1.929% | 0.9218 | 0.8380 | 90.5 / 125.3 ms | 99.93 |
-
-Reports: `benchmarks/results/20260815T172106Z-librispeech-parakeet-stt.json` and `benchmarks/results/20260815T172117Z-fleurs-parakeet-stt.json`.
-
-Corpus baselines, not universal product claims: corpus, size, model pin, hardware, and OS are part of the result. The reports carry no host metadata, and they predate the `model_file`, manifest, and audio-manifest pins. `compare.py` therefore reads their artifact as `unknown`, and a current report, which names its artifact, does not compare against them. Gate a change against a fresh baseline of the same tier and `N` on the same Mac.
-
 ## Noise robustness
 
 `bench/src/voiceour_bench/noise.py` writes additive-Gaussian-noise copies of a 64-utterance LibriSpeech subset — rows `000001` through `000032` of each split — at 20, 10, 5, and 0 dB SNR. It reads the prepared `benchmarks/data/librispeech/manifest.jsonl`, so prepare LibriSpeech with at least 32 rows per split first. Seed `20260718` is hashed with each row id and SNR through SHA-256, so regeneration is stable.
@@ -153,16 +140,6 @@ One macOS voice synthesizes every utterance, so the tier is an engineering smoke
 4. Add scorer behavior only when the manifest carries its evidence.
 5. Test malformed ids, missing references, and new metric boundaries.
 6. Produce a report with complete row-id evidence before baselining.
-
-## Core AI encoder experiment
-
-Dated 2026-09-15 record. A benchmark-only `voiceour-bench` route was built to compare a fixed 15 s
-Core AI export of the Parakeet encoder with one CoreML tier, with the native mel and ggml tail
-around it. `benchmarks/results/20260915T112526Z-coreai-encoder-experiment.json` records it as
-`conversion blocked`: the NeMo export stage lived on the devbox and that host was intentionally
-unreachable. The route and its adapter were unit-tested but never run against a real artifact.
-The Core AI measurement that did land came through Apple's `coreai-models` Transformers recipe,
-recorded in the section below.
 
 ## macOS 27 native model prototypes — 2026-09-16
 
