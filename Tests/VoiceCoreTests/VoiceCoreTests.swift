@@ -424,6 +424,45 @@ struct VoiceCoreTests {
         #expect(session.stages == nil)
     }
 
+    @Test func recentSessionAgentLinksRoundTrip() throws {
+        let match = AgentSessionMatch(
+            agent: .omp,
+            sessionId: "0190f6c2-5a1e",
+            workingDirectory: "/Users/v/voiceour",
+            sessionTitle: "BIND: Voice",
+            sentAt: Date(timeIntervalSinceReferenceDate: 100),
+            sentText: "deploy the kubectl cluster"
+        )
+        let sessions = [
+            RecentSession(
+                createdAt: Date(timeIntervalSinceReferenceDate: 60), text: "linked", agentLink: .linked(match)),
+            RecentSession(
+                createdAt: Date(timeIntervalSinceReferenceDate: 50), text: "unmatched", agentLink: .unmatched),
+        ]
+
+        let decoded = try JSONDecoder().decode([RecentSession].self, from: JSONEncoder().encode(sessions))
+
+        #expect(decoded == sessions)
+    }
+
+    /// A link History cannot read must not cost the row: it decodes as
+    /// unresolved, and the next link pass resolves it again.
+    @Test func recentSessionWithUnknownAgentLinkStatusDecodesUnresolved() throws {
+        let json = """
+            {
+              "id": "00000000-0000-0000-0000-000000000102",
+              "createdAt": 42,
+              "text": "written by a later version",
+              "agentLink": {"status": "bogus"}
+            }
+            """
+
+        let session = try JSONDecoder().decode(RecentSession.self, from: Data(json.utf8))
+
+        #expect(session.text == "written by a later version")
+        #expect(session.agentLink == nil)
+    }
+
     @Test func recentSessionOutcomeWrittenBeforeAppNamesDecodesNilName() throws {
         let legacyJSON = """
             {

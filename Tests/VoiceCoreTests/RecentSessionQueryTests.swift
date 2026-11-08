@@ -201,6 +201,48 @@ struct RecentSessionQueryTests {
         #expect(filtered.map(\.text) == ["has a target"])
     }
 
+    // MARK: Agent-session filter
+
+    @Test func theAgentSessionFilterIsAndedWithTheQueryAndTheAppFilter() {
+        let utc = calendar("UTC")
+        let target = AgentSessionKey(agent: .omp, sessionId: "a")
+        func linked(_ session: RecentSession, to key: AgentSessionKey) -> RecentSession {
+            var session = session
+            session.agentLink = .linked(
+                AgentSessionMatch(
+                    agent: key.agent,
+                    sessionId: key.sessionId,
+                    workingDirectory: nil,
+                    sessionTitle: nil,
+                    sentAt: session.createdAt,
+                    sentText: nil
+                )
+            )
+            return session
+        }
+        let sessions = [
+            linked(session("ship it", at: "2026-03-01T09:00:00Z", bundleId: "so.stencil.tern"), to: target),
+            linked(session("ship it", at: "2026-03-01T10:00:00Z", bundleId: "com.apple.Terminal"), to: target),
+            linked(session("unrelated", at: "2026-03-01T11:00:00Z", bundleId: "so.stencil.tern"), to: target),
+            linked(
+                session("ship it", at: "2026-03-01T12:00:00Z", bundleId: "so.stencil.tern"),
+                to: AgentSessionKey(agent: .claudeCode, sessionId: "a")
+            ),
+            session("ship it", at: "2026-03-01T13:00:00Z", bundleId: "so.stencil.tern"),
+        ]
+
+        let matches = RecentSessionQuery.matches(
+            in: sessions,
+            query: "ship",
+            appBundleId: "so.stencil.tern",
+            agentSession: target,
+            timestamp: timestamp(utc),
+            dayHeader: dayHeader(utc)
+        )
+
+        #expect(matches.map(\.createdAt) == [sessions[0].createdAt])
+    }
+
     // MARK: App facets
 
     @Test func facetsCountRowsPerAppAndRankByCount() {

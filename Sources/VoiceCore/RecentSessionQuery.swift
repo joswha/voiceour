@@ -40,27 +40,29 @@ public struct RecentSessionAppFacet: Equatable, Sendable, Identifiable {
 /// `now` explicitly. Nothing here reads the current date or locale implicitly,
 /// which is what makes a boundary case expressible in a test.
 public enum RecentSessionQuery {
-    /// Sessions newest first, filtered to `appBundleId`'s delivery target when
-    /// one is given, then by `query` against transcript text and the two
-    /// rendered timestamp forms the list shows.
+    /// Sessions newest first, filtered to `appBundleId`'s delivery target and
+    /// to rows linked to `agentSession` when given, then by `query` against
+    /// transcript text and the two rendered timestamp forms the list shows.
     ///
     /// Matching the rendered strings rather than the `Date` is deliberate: the
     /// user searches for what they can see, so "14:32" and "Sunday" both work.
-    /// `query` is expected pre-trimmed; an empty query and a nil filter match
+    /// `query` is expected pre-trimmed; an empty query and nil filters match
     /// everything.
     public static func matches(
         in sessions: [RecentSession],
         query: String,
         appBundleId: String?,
+        agentSession: AgentSessionKey? = nil,
         timestamp: (Date) -> String,
         dayHeader: (Date) -> String
     ) -> [RecentSession] {
         let sorted = sessions.sorted { $0.createdAt > $1.createdAt }
-        guard query.isEmpty == false || appBundleId != nil else { return sorted }
+        guard query.isEmpty == false || appBundleId != nil || agentSession != nil else { return sorted }
         return sorted.filter { session in
             guard appBundleId == nil || session.outcome?.targetBundleId == appBundleId else {
                 return false
             }
+            guard agentSession == nil || session.agentLink?.match?.key == agentSession else { return false }
             guard !query.isEmpty else { return true }
             return session.text.localizedCaseInsensitiveContains(query)
                 || timestamp(session.createdAt).localizedCaseInsensitiveContains(query)

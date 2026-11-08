@@ -106,6 +106,21 @@ public struct NoOpSystemAudioMuter: SystemAudioMuting {
     public func restore() async {}
 }
 
+/// Reads the prompts coding agents keep in their local logs.
+public protocol AgentPromptReading: Sendable {
+    /// Every prompt the supported agents recorded as sent at or after `since`,
+    /// in any order. Unreadable sources contribute nothing.
+    func prompts(sentSince since: Date) -> [AgentPrompt]
+}
+
+public struct NoAgentPromptReading: AgentPromptReading {
+    public init() {}
+
+    public func prompts(sentSince since: Date) -> [AgentPrompt] {
+        []
+    }
+}
+
 /// Plays a session cue through whatever the default output device is.
 ///
 /// Fire-and-forget: `play` returns once the sound has been started, never when it

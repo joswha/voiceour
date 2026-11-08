@@ -90,6 +90,8 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var rawTranscript: String?
     public var stages: SessionStageTimings?
     public var leastConfidentWord: LeastConfidentWord?
+    /// The agent session this row's text was sent into; nil until resolved.
+    public var agentLink: AgentSessionLink?
     public var wordCount: Int { WordCount.count(in: text) }
 
     enum CodingKeys: String, CodingKey {
@@ -103,6 +105,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         // The pre-overhaul wire name, so histories written before the overhaul
         // regain the field on decode.
         case leastConfidentWord
+        case agentLink
     }
 
     public init(
@@ -113,7 +116,8 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         outcome: RecentSessionOutcomeMetadata? = nil,
         rawTranscript: String? = nil,
         stages: SessionStageTimings? = nil,
-        leastConfidentWord: LeastConfidentWord? = nil
+        leastConfidentWord: LeastConfidentWord? = nil,
+        agentLink: AgentSessionLink? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -123,6 +127,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         self.rawTranscript = rawTranscript
         self.stages = stages
         self.leastConfidentWord = leastConfidentWord
+        self.agentLink = agentLink
     }
 
     public init(from decoder: Decoder) throws {
@@ -135,6 +140,9 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         rawTranscript = try container.decodeIfPresent(String.self, forKey: .rawTranscript)
         stages = try container.decodeIfPresent(SessionStageTimings.self, forKey: .stages)
         leastConfidentWord = try container.decodeIfPresent(LeastConfidentWord.self, forKey: .leastConfidentWord)
+        // A malformed link never quarantines History: it decodes as unresolved
+        // and is resolved again.
+        agentLink = try? container.decodeIfPresent(AgentSessionLink.self, forKey: .agentLink)
     }
 }
 
