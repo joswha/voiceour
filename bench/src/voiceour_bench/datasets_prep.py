@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import datasets.config
+import huggingface_hub.constants
 import soundfile as sf
 from datasets import Audio, load_dataset
 
@@ -291,23 +293,43 @@ def prepare_techterms(root: Path | None = None) -> Path:
 
 @contextmanager
 def _hf_cache_env(root: Path):
+    """Keeps this process's Hugging Face downloads under `benchmarks/data/hf-cache`.
+
+    `datasets` and `huggingface_hub` resolve their cache directories from the environment when
+    they are imported, which is before this runs, so setting the environment alone moved nothing:
+    every download landed in `~/.cache/huggingface`. Both libraries read the resolved paths below
+    at call time, so those are redirected for the duration; the environment covers child processes.
+    """
     cache = benchmarks_data_dir(root) / "hf-cache"
     cache.mkdir(parents=True, exist_ok=True)
-    old_hf_home = os.environ.get("HF_HOME")
-    old_datasets_cache = os.environ.get("HF_DATASETS_CACHE")
-    os.environ["HF_HOME"] = str(cache)
-    os.environ["HF_DATASETS_CACHE"] = str(cache / "datasets")
+    datasets_cache = cache / "datasets"
+    downloads = datasets_cache / datasets.config.DOWNLOADED_DATASETS_DIR
+    environment = {
+        "HF_HOME": str(cache),
+        "HF_HUB_CACHE": str(cache / "hub"),
+        "HF_DATASETS_CACHE": str(datasets_cache),
+    }
+    resolved = [
+        (huggingface_hub.constants, "HF_HUB_CACHE", str(cache / "hub")),
+        (datasets.config, "HF_DATASETS_CACHE", datasets_cache),
+        (datasets.config, "DOWNLOADED_DATASETS_PATH", downloads),
+        (datasets.config, "EXTRACTED_DATASETS_PATH", downloads / datasets.config.EXTRACTED_DATASETS_DIR),
+    ]
+    saved_environment = {name: os.environ.get(name) for name in environment}
+    saved = [(module, name, getattr(module, name)) for module, name, _ in resolved]
+    os.environ.update(environment)
+    for module, name, value in resolved:
+        setattr(module, name, value)
     try:
         yield
     finally:
-        if old_hf_home is None:
-            os.environ.pop("HF_HOME", None)
-        else:
-            os.environ["HF_HOME"] = old_hf_home
-        if old_datasets_cache is None:
-            os.environ.pop("HF_DATASETS_CACHE", None)
-        else:
-            os.environ["HF_DATASETS_CACHE"] = old_datasets_cache
+        for module, name, value in saved:
+            setattr(module, name, value)
+        for name, value in saved_environment.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _to_mono_samples(array: Any) -> Any:

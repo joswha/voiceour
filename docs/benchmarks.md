@@ -4,7 +4,7 @@ These benchmarks measure local speech recognition, deterministic cleanup, techni
 
 This file is a supporting measurement appendix, not a product specification. [README.md](../README.md#model-and-network-contract) owns the recognizer and the network contract; [README.md](../README.md#verification) owns which gates a change must pass; [AGENTS.md](../AGENTS.md#developer-commands) owns command conventions. The tier, command, row-identity, metric, and gate sections describe the current tooling. Every dated section is a measurement record bound to its corpus, model pin, hardware, and OS: it is neither a product claim nor a promise about another Mac, and no experiment route described here changes the recognizer.
 
-Preparation is deterministic first-N selection: two runs with the same `--tier` and `--n` cover the same rows. Latency measurements live in [performance-roadmap.md](performance-roadmap.md).
+Preparation is deterministic first-N selection: two runs with the same `--tier` and `--n` cover the same rows. Hugging Face downloads stay in `benchmarks/data/hf-cache/`, never in `~/.cache/huggingface`; deleting that directory frees the space, and the next preparation downloads again. Latency measurements live in [performance-roadmap.md](performance-roadmap.md).
 
 ## Tiers
 
