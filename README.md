@@ -284,7 +284,7 @@ make check
 
 - `make build` treats every Swift, C, and C++ warning as an error.
 - `make test` runs the Swift suites, harness suites included, on the fake backend.
-- `make check-docs` checks that README.md, AGENTS.md, and NOTICE match the compiled Granite model pin and that every `make` target and script path a live doc names exists.
+- `make check-docs` checks that README.md and NOTICE match the compiled Granite model pin and that every `make` target and script path a live doc names exists.
 - `make self-test` launches the debug app with `--self-test`, which checks cleanup output and target classification.
 - `make ui-flow` runs the semantic UI journeys, and `make ui-mercury-bench` enforces the recording island's quality and speed gates.
 - `make bench-smoke` runs the offline benchmark path on the fake backend.
@@ -427,7 +427,7 @@ Two things that are especially welcome:
 A topic is described in exactly one place:
 
 - **README.md** (this file) — the product and technical contract: behavior, architecture, data, model and network, safety, non-goals, development, and verification.
-- **[AGENTS.md](AGENTS.md)** — the engineering map: boundaries, the model pin, everyday commands, git rules, and which contract governs each part of the code. [`.omp/RULES.md`](.omp/RULES.md) holds the invariants every change keeps.
+- **[AGENTS.md](AGENTS.md)** — the engineering map: boundaries, everyday commands, git rules, and which contract governs each part of the code. [`.omp/RULES.md`](.omp/RULES.md) holds the invariants every change keeps.
 - **Engineering contracts** — [runtime](docs/runtime.md), [text stages and glossary](docs/text-pipeline.md), [ASR sidecar and model](docs/asr.md), [native UI](docs/console-ui.md), [recording island](docs/recording-island.md), [release procedure](docs/release.md), and the harness [invariants](docs/ui-harness.md#invariants).
 
 Specialist documents hold derivations, measurements, and runbooks. They never redefine what the app does:

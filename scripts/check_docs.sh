@@ -37,7 +37,7 @@ granite_field sha256 granite_sha
 granite_field sourceCheckpoint granite_source
 granite_field sourceRevision granite_source_revision
 
-for doc in README.md NOTICE AGENTS.md; do
+for doc in README.md NOTICE; do
   if [ ! -f "$ROOT/$doc" ]; then
     fail "$doc is missing"
     continue
@@ -50,7 +50,7 @@ for doc in README.md NOTICE AGENTS.md; do
   fi
 done
 
-for doc in README.md AGENTS.md; do
+for doc in README.md; do
   [ -f "$ROOT/$doc" ] || continue
   if [ -n "$granite_file" ] && ! grep -Fq "$granite_file" "$ROOT/$doc"; then
     fail "$doc is missing Granite artifact file name $granite_file"
@@ -61,7 +61,7 @@ for doc in README.md AGENTS.md; do
 done
 
 # NOTICE credits the downloaded conversion by file name and the IBM checkpoint it was converted
-# from by repository and revision; the digest stays in the two canonical documents.
+# from by repository and revision; the digest stays in README.md.
 if [ -f "$ROOT/NOTICE" ]; then
   if [ -n "$granite_file" ] && ! grep -Fq "$granite_file" "$ROOT/NOTICE"; then
     fail "NOTICE is missing Granite artifact file name $granite_file"
@@ -203,4 +203,4 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
-printf '%s\n' "check_docs.sh: OK: README.md, NOTICE and AGENTS.md match Granite $granite_model_id@$granite_revision; README.md and AGENTS.md name and digest $granite_file; NOTICE credits $granite_file from $granite_source@$granite_source_revision"
+printf '%s\n' "check_docs.sh: OK: README.md and NOTICE match Granite $granite_model_id@$granite_revision; README.md names and digests $granite_file; NOTICE credits $granite_file from $granite_source@$granite_source_revision"
