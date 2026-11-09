@@ -123,7 +123,7 @@ gh issue edit <number> --add-label "bug,prio:p1,insertion,permissions"
 |42|Nothing pastes into Ghostty|bug, prio:p2, insertion||
 |38|Offer a Small model variant|enhancement, asr||
 |35|How do I teach a spelling?|question, glossary||
-|30|Universal build for Intel Macs|wontfix|arm64-only by design|
+|30|Universal build for Intel Macs|enhancement, wontfix|arm64-only by design|
 |27|Already labeled|—|Complete|
 ```
 
