@@ -1144,7 +1144,7 @@
                     host: .menu,
                     fixture: .static(.completedDictation),
                     steps: [
-                        // MenuTranscriptPreview.swift:57-59; fixtures/ui/menu.transcript.ax.txt:4.
+                        // MenuTranscriptPreview.swift:30-32; fixtures/ui/menu.transcript.ax.txt:4.
                         .check(
                             "available",
                             [

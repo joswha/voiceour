@@ -17,11 +17,11 @@ struct MenuReportBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
             if !text.isEmpty {
-                MenuTranscriptPreview(
-                    text: text,
-                    isCopied: isCopied,
-                    copy: copyTranscript
-                )
+                MenuTranscriptPreview(text: text, copy: copyTranscript)
+            }
+
+            if isCopied {
+                CaptionText("Copied to the clipboard.", color: VoiceourPalette.Signal.mint)
             }
 
             if let summary {

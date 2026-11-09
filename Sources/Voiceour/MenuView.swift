@@ -12,8 +12,9 @@ import VoiceCore
 ///   row, then the target line. The target line is suppressed whenever it would
 ///   contradict the state under it: it is a future-tense promise, and an error
 ///   means it cannot be kept while a finished outcome means it is already spent.
-/// * **report** — what just happened: the error, the transcript, the outcome
-///   detail. Absent entirely when there is nothing to report.
+/// * **report** — what just happened: the error, the transcript, the copy
+///   confirmation, the outcome detail. Absent entirely when there is nothing to
+///   report.
 /// * **actions** — one floating primary, then ONE bordered container holding the
 ///   remaining commands as zero-gap rows closed by inset rules. Four
 ///   independently filled and stroked plates for four peer commands read as
@@ -54,7 +55,6 @@ struct MenuView: View {
                 isGated: isGated,
                 dictationTitle: dictationTitle,
                 dictationRowTitle: dictationRowTitle,
-                savedSessionCountText: savedSessionCountText,
                 startOrStopDictation: { coordinator.toggle() },
                 failure: coordinator.lastFailure ?? coordinator.acquisitionFailure,
                 retry: { coordinator.warmUpBackend() }
@@ -82,6 +82,7 @@ struct MenuView: View {
             .animation(transition, value: coordinator.state)
             .animation(transition, value: coordinator.lastTranscript)
             .animation(transition, value: coordinator.errorMessage)
+            .animation(transition, value: didCopyTranscript)
             .onChange(of: coordinator.lastTranscript) {
                 didCopyTranscript = false
             }
@@ -237,10 +238,5 @@ struct MenuView: View {
         default:
             return .neutral
         }
-    }
-
-    private var savedSessionCountText: String {
-        let count = coordinator.recentSessions.count
-        return count == 1 ? "1 SAVED SESSION" : "\(count) SAVED SESSIONS"
     }
 }

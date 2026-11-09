@@ -6,7 +6,6 @@ struct MenuActionBlock: View {
     let isGated: Bool
     let dictationTitle: String
     let dictationRowTitle: String
-    let savedSessionCountText: String
     let startOrStopDictation: () -> Void
     /// The failure the rows offer a way out of, when there is one.
     let failure: UserFacingDictationFailure?
@@ -19,7 +18,6 @@ struct MenuActionBlock: View {
         isGated: Bool,
         dictationTitle: String,
         dictationRowTitle: String,
-        savedSessionCountText: String,
         startOrStopDictation: @escaping () -> Void,
         failure: UserFacingDictationFailure? = nil,
         retry: @escaping () -> Void = {}
@@ -27,7 +25,6 @@ struct MenuActionBlock: View {
         self.isGated = isGated
         self.dictationTitle = dictationTitle
         self.dictationRowTitle = dictationRowTitle
-        self.savedSessionCountText = savedSessionCountText
         self.startOrStopDictation = startOrStopDictation
         self.failure = failure
         self.retry = retry
@@ -37,9 +34,6 @@ struct MenuActionBlock: View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
             primaryAction
             commandGroup
-
-            Text(savedSessionCountText)
-                .roleStyle(.micro)
         }
     }
 

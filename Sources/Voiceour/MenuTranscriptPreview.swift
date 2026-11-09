@@ -10,48 +10,21 @@ import SwiftUI
 /// disappears with the transcript and the separator goes back to separating
 /// unrelated things.
 ///
-/// The box is pinned to one height for every transcript it can hold: `Row.list`
-/// of content, `Space.sm` of well padding, an 80 pt press target that does not
-/// move between a one-, two- and three-line transcript.
+/// The well holds the transcript and nothing else: its tooltip and accessibility
+/// label name the action, and `MenuReportBlock` confirms a copy under the well.
 struct MenuTranscriptPreview: View {
     let text: String
-    let isCopied: Bool
     let copy: () -> Void
 
     var body: some View {
         Button(action: copy) {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    Text("LAST TRANSCRIPT")
-                        .roleStyle(.micro)
-
-                    Spacer(minLength: VoiceourMetrics.Space.sm)
-
-                    Text(isCopied ? "COPIED" : "CLICK TO COPY")
-                        .roleStyle(.micro)
-                        .foregroundStyle(
-                            isCopied
-                                ? VoiceourPalette.Signal.mint
-                                : VoiceourPalette.Text.low
-                        )
-                }
-
-                Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .font(VoiceourTypography.caption)
-                    .foregroundStyle(VoiceourPalette.Text.high)
-                    .lineLimit(3)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            // Pinned rather than content-sized, for two reasons that resolve to
-            // the same number. The popover must not reflow its own height as
-            // transcripts change length, and `lineLimit(3)` bounds the content
-            // at 62 pt — the 13 pt `.micro` header row, `Space.xs`, and three 15 pt
-            // caption lines — so `Row.list` clears the tallest case. It is also
-            // the smallest measure that keeps the press target on the control
-            // scale: 64 plus the well's own `Space.sm` padding is 80.
-            .frame(minHeight: VoiceourMetrics.Row.list, alignment: .topLeading)
+            Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                .font(VoiceourTypography.caption)
+                .foregroundStyle(VoiceourPalette.Text.high)
+                .lineLimit(3)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .buttonStyle(MenuWellButtonStyle())
         .accessibilityLabel("Copy last transcript")
@@ -94,7 +67,12 @@ private struct MenuWellBody: View {
     var body: some View {
         configuration.label
             .padding(VoiceourMetrics.Space.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // Pinned rather than content-sized: the popover must not reflow its
+            // own height as transcripts change length. Three 15 pt caption lines
+            // and the `Space.sm` padding come to 61 pt, so one `Row.list` pitch
+            // holds the tallest transcript and keeps the press target on the row
+            // scale.
+            .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Row.list, alignment: .topLeading)
             .background {
                 ZStack {
                     MenuLayout.innerShape
