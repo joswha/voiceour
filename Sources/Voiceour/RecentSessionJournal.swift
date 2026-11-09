@@ -24,6 +24,7 @@ extension DictationCoordinator {
     public func clearRecentSessions() async -> Bool {
         guard !isPreparingForTermination else { return false }
         generations.invalidate(.agentLinking)
+        cancelAgentSessionWork()
         recentSessions = []
         return await enqueueJournalSnapshot().value
     }
@@ -31,6 +32,7 @@ extension DictationCoordinator {
     @discardableResult
     public func deleteRecentSession(id: RecentSession.ID) async -> Bool {
         guard !isPreparingForTermination else { return false }
+        cancelAgentSessionBinding(rowID: id)
         recentSessions = recentSessionStore.normalized(recentSessions.filter { $0.id != id })
         return await enqueueJournalSnapshot().value
     }

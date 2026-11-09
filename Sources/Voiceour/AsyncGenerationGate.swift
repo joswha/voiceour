@@ -19,8 +19,9 @@ struct AsyncGenerationGate {
         /// The stop pipeline. Bumped by cancel and error paths as well as by a
         /// newer stop, because those also invalidate an in-flight result.
         case processing
-        /// An agent-log link pass. Invalidated when linking is turned off or History is
-        /// cleared, so a late pass cannot write links back.
+        /// Agent-session bindings and refresh passes. Only observed, never begun,
+        /// so one binding cannot discard another's; invalidated only by turning
+        /// binding off and by Clear History, so a late landing cannot write back.
         case agentLinking
     }
 

@@ -121,7 +121,7 @@ struct ConsoleHistoryTab: View {
             inputMonitor.onTeach = { beginTeaching(surface: selectedSurface) }
             inputMonitor.start()
             reloadDerivedData()
-            coordinator.resolveAgentSessionLinks()
+            coordinator.refreshAgentSessions()
         }
         .onDisappear {
             inputMonitor.stop()
@@ -132,11 +132,11 @@ struct ConsoleHistoryTab: View {
         }
         .onChange(of: coordinator.recentSessions.map(\.id)) {
             reloadDerivedData()
-            coordinator.resolveAgentSessionLinks()
+            coordinator.refreshAgentSessions()
         }
-        // Rows are copied into the derived lists, and a link pass changes no id, so
-        // a link lands on screen only through this reload.
-        .onChange(of: coordinator.recentSessions.map(\.agentLink)) {
+        // Rows are copied into the derived lists, and neither a binding nor a refresh
+        // pass changes an id, so a binding lands on screen only through this reload.
+        .onChange(of: coordinator.recentSessions.map(\.agentSession)) {
             reloadDerivedData()
         }
         .onChange(of: searchText) {
@@ -158,7 +158,7 @@ struct ConsoleHistoryTab: View {
             showsSessionDetails = false
             // An open transcript's prompt may have been sent since the last pass.
             if newSelection != nil {
-                coordinator.resolveAgentSessionLinks()
+                coordinator.refreshAgentSessions()
             }
             // A row's own Copy command selects the row it copied, so retiring the
             // confirmation unconditionally here would erase the mark that copy just
@@ -207,10 +207,10 @@ struct ConsoleHistoryTab: View {
         if let appFilter, !appFacets.contains(where: { $0.bundleId == appFilter }) {
             self.appFilter = nil
         }
-        // Same for an agent session whose last linked row is gone, or whose links
+        // Same for an agent session whose last bound row is gone, or whose bindings
         // were removed with the setting.
         if let agentSessionFilter,
-            !coordinator.recentSessions.contains(where: { $0.agentLink?.match?.key == agentSessionFilter })
+            !coordinator.recentSessions.contains(where: { $0.agentSession?.key == agentSessionFilter })
         {
             self.agentSessionFilter = nil
         }
@@ -378,11 +378,11 @@ struct ConsoleHistoryTab: View {
         AppIdentity.resolve(bundleId: facet.bundleId, persistedName: facet.name).label
     }
 
-    /// The newest linked row's name for an agent session, which carries the
-    /// session's latest title; the agent's name if no row links to it.
+    /// The newest bound row's name for an agent session, which carries the
+    /// session's latest title; the agent's name if no row is bound to it.
     private func agentSessionLabel(_ key: AgentSessionKey) -> String {
         coordinator.recentSessions.lazy
-            .compactMap { $0.agentLink?.match }
+            .compactMap(\.agentSession)
             .first { $0.key == key }?
             .displayTitle ?? key.agent.displayName
     }
@@ -642,13 +642,15 @@ struct ConsoleHistoryTab: View {
                     appFilter = bundleId
                 }
             }
-            if let match = session.agentLink?.match {
+            if let binding = session.agentSession {
                 Button("Show Only This Agent Session") {
-                    agentSessionFilter = match.key
+                    agentSessionFilter = binding.key
                 }
-                Button("Copy Resume Command") {
-                    select(session)
-                    copy(match.resumeCommand, from: session, announcement: "Resume command copied to clipboard")
+                if binding.resumable {
+                    Button("Copy Resume Command") {
+                        select(session)
+                        copy(binding.resumeCommand, from: session, announcement: "Resume command copied to clipboard")
+                    }
                 }
             }
             Button("Delete Transcript\u{2026}", role: .destructive) {
@@ -752,7 +754,7 @@ struct ConsoleHistoryTab: View {
             rawRow(raw)
         }
 
-        if let sent = session.agentLink?.match?.sentText {
+        if let sent = session.agentSession?.sentText {
             sentRow(sent)
         }
 
@@ -885,7 +887,7 @@ struct ConsoleHistoryTab: View {
     /// agent session, no stage timings and no least sure word draws no empty
     /// Details row.
     private func hasSessionDetails(for session: RecentSession) -> Bool {
-        hasTargetDetails(for: session) || session.agentLink?.match != nil || session.stages != nil
+        hasTargetDetails(for: session) || session.agentSession != nil || session.stages != nil
             || session.leastConfidentWord != nil
     }
 
@@ -899,8 +901,8 @@ struct ConsoleHistoryTab: View {
         DisclosureGroup(isExpanded: $showsSessionDetails) {
             targetRow(for: session)
 
-            if let match = session.agentLink?.match {
-                agentRow(match)
+            if let binding = session.agentSession {
+                agentRow(binding)
             }
 
             if let stages = session.stages {
@@ -943,19 +945,20 @@ struct ConsoleHistoryTab: View {
         }
     }
 
-    /// The agent session the text was sent into: its name, then the working
-    /// directory and session id a resume needs.
-    private func agentRow(_ match: AgentSessionMatch) -> some View {
+    /// The agent session the text was pasted into: its name, then the working
+    /// directory and session id a resume needs, and whether the dictation was
+    /// never sent from it. Nothing is said while the send check is pending.
+    private func agentRow(_ binding: AgentSessionBinding) -> some View {
         LabeledContent {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                Text(match.displayTitle)
+                Text(binding.displayTitle)
                     .accessibilityIdentifier("sessions.detail.agent")
-                Text(match.locationLine)
+                Text(binding.isNotSent ? "\(binding.locationLine) · Not sent" : binding.locationLine)
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .help(match.workingDirectory ?? match.sessionId)
+                    .help(binding.workingDirectory ?? binding.sessionId)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {

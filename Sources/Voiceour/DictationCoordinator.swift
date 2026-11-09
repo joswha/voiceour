@@ -103,13 +103,19 @@ public final class DictationCoordinator {
     let dictationStatsStore: DictationStatsStore
     let audioMuter: SystemAudioMuting
     let sessionCues: SessionCuePlaying
-    let agentPrompts: AgentPromptReading
-    /// The agent-log link pass in flight; see `resolveAgentSessionLinks()`.
+    let agentSessions: AgentSessionResolving
+    let agentSessionReader: AgentSessionReading
+    /// Each row's binding task in flight, keyed by row; see
+    /// `startAgentSessionBinding`. The identity guards removal against a newer
+    /// owner.
     @ObservationIgnored
-    var agentLinkTask: Task<Void, Never>?
-    /// A link pass was asked for while one was in flight; it runs when that one lands.
+    var agentBindingTasks: [RecentSession.ID: (identity: UUID, task: Task<Void, Never>)] = [:]
+    /// The agent-session refresh pass in flight; see `refreshAgentSessions()`.
     @ObservationIgnored
-    var agentLinkRerunRequested = false
+    var agentRefreshTask: Task<Void, Never>?
+    /// A refresh was asked for while one was in flight; it runs when that one lands.
+    @ObservationIgnored
+    var agentRefreshRerunRequested = false
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
@@ -178,7 +184,8 @@ public final class DictationCoordinator {
         },
         audioMuter: SystemAudioMuting = NoOpSystemAudioMuter(),
         sessionCues: SessionCuePlaying = NoOpSessionCuePlayer(),
-        agentPrompts: AgentPromptReading = NoAgentPromptReading(),
+        agentSessions: AgentSessionResolving = NoAgentSessionResolving(),
+        agentSessionReader: AgentSessionReading = NoAgentSessionReading(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
         },
@@ -198,7 +205,8 @@ public final class DictationCoordinator {
         self.dictationStatsStore = dictationStatsStore
         self.audioMuter = audioMuter
         self.sessionCues = sessionCues
-        self.agentPrompts = agentPrompts
+        self.agentSessions = agentSessions
+        self.agentSessionReader = agentSessionReader
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
         // Two durable files, both moved aside rather than overwritten when they
@@ -583,7 +591,8 @@ public final class DictationCoordinator {
             settingsStore: store,
             audioMuter: audioMuter,
             sessionCues: sessionCues,
-            agentPrompts: AgentPromptLogReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+            agentSessions: LiveAgentSessionResolver(homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
+            agentSessionReader: AgentSessionFileReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         )
         if let settingsFailure {
             coordinator.errorMessage = settingsFailure
@@ -756,6 +765,9 @@ public final class DictationCoordinator {
         isPreparingForTermination = true
         let shouldDiscardRecording = state == .recording || state == .finalizingAudio
         cancelActiveWork()
+        // Never awaited: a binding or refresh landing after this point writes
+        // nothing, and a `tern` it spawned is terminated on cancellation.
+        cancelAgentSessionWork()
         let persistenceDrain = recentSessionPersistenceTail
 
         if shouldDiscardRecording {

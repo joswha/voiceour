@@ -106,18 +106,41 @@ public struct NoOpSystemAudioMuter: SystemAudioMuting {
     public func restore() async {}
 }
 
-/// Reads the prompts coding agents keep in their local logs.
-public protocol AgentPromptReading: Sendable {
-    /// Every prompt the supported agents recorded as sent at or after `since`,
-    /// in any order. Unreadable sources contribute nothing.
-    func prompts(sentSince since: Date) -> [AgentPrompt]
+/// Finds the agent session whose input received a paste.
+///
+/// `capture` reads the host's focused pane before the paste; `resolve` reads it
+/// again after the paste and returns a session only when the same pane and
+/// foreground process still have focus and every live source names one
+/// session. Either returns nil when the host or the agent is not supported or
+/// the answer is not exact. Implementations run off the main actor.
+public protocol AgentSessionResolving: Sendable {
+    func capture(target: TargetSnapshot) async -> AgentFocusCapture?
+    func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession?
 }
 
-public struct NoAgentPromptReading: AgentPromptReading {
+public struct NoAgentSessionResolving: AgentSessionResolving {
     public init() {}
 
-    public func prompts(sentSince since: Date) -> [AgentPrompt] {
-        []
+    public func capture(target: TargetSnapshot) async -> AgentFocusCapture? {
+        nil
+    }
+
+    public func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession? {
+        nil
+    }
+}
+
+/// Reads a bound session's own records: its title and the prompts it recorded
+/// after the binding's prompt-log offset. Nil when nothing can be read.
+public protocol AgentSessionReading: Sendable {
+    func read(_ binding: AgentSessionBinding) -> AgentSessionSnapshot?
+}
+
+public struct NoAgentSessionReading: AgentSessionReading {
+    public init() {}
+
+    public func read(_ binding: AgentSessionBinding) -> AgentSessionSnapshot? {
+        nil
     }
 }
 

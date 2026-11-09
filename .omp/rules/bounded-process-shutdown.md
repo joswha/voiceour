@@ -5,4 +5,4 @@ scope:
   - 'tool:edit(**/Sources/**/*.swift)'
   - 'tool:write(**/Sources/**/*.swift)'
 ---
-Process teardown uses bounded joins only; never follow a bounded shutdown with Darwin's unbounded `waitUntilExit()` (docs/asr.md › ASR sidecar protocol).
+Process teardown uses bounded joins only; never follow a bounded shutdown with Darwin's unbounded `waitUntilExit()` (docs/asr.md › ASR sidecar protocol, docs/runtime.md › Agent session binding).

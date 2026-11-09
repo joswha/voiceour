@@ -21,9 +21,9 @@ Swift tools 6.4, Swift 6 language mode, macOS 27, arm64 only. `Voiceour` names t
 
 - `VoiceCore` holds Foundation-only models, settings, state, text stages, glossary, ASR wire types, history/ledger, failures and safety policy. It MUST NOT import AppKit, SwiftUI, AVFoundation, Accessibility, event posting, pasteboard, process-launch, or Keychain APIs; put OS side effects behind `VoiceMac` contracts.
 - `VoiceMac` holds the macOS adapters; NEVER SwiftUI. `Voiceour` holds SwiftUI and orchestration: `DictationCoordinator` stays `@MainActor`; the stop path is `TranscriptProcessingPipeline.swift`.
-- `ASRSidecarCore` imports `VoiceCore` and `CGranite`, NEVER `VoiceMac`. `voiceour-asr` (`VoiceourASR`) is the only child process.
+- `ASRSidecarCore` imports `VoiceCore` and `CGranite`, NEVER `VoiceMac`. `voiceour-asr` (`VoiceourASR`) is the only long-lived child process; the only other children are the self-relaunch and, while agent session binding is on, the signature-verified `tern` CLI of the Tern app being pasted into ([runtime.md › Agent session binding](docs/runtime.md#agent-session-binding)).
 - Production targets MUST NOT import `Voiceour`; tests may.
-- MUST preserve injection for recording, ASR, targets, insertion, permissions, hotkeys, muting, settings, recent sessions.
+- MUST preserve injection for recording, ASR, targets, insertion, permissions, hotkeys, muting, settings, recent sessions, agent session resolution and reading.
 - `../syncour` consumes `VoiceCore` and `VoiceMac` by path dependency. Their public APIs are external contracts; Syncour's owner handles its platform/toolchain migration.
 - Backends: `granite` (default and only recognizer), `fake` (deterministic development).
 

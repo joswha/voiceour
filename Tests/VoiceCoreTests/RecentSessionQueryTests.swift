@@ -206,25 +206,20 @@ struct RecentSessionQueryTests {
     @Test func theAgentSessionFilterIsAndedWithTheQueryAndTheAppFilter() {
         let utc = calendar("UTC")
         let target = AgentSessionKey(agent: .omp, sessionId: "a")
-        func linked(_ session: RecentSession, to key: AgentSessionKey) -> RecentSession {
+        func bound(_ session: RecentSession, to key: AgentSessionKey) -> RecentSession {
             var session = session
-            session.agentLink = .linked(
-                AgentSessionMatch(
-                    agent: key.agent,
-                    sessionId: key.sessionId,
-                    workingDirectory: nil,
-                    sessionTitle: nil,
-                    sentAt: session.createdAt,
-                    sentText: nil
-                )
+            session.agentSession = AgentSessionBinding(
+                agent: key.agent,
+                sessionId: key.sessionId,
+                boundAt: session.createdAt
             )
             return session
         }
         let sessions = [
-            linked(session("ship it", at: "2026-03-01T09:00:00Z", bundleId: "so.stencil.tern"), to: target),
-            linked(session("ship it", at: "2026-03-01T10:00:00Z", bundleId: "com.apple.Terminal"), to: target),
-            linked(session("unrelated", at: "2026-03-01T11:00:00Z", bundleId: "so.stencil.tern"), to: target),
-            linked(
+            bound(session("ship it", at: "2026-03-01T09:00:00Z", bundleId: "so.stencil.tern"), to: target),
+            bound(session("ship it", at: "2026-03-01T10:00:00Z", bundleId: "com.apple.Terminal"), to: target),
+            bound(session("unrelated", at: "2026-03-01T11:00:00Z", bundleId: "so.stencil.tern"), to: target),
+            bound(
                 session("ship it", at: "2026-03-01T12:00:00Z", bundleId: "so.stencil.tern"),
                 to: AgentSessionKey(agent: .claudeCode, sessionId: "a")
             ),

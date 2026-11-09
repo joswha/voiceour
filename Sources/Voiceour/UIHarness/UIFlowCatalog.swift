@@ -80,7 +80,7 @@
             static let detailsTimings = UIQuery.value("Timings")
             static let detailsLeastSure = UIQuery.value("Least sure")
 
-            // The fixture links two Terminal rows to one omp session and gives one of
+            // The fixture binds two Terminal rows to one omp session and gives one of
             // them a prompt edited before it was sent: a comma the dictation did not
             // have. Its closed row is addressed by its preview, like the mid-list row.
             static let sentFold = UIQuery.id("sessions.detail.sent")
@@ -428,7 +428,7 @@
                             ]
                         ),
                     ]),
-                // A linked transcript answers where its text went: a Sent fold, shut
+                // A bound transcript answers where its text went: a Sent fold, shut
                 // until asked for, holds the prompt as its agent received it, and the
                 // Details fold names the agent session.
                 UIFlow(

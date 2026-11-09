@@ -127,9 +127,9 @@ public struct Settings: Codable, Equatable, Sendable {
     /// decodes to stock here: nothing about the island's look may quarantine the file that
     /// holds the user's glossary.
     public var island: IslandAppearance
-    /// Whether History rows are linked to the omp, Claude Code and Codex sessions their
-    /// text was sent into, by reading those agents' prompt logs. Off unless turned on.
-    public var agentSessionLinkingEnabled: Bool
+    /// Whether a dictation pasted into Tern is bound to the omp or Claude Code session
+    /// running in Tern's focused pane. Off unless turned on.
+    public var agentSessionBindingEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -144,7 +144,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case preferredMicrophoneName = "preferred_microphone_name"
         case hasCompletedFirstRun = "has_completed_first_run"
         case island
-        case agentSessionLinkingEnabled = "agent_session_linking_enabled"
+        case agentSessionBindingEnabled = "agent_session_binding_enabled"
     }
 
     public init(
@@ -160,7 +160,7 @@ public struct Settings: Codable, Equatable, Sendable {
         preferredMicrophoneName: String? = nil,
         hasCompletedFirstRun: Bool = false,
         island: IslandAppearance = .stock,
-        agentSessionLinkingEnabled: Bool = false
+        agentSessionBindingEnabled: Bool = false
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -174,7 +174,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.preferredMicrophoneName = preferredMicrophoneName
         self.hasCompletedFirstRun = hasCompletedFirstRun
         self.island = island
-        self.agentSessionLinkingEnabled = agentSessionLinkingEnabled
+        self.agentSessionBindingEnabled = agentSessionBindingEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -203,9 +203,9 @@ public struct Settings: Codable, Equatable, Sendable {
         island =
             (try? container.decodeIfPresent(IslandAppearance.self, forKey: .island))
             ?? defaults.island
-        agentSessionLinkingEnabled =
-            try container.decodeIfPresent(Bool.self, forKey: .agentSessionLinkingEnabled)
-            ?? defaults.agentSessionLinkingEnabled
+        agentSessionBindingEnabled =
+            try container.decodeIfPresent(Bool.self, forKey: .agentSessionBindingEnabled)
+            ?? defaults.agentSessionBindingEnabled
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

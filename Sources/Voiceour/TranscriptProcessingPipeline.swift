@@ -153,6 +153,11 @@ extension DictationCoordinator {
     func processStop(generation: AsyncGenerationGate.Token, stopReleaseStarted: Date) async {
         var audioURL: URL?
         defer { removeTemporaryAudio(&audioURL) }
+        // The host's focused pane, captured before the paste. Handed to
+        // `startAgentSessionBinding` once the outcome is recorded; every exit
+        // before that cancels it.
+        var agentFocusCapture: (task: Task<AgentFocusCapture?, Never>, boundAt: Date)?
+        defer { agentFocusCapture?.task.cancel() }
         // The mute resolves concurrently with recorder start; await the pending
         // decision so the recorded session captures the true muted state even
         // when stop outruns the mute's flag publication.
@@ -268,6 +273,16 @@ extension DictationCoordinator {
             state = .readyToInsert
             let insertionTarget = tracker.snapshot()
             updateTargetLabel(for: insertionTarget)
+            // Started before the journal write and the paste, so the pane that
+            // had focus is read before the text lands; the binding task compares
+            // it with the pane that has focus after.
+            if agentSessionBindingApplies(to: insertionTarget) {
+                let sessions = agentSessions
+                agentFocusCapture = (
+                    task: Task { await sessions.capture(target: insertionTarget) },
+                    boundAt: runtime.now()
+                )
+            }
 
             // A secure field is the one target whose text must not outlive the
             // dictation. The transcript is still delivered — concealed, copy-only —
@@ -328,6 +343,18 @@ extension DictationCoordinator {
                 insertMs: insertMs,
                 stopReleaseToInsertionOutcomeMs: stopReleaseToInsertionOutcomeMs
             )
+            // Started, never awaited: delivery, state and suggestions do not wait
+            // for the binding, and a cancel of this session leaves it running.
+            if let capture = agentFocusCapture {
+                agentFocusCapture = nil
+                startAgentSessionBinding(
+                    rowID: sessionID,
+                    target: insertionTarget,
+                    outcome: outcome,
+                    boundAt: capture.boundAt,
+                    before: capture.task
+                )
+            }
             try ensureCurrentProcessing(generation)
             // Suggestion-only: propose term corrections for the completed
             // dictation. Never edits finalText or the inserted target. The

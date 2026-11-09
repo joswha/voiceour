@@ -157,17 +157,18 @@ struct ConsoleSettingsTab: View {
                 }
                 ConsoleRow(
                     caption:
-                        "Reads the prompt logs omp, Claude Code and Codex keep in your home folder (~/.omp, "
-                        + "~/.claude, ~/.codex) to show which agent session a dictation went into. Nothing "
-                        + "leaves this Mac. Turning this off removes every link."
+                        "When you dictate into Tern, Voiceour asks Tern which pane has focus and links the "
+                        + "dictation to the omp or Claude Code session running there. It reads only that "
+                        + "session's records in ~/.omp and ~/.claude, and nothing leaves this Mac. Turning "
+                        + "this off deletes every link; links cannot be rebuilt."
                 ) {
-                    // Not `settingBinding`: turning linking on resolves History's rows and
-                    // turning it off removes their links, and a bare setting write does neither.
+                    // Not `settingBinding`: turning binding off removes every row's binding
+                    // and cancels the passes in flight, and a bare setting write does neither.
                     Toggle(
                         "Link dictations to agent sessions",
                         isOn: Binding(
-                            get: { coordinator.settings.agentSessionLinkingEnabled },
-                            set: { coordinator.setAgentSessionLinking($0) }
+                            get: { coordinator.settings.agentSessionBindingEnabled },
+                            set: { coordinator.setAgentSessionBinding($0) }
                         )
                     )
                     .accessibilityIdentifier("system.agent-links.toggle")
