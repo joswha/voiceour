@@ -29,7 +29,7 @@ Print the resolved set before fan-out so scope can be confirmed.
 
 ## 2. One parallel `task` subagent per PR
 
-Assign each PR's number, head ref, author, and the workflow below. Agents work isolated. Use `hub` for exactly two reasons: a fix on PR A obviously conflicts with PR B, and the real-app serialization rule below.
+Assign each PR's number, head ref, author, and the workflow below. Agents work isolated; when a fix on PR A obviously conflicts with PR B, they coordinate through `write agent://<id>`.
 
 ### Required subagent workflow
 
@@ -39,7 +39,7 @@ Assign each PR's number, head ref, author, and the workflow below. Agents work i
 2. Check `git log origin/main` and `gh search prs` for an already-landed equivalent.
 3. Decide:
    - `slop` — AI-generated noise, broken, off-spec, or net-negative. Drop with a 1–2 line justification; no checkout.
-   - `out-of-scope` — the change is refused by a standing product decision, not by its quality. Drop with the citation. The recurring ones: a universal or Intel build (the vendored ggml drop is arm64-only by design and asserts it at compile time); network text processing, telemetry, crash reporting, accounts, or an update check (local-first policy allows exactly one network path, the pinned model artifact); a "paste everywhere" switch (`InsertionSafetyPolicy` is the single class-to-disposition mapping and only `.normalText` may paste); clipboard save-and-restore (the previous clipboard is never read, saved, restored, or cleared); persisting audio; a keychain-backed feature (this bundle ships no provisioning profile and `SecItemAdd` returns `errSecMissingEntitlement`).
+   - `out-of-scope` — the change is refused by a standing product decision (README.md › Non-goals or `.omp/RULES.md`), not by its quality. Drop with the citation.
    - `superseded` — already fixed or merged in `main` or a newer PR. Drop with a pointer.
    - `worthy` — proceed.
 
@@ -95,22 +95,18 @@ make check-docs        # only when the diff touches the model pin or a documente
 
 Run targeted suites, never the full suite from a subagent. `make format` over the union of edited files, then `make format-check`.
 
-Some classes cannot be verified in a worktree at all: microphone capture, TCC prompts, the Fn/Globe hotkey, synthetic Cmd-V, real glass materials, signing, and notarization. Those need the real bundle from `make run`.
-
-<critical>
-A second app instance terminates at launch. NEVER run `make run` or `make stop` concurrently with another agent. `make run` stops every running Voiceour first, so a concurrent launch kills the peer's app rather than quietly losing to it. `make status` reports whether the app is already someone else's. Announce the turn on `hub`, take it, verify the intended PID and bundle, and release it. Two agents launching the real app produce one silent loser and two worthless results.
-</critical>
+Some classes cannot be verified in a worktree at all: microphone capture, TCC prompts, the Fn/Globe hotkey, synthetic Cmd-V, real glass materials, signing, and notarization. A subagent NEVER runs `make run` or `make stop`: a second app instance terminates at launch, and `make run` stops every running Voiceour. List these classes under `Unverified:` with the manual procedure; the parent runs them one at a time, each after the user agrees to that interruption (`.omp/RULES.md`).
 
 #### Fix
 
-Merge blockers only: build or test failure, an obvious PR-introduced bug, or an edge case the PR's own goal requires. NEVER taste-rewrite, refactor unrelated code, or expand scope. Read the existing patterns first and follow `AGENTS.md`; add or update tests for a behavior change.
+Merge blockers only: build or test failure, an obvious PR-introduced bug, or an edge case the PR's own goal requires. NEVER taste-rewrite, refactor unrelated code, or expand scope. Read the existing patterns and the governing contract doc first; add or update tests for a behavior change.
 
 #### Commit
 
-One commit per logical fix atop the rebased PR branch, in this repository's voice — imperative sentence subject, optionally area-prefixed, never a conventional-commit prefix.
+One commit per logical fix atop the rebased PR branch; match the subject style of recent `git log` subjects.
 
 ```bash
-git add -A
+git add <changed files>
 git commit -m "Reject a latched recording before the decode
 
 Addresses review feedback on #<N>."
@@ -147,5 +143,5 @@ Then the worktree paths grouped by decision, for `cd` and merge.
 - MUST use parallel subagents, one per PR; NEVER a serial loop.
 - `slop`, `out-of-scope`, `superseded` → no checkout; record the decision only.
 - Fixes limited to merge blockers inside that PR's diff.
-- Real-app verification is serialized through `hub`; a second instance terminates.
+- Subagents never run the real app; the parent runs the `Unverified:` checks one at a time.
 - MUST NOT push or merge. The human reviews and merges.

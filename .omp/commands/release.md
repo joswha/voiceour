@@ -4,7 +4,7 @@ description: Prepare a Voiceour release — version bump, changelog section, pre
 
 # Release
 
-Prepare a release of the app. Two kinds, differing only in assets: a **source release** (the default, needs no Apple identity) and a **binary release** (`--binary`, adds the signed, notarized, stapled archive). `AGENTS.md` § Release procedure is authoritative; this command executes it.
+Prepare a release of the app. Two kinds, differing only in assets: a **source release** (the default, needs no Apple identity) and a **binary release** (`--binary`, adds the signed, notarized, stapled archive). `docs/release.md` is authoritative; this command executes it.
 
 ## Arguments
 
@@ -41,7 +41,7 @@ Move the `## Unreleased` bullets beneath a new `## <version>` heading — or `##
 
 ## 3. Commit
 
-One commit carrying exactly `Resources/Info.plist` and `CHANGELOG.md`, so the version and the notes that describe it are one revision. Subject in this repository's voice — an imperative sentence, never a conventional-commit prefix.
+One commit carrying exactly `Resources/Info.plist` and `CHANGELOG.md`, so the version and the notes that describe it are one revision.
 
 ```bash
 git add Resources/Info.plist CHANGELOG.md
@@ -77,7 +77,7 @@ The script never bumps, tags, pushes, or publishes. It writes `.build/Voiceour-<
 Print the script's commands verbatim and stop.
 
 <critical>
-NEVER run `git tag`, `git push`, or `gh release create`. Tagging and publishing are the maintainer's, always. Print them; do not execute them.
+Without the user's authorization in this conversation, NEVER run `git tag`, `git push`, or `gh release create`: print them and stop.
 </critical>
 
 The maintainer runs the printed `git tag -a v<version>`, the two `git push` lines, then `gh release create`. GitHub attaches the source `.zip` and `.tar.gz` itself; a binary release additionally carries the stapled archive and its `.sha256`.
@@ -102,4 +102,4 @@ Publish:   <the exact commands the script printed, unedited>
 - MUST fix every accumulated preflight failure rather than the first one.
 - NEVER publish an un-notarized binary. The choice is a source release or a properly notarized one; a bare zip of an ad-hoc `.app` arrives quarantined and reads as a broken app.
 - NEVER add a release workflow to CI. Notarization needs Apple credentials, and this repository holds none by design; `.github/workflows/ci.yml`'s `release` job is a packaging smoke test that uploads nothing.
-- NEVER tag, push, publish, or amend history.
+- NEVER amend history.

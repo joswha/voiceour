@@ -103,7 +103,7 @@ Do not label a hardware generation. The app is Apple Silicon only by design; an 
 
 **Meta** — manual judgment only. Automated triage NEVER applies `good first issue` or `help wanted`.
 
-`wontfix` belongs on a request refused by a standing product decision, applied with the citation in a comment. The recurring ones: an Intel or universal build (the vendored drop is arm64-only and asserts it at compile time); cloud ASR, telemetry, crash reporting, accounts, or an update check (exactly one network path exists, the pinned model artifact); a "paste everywhere" switch (`InsertionSafetyPolicy` is the single class-to-disposition mapping); clipboard save-and-restore; persisted audio; a keychain-backed feature (this bundle ships no provisioning profile).
+`wontfix` belongs on a request refused by a standing product decision (README.md › Non-goals or `.omp/RULES.md`), applied with the citation in a comment.
 
 ## 4. Apply
 

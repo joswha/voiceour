@@ -43,8 +43,8 @@ Platform: Swift tools 6.4, Swift 6 language mode, macOS 27, arm64 only. Names: `
 - Production targets MUST NOT import `Voiceour`; tests may.
 - MUST preserve injection for recording, ASR, targets, insertion, permissions, hotkeys, muting, settings, recent sessions.
 - `../syncour` consumes `VoiceCore` and `VoiceMac` by path dependency. Their public APIs are external contracts; Syncour's owner handles its platform/toolchain migration.
-- Registered backends, picker order `fake`, `granite`: `granite` (default and only recognizer; [model contract](docs/asr.md#model-contract-and-vendor-rules)), `fake` (deterministic development). Retired `mlx`, `ark-0.6b`, `ark-3b`, `apple`, `parakeet` ids normalize to `granite` (`LaunchOptions.retiredBackendIDs`).
-- `voiceour-asr` is the only child process. Pinned model acquisition is the only network path.
+- Registered backends, picker order `fake`, `granite`: `granite` (default and only recognizer; [model contract](docs/asr.md#model-contract-and-vendor-rules)), `fake` (deterministic development).
+- `voiceour-asr` is the only child process.
 
 ## Model pin
 
@@ -61,11 +61,10 @@ Model `vladers/granite-speech-5.0-470m-turboctc-GGUF`, revision `bd7db273aa69a26
 - SHOULD use concrete target-boundary types and small protocols.
 - Observable state MUST stay main-actor isolated. Blocking capture, I/O, hashing, model work stay off-main; 25 Hz meter data stays off coordinator observation.
 - MUST use structured ownership for files/processes/capture/persistence tails; identity-check teardown against newer owners.
-- MUST reuse conventions, migrate callers, delete obsolete internal APIs. Avoid unnecessary allocation, copying, computation in hot paths.
 
 ## Developer commands
 
-Use the smallest proving command. `make` lists the catalogue; release, harness, benchmark and vendor commands live in their contract docs.
+`make` lists the catalogue; release, harness, benchmark and vendor commands live in their contract docs.
 
 | task | command |
 | --- | --- |
@@ -85,20 +84,13 @@ Use the smallest proving command. `make` lists the catalogue; release, harness, 
 | Flow gate / bless / inventory | `make ui-flow` / `make ui-flow-update` / `make ui-flow-list` |
 | Offline fake benchmark | `make bench-smoke` |
 
-- Real-model/microphone checks require task relevance and available prerequisites; microphone also requires explicit interruption consent.
+- Run real-model checks only when the task needs them and the model is downloaded.
 
 ## Git and collaboration
 
-- MUST fetch before pushing and preserve remote commits. NEVER force-push, bypass protection, or publish unverified work. If direct push is blocked, report the exact blocker.
 - Generated data/build artifacts stay uncommitted unless their artifact type is explicitly tracked.
 - Intended AX/digest/flow goldens MUST accompany the behavior change requiring them.
 
 ## Documentation rules
 
-- README.md owns the product contract: behavior, architecture, data, model/network, safety, development, verification. AGENTS.md is this map: boundaries, model pin, commands, git. `.omp/RULES.md` holds only invariants that bind every change. Each contract doc in the table above owns its subsystem's engineering rules. MUST update the owning contract in the same change.
-- Keep AGENTS.md and `.omp/RULES.md` short: a subsystem rule belongs in its contract doc.
-- `.omp/rules/` holds omp trigger rules: bans that block an edit introducing a forbidden pattern, and read-first pointers that name the contract doc on the first edit to its files. Keep their scopes in step with the Contracts table, and check a changed rule with `omp ttsr test` and `omp ttsr scan`.
-- Evidence docs — `docs/mercury-renderer.md` (derivations), `docs/benchmarks.md`, `docs/performance-roadmap.md` and `research/` (measurements) — link back to the contract they serve; NEVER redefine product policy or promote dated evidence into shipping claims.
-- `CONTRIBUTING.md`: PR gates. `SECURITY.md`: reporting. `CHANGELOG.md`: user-visible changes/release notes.
-- One owner per topic; link elsewhere. Declarative current-state prose, not deletion history. Archive useful superseded records under `docs/archive/` with date/notice; `docs/superpowers/` contains historical plans. NEVER add new plan/redirect documents.
-- Every documented command MUST exist. `make check-docs` checks model pins and make/script references in roots, CONTRIBUTING, top-level docs. Preserve linked headings.
+Keep AGENTS.md and `.omp/RULES.md` short: a subsystem rule belongs in its contract doc. The rules for editing docs and `.omp/rules/` load with the first such edit (`.omp/rules/read-docs-rules.md`).

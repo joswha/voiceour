@@ -40,7 +40,7 @@ wc -l $(git ls-files 'Sources/**/*.swift') | sort -rn | head -20
 
 Then three searches, through the `grep` tool rather than a shell:
 
-- `pattern: 'try\?'`, `path: Sources` — error suppression. At a persistence or wire boundary this is a bug class, not clutter: `AGENTS.md` says write failures are not suppressed.
+- `pattern: 'try\?'`, `path: Sources` — error suppression. At a persistence or wire boundary this is a bug class, not clutter: `docs/runtime.md` forbids suppressed write failures.
 - `pattern: 'import (AppKit|SwiftUI|AVFoundation|Accessibility)'`, `path: Sources/VoiceCore` — a hard boundary violation. MUST be empty.
 - `pattern: 'import (AppKit|SwiftUI|AVFoundation)'`, `path: Sources/Voiceour` — inverted: the files that do NOT match hold Foundation-only logic sitting in the app layer, where only a view can test it. Those belong in `VoiceCore`.
 
@@ -129,7 +129,7 @@ In order; each is a hard gate.
 
 ## 6. Commit
 
-One commit, in this repository's voice: an imperative sentence subject, optionally area-prefixed (`Console: …`, `Bench: …`), never a conventional-commit prefix — `git log` is the reference. Body names the win and the verification. NEVER push.
+One commit; match the subject style of recent `git log` subjects. Body names the win and the verification. Push per `.omp/RULES.md`.
 
 ## 7. Report
 

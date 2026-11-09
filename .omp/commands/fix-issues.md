@@ -29,7 +29,7 @@ Print the resolved set before fan-out so scope can be confirmed.
 
 ## 2. Parallel subagents
 
-One `task` subagent per issue. Give each the number, title, a body summary, and the workflow below. Agents work isolated; use `hub` when two issues clearly touch the same file, and always for the real-app rule in step b.
+One `task` subagent per issue. Give each the number, title, a body summary, and the workflow below. Agents work isolated; when two issues clearly touch the same file, they coordinate through `write agent://<id>`.
 
 Each subagent MUST:
 
@@ -37,7 +37,7 @@ Each subagent MUST:
 
 1. Read `issue://<N>`; cross-repo `issue://<owner>/<repo>/<N>`. Body and comments arrive together, and the comments usually carry the repro. Append `?comments=0` only to skip them deliberately.
 2. Run `gh search prs` for the issue number. A reasonable existing PR → review it per `.omp/commands/review-prs.md`, report `existing-pr`, and do NOT create a competing fix.
-3. Check the standing product decisions before spending a worktree. An issue asking for an Intel or universal build, cloud ASR, telemetry, accounts, an update check, a "paste everywhere" switch, clipboard save-and-restore, persisted audio, or a keychain-backed secret is `not-a-bug`: cite the `AGENTS.md` rule and stop.
+3. Check the standing product decisions before spending a worktree. An issue that README.md › Non-goals or `.omp/RULES.md` rules out is `not-a-bug`: cite that line and stop.
 
 ### b. Diagnose and reproduce
 
@@ -73,13 +73,7 @@ MUST reproduce in the current checkout on `main`, before any worktree.
 Three exits:
 
 - Reproduced → **c**.
-- Not reproducible as a test, but the issue is a real-surface class — microphone capture, a TCC prompt, the Fn/Globe gesture, synthetic Cmd-V into a named app, real glass material, signing, notarization, model download — then the repro is the app itself. Build and launch the real bundle, exercise the path, and record what happened.
-
-  <critical>
-  A second app instance terminates at launch. NEVER run `make run` or `make stop` concurrently with another agent. `make run` stops every running Voiceour first, so a concurrent launch kills the peer's app rather than quietly losing to it. `make status` reports whether the app is already someone else's. Announce the turn on `hub`, take it, verify the intended PID and bundle, and release it. Two agents launching the real app produce one silent loser and two worthless results.
-  </critical>
-
-  Reproduced in the real app → **c**, with the manual procedure written down as the repro and status `repro-manual`; the fix still lands with whatever unit-level test its root cause admits.
+- Not reproducible as a test, but the issue is a real-surface class — microphone capture, a TCC prompt, the Fn/Globe gesture, synthetic Cmd-V into a named app, real glass material, signing, notarization, model download — then only the real app can reproduce it. A subagent NEVER runs `make run` or `make stop`: a second app instance terminates at launch, and `make run` stops every running Voiceour. Write the exact manual procedure, report `needs-real-app`, and stop. The parent runs these one at a time, each after the user agrees to that interruption (`.omp/RULES.md`); a reproduced one continues at **c** with status `repro-manual`, and the fix still lands with whatever unit-level test its root cause admits.
 - Not reproduced at all → stop. Delete the test. Report `unreproduced` with the hypothesis, the evidence of non-failure, and the exact unblockers: macOS version, Apple Silicon generation, input device, target app bundle id, Accessibility trust state, or the author's own repro snippet.
 
 Out of scope or not a bug — user configuration, intended behavior, duplicate, or a standing product decision — → stop and report `not-a-bug` with an explanation postable to the issue.
@@ -110,7 +104,7 @@ Nothing to link, and one thing not to:
 
 1. **Move**, never copy, the failing test from the main checkout into the same path in the worktree, and remove it from main. The original checkout ends clean.
 2. Confirm it still fails on the worktree branch.
-3. Fix the source, following `AGENTS.md`: root cause, not symptom; no stub, mock, or `TODO: implement` in product code; no downstream guard where the type is wrong upstream; no suppressed write failure.
+3. Fix the source: root cause, not symptom; no stub, mock, or `TODO: implement` in product code; no downstream guard where the type is wrong upstream; no suppressed write failure.
 4. Re-run the repro until it passes.
 5. Real contract changed → add or adjust the adjacent unit tests; run only those files.
 6. Touched `Sources/Voiceour` → `make ui-all`, and read the `.ax.diff` or `.flow.diff` before blessing anything. A golden moves only when the fix genuinely changes what the app renders.
@@ -119,10 +113,10 @@ Nothing to link, and one thing not to:
 
 ### f. Commit
 
-One commit, in this repository's voice: an imperative sentence subject, optionally area-prefixed (`Console: …`), never a conventional-commit prefix. `git log` is the reference.
+One commit; match the subject style of recent `git log` subjects.
 
 ```bash
-git add -A
+git add <changed files>
 git commit -m "Reject a latched recording before the decode
 
 <short body naming the root cause and the fix>
@@ -136,7 +130,7 @@ Do NOT push. The human pushes and opens the PR.
 
 ```
 Issue #<N>  <title>
-Status:    fixed | repro-manual | unreproduced | not-a-bug | existing-pr (#<M>)
+Status:    fixed | repro-manual | needs-real-app | unreproduced | not-a-bug | existing-pr (#<M>)
 Repro:     <test path in the worktree, or the manual procedure>
 Worktree:  ~/.omp/wt/.../fix-issue-<N>            (if created)
 Branch:    fix/issue-<N>                          (if created)
@@ -158,7 +152,7 @@ Then the worktree paths grouped by status, `fixed` first, for a batch `cd` and p
 
 ## Rules
 
-MUST: reproduce in the current checkout on `main` before creating a worktree; one parallel subagent per issue; check for an existing PR first and divert a reasonable one to `review-prs`; serialize every real-app launch through `hub`; commit with a `Fixes #<N>.` trailer in the repository's own subject style.
+MUST: reproduce in the current checkout on `main` before creating a worktree; one parallel subagent per issue; check for an existing PR first and divert a reasonable one to `review-prs`; leave real-app runs to the parent; commit with a `Fixes #<N>.` trailer in the repository's own subject style.
 
 MUST NOT: symlink `.build` across checkouts; push, open PRs, or comment on issues; ship a stub, a product-code mock, or a placeholder; expand past the reported bug into adjacent code smells; bless a UI golden without reading its diff.
 

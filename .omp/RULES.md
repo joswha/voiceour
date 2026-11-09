@@ -7,6 +7,6 @@ Every change keeps these. Before editing a subsystem, read its contract doc; AGE
 - The clipboard is write-only: write the transcript; never read, save or restore the user's previous clipboard.
 - Recorded audio is temporary: remove it after success, cancellation, error and stale-file scavenging.
 - Vocabulary changes only on an explicit user action.
-- Verify offscreen and silently. Window activation, live keystrokes, speaker playback and microphone capture each need the user's agreement to that specific interruption; "test end-to-end" is not that agreement.
+- Verify offscreen and silently. Window activation, live keystrokes, speaker playback and microphone capture each need the user's agreement to that specific interruption; "test end-to-end" is not that agreement. Without it, report the live check as not run.
 - Leave unrelated work untouched: never discard, stash, reset, rewrite or stage it; commit explicit file lists.
-- Ship each verified change as its own scoped commit pushed to `origin/main`; this is standing authorization. Fetch first, keep remote commits, never force-push, and open a PR only when asked or when branch protection requires it. Release tags and publication need the user's authorization in the current conversation.
+- On `main`, ship each verified change as its own scoped commit pushed to `origin/main`; this is standing authorization. On other branches, commit, and push only when asked. Fetch first, keep remote commits, never force-push, and open a PR only when asked or when branch protection requires it. Release tags and publication need the user's authorization in the current conversation.
