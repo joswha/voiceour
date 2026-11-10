@@ -68,15 +68,15 @@ public struct AgentSessionFileReader: AgentSessionReading {
         )
     }
 
-    private static let ompUserNeedle = Data(#""role":"user""#.utf8)
+    static let ompUserNeedle = Data(#""role":"user""#.utf8)
 
-    private static func ompPrompt(_ line: Data) -> AgentSessionPrompt? {
+    static func ompPrompt(_ line: Data) -> AgentSessionPrompt? {
         guard
             let record = try? JSONDecoder().decode(OmpMessageRecord.self, from: line),
             record.type == "message",
             record.message?.role == "user",
             let timestamp = record.timestamp,
-            let sentAt = isoDate(timestamp),
+            let sentAt = AgentSessionFiles.isoDate(timestamp),
             let text = record.message?.text
         else { return nil }
         return AgentSessionPrompt(sentAt: sentAt, text: text)
@@ -113,13 +113,23 @@ public struct AgentSessionFileReader: AgentSessionReading {
     }
 
     private static func claudeCodePrompt(_ line: Data, sessionId: String) -> AgentSessionPrompt? {
-        guard
-            let record = try? JSONDecoder().decode(ClaudeHistoryRecord.self, from: line),
-            record.sessionId == sessionId
-        else { return nil }
-        return AgentSessionPrompt(
-            sentAt: Date(timeIntervalSince1970: record.timestamp / 1_000),
-            text: expandingPastes(in: record.display, from: record.pastedContents)
+        guard let record = claudeCodeHistoryPrompt(line), record.sessionId == sessionId else { return nil }
+        return record.prompt
+    }
+
+    /// Only lines that name a session can hold one of its prompts.
+    static let claudeCodeSessionNeedle = Data(#""sessionId""#.utf8)
+
+    /// A `history.jsonl` line's session and prompt, pasted text expanded; nil
+    /// for a line without a session, time or shown text.
+    static func claudeCodeHistoryPrompt(_ line: Data) -> (sessionId: String, prompt: AgentSessionPrompt)? {
+        guard let record = try? JSONDecoder().decode(ClaudeHistoryRecord.self, from: line) else { return nil }
+        return (
+            record.sessionId,
+            AgentSessionPrompt(
+                sentAt: Date(timeIntervalSince1970: record.timestamp / 1_000),
+                text: expandingPastes(in: record.display, from: record.pastedContents)
+            )
         )
     }
 
@@ -158,54 +168,24 @@ public struct AgentSessionFileReader: AgentSessionReading {
         needle: Data,
         parse: (Data) -> AgentSessionPrompt?
     ) -> [AgentSessionPrompt] {
-        let fileSystem = files.fileSystem
         let newline = Data([0x0A])
         var start = max(0, size - Self.promptReadLimit)
         if let offset = binding.promptLogOffset, offset >= 0, offset <= size,
-            offset == 0 || fileSystem.read(path, offset - 1, 1) == newline
+            offset == 0 || files.fileSystem.read(path, offset - 1, 1) == newline
         {
             start = max(0, offset - Self.promptLookback)
         }
-        let end = min(size, start + Self.promptReadLimit)
-        // A start mid-file may fall inside a line, whose head is not read.
-        var skipsFirstLine = start > 0 && fileSystem.read(path, start - 1, 1) != newline
         let earliest = binding.boundAt.addingTimeInterval(-Self.promptLeeway)
         var prompts: [AgentSessionPrompt] = []
-        var pending = Data()
-        var position = start
-        while position < end {
-            guard
-                let chunk = fileSystem.read(path, position, min(Self.promptChunkSize, end - position)),
-                !chunk.isEmpty
-            else { break }
-            position += chunk.count
-            pending.append(chunk)
-            guard let lastNewline = pending.lastIndex(of: 0x0A) else { continue }
-            var complete = pending[...lastNewline]
-            // A line without its newline yet waits for the next chunk.
-            pending = Data(pending[(lastNewline + 1)...])
-            if skipsFirstLine, let firstNewline = complete.firstIndex(of: 0x0A) {
-                complete = complete[(firstNewline + 1)...]
-                skipsFirstLine = false
-            }
-            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                guard line.range(of: needle) != nil, let prompt = parse(line), prompt.sentAt >= earliest else {
-                    continue
-                }
-                prompts.append(prompt)
-            }
+        let end = min(size, start + Self.promptReadLimit)
+        files.forEachLine(in: path, from: start, to: end, containing: needle) { line in
+            guard let prompt = parse(line), prompt.sentAt >= earliest else { return }
+            prompts.append(prompt)
         }
         return prompts.sorted { $0.sentAt < $1.sentAt }
     }
 
     // MARK: Decoding
-
-    private static let fractionalISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-    private static let wholeISO8601 = Date.ISO8601FormatStyle()
-
-    private static func isoDate(_ text: String) -> Date? {
-        (try? fractionalISO8601.parse(text)) ?? (try? wholeISO8601.parse(text))
-    }
 
     /// An omp session line, decoded as far as a user message needs.
     private struct OmpMessageRecord: Decodable {
@@ -305,6 +285,40 @@ public struct AgentSessionFileReader: AgentSessionReading {
         private enum CodingKeys: String, CodingKey {
             case type
             case content
+        }
+    }
+}
+
+extension AgentSessionFiles {
+    /// Calls `body` with each complete line of bytes `start..<end` of the file
+    /// at `path` that contains `needle`, reading one chunk at a time so memory
+    /// stays bounded by the chunk and the longest line. A start inside a line
+    /// skips that line, whose head is not read, and a last line without its
+    /// newline is still being written and is skipped too.
+    func forEachLine(in path: String, from start: Int, to end: Int, containing needle: Data, _ body: (Data) -> Void) {
+        var skipsFirstLine = start > 0 && fileSystem.read(path, start - 1, 1) != Data([0x0A])
+        var pending = Data()
+        var position = start
+        while position < end {
+            guard
+                let chunk = fileSystem.read(
+                    path, position, min(AgentSessionFileReader.promptChunkSize, end - position)),
+                !chunk.isEmpty
+            else { break }
+            position += chunk.count
+            pending.append(chunk)
+            guard let lastNewline = pending.lastIndex(of: 0x0A) else { continue }
+            var complete = pending[...lastNewline]
+            // A line without its newline yet waits for the next chunk.
+            pending = Data(pending[(lastNewline + 1)...])
+            if skipsFirstLine, let firstNewline = complete.firstIndex(of: 0x0A) {
+                complete = complete[(firstNewline + 1)...]
+                skipsFirstLine = false
+            }
+            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true)
+            where line.range(of: needle) != nil {
+                body(line)
+            }
         }
     }
 }

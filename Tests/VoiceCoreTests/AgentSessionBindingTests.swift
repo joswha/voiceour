@@ -234,6 +234,74 @@ struct AgentSessionBindingTests {
         #expect(binding.send == nil)
     }
 
+    // MARK: Evidence
+
+    private func keys<Value: Encodable>(_ value: Value) throws -> [String: Any] {
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
+        return try #require(object as? [String: Any])
+    }
+
+    @Test(arguments: [AgentLinkEvidence.pane, .words])
+    func evidenceRoundTripsOnABindingAndItsThread(evidence: AgentLinkEvidence) throws {
+        let binding = AgentSessionBinding(
+            agent: .omp,
+            sessionId: sessionId,
+            boundAt: boundAt,
+            send: .sent(sentAt: boundAt, text: nil),
+            evidence: evidence
+        )
+        let thread = JournalThreadRef(binding)
+
+        #expect(try roundTrip(binding) == binding)
+        #expect(thread.evidence == evidence)
+        #expect(try roundTrip(thread) == thread)
+        #expect(MemoryEntry(row(unlinked: nil, agentSession: binding)).thread?.evidence == evidence)
+    }
+
+    /// Links written before words could link a row came from the pane, and a
+    /// pane link writes no key, so its bytes stay what earlier builds wrote.
+    @Test func absentEvidenceReadsAsPaneAndOnlyWordsIsWritten() throws {
+        let binding = try decode(
+            AgentSessionBinding.self,
+            #"{"agent": "omp", "sessionId": "\#(sessionId)", "boundAt": 100}"#
+        )
+        let thread = try decode(JournalThreadRef.self, #"{"agent": "omp", "session_id": "\#(sessionId)"}"#)
+
+        #expect(binding.evidence == .pane)
+        #expect(thread.evidence == .pane)
+        #expect(try keys(binding)["evidence"] == nil)
+        #expect(try keys(thread)["evidence"] == nil)
+
+        var words = binding
+        words.evidence = .words
+        #expect(try keys(words)["evidence"] as? String == "words")
+        #expect(try keys(JournalThreadRef(words))["evidence"] as? String == "words")
+    }
+
+    /// Evidence this build cannot read never claims a pane link: the binding
+    /// is dropped and the row survives unbound.
+    @Test func anUnknownEvidenceDropsTheBindingAndKeepsTheRow() throws {
+        let session = try decode(
+            RecentSession.self,
+            """
+            {
+              "id": "00000000-0000-0000-0000-000000000104",
+              "createdAt": 42,
+              "text": "pasted into tern",
+              "agentSession": {"agent": "omp", "sessionId": "\(sessionId)", "boundAt": 100, "evidence": "likeness"}
+            }
+            """
+        )
+
+        #expect(session.text == "pasted into tern")
+        #expect(session.agentSession == nil)
+    }
+
+    @Test func theRemovedReasonHasItsWireNameAndSentence() throws {
+        #expect(try jsonObject(row(unlinked: .removedByYou))["unlinked"] as? String == "removed_by_you")
+        #expect(AgentLinkMiss.removedByYou.sentence == "You removed this link.")
+    }
+
     // MARK: Presentation
 
     @Test func theDisplayTitleFallsBackFromTitleToFolderToTheStartOfTheId() {

@@ -142,6 +142,24 @@
         func setCancelArmed(_ isArmed: Bool) {}
     }
 
+    /// Link Earlier Dictations' reader in every harness coordinator. It opens no file: its
+    /// answer is a pure function of the queries and a fixed table keyed by fixture row id,
+    /// so no scene or flow can read `~/.omp` or `~/.claude`. A queried row the table lacks
+    /// is left out of the answer, which the run counts as not found; nothing is ambiguous.
+    struct HarnessPromptEvidence: AgentPromptEvidenceReading {
+        let table: [UUID: PromptEvidenceMatch]
+
+        func evidence(for queries: [PromptEvidenceQuery]) -> PromptEvidenceRun {
+            var matches: [UUID: PromptEvidenceMatch] = [:]
+            for query in queries {
+                if let match = table[query.id] {
+                    matches[query.id] = match
+                }
+            }
+            return PromptEvidenceRun(matches: matches)
+        }
+    }
+
     // MARK: - Fixtures
 
     @MainActor
@@ -219,6 +237,10 @@
             /// still pending, as a press on the report's thread line leaves it before the
             /// console has read it.
             case threadRequested
+            /// The populated History with agent-session linking on, so Settings offers Link
+            /// Earlier Dictations. Its rows are data: the resolver stays `NoAgentSessionResolving`,
+            /// and a run reads `UIFixtures.promptEvidence`, which holds one match.
+            case linkingOn
         }
 
         /// Every fixture timestamp derives from this instant, and `RenderOverrides`
@@ -335,6 +357,8 @@
                 let coordinator = make(sessions: history)
                 coordinator.pendingJournalThread = agentSession
                 return coordinator
+            case .linkingOn:
+                return make(sessions: history, settings: settings(agentSessionBindingEnabled: true))
             }
         }
 
@@ -560,8 +584,8 @@
             /// that holds memory, because off is what a fresh install holds.
             memoryEnabled: Bool = false,
             /// Whether a paste into Tern links to its agent session. Off everywhere but the
-            /// menu fixtures that show the report's link line, because off is what a fresh
-            /// install holds; the resolver stays `NoAgentSessionResolving` either way.
+            /// menu fixtures that show the report's link line and `linkingOn`, because off is
+            /// what a fresh install holds; the resolver stays `NoAgentSessionResolving` either way.
             agentSessionBindingEnabled: Bool = false
         ) -> VoiceCore.Settings {
             VoiceCore.Settings(
@@ -653,6 +677,8 @@
                 // must not depend on a scratch-file write completing.
                 recentSessionSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
+                // Link Earlier Dictations answers from the fixture table and reads no agent's files.
+                promptEvidence: promptEvidence,
                 runtimeOverride: clock.runtime
             )
 
@@ -908,8 +934,8 @@
 
         /// Ten sessions ending at `pinnedNow`, chosen to exercise the Sessions
         /// list and search across multiple days, same-day entries, varied paste
-        /// destinations, a copy-only outcome, a failed outcome and a Tern paste
-        /// whose agent-session link missed.
+        /// destinations, a copy-only outcome, a failed outcome, a Tern paste
+        /// whose agent-session link missed and a row linked by its words.
         static let history: [RecentSession] = [
             session(
                 index: 1,
@@ -955,10 +981,13 @@
                 captureMs: 5_600,
                 asrMs: 380
             ),
+            // The one row linked by its words, as Link Earlier Dictations links one: found
+            // later in Claude Code's own prompt log, not seen in a focused pane. No scene
+            // other than console.sessions.evidence opens it, so only that one shows its line.
             session(
                 index: 5,
                 minutesAgo: 1_720,
-                text: "Pump the run loop a fixed number of iterations, never until it looks settled.",
+                text: evidenceRowText,
                 bundleId: "com.microsoft.VSCode",
                 appName: "Visual Studio Code",
                 captureMs: 6_200,
@@ -970,16 +999,18 @@
                         + "5f0c2e8a-1d3b-4c6e-9a7f-2b8d4e6f1a3c.jsonl",
                     title: nil,
                     minutesAgo: 1_720,
-                    sentText: nil
+                    sentText: nil,
+                    evidence: .words
                 )
             ),
             // A paste into Tern whose link missed: no binding, and the closed reason the
             // resolver gave, so the row's Details say why it is not linked. On row 6's day
             // and just older than it, so it adds no History day for Rewind to walk and never
-            // pushes row 6, which the agent-link flow presses, out of the window.
+            // pushes row 6, which the agent-link flow presses, out of the window. It is also
+            // the one row `promptEvidence` finds, so Link Earlier Dictations links it.
             session(
-                index: 25,
-                minutesAgo: 3_000,
+                index: unlinkedRowIndex,
+                minutesAgo: unlinkedRowMinutesAgo,
                 text: unlinkedRowText,
                 bundleId: DictationCoordinator.agentSessionHostBundleId,
                 appName: ternAppName,
@@ -1059,6 +1090,35 @@
         /// "accessibility", so the Rewind and History searches keep their counts.
         nonisolated static let unlinkedRowText = "Split the timeout from the quiet period so a retry reads as honest."
 
+        /// The Tern row whose link missed, as `history` places it, so the evidence table
+        /// below names the same row and the same delivery time.
+        private static let unlinkedRowIndex = 25
+        private static let unlinkedRowMinutesAgo = 3_000
+
+        /// The text of the row linked by its words: the only handle `console.sessions.evidence`
+        /// has on its closed row, which no other row or entry says.
+        nonisolated static let evidenceRowText =
+            "Pump the run loop a fixed number of iterations, never until it looks settled."
+
+        /// The prompt logs a harness Link Earlier Dictations run reads, as a table: the Tern
+        /// row whose link missed was found in the fixture's omp session 40 s after it was
+        /// delivered. Every other row is absent, so a run on `history` links one and counts
+        /// the rest as not found. No `sessionFile`, so the landing's existence check touches
+        /// no path.
+        static var promptEvidence: HarnessPromptEvidence {
+            let deliveredAt = pinnedNow.addingTimeInterval(-Double(unlinkedRowMinutesAgo) * 60)
+            return HarnessPromptEvidence(table: [
+                fixedIdentifier(unlinkedRowIndex): PromptEvidenceMatch(
+                    agent: agentSession.agent,
+                    sessionId: agentSession.sessionId,
+                    sentAt: deliveredAt.addingTimeInterval(40),
+                    sessionFile: nil,
+                    workingDirectory: "/Users/harness/voiceour",
+                    title: agentSessionTitle
+                )
+            ])
+        }
+
         private static let ompSessionFile =
             "/Users/harness/.omp/agent/sessions/-Users-harness-voiceour/"
             + "2025-06-07T13-40-12-512Z_0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a.jsonl"
@@ -1071,7 +1131,8 @@
             sessionFile: String,
             title: String?,
             minutesAgo: Int,
-            sentText: String?
+            sentText: String?,
+            evidence: AgentLinkEvidence = .pane
         ) -> AgentSessionBinding {
             let boundAt = pinnedNow.addingTimeInterval(-Double(minutesAgo) * 60)
             return AgentSessionBinding(
@@ -1083,7 +1144,8 @@
                 boundAt: boundAt,
                 promptLogOffset: 0,
                 resumable: true,
-                send: .sent(sentAt: boundAt.addingTimeInterval(40), text: sentText)
+                send: .sent(sentAt: boundAt.addingTimeInterval(40), text: sentText),
+                evidence: evidence
             )
         }
 

@@ -180,7 +180,7 @@ struct ConsoleSettingsTab: View {
                         "When you dictate into Tern, Voiceour asks Tern which pane has focus and links the "
                         + "dictation to the omp or Claude Code session running there. It reads only that "
                         + "session's records in ~/.omp and ~/.claude, and nothing leaves this Mac. Turning "
-                        + "this off deletes every link; links cannot be rebuilt."
+                        + "this off deletes every link; only Link Earlier Dictations can link them again, by their words."
                 ) {
                     // Not `settingBinding`: turning binding off removes every row's binding
                     // and cancels the passes in flight, and a bare setting write does neither.
@@ -193,6 +193,7 @@ struct ConsoleSettingsTab: View {
                     )
                     .accessibilityIdentifier("system.agent-links.toggle")
                 }
+                linkEarlierRow
             } header: {
                 Text("Privacy")
             }
@@ -641,6 +642,29 @@ struct ConsoleSettingsTab: View {
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
+    }
+
+    // MARK: Privacy
+
+    /// Offered only while linking is on, because a run writes links the toggle
+    /// would delete, and not while a run reads the agents' prompt logs, so one
+    /// press is one run. The caption is the run's own result, never rebuilt here.
+    private var linkEarlierRow: some View {
+        let run = coordinator.linkEarlierRun
+        return ConsoleRow(
+            caption: run.map { $0.isRunning ? "Linking\u{2026}" : $0.summary }
+                ?? "Finds earlier dictations whose exact words reached one omp or Claude Code session on this "
+                + "Mac, and links them to it."
+        ) {
+            LabeledContent {
+                Button("Link Earlier Dictations") { coordinator.linkEarlierDictations() }
+                    .help("Link earlier dictations to the agent session whose prompts hold their exact words.")
+                    .disabled(!coordinator.settings.agentSessionBindingEnabled || run?.isRunning == true)
+                    .accessibilityIdentifier("system.agent.link-earlier")
+            } label: {
+                Text("Earlier dictations")
+            }
+        }
     }
 
     // MARK: Memory

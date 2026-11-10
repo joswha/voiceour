@@ -242,6 +242,9 @@
                 typeSafeKeys: UIFixtures.typeSafeKeys(in: scratch),
                 recentSessionSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
+                // Nor does a Link Earlier Dictations run read an agent's files: it answers
+                // from the fixture table, which names no row this journey writes.
+                promptEvidence: UIFixtures.promptEvidence,
                 runtimeOverride: clock.runtime
             )
             let context = UIFlowContext(coordinator: coordinator, armedGates: armedGates)

@@ -158,6 +158,10 @@ public final class DictationCoordinator {
     let sessionCues: SessionCuePlaying
     let agentSessions: AgentSessionResolving
     let agentSessionReader: AgentSessionReading
+    /// Reads the local agents' own prompt logs for Link Earlier Dictations;
+    /// `NoAgentPromptEvidenceReading` unless the app wires the real reader, so
+    /// no test or fixture reads `~/.omp` or `~/.claude`.
+    let promptEvidence: AgentPromptEvidenceReading
     /// Each binding task in flight, keyed by the History row or the note it
     /// links; see `startAgentSessionBinding` and `startNoteSessionLink`. The
     /// identity guards removal against a newer owner.
@@ -169,6 +173,14 @@ public final class DictationCoordinator {
     /// A refresh was asked for while one was in flight; it runs when that one lands.
     @ObservationIgnored
     var agentRefreshRerunRequested = false
+    /// The Link Earlier Dictations run in flight, or the last one finished;
+    /// nil before any and after the run's rows were forgotten. See
+    /// `linkEarlierDictations()`.
+    public internal(set) var linkEarlierRun: LinkEarlierRun?
+    /// The Link Earlier Dictations task in flight. The identity keeps a
+    /// cancelled run that is still draining from landing over a newer one.
+    @ObservationIgnored
+    var linkEarlierTask: (identity: UUID, task: Task<Void, Never>)?
     /// Each per-entry labelling task in flight, keyed by the memory entry it
     /// labels; see `organizeNewMemoryEntry(_:)`. The identity guards removal
     /// against a newer owner.
@@ -269,6 +281,7 @@ public final class DictationCoordinator {
         sessionCues: SessionCuePlaying = NoOpSessionCuePlayer(),
         agentSessions: AgentSessionResolving = NoAgentSessionResolving(),
         agentSessionReader: AgentSessionReading = NoAgentSessionReading(),
+        promptEvidence: AgentPromptEvidenceReading = NoAgentPromptEvidenceReading(),
         temporaryAudioRemover: @escaping @Sendable (URL) throws -> Void = { url in
             try FileManager.default.removeItem(at: url)
         },
@@ -306,6 +319,7 @@ public final class DictationCoordinator {
         self.sessionCues = sessionCues
         self.agentSessions = agentSessions
         self.agentSessionReader = agentSessionReader
+        self.promptEvidence = promptEvidence
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
         // Three durable records, each moved aside rather than overwritten when
@@ -714,7 +728,8 @@ public final class DictationCoordinator {
             audioMuter: audioMuter,
             sessionCues: sessionCues,
             agentSessions: LiveAgentSessionResolver(homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
-            agentSessionReader: AgentSessionFileReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+            agentSessionReader: AgentSessionFileReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
+            promptEvidence: AgentPromptEvidenceReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         )
         if let settingsFailure {
             coordinator.errorMessage = settingsFailure

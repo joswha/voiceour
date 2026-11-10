@@ -66,6 +66,9 @@ public enum AgentLinkMiss: String, Codable, Sendable, CaseIterable, Error {
     case codex
     /// The agent's own records do not name exactly one session.
     case sessionUnconfirmed = "session_unconfirmed"
+    /// The person unlinked the row from its thread. Kept so no later pass,
+    /// by pane or by words, links the row again.
+    case removedByYou = "removed_by_you"
 
     /// One fixed sentence for a human. Never built from Tern's output, a path,
     /// a title or an id, so showing it can leak none of them.
@@ -80,6 +83,7 @@ public enum AgentLinkMiss: String, Codable, Sendable, CaseIterable, Error {
         case .noAgent: "The pane was not running omp or Claude Code."
         case .codex: "Codex sessions are not linked."
         case .sessionUnconfirmed: "The agent's own records did not name one session."
+        case .removedByYou: "You removed this link."
         }
     }
 }
@@ -167,7 +171,19 @@ public enum AgentPromptSend: Codable, Equatable, Sendable {
     }
 }
 
-/// A History row's agent session, bound when the dictation was pasted into it.
+/// How a dictation was tied to its agent session, so a reader can tell an
+/// exact pane link from one found later by the dictation's words.
+public enum AgentLinkEvidence: String, Codable, Sendable {
+    /// The same Tern pane and foreground process held focus before and after
+    /// the paste.
+    case pane
+    /// Exactly one local session's own prompt log held the whole delivered
+    /// text, sent inside the dictation's window.
+    case words
+}
+
+/// A History row's agent session, bound when the dictation was pasted into it
+/// or, on the person's request, found later by its words.
 public struct AgentSessionBinding: Codable, Equatable, Sendable {
     public var agent: CodingAgent
     public var sessionId: String
@@ -180,6 +196,9 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
     public var resumable: Bool
     /// Nil until the send check resolves.
     public var send: AgentPromptSend?
+    /// Absent on disk reads as `.pane`: every binding written before words
+    /// could link a row came from the pane.
+    public var evidence: AgentLinkEvidence
 
     private enum CodingKeys: String, CodingKey {
         case agent
@@ -191,6 +210,7 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
         case promptLogOffset
         case resumable
         case send
+        case evidence
     }
 
     public init(
@@ -202,7 +222,8 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
         boundAt: Date,
         promptLogOffset: Int? = nil,
         resumable: Bool = false,
-        send: AgentPromptSend? = nil
+        send: AgentPromptSend? = nil,
+        evidence: AgentLinkEvidence = .pane
     ) {
         self.agent = agent
         self.sessionId = sessionId
@@ -213,6 +234,7 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
         self.promptLogOffset = promptLogOffset
         self.resumable = resumable
         self.send = send
+        self.evidence = evidence
     }
 
     public init(_ resolved: ResolvedAgentSession, boundAt: Date) {
@@ -240,6 +262,27 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
         resumable = try container.decodeIfPresent(Bool.self, forKey: .resumable) ?? false
         // An unknown send status keeps the binding; the check runs again.
         send = try? container.decodeIfPresent(AgentPromptSend.self, forKey: .send)
+        // An unknown value fails the binding rather than claim a pane link it
+        // cannot show; the row itself survives unbound.
+        evidence = try container.decodeIfPresent(AgentLinkEvidence.self, forKey: .evidence) ?? .pane
+    }
+
+    /// Writes `evidence` only for a words link, so a pane binding's bytes stay
+    /// what every earlier build wrote.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(agent, forKey: .agent)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(sessionFile, forKey: .sessionFile)
+        try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+        try container.encodeIfPresent(sessionTitle, forKey: .sessionTitle)
+        try container.encode(boundAt, forKey: .boundAt)
+        try container.encodeIfPresent(promptLogOffset, forKey: .promptLogOffset)
+        try container.encode(resumable, forKey: .resumable)
+        try container.encodeIfPresent(send, forKey: .send)
+        if evidence != .pane {
+            try container.encode(evidence, forKey: .evidence)
+        }
     }
 
     public var key: AgentSessionKey {

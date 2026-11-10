@@ -125,21 +125,25 @@ struct AgentSessionFiles: Sendable {
 
     // MARK: omp
 
-    /// Title and working directory from the head of an omp session file:
-    /// an optional `{"type":"title"}` line, then `{"type":"session"}`.
-    func ompHead(_ canonicalPath: String) -> (title: String?, workingDirectory: String?) {
-        guard let head = head(canonicalPath) else { return (nil, nil) }
+    /// Title, working directory and start time from the head of an omp
+    /// session file: an optional `{"type":"title"}` line, then
+    /// `{"type":"session"}`, whose timestamp is when the file began.
+    func ompHead(_ canonicalPath: String) -> (title: String?, workingDirectory: String?, startedAt: Date?) {
+        guard let head = head(canonicalPath) else { return (nil, nil, nil) }
         var title: String?
         var workingDirectory: String?
+        var startedAt: Date?
         for line in Self.completeLines(head).prefix(2) {
             guard let record = try? JSONDecoder().decode(OmpHeadRecord.self, from: line) else { continue }
             switch record.type ?? "" {
             case "title": title = record.title.flatMap(Self.ompTitle)
-            case "session": workingDirectory = record.cwd.flatMap(Self.nonBlank)
+            case "session":
+                workingDirectory = record.cwd.flatMap(Self.nonBlank)
+                startedAt = record.timestamp.flatMap(Self.isoDate)
             default: continue
             }
         }
-        return (title, workingDirectory)
+        return (title, workingDirectory, startedAt)
     }
 
     /// The canonical path of omp session `id` in any project folder directly
@@ -160,6 +164,39 @@ struct AgentSessionFiles: Sendable {
             }
         }
         return nil
+    }
+
+    /// Every omp session file directly in a project folder under `sessions`,
+    /// with its id, at its canonical path. A name that only links to a file
+    /// elsewhere, such as a subagent transcript one folder deeper, is left
+    /// out, so `sessions-archive`, `custom-session-files` and subagent folders
+    /// are never reached.
+    func ompTopLevelSessionFiles() -> [(sessionId: String, path: String)] {
+        let sessions = path(.omp, "sessions")
+        guard
+            case .inside(let canonicalSessions) = location(of: sessions, under: .omp),
+            let projects = fileSystem.contentsOfDirectory(sessions)
+        else { return [] }
+        var found: [(sessionId: String, path: String)] = []
+        for project in projects.sorted() {
+            let folder = sessions + "/" + project
+            guard let names = fileSystem.contentsOfDirectory(folder) else { continue }
+            for name in names.sorted() {
+                guard
+                    let id = Self.ompSessionId(fileName: name),
+                    case .inside(let canonical) = location(of: folder + "/" + name, under: .omp),
+                    canonical.hasPrefix(canonicalSessions + "/")
+                else { continue }
+                let below = canonical.dropFirst(canonicalSessions.count + 1).split(separator: "/")
+                guard
+                    below.count == 2,
+                    Self.ompSessionId(fileName: String(below[1])) == id,
+                    fileSystem.fileSize(canonical) != nil
+                else { continue }
+                found.append((id, canonical))
+            }
+        }
+        return found
     }
 
     /// The session id an omp session file name carries: the UUID after the
@@ -272,6 +309,14 @@ struct AgentSessionFiles: Sendable {
         text.count == 36 && UUID(uuidString: text) != nil
     }
 
+    private static let fractionalISO8601 = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let wholeISO8601 = Date.ISO8601FormatStyle()
+
+    /// An omp timestamp, which carries milliseconds, or one in whole seconds.
+    static func isoDate(_ text: String) -> Date? {
+        (try? fractionalISO8601.parse(text)) ?? (try? wholeISO8601.parse(text))
+    }
+
     static func nonBlank(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -281,18 +326,21 @@ struct AgentSessionFiles: Sendable {
         var type: String?
         var title: String?
         var cwd: String?
+        var timestamp: String?
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             type = try? container.decodeIfPresent(String.self, forKey: .type)
             title = try? container.decodeIfPresent(String.self, forKey: .title)
             cwd = try? container.decodeIfPresent(String.self, forKey: .cwd)
+            timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
         }
 
         private enum CodingKeys: String, CodingKey {
             case type
             case title
             case cwd
+            case timestamp
         }
     }
 

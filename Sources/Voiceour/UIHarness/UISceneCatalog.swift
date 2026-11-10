@@ -295,6 +295,24 @@
                         .settle(120),
                     ]
                 ),
+                // A row linked by its words, as Link Earlier Dictations links one, opened the
+                // same way: its Details name the session under Agent and say the link came from
+                // its words, not from a focused pane. It sits above the Tern row, so the same
+                // height holds it open.
+                console(
+                    "console.sessions.evidence",
+                    "History row linked to its agent session by its words, Details open on how",
+                    tab: .history,
+                    fixture: .populated,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_400),
+                    tags: ["agent-link", "steps"],
+                    steps: [
+                        .press(UIFixtures.evidenceRowText),
+                        .settle(120),
+                        .press("sessions.detail.details"),
+                        .settle(120),
+                    ]
+                ),
                 // The Journal's Rewind and Threads lenses. The tab opens on Timeline, and the
                 // segmented picker that leaves it is not a press a window that never becomes
                 // key can count on, so each scene pins the lens it shows, as the tab bar is

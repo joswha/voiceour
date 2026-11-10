@@ -700,6 +700,12 @@ struct ConsoleHistoryTab: View {
                         copy(binding.resumeCommand, from: session, announcement: "Resume command copied to clipboard")
                     }
                 }
+                // No confirmation: the row keeps its text, and its thread line
+                // changes at once, so the result is plain where the click landed.
+                Button("Unlink from Thread") {
+                    select(session)
+                    coordinator.unlinkThread(rowID: session.id)
+                }
             }
             Button("Delete Transcript\u{2026}", role: .destructive) {
                 select(session)
@@ -1009,6 +1015,13 @@ struct ConsoleHistoryTab: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(binding.workingDirectory ?? binding.sessionId)
+                if binding.evidence == .words {
+                    // A words link was found later in the agent's own prompt log,
+                    // not seen in the focused pane, so the reader is told which.
+                    Text("Linked by its words")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("sessions.detail.evidence")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {

@@ -262,6 +262,29 @@
             // checks prove it reaches no node of the tree.
             static let fakeTypeSafeKey = "test-key-123"
 
+            // Settings ▸ Privacy's linking switch and Link Earlier Dictations, whose caption
+            // says what the button does until a run reports.
+            static let agentLinksToggle = UIQuery.id("system.agent-links.toggle")
+            static let linkEarlier = UIQuery.id("system.agent.link-earlier")
+            static let linkEarlierBeforeRun =
+                "Finds earlier dictations whose exact words reached one omp or Claude Code session on this Mac, "
+                + "and links them to it."
+
+            /// What a run on `UIFixtures.history` reports: its rows picked the way
+            /// `linkEarlierDictations()` picks them, one of them in the harness reader's table,
+            /// and the sentence the run's own `summary` builds, so the flow cannot drift from
+            /// either the fixture or the wording.
+            @MainActor
+            static var linkEarlierSummary: String {
+                let lookedFor = UIFixtures.history.filter { row in
+                    row.agentSession == nil
+                        && row.unlinked != .removedByYou
+                        && PromptEvidence.words(row.text) >= PromptEvidence.minimumWords
+                }
+                return LinkEarlierRun(isRunning: false, linked: 1, notFound: lookedFor.count - 1, ambiguous: 0)
+                    .summary
+            }
+
             static func backendStatusWithValue(_ value: String) -> UIQuery {
                 .all([backendStatus, .value(value)])
             }
@@ -1822,6 +1845,40 @@
                                 .text(.contains(Selector.fakeTypeSafeKey), .exactly(0)),
                                 .absent(.labelContains(Selector.fakeTypeSafeKey)),
                                 .absent(.value(Selector.fakeTypeSafeKey)),
+                            ]
+                        ),
+                    ]),
+                // Link Earlier Dictations on the populated History with linking on. The harness
+                // reader answers from a table holding one row and opens no agent's files, so the
+                // run links that row, counts every other row it looked for as not found, and
+                // copies nothing; the button is offered again once the run has reported.
+                UIFlow(
+                    id: "system.agent.link-earlier",
+                    title: "Link Earlier Dictations links the row an agent's prompts held and counts the rest",
+                    tags: ["system", "console", "settings", "agent-link"],
+                    host: .console(.settings),
+                    fixture: .static(.linkingOn),
+                    steps: [
+                        .wait(.element(Selector.linkEarlier)),
+                        .check(
+                            "offered",
+                            [
+                                .value(Selector.agentLinksToggle, .equals("1")),
+                                .enabled(Selector.linkEarlier, true),
+                                .text(.equals(Selector.linkEarlierBeforeRun), .exactly(1)),
+                                .model(.pasteboardWrites, .equals("0")),
+                            ]
+                        ),
+                        .act(.press(Selector.linkEarlier)),
+                        .wait(.element(.value(Selector.linkEarlierSummary))),
+                        .check(
+                            "reported",
+                            [
+                                .text(.equals(Selector.linkEarlierSummary), .exactly(1)),
+                                .text(.equals(Selector.linkEarlierBeforeRun), .exactly(0)),
+                                .enabled(Selector.linkEarlier, true),
+                                .model(.recentSessionCount, .equals("10")),
+                                .model(.pasteboardWrites, .equals("0")),
                             ]
                         ),
                     ]),

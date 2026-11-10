@@ -1,0 +1,13 @@
+flow: system.agent.link-earlier
+title: Link Earlier Dictations links the row an agent's prompts held and counts the rest
+fixture: static
+transitions: idle
+PASS 1 offered | value id=system.agent-links.toggle == "1" | "1"
+PASS 2 offered | enabled(true) id=system.agent.link-earlier | true
+PASS 3 offered | text == "Finds earlier dictations whose exact words reached one omp or Claude Code session on this Mac, and links them to it." exactly 1 | 1 match
+PASS 4 offered | model pasteboardWrites == "0" | 0
+PASS 5 reported | text == "Linked 1 earlier dictation. 6 were not found in any local agent's prompts." exactly 1 | 1 match
+PASS 6 reported | text == "Finds earlier dictations whose exact words reached one omp or Claude Code session on this Mac, and links them to it." exactly 0 | 0 matches
+PASS 7 reported | enabled(true) id=system.agent.link-earlier | true
+PASS 8 reported | model recentSessionCount == "10" | 10
+PASS 9 reported | model pasteboardWrites == "0" | 0

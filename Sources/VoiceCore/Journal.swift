@@ -102,6 +102,9 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
     public var resumable: Bool
     /// Nil while the send check is pending, true when sent, false when not sent.
     public var sent: Bool?
+    /// How the dictation was tied to the session. Absent on disk reads as
+    /// `.pane`: every link written before words could link a row came from it.
+    public var evidence: AgentLinkEvidence
 
     private enum CodingKeys: String, CodingKey {
         case agent
@@ -110,6 +113,7 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
         case workingDirectory = "working_directory"
         case resumable
         case sent
+        case evidence
     }
 
     public init(
@@ -118,7 +122,8 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
         title: String? = nil,
         workingDirectory: String? = nil,
         resumable: Bool = false,
-        sent: Bool? = nil
+        sent: Bool? = nil,
+        evidence: AgentLinkEvidence = .pane
     ) {
         self.agent = agent
         self.sessionId = sessionId
@@ -126,6 +131,7 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
         self.workingDirectory = JournalStrings.nonBlank(workingDirectory)
         self.resumable = resumable
         self.sent = sent
+        self.evidence = evidence
     }
 
     public init(_ binding: AgentSessionBinding) {
@@ -141,7 +147,8 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
             title: binding.sessionTitle,
             workingDirectory: binding.workingDirectory,
             resumable: binding.resumable,
-            sent: sent
+            sent: sent,
+            evidence: binding.evidence
         )
     }
 
@@ -167,6 +174,7 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
         )
         resumable = try container.decodeIfPresent(Bool.self, forKey: .resumable) ?? false
         sent = try container.decodeIfPresent(Bool.self, forKey: .sent)
+        evidence = try container.decodeIfPresent(AgentLinkEvidence.self, forKey: .evidence) ?? .pane
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -177,6 +185,11 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
         try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
         try container.encode(resumable, forKey: .resumable)
         try container.encodeIfPresent(sent, forKey: .sent)
+        // Only a words link writes the key, so a pane link's bytes stay what
+        // every earlier build wrote.
+        if evidence != .pane {
+            try container.encode(evidence, forKey: .evidence)
+        }
     }
 
     public var key: AgentSessionKey {

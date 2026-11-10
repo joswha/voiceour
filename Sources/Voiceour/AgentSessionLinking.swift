@@ -18,6 +18,12 @@ import VoiceCore
 /// sent — from `AgentSessionReading` off the main actor, one pass at a time.
 /// Every write goes through the journal's one FIFO and is discarded once
 /// binding is turned off, History is cleared, or the app is terminating.
+///
+/// Link Earlier Dictations, on the person's press, links rows the pane could
+/// not: the one local session whose own prompt log holds a row's whole text
+/// inside its window, read by `AgentPromptEvidenceReading`. Several sessions
+/// holding it link nothing. A row the person unlinked keeps `.removedByYou`
+/// and is never linked again by either path.
 @MainActor
 extension DictationCoordinator {
     /// The one host whose panes a dictation binds to.
@@ -67,6 +73,10 @@ extension DictationCoordinator {
         agentRefreshTask?.cancel()
         agentRefreshTask = nil
         agentRefreshRerunRequested = false
+        linkEarlierTask?.task.cancel()
+        linkEarlierTask = nil
+        // The run counted rows that are gone or about to lose their links.
+        linkEarlierRun = nil
     }
 
     /// Cancels the binding task of a row that no longer exists.
@@ -263,6 +273,157 @@ extension DictationCoordinator {
             return AgentSessionRefreshResult(id: candidate.id, original: candidate.binding, updated: updated)
         }
     }
+
+    /// Links earlier History rows by their words: each row with no binding,
+    /// not unlinked by the person, and at least `PromptEvidence.minimumWords`
+    /// words is looked for in the local agents' own prompt logs off the main
+    /// actor, and linked only when exactly one session held its whole text.
+    /// One run at a time; refused while binding is off or the app is quitting.
+    /// Turning binding off, Clear History and quit cancel it and drop what it
+    /// found.
+    public func linkEarlierDictations() {
+        guard linkEarlierTask == nil,
+            settings.agentSessionBindingEnabled,
+            !isPreparingForTermination
+        else { return }
+        let queries = recentSessions.compactMap { session -> PromptEvidenceQuery? in
+            guard session.agentSession == nil,
+                session.unlinked != .removedByYou,
+                PromptEvidence.words(session.text) >= PromptEvidence.minimumWords
+            else { return nil }
+            return PromptEvidenceQuery(id: session.id, text: session.text, at: session.createdAt)
+        }
+        guard !queries.isEmpty else {
+            linkEarlierRun = LinkEarlierRun(isRunning: false)
+            return
+        }
+        // Observed, never begun: a run must not invalidate a delivery's
+        // binding or a refresh pass.
+        let token = generations.currentToken(.agentLinking)
+        let identity = runtime.makeUUID()
+        let reader = promptEvidence
+        linkEarlierRun = LinkEarlierRun(isRunning: true)
+        let task = Task { [weak self] in
+            // Detached so the reading leaves the main actor; cancelling this
+            // task cancels it, and the reader stops between files.
+            let reading = Task.detached(priority: .utility) {
+                Self.linkEarlierFindings(queries, reader: reader)
+            }
+            let findings = await withTaskCancellationHandler {
+                await reading.value
+            } onCancel: {
+                reading.cancel()
+            }
+            self?.applyLinkEarlierDictations(findings, queries: queries, identity: identity, token: token)
+        }
+        linkEarlierTask = (identity: identity, task: task)
+    }
+
+    /// Reads the prompt logs once for every query, then which matched
+    /// sessions' files exist now. Runs off the main actor: both touch files.
+    nonisolated static func linkEarlierFindings(
+        _ queries: [PromptEvidenceQuery],
+        reader: AgentPromptEvidenceReading
+    ) -> LinkEarlierFindings {
+        let run = reader.evidence(for: queries)
+        let existing = Set(
+            run.matches.values.compactMap(\.sessionFile).filter { FileManager.default.fileExists(atPath: $0) }
+        )
+        return LinkEarlierFindings(run: run, existingSessionFiles: existing)
+    }
+
+    /// Lands a Link Earlier Dictations run. A cancelled run touches nothing:
+    /// its canceller already released the slot, and the reader's empty answer
+    /// after cancellation means nothing. Otherwise, under the gates a binding
+    /// uses, links each row exactly one session held whose row still exists
+    /// unbound, not unlinked by the person and with the text that was read,
+    /// in one journal snapshot and one memory commit, then publishes the
+    /// counts.
+    func applyLinkEarlierDictations(
+        _ findings: LinkEarlierFindings,
+        queries: [PromptEvidenceQuery],
+        identity: UUID,
+        token: AsyncGenerationGate.Token
+    ) {
+        guard linkEarlierTask?.identity == identity else { return }
+        linkEarlierTask = nil
+        guard !Task.isCancelled,
+            generations.isCurrent(token),
+            settings.agentSessionBindingEnabled,
+            !isPreparingForTermination
+        else {
+            linkEarlierRun = nil
+            return
+        }
+        let run = findings.run
+        var sessions = recentSessions
+        var linked: [RecentSession.ID: AgentSessionBinding] = [:]
+        var ambiguous = 0
+        var found = 0
+        for query in queries {
+            if run.ambiguous.contains(query.id) {
+                ambiguous += 1
+                continue
+            }
+            guard let match = run.matches[query.id] else { continue }
+            found += 1
+            guard let index = sessions.firstIndex(where: { $0.id == query.id }),
+                sessions[index].agentSession == nil,
+                sessions[index].unlinked != .removedByYou,
+                sessions[index].text == query.text
+            else { continue }
+            let binding = AgentSessionBinding(
+                agent: match.agent,
+                sessionId: match.sessionId,
+                sessionFile: match.sessionFile,
+                workingDirectory: match.workingDirectory,
+                sessionTitle: match.title,
+                boundAt: sessions[index].createdAt,
+                resumable: match.sessionFile.map(findings.existingSessionFiles.contains) ?? false,
+                send: .sent(sentAt: match.sentAt, text: nil),
+                evidence: .words
+            )
+            sessions[index].agentSession = binding
+            linked[query.id] = binding
+        }
+        if !linked.isEmpty {
+            recentSessions = sessions
+            _ = enqueueJournalSnapshot()
+            mirrorAgentSessionBindings(linked)
+        }
+        linkEarlierRun = LinkEarlierRun(
+            isRunning: false,
+            linked: linked.count,
+            notFound: queries.count - found - ambiguous,
+            ambiguous: ambiguous
+        )
+    }
+
+    /// Removes row `rowID`'s thread for good. The row keeps `.removedByYou`,
+    /// so neither a refresh pass nor Link Earlier Dictations links it again;
+    /// the memory entry with the same id loses its thread and gets the same
+    /// reason. A row with no binding needs nothing.
+    public func unlinkThread(rowID: RecentSession.ID) {
+        guard !isPreparingForTermination,
+            let index = recentSessions.firstIndex(where: { $0.id == rowID }),
+            recentSessions[index].agentSession != nil
+        else { return }
+        recentSessions[index].agentSession = nil
+        recentSessions[index].unlinked = .removedByYou
+        _ = enqueueJournalSnapshot()
+        mirrorAgentLinkRemoval(entryID: rowID)
+    }
+
+    /// Clears the thread of the memory entry with id `entryID` and records
+    /// that the person removed it. An entry memory does not hold needs
+    /// nothing.
+    func mirrorAgentLinkRemoval(entryID: UUID) {
+        guard let index = memoryEntries.firstIndex(where: { $0.id == entryID }) else { return }
+        var entries = memoryEntries
+        entries[index].thread = nil
+        entries[index].unlinked = .removedByYou
+        commitMemory(entries: entries)
+    }
 }
 
 /// One bound row a refresh pass reads.
@@ -278,4 +439,50 @@ struct AgentSessionRefreshResult: Sendable {
     let id: RecentSession.ID
     let original: AgentSessionBinding
     let updated: AgentSessionBinding
+}
+
+/// The result of one Link Earlier Dictations run, as Settings shows it.
+public struct LinkEarlierRun: Equatable, Sendable {
+    /// True while the agents' prompt logs are being read.
+    public var isRunning: Bool
+    /// Rows the run linked.
+    public var linked: Int
+    /// Rows no local session's prompts held.
+    public var notFound: Int
+    /// Rows several sessions' prompts held, left unlinked.
+    public var ambiguous: Int
+
+    public init(isRunning: Bool, linked: Int = 0, notFound: Int = 0, ambiguous: Int = 0) {
+        self.isRunning = isRunning
+        self.linked = linked
+        self.notFound = notFound
+        self.ambiguous = ambiguous
+    }
+
+    /// Fixed sentences built only from the counts, so showing them can leak
+    /// no text, title or id. A count of zero adds no sentence, except that the
+    /// first always says how many were linked; a run with nothing to look for
+    /// says why instead.
+    public var summary: String {
+        guard linked + notFound + ambiguous > 0 else {
+            return "Every earlier dictation is already linked, was unlinked by you, "
+                + "or has fewer than \(PromptEvidence.minimumWords) words."
+        }
+        var sentences = [linked == 1 ? "Linked 1 earlier dictation." : "Linked \(linked) earlier dictations."]
+        if notFound > 0 {
+            sentences.append("\(notFound) \(notFound == 1 ? "was" : "were") not found in any local agent's prompts.")
+        }
+        if ambiguous > 0 {
+            sentences.append(
+                "\(ambiguous) matched several sessions and \(ambiguous == 1 ? "was" : "were") left unlinked.")
+        }
+        return sentences.joined(separator: " ")
+    }
+}
+
+/// What a Link Earlier Dictations reading found, with the matched session
+/// files that exist, checked off the main actor.
+struct LinkEarlierFindings: Sendable {
+    let run: PromptEvidenceRun
+    let existingSessionFiles: Set<String>
 }
