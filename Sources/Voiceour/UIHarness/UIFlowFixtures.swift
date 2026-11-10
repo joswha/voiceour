@@ -230,6 +230,9 @@
                 memoryLoad: { _ in MemoryLoad() },
                 memoryWrite: { _, _ in },
                 memoryClear: { _ in },
+                // No agent has saved anything either, and the real loader would read the
+                // scratch folder's `agents/` rather than state it.
+                memoryAgentNotesLoad: { _ in [] },
                 // No environment and a scratch key file, as every harness coordinator has:
                 // a journal must not change with whether the shell exports a TypeSafe key.
                 typeSafeKeys: UIFixtures.typeSafeKeys(in: scratch),

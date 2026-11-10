@@ -332,6 +332,8 @@
                 ),
                 // The same two lenses over a memory folder that reaches past History: a day
                 // only memory holds, and the omp thread with entries older than any History row.
+                // The fixture's loader states an agent's recap of that day, so Rewind shows it
+                // under "From your agents", below Copy Recap Prompt, without a step.
                 console(
                     "console.sessions.rewind.memory",
                     "Journal Rewind on a day only memory holds",
@@ -339,7 +341,7 @@
                     fixture: .remembered,
                     journalLens: .rewind,
                     journalDay: UIFixtures.rememberedDay,
-                    tags: ["memory"]
+                    tags: ["memory", "agent-notes"]
                 ),
                 console(
                     "console.sessions.threads.memory",
@@ -373,7 +375,8 @@
                 // with no topic open; the same list with the first row pressed open, because
                 // no seam pins an open topic and a plain button press is one this window
                 // takes; and the populated fixture, whose memory holds no topic. The harness
-                // key source holds no key, so no Sorting section shows on any Mac.
+                // key source holds no key, so no Sorting section shows on any Mac. The open
+                // page shows the agent synthesis the fixture's loader states for that topic.
                 console(
                     "console.sessions.topics",
                     "Journal Topics listing the user's topics with none open",
@@ -388,7 +391,7 @@
                     tab: .history,
                     fixture: .remembered,
                     journalLens: .topics,
-                    tags: ["memory", "topics", "steps"],
+                    tags: ["memory", "topics", "agent-notes", "steps"],
                     steps: [
                         .press("journal.topics.row"),
                         .settle(120),

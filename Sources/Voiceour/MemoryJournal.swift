@@ -194,7 +194,8 @@ extension DictationCoordinator {
         commitMemory(entries: memoryEntries + missing)
     }
 
-    /// Erases the whole memory folder, `agents/` included.
+    /// Erases the whole memory folder, `agents/` included, and the agent
+    /// notes read from it.
     ///
     /// The one change that bypasses `commitMemory`: a plan can only rewrite
     /// the files this store owns, and the erase removes the folder whole. The
@@ -214,8 +215,14 @@ extension DictationCoordinator {
         // and a Sort Entries run would keep labelling a folder that is gone.
         generations.invalidate(.organizing)
         cancelOrganizerWork()
+        // A load in flight read a folder this erase removes; cancelling it
+        // discards its landing.
+        agentNotesTask?.cancel()
+        agentNotesTask = nil
+        agentNotesRerunRequested = false
         memoryEntries = []
         memoryTopics = []
+        agentNotes = []
         memoryRevision += 1
 
         let previous = recentSessionPersistenceTail
@@ -236,6 +243,46 @@ extension DictationCoordinator {
             errorMessage = "Memory could not be erased."
         }
         return cleared
+    }
+
+    /// Starts a load of the notes agents saved under `agents/`, or asks the
+    /// load in flight to run again when it lands. Nothing here writes under
+    /// `agents/`: the folder is the agents' to write and Voiceour's to read.
+    ///
+    /// The read runs behind every write already queued, Clear Memory's
+    /// included, so a load asked for after an erase never reads the folder
+    /// the erase is about to remove.
+    public func refreshAgentNotes() {
+        guard !isPreparingForTermination else { return }
+        guard agentNotesTask == nil else {
+            agentNotesRerunRequested = true
+            return
+        }
+        let previous = recentSessionPersistenceTail
+        let store = memoryStore
+        let load = memoryAgentNotesLoad
+        agentNotesTask = Task { [weak self] in
+            let notes = await Task.detached(priority: .utility) {
+                _ = await previous?.value
+                return load(store)
+            }.value
+            self?.applyAgentNotesLoad(notes)
+        }
+    }
+
+    /// Lands a load. A cancelled load touches nothing: its canceller already
+    /// released the slot. Otherwise publishes the notes unless termination has
+    /// begun, then reruns if asked.
+    func applyAgentNotesLoad(_ notes: [AgentNote]) {
+        guard !Task.isCancelled else { return }
+        agentNotesTask = nil
+        let rerun = agentNotesRerunRequested
+        agentNotesRerunRequested = false
+        guard !isPreparingForTermination else { return }
+        agentNotes = notes
+        if rerun {
+            refreshAgentNotes()
+        }
     }
 
     /// Whether the memory folder exists, which is when Clear Memory has

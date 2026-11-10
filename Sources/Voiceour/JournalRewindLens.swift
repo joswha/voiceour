@@ -24,6 +24,13 @@ struct JournalRewindLens: View {
     private let topics: [MemoryTopic]
     /// Files an entry under a topic or under none; nil offers no submenu.
     private let file: ((UUID, String?) -> Void)?
+    /// The ids of the entries memory keeps. The recap prompt names the day's page in the
+    /// memory folder, which exists only for a day that holds one of them.
+    private let memoryIDs: Set<UUID>
+    /// Every note agents saved under `agents/`; the lens shows the selected day's.
+    private let agentNotes: [AgentNote]
+    /// The memory folder the recap prompt points an agent at; nil offers no prompt.
+    private let memoryRoot: URL?
 
     /// The start of the day on screen. Seeded from the harness pin so a golden opens on
     /// a fixed day; any day that holds no entry falls back to the newest one.
@@ -38,6 +45,10 @@ struct JournalRewindLens: View {
     /// Every match, before the display limit, so the caption can state the real total.
     @State private var matchCount = 0
     @State private var matchDays: [RewindMatchDay] = []
+    /// Whether the day on screen holds an entry memory keeps.
+    @State private var dayIsInMemory = false
+    /// The agent notes whose `day` is the day on screen, newest modification first.
+    @State private var dayNotes: [AgentNote] = []
 
     /// How many days the picker lists before it switches to month submenus: two weeks
     /// is the range a reader names by weekday rather than by date.
@@ -53,7 +64,10 @@ struct JournalRewindLens: View {
         navigation: JournalNavigation,
         delete: ((UUID) async -> Bool)? = nil,
         topics: [MemoryTopic] = [],
-        file: ((UUID, String?) -> Void)? = nil
+        file: ((UUID, String?) -> Void)? = nil,
+        memoryIDs: Set<UUID> = [],
+        agentNotes: [AgentNote] = [],
+        memoryRoot: URL? = nil
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
@@ -62,6 +76,9 @@ struct JournalRewindLens: View {
         self.delete = delete
         self.topics = topics
         self.file = file
+        self.memoryIDs = memoryIDs
+        self.agentNotes = agentNotes
+        self.memoryRoot = memoryRoot
     }
 
     var body: some View {
@@ -75,6 +92,15 @@ struct JournalRewindLens: View {
             if query.isEmpty {
                 if let rewind {
                     navigatorSection(rewind)
+
+                    if !dayNotes.isEmpty {
+                        Section("From your agents") {
+                            ForEach(dayNotes) { note in
+                                JournalAgentNoteRow(note)
+                                    .accessibilityIdentifier("journal.rewind.agent-note")
+                            }
+                        }
+                    }
 
                     if !rewind.highlights.isEmpty {
                         Section("Highlights") {
@@ -128,6 +154,12 @@ struct JournalRewindLens: View {
         }
         .onChange(of: searchText) {
             reloadMatches()
+        }
+        .onChange(of: memoryIDs) {
+            reloadAgentDay()
+        }
+        .onChange(of: agentNotes) {
+            reloadAgentDay()
         }
     }
 
@@ -250,6 +282,24 @@ struct JournalRewindLens: View {
                     Text(Self.spanText(from: firstAt, to: lastAt))
                 }
                 .accessibilityIdentifier("journal.rewind.span")
+            }
+
+            if dayIsInMemory, let memoryRoot {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                    JournalPromptCopyButton(
+                        "Copy Recap Prompt",
+                        help: "Copy a prompt that asks your coding agent to recap this day",
+                        announcement: "Recap prompt copied to clipboard",
+                        identifier: "journal.rewind.recap-prompt",
+                        prompt: { MemoryPages.recapPrompt(day: rewind.day, root: memoryRoot, calendar: calendar) }
+                    )
+
+                    ConsoleCaption(
+                        "Paste it into your coding agent. The agent reads this day in the memory folder and saves "
+                            + "a recap there."
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -385,6 +435,7 @@ struct JournalRewindLens: View {
         // day would be traded for the newest one.
         guard !days.isEmpty else {
             rewind = nil
+            reloadAgentDay()
             return
         }
 
@@ -394,6 +445,7 @@ struct JournalRewindLens: View {
             selectedDay = resolved
         }
         rewind = resolved.map { JournalQuery.rewind(day: $0, in: entries, calendar: calendar) }
+        reloadAgentDay()
     }
 
     /// Follows a day chosen from the navigator. `reloadDays` has already built the
@@ -401,6 +453,23 @@ struct JournalRewindLens: View {
     private func reloadRewind() {
         guard rewind?.day != selectedDay else { return }
         rewind = selectedDay.map { JournalQuery.rewind(day: $0, in: entries, calendar: calendar) }
+        reloadAgentDay()
+    }
+
+    /// Rebuilds what the day on screen shows beside its entries: whether memory keeps any
+    /// of them, and the notes agents saved for it.
+    private func reloadAgentDay() {
+        guard let rewind else {
+            dayIsInMemory = false
+            dayNotes = []
+            return
+        }
+        dayIsInMemory = rewind.blocks.contains { block in
+            block.entries.contains { memoryIDs.contains($0.id) }
+        }
+        // The same `YYYY-MM-DD` an agent note names its day in, and locale-proof.
+        let day = DictationStatsLedger.dayKey(for: rewind.day, calendar: calendar)
+        dayNotes = agentNotes.filter { $0.day == day }
     }
 
     private func reloadMatches() {
@@ -526,6 +595,126 @@ struct JournalRewindLens: View {
         }
         let header = "\(spanText(from: block.startAt, to: block.endAt)) · \(subject)"
         return block.isContinuation ? "\(header) · continued" : header
+    }
+}
+
+/// One note an agent saved under the memory folder's `agents/`: who wrote it and what it says.
+///
+/// The body is text and nothing else. It is never parsed as Markdown, never turned into a
+/// link and never opened, because an agent wrote it and Voiceour vouches for none of it;
+/// it stays selectable so the reader can take a passage out by hand. It is not an entry,
+/// so a click copies nothing and there is no menu.
+struct JournalAgentNoteRow: View {
+    /// How much of a body the lens renders. An agent file may run to 256 KB, and one
+    /// unbroken text view that long stalls the form it sits in.
+    static let displayLimit = 4_000
+
+    private let caption: String
+    private let text: String
+
+    init(_ note: AgentNote) {
+        caption = "\(note.title ?? note.id) \u{00B7} by \(note.author)"
+        text = Self.displayedBody(note.body)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            ConsoleCaption(caption)
+
+            Text(verbatim: text)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                // Keep mouse selection while exposing the text once, not both the
+                // native selection wrapper and its identical accessibility child.
+                .accessibilityRepresentation { Text(verbatim: text) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    /// The body cut at `displayLimit` characters, ending with "…" when anything was cut.
+    /// Walks at most `displayLimit` characters, so a long body costs no more than a short one.
+    static func displayedBody(_ body: String) -> String {
+        guard let end = body.index(body.startIndex, offsetBy: displayLimit, limitedBy: body.endIndex),
+            end < body.endIndex
+        else { return body }
+        return String(body[..<end]) + "\u{2026}"
+    }
+}
+
+/// A button that copies a prompt for the user's own coding agent, with the transient COPIED
+/// mark and the spoken confirmation every copy in the console gives.
+///
+/// The prompt is built only when the button is pressed, so a lens pays nothing for offering it.
+struct JournalPromptCopyButton: View {
+    private let title: String
+    private let help: String
+    private let announcement: String
+    private let identifier: String
+    private let prompt: () -> String
+
+    @State private var showsCopied = false
+    @State private var resetCopyFeedbackTask: Task<Void, Never>?
+
+    private var a11y = A11y()
+
+    /// `identifier` names the button alone, so the COPIED mark beside it never answers to it.
+    init(
+        _ title: String,
+        help: String,
+        announcement: String,
+        identifier: String,
+        prompt: @escaping () -> String
+    ) {
+        self.title = title
+        self.help = help
+        self.announcement = announcement
+        self.identifier = identifier
+        self.prompt = prompt
+    }
+
+    var body: some View {
+        HStack(spacing: VoiceourMetrics.Space.sm) {
+            Button(title, action: copy)
+                .help(help)
+                .accessibilityIdentifier(identifier)
+
+            if showsCopied {
+                ConsoleStateMark("COPIED", .ok)
+            }
+        }
+    }
+
+    /// The mark and the announcement are claims about the clipboard, so a refused write
+    /// shows and says nothing.
+    private func copy() {
+        guard GeneralPasteboard.copy(prompt()) != nil else { return }
+        // A mark beside a control the VoiceOver cursor has already left confirms
+        // nothing, so the same sentence is spoken. A no-op when VoiceOver is not running.
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: announcement,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+        resetCopyFeedbackTask?.cancel()
+        withAnimation(feedbackAnimation) {
+            showsCopied = true
+        }
+        resetCopyFeedbackTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(feedbackAnimation) {
+                showsCopied = false
+            }
+        }
+    }
+
+    private var feedbackAnimation: Animation? {
+        a11y.reduceMotion ? nil : .easeInOut(duration: VoiceourMotion.quickDuration)
     }
 }
 

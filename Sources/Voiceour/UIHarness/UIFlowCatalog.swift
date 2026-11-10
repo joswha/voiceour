@@ -139,6 +139,9 @@
             static let memoryDayRow = UIQuery.labelContains(
                 "Pin the memory folder path in Diagnostics the same way the other storage paths are pinned."
             )
+            // 2025-05-28, `UIFixtures.rememberedDay`, one Earlier Day past that: four
+            // dictations and two notes.
+            static let rememberedDayFigure = "6 · 73 words"
 
             // Every thread row carries `journal.threads.row`, so the omp session's row is
             // addressed by the title its label leads with, which no other label holds.
@@ -184,6 +187,22 @@
             /// A topic row's whole label, the facts its second line shows, in order.
             static func topicRowLabel(_ topic: MemoryTopic, entries: Int) -> String {
                 "\(topic.name), \(entries) \(entries == 1 ? "entry" : "entries"), \(topic.summary)"
+            }
+
+            // Journal agent notes and the two prompts that ask for them. A note row is one
+            // element that contains its caption, "<title> · by <author>", as the value of a
+            // text node, so a note is addressed by its row identifier together with that
+            // caption. A prompt's COPIED mark is a sibling of its button, never one of its
+            // nodes; no entry row on the pages these flows open publishes the word on its own.
+            static let rewindAgentNote = UIQuery.id("journal.rewind.agent-note")
+            static let topicAgentNote = UIQuery.id("journal.topics.agent-note")
+            static let recapPrompt = UIQuery.id("journal.rewind.recap-prompt")
+            static let synthesisPrompt = UIQuery.id("journal.topics.synthesis-prompt")
+            static let copiedMark = UIQuery.value("COPIED")
+
+            /// The caption `JournalAgentNoteRow` gives `note`.
+            static func agentNoteCaption(_ note: AgentNote) -> String {
+                "\(note.title ?? note.id) \u{00B7} by \(note.author)"
             }
 
             // The menu's "Take a Note" row, offered only between sessions, and what its
@@ -732,6 +751,8 @@
                 notesSearchFlow,
                 topicsAddFlow,
                 topicsOpenFlow,
+                rewindRecapPromptFlow,
+                topicsSynthesisPromptFlow,
             ]
         }
 
@@ -767,6 +788,139 @@
                 host: .console(.history, journalLens: .rewind),
                 fixture: .static(.remembered),
                 steps: opened + walk + checked
+            )
+        }
+
+        /// An agent's recap shows under the day its front matter names, with its title and
+        /// author, and not on the next day that holds an entry. Copy Recap Prompt writes once
+        /// through the harness pasteboard seam and shows the COPIED mark. The prompt names the
+        /// fixture's scratch memory folder, so its text is not checked; only that exactly one
+        /// write happened.
+        private static var rewindRecapPromptFlow: UIFlow {
+            let recap = UIQuery.within(
+                Selector.rewindAgentNote,
+                .value(Selector.agentNoteCaption(UIFixtures.rememberedDayRecap))
+            )
+            // The same walk as `journal.rewind.memory-days`, one day further, waiting on
+            // every day's figure so the presses never outrun the page.
+            let figures: [String] =
+                [Selector.earlierDayFigure] + Selector.olderHistoryDayFigures
+                + [Selector.memoryDayFigure, Selector.rememberedDayFigure]
+            let walk: [UIFlowStep] = figures.flatMap { figure -> [UIFlowStep] in
+                [
+                    .act(.press(Selector.rewindEarlier)),
+                    .wait(.element(Selector.rewindEntries(figure))),
+                ]
+            }
+            let opened: [UIFlowStep] = [
+                .wait(.element(Selector.rewindEntries(Selector.newestDayFigure))),
+                .check(
+                    "newest",
+                    [
+                        .exists(Selector.recapPrompt),
+                        .absent(Selector.copiedMark),
+                        .model(.pasteboardWrites, .equals("0")),
+                    ]
+                ),
+            ]
+            let copied: [UIFlowStep] = [
+                // Notes load off the main actor, so the row is waited on, not assumed.
+                .wait(.element(recap)),
+                .check(
+                    "recap",
+                    [
+                        .exists(Selector.rewindEntries(Selector.rememberedDayFigure)),
+                        .exists(recap),
+                        .enabled(Selector.recapPrompt, true),
+                        .absent(Selector.copiedMark),
+                        .model(.pasteboardWrites, .equals("0")),
+                    ]
+                ),
+                .act(.press(Selector.recapPrompt)),
+                .wait(.element(Selector.copiedMark)),
+                .check(
+                    "copied",
+                    [
+                        .exists(Selector.copiedMark),
+                        .model(.pasteboardWrites, .equals("1")),
+                        .exists(recap),
+                    ]
+                ),
+                // Back one day, once the recap has been seen to load: the note stays with
+                // the day it names.
+                .act(.press(Selector.rewindLater)),
+                .wait(.element(Selector.rewindEntries(Selector.memoryDayFigure))),
+                .check(
+                    "later-day",
+                    [
+                        .exists(Selector.rewindEntries(Selector.memoryDayFigure)),
+                        .absent(Selector.rewindAgentNote),
+                        .model(.pasteboardWrites, .equals("1")),
+                    ]
+                ),
+            ]
+            return UIFlow(
+                id: "journal.rewind.recap-prompt",
+                title: "Rewind shows an agent's recap under its day and copies the day's recap prompt",
+                tags: ["journal", "console", "rewind", "memory", "agent-notes", "clipboard"],
+                host: .console(.history, journalLens: .rewind),
+                fixture: .static(.remembered),
+                steps: opened + walk + copied
+            )
+        }
+
+        /// An agent's synthesis shows on the page of the topic its front matter names, and
+        /// nowhere while that page is shut. Copy Synthesis Prompt writes once through the
+        /// harness pasteboard seam and shows the COPIED mark; the prompt names the scratch
+        /// memory folder, so its text is not checked.
+        private static var topicsSynthesisPromptFlow: UIFlow {
+            let topic = UIFixtures.memoryFolderTopic
+            let row = Selector.topicRow(topic.name)
+            let synthesis = UIQuery.within(
+                Selector.topicAgentNote,
+                .value(Selector.agentNoteCaption(UIFixtures.memoryFolderSynthesis))
+            )
+            return UIFlow(
+                id: "journal.topics.synthesis-prompt",
+                title: "An open topic shows an agent's synthesis and copies the topic's synthesis prompt",
+                tags: ["journal", "console", "topics", "memory", "agent-notes", "clipboard"],
+                host: .console(.history, journalLens: .topics),
+                fixture: .static(.remembered),
+                steps: [
+                    .wait(.element(row)),
+                    .check(
+                        "closed",
+                        [
+                            .absent(Selector.topicAgentNote),
+                            .absent(Selector.synthesisPrompt),
+                            .model(.pasteboardWrites, .equals("0")),
+                        ]
+                    ),
+                    .act(.press(row)),
+                    .wait(.element(Selector.topicName)),
+                    // Notes load off the main actor, so the row is waited on, not assumed.
+                    .wait(.element(synthesis)),
+                    .check(
+                        "opened",
+                        [
+                            .selected(row, true),
+                            .exists(synthesis),
+                            .enabled(Selector.synthesisPrompt, true),
+                            .absent(Selector.copiedMark),
+                            .model(.pasteboardWrites, .equals("0")),
+                        ]
+                    ),
+                    .act(.press(Selector.synthesisPrompt)),
+                    .wait(.element(Selector.copiedMark)),
+                    .check(
+                        "copied",
+                        [
+                            .exists(Selector.copiedMark),
+                            .model(.pasteboardWrites, .equals("1")),
+                            .exists(synthesis),
+                        ]
+                    ),
+                ]
             )
         }
 

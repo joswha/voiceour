@@ -53,6 +53,7 @@ cleaning -> noteSaved -> idle
 ## Persistence
 
 - Support directory: `~/Library/Application Support/Voiceour/`, overridden verbatim by `VOICEOUR_SUPPORT_DIR`. Files: `settings.json`, `recent-sessions.json`, `dictation-activity.json`; mute ownership: `mute-owned.flag`; the TypeSafe key file `typesafe.key` ([Local-first and network policy](#local-first-and-network-policy)); the memory folder `memory/`, whose layout and rules belong to [memory.md](memory.md).
+- `memory/agents/` is read-only for Voiceour: agents write the notes there, `refreshAgentNotes()` reads them off the main actor and the Journal shows them ([memory.md › Agent access](memory.md#agent-access)). NEVER write, edit, move or delete a file under it; only Clear Memory, or Clear History and Memory, removes it, with the whole folder.
 - Settings/history/ledger/memory writes MUST be owner-only, atomic per file, off-main, on one detached FIFO tail. No cross-file transaction. History write failure MUST report “Dictation history could not be saved.” without blocking delivery or later saves.
 - Unreadable settings/history/ledger → quarantine as `<name>.corrupt-<ISO8601>` and report reset + filename. Island values NEVER trigger it: `Settings.island` falls back per field ([Recording island](recording-island.md)). NEVER suppress write failures.
 - History: one file, newest-first, max 500. Fold ledger from the same journaled row in the same main-actor turn; enqueue both snapshots. Secure target → neither; every other disposition → both. Home and first-run checks read both records.

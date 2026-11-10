@@ -23,6 +23,10 @@ struct JournalTopicsLens: View {
     private let navigation: JournalNavigation
     /// Removes an entry History no longer holds; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
+    /// Every note agents saved under `agents/`; an open topic shows the ones that name it.
+    private let agentNotes: [AgentNote]
+    /// The memory folder the synthesis prompt points an agent at; nil offers no prompt.
+    private let memoryRoot: URL?
 
     /// Every topic with the entries filed under it, most entries first.
     @State private var rows: [TopicRow] = []
@@ -31,6 +35,8 @@ struct JournalTopicsLens: View {
     /// cannot.
     @State private var historyIDs: Set<UUID> = []
     @State private var openTopicID: String?
+    /// The agent notes that name the open topic, newest modification first.
+    @State private var openTopicNotes: [AgentNote] = []
 
     @State private var newName = ""
     @State private var newSummary = ""
@@ -49,13 +55,17 @@ struct JournalTopicsLens: View {
         entries: [JournalEntry],
         lens: Binding<JournalLens>,
         navigation: JournalNavigation,
-        delete: ((UUID) async -> Bool)?
+        delete: ((UUID) async -> Bool)?,
+        agentNotes: [AgentNote] = [],
+        memoryRoot: URL? = nil
     ) {
         self.coordinator = coordinator
         self.entries = entries
         self.lens = lens
         self.navigation = navigation
         self.delete = delete
+        self.agentNotes = agentNotes
+        self.memoryRoot = memoryRoot
     }
 
     var body: some View {
@@ -103,6 +113,10 @@ struct JournalTopicsLens: View {
         }
         .onChange(of: openTopicID) {
             seedEditor()
+            reloadOpenTopicNotes()
+        }
+        .onChange(of: agentNotes) {
+            reloadOpenTopicNotes()
         }
         .onChange(of: newName) {
             addRefusal = nil
@@ -329,6 +343,25 @@ struct JournalTopicsLens: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
+        if let memoryRoot {
+            JournalPromptCopyButton(
+                "Copy Synthesis Prompt",
+                help: "Copy a prompt that asks your coding agent to synthesize this topic",
+                announcement: "Synthesis prompt copied to clipboard",
+                identifier: "journal.topics.synthesis-prompt",
+                prompt: { MemoryPages.synthesisPrompt(topic: row.topic, root: memoryRoot) }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        if !openTopicNotes.isEmpty {
+            ConsoleCaption("From your agents")
+            ForEach(openTopicNotes) { note in
+                JournalAgentNoteRow(note)
+                    .accessibilityIdentifier("journal.topics.agent-note")
+            }
+        }
+
         if row.lines.isEmpty {
             ConsoleCaption("Nothing is filed under this topic yet. File an entry from its menu in any lens.")
         } else {
@@ -444,6 +477,16 @@ struct JournalTopicsLens: View {
         if let open = openTopicID, !topics.contains(where: { $0.id == open }) {
             openTopicID = nil
         }
+        reloadOpenTopicNotes()
+    }
+
+    /// Picks the notes whose `topic` names the open topic; none while no topic is open.
+    private func reloadOpenTopicNotes() {
+        guard let openTopicID else {
+            openTopicNotes = []
+            return
+        }
+        openTopicNotes = agentNotes.filter { $0.topicID == openTopicID }
     }
 
     /// Most entries first, then by name compared without the locale so the order is

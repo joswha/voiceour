@@ -95,6 +95,11 @@ public final class DictationCoordinator {
     /// Increments on every memory change, so a view can key its reload on one
     /// integer rather than compare an uncapped array.
     public internal(set) var memoryRevision: Int = 0
+    /// The notes agents saved under the memory folder's `agents/`, newest
+    /// modification first. Read only: Voiceour never writes there. Loaded by
+    /// `refreshAgentNotes()` when the Journal asks, not at launch, because an
+    /// agent may save one at any moment and only the Journal shows them.
+    public internal(set) var agentNotes: [AgentNote] = []
     /// The Sort Entries run in flight, or the last one finished; nil before
     /// any. See `sortEntries()`.
     public internal(set) var organizerRun: OrganizerRun?
@@ -131,6 +136,8 @@ public final class DictationCoordinator {
     let memoryLoad: @Sendable (MemoryStore) -> MemoryLoad
     let memoryWrite: @Sendable (MemoryStore, MemoryWrite) throws -> Void
     let memoryClear: @Sendable (MemoryStore) throws -> Void
+    /// Reads the notes under `agents/`; runs off the main actor.
+    let memoryAgentNotesLoad: @Sendable (MemoryStore) -> [AgentNote]
     /// Labels memory entries; `NoEntryOrganizing` unless the app wires the
     /// TypeSafe client, so no test or fixture can reach the network.
     let organizer: EntryOrganizing
@@ -160,6 +167,12 @@ public final class DictationCoordinator {
     /// a cancelled run that is still draining from publishing over a newer one.
     @ObservationIgnored
     var organizerRunTask: (identity: UUID, task: Task<Void, Never>)?
+    /// The agent-notes load in flight; see `refreshAgentNotes()`.
+    @ObservationIgnored
+    var agentNotesTask: Task<Void, Never>?
+    /// A load was asked for while one was in flight; it runs when that one lands.
+    @ObservationIgnored
+    var agentNotesRerunRequested = false
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
@@ -228,6 +241,7 @@ public final class DictationCoordinator {
         memoryLoad: @escaping @Sendable (MemoryStore) -> MemoryLoad = { $0.load() },
         memoryWrite: @escaping @Sendable (MemoryStore, MemoryWrite) throws -> Void = { try $0.apply($1) },
         memoryClear: @escaping @Sendable (MemoryStore) throws -> Void = { try $0.clear() },
+        memoryAgentNotesLoad: @escaping @Sendable (MemoryStore) -> [AgentNote] = { $0.loadAgentNotes() },
         organizer: EntryOrganizing = NoEntryOrganizing(),
         // Nil reads the environment, then `typesafe.key` beside History, so a
         // test or fixture that isolates History isolates the key file too.
@@ -264,6 +278,7 @@ public final class DictationCoordinator {
         self.memoryLoad = memoryLoad
         self.memoryWrite = memoryWrite
         self.memoryClear = memoryClear
+        self.memoryAgentNotesLoad = memoryAgentNotesLoad
         self.organizer = organizer
         self.typeSafeKeys =
             typeSafeKeys

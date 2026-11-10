@@ -76,6 +76,9 @@ struct ConsoleJournalTab: View {
     /// The ids of the rows History still holds, so a lens offers "Show in
     /// Timeline" only for an entry Timeline can actually open.
     @State private var historyIDs: Set<UUID> = []
+    /// The ids of the entries memory keeps, so Rewind offers a day's recap
+    /// prompt only when the day page it points an agent at exists.
+    @State private var memoryIDs: Set<UUID> = []
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
@@ -83,7 +86,15 @@ struct ConsoleJournalTab: View {
 
     var body: some View {
         lensContent
-            .onAppear(perform: reloadEntries)
+            .onAppear {
+                reloadEntries()
+                coordinator.refreshAgentNotes()
+            }
+            // An agent saves a note whenever it is asked to, so the folder is read
+            // again each time the reader moves to another lens.
+            .onChange(of: lens) {
+                coordinator.refreshAgentNotes()
+            }
             .onChange(of: coordinator.recentSessions.map(\.id)) {
                 reloadEntries()
             }
@@ -117,7 +128,10 @@ struct ConsoleJournalTab: View {
                 navigation: navigation,
                 delete: deleteEntry,
                 topics: coordinator.memoryTopics,
-                file: fileEntry
+                file: fileEntry,
+                memoryIDs: memoryIDs,
+                agentNotes: coordinator.agentNotes,
+                memoryRoot: coordinator.memoryStore.root
             )
             // Both lenses name each entry's agent session and whether its prompt
             // was sent, which only a refresh pass brings up to date.
@@ -140,7 +154,9 @@ struct ConsoleJournalTab: View {
                 entries: entries,
                 lens: $lens,
                 navigation: navigation,
-                delete: deleteEntry
+                delete: deleteEntry,
+                agentNotes: coordinator.agentNotes,
+                memoryRoot: coordinator.memoryStore.root
             )
         case .notes:
             JournalNotesLens(
@@ -195,6 +211,7 @@ struct ConsoleJournalTab: View {
     private func reloadEntries() {
         entries = journalEntries()
         historyIDs = Set(coordinator.recentSessions.map(\.id))
+        memoryIDs = Set(coordinator.memoryEntries.map(\.id))
     }
 
     /// The one place the Journal's entries come from: every memory entry plus

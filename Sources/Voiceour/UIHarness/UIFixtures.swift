@@ -266,7 +266,8 @@
                     sessions: history,
                     settings: settings(memoryEnabled: true),
                     memory: rememberedMemory,
-                    topics: rememberedTopics
+                    topics: rememberedTopics,
+                    agentNotes: rememberedAgentNotes
                 )
             case .emptyGlossary:
                 return make(sessions: history, settings: settings(glossary: []))
@@ -580,7 +581,10 @@
             /// never depends on a scratch-file write; empty is a folder never made.
             memory: [MemoryEntry] = [],
             /// The topics the memory folder's `topics.json` holds, stated the same way.
-            topics: [MemoryTopic] = []
+            topics: [MemoryTopic] = [],
+            /// The notes the memory folder's `agents/` holds, newest modification first,
+            /// stated the same way: no harness coordinator reads an `agents/` folder.
+            agentNotes: [AgentNote] = []
         ) -> DictationCoordinator {
             RenderOverrides.permissions = HarnessPermissions(state: permissions)
             let scratch = nextScratchDirectory()
@@ -608,6 +612,7 @@
                 // write or removal completing.
                 memoryWrite: { _, _ in },
                 memoryClear: { _ in },
+                memoryAgentNotesLoad: { _ in agentNotes },
                 // The default organizer stays: `NoEntryOrganizing` labels nothing and
                 // reaches no network. The key source is explicit for the same reason the
                 // stores are: a nil source reads this process's environment, and a golden
@@ -1103,6 +1108,37 @@
                 .filter { $0.effectiveTopicID(known: known) == memoryFolderTopic.id }
                 .map(\.text)
         }()
+
+        /// What the `remembered` folder's `agents/` holds, newest modification first, as
+        /// `MemoryStore.loadAgentNotes()` would hand it over: the synthesis of
+        /// `memoryFolderTopic`, saved the morning after the recap of `rememberedDay`. So
+        /// `console.sessions.rewind.memory` and `console.sessions.topics.open` each show one
+        /// note under "From your agents" without a step. Neither body repeats an entry's
+        /// text, so a flow that finds an entry by its text never finds a note as well.
+        static let rememberedAgentNotes: [AgentNote] = [memoryFolderSynthesis, rememberedDayRecap]
+
+        /// An agent's recap of `rememberedDay`, saved that evening after the day's last note.
+        static let rememberedDayRecap = AgentNote(
+            id: "2025-05-28-recap.md",
+            author: "omp",
+            title: "Wednesday recap",
+            day: DictationStatsLedger.dayKey(for: rememberedDay, calendar: pinnedCalendar),
+            body: "The morning settled how memory stores what was said. "
+                + "The planning call moved so the memory review can come first.",
+            modifiedAt: rememberedDay.addingTimeInterval(21 * 3_600 + 5 * 60)
+        )
+
+        /// An agent's synthesis of `memoryFolderTopic`, the topic
+        /// `console.sessions.topics.open` presses open.
+        static let memoryFolderSynthesis = AgentNote(
+            id: "memory-folder-synthesis.md",
+            author: "omp",
+            title: "Where the memory folder stands",
+            topicID: memoryFolderTopic.id,
+            body: "Month files hold what was said, and every page is rebuilt from them. "
+                + "Still open: how a page should credit what an agent wrote.",
+            modifiedAt: startOfDay(daysBeforePinnedNow: 17).addingTimeInterval(9 * 3_600 + 30 * 60)
+        )
 
         /// Twelve dictations History no longer holds, over three days in two calendar
         /// months, so Rewind steps past History's oldest day and a month boundary, and

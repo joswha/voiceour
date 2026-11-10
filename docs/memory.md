@@ -1,12 +1,12 @@
 # Memory contract
 
-The memory folder: what it holds, how it is laid out and written, when the app folds dictations into it, the user's topics, the sorting model's labels, and what agents may do with it. The Journal lenses that show it belong to [console-ui.md](console-ui.md); the History record and the persistence tail it shares belong to [runtime.md › Persistence](runtime.md#persistence); the label request on the wire belongs to [runtime.md › Local-first and network policy](runtime.md#local-first-and-network-policy). [AGENTS.md](../AGENTS.md) maps the other contracts; [`.omp/RULES.md`](../.omp/RULES.md) holds the invariants every change keeps.
+The memory folder: what it holds, how it is laid out and written, when the app folds dictations into it, the user's topics, the sorting model's labels, what agents may do with it, and how their notes come back. The Journal lenses that show it belong to [console-ui.md](console-ui.md); the History record and the persistence tail it shares belong to [runtime.md › Persistence](runtime.md#persistence); the label request on the wire belongs to [runtime.md › Local-first and network policy](runtime.md#local-first-and-network-policy). [AGENTS.md](../AGENTS.md) maps the other contracts; [`.omp/RULES.md`](../.omp/RULES.md) holds the invariants every change keeps.
 
 ## Principle
 
 - Memory holds what the user said, verbatim: every dictation it keeps and every note. NEVER alter an entry's `text`; a page quotes it exactly, adding only the continuation indent ([Pages](#pages)).
-- A model MAY label an entry (`EntryLabel`: kind, topic, keep, each with its confidence) and NEVER writes one. No model output becomes entry text, page prose or a topic.
-- Text written by an agent lives only under `agents/`. Voiceour writes every other file in the folder and NEVER reads, writes or moves anything under `agents/`; it removes `agents/` only with the rest of the folder on Clear Memory.
+- A model MAY label an entry (`EntryLabel`: kind, topic, keep, each with its confidence) and NEVER writes one. No model output becomes entry text, page prose or a topic. Voiceour NEVER calls a model that writes text: a recap or a synthesis is written by the user's own agent, from a prompt the user copies ([Agent access](#agent-access)).
+- Text written by an agent lives only under `agents/`. Voiceour writes every other file in the folder. Under `agents/` it only reads: it shows each Markdown note there as plain text under the day or topic the note names, and NEVER writes, edits, moves, labels, searches or sends a file there. It removes `agents/` only with the rest of the folder on Clear Memory.
 
 ## Folder and files
 
@@ -21,7 +21,7 @@ The memory folder: what it holds, how it is laid out and written, when the app f
 | `threads/<agent>-<session id>.md` | One agent session. |
 | `topics/<topic id>.md` | One topic. |
 | `notes/YYYY-MM.md` | One month's notes. |
-| `agents/` | Written by agents only. |
+| `agents/` | Written by agents only. Voiceour reads the notes there and never writes ([Agent access](#agent-access)). |
 
 - Every file except `entries/` and `topics.json` is derived from them and MUST be rewritten deterministically: one state renders the same bytes on every run, on every Mac.
 - Files MUST be owner-only (0600) and directories 0700, the root included. Each file is written atomically; there is no cross-file transaction, so a later write repairs what an interrupted one left.
@@ -109,7 +109,16 @@ The memory folder: what it holds, how it is laid out and written, when the app f
 
 - Agents read the folder directly as files; Voiceour offers no server, socket or API for it. `MEMORY.md` tells an agent how to read the folder and where it may write.
 - `MemoryPages.agentInstructions(root:)` (`Sources/VoiceCore/MemoryAgentInstructions.swift`) is the paragraph a user pastes into an agent's instructions file, copied by Settings ▸ Memory ▸ Copy Agent Instructions: it names the folder, says to read `MEMORY.md` first and follow its rules, and to write only inside `agents/`. Its wording is fixed; NEVER add the user's text, ids or paths other than the root.
-- Agents write only under `agents/`: Markdown files whose front matter names `author` and a `day` or `topic`. Voiceour overwrites or deletes every other file without notice.
+- Agents write only under `agents/`. Voiceour overwrites or deletes every other file without notice.
+- An agent note is a Markdown file directly under `agents/` that Voiceour can place. `MemoryStore.loadAgentNotes()` (`Sources/VoiceCore/AgentNotes.swift`) loads every note, newest modification first, equal times by file name; `AgentNoteParser.parse(fileName:text:modifiedAt:)` reads one. The coordinator's `refreshAgentNotes()` runs the load off the main actor, one at a time, and publishes `agentNotes`; Clear Memory empties it.
+- Front matter: the file's first line is exactly `---`, and the block runs to the next line that is exactly `---`. Each line inside is `key: value`, split at the first colon, both sides trimmed, one pair of matching single or double quotes dropped; any other line is ignored. `author` is required. `day: YYYY-MM-DD` MUST name a day that exists in the Gregorian calendar; any other value is ignored. `topic: <topic id>` names a topic by id. A note needs a usable `day` or `topic` and MAY name both. `title` is optional. A file without front matter, without `author`, or without a usable `day` or `topic` is no note, because Voiceour cannot place it, and is ignored.
+- Body: everything after the closing `---`, without the blank lines before and after it; nothing else in it changes.
+- Limits: only visible, regular `.md` files directly in `agents/` count. Subfolders, hidden files and symbolic links are skipped, so a note can never pull in a file from outside the folder. A file larger than 262,144 bytes (`AgentNoteParser.maximumBytes`), measured again on the bytes read, is ignored, and so is one that is not UTF-8. At most 500 notes (`AgentNoteParser.maximumFiles`) load, newest modification first; files that are not notes do not count toward the 500. An absent or unreadable folder is no notes; loading NEVER throws or reports.
+- What Voiceour does with a note: it shows the note as plain text, with its title (or file name) and author, under the Rewind day its `day` names and on the page of the topic its `topic` names ([console-ui.md › Agent notes](console-ui.md#agent-notes)); a note naming an unknown topic shows under no topic. Nothing more: a note NEVER becomes a memory entry, appears on a page Voiceour writes, enters a search, the Notes lens or a count, receives a label, or leaves the Mac, and Voiceour NEVER writes, edits, renames or deletes a single file under `agents/`; only Clear Memory, or Clear History and Memory, removes the folder whole with the rest of memory.
+- Two prompts carry the loop to the user's own agent; Voiceour itself writes no recap and calls no writing model. Each is one paragraph naming absolute paths under the memory root, each path quoted so a root with spaces reads as one value, and holds no entry text; the source holds the exact wording.
+  - `MemoryPages.recapPrompt(day:root:calendar:)`, copied by Rewind's Copy Recap Prompt: read the day page `days/YYYY-MM-DD.md` and `MEMORY.md`, write a recap of what the user worked on, decided and left open, quoting the user exactly, and save it as `agents/YYYY-MM-DD-recap.md` with front matter naming `author`, `day` and `title`.
+  - `MemoryPages.synthesisPrompt(topic:root:)`, copied by an open topic's Copy Synthesis Prompt: read the topic page and `MEMORY.md`, write a synthesis of what the user concluded, what changed over time and what is still undecided, quoting the user exactly, and save it as `agents/topic-<file name>.md` with front matter naming `author`, `topic` and `title`. The prompt holds the topic's name and id. `<file name>` is the topic page's sanitized file name ([Pages](#pages)), so a hand-edited topic id can never point the agent outside `agents/`.
+- A note the agent saves shows in the Journal the next time the tab appears or its lens changes.
 
 ## Privacy
 
