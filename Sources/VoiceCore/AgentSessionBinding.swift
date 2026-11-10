@@ -216,14 +216,23 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
 
     /// A shell command that resumes the session in its working directory.
     public var resumeCommand: String {
-        let id = Self.shellWord(sessionId)
+        Self.resumeCommand(agent: agent, sessionId: sessionId, workingDirectory: workingDirectory)
+    }
+
+    /// A shell command that resumes `agent`'s session `sessionId`, changing to
+    /// `workingDirectory` first when one is given.
+    ///
+    /// Static so a reader that holds only the session's identity, such as a
+    /// Journal thread rebuilt from memory, produces the same text a binding does.
+    public static func resumeCommand(agent: CodingAgent, sessionId: String, workingDirectory: String?) -> String {
+        let id = shellWord(sessionId)
         let resume =
             switch agent {
             case .omp: "omp --resume \(id)"
             case .claudeCode: "claude --resume \(id)"
             }
         guard let workingDirectory, !workingDirectory.isEmpty else { return resume }
-        return "cd \(Self.shellWord(workingDirectory)) && \(resume)"
+        return "cd \(shellWord(workingDirectory)) && \(resume)"
     }
 
     /// The matching part of the prompt as sent, when it differs from the
