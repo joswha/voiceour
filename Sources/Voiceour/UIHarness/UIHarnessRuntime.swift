@@ -89,7 +89,11 @@
     ///   pin. The PNG, rather than the manifest (which carries no alpha histogram),
     ///   supplies those percentages. Verify the real material through
     ///   `CONSOLE_SHOT_COMPOSITED=1 scripts/console_shot.sh`.
-    ///   No shipping view uses SwiftUI `.glassEffect`.
+    /// - Kit components (`Kit*.swift`) use SwiftUI glass, which `cacheDisplay` drops: a
+    ///   glass control renders as its label alone. The scroll edge effect renders as an
+    ///   opaque white sheet over its whole scroll view, so the kit hides it. The kit's
+    ///   Reduce Transparency fallback is opaque and drawn, so `a11y.kit.reduce-transparency`
+    ///   shows every kit surface's bounds.
     /// - `NSColor.controlAccentColor` resolves to the user's system accent colour and no
     ///   environment key overrides it. A golden that shows the system accent will not port
     ///   between machines; SwiftUI's `Color.accentColor` is safe.

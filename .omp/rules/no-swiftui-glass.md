@@ -1,8 +1,10 @@
 ---
-description: Shipping views use NSGlassEffectView, never SwiftUI glass
+description: Only the component kit uses SwiftUI glass
 condition: '(?m)^(?![ \t]*(?:/\*|\*))(?:(?!//)[^\n"]|"(?:[^"\\\n]|\\.)*")*?(?:\.glassEffect\(|\bGlassEffectContainer\b|\.glassBackgroundEffect\()'
 scope:
-  - 'tool:edit(**/Sources/Voiceour/**/*.swift)'
-  - 'tool:write(**/Sources/Voiceour/**/*.swift)'
+  - 'tool:edit(**/Sources/Voiceour/{[!K]*,K[!i]*,Ki[!t]*}.swift)'
+  - 'tool:write(**/Sources/Voiceour/{[!K]*,K[!i]*,Ki[!t]*}.swift)'
+  - 'tool:edit(**/Sources/Voiceour/*/**/*.swift)'
+  - 'tool:write(**/Sources/Voiceour/*/**/*.swift)'
 ---
-Shipping views never use SwiftUI `.glassEffect`: the console ground is `NSGlassEffectView(style: .regular)` behind native section plates, and the island is an opaque rasterized body (docs/console-ui.md › Console).
+SwiftUI glass lives only in the component kit, `Sources/Voiceour/Kit*.swift`, and only over the Journal's opaque ground: glass never samples `ConsoleGlassGround`. Every other view composes kit components and never calls `.glassEffect`, `GlassEffectContainer` or `.glassBackgroundEffect` itself; the console ground stays `NSGlassEffectView(style: .regular)`, and the island stays an opaque rasterized body (docs/console-ui.md › Kit).

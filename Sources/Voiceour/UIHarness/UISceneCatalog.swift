@@ -217,6 +217,9 @@
                     tags: ["steps"],
                     steps: [.type("dock", into: "glossary.search.field")]
                 ),
+                // The component kit on its own, in the composition the Journal uses, so a
+                // change to one component shows here before it moves any Journal golden.
+                kitGallery("console.kit.gallery", "The component kit in the Journal's composition"),
                 console(
                     "console.sessions.populated",
                     "History list, day groups and transcript detail",
@@ -572,6 +575,11 @@
                     "History transcript with Reduce Transparency enabled",
                     tab: .history,
                     fixture: .populated,
+                    adaptation: .reduceTransparency
+                ),
+                kitGallery(
+                    "a11y.kit.reduce-transparency",
+                    "The component kit with Reduce Transparency enabled",
                     adaptation: .reduceTransparency
                 ),
                 accessibilityConsole(
@@ -1068,6 +1076,24 @@
                 accessibilityAdaptation: adaptation
             ) {
                 AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
+            }
+        }
+
+        /// The component kit's gallery at the console's measure, on the Journal's ground.
+        private static func kitGallery(
+            _ identifier: String,
+            _ title: String,
+            adaptation: UIHarnessAccessibilityAdaptation? = nil
+        ) -> UISceneDescriptor {
+            UISceneDescriptor(
+                id: identifier,
+                title: title,
+                size: consoleSize,
+                colorScheme: .dark,
+                tags: adaptation == nil ? ["console", "kit"] : ["console", "kit", "a11y"],
+                accessibilityAdaptation: adaptation
+            ) {
+                AnyView(KitGallery())
             }
         }
 

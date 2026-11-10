@@ -1,10 +1,10 @@
 ---
-description: Console, Journal and menu UI are governed by docs/console-ui.md
+description: Console, Journal, kit and menu UI are governed by docs/console-ui.md
 condition: '[\s\S]'
 interruptMode: never
 scope:
-  - 'tool:edit(**/Sources/Voiceour/{Console*,Menu*,History*,Journal*,Home*,DesignToken*,GlassMarks,MeterBar,AppIdentity,ActivityHeatmap,SelectableTranscriptText,CaptionText,SessionFormatting,StatsFormatting,SettingsBindings,PrimaryActionButtonStyle,A11yEnvironment}.swift)'
-  - 'tool:write(**/Sources/Voiceour/{Console*,Menu*,History*,Journal*,Home*,DesignToken*,GlassMarks,MeterBar,AppIdentity,ActivityHeatmap,SelectableTranscriptText,CaptionText,SessionFormatting,StatsFormatting,SettingsBindings,PrimaryActionButtonStyle,A11yEnvironment}.swift)'
+  - 'tool:edit(**/Sources/Voiceour/{Console*,Menu*,History*,Journal*,Kit*,Home*,DesignToken*,GlassMarks,MeterBar,AppIdentity,ActivityHeatmap,SelectableTranscriptText,CaptionText,SessionFormatting,StatsFormatting,SettingsBindings,PrimaryActionButtonStyle,A11yEnvironment}.swift)'
+  - 'tool:write(**/Sources/Voiceour/{Console*,Menu*,History*,Journal*,Kit*,Home*,DesignToken*,GlassMarks,MeterBar,AppIdentity,ActivityHeatmap,SelectableTranscriptText,CaptionText,SessionFormatting,StatsFormatting,SettingsBindings,PrimaryActionButtonStyle,A11yEnvironment}.swift)'
   - 'tool:edit(**/Sources/VoiceMac/InstalledAppCatalog.swift)'
   - 'tool:write(**/Sources/VoiceMac/InstalledAppCatalog.swift)'
   - 'tool:edit(**/Sources/VoiceCore/{AppDisplayName,RecentSessionQuery,Journal}.swift)'
