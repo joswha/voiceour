@@ -225,14 +225,16 @@ struct AgentSessionLocatorTests {
 
         #expect(
             resolved
-                == ResolvedAgentSession(
-                    agent: .omp,
-                    sessionId: AgentFixtures.nextSessionId,
-                    sessionFile: home.path(file),
-                    workingDirectory: "/Users/vlad/Desktop/voiceoour",
-                    sessionTitle: "BIND: Voice",
-                    promptLogOffset: size,
-                    resumable: true
+                == .success(
+                    ResolvedAgentSession(
+                        agent: .omp,
+                        sessionId: AgentFixtures.nextSessionId,
+                        sessionFile: home.path(file),
+                        workingDirectory: "/Users/vlad/Desktop/voiceoour",
+                        sessionTitle: "BIND: Voice",
+                        promptLogOffset: size,
+                        resumable: true
+                    )
                 )
         )
     }
@@ -252,14 +254,16 @@ struct AgentSessionLocatorTests {
 
         #expect(
             resolved
-                == ResolvedAgentSession(
-                    agent: .omp,
-                    sessionId: AgentFixtures.freshSessionId,
-                    sessionFile: home.path(AgentFixtures.freshSessionFile),
-                    workingDirectory: "/Users/vlad/Desktop/voiceoour",
-                    sessionTitle: nil,
-                    promptLogOffset: 0,
-                    resumable: false
+                == .success(
+                    ResolvedAgentSession(
+                        agent: .omp,
+                        sessionId: AgentFixtures.freshSessionId,
+                        sessionFile: home.path(AgentFixtures.freshSessionFile),
+                        workingDirectory: "/Users/vlad/Desktop/voiceoour",
+                        sessionTitle: nil,
+                        promptLogOffset: 0,
+                        resumable: false
+                    )
                 )
         )
     }
@@ -270,10 +274,9 @@ struct AgentSessionLocatorTests {
         let file = AgentFixtures.nextSessionFile
         try home.write(file, lines: AgentFixtures.ompHead(id: AgentFixtures.nextSessionId, title: "Next"))
 
-        let resolved = try #require(
-            locator(home, openFiles: [home.canonicalPath(file)])
-                .locate(foreground: AgentFixtures.omp(), ternSessionFile: nil)
-        )
+        let resolved = try locator(home, openFiles: [home.canonicalPath(file)])
+            .locate(foreground: AgentFixtures.omp(), ternSessionFile: nil)
+            .get()
 
         #expect(resolved.sessionId == AgentFixtures.nextSessionId)
         #expect(resolved.sessionTitle == "Next")
@@ -288,7 +291,7 @@ struct AgentSessionLocatorTests {
         let resolved = locator(home, openFiles: [home.canonicalPath(AgentFixtures.nextSessionFile)])
             .locate(foreground: AgentFixtures.omp(), ternSessionFile: home.path(AgentFixtures.freshSessionFile))
 
-        #expect(resolved == nil)
+        #expect(resolved == .failure(.sessionUnconfirmed))
     }
 
     @Test func aSubagentTranscriptIsNeverTheSession() throws {
@@ -306,8 +309,8 @@ struct AgentSessionLocatorTests {
         let alone = locator(home, openFiles: openFiles)
             .locate(foreground: AgentFixtures.omp(), ternSessionFile: nil)
 
-        #expect(withTern?.sessionId == AgentFixtures.nextSessionId)
-        #expect(alone == nil)
+        #expect(try withTern.get().sessionId == AgentFixtures.nextSessionId)
+        #expect(alone == .failure(.sessionUnconfirmed))
     }
 
     @Test func theTerminalBreadcrumbIsAcceptedWhenNothingElseNamesTheSession() throws {
@@ -319,15 +322,15 @@ struct AgentSessionLocatorTests {
         )
         let omp = AgentFixtures.omp(started: Date().addingTimeInterval(-60))
 
-        let resolved = locator(
+        let resolved = try locator(
             home,
             processes: [omp, AgentFixtures.shell()],
             terminalPids: [100, omp.pid]
-        ).locate(foreground: omp, ternSessionFile: nil)
+        ).locate(foreground: omp, ternSessionFile: nil).get()
 
-        #expect(resolved?.sessionId == AgentFixtures.freshSessionId)
-        #expect(resolved?.workingDirectory == "/Users/vlad/Desktop/voiceoour")
-        #expect(resolved?.resumable == false)
+        #expect(resolved.sessionId == AgentFixtures.freshSessionId)
+        #expect(resolved.workingDirectory == "/Users/vlad/Desktop/voiceoour")
+        #expect(resolved.resumable == false)
     }
 
     @Test func aBreadcrumbOlderThanTheProcessIsRejected() throws {
@@ -341,7 +344,7 @@ struct AgentSessionLocatorTests {
         let resolved = locator(home, processes: [omp], terminalPids: [omp.pid])
             .locate(foreground: omp, ternSessionFile: nil)
 
-        #expect(resolved == nil)
+        #expect(resolved == .failure(.sessionUnconfirmed))
     }
 
     @Test func aBreadcrumbOnATerminalAnotherOmpSharesIsRejected() throws {
@@ -357,17 +360,32 @@ struct AgentSessionLocatorTests {
         let resolved = locator(home, processes: [omp, suspended], terminalPids: [omp.pid, suspended.pid])
             .locate(foreground: omp, ternSessionFile: nil)
 
-        #expect(resolved == nil)
+        #expect(resolved == .failure(.sessionUnconfirmed))
     }
 
-    @Test func aForegroundProcessThatIsNoAgentBindsNothing() throws {
+    @Test func aForegroundProcessThatIsNoAgentMissesAsNoAgent() throws {
         let home = try FakeAgentHome()
         defer { home.remove() }
 
         let resolved = locator(home)
             .locate(foreground: AgentFixtures.shell(), ternSessionFile: home.path(AgentFixtures.nextSessionFile))
 
-        #expect(resolved == nil)
+        #expect(resolved == .failure(.noAgent))
+    }
+
+    /// Codex is named even when Tern hands over an omp session file: the
+    /// agent comes from the process, never from the pane's records.
+    @Test func aCodexForegroundProcessMissesAsCodex() throws {
+        let home = try FakeAgentHome()
+        defer { home.remove() }
+        try home.write(AgentFixtures.nextSessionFile, lines: AgentFixtures.ompHead(id: AgentFixtures.nextSessionId))
+
+        let codex = AgentFixtures.process(pid: 300, name: "codex", executablePath: "/opt/homebrew/bin/codex")
+
+        let resolved = locator(home, openFiles: [home.canonicalPath(AgentFixtures.nextSessionFile)])
+            .locate(foreground: codex, ternSessionFile: home.path(AgentFixtures.nextSessionFile))
+
+        #expect(resolved == .failure(.codex))
     }
 
     @Test func agentsAreRecognizedByExecutablePathAndName() {
@@ -381,6 +399,18 @@ struct AgentSessionLocatorTests {
         #expect(agent("node", "/opt/homebrew/bin/claude") == .claudeCode)
         #expect(agent("codex", "/opt/homebrew/bin/codex") == nil)
         #expect(agent("zsh", "/bin/zsh") == nil)
+    }
+
+    @Test func codexIsRecognizedByExecutablePathAndNameOnly() {
+        func isCodex(_ name: String, _ path: String?) -> Bool {
+            AgentSessionLocator.isCodex(AgentFixtures.process(pid: 1, name: name, executablePath: path))
+        }
+        #expect(isCodex("codex", nil))
+        #expect(isCodex("2.1.0", "/usr/local/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex"))
+        #expect(isCodex("x", "/opt/homebrew/Caskroom/codex/0.46.0/codex-x86_64-apple-darwin"))
+        #expect(!isCodex("node", "/opt/homebrew/bin/node"))
+        #expect(!isCodex("zsh", "/Users/v/codex/bin/zsh"))
+        #expect(!isCodex("codexify", "/usr/local/bin/codexify"))
     }
 
     /// An omp session file outside `~/.omp/agent` binds by the id its name
@@ -403,14 +433,16 @@ struct AgentSessionLocatorTests {
 
         #expect(
             resolved
-                == ResolvedAgentSession(
-                    agent: .omp,
-                    sessionId: AgentFixtures.nextSessionId,
-                    sessionFile: file,
-                    workingDirectory: nil,
-                    sessionTitle: nil,
-                    promptLogOffset: nil,
-                    resumable: false
+                == .success(
+                    ResolvedAgentSession(
+                        agent: .omp,
+                        sessionId: AgentFixtures.nextSessionId,
+                        sessionFile: file,
+                        workingDirectory: nil,
+                        sessionTitle: nil,
+                        promptLogOffset: nil,
+                        resumable: false
+                    )
                 )
         )
         let outside = try #require(AgentSessionFileSystem.live.realPath(elsewhere.url.path))
@@ -426,7 +458,7 @@ struct AgentSessionLocatorTests {
             ternSessionFile: home.path(".omp/agent/sessions/-x/2026-11-09T17-51-31-004Z_not-a-uuid.jsonl")
         )
 
-        #expect(resolved == nil)
+        #expect(resolved == .failure(.sessionUnconfirmed))
     }
 
     // MARK: Claude Code
@@ -454,14 +486,16 @@ struct AgentSessionLocatorTests {
 
         #expect(
             resolved
-                == ResolvedAgentSession(
-                    agent: .claudeCode,
-                    sessionId: AgentFixtures.claudeSessionId,
-                    sessionFile: AgentSessionFileSystem.live.realPath(transcript),
-                    workingDirectory: "/Users/v/project",
-                    sessionTitle: "Fix login",
-                    promptLogOffset: historySize,
-                    resumable: true
+                == .success(
+                    ResolvedAgentSession(
+                        agent: .claudeCode,
+                        sessionId: AgentFixtures.claudeSessionId,
+                        sessionFile: AgentSessionFileSystem.live.realPath(transcript),
+                        workingDirectory: "/Users/v/project",
+                        sessionTitle: "Fix login",
+                        promptLogOffset: historySize,
+                        resumable: true
+                    )
                 )
         )
     }
@@ -488,10 +522,10 @@ struct AgentSessionLocatorTests {
             ]
         )
 
-        let resolved = locator(home).locate(foreground: claude, ternSessionFile: nil)
+        let resolved = try locator(home).locate(foreground: claude, ternSessionFile: nil).get()
 
-        #expect(resolved?.sessionTitle == "Renamed")
-        #expect(resolved?.promptLogOffset == 0)
+        #expect(resolved.sessionTitle == "Renamed")
+        #expect(resolved.promptLogOffset == 0)
     }
 
     @Test func aClaudeCodeSessionWithoutATranscriptBindsUnresumable() throws {
@@ -503,11 +537,20 @@ struct AgentSessionLocatorTests {
             text: AgentFixtures.claudeRecord(pid: claude.pid, sessionId: AgentFixtures.claudeSessionId)
         )
 
-        let resolved = locator(home).locate(foreground: claude, ternSessionFile: nil)
+        let resolved = try locator(home).locate(foreground: claude, ternSessionFile: nil).get()
 
-        #expect(resolved?.sessionId == AgentFixtures.claudeSessionId)
-        #expect(resolved?.sessionFile == nil)
-        #expect(resolved?.resumable == false)
+        #expect(resolved.sessionId == AgentFixtures.claudeSessionId)
+        #expect(resolved.sessionFile == nil)
+        #expect(resolved.resumable == false)
+    }
+
+    @Test func aClaudeCodeProcessWithoutARegistryRecordMissesAsUnconfirmed() throws {
+        let home = try FakeAgentHome()
+        defer { home.remove() }
+
+        let resolved = locator(home).locate(foreground: AgentFixtures.claude(), ternSessionFile: nil)
+
+        #expect(resolved == .failure(.sessionUnconfirmed))
     }
 
     @Test func aRegistryRecordFromAnEarlierProcessWithThePidBindsNothing() throws {
@@ -523,7 +566,7 @@ struct AgentSessionLocatorTests {
             )
         )
 
-        #expect(locator(home).locate(foreground: claude, ternSessionFile: nil) == nil)
+        #expect(locator(home).locate(foreground: claude, ternSessionFile: nil) == .failure(.sessionUnconfirmed))
     }
 
     @Test func aParkedSessionFollowsToItsBackgroundJob() throws {
@@ -566,10 +609,11 @@ struct AgentSessionLocatorTests {
         try home.write(".claude/sessions/72136.key", text: "secret")
         let log = AgentFileReadLog()
 
-        let resolved = locator(home, processes: [job], fileSystem: log.fileSystem)
+        let resolved = try locator(home, processes: [job], fileSystem: log.fileSystem)
             .locate(foreground: claude, ternSessionFile: nil)
+            .get()
 
-        #expect(resolved?.sessionId == AgentFixtures.claudeJobSessionId)
+        #expect(resolved.sessionId == AgentFixtures.claudeJobSessionId)
         #expect(!log.readPaths.contains { $0.hasSuffix(".key") })
     }
 
@@ -588,7 +632,10 @@ struct AgentSessionLocatorTests {
         )
 
         // No record carries the job.
-        #expect(locator(home, processes: [job]).locate(foreground: claude, ternSessionFile: nil) == nil)
+        #expect(
+            locator(home, processes: [job]).locate(foreground: claude, ternSessionFile: nil)
+                == .failure(.sessionUnconfirmed)
+        )
 
         // A record carries it, but its process is gone.
         try home.write(
@@ -600,7 +647,7 @@ struct AgentSessionLocatorTests {
                 extra: #","jobId":"b453f5e2""#
             )
         )
-        #expect(locator(home).locate(foreground: claude, ternSessionFile: nil) == nil)
+        #expect(locator(home).locate(foreground: claude, ternSessionFile: nil) == .failure(.sessionUnconfirmed))
     }
 
     @Test func procStartParsesTheLstartFormat() {

@@ -225,6 +225,10 @@
         /// Text of the memory entry `coordinator.lastSavedNoteID` names (empty when none):
         /// what was saved, read back from memory rather than from the transcript.
         case lastSavedNote
+        /// `coordinator.pendingJournalThread` as `<agent>-<session id>` (empty when nil): the
+        /// menu's request to show a thread, read before the console consumes it and after, so
+        /// a route proves both the ask and the answer.
+        case pendingJournalThread
         /// Decimal count of active glossary terms in settings.
         case glossaryTermCount
         /// `true`/`false` for `settings.cleanupEnabled`.

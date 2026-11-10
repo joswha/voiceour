@@ -202,12 +202,20 @@ public struct JournalEntry: Equatable, Identifiable, Sendable {
     public var text: String
     /// The delivery target; nil for a note or an unrecorded target.
     public var app: DictationAppIdentity?
-    public var thread: JournalThreadRef?
+    /// Linking an entry clears its miss: an entry never holds both.
+    public var thread: JournalThreadRef? {
+        didSet { if thread != nil { unlinked = nil } }
+    }
     /// Microphone capture duration; 0 when unmeasured.
     public var captureSeconds: Double
     /// The effective topic: the user's choice, else a confident label.
     public var topicID: String?
     public var label: EntryLabel?
+    /// Why an eligible dictation or note was not linked; nil when it was
+    /// linked, when linking was not attempted, or when the reason is unknown.
+    public var unlinked: AgentLinkMiss? {
+        didSet { if thread != nil { unlinked = nil } }
+    }
 
     public var wordCount: Int { WordCount.count(in: text) }
 
@@ -220,7 +228,8 @@ public struct JournalEntry: Equatable, Identifiable, Sendable {
         thread: JournalThreadRef? = nil,
         captureSeconds: Double = 0,
         topicID: String? = nil,
-        label: EntryLabel? = nil
+        label: EntryLabel? = nil,
+        unlinked: AgentLinkMiss? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -231,6 +240,7 @@ public struct JournalEntry: Equatable, Identifiable, Sendable {
         self.captureSeconds = captureSeconds
         self.topicID = topicID
         self.label = label
+        self.unlinked = thread == nil ? unlinked : nil
     }
 
     /// A History row as a dictation entry. Only a positive `captureMs` counts
@@ -247,7 +257,8 @@ public struct JournalEntry: Equatable, Identifiable, Sendable {
             text: session.text,
             app: app,
             thread: session.agentSession.map { JournalThreadRef($0) },
-            captureSeconds: captureMs > 0 ? Double(captureMs) / 1000 : 0
+            captureSeconds: captureMs > 0 ? Double(captureMs) / 1000 : 0,
+            unlinked: session.unlinked
         )
     }
 }

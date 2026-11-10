@@ -290,6 +290,88 @@ struct MemoryStoreTests {
         )
     }
 
+    @Test func aMissRoundTripsUnderItsRawValue() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let unlinked = MemoryEntry(
+            id: memoryEntryID(7),
+            createdAt: memoryInstant("2026-11-10T09:30:00Z"),
+            text: "Pasted into a pane that moved.",
+            unlinked: .focusMoved
+        )
+
+        try store.apply(MemoryPlanner.rebuild(entries: [unlinked], topics: [], calendar: utc))
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: store.monthURL("2026-11")))
+        let records = try #require(json as? [[String: Any]])
+
+        #expect(records.map { $0["unlinked"] as? String } == ["focus_moved"])
+        #expect(store.load().entries == [unlinked])
+    }
+
+    /// A miss a later build named, or a value of the wrong type, costs only
+    /// the miss; an entry stored with a thread and a miss reads as linked.
+    @Test func anUnknownMissReadsAsUnknownAndAThreadWinsOverAMiss() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try writeRaw(
+            """
+            [
+              {
+                "id": "00000000-0000-0000-0000-000000000008",
+                "created_at": "2026-11-10T09:27:19Z",
+                "text": "Unknown miss.",
+                "unlinked": "pane_closed"
+              },
+              {
+                "id": "00000000-0000-0000-0000-000000000009",
+                "created_at": "2026-11-10T09:28:19Z",
+                "text": "Wrong type.",
+                "unlinked": 3
+              },
+              {
+                "id": "00000000-0000-0000-0000-000000000010",
+                "created_at": "2026-11-10T09:29:19Z",
+                "text": "Linked and missed.",
+                "thread": {"agent": "omp", "session_id": "\(thread.sessionId)", "title": null},
+                "unlinked": "busy"
+              }
+            ]
+            """,
+            to: store.monthURL("2026-11")
+        )
+
+        let load = store.load()
+
+        #expect(load.unreadable.isEmpty)
+        #expect(load.entries.map(\.text) == ["Unknown miss.", "Wrong type.", "Linked and missed."])
+        #expect(load.entries.map(\.unlinked) == [nil, nil, nil])
+        #expect(load.entries.last?.thread?.sessionId == thread.sessionId)
+    }
+
+    @Test func anEntryNeverHoldsBothAThreadAndAMiss() {
+        var entry = MemoryEntry(id: memoryEntryID(11), createdAt: memoryInstant("2026-11-10T09:30:00Z"), text: "x")
+        entry.unlinked = .noAgent
+        #expect(entry.unlinked == .noAgent)
+        #expect(JournalEntry(entry, knownTopicIDs: []).unlinked == .noAgent)
+
+        entry.thread = thread
+        #expect(entry.unlinked == nil)
+
+        entry.unlinked = .busy
+        #expect(entry.unlinked == nil)
+        #expect(entry.thread == thread)
+
+        #expect(
+            MemoryEntry(
+                id: memoryEntryID(12),
+                createdAt: memoryInstant("2026-11-10T09:30:00Z"),
+                text: "x",
+                thread: thread,
+                unlinked: .codex
+            ).unlinked == nil
+        )
+    }
+
     @Test func theMonthFileHoldsISO8601DateStrings() throws {
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }

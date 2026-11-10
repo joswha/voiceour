@@ -27,6 +27,7 @@ struct MenuView: View {
     var coordinator: DictationCoordinator
     private var a11y = A11y()
     @State private var didCopyTranscript = false
+    @Environment(\.openWindow) private var openWindow
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
@@ -48,7 +49,9 @@ struct MenuView: View {
                 MenuReportBlock(
                     text: coordinator.lastTranscript,
                     isCopied: $didCopyTranscript,
-                    summary: reportedSummary
+                    summary: reportedSummary,
+                    link: reportLink,
+                    openThread: openThread
                 )
             }
             MenuActionBlock(
@@ -84,6 +87,7 @@ struct MenuView: View {
             .animation(transition, value: coordinator.lastTranscript)
             .animation(transition, value: coordinator.errorMessage)
             .animation(transition, value: coordinator.lastSavedNoteID)
+            .animation(transition, value: reportLink)
             .animation(transition, value: didCopyTranscript)
             .onChange(of: coordinator.lastTranscript) {
                 didCopyTranscript = false
@@ -161,7 +165,7 @@ struct MenuView: View {
     /// next start, under the same gate as the outcome.
     private var reportedSummary: InsertionOutcomeSummary? {
         if let outcome = reportedOutcome {
-            return outcome.summary
+            return outcome.summary(in: coordinator.lastDeliveredApp)
         }
         guard coordinator.errorMessage == nil, !coordinator.state.isActive,
             coordinator.lastSavedNoteID != nil
@@ -169,6 +173,36 @@ struct MenuView: View {
             return nil
         }
         return .noteSaved
+    }
+
+    /// The thread the reported paste reached, or why it reached none. Read from
+    /// the row the outcome belongs to, never from the newest row: a secure or
+    /// empty delivery writes no row, so the newest can be an older dictation.
+    /// Nil while the link is still resolving, and for every outcome that was not
+    /// eligible to link in the first place.
+    private var reportLink: MenuReportLink? {
+        guard reportedOutcome == .pasteAttempted,
+            coordinator.settings.agentSessionBindingEnabled,
+            let rowID = coordinator.lastDeliveredRowID,
+            let row = coordinator.recentSessions.first(where: { $0.id == rowID })
+        else {
+            return nil
+        }
+        if let binding = row.agentSession {
+            return .thread(title: binding.displayTitle, key: binding.key)
+        }
+        return row.unlinked.map(MenuReportLink.unlinked)
+    }
+
+    /// Asks the console for the thread, then shows it the way the Open Console
+    /// row does: `openWindow` creates the window on a launch where it does not
+    /// exist yet, and ``ConsolePresentation`` shows one that already does. The
+    /// console consumes the request on appear and on change, so it lands whether
+    /// the window was closed, open on another tab, or already on the Journal.
+    private func openThread(_ key: AgentSessionKey) {
+        coordinator.pendingJournalThread = key
+        openWindow(id: ConsolePresentation.windowID)
+        ConsolePresentation.show()
     }
 
     // MARK: Actions

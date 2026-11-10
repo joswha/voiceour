@@ -291,7 +291,7 @@
             case .transcript:
                 return quotedProbe(coordinator.lastTranscript)
             case .outcome:
-                return quotedProbe(coordinator.lastOutcome?.summary.label ?? "")
+                return quotedProbe(coordinator.lastOutcome?.summary(in: coordinator.lastDeliveredApp).label ?? "")
             case .errorMessage:
                 return quotedProbe(coordinator.errorMessage ?? "")
             case .targetLabel:
@@ -307,6 +307,9 @@
                     coordinator.memoryEntries.first { $0.id == id }
                 }
                 return quotedProbe(saved?.text ?? "")
+            case .pendingJournalThread:
+                let key = coordinator.pendingJournalThread
+                return quotedProbe(key.map { "\($0.agent.rawValue)-\($0.sessionId)" } ?? "")
             case .glossaryTermCount:
                 return scalarProbe(coordinator.settings.glossary.filter { $0.tombstonedAt == nil }.count)
             case .cleanupEnabled:

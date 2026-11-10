@@ -19,4 +19,5 @@ PASS 14 delivered | model deliveryBundleID == "com.example.Writer" | "com.exampl
 PASS 15 delivered | model deliveryDisposition == "paste" | "paste"
 PASS 16 delivered | model deliveryCount == "1" | 1
 PASS 17 delivered | model recentSessionCount == "1" | 1
-PASS 18 delivered | text == "PASTE ATTEMPTED" exactly 1 | 1 match
+PASS 18 delivered | text == "PASTED" exactly 1 | 1 match
+PASS 19 delivered | text contains "Pasted" exactly 1 | 1 match

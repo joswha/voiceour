@@ -38,7 +38,10 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
     public var text: String
     public var appBundleId: String?
     public var appName: String?
-    public var thread: JournalThreadRef?
+    /// Linking an entry clears its miss: an entry never holds both.
+    public var thread: JournalThreadRef? {
+        didSet { if thread != nil { unlinked = nil } }
+    }
     public var captureSeconds: Double
     /// The topic the user filed this entry under.
     public var userTopicID: String?
@@ -46,6 +49,12 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
     /// whatever topic the sorting model suggests.
     public var userRemovedTopic: Bool
     public var label: EntryLabel?
+    /// Why an eligible dictation or note was not linked; nil when it was
+    /// linked, when linking was not attempted, or when the reason is unknown.
+    /// Never held beside a thread: setting it on a linked entry leaves it nil.
+    public var unlinked: AgentLinkMiss? {
+        didSet { if thread != nil { unlinked = nil } }
+    }
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -59,6 +68,7 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
         case userTopicID = "user_topic_id"
         case userRemovedTopic = "user_removed_topic"
         case label
+        case unlinked
     }
 
     public init(
@@ -72,7 +82,8 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
         captureSeconds: Double = 0,
         userTopicID: String? = nil,
         userRemovedTopic: Bool = false,
-        label: EntryLabel? = nil
+        label: EntryLabel? = nil,
+        unlinked: AgentLinkMiss? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -85,6 +96,7 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.userTopicID = userTopicID
         self.userRemovedTopic = userRemovedTopic
         self.label = label
+        self.unlinked = thread == nil ? unlinked : nil
     }
 
     /// The History row's dictation, mapped exactly as the Journal reads it so
@@ -99,7 +111,8 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
             appBundleId: entry.app?.bundleId,
             appName: entry.app?.name,
             thread: entry.thread,
-            captureSeconds: entry.captureSeconds
+            captureSeconds: entry.captureSeconds,
+            unlinked: entry.unlinked
         )
     }
 
@@ -122,6 +135,10 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
         userTopicID = try? container.decodeIfPresent(String.self, forKey: .userTopicID)
         userRemovedTopic = (try? container.decodeIfPresent(Bool.self, forKey: .userRemovedTopic)) ?? false
         label = try? container.decodeIfPresent(EntryLabel.self, forKey: .label)
+        // A miss a later build named reads as unknown; an entry stored with
+        // both a thread and a miss reads as linked.
+        let unlinked = try? container.decodeIfPresent(AgentLinkMiss.self, forKey: .unlinked)
+        self.unlinked = thread == nil ? unlinked : nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -137,6 +154,7 @@ public struct MemoryEntry: Codable, Equatable, Identifiable, Sendable {
         try container.encodeIfPresent(userTopicID, forKey: .userTopicID)
         try container.encode(userRemovedTopic, forKey: .userRemovedTopic)
         try container.encodeIfPresent(label, forKey: .label)
+        try container.encodeIfPresent(unlinked, forKey: .unlinked)
     }
 
     /// The topic this entry counts under: the user's choice when it names a known topic; nil when the user removed it;
@@ -174,7 +192,8 @@ extension JournalEntry {
             thread: entry.thread,
             captureSeconds: entry.captureSeconds,
             topicID: entry.effectiveTopicID(known: knownTopicIDs),
-            label: entry.label
+            label: entry.label,
+            unlinked: entry.unlinked
         )
     }
 }

@@ -2,16 +2,38 @@ import SwiftUI
 import VoiceCore
 import VoiceMac
 
+/// What the report says about the agent thread a paste reached, when the
+/// dictation was eligible for one.
+///
+/// Equatable so the menu can animate the line's arrival: a binding usually lands
+/// seconds after the paste, while the popover may already be open.
+enum MenuReportLink: Equatable {
+    /// The History row is bound: the thread's title, and the key that opens it.
+    case thread(title: String, key: AgentSessionKey)
+    /// The link was attempted and missed, for this closed reason.
+    case unlinked(AgentLinkMiss)
+}
+
 struct MenuReportBlock: View {
     let text: String
     @Binding var isCopied: Bool
     let summary: InsertionOutcomeSummary?
+    let link: MenuReportLink?
+    let openThread: (AgentSessionKey) -> Void
     private var a11y = A11y()
 
-    init(text: String, isCopied: Binding<Bool>, summary: InsertionOutcomeSummary?) {
+    init(
+        text: String,
+        isCopied: Binding<Bool>,
+        summary: InsertionOutcomeSummary?,
+        link: MenuReportLink?,
+        openThread: @escaping (AgentSessionKey) -> Void
+    ) {
         self.text = text
         self._isCopied = isCopied
         self.summary = summary
+        self.link = link
+        self.openThread = openThread
     }
 
     var body: some View {
@@ -24,9 +46,51 @@ struct MenuReportBlock: View {
                 CaptionText("Copied to the clipboard.", color: VoiceourPalette.Signal.mint)
             }
 
-            if let summary {
-                CaptionText(summary.detail, color: detailColor(for: summary.severity))
+            if summary != nil || link != nil {
+                // The outcome and where it landed read as one statement, so they
+                // sit flush: a one-line detail plus the link line is the height of
+                // the two-line detail this replaced, and the popover does not grow.
+                VStack(alignment: .leading, spacing: 0) {
+                    if let summary {
+                        CaptionText(summary.detail, color: detailColor(for: summary.severity))
+                    }
+                    if let link {
+                        linkLine(link)
+                    }
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func linkLine(_ link: MenuReportLink) -> some View {
+        switch link {
+        case .thread(let title, let key):
+            Button {
+                openThread(key)
+            } label: {
+                HStack(spacing: VoiceourMetrics.Space.xs) {
+                    Text(title)
+                        .foregroundStyle(a11y.textMid)
+                        .recordTextRole(.caption, foreground: a11y.textMid)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+                .font(VoiceourTypography.caption)
+                // On the control scale like every other button the menu draws.
+                .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Control.mini, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Open thread, \(title)")
+            .accessibilityIdentifier("menu.report.thread")
+        case .unlinked(let miss):
+            CaptionText("Not linked. \(miss.sentence)")
+                .accessibilityIdentifier("menu.report.unlinked")
         }
     }
 

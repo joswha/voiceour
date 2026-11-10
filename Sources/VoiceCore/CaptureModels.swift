@@ -149,57 +149,75 @@ public struct InsertionOutcomeSummary: Equatable, Sendable {
 }
 
 extension InsertionOutcome {
-    public var summary: InsertionOutcomeSummary {
+    /// The words the menu shows for this outcome. `app` is the display name of the
+    /// app the text went to, so the sentence can say where it went; nil (or empty)
+    /// when that is unknown, and every sentence still reads as a whole one then.
+    ///
+    /// The label says `PASTED` although Voiceour only posts Cmd-V and cannot see
+    /// the text land: Timeline has always used the same word, and two words for
+    /// one outcome was the complaint. The state name stays `pasteAttempted`.
+    public func summary(in app: String?) -> InsertionOutcomeSummary {
+        let app = app.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         switch self {
         case .pasteAttempted:
-            InsertionOutcomeSummary(
-                label: "PASTE ATTEMPTED",
-                detail: "Command-V was posted to the captured target.",
+            return InsertionOutcomeSummary(
+                label: "PASTED",
+                detail: app.map { "Pasted into \($0)." } ?? "Pasted.",
                 severity: .ok
             )
         case .copiedOnly(let reason):
-            InsertionOutcomeSummary(
-                label: "COPIED ONLY",
-                detail: insertionOutcomeDetail(for: reason),
+            return InsertionOutcomeSummary(
+                label: "COPY ONLY",
+                detail: insertionReasonSentence(reason, app: app) ?? humanizedInsertionOutcomeReason(reason),
                 severity: .warn
             )
         case .failed(let reason):
-            InsertionOutcomeSummary(
+            return InsertionOutcomeSummary(
                 label: "DELIVERY FAILED",
-                detail: insertionOutcomeDetail(for: reason),
+                detail: insertionReasonSentence(reason, app: app) ?? humanizedInsertionOutcomeReason(reason),
                 severity: .crit
             )
         }
     }
 }
 
-private func insertionOutcomeDetail(for reason: String) -> String {
+/// The sentence for every reason `InsertionSafetyPolicy` and `PasteboardInserter`
+/// can produce, or nil for a string neither produces. Nil is what lets a test
+/// prove no real reason falls through to the humanizer, which would put a log
+/// word such as "Target codeEditor" on the menu.
+func insertionReasonSentence(_ reason: String, app: String?) -> String? {
     switch reason {
+    // Spelled out because a call is not a switch pattern; the coverage test
+    // derives these from `InsertionSafetyPolicy.disposition(for:)`, so a drift fails.
     case "target_terminal":
-        "Terminal target protected."
+        "\(app ?? "This") is a terminal. Press ⌘V to paste."
     case "target_codeEditor":
-        "Code editor target protected."
+        "\(app ?? "This") is a code editor. Press ⌘V to paste."
     case "target_secure":
-        "Secure target protected."
+        "This is a secure field. Press ⌘V to paste."
     case "target_unknownRisky":
-        "Unknown-risk target protected."
-    case "synth_paste_permission":
-        "Accessibility or synthetic paste permission missing."
-    case "target_changed_before_copy":
-        "Target changed before clipboard write."
-    case "target_changed_after_copy":
-        "Target changed after clipboard write."
-    case "post_event_failed":
-        "Command-V event post failed."
+        "Voiceour could not read this field. Press ⌘V to paste."
+    case InsertionSafetyPolicy.missingSynthPastePermission:
+        "Voiceour needs Accessibility to paste. Press ⌘V."
+    case InsertionSafetyPolicy.targetChangedBeforeCopy, InsertionSafetyPolicy.targetChangedAfterCopy:
+        "The focus moved before the paste. Press ⌘V to paste."
+    case InsertionSafetyPolicy.postEventFailed:
+        "The paste could not be sent. Press ⌘V to paste."
+    case InsertionSafetyPolicy.cancelledAfterCopy:
+        "Cancelled. The text is on the clipboard."
     case InsertionSafetyPolicy.pasteboardWriteFailed:
         "The transcript could not be written to the clipboard."
+    // `PasteboardInserter` reports a cancel before the clipboard write with this
+    // literal: nothing was pasted or copied.
     case "cancelled":
-        "Session cancelled."
+        "Cancelled before anything was pasted or copied."
     default:
-        humanizedInsertionOutcomeReason(reason)
+        nil
     }
 }
 
+/// Only for a reason string no producer in the app emits (a fixture's free
+/// text, a future reason): better a readable phrase than a raw key.
 private func humanizedInsertionOutcomeReason(_ reason: String) -> String {
     let spaced = reason.replacingOccurrences(of: "_", with: " ")
     guard let first = spaced.first else {

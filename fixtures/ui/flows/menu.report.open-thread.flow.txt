@@ -1,0 +1,12 @@
+flow: menu.report.open-thread
+title: The report's thread line asks the console for the thread the paste reached
+fixture: static
+transitions: idle
+PASS 1 linked | text == "PASTED" exactly 1 | 1 match
+PASS 2 linked | text == "Pasted into Tern." exactly 1 | 1 match
+PASS 3 linked | role id=menu.report.thread == AXButton | AXButton
+PASS 4 linked | label id=menu.report.thread == "Open thread, omp · Harness offscreen capture" | "Open thread, omp · Harness offscreen capture"
+PASS 5 linked | absent id=menu.report.unlinked | 0 matches
+PASS 6 linked | model pendingJournalThread is empty | ""
+PASS 7 requested | model pendingJournalThread == "omp-0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "omp-0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
+PASS 8 requested | count id=menu.report.thread exactly 1 | 1 match

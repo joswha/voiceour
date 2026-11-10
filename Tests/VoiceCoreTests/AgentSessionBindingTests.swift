@@ -126,6 +126,103 @@ struct AgentSessionBindingTests {
         #expect(session.agentSession == nil)
     }
 
+    // MARK: Link miss
+
+    private func row(unlinked: AgentLinkMiss?, agentSession: AgentSessionBinding? = nil) -> RecentSession {
+        RecentSession(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000104")!,
+            createdAt: Date(timeIntervalSinceReferenceDate: 42),
+            text: "pasted into tern",
+            agentSession: agentSession,
+            unlinked: unlinked
+        )
+    }
+
+    private func jsonObject(_ session: RecentSession) throws -> [String: Any] {
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(session))
+        return try #require(object as? [String: Any])
+    }
+
+    @Test(arguments: AgentLinkMiss.allCases)
+    func eachMissRoundTripsOnARowUnderItsRawValue(miss: AgentLinkMiss) throws {
+        let session = row(unlinked: miss)
+
+        #expect(try jsonObject(session)["unlinked"] as? String == miss.rawValue)
+        #expect(try roundTrip(session) == session)
+    }
+
+    @Test func missesUseSnakeCaseWireNames() throws {
+        #expect(try jsonObject(row(unlinked: .ternTimeout))["unlinked"] as? String == "tern_timeout")
+        #expect(try jsonObject(row(unlinked: .sessionUnconfirmed))["unlinked"] as? String == "session_unconfirmed")
+    }
+
+    /// Rows written before misses existed load unchanged, and a row with no
+    /// miss writes no key.
+    @Test func aRowWithoutAMissDecodesAsUnknownAndWritesNoKey() throws {
+        let legacy = try decode(
+            RecentSession.self,
+            #"{"id": "00000000-0000-0000-0000-000000000104", "createdAt": 42, "text": "pasted into tern"}"#
+        )
+
+        #expect(legacy == row(unlinked: nil))
+        #expect(try jsonObject(legacy)["unlinked"] == nil)
+    }
+
+    /// A miss this build cannot read must not cost the row.
+    @Test(arguments: [#""pane_closed""#, "7", #"{"reason": "busy"}"#])
+    func anUnknownOrMalformedMissReadsAsUnknownAndKeepsTheRow(value: String) throws {
+        let session = try decode(
+            RecentSession.self,
+            """
+            {"id": "00000000-0000-0000-0000-000000000104", "createdAt": 42, "text": "pasted into tern", \
+            "unlinked": \(value)}
+            """
+        )
+
+        #expect(session == row(unlinked: nil))
+    }
+
+    @Test func aRowStoredWithABindingAndAMissReadsAsBound() throws {
+        let session = try decode(
+            RecentSession.self,
+            """
+            {
+              "id": "00000000-0000-0000-0000-000000000104",
+              "createdAt": 42,
+              "text": "pasted into tern",
+              "agentSession": {"agent": "omp", "sessionId": "\(sessionId)", "boundAt": 100},
+              "unlinked": "focus_moved"
+            }
+            """
+        )
+
+        #expect(session.agentSession?.sessionId == sessionId)
+        #expect(session.unlinked == nil)
+    }
+
+    @Test func aRowNeverHoldsBothABindingAndAMiss() {
+        let binding = AgentSessionBinding(agent: .omp, sessionId: sessionId, boundAt: boundAt)
+
+        var session = row(unlinked: .busy)
+        session.agentSession = binding
+        #expect(session.unlinked == nil)
+
+        session.unlinked = .focusMoved
+        #expect(session.unlinked == nil)
+        #expect(session.agentSession == binding)
+
+        #expect(row(unlinked: .codex, agentSession: binding).unlinked == nil)
+
+        session.agentSession = nil
+        session.unlinked = .codex
+        #expect(session.unlinked == .codex)
+    }
+
+    @Test func theJournalReadsARowsMiss() {
+        #expect(JournalEntry(row(unlinked: .remote)).unlinked == .remote)
+        #expect(MemoryEntry(row(unlinked: .remote)).unlinked == .remote)
+    }
+
     @Test func aBlankTitleDecodesAsNoTitle() throws {
         let binding = try decode(
             AgentSessionBinding.self,

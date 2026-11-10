@@ -89,6 +89,13 @@ struct ConsoleJournalTab: View {
             .onAppear {
                 reloadEntries()
                 coordinator.refreshAgentNotes()
+                // After the reload, so the request names a thread the lens can find.
+                openRequestedThread()
+            }
+            // The menu's thread line asks while the console may already be open on
+            // this tab, so the request is read on change as well as on appear.
+            .onChange(of: coordinator.pendingJournalThread) {
+                openRequestedThread()
             }
             // An agent saves a note whenever it is asked to, so the folder is read
             // again each time the reader moves to another lens.
@@ -212,6 +219,16 @@ struct ConsoleJournalTab: View {
         entries = journalEntries()
         historyIDs = Set(coordinator.recentSessions.map(\.id))
         memoryIDs = Set(coordinator.memoryEntries.map(\.id))
+    }
+
+    /// Carries out the menu's request through the same move a lens makes, then
+    /// consumes it, so asking for the same thread again opens it again. A key no
+    /// entry carries lands on Threads with nothing open: the lens closes a thread
+    /// that is gone.
+    private func openRequestedThread() {
+        guard let key = coordinator.pendingJournalThread else { return }
+        coordinator.pendingJournalThread = nil
+        navigation.openThread(key)
     }
 
     /// The one place the Journal's entries come from: every memory entry plus

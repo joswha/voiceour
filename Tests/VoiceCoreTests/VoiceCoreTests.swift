@@ -188,9 +188,69 @@ struct VoiceCoreTests {
     }
 
     @Test func insertionOutcomeSeverityDistinguishesDeliveryOutcomes() {
-        #expect(InsertionOutcome.pasteAttempted.summary.severity == .ok)
-        #expect(InsertionOutcome.copiedOnly(reason: "target_terminal").summary.severity == .warn)
-        #expect(InsertionOutcome.failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed).summary.severity == .crit)
+        #expect(InsertionOutcome.pasteAttempted.summary(in: "TextEdit").severity == .ok)
+        #expect(InsertionOutcome.copiedOnly(reason: "target_terminal").summary(in: "Ghostty").severity == .warn)
+        #expect(
+            InsertionOutcome.failed(reason: InsertionSafetyPolicy.pasteboardWriteFailed).summary(in: nil).severity
+                == .crit)
+    }
+
+    /// Every reason a delivery can report: the class refusals the policy derives,
+    /// its named constants, and `PasteboardInserter`'s cancel before the write.
+    private static var producibleInsertionReasons: [String] {
+        let classRefusals = TargetSafetyClass.allCases.compactMap { safety -> String? in
+            guard case .copyOnly(let reason) = InsertionSafetyPolicy.disposition(for: safety) else { return nil }
+            return reason
+        }
+        return classRefusals + [
+            InsertionSafetyPolicy.targetChangedBeforeCopy,
+            InsertionSafetyPolicy.targetChangedAfterCopy,
+            InsertionSafetyPolicy.missingSynthPastePermission,
+            InsertionSafetyPolicy.postEventFailed,
+            InsertionSafetyPolicy.pasteboardWriteFailed,
+            InsertionSafetyPolicy.cancelledAfterCopy,
+            "cancelled",
+        ]
+    }
+
+    /// The humanizer would put a log word such as "Target codeEditor" on the menu,
+    /// so no reason the app produces may reach it, with or without an app name.
+    @Test func everyProducibleDeliveryReasonHasItsOwnSentence() {
+        let reasons = Self.producibleInsertionReasons
+        for reason in reasons {
+            for app in ["Ghostty", nil] as [String?] {
+                let sentence = insertionReasonSentence(reason, app: app)
+                #expect(sentence != nil, "\(reason) falls through to the humanizer")
+                #expect(sentence?.contains("_") == false, "\(reason)")
+            }
+        }
+    }
+
+    @Test func outcomeDetailsNameTheAppWhenGiven() {
+        #expect(InsertionOutcome.pasteAttempted.summary(in: "Tern").detail.contains("Tern"))
+        for safety in [TargetSafetyClass.terminal, .codeEditor] {
+            let outcome = InsertionOutcome.copiedOnly(reason: InsertionSafetyPolicy.targetClassReason(safety))
+            #expect(outcome.summary(in: "Ghostty").detail.hasPrefix("Ghostty "), "\(safety)")
+        }
+    }
+
+    /// Without an app, or with a blank one, each detail is still a whole sentence:
+    /// capitalised, closed, and with no gap where the name would have gone.
+    @Test func outcomeDetailsReadAsSentencesWithoutAnApp() {
+        let reasons = Self.producibleInsertionReasons
+        let outcomes: [InsertionOutcome] =
+            [.pasteAttempted]
+            + reasons.map { InsertionOutcome.copiedOnly(reason: $0) }
+            + reasons.map { InsertionOutcome.failed(reason: $0) }
+        for app in [nil, "", "  "] as [String?] {
+            for outcome in outcomes {
+                let detail = outcome.summary(in: app).detail
+                #expect(detail.first?.isUppercase == true, "\(outcome)")
+                #expect(detail.hasSuffix("."), "\(outcome)")
+                #expect(!detail.contains("  "), "\(outcome)")
+                #expect(!detail.hasPrefix(" "), "\(outcome)")
+            }
+        }
     }
 
     @Test func settingsJSONMissingMuteFieldsEnablesMute() throws {

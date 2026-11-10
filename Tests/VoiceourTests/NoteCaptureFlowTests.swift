@@ -34,21 +34,25 @@ struct NoteCaptureFlowTests {
         }
     }
 
-    /// Answers every capture and resolve with its configured values. With a
+    /// Answers every capture and resolve with its configured results. With a
     /// release gate, `resolve` signals `resolveEntered` and parks until the
     /// gate fires, then records whether its task was cancelled.
     // `lock` protects the call counts and records; the answers and gates are immutable.
     private final class NoteSessionResolver: AgentSessionResolving, @unchecked Sendable {
         private let lock = NSLock()
-        private let captureAnswer: AgentFocusCapture?
-        private let resolveAnswer: ResolvedAgentSession?
+        private let captureAnswer: Result<AgentFocusCapture, AgentLinkMiss>
+        private let resolveAnswer: Result<ResolvedAgentSession, AgentLinkMiss>
         private let release: TestGate?
         let resolveEntered = TestGate()
         private var captures = 0
         private var resolves = 0
         private var cancellations: [Bool] = []
 
-        init(capture: AgentFocusCapture?, resolve: ResolvedAgentSession?, release: TestGate? = nil) {
+        init(
+            capture: Result<AgentFocusCapture, AgentLinkMiss>,
+            resolve: Result<ResolvedAgentSession, AgentLinkMiss>,
+            release: TestGate? = nil
+        ) {
             captureAnswer = capture
             resolveAnswer = resolve
             self.release = release
@@ -58,12 +62,15 @@ struct NoteCaptureFlowTests {
         var resolveCalls: Int { lock.withLock { resolves } }
         var cancelledOnRelease: [Bool] { lock.withLock { cancellations } }
 
-        func capture(target: TargetSnapshot) async -> AgentFocusCapture? {
+        func capture(target: TargetSnapshot) async -> Result<AgentFocusCapture, AgentLinkMiss> {
             lock.withLock { captures += 1 }
             return captureAnswer
         }
 
-        func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession? {
+        func resolve(
+            target: TargetSnapshot,
+            before: AgentFocusCapture
+        ) async -> Result<ResolvedAgentSession, AgentLinkMiss> {
             lock.withLock { resolves += 1 }
             if let release {
                 resolveEntered.fire()
@@ -390,7 +397,7 @@ struct NoteCaptureFlowTests {
     // MARK: - Linking a note to the focused agent session
 
     @Test func aNoteTakenInTernIsLinkedToTheResolvedSession() async throws {
-        let resolver = NoteSessionResolver(capture: pane, resolve: resolved("01a1c16f"))
+        let resolver = NoteSessionResolver(capture: .success(pane), resolve: .success(resolved("01a1c16f")))
         let fixture = try makeFixture(
             transcript: "Check the flaky upload test before merging.",
             tracker: tern,
@@ -410,11 +417,15 @@ struct NoteCaptureFlowTests {
         #expect(thread.title == "Release prep")
         #expect(thread.resumable)
         #expect(thread.sent == nil)
+        #expect(note.unlinked == nil)
         #expect(resolver.captureCalls == 1)
         #expect(resolver.resolveCalls == 1)
         #expect(coordinator.agentBindingTasks.isEmpty)
         #expect(fixture.inserter.insertedTexts.isEmpty)
         #expect(coordinator.recentSessions.isEmpty)
+        // A note is delivered nowhere: no outcome, so no row or app to name.
+        #expect(coordinator.lastDeliveredRowID == nil)
+        #expect(coordinator.lastDeliveredApp == nil)
         #expect(coordinator.memoryStore.load().entries.first?.thread == thread)
     }
 
@@ -424,15 +435,16 @@ struct NoteCaptureFlowTests {
         case bindingOff
     }
 
-    /// No pane before the save, no exact session after it, or binding off:
-    /// the note is saved and stays unlinked.
+    /// No pane before the save or no exact session after it: the note is
+    /// saved unlinked with that one reason. Binding off: unlinked, no reason.
     @Test(arguments: UnlinkedNote.allCases)
     func aNoteWithoutAnExactSessionStaysUnlinked(_ reason: UnlinkedNote) async throws {
         let resolver =
             switch reason {
-            case .noPane: NoteSessionResolver(capture: nil, resolve: resolved("01a1c16f"))
-            case .noSession: NoteSessionResolver(capture: pane, resolve: nil)
-            case .bindingOff: NoteSessionResolver(capture: pane, resolve: resolved("01a1c16f"))
+            case .noPane:
+                NoteSessionResolver(capture: .failure(.severalWindows), resolve: .success(resolved("01a1c16f")))
+            case .noSession: NoteSessionResolver(capture: .success(pane), resolve: .failure(.codex))
+            case .bindingOff: NoteSessionResolver(capture: .success(pane), resolve: .success(resolved("01a1c16f")))
             }
         let fixture = try makeFixture(
             transcript: "Check the flaky upload test before merging.",
@@ -449,6 +461,14 @@ struct NoteCaptureFlowTests {
         #expect(note.kind == .note)
         #expect(note.thread == nil)
         #expect(fixture.coordinator.agentBindingTasks.isEmpty)
+        let expected: AgentLinkMiss? =
+            switch reason {
+            case .noPane: .severalWindows
+            case .noSession: .codex
+            case .bindingOff: nil
+            }
+        #expect(note.unlinked == expected)
+        #expect(fixture.coordinator.memoryStore.load().entries.first?.unlinked == expected)
         switch reason {
         case .noPane:
             #expect(resolver.resolveCalls == 0)
@@ -460,9 +480,43 @@ struct NoteCaptureFlowTests {
         }
     }
 
-    @Test func turningBindingOffWhileTheLinkIsInFlightLeavesTheNoteUnlinked() async throws {
+    /// A link that lands on a note holding a miss replaces the miss, and a
+    /// miss never replaces a link: a note never holds both.
+    @Test func aNoteLinkClearsAMissAndAMissNeverReplacesALink() async throws {
+        let resolver = NoteSessionResolver(capture: .success(pane), resolve: .failure(.focusMoved))
+        let fixture = try makeFixture(
+            transcript: "Check the flaky upload test before merging.",
+            tracker: tern,
+            bindingEnabled: true,
+            resolver: resolver
+        )
+        defer { finish(fixture) }
+        let coordinator = fixture.coordinator
+
+        await dictate(coordinator, intent: .note)
+        await settle(coordinator)
+        let noteID = try #require(coordinator.lastSavedNoteID)
+        #expect(coordinator.memoryEntries.first?.unlinked == .focusMoved)
+
+        let token = coordinator.generations.currentToken(.agentLinking)
+        coordinator.applyNoteSessionLink(.success(resolved("01a1c16f")), noteID: noteID, identity: UUID(), token: token)
+        coordinator.applyNoteSessionLink(.failure(.busy), noteID: noteID, identity: UUID(), token: token)
+        await settle(coordinator)
+
+        let note = try #require(coordinator.memoryEntries.first)
+        #expect(note.thread?.sessionId == "01a1c16f")
+        #expect(note.unlinked == nil)
+        #expect(coordinator.memoryStore.load().entries.first?.unlinked == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func turningBindingOffWhileTheLinkIsInFlightLeavesTheNoteUnlinked(inFlightMisses: Bool) async throws {
         let release = TestGate()
-        let resolver = NoteSessionResolver(capture: pane, resolve: resolved("01a1c16f"), release: release)
+        let resolver = NoteSessionResolver(
+            capture: .success(pane),
+            resolve: inFlightMisses ? .failure(.focusMoved) : .success(resolved("01a1c16f")),
+            release: release
+        )
         let fixture = try makeFixture(
             transcript: "Check the flaky upload test before merging.",
             tracker: tern,
@@ -485,12 +539,19 @@ struct NoteCaptureFlowTests {
         #expect(resolver.cancelledOnRelease == [true])
         #expect(coordinator.memoryEntries.map(\.id) == [noteID])
         #expect(coordinator.memoryEntries.first?.thread == nil)
+        #expect(coordinator.memoryEntries.first?.unlinked == nil)
         #expect(coordinator.memoryStore.load().entries.first?.thread == nil)
+        #expect(coordinator.memoryStore.load().entries.first?.unlinked == nil)
     }
 
-    @Test func clearingMemoryCancelsTheLinkInFlight() async throws {
+    @Test(arguments: [false, true])
+    func clearingMemoryCancelsTheLinkInFlight(inFlightMisses: Bool) async throws {
         let release = TestGate()
-        let resolver = NoteSessionResolver(capture: pane, resolve: resolved("01a1c16f"), release: release)
+        let resolver = NoteSessionResolver(
+            capture: .success(pane),
+            resolve: inFlightMisses ? .failure(.focusMoved) : .success(resolved("01a1c16f")),
+            release: release
+        )
         let fixture = try makeFixture(
             transcript: "Check the flaky upload test before merging.",
             tracker: tern,

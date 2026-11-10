@@ -357,14 +357,19 @@ struct AgentSessionLocator: Sendable {
     /// zone change after launch is followed.
     let timeZone: TimeZone
 
-    /// The session `foreground` runs; nil when it is not an agent or its
-    /// session cannot be named exactly.
-    func locate(foreground: ProcessFacts, ternSessionFile: String?) -> ResolvedAgentSession? {
+    /// The session `foreground` runs. Codex is named as such; any other
+    /// program that is no agent is `.noAgent`. Once the agent is known, every
+    /// way its records fail to name one session is `.sessionUnconfirmed`, so
+    /// the miss never depends on which record was missing or disagreed.
+    func locate(foreground: ProcessFacts, ternSessionFile: String?) -> Result<ResolvedAgentSession, AgentLinkMiss> {
+        let session: ResolvedAgentSession?
         switch Self.agent(of: foreground) {
-        case .omp: ompSession(of: foreground, ternSessionFile: ternSessionFile)
-        case .claudeCode: claudeSession(of: foreground)
-        case nil: nil
+        case .omp: session = ompSession(of: foreground, ternSessionFile: ternSessionFile)
+        case .claudeCode: session = claudeSession(of: foreground)
+        case nil: return .failure(Self.isCodex(foreground) ? .codex : .noAgent)
         }
+        guard let session else { return .failure(.sessionUnconfirmed) }
+        return .success(session)
     }
 
     /// The agent a process is, by its executable path and name only.
@@ -377,6 +382,17 @@ struct AgentSessionLocator: Sendable {
             return .claudeCode
         }
         return nil
+    }
+
+    /// Whether a process is Codex, by the same evidence as `agent(of:)`: its
+    /// name or its executable's file name is `codex`, or the platform-suffixed
+    /// native build (`codex-aarch64-apple-darwin`) Homebrew and npm install.
+    static func isCodex(_ process: ProcessFacts) -> Bool {
+        let file = process.executablePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+        return [process.name, file].contains { name in
+            guard let name else { return false }
+            return name == "codex" || name.hasPrefix("codex-aarch64-") || name.hasPrefix("codex-x86_64-")
+        }
     }
 
     // MARK: omp

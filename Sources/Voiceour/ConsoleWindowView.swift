@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceCore
 
 /// The console's four destinations.
 ///
@@ -73,8 +74,11 @@ struct ConsoleWindowView: View {
     /// Selection still persists from here; only the opening tab is decided.
     init(coordinator: DictationCoordinator, initialTab: ConsoleTab?) {
         self.coordinator = coordinator
+        // A pending thread request is the reason this window is opening, so it
+        // opens on the Journal rather than flashing the stored tab first.
+        let requested = coordinator.pendingJournalThread != nil ? ConsoleTab.history : nil
         let opening = coordinator.owesFirstRunGuidance ? ConsoleTab.home : Self.storedTab() ?? .home
-        _tab = State(initialValue: initialTab ?? opening)
+        _tab = State(initialValue: initialTab ?? requested ?? opening)
         externalTab = nil
         persistsSelection = (initialTab == nil)
     }
@@ -138,6 +142,13 @@ struct ConsoleWindowView: View {
             guard persistsSelection else { return }
             Self.storeTab(tab)
         }
+        // The menu's thread line asks for a thread whether this window is closed,
+        // open on another tab or already on the Journal. The window only moves to
+        // the Journal; the Journal opens the thread and consumes the request.
+        .onAppear { selectJournalIfRequested(coordinator.pendingJournalThread) }
+        // The new value, not a re-read: the Journal may consume the request in the
+        // same update, and the window must still move to it.
+        .onChange(of: coordinator.pendingJournalThread) { _, request in selectJournalIfRequested(request) }
         // Presentation — the activation policy this window promotes the app to,
         // the ordering that puts it in front, and the two states it must never
         // be stuck in — is owned by ``ConsolePresentation``, which the menu bar
@@ -145,6 +156,15 @@ struct ConsoleWindowView: View {
         // as well.
         .onAppear { ConsolePresentation.show() }
         .onDisappear { ConsolePresentation.windowDidClose() }
+    }
+
+    private func selectJournalIfRequested(_ request: AgentSessionKey?) {
+        guard request != nil else { return }
+        if let externalTab {
+            externalTab.wrappedValue = .history
+        } else {
+            tab = .history
+        }
     }
 
     /// One tab item, with an identifier of our own.

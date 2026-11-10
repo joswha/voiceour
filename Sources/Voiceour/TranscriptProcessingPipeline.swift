@@ -153,11 +153,11 @@ extension DictationCoordinator {
     func processStop(generation: AsyncGenerationGate.Token, stopReleaseStarted: Date) async {
         var audioURL: URL?
         defer { removeTemporaryAudio(&audioURL) }
-        // The host's focused pane, captured before the paste. Handed to
-        // `startAgentSessionBinding` once the outcome is recorded, or to
-        // `startNoteSessionLink` once a note is saved; every exit before that
-        // cancels it.
-        var agentFocusCapture: (task: Task<AgentFocusCapture?, Never>, boundAt: Date)?
+        // The host's focused pane, or why it could not be read, captured
+        // before the paste. Handed to `startAgentSessionBinding` once the
+        // outcome is recorded, or to `startNoteSessionLink` once a note is
+        // saved; every exit before that cancels it.
+        var agentFocusCapture: (task: Task<Result<AgentFocusCapture, AgentLinkMiss>, Never>, boundAt: Date)?
         defer { agentFocusCapture?.task.cancel() }
         // The mute resolves concurrently with recorder start; await the pending
         // decision so the recorded session captures the true muted state even
@@ -366,6 +366,8 @@ extension DictationCoordinator {
             let outcomeIsCurrent = !Task.isCancelled && generations.isCurrent(generation)
             if outcomeIsCurrent {
                 lastOutcome = outcome
+                lastDeliveredRowID = sessionID
+                lastDeliveredApp = Self.deliveredAppName(for: insertionTarget)
             }
             await updateRecentSessionOutcome(
                 id: sessionID,

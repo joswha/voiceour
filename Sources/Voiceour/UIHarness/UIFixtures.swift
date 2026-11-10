@@ -167,10 +167,10 @@
             /// show: history and lifetime figures erased. Zeroed like `firstRun`,
             /// but owed no guidance, so Home keeps its caption instead of the card.
             case erasedFigures
-            /// A fixed nine-session history on the dev backend.
+            /// A fixed ten-session history on the dev backend.
             case populated
             /// The populated History with memory switched on and a memory folder that
-            /// reaches further back: the nine History rows plus twelve older dictations
+            /// reaches further back: the ten History rows plus twelve older dictations
             /// History no longer holds and three notes, so the Journal shows days, thread
             /// entries and notes only memory can supply. The folder also holds three topics,
             /// and about half its entries carry the sorting model's labels or a topic the
@@ -207,6 +207,18 @@
             /// off and left free: the CUSTOM mark, a look list with nothing selected and a live
             /// Dock Island, none of which a stock install can show.
             case islandCustom
+            /// A dictation just pasted into Tern, with agent-session binding on and its History
+            /// row bound to the fixture's omp session: the menu's report names the thread.
+            /// The row and the published outcome are stated, never resolved: the resolver stays
+            /// `NoAgentSessionResolving` and no dictation runs.
+            case pastedLinked
+            /// The same paste, its row carrying the link's miss (`.focusMoved`) instead of a
+            /// binding: the menu's report says why it is not linked.
+            case pastedUnlinked
+            /// The populated History with the menu's request to show the fixture's omp thread
+            /// still pending, as a press on the report's thread line leaves it before the
+            /// console has read it.
+            case threadRequested
         }
 
         /// Every fixture timestamp derives from this instant, and `RenderOverrides`
@@ -315,6 +327,14 @@
                 )
             case .completedDictation:
                 return makeCompletedDictation()
+            case .pastedLinked:
+                return makePastedToTern(linked: true)
+            case .pastedUnlinked:
+                return makePastedToTern(linked: false)
+            case .threadRequested:
+                let coordinator = make(sessions: history)
+                coordinator.pendingJournalThread = agentSession
+                return coordinator
             }
         }
 
@@ -538,7 +558,11 @@
             island: IslandAppearance = .stock,
             /// Whether new dictations fold into memory. Off everywhere but the fixture
             /// that holds memory, because off is what a fresh install holds.
-            memoryEnabled: Bool = false
+            memoryEnabled: Bool = false,
+            /// Whether a paste into Tern links to its agent session. Off everywhere but the
+            /// menu fixtures that show the report's link line, because off is what a fresh
+            /// install holds; the resolver stays `NoAgentSessionResolving` either way.
+            agentSessionBindingEnabled: Bool = false
         ) -> VoiceCore.Settings {
             VoiceCore.Settings(
                 asrBackend: backend,
@@ -550,6 +574,7 @@
                 preferredMicrophoneName: preferredMicrophoneName,
                 hasCompletedFirstRun: hasCompletedFirstRun,
                 island: island,
+                agentSessionBindingEnabled: agentSessionBindingEnabled,
                 memoryEnabled: memoryEnabled
             )
         }
@@ -574,7 +599,7 @@
             /// fixed lifetime ledger below, one without gets an empty file-less
             /// ledger. Either way the file's presence is decided here, so no
             /// fixture ever takes the coordinator's one-time backfill path by
-            /// accident and folds the nine seeded transcripts into its totals.
+            /// accident and folds the ten seeded transcripts into its totals.
             stats: DictationStatsLedger? = nil,
             /// What the memory folder holds, oldest first. Handed to the coordinator by
             /// its load closure rather than written to the scratch folder, so a scene
@@ -704,6 +729,39 @@
             settle { coordinator.state == .recording }
             coordinator.stopAndProcess()
             settle { coordinator.state == .idle && !coordinator.lastTranscript.isEmpty }
+            return coordinator
+        }
+
+        /// The menu right after a paste into Tern, its outcome and History row stated rather
+        /// than dictated: the link a resolver would have reported is fixture data on the row,
+        /// and the published outcome is set the way the pipeline's `outcomeIsCurrent` block
+        /// sets it. Driving a real dictation here would need a resolver that answers, which no
+        /// harness coordinator may hold.
+        private static func makePastedToTern(linked: Bool) -> DictationCoordinator {
+            let row = session(
+                index: 26,
+                minutesAgo: 1,
+                text: "Rerun the flow catalog and tell me which journals changed.",
+                bundleId: DictationCoordinator.agentSessionHostBundleId,
+                appName: ternAppName,
+                captureMs: 4_600,
+                asrMs: 352,
+                agentSession: linked
+                    ? binding(
+                        .omp,
+                        sessionId: agentSession.sessionId,
+                        sessionFile: ompSessionFile,
+                        title: agentSessionTitle,
+                        minutesAgo: 1,
+                        sentText: nil
+                    ) : nil,
+                unlinked: linked ? nil : AgentLinkMiss.focusMoved
+            )
+            let coordinator = make(sessions: [row], settings: settings(agentSessionBindingEnabled: true))
+            coordinator.lastTranscript = row.text
+            coordinator.lastOutcome = .pasteAttempted
+            coordinator.lastDeliveredRowID = row.id
+            coordinator.lastDeliveredApp = ternAppName
             return coordinator
         }
 
@@ -842,9 +900,10 @@
 
         // MARK: Fixed history
 
-        /// Nine sessions ending at `pinnedNow`, chosen to exercise the Sessions
+        /// Ten sessions ending at `pinnedNow`, chosen to exercise the Sessions
         /// list and search across multiple days, same-day entries, varied paste
-        /// destinations, a copy-only outcome and a failed outcome.
+        /// destinations, a copy-only outcome, a failed outcome and a Tern paste
+        /// whose agent-session link missed.
         static let history: [RecentSession] = [
             session(
                 index: 1,
@@ -908,6 +967,20 @@
                     sentText: nil
                 )
             ),
+            // A paste into Tern whose link missed: no binding, and the closed reason the
+            // resolver gave, so the row's Details say why it is not linked. On row 6's day
+            // and just older than it, so it adds no History day for Rewind to walk and never
+            // pushes row 6, which the agent-link flow presses, out of the window.
+            session(
+                index: 25,
+                minutesAgo: 3_000,
+                text: unlinkedRowText,
+                bundleId: DictationCoordinator.agentSessionHostBundleId,
+                appName: ternAppName,
+                captureMs: 5_300,
+                asrMs: 371,
+                unlinked: .focusMoved
+            ),
             session(
                 index: 6,
                 minutesAgo: 2_950,
@@ -921,7 +994,7 @@
                     .omp,
                     sessionId: agentSession.sessionId,
                     sessionFile: ompSessionFile,
-                    title: "Harness offscreen capture",
+                    title: agentSessionTitle,
                     minutesAgo: 2_950,
                     sentText: "Post the mouse up before sending the mouse down, or AppKit's tracking loop wedges."
                 )
@@ -958,7 +1031,7 @@
                     .omp,
                     sessionId: agentSession.sessionId,
                     sessionFile: ompSessionFile,
-                    title: "Harness offscreen capture",
+                    title: agentSessionTitle,
                     minutesAgo: 11_600,
                     sentText: nil
                 )
@@ -968,6 +1041,17 @@
         /// The omp session two Terminal rows are bound to. Rows 1 and 4, which
         /// scenes and flows open, stay unbound, so their goldens do not carry it.
         static let agentSession = AgentSessionKey(agent: .omp, sessionId: "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a")
+
+        /// The title `agentSession` carries on every row and entry bound to it.
+        nonisolated static let agentSessionTitle = "Harness offscreen capture"
+
+        /// The name Tern's rows carry, and the app the menu fixtures' paste went to.
+        nonisolated static let ternAppName = "Tern"
+
+        /// The text of the Tern row whose link missed: the only handle a scene step has on
+        /// its closed row, so no other row or entry says it. It says neither "offscreen" nor
+        /// "accessibility", so the Rewind and History searches keep their counts.
+        nonisolated static let unlinkedRowText = "Split the timeout from the quiet period so a retry reads as honest."
 
         private static let ompSessionFile =
             "/Users/harness/.omp/agent/sessions/-Users-harness-voiceour/"
@@ -1010,7 +1094,8 @@
             /// Nil means cleanup changed nothing, which is the case that draws no RAW row.
             rawTranscript: String? = nil,
             leastConfidentWord: LeastConfidentWord? = nil,
-            agentSession: AgentSessionBinding? = nil
+            agentSession: AgentSessionBinding? = nil,
+            unlinked: AgentLinkMiss? = nil
         ) -> RecentSession {
             RecentSession(
                 id: fixedIdentifier(index),
@@ -1032,14 +1117,15 @@
                     startLatencyMs: 18
                 ),
                 leastConfidentWord: leastConfidentWord,
-                agentSession: agentSession
+                agentSession: agentSession,
+                unlinked: unlinked
             )
         }
 
         // MARK: Fixed memory
 
         /// What the `remembered` fixture's memory folder holds, oldest first: twelve
-        /// dictations and three notes older than every History row, then the nine History
+        /// dictations and three notes older than every History row, then the ten History
         /// rows under their History ids, as turning the memory switch on would have kept them.
         static let rememberedMemory: [MemoryEntry] =
             (olderMemory + rememberedNotes).sorted { $0.createdAt < $1.createdAt }
@@ -1319,7 +1405,7 @@
             JournalThreadRef(
                 agent: agentSession.agent,
                 sessionId: agentSession.sessionId,
-                title: "Harness offscreen capture",
+                title: agentSessionTitle,
                 workingDirectory: "/Users/harness/voiceour",
                 resumable: true,
                 sent: sent

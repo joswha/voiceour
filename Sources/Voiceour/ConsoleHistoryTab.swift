@@ -932,11 +932,11 @@ struct ConsoleHistoryTab: View {
     }
 
     /// Whether anything at all sits behind the fold. A record with no target, no
-    /// agent session, no stage timings and no least sure word draws no empty
-    /// Details row.
+    /// agent session or missed link, no stage timings and no least sure word
+    /// draws no empty Details row.
     private func hasSessionDetails(for session: RecentSession) -> Bool {
-        hasTargetDetails(for: session) || session.agentSession != nil || session.stages != nil
-            || session.leastConfidentWord != nil
+        hasTargetDetails(for: session) || session.agentSession != nil || session.unlinked != nil
+            || session.stages != nil || session.leastConfidentWord != nil
     }
 
     /// The measurements behind the dictation, folded shut. They are evidence about
@@ -951,6 +951,8 @@ struct ConsoleHistoryTab: View {
 
             if let binding = session.agentSession {
                 agentRow(binding)
+            } else if let miss = session.unlinked {
+                unlinkedRow(miss)
             }
 
             if let stages = session.stages {
@@ -1009,6 +1011,21 @@ struct ConsoleHistoryTab: View {
                     .help(binding.workingDirectory ?? binding.sessionId)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Agent")
+        }
+    }
+
+    /// Why a paste that was eligible for linking has no agent session, under the
+    /// heading a bound row uses, so a reader looking for the session finds the
+    /// reason in the same place.
+    private func unlinkedRow(_ miss: AgentLinkMiss) -> some View {
+        LabeledContent {
+            Text("Not linked. \(miss.sentence)")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("sessions.detail.unlinked")
         } label: {
             Text("Agent")
         }

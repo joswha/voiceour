@@ -139,7 +139,7 @@ private struct Scenario {
         )
     }
 
-    func resolve() async -> ResolvedAgentSession? {
+    func resolve() async -> Result<ResolvedAgentSession, AgentLinkMiss> {
         await resolver(FakeTern(script)).resolve(target: Self.target, before: Self.before)
     }
 }
@@ -165,7 +165,7 @@ struct LiveAgentSessionResolverTests {
 
         let capture = await scenario.resolver(tern).capture(target: Scenario.target)
 
-        #expect(capture == Scenario.before)
+        #expect(capture == .success(Scenario.before))
         #expect(tern.calls == [["process", "@focused", "--json"]])
     }
 
@@ -178,8 +178,8 @@ struct LiveAgentSessionResolverTests {
         var other = Scenario.target
         other.bundleId = "com.mitchellh.ghostty"
 
-        #expect(await resolver.capture(target: other) == nil)
-        #expect(await resolver.resolve(target: other, before: Scenario.before) == nil)
+        #expect(await resolver.capture(target: other) == .failure(.ternUnavailable))
+        #expect(await resolver.resolve(target: other, before: Scenario.before) == .failure(.ternUnavailable))
         #expect(tern.calls.isEmpty)
     }
 
@@ -189,11 +189,12 @@ struct LiveAgentSessionResolverTests {
         let scenario = try makeScenario(home)
         let tern = FakeTern(scenario.script)
 
-        let resolved = await scenario.resolver(tern).resolve(target: Scenario.target, before: Scenario.before)
+        let resolved = try await scenario.resolver(tern).resolve(target: Scenario.target, before: Scenario.before)
+            .get()
 
-        #expect(resolved?.agent == .omp)
-        #expect(resolved?.sessionId == AgentFixtures.nextSessionId)
-        #expect(resolved?.sessionTitle == "Next")
+        #expect(resolved.agent == .omp)
+        #expect(resolved.sessionId == AgentFixtures.nextSessionId)
+        #expect(resolved.sessionTitle == "Next")
         #expect(Set(tern.calls) == [["process", "@focused", "--json"], ["inspect", "--json"]])
     }
 
@@ -205,11 +206,11 @@ struct LiveAgentSessionResolverTests {
         var scenario = Scenario(home: home)
         scenario.ompSessionFile = home.path(AgentFixtures.freshSessionFile)
 
-        let resolved = await scenario.resolve()
+        let resolved = try await scenario.resolve().get()
 
-        #expect(resolved?.sessionId == AgentFixtures.freshSessionId)
-        #expect(resolved?.promptLogOffset == 0)
-        #expect(resolved?.resumable == false)
+        #expect(resolved.sessionId == AgentFixtures.freshSessionId)
+        #expect(resolved.promptLogOffset == 0)
+        #expect(resolved.resumable == false)
     }
 
     @Test func theClaudeCodePaneBindsItsRegistrySession() async throws {
@@ -225,11 +226,31 @@ struct LiveAgentSessionResolverTests {
             text: AgentFixtures.claudeRecord(pid: 61208, sessionId: AgentFixtures.claudeSessionId)
         )
 
-        let resolved = await scenario.resolver(FakeTern(scenario.script))
+        let resolved = try await scenario.resolver(FakeTern(scenario.script))
             .resolve(target: Scenario.target, before: AgentFocusCapture(pane: "884763263011", foregroundPid: 61208))
+            .get()
 
-        #expect(resolved?.agent == .claudeCode)
-        #expect(resolved?.sessionId == AgentFixtures.claudeSessionId)
+        #expect(resolved.agent == .claudeCode)
+        #expect(resolved.sessionId == AgentFixtures.claudeSessionId)
+    }
+
+    @Test func aCodexPaneMissesAsCodex() async throws {
+        let home = try FakeAgentHome()
+        defer { home.remove() }
+        var scenario = try makeScenario(home)
+        scenario.processes[1] = AgentFixtures.process(
+            pid: 200, name: "codex", executablePath: "/opt/homebrew/bin/codex")
+
+        #expect(await scenario.resolve() == .failure(.codex))
+    }
+
+    @Test func anOmpPaneWhoseRecordsNameNoSessionMissesAsUnconfirmed() async throws {
+        let home = try FakeAgentHome()
+        defer { home.remove() }
+        var scenario = try makeScenario(home)
+        scenario.ompSessionFile = home.path(AgentFixtures.freshSessionFile)
+
+        #expect(await scenario.resolve() == .failure(.sessionUnconfirmed))
     }
 
     @Test func anInvalidSignatureRunsNothing() async throws {
@@ -240,8 +261,8 @@ struct LiveAgentSessionResolverTests {
         let tern = FakeTern(scenario.script)
         let resolver = scenario.resolver(tern)
 
-        #expect(await resolver.capture(target: Scenario.target) == nil)
-        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == nil)
+        #expect(await resolver.capture(target: Scenario.target) == .failure(.ternUnavailable))
+        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == .failure(.ternUnavailable))
         #expect(tern.calls.isEmpty)
     }
 
@@ -249,12 +270,12 @@ struct LiveAgentSessionResolverTests {
         let home = try FakeAgentHome()
         defer { home.remove() }
         var scenario = try makeScenario(home)
-        #expect(await scenario.resolve() != nil)
+        #expect(try await scenario.resolve().get().sessionId == AgentFixtures.nextSessionId)
 
         scenario.windows = 2
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.severalWindows))
         scenario.windows = 0
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.severalWindows))
     }
 
     @Test func aRemoteWindowOrPaneBindsNothing() async throws {
@@ -262,11 +283,11 @@ struct LiveAgentSessionResolverTests {
         defer { home.remove() }
         var scenario = try makeScenario(home)
         scenario.windowHops = [localHop, remoteHop]
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.remote))
 
         scenario.windowHops = [localHop]
         scenario.paneHops = [remoteHop]
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.remote))
     }
 
     @Test func aPaneChangeAcrossThePasteBindsNothing() async throws {
@@ -277,12 +298,12 @@ struct LiveAgentSessionResolverTests {
         // Tern now focuses another pane than before the paste.
         scenario.processPane = 5
         scenario.shownFocusedBlock = 5
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
 
         // `process @focused` and the layout disagree.
         scenario.processPane = Scenario.pane
         scenario.shownFocusedBlock = 5
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
     }
 
     @Test func aForegroundProcessChangeAcrossThePasteBindsNothing() async throws {
@@ -292,7 +313,7 @@ struct LiveAgentSessionResolverTests {
         scenario.foregroundPid = 201
         scenario.processes.append(AgentFixtures.omp(pid: 201))
 
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
     }
 
     @Test func focusOnAnythingButTheTerminalInputBindsNothing() async throws {
@@ -300,16 +321,16 @@ struct LiveAgentSessionResolverTests {
         defer { home.remove() }
         var scenario = try makeScenario(home)
         scenario.element = FocusedElementFacts(role: "AXTextField", title: "Terminal input")
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
 
         scenario.element = FocusedElementFacts(role: "AXTextArea", title: "Find")
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
 
         scenario.element = FocusedElementFacts(role: "AXTextArea", title: nil)
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
 
         scenario.element = nil
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.focusMoved))
     }
 
     @Test func aForegroundProcessOnAnotherTerminalBindsNothing() async throws {
@@ -318,7 +339,7 @@ struct LiveAgentSessionResolverTests {
         var scenario = try makeScenario(home)
         scenario.processes = [AgentFixtures.shell(terminal: 0x1000_0009), AgentFixtures.omp()]
 
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.noAgent))
     }
 
     @Test func aProcessOutsideTheForegroundGroupBindsNothing() async throws {
@@ -327,7 +348,7 @@ struct LiveAgentSessionResolverTests {
         var scenario = try makeScenario(home)
         scenario.processes[1].terminalForegroundGroup = 300
 
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.noAgent))
     }
 
     @Test func aForegroundProcessOfAnotherUserOrWithoutATerminalBindsNothing() async throws {
@@ -335,17 +356,17 @@ struct LiveAgentSessionResolverTests {
         defer { home.remove() }
         var scenario = try makeScenario(home)
         scenario.processes[1].uid = 0
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.noAgent))
 
         scenario.processes[1].uid = AgentFixtures.uid
         scenario.processes[1].terminalDevice = nil
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.noAgent))
 
         scenario.processes = [AgentFixtures.shell()]
-        #expect(await scenario.resolve() == nil)
+        #expect(await scenario.resolve() == .failure(.noAgent))
     }
 
-    @Test func aCallWhileAnotherRunsReturnsNil() async throws {
+    @Test func aCallWhileAnotherRunsMissesAsBusyWithoutWaiting() async throws {
         let home = try FakeAgentHome()
         defer { home.remove() }
         let scenario = try makeScenario(home)
@@ -355,13 +376,13 @@ struct LiveAgentSessionResolverTests {
 
         let first = Task { await resolver.capture(target: Scenario.target) }
         await tern.entered.wait()
-        #expect(await resolver.capture(target: Scenario.target) == nil)
-        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == nil)
+        #expect(await resolver.capture(target: Scenario.target) == .failure(.busy))
+        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == .failure(.busy))
         release.fire()
 
-        #expect(await first.value == Scenario.before)
+        #expect(await first.value == .success(Scenario.before))
         #expect(tern.calls.count == 1)
-        #expect(await resolver.capture(target: Scenario.target) == Scenario.before)
+        #expect(await resolver.capture(target: Scenario.target) == .success(Scenario.before))
     }
 
     @Test func aTimeoutQuietsEveryCallForTenSeconds() async throws {
@@ -372,16 +393,16 @@ struct LiveAgentSessionResolverTests {
         let clock = TestClock()
         let resolver = scenario.resolver(tern, clock: clock)
 
-        #expect(await resolver.capture(target: Scenario.target) == nil)
+        #expect(await resolver.capture(target: Scenario.target) == .failure(.ternTimeout))
         tern.setScript(scenario.script)
 
         clock.advance(by: .seconds(9))
-        #expect(await resolver.capture(target: Scenario.target) == nil)
-        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == nil)
+        #expect(await resolver.capture(target: Scenario.target) == .failure(.ternTimeout))
+        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == .failure(.ternTimeout))
         #expect(tern.calls.count == 1)
 
         clock.advance(by: .seconds(1))
-        #expect(await resolver.capture(target: Scenario.target) == Scenario.before)
+        #expect(await resolver.capture(target: Scenario.target) == .success(Scenario.before))
     }
 
     @Test func aFailedCallDoesNotQuietLaterCalls() async throws {
@@ -391,8 +412,20 @@ struct LiveAgentSessionResolverTests {
         let tern = FakeTern(FakeTern.Script(process: .failed, inspect: .failed))
         let resolver = scenario.resolver(tern)
 
-        #expect(await resolver.capture(target: Scenario.target) == nil)
+        #expect(await resolver.capture(target: Scenario.target) == .failure(.ternUnavailable))
         tern.setScript(scenario.script)
-        #expect(await resolver.capture(target: Scenario.target) == Scenario.before)
+        #expect(await resolver.capture(target: Scenario.target) == .success(Scenario.before))
+    }
+
+    @Test func anUndecodableReportMissesAsTernUnavailable() async throws {
+        let home = try FakeAgentHome()
+        defer { home.remove() }
+        let scenario = try makeScenario(home)
+        let garbage = TernRunOutcome.output(Data("not json".utf8))
+        let tern = FakeTern(FakeTern.Script(process: garbage, inspect: garbage))
+        let resolver = scenario.resolver(tern)
+
+        #expect(await resolver.capture(target: Scenario.target) == .failure(.ternUnavailable))
+        #expect(await resolver.resolve(target: Scenario.target, before: Scenario.before) == .failure(.ternUnavailable))
     }
 }

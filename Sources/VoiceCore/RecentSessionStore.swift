@@ -91,7 +91,16 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
     public var stages: SessionStageTimings?
     public var leastConfidentWord: LeastConfidentWord?
     /// The agent session this row's text was pasted into; nil when none was bound.
-    public var agentSession: AgentSessionBinding?
+    /// Binding a row clears its miss: a row never holds both.
+    public var agentSession: AgentSessionBinding? {
+        didSet { if agentSession != nil { unlinked = nil } }
+    }
+    /// Why an eligible paste was not bound; nil when it was bound, when
+    /// linking was not attempted, or when the reason is unknown. Never held
+    /// beside a binding: setting it on a bound row leaves it nil.
+    public var unlinked: AgentLinkMiss? {
+        didSet { if agentSession != nil { unlinked = nil } }
+    }
     public var wordCount: Int { WordCount.count(in: text) }
 
     enum CodingKeys: String, CodingKey {
@@ -106,6 +115,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         // regain the field on decode.
         case leastConfidentWord
         case agentSession
+        case unlinked
     }
 
     public init(
@@ -117,7 +127,8 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         rawTranscript: String? = nil,
         stages: SessionStageTimings? = nil,
         leastConfidentWord: LeastConfidentWord? = nil,
-        agentSession: AgentSessionBinding? = nil
+        agentSession: AgentSessionBinding? = nil,
+        unlinked: AgentLinkMiss? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -128,6 +139,7 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         self.stages = stages
         self.leastConfidentWord = leastConfidentWord
         self.agentSession = agentSession
+        self.unlinked = agentSession == nil ? unlinked : nil
     }
 
     public init(from decoder: Decoder) throws {
@@ -143,6 +155,10 @@ public struct RecentSession: Codable, Equatable, Identifiable, Sendable {
         // A malformed binding never quarantines History: the row keeps its text
         // and loses only the binding.
         agentSession = try? container.decodeIfPresent(AgentSessionBinding.self, forKey: .agentSession)
+        // A miss a later build named, or a value of the wrong type, reads as
+        // unknown; a row stored with both a binding and a miss reads as bound.
+        let unlinked = try? container.decodeIfPresent(AgentLinkMiss.self, forKey: .unlinked)
+        self.unlinked = agentSession == nil ? unlinked : nil
     }
 }
 

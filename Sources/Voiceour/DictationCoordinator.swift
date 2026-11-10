@@ -64,6 +64,14 @@ public final class DictationCoordinator {
     public internal(set) var islandDraft: IslandAppearance?
     public private(set) var targetLabel: String = "No target"
     public internal(set) var lastOutcome: InsertionOutcome?
+    /// The History row the outcome on screen belongs to; nil for a secure target or a note.
+    /// Set and cleared with `lastOutcome`, so the menu never pairs one dictation's outcome
+    /// with another's link.
+    public internal(set) var lastDeliveredRowID: RecentSession.ID?
+    /// The display name of the app that outcome went to (`AppDisplayName.label`), nil when unknown.
+    public internal(set) var lastDeliveredApp: String?
+    /// A request to show one thread in the Journal; the console consumes it and sets it back to nil.
+    public var pendingJournalThread: AgentSessionKey?
     /// What the session in flight is for; `.deliver` while idle. Set by an
     /// accepted `start(intent:)` and reset whenever the session ends.
     public internal(set) var captureIntent: CaptureIntent = .deliver
@@ -737,6 +745,8 @@ public final class DictationCoordinator {
         errorMessage = nil
         lastFailure = nil
         lastOutcome = nil
+        lastDeliveredRowID = nil
+        lastDeliveredApp = nil
         lastSavedNoteID = nil
         lastTranscript = ""
         captureIntent = intent
@@ -1188,8 +1198,15 @@ public final class DictationCoordinator {
         case .normalText:
             targetLabel = "Will paste into \(app)"
         default:
-            targetLabel = "Will copy for \(app) (\(snapshot.safety.rawValue))"
+            targetLabel = "Will copy for \(app)"
         }
+    }
+
+    /// The name a delivery's outcome cites, or nil when the snapshot names no
+    /// app: the menu then says "Pasted." rather than "Pasted into Unknown app."
+    static func deliveredAppName(for snapshot: TargetSnapshot) -> String? {
+        let label = AppDisplayName.label(bundleId: snapshot.bundleId, name: snapshot.appName)
+        return label == AppDisplayName.label(bundleId: nil, name: nil) ? nil : label
     }
 
     /// The glossary with `terms` merged in, replacing an existing row when its

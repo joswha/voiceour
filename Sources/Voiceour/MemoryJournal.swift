@@ -123,7 +123,7 @@ extension DictationCoordinator {
     func startNoteSessionLink(
         noteID: UUID,
         target: TargetSnapshot,
-        before: Task<AgentFocusCapture?, Never>
+        before: Task<Result<AgentFocusCapture, AgentLinkMiss>, Never>
     ) {
         guard agentSessionBindingApplies(to: target),
             memoryEntries.contains(where: { $0.id == noteID && $0.thread == nil })
@@ -137,27 +137,19 @@ extension DictationCoordinator {
         let identity = runtime.makeUUID()
         let sessions = agentSessions
         let task = Task { [weak self] in
-            let capture = await withTaskCancellationHandler {
-                await before.value
-            } onCancel: {
-                before.cancel()
-            }
-            guard let capture, !Task.isCancelled else {
-                self?.applyNoteSessionLink(nil, noteID: noteID, identity: identity, token: token)
-                return
-            }
-            let resolved = await sessions.resolve(target: target, before: capture)
-            self?.applyNoteSessionLink(resolved, noteID: noteID, identity: identity, token: token)
+            let result = await Self.resolveAgentSession(target: target, before: before, sessions: sessions)
+            self?.applyNoteSessionLink(result, noteID: noteID, identity: identity, token: token)
         }
         agentBindingTasks[noteID] = (identity: identity, task: task)
     }
 
     /// Lands one note link: drops its own task entry, then sets the note's
-    /// thread to `resolved` unless binding was turned off or its token
-    /// invalidated, the app is terminating, or the note is gone or already
-    /// linked. A note has no send check, so nothing refreshes afterwards.
+    /// thread, or its miss, unless the task was cancelled, binding was turned
+    /// off or its token invalidated, the app is terminating, or the note is
+    /// gone or already linked. A thread clears a miss. A note has no send
+    /// check, so nothing refreshes afterwards.
     func applyNoteSessionLink(
-        _ resolved: ResolvedAgentSession?,
+        _ result: Result<ResolvedAgentSession, AgentLinkMiss>?,
         noteID: UUID,
         identity: UUID,
         token: AsyncGenerationGate.Token
@@ -165,7 +157,7 @@ extension DictationCoordinator {
         if agentBindingTasks[noteID]?.identity == identity {
             agentBindingTasks.removeValue(forKey: noteID)
         }
-        guard let resolved,
+        guard let result,
             !Task.isCancelled,
             generations.isCurrent(token),
             settings.agentSessionBindingEnabled,
@@ -174,7 +166,12 @@ extension DictationCoordinator {
             memoryEntries[index].thread == nil
         else { return }
         var entries = memoryEntries
-        entries[index].thread = JournalThreadRef(resolved)
+        switch result {
+        case .success(let resolved):
+            entries[index].thread = JournalThreadRef(resolved)
+        case .failure(let miss):
+            entries[index].unlinked = miss
+        }
         commitMemory(entries: entries)
     }
 
@@ -182,8 +179,10 @@ extension DictationCoordinator {
     ///
     /// On also keeps every History row the folder does not hold yet, matched
     /// by id, so the dictations the user can still see are not the ones memory
-    /// is missing. Off only stops new dictations from folding in: what the
-    /// folder holds is the user's, and erasing it is Clear Memory's job alone.
+    /// is missing; each carries its row's binding and miss through
+    /// `MemoryEntry(RecentSession)`. Off only stops new dictations from
+    /// folding in: what the folder holds is the user's, and erasing it is
+    /// Clear Memory's job alone.
     public func setMemoryEnabled(_ enabled: Bool) {
         guard settings.memoryEnabled != enabled, !isPreparingForTermination else { return }
         settings.memoryEnabled = enabled
@@ -322,8 +321,9 @@ extension DictationCoordinator {
     }
 
     /// Copies the History bindings in `bindings`, keyed by row id, onto the
-    /// memory entries with the same ids, in one commit. A row memory does not
-    /// hold needs nothing.
+    /// memory entries with the same ids, in one commit; setting the thread
+    /// clears any miss the entry held. A row memory does not hold needs
+    /// nothing.
     func mirrorAgentSessionBindings(_ bindings: [RecentSession.ID: AgentSessionBinding]) {
         guard !bindings.isEmpty, memoryEntries.contains(where: { bindings[$0.id] != nil }) else { return }
         commitMemory(
@@ -335,15 +335,29 @@ extension DictationCoordinator {
             })
     }
 
-    /// Removes the thread from every memory entry, notes included, in one
-    /// commit: binding was turned off, and memory must not keep a link History
+    /// Copies a History row's miss onto the memory entry with id `entryID`.
+    /// An entry memory does not hold, or one already linked to a thread,
+    /// needs nothing: a miss never overwrites a link.
+    func mirrorAgentLinkMiss(_ miss: AgentLinkMiss, entryID: UUID) {
+        guard let index = memoryEntries.firstIndex(where: { $0.id == entryID }),
+            memoryEntries[index].thread == nil
+        else { return }
+        var entries = memoryEntries
+        entries[index].unlinked = miss
+        commitMemory(entries: entries)
+    }
+
+    /// Removes the thread and the miss from every memory entry, notes
+    /// included, in one commit: binding was turned off, and memory must not
+    /// keep a link, or a reason that names what ran in the pane, that History
     /// was made to forget.
-    func stripMemoryThreads() {
-        guard memoryEntries.contains(where: { $0.thread != nil }) else { return }
+    func stripMemoryAgentLinks() {
+        guard memoryEntries.contains(where: { $0.thread != nil || $0.unlinked != nil }) else { return }
         commitMemory(
             entries: memoryEntries.map { entry in
                 var entry = entry
                 entry.thread = nil
+                entry.unlinked = nil
                 return entry
             })
     }

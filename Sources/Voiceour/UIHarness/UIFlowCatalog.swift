@@ -110,7 +110,7 @@
             static let clearRewindSearch = UIQuery.id("journal.rewind.search.clear")
             static let rewindEntriesReadout = UIQuery.id("journal.rewind.entries")
             // Entries and words on the fixture's two newest days: rows 1 to 3 on the day
-            // Rewind opens on, rows 4 and 5 on the day before it.
+            // Rewind opens on; rows 4 and 5 on the day before it.
             static let newestDayFigure = "3 · 37 words"
             static let earlierDayFigure = "2 · 23 words"
             // Rows 1 and 7 say it, and rows 6 and 9 are bound to the omp session whose
@@ -128,10 +128,11 @@
                 .all([rewindEntriesReadout, .value(figure)])
             }
 
-            // The History days older than those two, newest first: rows 6, 7, 8 and 9, one
-            // a day. Rows 7 and 9 hold the same count, so the day between them is what
-            // tells the two apart on a walk through every day.
-            static let olderHistoryDayFigures = ["1 · 14 words", "1 · 13 words", "1 · 8 words", "1 · 13 words"]
+            // The History days older than those two, newest first: row 6 and the Tern row
+            // whose link missed, then rows 7, 8 and 9, one a day. Rows 7 and 9 hold the same
+            // count, so the day between them is what tells the two apart on a walk through
+            // every day.
+            static let olderHistoryDayFigures = ["2 · 27 words", "1 · 13 words", "1 · 8 words", "1 · 13 words"]
             // 2025-06-03, the newest day only memory holds: two entries in the omp session
             // and two in Xcode. Its first entry is addressed by its text, which no History
             // row and no other day holds.
@@ -147,7 +148,7 @@
             // addressed by the title its label leads with, which no other label holds.
             static let agentThreadRow = UIQuery.all([
                 .id("journal.threads.row"),
-                .labelContains("Harness offscreen capture"),
+                .labelContains(UIFixtures.agentSessionTitle),
             ])
             static let threadRows = UIQuery.id("journal.threads.row")
             static let threadSession = UIQuery.id("journal.threads.session")
@@ -211,6 +212,11 @@
             static let noteTargetLine = "Will save as a note"
             static let noteSavedLabel = "NOTE SAVED"
             static let noteSavedDetail = "Saved to memory. Nothing was pasted or copied."
+
+            // The menu report's link line: a borderless button naming the thread the
+            // reported paste was linked to, or a caption saying why it was not.
+            static let reportThread = UIQuery.id("menu.report.thread")
+            static let reportUnlinked = UIQuery.id("menu.report.unlinked")
 
             static let addTermButton = UIQuery.id("glossary.add-term")
             static let glossarySearch = UIQuery.id("glossary.search.field")
@@ -375,7 +381,7 @@
                         .check(
                             "no-results",
                             [
-                                .text(.equals("0 of 9 sessions match"), .exactly(1)),
+                                .text(.equals("0 of 10 sessions match"), .exactly(1)),
                                 .text(.equals("Nothing matches “\(noMatchQuery)”"), .exactly(1)),
                                 .exists(Selector.clearSessionSearch),
                             ]
@@ -390,7 +396,7 @@
                     steps: [
                         .act(.type(noMatchQuery, into: Selector.sessionSearch)),
                         .wait(.element(Selector.clearSessionSearch)),
-                        .check("filtered", [.text(.equals("0 of 9 sessions match"), .exactly(1))]),
+                        .check("filtered", [.text(.equals("0 of 10 sessions match"), .exactly(1))]),
                         .act(.press(Selector.clearSessionSearch)),
                         .wait(.absent(Selector.clearSessionSearch)),
                         .wait(.element(Selector.newestTranscript)),
@@ -400,7 +406,7 @@
                                 .value(Selector.sessionSearch, .isEmpty),
                                 .absent(.value("Nothing matches “\(noMatchQuery)”")),
                                 .exists(Selector.newestTranscript),
-                                .model(.recentSessionCount, .equals("9")),
+                                .model(.recentSessionCount, .equals("10")),
                             ]
                         ),
                     ]),
@@ -748,12 +754,41 @@
                             ]
                         ),
                     ]),
+                routeThreadFlow,
                 notesSearchFlow,
                 topicsAddFlow,
                 topicsOpenFlow,
                 rewindRecapPromptFlow,
                 topicsSynthesisPromptFlow,
             ]
+        }
+
+        /// The menu's thread line leaves a request on the coordinator and opens the console;
+        /// the console moves to the Journal and the Journal opens the thread in Threads, then
+        /// consumes the request. The fixture states the request as the console finds it when
+        /// it opens because of one, and the host opens on Home, so the move to the Journal is
+        /// the window's own and not the host's.
+        private static var routeThreadFlow: UIFlow {
+            UIFlow(
+                id: "journal.route.thread",
+                title: "A pending thread request opens the console on that thread in Threads",
+                tags: ["journal", "console", "threads", "agent-link"],
+                host: .console(.home),
+                fixture: .static(.threadRequested),
+                steps: [
+                    .wait(.element(Selector.threadSession)),
+                    .check(
+                        "routed",
+                        [
+                            .value(Selector.tab(.history), .equals("1")),
+                            .value(Selector.tab(.home), .equals("0")),
+                            .count(Selector.threadSession, .exactly(1)),
+                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            .selected(Selector.agentThreadRow, true),
+                            .model(.pendingJournalThread, .isEmpty),
+                        ]
+                    ),
+                ])
         }
 
         /// Rewind's days come from memory as well as History, so Earlier Day walks on past
@@ -1639,8 +1674,8 @@
                             "on",
                             [
                                 .value(Selector.memoryToggle, .equals("1")),
-                                .model(.memoryEntryCount, .equals("9")),
-                                .model(.recentSessionCount, .equals("9")),
+                                .model(.memoryEntryCount, .equals("10")),
+                                .model(.recentSessionCount, .equals("10")),
                                 .enabled(Selector.memoryCopyInstructions, true),
                             ]
                         ),
@@ -1885,6 +1920,7 @@
                 asrRecoveryFlow,
                 noteMenuFlow,
                 noteSpokenPrefixFlow,
+                reportOpenThreadFlow,
                 UIFlow(
                     id: "menu.copy-transcript",
                     title: "The last transcript can be copied from its card",
@@ -1912,6 +1948,45 @@
                         ),
                     ]),
             ]
+        }
+
+        /// The report's thread line, on a paste into Tern whose row is bound, names the thread
+        /// and asks the console for it. No console is hosted here, so the request stays on the
+        /// coordinator to be read; `journal.route.thread` proves what the console does with it.
+        private static var reportOpenThreadFlow: UIFlow {
+            let key = UIFixtures.agentSession
+            return UIFlow(
+                id: "menu.report.open-thread",
+                title: "The report's thread line asks the console for the thread the paste reached",
+                tags: ["menu", "agent-link"],
+                host: .menu,
+                fixture: .static(.pastedLinked),
+                steps: [
+                    .wait(.element(Selector.reportThread)),
+                    .check(
+                        "linked",
+                        [
+                            .text(.equals("PASTED"), .exactly(1)),
+                            .text(.equals("Pasted into \(UIFixtures.ternAppName)."), .exactly(1)),
+                            .role(Selector.reportThread, "AXButton"),
+                            .label(
+                                Selector.reportThread,
+                                .equals("Open thread, \(key.agent.displayName) · \(UIFixtures.agentSessionTitle)")
+                            ),
+                            .absent(Selector.reportUnlinked),
+                            .model(.pendingJournalThread, .isEmpty),
+                        ]
+                    ),
+                    .act(.press(Selector.reportThread)),
+                    .wait(.element(Selector.reportThread)),
+                    .check(
+                        "requested",
+                        [
+                            .model(.pendingJournalThread, .equals("\(key.agent.rawValue)-\(key.sessionId)")),
+                            .count(Selector.reportThread, .exactly(1)),
+                        ]
+                    ),
+                ])
         }
 
         private static var menuPrimaryActionFlow: UIFlow {
@@ -1989,7 +2064,9 @@
                     terminalState: .pasteAttempted,
                     disposition: "paste",
                     bundleID: pasteBundleID,
-                    reportLabel: "PASTE ATTEMPTED"
+                    reportLabel: "PASTED",
+                    // "Pasted into <app>." or, for an app with no name, "Pasted.".
+                    reportDetail: .contains("Pasted")
                 ))
         }
 
@@ -2001,7 +2078,7 @@
                 host: .menu,
                 fixture: .dictation(
                     transcript: dictatedText,
-                    outcome: .copiedOnly(reason: "Terminal targets are copy-only."),
+                    outcome: .copiedOnly(reason: InsertionSafetyPolicy.targetClassReason(.terminal)),
                     targetBundleID: terminalBundleID,
                     targetSafety: .terminal
                 ),
@@ -2009,7 +2086,10 @@
                     terminalState: .copiedOnly,
                     disposition: "copy",
                     bundleID: terminalBundleID,
-                    reportLabel: "COPIED ONLY"
+                    reportLabel: "COPY ONLY",
+                    // The policy's own reason reaches its explicit sentence, never the
+                    // humanized fallback. The app's name leads it when the target has one.
+                    reportDetail: .contains(" is a terminal. Press \u{2318}V to paste.")
                 ))
         }
 
@@ -2152,7 +2232,7 @@
                             .model(.processingInFlight, .equals("false")),
                             .model(.errorMessage, .isEmpty),
                             .absent(Selector.retryDictation),
-                            .text(.equals("PASTE ATTEMPTED"), .exactly(1)),
+                            .text(.equals("PASTED"), .exactly(1)),
                         ]
                     ),
                 ]
@@ -2284,7 +2364,8 @@
             terminalState: UIStatePattern,
             disposition: String,
             bundleID: String,
-            reportLabel: String
+            reportLabel: String,
+            reportDetail: UIText
         ) -> [UIFlowStep] {
             [
                 .act(.press(Selector.startDictation)),
@@ -2333,8 +2414,9 @@
                         .model(.deliveryDisposition, .equals(disposition)),
                         .model(.deliveryCount, .equals("1")),
                         .model(.recentSessionCount, .equals("1")),
-                        // CaptureModels.swift:132-150 defines the exact outcome labels.
+                        // `InsertionOutcome.summary(in:)` defines the exact outcome words.
                         .text(.equals(reportLabel), .exactly(1)),
+                        .text(reportDetail, .exactly(1)),
                     ]
                 ),
             ]
@@ -2417,7 +2499,7 @@
                 host: .overlay,
                 fixture: .dictation(
                     transcript: dictatedText,
-                    outcome: .copiedOnly(reason: "Terminal targets are copy-only."),
+                    outcome: .copiedOnly(reason: InsertionSafetyPolicy.targetClassReason(.terminal)),
                     targetBundleID: terminalBundleID,
                     targetSafety: .terminal
                 ),

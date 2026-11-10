@@ -14,8 +14,12 @@ import VoiceCore
 /// that pane's terminal. The session then comes from the agent's own records
 /// (`AgentSessionLocator`).
 ///
-/// One call runs at a time: a call made while another runs returns nil, and
-/// after a CLI call times out every call returns nil for ten seconds.
+/// Every other answer is one `AgentLinkMiss`, chosen by which check failed and
+/// never from what Tern reported about the pane's programs.
+///
+/// One call runs at a time: a call made while another runs returns `.busy` at
+/// once, never waiting, and after a CLI call times out every call returns
+/// `.ternTimeout` for ten seconds.
 public final class LiveAgentSessionResolver: AgentSessionResolving {
     static let ternBundleIdentifier = "so.stencil.tern"
     static let timeoutQuietPeriod: Duration = .seconds(10)
@@ -85,24 +89,31 @@ public final class LiveAgentSessionResolver: AgentSessionResolving {
     }
 
     @concurrent
-    public func capture(target: TargetSnapshot) async -> AgentFocusCapture? {
-        guard Self.isTern(target), begin() else { return nil }
+    public func capture(target: TargetSnapshot) async -> Result<AgentFocusCapture, AgentLinkMiss> {
+        guard Self.isTern(target) else { return .failure(.ternUnavailable) }
+        if let miss = begin() { return .failure(miss) }
         var timedOut = false
         defer { end(timedOut: timedOut) }
-        guard let tern = genuineTern(pid: target.pid) else { return nil }
+        guard let tern = genuineTern(pid: target.pid) else { return .failure(.ternUnavailable) }
 
         var outcome = await runTern(tern, Self.processArguments)
         timedOut = outcome == .timedOut
-        guard let process = Self.decodeErasing(&outcome, TernReports.process(from:)) else { return nil }
-        return AgentFocusCapture(pane: String(process.pane), foregroundPid: process.foregroundPid)
+        guard let process = Self.decodeErasing(&outcome, TernReports.process(from:)) else {
+            return .failure(timedOut ? .ternTimeout : .ternUnavailable)
+        }
+        return .success(AgentFocusCapture(pane: String(process.pane), foregroundPid: process.foregroundPid))
     }
 
     @concurrent
-    public func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession? {
-        guard Self.isTern(target), begin() else { return nil }
+    public func resolve(
+        target: TargetSnapshot,
+        before: AgentFocusCapture
+    ) async -> Result<ResolvedAgentSession, AgentLinkMiss> {
+        guard Self.isTern(target) else { return .failure(.ternUnavailable) }
+        if let miss = begin() { return .failure(miss) }
         var timedOut = false
         defer { end(timedOut: timedOut) }
-        guard let tern = genuineTern(pid: target.pid) else { return nil }
+        guard let tern = genuineTern(pid: target.pid) else { return .failure(.ternUnavailable) }
 
         // Each child task decodes and zeroes its own output, so no copy of
         // the raw bytes outlives the call.
@@ -110,21 +121,24 @@ public final class LiveAgentSessionResolver: AgentSessionResolving {
         async let inspectRun = Self.decodedRun(runTern, tern, Self.inspectArguments, TernReports.inspect(from:))
         let (processResult, inspectResult) = await (processRun, inspectRun)
         timedOut = processResult.timedOut || inspectResult.timedOut
+        // A cancelled caller records nothing, so its miss is never shown.
         guard let process = processResult.report, let inspect = inspectResult.report, !Task.isCancelled else {
-            return nil
+            return .failure(timedOut ? .ternTimeout : .ternUnavailable)
         }
 
         // One local window, showing the pane that had focus before the paste,
         // still running the same foreground process.
+        guard inspect.windowClientCount == 1 else { return .failure(.severalWindows) }
+        guard inspect.windowClientsAreLocal else { return .failure(.remote) }
         guard
-            inspect.windowClientCount == 1,
-            inspect.windowClientsAreLocal,
             inspect.shownFocusedBlock == process.pane,
             String(process.pane) == before.pane,
-            process.foregroundPid == before.foregroundPid,
-            let pane = inspect.panes[process.pane],
-            pane.isLocal
-        else { return nil }
+            process.foregroundPid == before.foregroundPid
+        else { return .failure(.focusMoved) }
+        // The focused pane missing from Tern's own layout is a report that
+        // cannot be read, not a focus change.
+        guard let pane = inspect.panes[process.pane] else { return .failure(.ternUnavailable) }
+        guard pane.isLocal else { return .failure(.remote) }
 
         // The paste went to the block's terminal input, not another control.
         guard
@@ -132,7 +146,7 @@ public final class LiveAgentSessionResolver: AgentSessionResolving {
             element.role == "AXTextArea",
             let title = element.title,
             Self.terminalInputTitles.contains(title)
-        else { return nil }
+        else { return .failure(.focusMoved) }
 
         // The foreground process leads the foreground group of the pane's own
         // terminal.
@@ -144,7 +158,7 @@ public final class LiveAgentSessionResolver: AgentSessionResolving {
             foreground.processGroup == foreground.terminalForegroundGroup,
             let shell = processFacts(process.shellPid),
             shell.terminalDevice == terminal
-        else { return nil }
+        else { return .failure(.noAgent) }
 
         return locator.locate(foreground: foreground, ternSessionFile: pane.ompSessionFile)
     }
@@ -200,13 +214,14 @@ public final class LiveAgentSessionResolver: AgentSessionResolving {
 
     // MARK: Single flight
 
-    private func begin() -> Bool {
+    /// Takes the lane; nil when this call now holds it, else why it cannot.
+    private func begin() -> AgentLinkMiss? {
         let now = clock()
         return state.withLock { state in
-            if state.running { return false }
-            if let quietUntil = state.quietUntil, now < quietUntil { return false }
+            if state.running { return .busy }
+            if let quietUntil = state.quietUntil, now < quietUntil { return .ternTimeout }
             state.running = true
-            return true
+            return nil
         }
     }
 

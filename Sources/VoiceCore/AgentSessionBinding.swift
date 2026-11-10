@@ -39,6 +39,51 @@ public struct AgentFocusCapture: Equatable, Sendable {
     }
 }
 
+/// Why a dictation that was eligible for linking has no agent session.
+///
+/// Closed and many-to-one: each case covers several checks, so a stored miss
+/// says why in words a person can act on without carrying what Tern or the
+/// agent reported. No case is derived from argv, a working directory, a title
+/// or a path.
+public enum AgentLinkMiss: String, Codable, Sendable, CaseIterable, Error {
+    /// The resolver's lane was taken.
+    case busy
+    /// A `tern` call timed out, or the quiet period after one.
+    case ternTimeout = "tern_timeout"
+    /// Not Tern's signed CLI, a failed call, an undecodable report.
+    case ternUnavailable = "tern_unavailable"
+    /// The pane or foreground pid changed, the shown block is not the pane,
+    /// or Tern's focused element is not the terminal input.
+    case focusMoved = "focus_moved"
+    /// Not exactly one window client.
+    case severalWindows = "several_windows"
+    /// A non-local client or pane.
+    case remote
+    /// The foreground program is not omp or Claude Code, or the process
+    /// checks fail.
+    case noAgent = "no_agent"
+    /// The foreground program is Codex.
+    case codex
+    /// The agent's own records do not name exactly one session.
+    case sessionUnconfirmed = "session_unconfirmed"
+
+    /// One fixed sentence for a human. Never built from Tern's output, a path,
+    /// a title or an id, so showing it can leak none of them.
+    public var sentence: String {
+        switch self {
+        case .busy: "Voiceour was still linking an earlier dictation."
+        case .ternTimeout: "Tern did not answer in time."
+        case .ternUnavailable: "Tern's own report could not be read."
+        case .focusMoved: "The focus in Tern moved during the paste."
+        case .severalWindows: "Tern had more than one window open."
+        case .remote: "The pane runs on another computer."
+        case .noAgent: "The pane was not running omp or Claude Code."
+        case .codex: "Codex sessions are not linked."
+        case .sessionUnconfirmed: "The agent's own records did not name one session."
+        }
+    }
+}
+
 /// The agent session whose input received a paste, resolved from live state.
 public struct ResolvedAgentSession: Equatable, Sendable {
     public var agent: CodingAgent

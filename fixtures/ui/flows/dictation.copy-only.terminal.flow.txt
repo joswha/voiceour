@@ -19,4 +19,5 @@ PASS 14 delivered | model deliveryBundleID == "com.apple.Terminal" | "com.apple.
 PASS 15 delivered | model deliveryDisposition == "copy" | "copy"
 PASS 16 delivered | model deliveryCount == "1" | 1
 PASS 17 delivered | model recentSessionCount == "1" | 1
-PASS 18 delivered | text == "COPIED ONLY" exactly 1 | 1 match
+PASS 18 delivered | text == "COPY ONLY" exactly 1 | 1 match
+PASS 19 delivered | text contains " is a terminal. Press ⌘V to paste." exactly 1 | 1 match

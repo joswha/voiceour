@@ -93,17 +93,25 @@ struct MemoryJournalTests {
         }
     }
 
-    /// Captures Tern's pane and resolves it to one fixed session.
+    /// Answers every capture and resolve with one fixed result each.
     private struct FixedSessionResolver: AgentSessionResolving {
-        let pane: AgentFocusCapture
-        let session: ResolvedAgentSession
+        private let captureAnswer: Result<AgentFocusCapture, AgentLinkMiss>
+        private let resolveAnswer: Result<ResolvedAgentSession, AgentLinkMiss>
 
-        func capture(target: TargetSnapshot) async -> AgentFocusCapture? {
-            pane
+        init(capture: Result<AgentFocusCapture, AgentLinkMiss>, resolve: Result<ResolvedAgentSession, AgentLinkMiss>) {
+            captureAnswer = capture
+            resolveAnswer = resolve
         }
 
-        func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession? {
-            session
+        func capture(target: TargetSnapshot) async -> Result<AgentFocusCapture, AgentLinkMiss> {
+            captureAnswer
+        }
+
+        func resolve(
+            target: TargetSnapshot,
+            before: AgentFocusCapture
+        ) async -> Result<ResolvedAgentSession, AgentLinkMiss> {
+            resolveAnswer
         }
     }
 
@@ -384,7 +392,12 @@ struct MemoryJournalTests {
         let kept = MemoryEntry(id: id(1), createdAt: t0.addingTimeInterval(-120), text: "Kept as it was said.")
         let disk = MemoryDiskSpy(load: MemoryLoad(entries: [kept]))
         let rows = [
-            RecentSession(id: id(2), createdAt: t0.addingTimeInterval(-60), text: "Only History has this."),
+            RecentSession(
+                id: id(2),
+                createdAt: t0.addingTimeInterval(-60),
+                text: "Only History has this.",
+                unlinked: .noAgent
+            ),
             RecentSession(id: id(1), createdAt: t0.addingTimeInterval(-120), text: "History's copy."),
         ]
         let fixture = try makeFixture(directory: directory, rows: rows, memoryEnabled: false, disk: disk)
@@ -394,6 +407,8 @@ struct MemoryJournalTests {
 
         #expect(fixture.coordinator.settings.memoryEnabled)
         #expect(fixture.coordinator.memoryEntries == [kept, MemoryEntry(rows[0])])
+        // The backfilled entry carries its row's miss.
+        #expect(fixture.coordinator.memoryEntries.last?.unlinked == .noAgent)
         #expect(disk.writes.count == 1)
         #expect(disk.writes.first?.months[month(t0)] == [kept, MemoryEntry(rows[0])])
         let saved = try SettingsStore(url: directory.appendingPathComponent("settings.json")).load()
@@ -524,7 +539,7 @@ struct MemoryJournalTests {
             bindingEnabled: true,
             tracker: tern,
             disk: disk,
-            resolver: FixedSessionResolver(pane: pane, session: resolved("01a1c16f"))
+            resolver: FixedSessionResolver(capture: .success(pane), resolve: .success(resolved("01a1c16f")))
         )
 
         await deliver(fixture.coordinator)
@@ -537,6 +552,52 @@ struct MemoryJournalTests {
         // The fold, then the mirror.
         #expect(disk.writes.count == 2)
         #expect(disk.writes.last?.months[month(t0)] == [entry])
+    }
+
+    @Test func aMissedBindingSetsTheEntrysReason() async throws {
+        let directory = makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let disk = MemoryDiskSpy()
+        let fixture = try makeFixture(
+            directory: directory,
+            bindingEnabled: true,
+            tracker: tern,
+            disk: disk,
+            resolver: FixedSessionResolver(capture: .success(pane), resolve: .failure(.sessionUnconfirmed))
+        )
+
+        await deliver(fixture.coordinator)
+        await settle(fixture.coordinator)
+
+        #expect(fixture.coordinator.recentSessions.first?.unlinked == .sessionUnconfirmed)
+        let entry = try #require(fixture.coordinator.memoryEntries.first)
+        #expect(entry.thread == nil)
+        #expect(entry.unlinked == .sessionUnconfirmed)
+        // The fold, then the mirror.
+        #expect(disk.writes.count == 2)
+        #expect(disk.writes.last?.months[month(t0)] == [entry])
+    }
+
+    /// A row memory does not hold keeps its miss in History alone.
+    @Test func aMissOnARowMemoryLacksWritesNoMemory() async throws {
+        let directory = makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let disk = MemoryDiskSpy()
+        let fixture = try makeFixture(
+            directory: directory,
+            memoryEnabled: false,
+            bindingEnabled: true,
+            tracker: tern,
+            disk: disk,
+            resolver: FixedSessionResolver(capture: .failure(.ternTimeout), resolve: .success(resolved("01a1c16f")))
+        )
+
+        await deliver(fixture.coordinator)
+        await settle(fixture.coordinator)
+
+        #expect(fixture.coordinator.recentSessions.first?.unlinked == .ternTimeout)
+        #expect(fixture.coordinator.memoryEntries.isEmpty)
+        #expect(disk.writes.isEmpty)
     }
 
     @Test func aRefreshThatMarksTheRowNotSentUpdatesTheEntry() async throws {
@@ -567,11 +628,17 @@ struct MemoryJournalTests {
         #expect(disk.writes.count == 1)
     }
 
-    @Test func turningBindingOffClearsEveryThread() async throws {
+    @Test func turningBindingOffClearsEveryThreadAndMiss() async throws {
         let directory = makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let binding = AgentSessionBinding(resolved("01a1c16f"), boundAt: t0)
         let row = RecentSession(id: id(1), createdAt: t0, text: "Deploy the cluster.", agentSession: binding)
+        let missed = RecentSession(
+            id: id(3),
+            createdAt: t0.addingTimeInterval(30),
+            text: "Roll back the canary.",
+            unlinked: .focusMoved
+        )
         let note = MemoryEntry(
             id: id(2),
             createdAt: t0.addingTimeInterval(60),
@@ -579,15 +646,25 @@ struct MemoryJournalTests {
             text: "Check the staging logs.",
             thread: JournalThreadRef(agent: .claudeCode, sessionId: "5d1e")
         )
-        let disk = MemoryDiskSpy(load: MemoryLoad(entries: [MemoryEntry(row), note]))
-        let fixture = try makeFixture(directory: directory, rows: [row], bindingEnabled: true, disk: disk)
+        let missedNote = MemoryEntry(
+            id: id(4),
+            createdAt: t0.addingTimeInterval(90),
+            kind: .note,
+            text: "Ask about the flaky upload test.",
+            unlinked: .remote
+        )
+        let disk = MemoryDiskSpy(
+            load: MemoryLoad(entries: [MemoryEntry(row), MemoryEntry(missed), note, missedNote])
+        )
+        let fixture = try makeFixture(directory: directory, rows: [row, missed], bindingEnabled: true, disk: disk)
 
         fixture.coordinator.setAgentSessionBinding(false)
         await settle(fixture.coordinator)
 
-        #expect(fixture.coordinator.recentSessions.allSatisfy { $0.agentSession == nil })
-        #expect(fixture.coordinator.memoryEntries.count == 2)
-        #expect(fixture.coordinator.memoryEntries.allSatisfy { $0.thread == nil })
+        #expect(fixture.coordinator.recentSessions.allSatisfy { $0.agentSession == nil && $0.unlinked == nil })
+        #expect(try fixture.coordinator.recentSessionStore.load().allSatisfy { $0.unlinked == nil })
+        #expect(fixture.coordinator.memoryEntries.count == 4)
+        #expect(fixture.coordinator.memoryEntries.allSatisfy { $0.thread == nil && $0.unlinked == nil })
         #expect(disk.writes.count == 1)
     }
 

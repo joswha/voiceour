@@ -2,12 +2,14 @@ import Foundation
 import VoiceCore
 
 extension RecentSessionOutcomeMetadata {
+    /// Copy-only reads `COPY ONLY`, the word the menu uses for the same outcome,
+    /// so `COPIED` is left to mean only "you just copied this".
     var chip: (label: String, mode: StatusChip.Mode) {
         switch disposition {
         case .pasteAttempted:
             ("PASTED", .ok)
         case .copiedOnly:
-            ("COPIED", .warn)
+            ("COPY ONLY", .warn)
         case .failed:
             ("FAILED", .crit)
         }

@@ -111,22 +111,30 @@ public struct NoOpSystemAudioMuter: SystemAudioMuting {
 /// `capture` reads the host's focused pane before the paste; `resolve` reads it
 /// again after the paste and returns a session only when the same pane and
 /// foreground process still have focus and every live source names one
-/// session. Either returns nil when the host or the agent is not supported or
-/// the answer is not exact. Implementations run off the main actor.
+/// session. Every other answer is one `AgentLinkMiss`, so an unlinked
+/// dictation can say why. Neither waits for another call. Implementations run
+/// off the main actor.
 public protocol AgentSessionResolving: Sendable {
-    func capture(target: TargetSnapshot) async -> AgentFocusCapture?
-    func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession?
+    func capture(target: TargetSnapshot) async -> Result<AgentFocusCapture, AgentLinkMiss>
+    func resolve(
+        target: TargetSnapshot,
+        before: AgentFocusCapture
+    ) async -> Result<ResolvedAgentSession, AgentLinkMiss>
 }
 
+/// No host can be asked, so every answer is that Tern could not be read.
 public struct NoAgentSessionResolving: AgentSessionResolving {
     public init() {}
 
-    public func capture(target: TargetSnapshot) async -> AgentFocusCapture? {
-        nil
+    public func capture(target: TargetSnapshot) async -> Result<AgentFocusCapture, AgentLinkMiss> {
+        .failure(.ternUnavailable)
     }
 
-    public func resolve(target: TargetSnapshot, before: AgentFocusCapture) async -> ResolvedAgentSession? {
-        nil
+    public func resolve(
+        target: TargetSnapshot,
+        before: AgentFocusCapture
+    ) async -> Result<ResolvedAgentSession, AgentLinkMiss> {
+        .failure(.ternUnavailable)
     }
 }
 

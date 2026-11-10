@@ -7,9 +7,11 @@ import VoiceCore
 /// pasted into Tern binds: the pipeline captures Tern's focused pane before
 /// the paste, and once the row's outcome reads `.pasteAttempted` a binding
 /// task asks `AgentSessionResolving` which session the same pane runs after
-/// it. The answer is exact or nil, and nil leaves the row unbound for good.
-/// Nothing here delays delivery: each binding runs in its own task, owned per
-/// row so a later dictation never cancels an earlier one's binding.
+/// it. The answer is exact or a miss, and a miss leaves the row unbound for
+/// good with its one closed reason, so History can say why instead of
+/// guessing. A row never holds both. Nothing here delays delivery: each
+/// binding runs in its own task, owned per row so a later dictation never
+/// cancels an earlier one's binding.
 ///
 /// A refresh pass then fills what the binding could not know yet — the
 /// session's title, whether it can be resumed, and whether the dictation was
@@ -31,9 +33,10 @@ extension DictationCoordinator {
     }
 
     /// Turns binding on or off. Off discards every binding and refresh in
-    /// flight and deletes every binding, in memory and on disk, and every
-    /// memory entry's thread with them; nothing is rebuilt when it is turned
-    /// back on.
+    /// flight and deletes every binding and every recorded miss, in memory
+    /// and on disk, and every memory entry's thread and miss with them; a
+    /// miss names what ran in the pane as surely as a binding does. Nothing
+    /// is rebuilt when it is turned back on.
     public func setAgentSessionBinding(_ enabled: Bool) {
         guard settings.agentSessionBindingEnabled != enabled else { return }
         settings.agentSessionBindingEnabled = enabled
@@ -41,15 +44,16 @@ extension DictationCoordinator {
         guard !enabled else { return }
         generations.invalidate(.agentLinking)
         cancelAgentSessionWork()
-        if recentSessions.contains(where: { $0.agentSession != nil }) {
+        if recentSessions.contains(where: { $0.agentSession != nil || $0.unlinked != nil }) {
             recentSessions = recentSessions.map { session in
                 var session = session
                 session.agentSession = nil
+                session.unlinked = nil
                 return session
             }
             _ = enqueueJournalSnapshot()
         }
-        stripMemoryThreads()
+        stripMemoryAgentLinks()
     }
 
     /// Cancels every binding task and the refresh pass. Their landings are
@@ -73,13 +77,14 @@ extension DictationCoordinator {
     /// Hands the pre-paste capture `before` to a binding task for row
     /// `rowID`, or cancels it when any gate fails: binding off, no row, a
     /// paste that was not attempted, or a target other than Tern's
-    /// normal-text input. Returns at once.
+    /// normal-text input. Returns at once. A delivery that fails a gate
+    /// records no miss: it was never eligible, and absent means exactly that.
     func startAgentSessionBinding(
         rowID: RecentSession.ID?,
         target: TargetSnapshot,
         outcome: InsertionOutcome,
         boundAt: Date,
-        before: Task<AgentFocusCapture?, Never>
+        before: Task<Result<AgentFocusCapture, AgentLinkMiss>, Never>
     ) {
         guard agentSessionBindingApplies(to: target),
             outcome == .pasteAttempted,
@@ -95,26 +100,44 @@ extension DictationCoordinator {
         let identity = runtime.makeUUID()
         let sessions = agentSessions
         let task = Task { [weak self] in
-            let capture = await withTaskCancellationHandler {
-                await before.value
-            } onCancel: {
-                before.cancel()
-            }
-            guard let capture, !Task.isCancelled else {
-                self?.applyAgentSessionBinding(nil, rowID: rowID, identity: identity, token: token, boundAt: boundAt)
-                return
-            }
-            let resolved = await sessions.resolve(target: target, before: capture)
-            self?.applyAgentSessionBinding(resolved, rowID: rowID, identity: identity, token: token, boundAt: boundAt)
+            let result = await Self.resolveAgentSession(target: target, before: before, sessions: sessions)
+            self?.applyAgentSessionBinding(result, rowID: rowID, identity: identity, token: token, boundAt: boundAt)
         }
         agentBindingTasks[rowID] = (identity: identity, task: task)
     }
 
-    /// Lands one binding task: drops its own entry, then writes `resolved`
-    /// onto its row unless binding was turned off, History cleared, the app
-    /// is terminating, or the row is gone or already bound.
+    /// Awaits the pre-paste capture `before`, then asks which session the
+    /// same pane runs now. A capture miss is the link's miss: the resolve
+    /// cannot be exact without the pane it compares against. Nil when the
+    /// calling task was cancelled before resolving, because a cancelled link
+    /// writes nothing, not even a reason. Shared by row bindings and note
+    /// links.
+    static func resolveAgentSession(
+        target: TargetSnapshot,
+        before: Task<Result<AgentFocusCapture, AgentLinkMiss>, Never>,
+        sessions: AgentSessionResolving
+    ) async -> Result<ResolvedAgentSession, AgentLinkMiss>? {
+        let capture = await withTaskCancellationHandler {
+            await before.value
+        } onCancel: {
+            before.cancel()
+        }
+        guard !Task.isCancelled else { return nil }
+        switch capture {
+        case .success(let pane):
+            return await sessions.resolve(target: target, before: pane)
+        case .failure(let miss):
+            return .failure(miss)
+        }
+    }
+
+    /// Lands one binding task: drops its own entry, then writes the binding
+    /// or the miss onto its row unless the task was cancelled, binding was
+    /// turned off, History cleared, the app is terminating, or the row is
+    /// gone or already bound. A binding clears a miss; a miss is never
+    /// written over a binding.
     func applyAgentSessionBinding(
-        _ resolved: ResolvedAgentSession?,
+        _ result: Result<ResolvedAgentSession, AgentLinkMiss>?,
         rowID: RecentSession.ID,
         identity: UUID,
         token: AsyncGenerationGate.Token,
@@ -123,7 +146,7 @@ extension DictationCoordinator {
         if agentBindingTasks[rowID]?.identity == identity {
             agentBindingTasks.removeValue(forKey: rowID)
         }
-        guard let resolved,
+        guard let result,
             !Task.isCancelled,
             generations.isCurrent(token),
             settings.agentSessionBindingEnabled,
@@ -131,11 +154,18 @@ extension DictationCoordinator {
             let index = recentSessions.firstIndex(where: { $0.id == rowID }),
             recentSessions[index].agentSession == nil
         else { return }
-        let binding = AgentSessionBinding(resolved, boundAt: boundAt)
-        recentSessions[index].agentSession = binding
-        _ = enqueueJournalSnapshot()
-        mirrorAgentSessionBindings([rowID: binding])
-        refreshAgentSessions()
+        switch result {
+        case .success(let resolved):
+            let binding = AgentSessionBinding(resolved, boundAt: boundAt)
+            recentSessions[index].agentSession = binding
+            _ = enqueueJournalSnapshot()
+            mirrorAgentSessionBindings([rowID: binding])
+            refreshAgentSessions()
+        case .failure(let miss):
+            recentSessions[index].unlinked = miss
+            _ = enqueueJournalSnapshot()
+            mirrorAgentLinkMiss(miss, entryID: rowID)
+        }
     }
 
     /// Starts a refresh pass over the bound rows still waiting on something —

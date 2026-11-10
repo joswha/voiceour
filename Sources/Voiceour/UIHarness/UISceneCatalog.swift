@@ -276,6 +276,25 @@
                     fixture: .populated,
                     agentSession: UIFixtures.agentSession
                 ),
+                // The Tern row whose link missed, opened with its Details unfolded: the Agent
+                // heading bound rows use, reading why this one is not linked. No seam pins a
+                // selection other than the newest row's, and a plain press on the closed row
+                // and on the Details disclosure is one this window takes. The row sits below
+                // the first-launch measure, so the scene is tall enough to hold it open.
+                console(
+                    "console.sessions.unlinked",
+                    "History row pasted into Tern whose agent link missed, Details open on the reason",
+                    tab: .history,
+                    fixture: .populated,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_400),
+                    tags: ["agent-link", "steps"],
+                    steps: [
+                        .press(UIFixtures.unlinkedRowText),
+                        .settle(120),
+                        .press("sessions.detail.details"),
+                        .settle(120),
+                    ]
+                ),
                 // The Journal's Rewind and Threads lenses. The tab opens on Timeline, and the
                 // segmented picker that leaves it is not a press a window that never becomes
                 // key can count on, so each scene pins the lens it shows, as the tab bar is
@@ -577,6 +596,18 @@
                 menu(
                     "menu.sidecar-error", "Menu bar popover after a wrapped sidecar failure", fixture: .sidecarFailure),
                 menu("menu.transcript", "Menu bar popover with the last transcript", fixture: .completedDictation),
+                // A paste into Tern with binding on: the report's link line names the thread
+                // the row is bound to, or says why the row is not linked.
+                menu(
+                    "menu.pasted.linked",
+                    "Menu bar popover after a paste into Tern linked to its agent thread",
+                    fixture: .pastedLinked
+                ),
+                menu(
+                    "menu.pasted.unlinked",
+                    "Menu bar popover after a paste into Tern whose agent link missed",
+                    fixture: .pastedUnlinked
+                ),
                 menu(
                     "menu.downloading",
                     "Menu bar popover while the speech model downloads",
