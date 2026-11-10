@@ -103,7 +103,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Voiceour",
-            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"]
+            dependencies: ["VoiceCore", "VoiceMac", "VoiceOrganizer", "ASRSidecarCore"]
         ),
         .target(
             name: "VoiceCore",
@@ -111,6 +111,10 @@ let package = Package(
         ),
         .target(
             name: "VoiceMac",
+            dependencies: ["VoiceCore"]
+        ),
+        .target(
+            name: "VoiceOrganizer",
             dependencies: ["VoiceCore"]
         ),
         .target(
@@ -140,6 +144,13 @@ let package = Package(
             name: "VoiceMacTests",
             dependencies: [
                 "VoiceMac",
+                "VoiceCore"
+            ]
+        ),
+        .testTarget(
+            name: "VoiceOrganizerTests",
+            dependencies: [
+                "VoiceOrganizer",
                 "VoiceCore"
             ]
         ),

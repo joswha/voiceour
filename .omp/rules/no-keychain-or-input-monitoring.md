@@ -10,4 +10,4 @@ scope:
   - 'tool:edit(**/Resources/*.entitlements)'
   - 'tool:write(**/Resources/*.entitlements)'
 ---
-No feature may depend on the Keychain: the app keeps no credentials, the data-protection Keychain returns `errSecMissingEntitlement` (-34018), and ad-hoc `keychain-access-groups` fails AMFI. Never request Input Monitoring or its entitlement; hotkeys use the Accessibility-trusted event tap or passive monitors (docs/runtime.md).
+No feature may depend on the Keychain: the one credential the app holds, the TypeSafe key, comes from the `TYPESAFE_API_KEY` environment variable or the owner-only `typesafe.key` file in the support directory (`TypeSafeKeySource`); the data-protection Keychain returns `errSecMissingEntitlement` (-34018), and ad-hoc `keychain-access-groups` fails AMFI. Never request Input Monitoring or its entitlement; hotkeys use the Accessibility-trusted event tap or passive monitors (docs/runtime.md).

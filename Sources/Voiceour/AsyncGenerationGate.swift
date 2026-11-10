@@ -23,6 +23,10 @@ struct AsyncGenerationGate {
         /// so one binding cannot discard another's; invalidated only by turning
         /// binding off and by Clear History, so a late landing cannot write back.
         case agentLinking
+        /// Sorting-model labels, per entry and Sort Entries runs. Only observed,
+        /// never begun, so one label cannot discard another's; invalidated by
+        /// turning sorting off and by Clear Memory, so a late label cannot write back.
+        case organizing
     }
 
     /// A claim on one scope, taken before launching async work.

@@ -17,9 +17,9 @@ Security fixes target the current `main` branch. Include the affected release ta
 The technical contract is maintained in one place:
 
 - [Runtime and data](README.md#runtime-and-data): temporary audio, local transcript history, aggregate activity and retention.
-- [Model and network contract](README.md#model-and-network-contract): pinned model acquisition, integrity checks, local recognition and no credentials.
+- [Model and network contract](README.md#model-and-network-contract): pinned model acquisition, integrity checks, local recognition, the opt-in TypeSafe label request and what it may hold, and the one credential, a TypeSafe key kept in an environment variable or an owner-only file.
 - [Safety and permissions](README.md#safety-and-permissions): fail-closed target classification, concealed secure copies, focus rechecks and TCC grants.
-- [Non-goals](README.md#non-goals): no network text processing, telemetry or local control socket.
+- [Non-goals](README.md#non-goals): no model rewriting of what you said, telemetry, account or local control socket.
 
 Report any behavior that violates those boundaries through the private channel above.
 

@@ -38,6 +38,10 @@ enum DiagnosticsReport {
         // it links to stay out of a report that is made to be pasted elsewhere.
         lines.append("  keep dictations in memory: \(coordinator.settings.memoryEnabled ? "on" : "off")")
         lines.append("  memory entries: \(coordinator.memoryEntries.count)")
+        // The switch and where the key comes from: never the key, and never the
+        // topic names the sorting model is shown.
+        lines.append("  sort entries with jev: \(coordinator.settings.organizerEnabled ? "on" : "off")")
+        lines.append("  typesafe key: \(typeSafeKeyOrigin(coordinator.typeSafeKeyOrigin))")
         lines.append("  self-test: \(selfTestCommand)")
 
         lines.append("")
@@ -88,6 +92,16 @@ enum DiagnosticsReport {
 
     private static var appBuild: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "local"
+    }
+
+    /// A source name only, so a pasted report can say why sorting did nothing
+    /// without carrying the credential that would make it work.
+    private static func typeSafeKeyOrigin(_ origin: TypeSafeKeySource.Origin?) -> String {
+        switch origin {
+        case .environment: "environment"
+        case .keyFile: "key file"
+        case nil: "none"
+        }
     }
 
     // MARK: Backend

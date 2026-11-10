@@ -6,12 +6,14 @@ import VoiceCore
 /// Timeline is History as it always was: one row per dictation, newest first,
 /// with the open transcript and its evidence. Rewind reads one day as runs of
 /// work on one subject, Threads reads everything said into each agent session,
-/// and Notes lists what was saved and pasted nowhere. Ordered as the segmented
-/// picker renders them.
+/// Topics reads everything filed under each of the user's topics, and Notes
+/// lists what was saved and pasted nowhere. Ordered as the segmented picker
+/// renders them.
 enum JournalLens: String, CaseIterable, Hashable {
     case timeline
     case rewind
     case threads
+    case topics
     case notes
 
     var label: String {
@@ -19,6 +21,7 @@ enum JournalLens: String, CaseIterable, Hashable {
         case .timeline: "Timeline"
         case .rewind: "Rewind"
         case .threads: "Threads"
+        case .topics: "Topics"
         case .notes: "Notes"
         }
     }
@@ -112,7 +115,9 @@ struct ConsoleJournalTab: View {
                 historyIDs: historyIDs,
                 lens: $lens,
                 navigation: navigation,
-                delete: deleteEntry
+                delete: deleteEntry,
+                topics: coordinator.memoryTopics,
+                file: fileEntry
             )
             // Both lenses name each entry's agent session and whether its prompt
             // was sent, which only a refresh pass brings up to date.
@@ -124,16 +129,28 @@ struct ConsoleJournalTab: View {
                 lens: $lens,
                 openThread: $openThread,
                 navigation: navigation,
-                delete: deleteEntry
+                delete: deleteEntry,
+                topics: coordinator.memoryTopics,
+                file: fileEntry
             )
             .onAppear { coordinator.refreshAgentSessions() }
+        case .topics:
+            JournalTopicsLens(
+                coordinator: coordinator,
+                entries: entries,
+                lens: $lens,
+                navigation: navigation,
+                delete: deleteEntry
+            )
         case .notes:
             JournalNotesLens(
                 coordinator: coordinator,
                 entries: entries,
                 lens: $lens,
                 navigation: navigation,
-                delete: deleteEntry
+                delete: deleteEntry,
+                topics: coordinator.memoryTopics,
+                file: fileEntry
             )
         }
     }
@@ -165,6 +182,14 @@ struct ConsoleJournalTab: View {
     private var deleteEntry: (UUID) async -> Bool {
         let coordinator = coordinator
         return { id in await coordinator.deleteRecentSession(id: id) }
+    }
+
+    /// Files an entry under one of the user's topics, or under none. Filing is a
+    /// request to keep the entry, so the coordinator adds a History-only entry to
+    /// memory first.
+    private var fileEntry: (UUID, String?) -> Void {
+        let coordinator = coordinator
+        return { id, topicID in coordinator.fileEntry(id: id, underTopic: topicID) }
     }
 
     private func reloadEntries() {

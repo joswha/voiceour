@@ -22,6 +22,10 @@ struct JournalThreadsLens: View {
     private let navigation: JournalNavigation
     /// Removes an entry History no longer holds; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
+    /// The topics an entry's "File Under" submenu offers.
+    private let topics: [MemoryTopic]
+    /// Files an entry under a topic or under none; nil offers no submenu.
+    private let file: ((UUID, String?) -> Void)?
 
     @State private var searchText = ""
     /// The project groups for the current entries and query, cached as a snapshot
@@ -39,7 +43,9 @@ struct JournalThreadsLens: View {
         lens: Binding<JournalLens>,
         openThread: Binding<AgentSessionKey?>,
         navigation: JournalNavigation,
-        delete: ((UUID) async -> Bool)? = nil
+        delete: ((UUID) async -> Bool)? = nil,
+        topics: [MemoryTopic] = [],
+        file: ((UUID, String?) -> Void)? = nil
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
@@ -47,6 +53,8 @@ struct JournalThreadsLens: View {
         self._openThread = openThread
         self.navigation = navigation
         self.delete = delete
+        self.topics = topics
+        self.file = file
     }
 
     var body: some View {
@@ -333,7 +341,9 @@ struct JournalThreadsLens: View {
                     isInHistory: historyIDs.contains(entry.id),
                     showsThreadAction: false,
                     navigation: navigation,
-                    delete: delete
+                    delete: delete,
+                    topics: topics,
+                    file: file
                 )
             }
         }

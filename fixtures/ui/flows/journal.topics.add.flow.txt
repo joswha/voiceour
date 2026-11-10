@@ -1,0 +1,19 @@
+flow: journal.topics.add
+title: Add Topic makes a topic row, empties its fields, and refuses the same name twice
+fixture: static
+transitions: idle
+PASS 1 empty | absent id=journal.topics.row | 0 matches
+PASS 2 empty | enabled(false) id=journal.topics.add | false
+PASS 3 empty | absent id=journal.topics.new.refusal | 0 matches
+PASS 4 typed | value id=journal.topics.new.name == "Release notes" | "Release notes"
+PASS 5 typed | enabled(true) id=journal.topics.add | true
+PASS 6 added | count id=journal.topics.row exactly 1 | 1 match
+PASS 7 added | label id=journal.topics.row & label~="Release notes" == "Release notes, 0 entries, What ships in each version." | "Release notes, 0 entries, What ships in each version."
+PASS 8 added | value id=journal.topics.new.name is empty | ""
+PASS 9 added | value id=journal.topics.new.summary is empty | ""
+PASS 10 added | enabled(false) id=journal.topics.add | false
+PASS 11 added | absent id=journal.topics.new.refusal | 0 matches
+PASS 12 added | model memoryEntryCount == "0" | 0
+PASS 13 refused | value id=journal.topics.new.refusal == "“Release notes” already covers that name." | "“Release notes” already covers that name."
+PASS 14 refused | count id=journal.topics.row exactly 1 | 1 match
+PASS 15 refused | value id=journal.topics.new.name == "Release notes" | "Release notes"

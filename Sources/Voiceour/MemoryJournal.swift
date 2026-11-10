@@ -88,6 +88,7 @@ extension DictationCoordinator {
         entry.appBundleId = app?.bundleId
         entry.appName = app?.name
         commitMemory(entries: memoryEntries + [entry])
+        organizeNewMemoryEntry(entry)
     }
 
     /// Saves a note: what the user said, verbatim, as a memory entry that was
@@ -107,6 +108,7 @@ extension DictationCoordinator {
             captureSeconds: captureSeconds
         )
         commitMemory(entries: memoryEntries + [entry])
+        organizeNewMemoryEntry(entry)
         return entry.id
     }
 
@@ -208,6 +210,10 @@ extension DictationCoordinator {
         for entry in memoryEntries where entry.kind == .note {
             cancelAgentSessionBinding(rowID: entry.id)
         }
+        // A label on its way back would land on an entry this erase removes,
+        // and a Sort Entries run would keep labelling a folder that is gone.
+        generations.invalidate(.organizing)
+        cancelOrganizerWork()
         memoryEntries = []
         memoryTopics = []
         memoryRevision += 1

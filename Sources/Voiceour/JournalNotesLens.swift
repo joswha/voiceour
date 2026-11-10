@@ -20,6 +20,10 @@ struct JournalNotesLens: View {
     private let navigation: JournalNavigation
     /// Removes a note from memory; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
+    /// The topics a note's "File Under" submenu offers.
+    private let topics: [MemoryTopic]
+    /// Files a note under a topic or under none; nil offers no submenu.
+    private let file: ((UUID, String?) -> Void)?
 
     @State private var searchText = ""
     /// Whether any note exists before the search narrows them, so an empty store and
@@ -32,13 +36,17 @@ struct JournalNotesLens: View {
         entries: [JournalEntry],
         lens: Binding<JournalLens>,
         navigation: JournalNavigation,
-        delete: ((UUID) async -> Bool)?
+        delete: ((UUID) async -> Bool)?,
+        topics: [MemoryTopic] = [],
+        file: ((UUID, String?) -> Void)? = nil
     ) {
         self.coordinator = coordinator
         self.entries = entries
         self.lens = lens
         self.navigation = navigation
         self.delete = delete
+        self.topics = topics
+        self.file = file
     }
 
     var body: some View {
@@ -191,7 +199,9 @@ struct JournalNotesLens: View {
             isInHistory: false,
             showsThreadAction: true,
             navigation: navigation,
-            delete: delete
+            delete: delete,
+            topics: topics,
+            file: file
         )
     }
 

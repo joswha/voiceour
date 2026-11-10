@@ -21,6 +21,10 @@ struct JournalEntryRow: View {
     private let showsThreadAction: Bool
     private let navigation: JournalNavigation
     private let delete: ((UUID) async -> Bool)?
+    /// The topics the "File Under" submenu offers, in the order memory holds them.
+    private let topics: [MemoryTopic]
+    /// Files the entry under a topic, or under none; nil offers no submenu.
+    private let file: ((UUID, String?) -> Void)?
 
     @State private var showsCopied = false
     @State private var resetCopyFeedbackTask: Task<Void, Never>?
@@ -37,19 +41,24 @@ struct JournalEntryRow: View {
     /// already showing the entry's thread has no use for. `delete` offers
     /// "Delete Entry…" only on an entry History no longer holds: an entry still
     /// in History is deleted from Timeline, where its transcript is. It returns
-    /// false when the entry could not be removed.
+    /// false when the entry could not be removed. `file` offers "File Under", which
+    /// files the entry under one of `topics` or, with nil, under none.
     init(
         entry: JournalEntry,
         isInHistory: Bool,
         showsThreadAction: Bool,
         navigation: JournalNavigation,
-        delete: ((UUID) async -> Bool)? = nil
+        delete: ((UUID) async -> Bool)? = nil,
+        topics: [MemoryTopic] = [],
+        file: ((UUID, String?) -> Void)? = nil
     ) {
         self.entry = entry
         self.isInHistory = isInHistory
         self.showsThreadAction = showsThreadAction
         self.navigation = navigation
         self.delete = delete
+        self.topics = topics
+        self.file = file
     }
 
     var body: some View {
@@ -127,6 +136,9 @@ struct JournalEntryRow: View {
                     navigation.openThread(thread.key)
                 }
             }
+            if let file {
+                fileUnderMenu(file)
+            }
             if offersDelete {
                 Button("Delete Entry\u{2026}", role: .destructive) {
                     deleteFailed = false
@@ -188,12 +200,14 @@ struct JournalEntryRow: View {
         delete != nil && !isInHistory
     }
 
-    /// The time, then the two states a reader acts on, then the words. The
-    /// marks are words on screen, so VoiceOver hears them as words too.
+    /// The time, then the states a reader acts on and the kind the row marks,
+    /// then the words. The marks are words on screen, so VoiceOver hears them
+    /// as words too.
     private var accessibilityLabel: String {
         var parts = [timestamp]
         if isNote { parts.append("note") }
         if isNotSent { parts.append("not sent") }
+        if let highlightKind { parts.append(highlightKind.displayName.lowercased()) }
         parts.append(entry.text)
         return parts.joined(separator: ", ")
     }
@@ -250,5 +264,39 @@ struct JournalEntryRow: View {
             isDeleting = false
             deleteFailed = !isDeleted
         }
+    }
+
+    // MARK: File
+
+    /// One item per topic, the entry's current topic checked, then "No Topic".
+    /// Choosing an item is an explicit request, so the checked topic files the
+    /// entry again rather than unfiling it; "No Topic" is the one way out. With
+    /// no topics the submenu still opens, to say why it offers nothing.
+    @ViewBuilder
+    private func fileUnderMenu(_ file: @escaping (UUID, String?) -> Void) -> some View {
+        Menu("File Under") {
+            if topics.isEmpty {
+                Button("No topics yet") {}
+                    .disabled(true)
+            } else {
+                ForEach(topics) { topic in
+                    Toggle(topic.name, isOn: fileBinding(topic.id))
+                }
+                Divider()
+                Button("No Topic") {
+                    file(entry.id, nil)
+                }
+            }
+        }
+        .accessibilityIdentifier("journal.entry.file")
+    }
+
+    /// Reads as checked for the entry's topic; any choice files the entry under
+    /// that topic, whichever way the menu says it flipped.
+    private func fileBinding(_ topicID: String) -> Binding<Bool> {
+        Binding(
+            get: { entry.topicID == topicID },
+            set: { _ in file?(entry.id, topicID) }
+        )
     }
 }

@@ -110,6 +110,90 @@ struct DiagnosticsReportTests {
         }
     }
 
+    /// Sorting is off by default, and with neither the environment nor a key
+    /// file holding a key the report says there is none.
+    @Test func sortingLinesDefaultToOffWithNoKey() throws {
+        let directory = try makeKeyDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = makeCoordinator(
+            backend: "granite",
+            typeSafeKeys: TypeSafeKeySource(environment: [:], keyFile: directory.appendingPathComponent("typesafe.key"))
+        )
+
+        let report = DiagnosticsReport.text(
+            coordinator: coordinator,
+            microphone: .granted,
+            accessibility: .granted,
+            synthPaste: .granted
+        )
+
+        #expect(report.contains("  sort entries with jev: off\n"))
+        #expect(report.contains("  typesafe key: none\n"))
+    }
+
+    /// A saved key is reported by where it lives, never by what it is.
+    @Test func sortingLinesNameTheKeyFileButNeverTheKey() throws {
+        let directory = try makeKeyDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keys = TypeSafeKeySource(environment: [:], keyFile: directory.appendingPathComponent("typesafe.key"))
+        try keys.save("ts-file-key-7c41d0")
+        let coordinator = makeCoordinator(
+            backend: "granite",
+            settings: VoiceCore.Settings(asrBackend: "granite", memoryEnabled: true, organizerEnabled: true),
+            typeSafeKeys: keys
+        )
+
+        let report = DiagnosticsReport.text(
+            coordinator: coordinator,
+            microphone: .granted,
+            accessibility: .granted,
+            synthPaste: .granted
+        )
+
+        #expect(report.contains("  sort entries with jev: on\n"))
+        #expect(report.contains("  typesafe key: key file\n"))
+        #expect(!report.contains("ts-file-key-7c41d0"))
+    }
+
+    /// The environment wins over a saved file, and neither key nor any topic the
+    /// sorting model is shown reaches the report.
+    @Test func sortingLinesPreferTheEnvironmentAndLeakNeitherKeyNorTopics() throws {
+        let directory = try makeKeyDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keys = TypeSafeKeySource(
+            environment: [TypeSafeKeySource.variable: "ts-env-key-93be12"],
+            keyFile: directory.appendingPathComponent("typesafe.key")
+        )
+        try keys.save("ts-file-key-7c41d0")
+        let coordinator = makeCoordinator(
+            backend: "granite",
+            settings: VoiceCore.Settings(asrBackend: "granite", memoryEnabled: true, organizerEnabled: true),
+            typeSafeKeys: keys
+        )
+        coordinator.memoryTopics = [
+            MemoryTopic(
+                id: "orchard-pruning",
+                name: "Orchard pruning",
+                summary: "When and how to cut the apple trees.",
+                createdAt: Date(timeIntervalSince1970: 1_793_000_000)
+            )
+        ]
+
+        let report = DiagnosticsReport.text(
+            coordinator: coordinator,
+            microphone: .granted,
+            accessibility: .granted,
+            synthPaste: .granted
+        )
+
+        #expect(report.contains("  typesafe key: environment\n"))
+        for secret in [
+            "ts-env-key-93be12", "ts-file-key-7c41d0", "orchard-pruning", "Orchard pruning", "apple trees",
+        ] {
+            #expect(!report.contains(secret))
+        }
+    }
+
     /// Granite names its own pin and file in the `<id>@<rev> (<file>)` spelling bug reports
     /// carry — even with a variant tag saved in settings, which no backend reads.
     @Test func graniteIdentifierNamesItsOwnPinAndFile() {
@@ -164,10 +248,19 @@ struct DiagnosticsReportTests {
         #expect(ConsoleReadiness.gigabytes(1_337_514_238) == "1.34 GB")
     }
 
+    /// A directory of its own for each key test, which the test removes.
+    private func makeKeyDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voiceour-diagnostics-keys-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
     private func makeCoordinator(
         backend: String,
         settings: VoiceCore.Settings? = nil,
-        health: ASRBackendHealth = FakeASR.ready
+        health: ASRBackendHealth = FakeASR.ready,
+        typeSafeKeys: TypeSafeKeySource? = nil
     ) -> DictationCoordinator {
         DictationCoordinator(
             recorder: FakeRecorder(),
@@ -184,6 +277,7 @@ struct DiagnosticsReportTests {
                     .appendingPathComponent("voiceour-diagnostics-tests-\(UUID().uuidString)")
                     .appendingPathComponent("recent-sessions.json")
             ),
+            typeSafeKeys: typeSafeKeys,
             recentSessionSnapshotSave: { store, sessions in try store.save(sessions) },
             audioMuter: NoOpSystemAudioMuter(),
             temporaryAudioRemover: { try FileManager.default.removeItem(at: $0) }

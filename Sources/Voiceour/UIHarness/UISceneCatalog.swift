@@ -96,12 +96,12 @@
         static let menuSize = CGSize(width: 280, height: 420)
 
         /// Settings' whole page with every Island fold shut. The Island section puts
-        /// Readiness, Capture, Privacy and Danger below the first-launch measure, so a scene
-        /// about any of them renders at this height instead: a multiple of 4 that reaches the
-        /// last Danger caption without a scroller.
+        /// Readiness, Capture, Privacy, Memory and Danger below the first-launch measure, so
+        /// a scene about any of them renders at this height instead: a multiple of 4 that
+        /// reaches the last Danger caption without a scroller.
         static let settingsPageSize = CGSize(
             width: VoiceourMetrics.Window.defaultWidth,
-            height: 2_212
+            height: 2_744
         )
 
         /// Ordered so the contact sheet reads top-down like the app does: the
@@ -368,6 +368,50 @@
                     fixture: .populated,
                     journalLens: .notes,
                     tags: ["empty", "notes"]
+                ),
+                // The Topics lens: the remembered fixture's three topics, most entries first,
+                // with no topic open; the same list with the first row pressed open, because
+                // no seam pins an open topic and a plain button press is one this window
+                // takes; and the populated fixture, whose memory holds no topic. The harness
+                // key source holds no key, so no Sorting section shows on any Mac.
+                console(
+                    "console.sessions.topics",
+                    "Journal Topics listing the user's topics with none open",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .topics,
+                    tags: ["memory", "topics"]
+                ),
+                console(
+                    "console.sessions.topics.open",
+                    "Journal Topics with the largest topic's page open",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .topics,
+                    tags: ["memory", "topics", "steps"],
+                    steps: [
+                        .press("journal.topics.row"),
+                        .settle(120),
+                    ]
+                ),
+                console(
+                    "console.sessions.topics.empty",
+                    "Journal Topics with no topic made yet",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .topics,
+                    tags: ["empty", "topics"]
+                ),
+                // Rewind on the remembered fixture's labelled day, whose four confident
+                // highlight kinds lead the day as Highlights and mark their rows.
+                console(
+                    "console.sessions.rewind.highlights",
+                    "Journal Rewind on a day the sorting model labelled, led by its highlights",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .rewind,
+                    journalDay: UIFixtures.labelledDay,
+                    tags: ["memory", "highlights"]
                 ),
                 // The first-launch measure, which now ends inside the Island showroom: what a
                 // fresh install's Settings tab shows before any scrolling.

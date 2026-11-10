@@ -2,7 +2,7 @@
 
 Every change keeps these. Before editing a subsystem, read its contract doc; AGENTS.md lists them.
 
-- Recognition and text processing run on this Mac, and text stages stay deterministic. The app's only network access is the pinned Granite model download.
+- Recognition and text processing run on this Mac, and text stages stay deterministic. No model writes or rewrites the user's words. The app's network access is the pinned Granite model download and, only while Settings ▸ Memory ▸ Sort entries with Jev is on and a TypeSafe key is set, label requests to the fixed TypeSafe endpoint.
 - Only `.normalText` targets receive a synthesized Cmd-V; every other target class is copy-only. Secure targets get a concealed, host-only copy and no History or ledger entry.
 - The clipboard is write-only: write the transcript; never read, save or restore the user's previous clipboard.
 - Recorded audio is temporary: remove it after success, cancellation, error and stale-file scavenging.

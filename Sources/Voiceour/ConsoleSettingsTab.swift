@@ -74,6 +74,13 @@ struct ConsoleSettingsTab: View {
     @State private var copiedItem: CopiedItem?
     @State private var resetCopyFeedbackTask: Task<Void, Never>?
 
+    /// The TypeSafe key being pasted. It lives only in this field until Save Key
+    /// writes it, is cleared the moment the write succeeds, and is never drawn
+    /// anywhere but the secure field itself.
+    @State private var typeSafeKeyDraft = ""
+    @State private var isConfirmingTypeSafeKeyRemoval = false
+    @State private var typeSafeKeyWriteFailed = false
+
     /// Which copy action last reached the clipboard. One value rather than a flag
     /// per button: a copy replaces the clipboard, so the previous button's COPIED
     /// mark would be a false statement the moment the next copy lands.
@@ -191,6 +198,8 @@ struct ConsoleSettingsTab: View {
             Section("Memory") {
                 memoryToggleRow
                 agentInstructionsRow
+                organizerToggleRow
+                typeSafeKeyRow
             }
 
             Section("Danger") {
@@ -664,6 +673,117 @@ struct ConsoleSettingsTab: View {
 
     private func copyAgentInstructions() {
         copy(MemoryPages.agentInstructions(root: coordinator.memoryStore.root), as: .agentInstructions)
+    }
+
+    /// Not `settingBinding`: turning sorting off also cancels every labelling
+    /// task in flight, which a bare setting write would leave running.
+    ///
+    /// Offered only once there is a key, because without one the switch would do
+    /// nothing. A switch already on stays operable after its key goes, so a reader
+    /// is never left with an "on" they cannot turn off.
+    private var organizerToggleRow: some View {
+        ConsoleRow(
+            caption:
+                "Voiceour sends the text of each new memory entry, and of earlier entries when you press Sort "
+                + "Entries, with your topic names and descriptions, to TypeSafe's Jev model at api.typesafe.ai. "
+                + "Jev answers with labels only: a kind, a topic and a keep score. It writes no text, and nothing "
+                + "is sent while this is off."
+        ) {
+            Toggle(
+                "Sort entries with Jev",
+                isOn: Binding(
+                    get: { coordinator.settings.organizerEnabled },
+                    set: { coordinator.setOrganizerEnabled($0) }
+                )
+            )
+            .disabled(coordinator.typeSafeKeyOrigin == nil && !coordinator.settings.organizerEnabled)
+            .accessibilityIdentifier("system.organizer.toggle")
+        }
+    }
+
+    /// Says where the key comes from and never what it is: the status names a
+    /// source, the field is secure, and a saved key leaves the field empty.
+    private var typeSafeKeyRow: some View {
+        let origin = coordinator.typeSafeKeyOrigin
+        return ConsoleRow(
+            caption: typeSafeKeyWriteFailed
+                ? "The key file could not be changed on this Mac."
+                : "The key stays on this Mac, in a file only your account can read. An environment variable "
+                    + "takes precedence over the file.",
+            captionColor: typeSafeKeyWriteFailed ? .red : nil
+        ) {
+            LabeledContent {
+                VStack(alignment: .trailing, spacing: VoiceourMetrics.Space.xs) {
+                    Text(Self.typeSafeKeyStatus(origin))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("system.organizer.key.status")
+                    HStack(spacing: VoiceourMetrics.Space.sm) {
+                        // The prompt is drawn inside the field, where a click lands on the
+                        // field; a visible title would sit beside an empty field that shows
+                        // nothing of itself.
+                        SecureField("TypeSafe key to save", text: $typeSafeKeyDraft, prompt: Text("Paste a key"))
+                            .labelsHidden()
+                            .frame(minWidth: VoiceourMetrics.Field.short)
+                            .onSubmit { saveTypeSafeKey() }
+                            .accessibilityIdentifier("system.organizer.key.field")
+                        Button("Save Key") { saveTypeSafeKey() }
+                            .disabled(isTypeSafeKeyDraftBlank)
+                            .accessibilityIdentifier("system.organizer.key.save")
+                        if origin == .keyFile {
+                            Button("Remove Key", role: .destructive) {
+                                typeSafeKeyWriteFailed = false
+                                isConfirmingTypeSafeKeyRemoval = true
+                            }
+                            .accessibilityIdentifier("system.organizer.key.remove")
+                        }
+                    }
+                }
+            } label: {
+                Text("TypeSafe key")
+            }
+            // A container element, so the row's identifier does not overwrite
+            // the field's and the buttons' own.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("system.organizer.key")
+        }
+        .confirmationDialog(
+            "Remove the TypeSafe key?",
+            isPresented: $isConfirmingTypeSafeKeyRemoval,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Key", role: .destructive) { removeTypeSafeKey() }
+                .accessibilityIdentifier("system.organizer.key.remove.confirm")
+            Button("Cancel", role: .cancel) {}
+                .accessibilityLabel("Cancel removing the TypeSafe key")
+        } message: {
+            Text("Voiceour deletes typesafe.key from this Mac. Sorting stops until you save a key again.")
+        }
+    }
+
+    /// The source the key comes from, in the words the row prints.
+    private static func typeSafeKeyStatus(_ origin: TypeSafeKeySource.Origin?) -> String {
+        switch origin {
+        case .environment: "From the TYPESAFE_API_KEY environment variable"
+        case .keyFile: "Saved in typesafe.key"
+        case nil: "Not set"
+        }
+    }
+
+    private var isTypeSafeKeyDraftBlank: Bool {
+        typeSafeKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// A blank draft is refused here rather than passed on: the coordinator
+    /// reads a blank key as "remove the file", which only Remove Key may ask for.
+    private func saveTypeSafeKey() {
+        guard !isTypeSafeKeyDraftBlank else { return }
+        let saved = coordinator.saveTypeSafeKey(typeSafeKeyDraft)
+        typeSafeKeyWriteFailed = !saved
+        if saved { typeSafeKeyDraft = "" }
+    }
+
+    private func removeTypeSafeKey() {
+        typeSafeKeyWriteFailed = !coordinator.saveTypeSafeKey("")
     }
 
     // MARK: Danger

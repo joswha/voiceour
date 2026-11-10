@@ -134,6 +134,10 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Off unless turned on: memory outlives History's cap, so keeping it is the user's
     /// choice. Notes are kept whatever this says, and turning it off erases nothing.
     public var memoryEnabled: Bool
+    /// Whether each entry that newly enters memory is labelled by the TypeSafe sorting model.
+    /// Off unless turned on: labelling sends the entry's text off this Mac, so it is the
+    /// user's choice, and it does nothing until a TypeSafe key is set.
+    public var organizerEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -150,6 +154,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case island
         case agentSessionBindingEnabled = "agent_session_binding_enabled"
         case memoryEnabled = "memory_enabled"
+        case organizerEnabled = "organizer_enabled"
     }
 
     public init(
@@ -166,7 +171,8 @@ public struct Settings: Codable, Equatable, Sendable {
         hasCompletedFirstRun: Bool = false,
         island: IslandAppearance = .stock,
         agentSessionBindingEnabled: Bool = false,
-        memoryEnabled: Bool = false
+        memoryEnabled: Bool = false,
+        organizerEnabled: Bool = false
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -182,6 +188,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.island = island
         self.agentSessionBindingEnabled = agentSessionBindingEnabled
         self.memoryEnabled = memoryEnabled
+        self.organizerEnabled = organizerEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -216,6 +223,9 @@ public struct Settings: Codable, Equatable, Sendable {
         memoryEnabled =
             try container.decodeIfPresent(Bool.self, forKey: .memoryEnabled)
             ?? defaults.memoryEnabled
+        organizerEnabled =
+            try container.decodeIfPresent(Bool.self, forKey: .organizerEnabled)
+            ?? defaults.organizerEnabled
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

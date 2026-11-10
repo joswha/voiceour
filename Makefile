@@ -51,7 +51,7 @@ help:
 	               printf "  %-16s %s\n", substr(line, 1, split_at - 1), substr(line, split_at + 2) }' $(MAKEFILE_LIST)
 	@printf '\nLaunch flags: make run ARGS="--debug --show-console"\n'
 	@printf 'A .env at the repo root is sourced by run and dev: VOICEOUR_ASR_BACKEND,\n'
-	@printf 'VOICEOUR_SUPPORT_DIR.\n'
+	@printf 'VOICEOUR_SUPPORT_DIR, TYPESAFE_API_KEY.\n'
 
 #> Build and run
 .PHONY: build run dev stop status logs clean
@@ -72,6 +72,7 @@ run: $(APP_BINARY)
 	set --; \
 	if [ -n "$${VOICEOUR_ASR_BACKEND:-}" ]; then set -- "$$@" --env "VOICEOUR_ASR_BACKEND=$$VOICEOUR_ASR_BACKEND"; fi; \
 	if [ -n "$${VOICEOUR_SUPPORT_DIR:-}" ]; then set -- "$$@" --env "VOICEOUR_SUPPORT_DIR=$$VOICEOUR_SUPPORT_DIR"; fi; \
+	if [ -n "$${TYPESAFE_API_KEY:-}" ]; then set -- "$$@" --env "TYPESAFE_API_KEY=$$TYPESAFE_API_KEY"; fi; \
 	open -n "$(APP)" "$$@" $(if $(ARGS),--args $(ARGS),)
 	@for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
 	  pid=$$($(PGREP_APP) 2>/dev/null | xargs); \
@@ -87,8 +88,12 @@ run: $(APP_BINARY)
 # that as a contract, and `open --env` exists precisely because it is not one. So each
 # name the app itself reads is forwarded explicitly above: the backend from
 # Sources/Voiceour/DictationCoordinator.swift, the support directory from
-# Sources/VoiceCore/AppSupportPaths.swift. Add the forward here when the app learns to
-# read another one, rather than relying on a macOS version's inheritance behaviour.
+# Sources/VoiceCore/AppSupportPaths.swift, the TypeSafe key for sorting from
+# Sources/VoiceCore/TypeSafeKeySource.swift. That key rides on `open`'s argument list
+# for the moment of the launch, where any process running as you could read it; Settings
+# ▸ Memory ▸ Save Key keeps it off every command line. Add the forward here when the
+# app learns to read another name, rather than relying on a macOS version's inheritance
+# behaviour.
 
 ## dev: run the debug app on the fake backend, in this terminal
 dev: build
@@ -125,7 +130,7 @@ status:
 
 ## logs: stream Voiceour's unified-log output until interrupted
 #
-# `hotkey` and `audio` are the app's log categories.
+# `hotkey`, `audio`, `model` and `organizer` are the app's log categories.
 # The stop-path signposts need xctrace rather than the message stream.
 logs:
 	log stream --style compact --predicate 'subsystem == "com.voiceour.app"'

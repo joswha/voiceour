@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import VoiceCore
 import VoiceMac
+import VoiceOrganizer
 
 /// Publishes the microphone input level and capture-live flag, which update at
 /// the metering cadence (25Hz while recording). These live on a dedicated
@@ -94,6 +95,12 @@ public final class DictationCoordinator {
     /// Increments on every memory change, so a view can key its reload on one
     /// integer rather than compare an uncapped array.
     public internal(set) var memoryRevision: Int = 0
+    /// The Sort Entries run in flight, or the last one finished; nil before
+    /// any. See `sortEntries()`.
+    public internal(set) var organizerRun: OrganizerRun?
+    /// Increments on every TypeSafe key save, so a view that shows
+    /// `typeSafeKeyOrigin` re-reads the key file the save just changed.
+    var typeSafeKeyRevision: Int = 0
     public internal(set) var isSystemAudioMuted: Bool = false
     /// True when the last capture asked for a mute the output device could not
     /// provide. Sticky until the next capture answers the question again.
@@ -124,6 +131,11 @@ public final class DictationCoordinator {
     let memoryLoad: @Sendable (MemoryStore) -> MemoryLoad
     let memoryWrite: @Sendable (MemoryStore, MemoryWrite) throws -> Void
     let memoryClear: @Sendable (MemoryStore) throws -> Void
+    /// Labels memory entries; `NoEntryOrganizing` unless the app wires the
+    /// TypeSafe client, so no test or fixture can reach the network.
+    let organizer: EntryOrganizing
+    /// Where the TypeSafe key comes from; read before any labelling starts.
+    let typeSafeKeys: TypeSafeKeySource
     let audioMuter: SystemAudioMuting
     let sessionCues: SessionCuePlaying
     let agentSessions: AgentSessionResolving
@@ -139,6 +151,15 @@ public final class DictationCoordinator {
     /// A refresh was asked for while one was in flight; it runs when that one lands.
     @ObservationIgnored
     var agentRefreshRerunRequested = false
+    /// Each per-entry labelling task in flight, keyed by the memory entry it
+    /// labels; see `organizeNewMemoryEntry(_:)`. The identity guards removal
+    /// against a newer owner.
+    @ObservationIgnored
+    var organizerTasks: [UUID: (identity: UUID, task: Task<Void, Never>)] = [:]
+    /// The Sort Entries run in flight; see `sortEntries()`. The identity keeps
+    /// a cancelled run that is still draining from publishing over a newer one.
+    @ObservationIgnored
+    var organizerRunTask: (identity: UUID, task: Task<Void, Never>)?
     let temporaryAudioRemover: @Sendable (URL) throws -> Void
     let runtime: DictationRuntime
     private let activeASRBackend: String
@@ -207,6 +228,10 @@ public final class DictationCoordinator {
         memoryLoad: @escaping @Sendable (MemoryStore) -> MemoryLoad = { $0.load() },
         memoryWrite: @escaping @Sendable (MemoryStore, MemoryWrite) throws -> Void = { try $0.apply($1) },
         memoryClear: @escaping @Sendable (MemoryStore) throws -> Void = { try $0.clear() },
+        organizer: EntryOrganizing = NoEntryOrganizing(),
+        // Nil reads the environment, then `typesafe.key` beside History, so a
+        // test or fixture that isolates History isolates the key file too.
+        typeSafeKeys: TypeSafeKeySource? = nil,
         recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
             store, sessions in
             try store.save(sessions)
@@ -239,6 +264,13 @@ public final class DictationCoordinator {
         self.memoryLoad = memoryLoad
         self.memoryWrite = memoryWrite
         self.memoryClear = memoryClear
+        self.organizer = organizer
+        self.typeSafeKeys =
+            typeSafeKeys
+            ?? TypeSafeKeySource(
+                environment: ProcessInfo.processInfo.environment,
+                keyFile: supportDirectory.appendingPathComponent("typesafe.key")
+            )
         self.audioMuter = audioMuter
         self.sessionCues = sessionCues
         self.agentSessions = agentSessions
@@ -628,6 +660,10 @@ public final class DictationCoordinator {
             ? SystemAudioMuter()
             : NoOpSystemAudioMuter()
         let sessionCues = SessionCuePlayer()
+        // One key source for the coordinator and the client, so the key Settings
+        // saves is the key the next request sends. `typesafe.key` sits beside
+        // `settings.json` in the support directory.
+        let typeSafeKeys = TypeSafeKeySource(environment: env)
         let coordinator = DictationCoordinator(
             recorder: recorder,
             asr: asr,
@@ -638,6 +674,8 @@ public final class DictationCoordinator {
             settings: settings,
             activeASRBackend: backend,
             settingsStore: store,
+            organizer: TypeSafeOrganizer(key: { typeSafeKeys.key() }),
+            typeSafeKeys: typeSafeKeys,
             audioMuter: audioMuter,
             sessionCues: sessionCues,
             agentSessions: LiveAgentSessionResolver(homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
@@ -828,6 +866,10 @@ public final class DictationCoordinator {
         // Never awaited: a binding or refresh landing after this point writes
         // nothing, and a `tern` it spawned is terminated on cancellation.
         cancelAgentSessionWork()
+        // The same for sorting: a label landing after this point writes
+        // nothing, and its request is cancelled with its task.
+        generations.invalidate(.organizing)
+        cancelOrganizerWork()
         let persistenceDrain = recentSessionPersistenceTail
 
         if shouldDiscardRecording {

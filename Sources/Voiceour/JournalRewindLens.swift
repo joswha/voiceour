@@ -20,6 +20,10 @@ struct JournalRewindLens: View {
     private let navigation: JournalNavigation
     /// Removes an entry History no longer holds; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
+    /// The topics an entry's "File Under" submenu offers.
+    private let topics: [MemoryTopic]
+    /// Files an entry under a topic or under none; nil offers no submenu.
+    private let file: ((UUID, String?) -> Void)?
 
     /// The start of the day on screen. Seeded from the harness pin so a golden opens on
     /// a fixed day; any day that holds no entry falls back to the newest one.
@@ -47,13 +51,17 @@ struct JournalRewindLens: View {
         historyIDs: Set<UUID>,
         lens: Binding<JournalLens>,
         navigation: JournalNavigation,
-        delete: ((UUID) async -> Bool)? = nil
+        delete: ((UUID) async -> Bool)? = nil,
+        topics: [MemoryTopic] = [],
+        file: ((UUID, String?) -> Void)? = nil
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
         self.lens = lens
         self.navigation = navigation
         self.delete = delete
+        self.topics = topics
+        self.file = file
     }
 
     var body: some View {
@@ -334,7 +342,9 @@ struct JournalRewindLens: View {
             isInHistory: historyIDs.contains(entry.id),
             showsThreadAction: true,
             navigation: navigation,
-            delete: delete
+            delete: delete,
+            topics: topics,
+            file: file
         )
     }
 

@@ -172,7 +172,10 @@
             /// The populated History with memory switched on and a memory folder that
             /// reaches further back: the nine History rows plus twelve older dictations
             /// History no longer holds and three notes, so the Journal shows days, thread
-            /// entries and notes only memory can supply.
+            /// entries and notes only memory can supply. The folder also holds three topics,
+            /// and about half its entries carry the sorting model's labels or a topic the
+            /// user filed them under by hand, so Topics and Rewind's Highlights have
+            /// something to show.
             case remembered
             /// Populated history, but every glossary term removed.
             case emptyGlossary
@@ -259,7 +262,12 @@
             case .populated:
                 return make(sessions: history)
             case .remembered:
-                return make(sessions: history, settings: settings(memoryEnabled: true), memory: rememberedMemory)
+                return make(
+                    sessions: history,
+                    settings: settings(memoryEnabled: true),
+                    memory: rememberedMemory,
+                    topics: rememberedTopics
+                )
             case .emptyGlossary:
                 return make(sessions: history, settings: settings(glossary: []))
             case .mixedGlossary:
@@ -570,7 +578,9 @@
             /// What the memory folder holds, oldest first. Handed to the coordinator by
             /// its load closure rather than written to the scratch folder, so a scene
             /// never depends on a scratch-file write; empty is a folder never made.
-            memory: [MemoryEntry] = []
+            memory: [MemoryEntry] = [],
+            /// The topics the memory folder's `topics.json` holds, stated the same way.
+            topics: [MemoryTopic] = []
         ) -> DictationCoordinator {
             RenderOverrides.permissions = HarnessPermissions(state: permissions)
             let scratch = nextScratchDirectory()
@@ -592,12 +602,17 @@
                     stats ?? (sessions.isEmpty ? DictationStatsLedger() : statsLedger),
                     in: scratch
                 ),
-                memoryLoad: { _ in MemoryLoad(entries: memory) },
+                memoryLoad: { _ in MemoryLoad(entries: memory, topics: topics) },
                 // Inert for the reason the History snapshot save is: a scripted turn of
                 // the memory switch or a Clear Memory must not depend on a scratch-file
                 // write or removal completing.
                 memoryWrite: { _, _ in },
                 memoryClear: { _ in },
+                // The default organizer stays: `NoEntryOrganizing` labels nothing and
+                // reaches no network. The key source is explicit for the same reason the
+                // stores are: a nil source reads this process's environment, and a golden
+                // must not change with whether the developer's shell exports a key.
+                typeSafeKeys: typeSafeKeys(in: scratch),
                 // Fixtures keep the persistence tail inert: a scripted dictation
                 // must not depend on a scratch-file write completing.
                 recentSessionSnapshotSave: { _, _ in },
@@ -701,6 +716,14 @@
         static func nextScratchDirectory() -> URL {
             scratchCounter += 1
             return scratchRoot.appendingPathComponent("fixture-\(scratchCounter)", isDirectory: true)
+        }
+
+        /// The TypeSafe key source every harness coordinator receives: no environment
+        /// at all, and a key file inside the fixture's own scratch folder, which starts
+        /// absent. So a scene shows the no-key state on every Mac, and a flow that saves
+        /// a key writes it where nothing outlives the process's temporary directory.
+        static func typeSafeKeys(in scratch: URL) -> TypeSafeKeySource {
+            TypeSafeKeySource(environment: [:], keyFile: scratch.appendingPathComponent("typesafe.key"))
         }
 
         /// `DictationCoordinator` loads its history through the store and exposes no
@@ -1033,10 +1056,62 @@
             .sorted { $0.createdAt > $1.createdAt }
             .map(\.text)
 
+        /// The day `console.sessions.rewind.highlights` opens Rewind on: 2025-05-20, where
+        /// four entries carry a confident highlight kind (an idea, a decision, a to-do and
+        /// a note's question), so the day leads with Highlights. No other day holds a
+        /// highlight kind at or above `JournalQuery.highlightConfidence`, so the other
+        /// Rewind goldens keep their shape.
+        static let labelledDay = startOfDay(daysBeforePinnedNow: 26)
+
+        /// The three topics the `remembered` folder's `topics.json` holds, in the order
+        /// they were made. Their ids are the slugs `TopicCatalog` gives their names.
+        static let rememberedTopics: [MemoryTopic] = [memoryFolderTopic, harnessTopic, planningTopic]
+
+        /// The topic with the most entries, so it leads the Topics list and is the row
+        /// `console.sessions.topics.open` presses. Seven entries count under it: five by a
+        /// confident label, one the user filed by hand over a label that named another
+        /// topic, and one note the model labelled.
+        static let memoryFolderTopic = MemoryTopic(
+            id: "memory-folder",
+            name: "Memory folder",
+            summary: "How memory is kept on disk and read back.",
+            createdAt: startOfDay(daysBeforePinnedNow: 27)
+        )
+
+        /// Three entries, each by a confident label.
+        static let harnessTopic = MemoryTopic(
+            id: "offscreen-harness",
+            name: "Offscreen harness",
+            summary: "Rendering and checking the app without a window on screen.",
+            createdAt: startOfDay(daysBeforePinnedNow: 27)
+        )
+
+        /// Two entries: one by a confident label, and a note the user filed by hand.
+        static let planningTopic = MemoryTopic(
+            id: "planning",
+            name: "Planning",
+            summary: "Meetings, schedules and what comes next.",
+            createdAt: startOfDay(daysBeforePinnedNow: 19)
+        )
+
+        /// The texts that count under `memoryFolderTopic`, oldest first, by the rule the
+        /// Topics lens applies, so a flow checks the open page against the fixture itself.
+        static let memoryFolderTexts: [String] = {
+            let known = Set(rememberedTopics.map(\.id))
+            return
+                rememberedMemory
+                .filter { $0.effectiveTopicID(known: known) == memoryFolderTopic.id }
+                .map(\.text)
+        }()
+
         /// Twelve dictations History no longer holds, over three days in two calendar
         /// months, so Rewind steps past History's oldest day and a month boundary, and
         /// the omp thread holds entries older than any History row. Some went into the
         /// fixture's omp session, one of them never sent; the rest went to apps.
+        ///
+        /// Eleven carry a label. Two sit just under a threshold: entry 13's topic at 0.42,
+        /// which the user's own filing overrides anyway, and entry 14's decision at 0.55,
+        /// so 2025-05-28 shows no highlight and its row no mark.
         private static let olderMemory: [MemoryEntry] = [
             // 2025-05-20, a Tuesday.
             remembered(
@@ -1046,7 +1121,8 @@
                 text: "Sketch a journal that remembers more than the last thirty days.",
                 bundleId: "com.microsoft.VSCode",
                 appName: "Visual Studio Code",
-                captureSeconds: 4.8
+                captureSeconds: 4.8,
+                label: jevLabel(.idea, 0.82, topic: memoryFolderTopic.id, 0.72)
             ),
             remembered(
                 index: 11,
@@ -1055,7 +1131,8 @@
                 text: "One JSON file per month keeps a year of dictation easy to read.",
                 bundleId: "com.microsoft.VSCode",
                 appName: "Visual Studio Code",
-                captureSeconds: 5.4
+                captureSeconds: 5.4,
+                label: jevLabel(.decision, 0.91, topic: memoryFolderTopic.id, 0.88)
             ),
             remembered(
                 index: 12,
@@ -1064,7 +1141,9 @@
                 text: "Compare how other dictation apps store transcripts on disk.",
                 bundleId: "com.apple.Safari",
                 appName: "Safari",
-                captureSeconds: 4.1
+                captureSeconds: 4.1,
+                // The model answered "none" for the topic, and was sure of it.
+                label: jevLabel(.todo, 0.77, topic: nil, 0.8)
             ),
             remembered(
                 index: 13,
@@ -1074,7 +1153,9 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureSeconds: 4.4,
-                thread: ompThread(sent: false)
+                thread: ompThread(sent: false),
+                label: jevLabel(.instruction, 0.7, topic: harnessTopic.id, 0.42),
+                userTopicID: memoryFolderTopic.id
             ),
             // 2025-05-28, a Wednesday.
             remembered(
@@ -1085,7 +1166,8 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureSeconds: 5.9,
-                thread: ompThread(sent: true)
+                thread: ompThread(sent: true),
+                label: jevLabel(.decision, 0.55, topic: memoryFolderTopic.id, 0.86)
             ),
             remembered(
                 index: 15,
@@ -1095,7 +1177,8 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureSeconds: 6.3,
-                thread: ompThread(sent: true)
+                thread: ompThread(sent: true),
+                label: jevLabel(.observation, 0.8, topic: memoryFolderTopic.id, 0.81)
             ),
             remembered(
                 index: 16,
@@ -1104,7 +1187,8 @@
                 text: "Moving the planning call to Thursday so the memory review can land first.",
                 bundleId: "com.tinyspeck.slackmacgap",
                 appName: "Slack",
-                captureSeconds: 5.7
+                captureSeconds: 5.7,
+                label: jevLabel(.observation, 0.7, topic: planningTopic.id, 0.83)
             ),
             remembered(
                 index: 17,
@@ -1114,7 +1198,8 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureSeconds: 4.9,
-                thread: ompThread(sent: true)
+                thread: ompThread(sent: true),
+                label: jevLabel(.instruction, 0.74, topic: memoryFolderTopic.id, 0.69)
             ),
             // 2025-06-03, a Tuesday: the newest day older than every History row.
             remembered(
@@ -1125,7 +1210,8 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureSeconds: 6.6,
-                thread: ompThread(sent: true)
+                thread: ompThread(sent: true),
+                label: jevLabel(.instruction, 0.8, topic: harnessTopic.id, 0.78)
             ),
             remembered(
                 index: 19,
@@ -1135,7 +1221,8 @@
                 bundleId: "com.apple.Terminal",
                 appName: "Terminal",
                 captureSeconds: 4.7,
-                thread: ompThread(sent: true)
+                thread: ompThread(sent: true),
+                label: jevLabel(.observation, 0.71, topic: harnessTopic.id, 0.93)
             ),
             remembered(
                 index: 20,
@@ -1153,14 +1240,16 @@
                 text: "Keep the older days in the fixture, not in the golden.",
                 bundleId: "com.apple.dt.Xcode",
                 appName: "Xcode",
-                captureSeconds: 4.2
+                captureSeconds: 4.2,
+                label: jevLabel(.instruction, 0.62, topic: harnessTopic.id, 0.65)
             ),
         ]
 
         /// Three notes on two days: one taken in the fixture's omp session on 2025-05-20,
         /// and two with no session on 2025-05-28, an afternoon apart, so the Notes lens has
         /// two day groups and Rewind's memory day has a Notes block and its continuation.
-        /// A note has no send check, so the omp note's `sent` stays nil.
+        /// A note has no send check, so the omp note's `sent` stays nil. The omp note is
+        /// the labelled day's question; the first 2025-05-28 note is filed by hand.
         private static let rememberedNotes: [MemoryEntry] = [
             rememberedNote(
                 index: 22,
@@ -1168,14 +1257,16 @@
                 at: (18, 20, 5),
                 text: "Ask whether month files should sort their keys before every write.",
                 captureSeconds: 3.9,
-                thread: ompThread(sent: nil)
+                thread: ompThread(sent: nil),
+                label: jevLabel(.question, 0.84, topic: memoryFolderTopic.id, 0.9)
             ),
             rememberedNote(
                 index: 23,
                 daysAgo: 18,
                 at: (12, 48, 30),
                 text: "Buy a spare charging cable before the Thursday planning call.",
-                captureSeconds: 3.2
+                captureSeconds: 3.2,
+                userTopicID: planningTopic.id
             ),
             rememberedNote(
                 index: 24,
@@ -1199,6 +1290,25 @@
             )
         }
 
+        /// A label as the sorting model answers one: a kind and a topic, each with its
+        /// confidence, stamped with the shipping model id and the pinned instant. A nil
+        /// topic is the model's "none".
+        private static func jevLabel(
+            _ kind: UtteranceKind,
+            _ kindConfidence: Double,
+            topic: String?,
+            _ topicConfidence: Double
+        ) -> EntryLabel {
+            EntryLabel(
+                kind: kind,
+                kindConfidence: kindConfidence,
+                topicID: topic,
+                topicConfidence: topicConfidence,
+                model: OrganizerPolicy.model,
+                labeledAt: pinnedNow
+            )
+        }
+
         private static func remembered(
             index: Int,
             daysAgo: Int,
@@ -1207,7 +1317,9 @@
             bundleId: String,
             appName: String,
             captureSeconds: Double,
-            thread: JournalThreadRef? = nil
+            thread: JournalThreadRef? = nil,
+            label: EntryLabel? = nil,
+            userTopicID: String? = nil
         ) -> MemoryEntry {
             MemoryEntry(
                 id: fixedIdentifier(index),
@@ -1217,7 +1329,9 @@
                 appBundleId: bundleId,
                 appName: appName,
                 thread: thread,
-                captureSeconds: captureSeconds
+                captureSeconds: captureSeconds,
+                userTopicID: userTopicID,
+                label: label
             )
         }
 
@@ -1228,7 +1342,9 @@
             at time: (hour: Int, minute: Int, second: Int),
             text: String,
             captureSeconds: Double,
-            thread: JournalThreadRef? = nil
+            thread: JournalThreadRef? = nil,
+            label: EntryLabel? = nil,
+            userTopicID: String? = nil
         ) -> MemoryEntry {
             MemoryEntry(
                 id: fixedIdentifier(index),
@@ -1237,7 +1353,9 @@
                 kind: .note,
                 text: text,
                 thread: thread,
-                captureSeconds: captureSeconds
+                captureSeconds: captureSeconds,
+                userTopicID: userTopicID,
+                label: label
             )
         }
 

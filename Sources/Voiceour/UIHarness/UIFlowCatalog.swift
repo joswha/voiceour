@@ -161,6 +161,31 @@
                 .labelContains(text)
             }
 
+            // Journal ▸ Topics. Every topic row carries `journal.topics.row` and a label
+            // that reads "<name>, <count> entries, <summary>", so a row is addressed by the
+            // identifier together with its name, and its count is read from its label.
+            static let newTopicName = UIQuery.id("journal.topics.new.name")
+            static let newTopicSummary = UIQuery.id("journal.topics.new.summary")
+            static let addTopic = UIQuery.id("journal.topics.add")
+            static let addTopicRefusal = UIQuery.id("journal.topics.new.refusal")
+            static let topicRows = UIQuery.id("journal.topics.row")
+            static let topicName = UIQuery.id("journal.topics.name")
+            static let topicSummary = UIQuery.id("journal.topics.summary")
+            static let topicSave = UIQuery.id("journal.topics.save")
+            static let addedTopicName = "Release notes"
+            static let addedTopicSummary = "What ships in each version."
+            // The refusal names the topic already holding the name, in curly quotes.
+            static let duplicateTopicRefusal = "\u{201C}Release notes\u{201D} already covers that name."
+
+            static func topicRow(_ name: String) -> UIQuery {
+                .all([topicRows, .labelContains(name)])
+            }
+
+            /// A topic row's whole label, the facts its second line shows, in order.
+            static func topicRowLabel(_ topic: MemoryTopic, entries: Int) -> String {
+                "\(topic.name), \(entries) \(entries == 1 ? "entry" : "entries"), \(topic.summary)"
+            }
+
             // The menu's "Take a Note" row, offered only between sessions, and what its
             // status line and report say while a note records and once it is saved.
             static let takeNote = UIQuery.id("menu.take-note")
@@ -191,6 +216,17 @@
 
             static let memoryToggle = UIQuery.id("system.memory.toggle")
             static let memoryCopyInstructions = UIQuery.id("system.memory.copy-instructions")
+
+            // Settings ▸ Memory's sorting rows. The harness key source has no environment
+            // and an absent key file, so every fixture starts with no key on every Mac.
+            static let organizerToggle = UIQuery.id("system.organizer.toggle")
+            static let organizerKeyStatus = UIQuery.id("system.organizer.key.status")
+            static let organizerKeyField = UIQuery.id("system.organizer.key.field")
+            static let organizerKeySave = UIQuery.id("system.organizer.key.save")
+            static let organizerKeyRemove = UIQuery.id("system.organizer.key.remove")
+            // A made-up key: what reaches the journal is the step that typed it, and the
+            // checks prove it reaches no node of the tree.
+            static let fakeTypeSafeKey = "test-key-123"
 
             static func backendStatusWithValue(_ value: String) -> UIQuery {
                 .all([backendStatus, .value(value)])
@@ -694,6 +730,8 @@
                         ),
                     ]),
                 notesSearchFlow,
+                topicsAddFlow,
+                topicsOpenFlow,
             ]
         }
 
@@ -777,6 +815,118 @@
                 host: .console(.history, journalLens: .notes),
                 fixture: .static(.remembered),
                 steps: steps
+            )
+        }
+
+        /// Add Topic makes a row with the name and summary as typed, empties both fields
+        /// for the next topic, and refuses a second topic under the same name with a
+        /// caption that names the topic already holding it, leaving the typed name in
+        /// place to be changed. Memory stays empty: a topic is not an entry.
+        private static var topicsAddFlow: UIFlow {
+            let name = Selector.addedTopicName
+            let summary = Selector.addedTopicSummary
+            let added = Selector.topicRow(name)
+            return UIFlow(
+                id: "journal.topics.add",
+                title: "Add Topic makes a topic row, empties its fields, and refuses the same name twice",
+                tags: ["journal", "console", "topics", "memory"],
+                host: .console(.history, journalLens: .topics),
+                fixture: .static(.populated),
+                steps: [
+                    .wait(.element(Selector.newTopicName)),
+                    .check(
+                        "empty",
+                        [
+                            .absent(Selector.topicRows),
+                            .enabled(Selector.addTopic, false),
+                            .absent(Selector.addTopicRefusal),
+                        ]
+                    ),
+                    .act(.type(name, into: Selector.newTopicName)),
+                    .act(.type(summary, into: Selector.newTopicSummary)),
+                    .wait(.element(.all([Selector.newTopicSummary, .value(summary)]))),
+                    .check(
+                        "typed",
+                        [
+                            .value(Selector.newTopicName, .equals(name)),
+                            .enabled(Selector.addTopic, true),
+                        ]
+                    ),
+                    .act(.press(Selector.addTopic)),
+                    .wait(.element(added)),
+                    .check(
+                        "added",
+                        [
+                            .count(Selector.topicRows, .exactly(1)),
+                            .label(added, .equals("\(name), 0 entries, \(summary)")),
+                            .value(Selector.newTopicName, .isEmpty),
+                            .value(Selector.newTopicSummary, .isEmpty),
+                            .enabled(Selector.addTopic, false),
+                            .absent(Selector.addTopicRefusal),
+                            .model(.memoryEntryCount, .equals("0")),
+                        ]
+                    ),
+                    .act(.type(name, into: Selector.newTopicName)),
+                    .wait(.element(.all([Selector.newTopicName, .value(name)]))),
+                    .act(.press(Selector.addTopic)),
+                    .wait(.element(Selector.addTopicRefusal)),
+                    .check(
+                        "refused",
+                        [
+                            .value(Selector.addTopicRefusal, .equals(Selector.duplicateTopicRefusal)),
+                            .count(Selector.topicRows, .exactly(1)),
+                            .value(Selector.newTopicName, .equals(name)),
+                        ]
+                    ),
+                ]
+            )
+        }
+
+        /// A topic row opens the topic's page under itself and closes it from the same
+        /// row. The row's label states the count, and the page lists exactly the entries
+        /// that count under the topic: confident labels, the entry the user filed by hand
+        /// over a label that named another topic, and the labelled note, and nothing
+        /// another topic holds.
+        private static var topicsOpenFlow: UIFlow {
+            let topic = UIFixtures.memoryFolderTopic
+            let texts = UIFixtures.memoryFolderTexts
+            let row = Selector.topicRow(topic.name)
+            // Filed under the harness topic by a confident label, so its absence from
+            // the open page proves the page lists one topic's entries only.
+            let otherTopicEntry = UIQuery.labelContains("A scene must never wait on a scratch file write to finish.")
+            let pageRows: [UIExpectation] = texts.map { .count(.labelContains($0), .exactly(1)) }
+            let noRows: [UIExpectation] = texts.map { .absent(.labelContains($0)) }
+            let closed: [UIExpectation] = [
+                .count(Selector.topicRows, .exactly(3)),
+                // Seven, written out rather than taken from the fixture, so a fixture
+                // whose filing rule drifted fails here instead of moving with the page.
+                .label(row, .equals(Selector.topicRowLabel(topic, entries: 7))),
+                .selected(row, false),
+                .absent(Selector.topicName),
+            ]
+            let opened: [UIExpectation] = [
+                .selected(row, true),
+                .value(Selector.topicName, .equals(topic.name)),
+                .value(Selector.topicSummary, .equals(topic.summary)),
+                .enabled(Selector.topicSave, false),
+                .absent(otherTopicEntry),
+            ]
+            return UIFlow(
+                id: "journal.topics.open",
+                title: "A topic row opens the page of its entries and closes it again",
+                tags: ["journal", "console", "topics", "memory"],
+                host: .console(.history, journalLens: .topics),
+                fixture: .static(.remembered),
+                steps: [
+                    .wait(.element(row)),
+                    .check("closed", closed + noRows),
+                    .act(.press(row)),
+                    .wait(.element(Selector.topicName)),
+                    .check("opened", opened + pageRows),
+                    .act(.press(row)),
+                    .wait(.absent(Selector.topicName)),
+                    .check("reclosed", closed + noRows),
+                ]
             )
         }
 
@@ -1338,6 +1488,53 @@
                                 .model(.memoryEntryCount, .equals("9")),
                                 .model(.recentSessionCount, .equals("9")),
                                 .enabled(Selector.memoryCopyInstructions, true),
+                            ]
+                        ),
+                    ]),
+                // A saved key enables the sorting switch and is never drawn: the field
+                // empties, the status names only where the key lives, and no node of the
+                // tree holds the key's text. The key file sits in the fixture's scratch
+                // folder, and the harness key source reads no environment.
+                UIFlow(
+                    id: "system.organizer.key",
+                    title: "Saving a TypeSafe key enables sorting and leaves the key nowhere on screen",
+                    tags: ["system", "console", "settings", "memory", "organizer"],
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .wait(.element(Selector.organizerKeyStatus)),
+                        .check(
+                            "no-key",
+                            [
+                                .value(Selector.organizerKeyStatus, .equals("Not set")),
+                                .value(Selector.organizerToggle, .equals("0")),
+                                .enabled(Selector.organizerToggle, false),
+                                .enabled(Selector.organizerKeySave, false),
+                                .absent(Selector.organizerKeyRemove),
+                            ]
+                        ),
+                        .act(.type(Selector.fakeTypeSafeKey, into: Selector.organizerKeyField)),
+                        .check(
+                            "typed",
+                            [
+                                .enabled(Selector.organizerKeySave, true),
+                                .enabled(Selector.organizerToggle, false),
+                            ]
+                        ),
+                        .act(.press(Selector.organizerKeySave)),
+                        .wait(.element(.all([Selector.organizerKeyStatus, .value("Saved in typesafe.key")]))),
+                        .check(
+                            "saved",
+                            [
+                                .value(Selector.organizerKeyStatus, .equals("Saved in typesafe.key")),
+                                .value(Selector.organizerKeyField, .isEmpty),
+                                .enabled(Selector.organizerKeySave, false),
+                                .exists(Selector.organizerKeyRemove),
+                                .enabled(Selector.organizerToggle, true),
+                                .value(Selector.organizerToggle, .equals("0")),
+                                .text(.contains(Selector.fakeTypeSafeKey), .exactly(0)),
+                                .absent(.labelContains(Selector.fakeTypeSafeKey)),
+                                .absent(.value(Selector.fakeTypeSafeKey)),
                             ]
                         ),
                     ]),

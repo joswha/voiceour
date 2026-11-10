@@ -1,6 +1,6 @@
 # Memory contract
 
-The memory folder: what it holds, how it is laid out and written, when the app folds dictations into it, and what agents may do with it. The Journal lenses that show it belong to [console-ui.md](console-ui.md); the History record and the persistence tail it shares belong to [runtime.md › Persistence](runtime.md#persistence). [AGENTS.md](../AGENTS.md) maps the other contracts; [`.omp/RULES.md`](../.omp/RULES.md) holds the invariants every change keeps.
+The memory folder: what it holds, how it is laid out and written, when the app folds dictations into it, the user's topics, the sorting model's labels, and what agents may do with it. The Journal lenses that show it belong to [console-ui.md](console-ui.md); the History record and the persistence tail it shares belong to [runtime.md › Persistence](runtime.md#persistence); the label request on the wire belongs to [runtime.md › Local-first and network policy](runtime.md#local-first-and-network-policy). [AGENTS.md](../AGENTS.md) maps the other contracts; [`.omp/RULES.md`](../.omp/RULES.md) holds the invariants every change keeps.
 
 ## Principle
 
@@ -84,6 +84,26 @@ The memory folder: what it holds, how it is laid out and written, when the app f
 - An agent-session binding that attaches to, refreshes on, or is stripped from a History row MUST be mirrored onto the memory entry with the same id. Turning agent session binding off strips `thread` from every memory entry, not only those with a History row.
 - An unreadable month file, `topics.json`, or an `entries/` that cannot be listed is set aside as `<name>.corrupt-<ISO8601>` and reported: “Memory could not be read — kept as <file>.”, or “Memory could not be read and could not be set aside.” when the move fails. Everything else still loads. NEVER overwrite an unreadable file with what memory believes it held.
 - A failed write reports “Memory could not be saved.” and NEVER blocks a later write; a failed clear reports “Memory could not be erased.” NEVER suppress either.
+- Clear Memory also cancels every sorting request and Sort Entries run in flight ([Sorting](#sorting)).
+
+## Topics
+
+- Topics are the user's. They live in `topics.json`; the sorting model NEVER creates, renames or deletes one. Every edit goes through `TopicCatalog` (`Sources/VoiceCore/TopicCatalog.swift`) and `commitMemory(entries:topics:)`: `addTopic(name:summary:)`, `updateTopic(id:name:summary:)` and `removeTopic(id:)` (`Sources/Voiceour/MemoryOrganizing.swift`), driven by the Journal's Topics lens ([console-ui.md › Topics](console-ui.md#topics)).
+- A topic's id is the slug of its trimmed name: diacritics folded, lower-case ASCII letters and digits kept, every run of anything else one `-`, none at either end. The id and `created_at` are fixed at creation; a rename changes only `name` and `summary`, so pages and labels that point at the id keep pointing at it.
+- Refusals (`TopicCatalog.Refusal`), and the change is not applied: `emptyName` when the slug is empty; `reserved` when it is `none`; `duplicate(<existing name>)` when another topic has that id, a name with that slug, or the same name ignoring case; `tooMany` when adding a topic past 254 (`OrganizerPolicy.maximumTopics`). A rename is compared against the other topics only, so a topic may keep its name or change its case.
+- A summary is one line, the rubric the sorting model reads: line breaks become spaces and the ends are trimmed.
+- Removing a topic clears `user_topic_id` on every entry the user filed under it; the entries stay in memory, unfiled. A label that named the removed topic no longer counts, because its topic is unknown.
+- Filing (`fileEntry(id:underTopic:)`, the reading rows' File Under menu) is an explicit request to keep the entry: an entry only History holds is added to memory first, whatever `Settings.memoryEnabled` says. A topic sets `user_topic_id` and clears `user_removed_topic`; No Topic (nil) clears `user_topic_id` and sets `user_removed_topic`, which removes the entry from every topic, a label's included.
+
+## Sorting
+
+- `Settings.organizerEnabled` (`organizer_enabled`, off by default, “Sort entries with Jev” in Settings ▸ Memory) turns on TypeSafe's Jev model (`OrganizerPolicy.model`, `jev-1.14.0`) as a labeller. It does nothing without a key from `TypeSafeKeySource` ([runtime.md › Local-first and network policy](runtime.md#local-first-and-network-policy)).
+- The model only labels. An answer is stored as the entry's `label`: a kind (`UtteranceKind`), a topic id from the offered topics or none, a keep score (0–3), their confidences, the model id and `labeled_at`. A newer label replaces an older one. NEVER store model output anywhere else, and NEVER let it change `text`, a topic or a user choice.
+- Per entry: with the switch on and a key present, each entry that newly enters memory — a folded dictation or a saved note — is labelled once by an owned background task after its commit. Nothing waits for it: not delivery, not state, not the next dictation. Entries kept any other way, such as by turning Keep dictations in memory on or by File Under, are labelled by Sort Entries.
+- Sort Entries (`sortEntries()`, the Topics lens) is an explicit run over every memory entry with no user topic, newest first, at most 500 per run and at most 4 requests at a time. A press while a run is in flight, while the switch is off or with no key does nothing. `organizerRun` publishes `done`, `total`, `failed` and `isFinished`; `cancelSortEntries()` stops the run and keeps the labels already written.
+- A label is written, through `commitMemory`, only while the `.organizing` generation token it started under is current, the switch is on, termination has not begun, and the entry still exists with the same text. Turning the switch off, Clear Memory and quit cancel every organizer task and invalidate the token; the coordinator observes `.organizing` with `currentToken` and NEVER `begin`s it.
+- A request that fails leaves its entry exactly as it was, unlabelled or with its earlier label, and reports nothing by itself; a Sort Entries run counts such entries in `failed`, and the Topics lens says how many could not be sorted.
+- What a label changes: the effective topic ([Entries](#entries)) when its topic is known, its confidence is at least 0.6, and the user has neither filed nor removed the entry; and the highlights of the Rewind lens and day pages, which list decision, idea, to-do and question labels with kind confidence at least 0.6 (`JournalQuery.highlightConfidence`).
 
 ## Agent access
 
@@ -93,5 +113,6 @@ The memory folder: what it holds, how it is laid out and written, when the app f
 
 ## Privacy
 
-- Nothing in memory leaves the Mac through Voiceour. Memory is uncapped and kept until the user deletes an entry or clears memory.
-- Diagnostics name the switch state (`keep dictations in memory: on|off`), the entry count (`memory entries: <count>`) and the folder path (`memory:` under storage). NEVER entry text, topic names, session ids or session paths.
+- Memory leaves the Mac through Voiceour only as label requests, and only while Sort entries with Jev is on and a key is set. Each request holds one entry's text, cut to its first 8,000 characters, and the ids, names and summaries of the first 254 topics; NEVER an agent session's id, title, project or directory, the app, a file path, audio, raw recognizer text, timings, another entry, or anything under `agents/`. It goes to TypeSafe, `POST https://api.typesafe.ai/v1/systemone`, and to no other host: a redirect is refused. What TypeSafe says about hosting, training and retention is recorded, with its sources and the date read, in [README › Model and network contract](../README.md#model-and-network-contract).
+- Memory is uncapped and kept until the user deletes an entry or clears memory.
+- Diagnostics name the switch state (`keep dictations in memory: on|off`), the entry count (`memory entries: <count>`), the folder path (`memory:` under storage), the sorting switch (`sort entries with jev: on|off`) and where the key comes from (`typesafe key: environment|key file|none`). NEVER the key, entry text, topic names, session ids or session paths.
