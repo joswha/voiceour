@@ -28,7 +28,7 @@ The renderer holds these properties; the tests and hard gates under [Measured ga
 
 ## Coordinate system and representation
 
-Coordinates are canvas-local points at 72 pt/in, with origin at the canvas centre and `+y` upward. `RecordingOverlayLayout` supplies the canvas, and the raster always covers it at 2×. The island's canvas is 196×34 pt, inset 32 pt from the left and 16 pt from the top of its 260×80 pt panel: 392×68 device pixels. It runs 8 pt past each end of the 180×34 pt envelope that placement and the `Dictation status` element measure, so the panel and the status frame stay where they are while a round end swayed to the end of its track is never cut ([Exact containment](#exact-containment-on-the-drawn-envelope)). The collar's canvas is the whole panel, hung flush from the screen's top edge and centred on the camera housing. Around a $w_h\times h_h$ housing it measures
+Coordinates are canvas-local points at 72 pt/in, with origin at the canvas centre and `+y` upward. `RecordingOverlayLayout` supplies the canvas, and the raster covers it at 2× (`MercuryMetrics.rasterScale`), which only the Settings showroom's magnified stage raises ([Sessions, engine and showroom](#sessions-engine-and-showroom)). The island's canvas is 196×34 pt, inset 32 pt from the left and 16 pt from the top of its 260×80 pt panel: 392×68 device pixels. It runs 8 pt past each end of the 180×34 pt envelope that placement and the `Dictation status` element measure, so the panel and the status frame stay where they are while a round end swayed to the end of its track is never cut ([Exact containment](#exact-containment-on-the-drawn-envelope)). The collar's canvas is the whole panel, hung flush from the screen's top edge and centred on the camera housing. Around a $w_h\times h_h$ housing it measures
 
 $$
  \bigl(w_h+2(\rho_e+E)+8\bigr)\times\bigl(h_h+H_c+3\bigr),
@@ -1318,6 +1318,14 @@ The response is solved again from the anchors on every look or layout change. A 
 
 The Settings showroom draws the production `MercurySurface` on the island layout, with its own hit region, in a deterministic room sequence that starts at `MercuryMetrics.defaultSeed`; Another Room advances it. Each pose drives it through `MercurySimulation.Drive.target(for:reduceMotion:)` from a fixed model built once, so it climbs the island's own ladder exactly as a session does. It runs the production display link only while at least a fifth of the stage is in view and the console window shows any of itself, and holds the pinned frame at substep 600 under Reduce Motion. Scrolled away, or in a window whose `NSWindow.occlusionState` lacks `.visible` — miniaturized, on another Space, hidden, or fully covered, and a covered window's display link keeps firing — the surface is suspended (`MercurySurfaceView.Configuration.isSuspended`): it keeps its last image and draws nothing, live or pinned, so a change made in the folds below costs no frame; the update that brings it back draws the current look at once. A Play Again hold keeps it drawing, and the harness's pinned seam step is never suspended. Bake-class changes — paint, room, and lighting — reach it at most ten times a second while a control moves, which bounds main-thread bake time during a drag. It previews no collar; the collar wears the same look on its own layout.
 
+Two fields of `MercurySurfaceView.Configuration` serve the showroom alone, and their defaults are production's. `rasterScale` is the pixels per layout point the rasterizer draws at. It defaults to `MercuryMetrics.rasterScale` and reaches `MercuryEngine` as the last argument of `pinnedFrame` and `frame(advancing:)`, which default it the same way. The engine's pinned and rendered frame caches are keyed by it, so another scale redraws the settled pinned body without settling it again, and the view's layer takes it as its `contentsScale`. The metering that lights the body never reads it, so a body drawn at another scale is lit exactly as at the production scale. `onPresent` runs on the main actor with each image the view presents, live or pinned, once per new image; it never runs while the surface is suspended or for an empty body, and it defaults to nil. The overlay sets neither, and calibration, the benchmark, and the harness's overlay scenes rasterize at the default, so their bytes are the production engine's.
+
+The Island page's stage shows that surface magnified twice (`IslandStageMetrics`): a 392×68 pt frame, twice the island's 196×34 pt canvas, at `rasterScale` 4, so the body is rasterized at 784×136 px rather than scaled up. Behind it, `IslandStageBackdrop` draws a studio in one SwiftUI `Canvas` from `ShowroomStage.Lighting(look:)` alone: a top spotlight in the look's white balance, scaled so its brightest channel is 1 and white in the stock room, a floor band in the same light, a horizon hairline, and, while the look's underglow is on, a pool on the floor in its colour at its strength. Nothing in it is sampled from the generated room or the screen. Under the body, `onPresent` hands each presented image to a `ShowroomFloorLink`, which publishes nothing and sets the `ShowroomFloor` view's layer contents to `ShowroomStage.floorImage(from:)`. That floor is a CPU raster as wide as the body and twice as tall, in the canvas's own coordinates: a contact shadow, a black ellipse centred on the body's base, 0.92 of its half-width and 0.16 of its height, falling off as $(1-e)^2$ in its normalized squared radius $e$ to a peak opacity of 0.5, under the body mirrored about its base, squashed to 0.55 of its height and fading linearly from 0.28 opacity to 0. The body's bounds are its pixels at alpha ≥ 128. The raster uses no filter, blur, or mask, so the floor is deterministic and the offscreen harness captures it as it shows. Body, floor, and studio are separate layers: the body keeps every pixel the renderer gives it.
+
+The page's Looks gallery shows each of the twelve looks as a still from `IslandLookThumbnails`: the speaking body settled 600 substeps on the island layout at the production scale, 392×68 px, in room 1 of the showroom's sequence (`RenderOverrides.mercurySeed`, else `MercuryMetrics.defaultSeed`), drawn by one shared `MercuryEngine` with a hit region of its own. Stills are kept per look, contrast setting, and seed; `warm(increasedContrast:)` renders the missing ones one per main-actor turn and stops when its task is cancelled, and the gallery runs no display link.
+
+Measured on 2026-11-10 on an Apple Silicon (M-series) development Mac, in one process of a release build with testing enabled, 600 frames at each scale with the first 120 discarded: a live showroom frame at the stage's `rasterScale` 4 (784×136 px) took p50 1.10 ms, p95 1.28 ms, and max 1.40 ms, against p50 0.31 ms and p95 0.36 ms at the production scale 2 (392×68 px). `ShowroomStage.floorImage(from:)` took p50 0.28 ms and p95 0.31 ms on the 784×136 px body, and 0.08 ms on a 392×68 px one. The twelve look stills took 210.7 ms in all in a fresh process: 128.1 ms for the first, which carries the process's one-time engine calibration, and 3.9–26.8 ms for each of the other eleven, rendered one per main-actor turn. These figures are a dated measurement, not a gate.
+
 ### Rejected options
 
 | option | decision |
@@ -1454,7 +1462,7 @@ The relevant automated contracts include:
 
 The room is generated from a seed. It does not read wallpaper, windows, desktop pixels, camera data, or any network resource. No additional permission follows from the material. Temperature and underglow are generated light in that room, not samples of anything on screen.
 
-`MercurySurfaceView` is hidden from accessibility and hit-testing. The stable `Dictation status` element remains in SwiftUI and carries the human-readable value plus named Finish/Cancel actions, and Dock island while the island is free. `MercuryHitRegion` remains AppKit's single click/cursor oracle. In the Settings showroom the surface is hidden the same way: one `Island preview` static-text element states the pose and room, and the adjacent look mark names the look in words.
+`MercurySurfaceView` is hidden from accessibility and hit-testing. The stable `Dictation status` element remains in SwiftUI and carries the human-readable value plus named Finish/Cancel actions, and Dock island while the island is free. `MercuryHitRegion` remains AppKit's single click/cursor oracle. In the Settings showroom the surface is hidden the same way, and so are the stage's backdrop and floor: one `Island preview` static-text element states the pose and room, and the adjacent look mark names the look in words.
 
 ## Source map
 
@@ -1482,9 +1490,9 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | stock conductor oracle and transfer LUTs | `Sources/Voiceour/MercuryOptics.swift` |
 | bounded Naka–Rushton display response | `Sources/Voiceour/MercuryDisplayResponse.swift` |
 | production CPU shading | `Sources/Voiceour/MercuryRasterizer.swift` |
-| fixed-step engine, image cache, and hit region | `Sources/Voiceour/MercuryRibbon.swift` |
+| fixed-step engine, image caches keyed by raster scale, and hit region | `Sources/Voiceour/MercuryRibbon.swift` |
 | fixed 120 Hz clock on display target timestamps | `Sources/Voiceour/MercuryClock.swift` |
-| frame-rate request, display link, and layer presentation | `Sources/Voiceour/MercuryDisplayLink.swift` |
+| frame-rate request, display link, layer presentation, and the configuration's `rasterScale` and `onPresent` | `Sources/Voiceour/MercuryDisplayLink.swift` |
 | island and collar layouts: panel, canvas, status frame, spine, menu-bar band | `Sources/Voiceour/RecordingOverlayLayout.swift` |
 | display description: camera housing, menu-bar band, mirror set, frame-rate ceiling | `Sources/Voiceour/RecordingOverlayDisplay.swift` |
 | hand-off between displays: drain, re-frame, arrival, emergence | `Sources/Voiceour/RecordingOverlayConductor.swift` |
@@ -1495,6 +1503,10 @@ The room is generated from a seed. It does not read wallpaper, windows, desktop 
 | panel acceleration by finite differences and the non-published forcing channel | `Sources/Voiceour/MercuryPanelMotion.swift` |
 | layout per display, placement, drag and dock wiring, session latch of seed and look, pose context, hand-off and dismissal | `Sources/Voiceour/RecordingOverlayController.swift` |
 | Settings ▸ Island, its showroom, and Dock Island | `Sources/Voiceour/ConsoleIslandSection.swift` |
+| the showroom stage's magnified geometry and lit backdrop | `Sources/Voiceour/IslandStage.swift` |
+| the showroom's light from a look, its floor raster, and the floor's link and view (`ShowroomFloorLink`, `ShowroomFloor`) | `Sources/Voiceour/ShowroomStage.swift` |
+| Settings ▸ Island's looks gallery | `Sources/Voiceour/IslandLookGallery.swift` |
+| the twelve look stills | `Sources/Voiceour/IslandLookThumbnails.swift` |
 | Settings ▸ Island commits and undo steps | `Sources/Voiceour/IslandGarageEditor.swift` |
 | material/performance corpus | `Sources/Voiceour/UIHarness/MercuryChromeBenchmark.swift` |
 | contact sheets | `Sources/Voiceour/UIHarness/MercurySheet.swift` |

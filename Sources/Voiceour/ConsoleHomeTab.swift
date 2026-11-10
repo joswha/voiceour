@@ -5,9 +5,10 @@ import VoiceMac
 
 /// Home: what this Mac has dictated, all of it.
 ///
-/// The console's one non-`Form` tab. Every other tab is a list of settings and
-/// readouts, which is exactly what `Form` is for; this one is a page of figures,
-/// and a grouped form would render four section plates around four numbers.
+/// A page of figures rather than a page of controls: the hero line, then the
+/// kit's islands of figures on the console's dark screen. Its ground, panes,
+/// tiles and meters are the kit's, so every other console area that adopts the
+/// same parts reads as this page.
 ///
 /// It navigates nowhere. Nothing here is a control over anything else, so the
 /// tab takes no selection binding — the reader arrives, reads, and leaves by the
@@ -75,30 +76,29 @@ struct ConsoleHomeTab: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xl) {
-                hero
-                // Above the figures, because on the launch it appears the figures
-                // are four zeros and this is the whole page. It retires itself on
-                // the first delivered dictation, which is the same moment the
-                // figures start saying something, so the two never compete.
-                if owesGuidance {
-                    ConsoleFirstRunCard(coordinator: coordinator)
+        Kit.Screen {
+            ScrollView {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xl) {
+                    hero
+                    // Above the figures, because on the launch it appears the figures
+                    // are four zeros and this is the whole page. It retires itself on
+                    // the first delivered dictation, which is the same moment the
+                    // figures start saying something, so the two never compete.
+                    if owesGuidance {
+                        ConsoleFirstRunCard(coordinator: coordinator)
+                    }
+                    statsIsland(summary)
+                    // Absent rather than empty on a Mac with nothing to rank: an
+                    // island headed "Top apps" over no rows states nothing.
+                    if !topApps.isEmpty {
+                        topAppsIsland(topApps)
+                    }
+                    activityIsland(summary)
                 }
-                statsIsland(summary)
-                // Absent rather than empty on a Mac with nothing to rank: an
-                // island headed "Top apps" over no rows states nothing.
-                if !topApps.isEmpty {
-                    topAppsIsland(topApps)
-                }
-                activityIsland(summary)
+                .frame(maxWidth: VoiceourMetrics.Content.table, alignment: .leading)
+                .padding(VoiceourMetrics.Space.xl)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .frame(maxWidth: VoiceourMetrics.Content.table, alignment: .leading)
-            .padding(VoiceourMetrics.Space.xl)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .background {
-            HomeDotGrid()
         }
     }
 
@@ -106,9 +106,7 @@ struct ConsoleHomeTab: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            Text("voiceouurs, rejoice!")
-                .roleStyle(.heroMetric)
-                .accessibilityAddTraits(.isHeader)
+            Kit.Hero("voiceouurs, rejoice!")
                 .accessibilityIdentifier("home.hero")
 
             // Only for a reader who has dictated before and has nothing to show
@@ -132,23 +130,23 @@ struct ConsoleHomeTab: View {
     // MARK: Islands
 
     private func statsIsland(_ summary: DictationStatsSummary) -> some View {
-        HomeIsland {
+        Kit.Island {
             Grid(
                 alignment: .leading,
                 horizontalSpacing: VoiceourMetrics.Space.xl,
                 verticalSpacing: VoiceourMetrics.Space.xl
             ) {
                 GridRow {
-                    HomeStatTile(
-                        icon: "clock.fill",
+                    Kit.StatTile(
+                        systemImage: "clock.fill",
                         value: StatsFormatting.duration(seconds: summary.totalSeconds),
                         unit: nil,
                         caption: "Total dictation time"
                     )
                     .accessibilityIdentifier("home.tile.time")
 
-                    HomeStatTile(
-                        icon: "mic.fill",
+                    Kit.StatTile(
+                        systemImage: "mic.fill",
                         value: StatsFormatting.compactCount(summary.totalWords),
                         unit: "words",
                         caption: "Words dictated"
@@ -156,8 +154,8 @@ struct ConsoleHomeTab: View {
                     .accessibilityIdentifier("home.tile.words")
                 }
                 GridRow {
-                    HomeStatTile(
-                        icon: "hourglass",
+                    Kit.StatTile(
+                        systemImage: "hourglass",
                         value: StatsFormatting.duration(seconds: summary.timeSavedSeconds),
                         unit: nil,
                         caption:
@@ -166,8 +164,8 @@ struct ConsoleHomeTab: View {
                     )
                     .accessibilityIdentifier("home.tile.saved")
 
-                    HomeStatTile(
-                        icon: "bolt.fill",
+                    Kit.StatTile(
+                        systemImage: "bolt.fill",
                         value: String(summary.averageWPM),
                         unit: "wpm",
                         caption: "Average speaking speed"
@@ -179,16 +177,13 @@ struct ConsoleHomeTab: View {
     }
 
     private func topAppsIsland(_ figures: [DictationAppFigure]) -> some View {
-        HomeIsland {
+        Kit.Island {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
-                Text("Top apps")
-                    .roleStyle(.label)
-                    .foregroundStyle(a11y.textMid)
-                    .accessibilityAddTraits(.isHeader)
+                Kit.SectionTitle("Top apps")
                     .accessibilityIdentifier("home.apps.title")
 
                 ForEach(figures) { figure in
-                    HomeAppRow(figure: figure)
+                    appRow(figure)
                 }
             }
             // No identifier on the stack: an identifier on a container replaces
@@ -198,23 +193,40 @@ struct ConsoleHomeTab: View {
         }
     }
 
+    /// One app's rank: its icon, its name over its share of all dictations, and
+    /// its counts. One accessibility element, named by the app and valued by the
+    /// full counts, because read as parts VoiceOver would stop five times for one
+    /// fact.
+    private func appRow(_ figure: DictationAppFigure) -> some View {
+        let identity = AppIdentity.resolve(bundleId: figure.bundleId, persistedName: figure.name)
+        return Kit.MeterRow(
+            title: identity.label,
+            fraction: figure.share,
+            value: String(figure.sessions),
+            caption: "dictations · \(StatsFormatting.compactCount(figure.words)) words",
+            accessibilityValue: "\(figure.sessions) dictations, \(figure.words) words"
+        ) {
+            Kit.AppBadge(name: identity.label, icon: identity.icon)
+        }
+    }
+
     private func activityIsland(_ summary: DictationStatsSummary) -> some View {
-        HomeIsland {
+        Kit.Island {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xl) {
                 HStack(alignment: .top, spacing: VoiceourMetrics.Space.xl) {
-                    HomeStreakStat(
+                    Kit.Figure(
                         value: String(summary.activeDays),
                         label: "Active days"
                     )
                     .accessibilityIdentifier("home.streak.active")
 
-                    HomeStreakStat(
+                    Kit.Figure(
                         value: StatsFormatting.dayLabel(summary.currentStreakDays),
                         label: "Current streak"
                     )
                     .accessibilityIdentifier("home.streak.current")
 
-                    HomeStreakStat(
+                    Kit.Figure(
                         value: StatsFormatting.dayLabel(summary.longestStreakDays),
                         label: "Longest streak"
                     )
@@ -252,11 +264,10 @@ struct ConsoleHomeTab: View {
 /// `DictationCoordinator.completeFirstRun()`), so it is never dismissed, never
 /// stepped through, and owns no state a reader has to clear.
 ///
-/// The vocabulary is the island's, not the native window's: a `HomeIsland` is
-/// fixed-dark in both system appearances, so its marks are ``StatusChip`` on the
-/// app palette rather than ``ConsoleStateMark`` on system semantic colours. The
-/// remediation button stays a stock `Button` — it is the same control Settings
-/// offers, pointed at the same pane, and a control is entitled to its own chrome.
+/// The vocabulary is the island's, not a native form's: a `Kit.Island` is
+/// fixed-dark in both system appearances, so its marks are ``Kit/Mark``s on the
+/// app palette and its remediation is a ``Kit/ActionButton`` — the same action
+/// Settings offers, pointed at the same pane, under the same title and label.
 struct ConsoleFirstRunCard: View {
     var coordinator: DictationCoordinator
 
@@ -274,7 +285,7 @@ struct ConsoleFirstRunCard: View {
     }
 
     var body: some View {
-        HomeIsland {
+        Kit.Island {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
                 // The headline is the instruction. A card teaching one gesture does
                 // not also need a heading announcing that it is going to.
@@ -331,18 +342,20 @@ struct ConsoleFirstRunCard: View {
                 Text(label)
                     .roleStyle(.label)
 
-                StatusChip(label: readout.label, mode: StatusChip.Mode(readout.severity))
+                Kit.Mark(readout.label, tone: Kit.Mark.Tone(readout.severity), size: .regular)
                     .accessibilityIdentifier(identifier)
 
                 if let remediation = readout.remediation?.identified("\(identifier).action") {
-                    Button(remediation.title, action: remediation.perform)
-                        .accessibilityLabel(remediation.accessibilityLabel)
+                    Kit.ActionButton(remediation.title, action: remediation.perform)
+                        // The closure form replaces the label the kit button derives
+                        // from its title, whatever order the modifiers resolve in.
+                        .accessibilityLabel { _ in Text(remediation.accessibilityLabel) }
                         .accessibilityIdentifier(remediation.identifier)
                 }
             }
 
             if let progress = readout.progress {
-                MeterBar(fraction: progress, style: .download(ground: .painted))
+                MeterBar(fraction: progress, style: .download)
                     .accessibilityIdentifier("\(identifier).progress")
             }
 

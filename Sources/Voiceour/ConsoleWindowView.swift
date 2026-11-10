@@ -181,39 +181,6 @@ struct ConsoleWindowView: View {
 
 // MARK: - Shared row shapes
 
-/// A control (or a `LabeledContent` readout) and the sentence that explains it.
-///
-/// The caption is a *sibling* of the control, never part of its accessibility
-/// label: a settings row that folded its explanation into the control's label
-/// would make every flow that addresses a control by label match a paragraph.
-/// One primitive so the gap between a control and its explanation is decided
-/// once for the whole window.
-struct ConsoleRow<Content: View>: View {
-    private let caption: String?
-    private let captionColor: Color?
-    private let content: Content
-
-    init(
-        caption: String? = nil,
-        captionColor: Color? = nil,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.caption = caption
-        self.captionColor = captionColor
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            content
-            if let caption {
-                ConsoleCaption(caption, color: captionColor)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// The window's explanatory voice: one sentence, never truncated mid-clause.
 struct ConsoleCaption: View {
     private let text: String
@@ -230,81 +197,6 @@ struct ConsoleCaption: View {
             .foregroundStyle(color ?? Color.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// A state word and the severity it carries.
-///
-/// The severity ladder is the one the System pane kept, unchanged:
-///
-/// * `.crit` — the app cannot do its job at all. Microphone denied is the only
-///   state in this window that qualifies: with no audio in, no amount of
-///   retrying produces a transcript.
-/// * `.warn` — it works, degraded. A key tap macOS also reacts to, a transcript
-///   that lands on the clipboard instead of in the field, a model that
-///   cold-loads on first use, a grant that has not been asked for yet.
-///
-/// Accessibility denied is deliberately *not* `.crit`. It is the default state
-/// of a freshly installed app (`AXIsProcessTrusted()` is false until the user
-/// adds the app), and both capabilities it gates degrade rather than stop: the
-/// Fn tap falls back to passive, insertion falls back to copy-only. Painting a
-/// fresh install crimson would flatten the ladder from the other end.
-///
-/// Differentiate Without Color adds the mode's symbol, exactly as the glass
-/// chip this replaces did — the state word is already a non-colour carrier, and
-/// the symbol is the second one for readers who need it.
-struct ConsoleStateMark: View {
-    enum Severity {
-        case neutral
-        case ok
-        case warn
-        case crit
-
-        var symbol: String? {
-            switch self {
-            case .neutral: nil
-            case .ok: "checkmark"
-            case .warn: "exclamationmark.triangle.fill"
-            case .crit: "xmark.octagon.fill"
-            }
-        }
-
-        var color: Color {
-            switch self {
-            case .neutral: .secondary
-            case .ok: .green
-            case .warn: .orange
-            case .crit: .red
-            }
-        }
-    }
-
-    private let label: String
-    private let severity: Severity
-    private var a11y = A11y()
-
-    init(_ label: String, _ severity: Severity) {
-        self.label = label
-        self.severity = severity
-    }
-
-    var body: some View {
-        HStack(spacing: VoiceourMetrics.Space.xs) {
-            if a11y.differentiateWithoutColor, let symbol = severity.symbol {
-                Image(systemName: symbol)
-                    .imageScale(.small)
-                    .accessibilityHidden(true)
-            }
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-        }
-        .foregroundStyle(severity.color)
-        .fixedSize(horizontal: true, vertical: false)
-        // Native form readouts otherwise acquire a selectable wrapper whose AX
-        // value stays at the first label even after the visible state changes.
-        .textSelection(.disabled)
-        .accessibilityLabel(label)
     }
 }
 

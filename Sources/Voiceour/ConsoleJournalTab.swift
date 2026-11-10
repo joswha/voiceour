@@ -106,23 +106,24 @@ struct ConsoleJournalTab: View {
     }
 
     var body: some View {
-        HStack(spacing: Kit.Metrics.gutter) {
-            JournalSidebar(
-                lens: lens,
-                counts: counts,
-                recentThreads: isNarrow ? [] : Array(threads.prefix(Self.recentThreadLimit)),
-                openThread: lens == .threads ? openThread : nil,
-                select: { lens = $0 },
-                open: navigation.openThread
-            )
-            .environment(\.kitCompactControls, isNarrow)
-            .frame(width: isNarrow ? Kit.Metrics.railWidth : Kit.Metrics.sidebarWidth)
+        Kit.Screen {
+            HStack(spacing: Kit.Metrics.gutter) {
+                JournalSidebar(
+                    lens: lens,
+                    counts: counts,
+                    recentThreads: isNarrow ? [] : Array(threads.prefix(Self.recentThreadLimit)),
+                    openThread: lens == .threads ? openThread : nil,
+                    select: { lens = $0 },
+                    open: navigation.openThread
+                )
+                .environment(\.kitCompactControls, isNarrow)
+                .frame(width: isNarrow ? Kit.Metrics.railWidth : Kit.Metrics.sidebarWidth)
 
-            lensContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                lensContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding([.leading, .vertical], Kit.Metrics.gutter)
         }
-        .padding([.leading, .vertical], Kit.Metrics.gutter)
-        .background(Kit.Colors.ground.ignoresSafeArea())
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Kit.Metrics.railBelow
         } action: { narrow in
@@ -292,7 +293,7 @@ struct ConsoleJournalTab: View {
 }
 
 /// The Journal's sidebar: the five lenses with what each holds, then the agent sessions
-/// most recently dictated into, on one floating glass panel.
+/// most recently dictated into, on the kit's floating glass sidebar.
 ///
 /// Recent Threads is the Journal's shortcut into delegated work: the sessions a reader
 /// most likely wants to check on are one click from any lens, and each carries a NOT
@@ -322,39 +323,27 @@ struct JournalSidebar: View {
     }
 
     var body: some View {
-        Kit.GlassPanel {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-                ForEach(JournalLens.allCases, id: \.self) { option in
-                    Kit.SidebarItem(
-                        option.label,
-                        systemImage: option.symbol,
-                        count: counts[option],
-                        isSelected: option == lens
-                    ) {
-                        select(option)
-                    }
-                    .accessibilityIdentifier("journal.lens.\(option.rawValue)")
+        Kit.Sidebar {
+            ForEach(JournalLens.allCases, id: \.self) { option in
+                Kit.SidebarItem(
+                    option.label,
+                    systemImage: option.symbol,
+                    count: counts[option],
+                    isSelected: option == lens
+                ) {
+                    select(option)
                 }
+                .accessibilityIdentifier("journal.lens.\(option.rawValue)")
+            }
 
-                if !recentThreads.isEmpty {
-                    heading("Recent Threads")
-                        .padding(.top, VoiceourMetrics.Space.md)
-                    ForEach(recentThreads) { thread in
-                        threadItem(thread)
-                    }
+            if !recentThreads.isEmpty {
+                Kit.SidebarHeading("Recent Threads")
+                    .padding(.top, VoiceourMetrics.Space.md)
+                ForEach(recentThreads) { thread in
+                    threadItem(thread)
                 }
             }
-            .padding(VoiceourMetrics.Space.sm)
         }
-    }
-
-    private func heading(_ title: String) -> some View {
-        Text(title)
-            .font(Kit.Fonts.groupHeader)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, VoiceourMetrics.Space.sm)
-            .padding(.vertical, VoiceourMetrics.Space.xs)
-            .accessibilityAddTraits(.isHeader)
     }
 
     private func threadItem(_ thread: JournalThread) -> some View {
@@ -364,17 +353,16 @@ struct JournalSidebar: View {
             open(thread.id)
         } label: {
             HStack(spacing: VoiceourMetrics.Space.sm) {
-                Kit.Glyph(systemImage: "terminal.fill", tint: .indigo, size: 18)
+                Kit.Badge(systemImage: "terminal.fill", size: .mini)
                 Text(title)
-                    .font(Kit.Fonts.sidebarItem)
-                    .fontWeight(isSelected ? .semibold : .regular)
+                    .roleStyle(isSelected ? .heading : .body)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: VoiceourMetrics.Space.xs)
                 if thread.notSentCount > 0 {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VoiceourPalette.Signal.amber)
                         .help("A dictation in this session was not sent")
                         .accessibilityHidden(true)
                 }
@@ -383,7 +371,7 @@ struct JournalSidebar: View {
             .frame(height: VoiceourMetrics.Control.medium)
         }
         .buttonStyle(Kit.RowButtonStyle(isSelected: isSelected))
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(
             thread.notSentCount > 0
                 ? "\(title), \(thread.ref.agent.displayName), not sent"

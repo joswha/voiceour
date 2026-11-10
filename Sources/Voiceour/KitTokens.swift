@@ -1,19 +1,26 @@
 import AppKit
 import SwiftUI
 
-/// The console's component kit: the parts the Journal is built from.
+/// The console's component kit: the parts every console tab is built from.
 ///
-/// Two layers, and the line between them is the design. Content — rows, cards,
-/// transcripts, figures — sits on an opaque ground in system semantic colours,
-/// because it is what a reader reads. Navigation and controls — the sidebar, the
-/// search and action bars, the copy confirmation — float above it in Liquid
-/// Glass, because they are what a reader steers with.
+/// Two layers, and the line between them is the design. Content — figures, rows,
+/// transcripts, preferences — sits on Home's fixed-dark ground (``Kit/Screen``) in
+/// app-painted islands (``Kit/Island``) and the app palette, because Home is the
+/// reference look and a reader should meet one surface wherever they open the
+/// console. Navigation and controls — the sidebar, the search and action bars,
+/// the copy confirmation — float above it in Liquid Glass, because they are what a
+/// reader steers with.
 ///
-/// Glass never sits on glass. Every kit surface samples the Journal's opaque
-/// ground or the content scrolling under it, never ``ConsoleGlassGround``: glass
-/// cannot sample other glass, and two stacked blurs read as mud. Reduce
-/// Transparency swaps every kit glass surface for an opaque control fill with a
-/// drawn rim, so a reader who turned the material off still sees each boundary.
+/// Glass never sits on glass. Every kit surface samples the painted ground or the
+/// content scrolling over it, never ``ConsoleGlassGround``: glass cannot sample
+/// other glass, and two stacked blurs read as mud. The islands are painted for the
+/// same reason. Reduce Transparency swaps every kit glass surface for an opaque
+/// control fill with a drawn rim and flattens every island, so a reader who turned
+/// the material off still sees each boundary.
+///
+/// Every kit text goes through ``TextRole`` and every painted surface under text
+/// declares `\.surfaceGround`, so the harness's contrast lint measures what the
+/// reader sees.
 ///
 /// The kit owns no state of the app's. A component takes plain values and
 /// closures; what a press means belongs to the lens that placed it.
@@ -57,71 +64,77 @@ extension Kit {
         static let previewRow: CGFloat = VoiceourMetrics.Row.list
         /// A list row that names something: a title and one meta line, on the Row scale's 44.
         static let titleRow: CGFloat = 44
-        static let markHeight: CGFloat = 18
+        /// A compact state mark, the Control scale's declared exception for marks.
+        static let markHeight: CGFloat = VoiceourMetrics.Control.compactMark
+        /// A mark that heads a block, such as the menu's status chip.
+        static let markHeightRegular: CGFloat = VoiceourMetrics.Control.mini
+        /// Home's pane: the radius and inset every island shares.
+        static let islandRadius: CGFloat = VoiceourMetrics.Radius.card
+        static let islandPadding: CGFloat = VoiceourMetrics.Space.lg
+        /// The dot grid's pitch, one dot every 24 pt, on the spacing scale's `xl`.
+        static let dotPitch: CGFloat = VoiceourMetrics.Space.xl
         /// The timestamp column of a reading row: "00:00:00" at 12 pt monospaced digits.
         static let stampGutter: CGFloat = 60
         /// The label column of a fact row.
         static let factLabel: CGFloat = 96
     }
 
-    /// The kit's type ramp. Explicit sizes rather than text styles: macOS has no
-    /// Dynamic Type for these, and a golden must not depend on a setting.
+    /// The kit's type ramp, drawn from ``TextRole`` so a font set here and a role set
+    /// on a `Text` are the same face. Explicit sizes rather than text styles: macOS
+    /// has no Dynamic Type for these, and a golden must not depend on a setting.
+    /// Numbers and display lines are monospaced, as on Home; labels and prose are SF.
     enum Fonts {
-        static let columnTitle = Font.system(size: 20, weight: .bold)
-        static let pageTitle = Font.system(size: 22, weight: .semibold)
-        static let eyebrow = Font.system(size: 12, weight: .medium)
-        static let sectionTitle = Font.system(size: 13, weight: .semibold)
-        static let groupHeader = Font.system(size: 12, weight: .semibold)
-        static let rowTitle = Font.system(size: 13, weight: .semibold)
-        static let rowBody = Font.system(size: 13)
-        static let reading = Font.system(size: 14)
+        static let columnTitle = TextRole.display.font
+        static let pageTitle = TextRole.title.font
+        static let eyebrow = TextRole.caption.font
+        static let sectionTitle = TextRole.label.font
+        static let groupHeader = TextRole.subheading.font
+        static let rowTitle = TextRole.heading.font
+        static let rowBody = TextRole.body.font
+        static let reading = TextRole.reading.font
         /// The open transcript, the one place the kit sets text to be read slowly.
         static let readingLarge: CGFloat = 15
-        static let meta = Font.system(size: 12)
-        static let stamp = Font.system(size: 12).monospacedDigit()
-        static let mark = Font.system(size: 10, weight: .semibold)
-        static let metricValue = Font.system(size: 20, weight: .semibold).monospacedDigit()
-        static let sidebarItem = Font.system(size: 13)
-        static let toast = Font.system(size: 13, weight: .medium)
+        static let meta = TextRole.caption.font
+        static let stamp = TextRole.caption.font.monospacedDigit()
+        static let mark = TextRole.micro.font
+        static let metricValue = TextRole.tileValue.font
+        static let sidebarItem = TextRole.body.font
+        static let toast = TextRole.label.font
     }
 
-    /// Colours. Every one is a system semantic colour or a fraction of one, so the
-    /// kit follows the appearance the reader chose and Increase Contrast escalates
-    /// it; the app palette stays with the menu, the island and Home.
+    /// Colours, from the app palette, because every kit surface sits on the
+    /// fixed-dark ground ``Kit/Screen`` paints whatever the system appearance.
+    /// Increase Contrast escalates the washes and rules; Reduce Transparency
+    /// escalates the rules, which then draw the edges the material drew.
     @MainActor
     enum Colors {
-        static let ground = Color(nsColor: .windowBackgroundColor)
+        /// Home's near-black. Fixed: the islands' text ladder is authored for it.
+        static let ground = VoiceourPalette.Ink.void
 
-        static func cardFill(_ a11y: A11y) -> Color {
-            Color.primary.opacity(a11y.contrast == .increased ? 0.08 : 0.045)
-        }
+        /// The console's one signal colour: glyph discs, selection rims, meters, the
+        /// heat grid. Never text.
+        static let signal = VoiceourPalette.Alien.bloom
 
         static func rule(_ a11y: A11y) -> Color {
-            Color.primary.opacity(escalated(a11y) ? 0.3 : 0.1)
+            a11y.lineRule
         }
 
-        /// A selected row: the accent the History list always used, escalated under
-        /// Increase Contrast so a reader who asked for more is not handed a hint.
+        /// The pane fill of a selected row. The row's bloom rim carries the selection;
+        /// the fill makes the row a small island rather than a tinted stripe.
         static func selection(_ a11y: A11y) -> Color {
-            Color.accentColor.opacity(a11y.contrast == .increased ? 0.34 : 0.2)
+            VoiceourPalette.Ink.pane
         }
 
         static func hover(_ a11y: A11y) -> Color {
-            Color.primary.opacity(a11y.contrast == .increased ? 0.1 : 0.05)
+            a11y.contrast == .increased ? VoiceourPalette.Plate.pressed : VoiceourPalette.Plate.hover
         }
 
         static func pressed(_ a11y: A11y) -> Color {
-            Color.primary.opacity(a11y.contrast == .increased ? 0.16 : 0.09)
+            a11y.contrast == .increased ? Color.white.opacity(0.2) : VoiceourPalette.Plate.pressed
         }
 
         static func hairline(_ a11y: A11y) -> CGFloat {
             VoiceourMetrics.Stroke.hairline(a11y.contrast)
-        }
-
-        /// Reduce Transparency deletes the material that drew a surface's edge, so the
-        /// drawn rule takes its place at the escalated weight Increase Contrast uses.
-        private static func escalated(_ a11y: A11y) -> Bool {
-            a11y.contrast == .increased || a11y.reduceTransparency
         }
     }
 

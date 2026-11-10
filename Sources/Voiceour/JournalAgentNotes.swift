@@ -8,8 +8,10 @@ import VoiceMac
 /// The body is text and nothing else. It is never parsed as Markdown, never turned into a
 /// link and never opened, because an agent wrote it and Voiceour vouches for none of it;
 /// it stays selectable so the reader can take a passage out by hand. It is not an entry,
-/// so a click copies nothing and there is no menu. A card on the content layer, marked
-/// with the agent glyph, so a reader tells an agent's words from their own at a glance.
+/// so a click copies nothing and there is no menu. The row draws no surface of its own: it
+/// sits full width inside its section's island, marked with the agent badge so a reader
+/// tells an agent's words from their own at a glance, and the section rules it off from
+/// the next note.
 struct JournalAgentNoteRow: View {
     /// How much of a body the lens renders. An agent file may run to 256 KB, and one
     /// unbroken text view that long stalls the page it sits in.
@@ -39,26 +41,25 @@ struct JournalAgentNoteRow: View {
     }
 
     var body: some View {
-        Kit.Card {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    Kit.Glyph(systemImage: "sparkles", tint: .purple, size: 18)
-                    Text(caption)
-                        .font(Kit.Fonts.meta)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text(verbatim: text)
-                    .font(Kit.Fonts.reading)
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Kit.Badge(systemImage: "sparkles", size: .small)
+                Text(caption)
+                    .font(Kit.Fonts.meta)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    // Keep mouse selection while exposing the text once, not both the
-                    // native selection wrapper and its identical accessibility child.
-                    .accessibilityRepresentation { Text(verbatim: text) }
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            Text(verbatim: text)
+                .font(Kit.Fonts.reading)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                // Keep mouse selection while exposing the text once, not both the
+                // native selection wrapper and its identical accessibility child.
+                .accessibilityRepresentation { Text(verbatim: text) }
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
     }
 

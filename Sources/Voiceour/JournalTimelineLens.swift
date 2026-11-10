@@ -70,7 +70,7 @@ struct JournalTimelineLens: View {
 
     private var a11y = A11y()
 
-    /// The `.id` of the teach editor's card, which the page scrolls to when it opens.
+    /// The `.id` of the teach editor's island, which the page scrolls to when it opens.
     private static let teachAnchor = "sessions.teach.anchor"
 
     init(
@@ -513,7 +513,7 @@ struct JournalTimelineLens: View {
             }
         } marks: {
             if let outcome = session.outcome {
-                Kit.Mark(outcome.chip.label, tone: outcome.tone)
+                Kit.Mark(outcome.outcomeMark.label, tone: outcome.outcomeMark.tone)
             }
             // The paste reached the pane but the agent never took it as a prompt:
             // without this mark the row reads PASTED and looks done.
@@ -616,7 +616,7 @@ struct JournalTimelineLens: View {
     private func accessibilityLabel(for session: RecentSession) -> String {
         var parts = [SessionsFormatters.timestamp.string(from: session.createdAt)]
         if let outcome = session.outcome {
-            parts.append(outcome.chip.label)
+            parts.append(outcome.outcomeMark.label)
             if session.agentSession?.isNotSent == true {
                 parts.append("NOT SENT")
             }
@@ -668,7 +668,7 @@ struct JournalTimelineLens: View {
             }
 
             if isTeachingOpen {
-                Kit.Card {
+                Kit.Island {
                     ConsoleTeachHost(
                         coordinator: coordinator,
                         session: session,
@@ -751,7 +751,7 @@ struct JournalTimelineLens: View {
             if hasHeaderMarks(session) {
                 HStack(spacing: VoiceourMetrics.Space.xs) {
                     if let outcome = session.outcome {
-                        Kit.Mark(outcome.chip.label, tone: outcome.tone)
+                        Kit.Mark(outcome.outcomeMark.label, tone: outcome.outcomeMark.tone)
                         if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
                             Kit.Mark(targetSafety.displayLabel)
                         }
@@ -801,12 +801,12 @@ struct JournalTimelineLens: View {
         return "\(deliverySentence(for: session)) \u{00B7} \(words)"
     }
 
-    /// The transcript, on its own card. A plain click copies it, and a selection plus
-    /// ⌘T (or a right-click) teaches a correction. Reduce Transparency lays the opaque
-    /// ground macOS uses for text content under the card, because this is the one
-    /// place in the window that holds arbitrary user text and supports selection.
+    /// The transcript, on its own island. A plain click copies it, and a selection plus
+    /// ⌘T (or a right-click) teaches a correction. Under Reduce Transparency the island
+    /// is opaque, so the one place in the window that holds arbitrary user text and
+    /// supports selection never sits on a translucent surface.
     private func transcript(for session: RecentSession) -> some View {
-        Kit.Card {
+        Kit.Island {
             SelectableTranscriptText(
                 identity: session.id,
                 text: session.text.isEmpty ? "Empty transcript" : session.text,
@@ -818,12 +818,6 @@ struct JournalTimelineLens: View {
                 onPlainClick: { copy(session.text, announcement: "Transcript copied to clipboard") }
             )
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background {
-            if a11y.reduceTransparency {
-                RoundedRectangle(cornerRadius: Kit.Metrics.cardRadius, style: .continuous)
-                    .fill(Color(nsColor: .textBackgroundColor))
-            }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
@@ -905,27 +899,33 @@ struct JournalTimelineLens: View {
         let raw = rawTranscript(for: session)
         let hasDetails = hasSessionDetails(for: session)
         if sent != nil || raw != nil || hasDetails {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                // Only where the prompt differs from the delivered text: edited, or
-                // with words added around it.
-                if let sent {
-                    Kit.Disclosure("Sent", isExpanded: $showsSentText, identifier: "sessions.detail.sent") {
-                        metadataText(sent, mono: false)
+            Kit.Island {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                    // Only where the prompt differs from the delivered text: edited, or
+                    // with words added around it.
+                    if let sent {
+                        Kit.Disclosure("Sent", isExpanded: $showsSentText, identifier: "sessions.detail.sent") {
+                            metadataText(sent, mono: false)
+                        }
                     }
-                }
 
-                // Only where cleanup changed the text. At dictation length it is a wall
-                // of monospaced text several times the height of any other fold, read
-                // to answer one narrow question.
-                if let raw {
-                    Kit.Disclosure("Raw", isExpanded: $showsRawTranscript, identifier: "sessions.detail.raw") {
-                        metadataText(raw, mono: true)
+                    // Only where cleanup changed the text. At dictation length it is a wall
+                    // of monospaced text several times the height of any other fold, read
+                    // to answer one narrow question.
+                    if let raw {
+                        Kit.Disclosure("Raw", isExpanded: $showsRawTranscript, identifier: "sessions.detail.raw") {
+                            metadataText(raw, mono: true)
+                        }
                     }
-                }
 
-                if hasDetails {
-                    Kit.Disclosure("Details", isExpanded: $showsSessionDetails, identifier: "sessions.detail.details") {
-                        details(for: session)
+                    if hasDetails {
+                        Kit.Disclosure(
+                            "Details",
+                            isExpanded: $showsSessionDetails,
+                            identifier: "sessions.detail.details"
+                        ) {
+                            details(for: session)
+                        }
                     }
                 }
             }
@@ -1103,19 +1103,6 @@ struct JournalTimelineLens: View {
                 deleteError = "Could not delete this dictation — it is still on disk. Try again."
                 return
             }
-        }
-    }
-}
-
-// MARK: - Outcome tone
-
-extension RecentSessionOutcomeMetadata {
-    /// The tone the outcome's word carries on the kit's mark ladder.
-    var tone: Kit.Mark.Tone {
-        switch disposition {
-        case .pasteAttempted: .success
-        case .copiedOnly: .caution
-        case .failed: .critical
         }
     }
 }

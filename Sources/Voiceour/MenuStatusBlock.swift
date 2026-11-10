@@ -2,20 +2,20 @@ import SwiftUI
 
 struct MenuStatusBlock: View {
     let statusLabel: String
-    let statusMode: StatusChip.Mode
+    let statusTone: Kit.Mark.Tone
     let isSystemAudioMuted: Bool
     let headline: (text: String, color: Color?, progress: Double?)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
             HStack(spacing: VoiceourMetrics.Space.sm) {
-                StatusChip(label: statusLabel, mode: statusMode)
+                Kit.Mark(statusLabel, tone: statusTone, size: .regular)
 
                 if isSystemAudioMuted {
                     // Compact, and in the header row rather than a lone pill
                     // floating in the prose column: one component, one
                     // structural level.
-                    StatusChip(label: "SYSTEM AUDIO MUTED", mode: .neutral, size: .compact)
+                    Kit.Mark("SYSTEM AUDIO MUTED", size: .compact)
                         .accessibilityLabel("System audio muted")
                 }
 
@@ -32,7 +32,7 @@ struct MenuStatusBlock: View {
             if let headline {
                 CaptionText(headline.text, color: headline.color)
                 if let progress = headline.progress {
-                    MeterBar(fraction: progress, style: .download(ground: .painted))
+                    MeterBar(fraction: progress, style: .download)
                         .accessibilityIdentifier("menu.acquisition.progress")
                 }
             }

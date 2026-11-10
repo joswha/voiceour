@@ -1,0 +1,15 @@
+flow: glossary.suggestion-teach
+title: Teaching a suggestion adds its form to the term, and handling the last returns to All Terms
+fixture: static
+transitions: idle
+PASS 1 suggestions | selected(true) id=glossary.suggestions | true
+PASS 2 suggestions | selected(false) id=glossary.origin.all | false
+PASS 3 suggestions | exists id=suggestion.suggestion-neurodock.accept | 1 match
+PASS 4 next-suggestion | absent id=suggestion.suggestion-neurodock.accept | 0 matches
+PASS 5 next-suggestion | absent id=suggestion.suggestion-neurodock.ignore | 0 matches
+PASS 6 next-suggestion | absent id=suggestion.suggestion-neurodock.reject | 0 matches
+PASS 7 next-suggestion | exists id=suggestion.suggestion-kubectl.accept | 1 match
+PASS 8 all-terms | absent id=glossary.suggestions | 0 matches
+PASS 9 all-terms | selected(true) id=glossary.origin.all | true
+PASS 10 all-terms | label id=glossary.term.term-neurodock contains "new row dock" | "NeuroDock, heard as neuro dock, new row dock"
+PASS 11 all-terms | model glossaryTermCount == "7" | 7

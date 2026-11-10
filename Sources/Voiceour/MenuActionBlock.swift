@@ -6,6 +6,8 @@ struct MenuActionBlock: View {
     let isGated: Bool
     let dictationTitle: String
     let dictationRowTitle: String
+    /// The glyph the dictation row's badge draws, in step with its title.
+    let dictationRowSystemImage: String
     let startOrStopDictation: () -> Void
     /// Starts a recording that is saved as a note, or nil while a session is in
     /// flight: a recording offers its stop action and nothing else.
@@ -21,6 +23,7 @@ struct MenuActionBlock: View {
         isGated: Bool,
         dictationTitle: String,
         dictationRowTitle: String,
+        dictationRowSystemImage: String,
         startOrStopDictation: @escaping () -> Void,
         takeNote: (() -> Void)? = nil,
         failure: UserFacingDictationFailure? = nil,
@@ -29,6 +32,7 @@ struct MenuActionBlock: View {
         self.isGated = isGated
         self.dictationTitle = dictationTitle
         self.dictationRowTitle = dictationRowTitle
+        self.dictationRowSystemImage = dictationRowSystemImage
         self.startOrStopDictation = startOrStopDictation
         self.takeNote = takeNote
         self.failure = failure
@@ -62,15 +66,20 @@ struct MenuActionBlock: View {
             // remedy actually is: a retry for a model that has to finish arriving,
             // System Settings for a permission this app cannot grant itself.
             if let failure, failure.isRetryable, failure.destination != .systemSettings {
-                MenuCommandRow(title: "Try Again", closingRule: true) { retry() }
+                MenuCommandRow(title: "Try Again", systemImage: "arrow.clockwise", closingRule: true) { retry() }
             } else if let failure, failure.destination == .systemSettings {
-                MenuCommandRow(title: "Open System Settings", accessory: .chevron, closingRule: true) {
+                MenuCommandRow(
+                    title: "Open System Settings",
+                    systemImage: "gearshape.fill",
+                    accessory: .chevron,
+                    closingRule: true
+                ) {
                     PrivacySettings.microphone.open()
                 }
             }
 
             if isGated {
-                MenuCommandRow(title: dictationRowTitle, closingRule: true) {
+                MenuCommandRow(title: dictationRowTitle, systemImage: dictationRowSystemImage, closingRule: true) {
                     startOrStopDictation()
                 }
             } else {
@@ -79,15 +88,16 @@ struct MenuActionBlock: View {
                 // failure; leaving it out there also keeps the container at the
                 // three rows the popover's height was measured for.
                 if let takeNote, !offersFailureRemedy {
-                    MenuCommandRow(title: "Take a Note", closingRule: true) { takeNote() }
+                    MenuCommandRow(title: "Take a Note", systemImage: "note.text", closingRule: true) { takeNote() }
                         .accessibilityIdentifier("menu.take-note")
                 }
-                MenuCommandRow(title: "Open Console", accessory: .chevron, closingRule: true) {
+                MenuCommandRow(title: "Open Console", systemImage: "macwindow", accessory: .chevron, closingRule: true)
+                {
                     openConsole()
                 }
             }
 
-            MenuCommandRow(title: "Quit", accessory: .keys("⌘Q")) {
+            MenuCommandRow(title: "Quit", systemImage: "power", accessory: .keys("⌘Q")) {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")

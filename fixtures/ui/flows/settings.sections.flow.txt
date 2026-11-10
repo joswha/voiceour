@@ -1,0 +1,16 @@
+flow: settings.sections
+title: Settings opens on Dictation and a sidebar item swaps in its section's page
+fixture: static
+transitions: idle
+PASS 1 dictation | selected(true) id=settings.section.dictation | true
+PASS 2 dictation | exists id=capture.hotkey | 1 match
+PASS 3 dictation | absent id=voice.microphone.picker | 0 matches
+PASS 4 dictation | lint clean | no error findings
+PASS 5 audio | selected(true) id=settings.section.audio | true
+PASS 6 audio | selected(false) id=settings.section.dictation | false
+PASS 7 audio | exists id=voice.microphone.picker | 1 match
+PASS 8 audio | absent id=capture.hotkey | 0 matches
+PASS 9 danger | selected(true) id=settings.section.danger | true
+PASS 10 danger | selected(false) id=settings.section.audio | false
+PASS 11 danger | exists id=system.history.arm | 1 match
+PASS 12 danger | absent id=voice.microphone.picker | 0 matches

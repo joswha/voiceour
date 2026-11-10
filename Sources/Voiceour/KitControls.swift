@@ -301,10 +301,10 @@ extension Kit {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .semibold))
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(a11y.textMid)
                             .frame(width: VoiceourMetrics.Space.md)
                         Text(title)
-                            .font(Kit.Fonts.sectionTitle)
+                            .roleStyle(.heading)
                         Spacer(minLength: 0)
                     }
                     .frame(height: Kit.Metrics.control)
@@ -325,8 +325,15 @@ extension Kit {
         }
     }
 
-    /// The fill a list row or sidebar item draws for its state: the accent wash when
-    /// selected, a faint wash under the pointer or the press, nothing at rest.
+    /// The surface a list row or sidebar item draws for its state.
+    ///
+    /// A selected row is lit as a small island: the pane fill, a specular hairline and
+    /// a 1 pt rim in the signal green — a crisp stroke rather than a glow, so the
+    /// offscreen harness captures the same edge the reader sees. Hover and press are
+    /// faint white washes; at rest the row draws nothing. Every state declares what it
+    /// paints as the ground under the row's text. Increase Contrast thickens the rim
+    /// and strengthens the washes; Reduce Transparency flattens the selected row to an
+    /// opaque surface with the rim alone.
     struct RowButtonStyle: ButtonStyle {
         private let isSelected: Bool
 
@@ -348,6 +355,7 @@ extension Kit {
         private let label: Label
         @State private var isHovered = false
         private var a11y = A11y()
+        @Environment(\.surfaceGround) private var inheritedGround
 
         init(isSelected: Bool, isPressed: Bool, @ViewBuilder label: () -> Label) {
             self.isSelected = isSelected
@@ -359,41 +367,102 @@ extension Kit {
             let shape = RoundedRectangle(cornerRadius: Kit.Metrics.rowRadius, style: .continuous)
             label
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(fill, in: shape)
+                .background { surface(in: shape) }
+                .environment(\.surfaceGround, ground)
                 .contentShape(shape)
                 .onHover { isHovered = $0 }
         }
 
-        private var fill: Color {
-            if isSelected { return Kit.Colors.selection(a11y) }
-            if isPressed { return Kit.Colors.pressed(a11y) }
-            if isHovered { return Kit.Colors.hover(a11y) }
-            return .clear
+        @ViewBuilder
+        private func surface(in shape: RoundedRectangle) -> some View {
+            if isSelected {
+                let rim: CGFloat = a11y.contrast == .increased ? 1.5 : 1
+                if a11y.reduceTransparency {
+                    shape
+                        .fill(VoiceourPalette.Ink.surface)
+                        .overlay { shape.strokeBorder(Kit.Colors.signal, lineWidth: rim) }
+                } else {
+                    ZStack {
+                        shape.fill(Kit.Colors.selection(a11y))
+                        RoundedRectangle(
+                            cornerRadius: VoiceourMetrics.Radius.nested(Kit.Metrics.rowRadius, inset: rim),
+                            style: .continuous
+                        )
+                        .strokeBorder(VoiceourPalette.specularRim, lineWidth: Kit.Colors.hairline(a11y))
+                        .blendMode(.plusLighter)
+                        .padding(rim)
+                        shape.strokeBorder(Kit.Colors.signal, lineWidth: rim)
+                    }
+                }
+            } else if isPressed {
+                shape.fill(Kit.Colors.pressed(a11y))
+            } else if isHovered {
+                shape.fill(Kit.Colors.hover(a11y))
+            }
+        }
+
+        private var ground: SurfaceGround {
+            if isSelected {
+                return a11y.reduceTransparency
+                    ? SurfaceGround(VoiceourPalette.Ink.surface)
+                    : inheritedGround.painting(Kit.Colors.selection(a11y))
+            }
+            if isPressed { return inheritedGround.painting(Kit.Colors.pressed(a11y)) }
+            if isHovered { return inheritedGround.painting(Kit.Colors.hover(a11y)) }
+            return inheritedGround
         }
     }
 
-    /// One destination in the sidebar: a glyph, a name and how many items it holds. On the
-    /// rail (`kitCompactControls`) it draws the glyph alone, and the name and count stay
-    /// its accessibility label and value and become its tooltip.
+    /// One destination in the sidebar: a glyph, a name, how many items it holds, and
+    /// whether something there needs the reader. On the rail (`kitCompactControls`) it
+    /// draws the glyph alone, and the name, count and attention stay its
+    /// accessibility label and value and become its tooltip.
+    ///
+    /// The glyph takes the signal green when the item is selected, beside the row's
+    /// lit rim. Attention is a state, so it is never colour alone: a caution triangle
+    /// or a critical octagon trails the row, and VoiceOver hears "needs attention".
     struct SidebarItem: View {
+        enum Attention {
+            case caution
+            case critical
+
+            var symbol: String {
+                switch self {
+                case .caution: "exclamationmark.triangle.fill"
+                case .critical: "xmark.octagon.fill"
+                }
+            }
+
+            var color: Color {
+                switch self {
+                case .caution: VoiceourPalette.Signal.amber
+                case .critical: VoiceourPalette.Signal.crimson
+                }
+            }
+        }
+
         private let title: String
         private let systemImage: String
         private let count: Int?
         private let isSelected: Bool
+        private let attention: Attention?
         private let action: () -> Void
         @Environment(\.kitCompactControls) private var isCompact
+        private var a11y = A11y()
 
         init(
             _ title: String,
             systemImage: String,
             count: Int? = nil,
             isSelected: Bool,
+            attention: Attention? = nil,
             action: @escaping () -> Void
         ) {
             self.title = title
             self.systemImage = systemImage
             self.count = count
             self.isSelected = isSelected
+            self.attention = attention
             self.action = action
         }
 
@@ -402,22 +471,30 @@ extension Kit {
                 HStack(spacing: VoiceourMetrics.Space.sm) {
                     Image(systemName: systemImage)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isSelected ? Kit.Colors.signal : a11y.textMid)
                         .frame(width: VoiceourMetrics.Space.xl - VoiceourMetrics.Space.xs)
+                        .overlay(alignment: .topTrailing) {
+                            if isCompact, let attention {
+                                attentionGlyph(attention, size: 8)
+                                    .offset(x: VoiceourMetrics.Space.xs, y: -VoiceourMetrics.Space.xs)
+                            }
+                        }
                         .accessibilityHidden(true)
                     if !isCompact {
                         Text(title)
-                            .font(Kit.Fonts.sidebarItem)
-                            .fontWeight(isSelected ? .semibold : .regular)
+                            .roleStyle(isSelected ? .heading : .body)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: VoiceourMetrics.Space.xs)
                         if let count {
                             // Digits by hand, so no locale's grouping separator reaches a golden.
                             Text(verbatim: String(count))
-                                .font(Kit.Fonts.meta)
+                                .roleStyle(.caption)
+                                .foregroundStyle(a11y.textMid)
                                 .monospacedDigit()
-                                .foregroundStyle(.secondary)
+                        }
+                        if let attention {
+                            attentionGlyph(attention, size: 10)
                         }
                     }
                 }
@@ -426,16 +503,135 @@ extension Kit {
                 .frame(height: VoiceourMetrics.Control.medium)
             }
             .buttonStyle(RowButtonStyle(isSelected: isSelected))
-            .accessibilityElement(children: .ignore)
+            .accessibilityElement(children: .combine)
             .accessibilityLabel(title)
-            .accessibilityValue(count.map(String.init) ?? "")
+            .accessibilityValue(accessibilityValue)
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
 
             if isCompact {
-                item.help(count.map { "\(title), \($0)" } ?? title)
+                item.help(([title] + facts).joined(separator: ", "))
             } else {
                 item
             }
+        }
+
+        private func attentionGlyph(_ attention: Attention, size: CGFloat) -> some View {
+            Image(systemName: attention.symbol)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(attention.color)
+                .accessibilityHidden(true)
+        }
+
+        /// The count, then "needs attention", as VoiceOver and the rail's tooltip say them.
+        private var facts: [String] {
+            var facts: [String] = []
+            if let count { facts.append(String(count)) }
+            if attention != nil { facts.append("needs attention") }
+            return facts
+        }
+
+        private var accessibilityValue: String {
+            facts.joined(separator: ", ")
+        }
+    }
+
+    /// The sidebar: a floating glass panel holding a column of ``Kit/SidebarItem``s and
+    /// ``Kit/SidebarHeading``s, so every console tab that browses steers the same way.
+    struct Sidebar<Content: View>: View {
+        private let content: Content
+
+        init(@ViewBuilder content: () -> Content) {
+            self.content = content()
+        }
+
+        var body: some View {
+            Kit.GlassPanel {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+                    content
+                }
+                .padding(VoiceourMetrics.Space.sm)
+            }
+        }
+    }
+
+    /// A heading inside the sidebar, over the items it groups: the Journal's "Recent
+    /// Threads". On the rail, where a name has no room, it draws a rule and keeps its
+    /// name as the rule's tooltip.
+    struct SidebarHeading: View {
+        private let title: String
+        @Environment(\.kitCompactControls) private var isCompact
+        private var a11y = A11y()
+
+        init(_ title: String) {
+            self.title = title
+        }
+
+        var body: some View {
+            if isCompact {
+                Kit.Rule()
+                    .padding(.horizontal, VoiceourMetrics.Space.sm)
+                    .padding(.vertical, VoiceourMetrics.Space.xs)
+                    .help(title)
+            } else {
+                Text(title)
+                    .roleStyle(.subheading)
+                    .foregroundStyle(a11y.textMid)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, VoiceourMetrics.Space.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+    }
+
+    /// One preference inside an island: its name leading and its control trailing on
+    /// the same line, then a caption under both that says what the preference does.
+    ///
+    /// The caption is a sibling of the control, never its label: a control's label is
+    /// what VoiceOver names it by, and a sentence there would be read on every focus.
+    /// Rows stack inside an island separated by ``Kit/Rule``. `captionColor` lets a
+    /// caption carry a state's colour — a refusal in crimson — when the words already
+    /// say the state.
+    struct SettingRow<Control: View>: View {
+        private let title: String
+        private let caption: String?
+        private let captionColor: Color?
+        private let control: Control
+        private var a11y = A11y()
+
+        init(
+            _ title: String,
+            caption: String? = nil,
+            captionColor: Color? = nil,
+            @ViewBuilder control: () -> Control
+        ) {
+            self.title = title
+            self.caption = caption
+            self.captionColor = captionColor
+            self.control = control()
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                HStack(alignment: .center, spacing: VoiceourMetrics.Space.md) {
+                    Text(title)
+                        .roleStyle(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: VoiceourMetrics.Space.md)
+                    control
+                }
+                .frame(minHeight: Kit.Metrics.control)
+                if let caption {
+                    Text(caption)
+                        .roleStyle(.caption)
+                        .foregroundStyle(captionColor ?? a11y.textMid)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.vertical, VoiceourMetrics.Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

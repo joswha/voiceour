@@ -19,7 +19,7 @@ struct MenuTranscriptPreview: View {
     var body: some View {
         Button(action: copy) {
             Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                .font(VoiceourTypography.caption)
+                .roleStyle(.caption)
                 .foregroundStyle(VoiceourPalette.Text.high)
                 .lineLimit(3)
                 .truncationMode(.tail)
@@ -33,9 +33,9 @@ struct MenuTranscriptPreview: View {
     }
 }
 
-/// A well that is also the control, so this style owns the recess: it paints
-/// `Ink.well`, escalates that fill with the interaction ladder, and derives its
-/// radius concentrically from the popover.
+/// A well that is also the control, so this style owns the surface: it paints
+/// Home's island pane and rims (``Kit/Island``'s recipe) in the popover's
+/// concentric radius, and lifts that pane with the interaction ladder.
 private struct MenuWellButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         MenuWellBody(configuration: configuration)
@@ -73,40 +73,95 @@ private struct MenuWellBody: View {
             // holds the tallest transcript and keeps the press target on the row
             // scale.
             .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Row.list, alignment: .topLeading)
-            .background {
-                ZStack {
+            .background { surface }
+            .overlay {
+                if let interactionStroke {
                     MenuLayout.innerShape
-                        .fill(VoiceourPalette.Ink.well)
-                    // A well recesses by darkening; on a near-black ground the
-                    // only headroom left is upward, so interaction lifts the
-                    // fill rather than deepening it.
-                    MenuLayout.innerShape
-                        .fill(wash)
+                        .strokeBorder(interactionStroke, lineWidth: strokeWidth)
                 }
             }
-            .overlay {
-                MenuLayout.innerShape
-                    .strokeBorder(stroke, lineWidth: strokeWidth)
-            }
-            // This body paints `Ink.well` and its wash by hand, so it also has
-            // to declare what it painted — otherwise every transcript sample is
-            // measured against the popover's ground instead of the recess the
-            // text actually sits in.
-            .environment(\.surfaceGround, inheritedGround.painting(VoiceourPalette.Ink.well).painting(wash))
+            // This body paints its pane and wash by hand, so it also has to
+            // declare what it painted — otherwise every transcript sample is
+            // measured against the popover's ground instead of the pane the
+            // text actually sits on. Only the opaque layers: `glassTint` is a
+            // gradient, and reporting its lightest stop would understate the
+            // ground under the first line.
+            .environment(\.surfaceGround, paintedGround)
             .contentShape(MenuLayout.innerShape)
             .focusEffectDisabled()
             .animation(a11y.reduceMotion ? nil : VoiceourMotion.quick, value: state)
             .onHover { isHovering = $0 }
     }
 
-    private var stroke: Color {
+    private var paintedGround: SurfaceGround {
+        let pane =
+            a11y.reduceTransparency
+            ? SurfaceGround(VoiceourPalette.Ink.surface)
+            : inheritedGround
+                .painting(VoiceourPalette.Ink.void.opacity(0.55))
+                .painting(VoiceourPalette.Ink.pane)
+        return pane.painting(wash)
+    }
+
+    @ViewBuilder
+    private var surface: some View {
+        let shape = MenuLayout.innerShape
+        if a11y.reduceTransparency {
+            // With the material gone there is nothing for a highlight to be a
+            // highlight of: an opaque pane bounded by a drawn edge.
+            ZStack {
+                shape.fill(VoiceourPalette.Ink.surface)
+                shape.fill(wash)
+                shape.strokeBorder(
+                    a11y.lineEdge,
+                    lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
+                )
+            }
+        } else {
+            ZStack {
+                shape.fill(VoiceourPalette.Ink.void.opacity(0.55))
+                shape.fill(VoiceourPalette.Ink.pane)
+                shape.fill(VoiceourPalette.glassTint)
+                // On a near-black pane the only headroom left is upward, so
+                // interaction lifts the fill rather than deepening it.
+                shape.fill(wash)
+                // The neon rim: a blurred stroke lights only the edge, where a
+                // green shadow behind translucent fills would tint the pane.
+                shape
+                    .strokeBorder(VoiceourPalette.Alien.bloomGlow, lineWidth: 1.5)
+                    .blur(radius: 2.5)
+                    .blendMode(.plusLighter)
+                shape
+                    .strokeBorder(
+                        VoiceourPalette.specularRim,
+                        lineWidth: a11y.contrast == .increased ? 1 : VoiceourMetrics.Stroke.specular
+                    )
+                    .blendMode(.plusLighter)
+                RoundedRectangle(
+                    cornerRadius: VoiceourMetrics.Radius.nested(
+                        MenuLayout.innerRadius,
+                        inset: VoiceourMetrics.Stroke.hairline(a11y.contrast)
+                    ),
+                    style: .continuous
+                )
+                .strokeBorder(
+                    VoiceourPalette.Ink.rimDark,
+                    lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
+                )
+                .padding(VoiceourMetrics.Stroke.hairline(a11y.contrast))
+            }
+        }
+    }
+
+    /// The rim interaction adds over the pane's own; rest adds none.
+    private var interactionStroke: Color? {
         switch state {
         case .focused, .selected:
             VoiceourPalette.Line.focus
         case .hover, .pressed, .inFlight:
             VoiceourPalette.Line.controlHover
         case .rest, .disabled:
-            a11y.lineControl
+            nil
         }
     }
 

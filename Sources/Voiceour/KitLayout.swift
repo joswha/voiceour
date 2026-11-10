@@ -30,8 +30,11 @@ extension Kit {
         }
     }
 
-    /// The list column: its title and count, a glass bar for search and filters, and
-    /// the rows under them.
+    /// The list column: its title in the display face, its count, a glass bar for
+    /// search and filters, and the rows under them.
+    ///
+    /// The title is set like Home's hero at a reading size — 28 pt light monospaced —
+    /// so every list opens in the voice of the reference page.
     ///
     /// The header stands above the rows rather than floating over them: its title is
     /// plain text, which only a scroll edge effect keeps legible over moving rows, and
@@ -49,6 +52,7 @@ extension Kit {
         private let onMove: ((MoveCommandDirection) -> Void)?
         private let bar: Bar
         private let content: Content
+        private var a11y = A11y()
 
         init(
             _ title: String,
@@ -108,12 +112,13 @@ extension Kit {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
                 VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                     Text(title)
-                        .font(Kit.Fonts.columnTitle)
+                        .roleStyle(.display)
+                        .lineLimit(1)
                         .accessibilityAddTraits(.isHeader)
                     if let subtitle {
                         Text(subtitle)
-                            .font(Kit.Fonts.meta)
-                            .foregroundStyle(.secondary)
+                            .roleStyle(.caption)
+                            .foregroundStyle(a11y.textMid)
                     }
                 }
                 .padding(.horizontal, VoiceourMetrics.Space.sm)
@@ -197,22 +202,27 @@ extension Kit {
 
     /// The head of a page: what it is about, in the order a reader asks — when or
     /// where (the eyebrow), what (the title), and how much (the subtitle) — then any
-    /// marks the page carries.
+    /// marks the page carries. A page about a code value, such as a glossary term,
+    /// sets `monospacedTitle` and its title reads in the code face.
     struct PageHeader<Accessory: View>: View {
         private let eyebrow: String?
         private let title: String
         private let subtitle: String?
+        private let monospacedTitle: Bool
         private let accessory: Accessory
+        private var a11y = A11y()
 
         init(
             eyebrow: String? = nil,
             title: String,
             subtitle: String? = nil,
+            monospacedTitle: Bool = false,
             @ViewBuilder accessory: () -> Accessory
         ) {
             self.eyebrow = eyebrow
             self.title = title
             self.subtitle = subtitle
+            self.monospacedTitle = monospacedTitle
             self.accessory = accessory()
         }
 
@@ -221,17 +231,17 @@ extension Kit {
                 VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
                     if let eyebrow {
                         Text(eyebrow)
-                            .font(Kit.Fonts.eyebrow)
-                            .foregroundStyle(.secondary)
+                            .roleStyle(.caption)
+                            .foregroundStyle(a11y.textMid)
                     }
                     Text(title)
-                        .font(Kit.Fonts.pageTitle)
+                        .roleStyle(monospacedTitle ? .codeTitle : .title)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
                     if let subtitle {
                         Text(subtitle)
-                            .font(Kit.Fonts.meta)
-                            .foregroundStyle(.secondary)
+                            .roleStyle(.caption)
+                            .foregroundStyle(a11y.textMid)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -242,11 +252,13 @@ extension Kit {
     }
 
     /// A list's group heading — a day, a month, a project folder — pinned under the
-    /// column's bar while its rows scroll. It carries the opaque ground so a row
-    /// scrolling under it never shows through its words.
+    /// column's bar while its rows scroll. It paints the screen's `Ink.void` and
+    /// declares it as its ground, so a row scrolling under it never shows through its
+    /// words.
     struct GroupHeader: View {
         private let title: String
         private let detail: String?
+        private var a11y = A11y()
 
         init(_ title: String, detail: String? = nil) {
             self.title = title
@@ -256,30 +268,35 @@ extension Kit {
         var body: some View {
             HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
                 Text(title)
-                    .font(Kit.Fonts.groupHeader)
+                    .roleStyle(.subheading)
+                    .foregroundStyle(a11y.textMid)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
                 if let detail {
                     Text(detail)
-                        .font(Kit.Fonts.meta)
+                        .roleStyle(.caption)
+                        .foregroundStyle(a11y.textMid)
                         .monospacedDigit()
                 }
             }
-            .foregroundStyle(.secondary)
             .padding(.horizontal, VoiceourMetrics.Space.sm + VoiceourMetrics.Space.xs)
             .padding(.top, VoiceourMetrics.Space.md)
             .padding(.bottom, VoiceourMetrics.Space.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Kit.Colors.ground)
+            .environment(\.surfaceGround, SurfaceGround(Kit.Colors.ground))
         }
     }
 
-    /// A page's section heading, with an optional trailing control or figure.
+    /// An island's heading, as Home's "Top apps" is: 13 pt medium in the quieter text
+    /// step, at the island's top, with an optional trailing control or figure. Quiet
+    /// because the island's content is the subject; the heading only names it.
     struct SectionTitle<Trailing: View>: View {
         private let title: String
         private let trailing: Trailing
+        private var a11y = A11y()
 
         init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
             self.title = title
@@ -289,8 +306,8 @@ extension Kit {
         var body: some View {
             HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
                 Text(title)
-                    .font(Kit.Fonts.sectionTitle)
-                    .foregroundStyle(.secondary)
+                    .roleStyle(.label)
+                    .foregroundStyle(a11y.textMid)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
                 trailing
@@ -301,8 +318,10 @@ extension Kit {
 }
 
 extension Kit.PageHeader where Accessory == EmptyView {
-    init(eyebrow: String? = nil, title: String, subtitle: String? = nil) {
-        self.init(eyebrow: eyebrow, title: title, subtitle: subtitle) { EmptyView() }
+    init(eyebrow: String? = nil, title: String, subtitle: String? = nil, monospacedTitle: Bool = false) {
+        self.init(eyebrow: eyebrow, title: title, subtitle: subtitle, monospacedTitle: monospacedTitle) {
+            EmptyView()
+        }
     }
 }
 

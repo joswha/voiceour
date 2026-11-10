@@ -7,12 +7,34 @@ import VoiceMac
 /// offer for it.
 ///
 /// A value rather than a view so the two surfaces that report readiness cannot
-/// describe the same state differently. Settings renders these as `LabeledContent`
-/// rows on a native `Form` plate; Home's first-run card renders the same values
-/// with the island vocabulary. The words are decided once, here.
+/// describe the same state differently. Settings renders these as setting rows on
+/// its Readiness and Capture pages; Home's first-run card renders the same values
+/// on its island. Both draw the word as a `Kit.Mark` toned by `Kit.Mark.Tone(_:)`.
+/// The words are decided once, here.
 struct ConsoleReadout {
+    /// The rung a readout sits on.
+    ///
+    /// * `.crit` — the app cannot do its job at all. Microphone denied is the only
+    ///   state in this window that qualifies: with no audio in, no amount of
+    ///   retrying produces a transcript.
+    /// * `.warn` — it works, degraded. A key tap macOS also reacts to, a transcript
+    ///   that lands on the clipboard instead of in the field, a model that
+    ///   cold-loads on first use, a grant that has not been asked for yet.
+    ///
+    /// Accessibility denied is deliberately *not* `.crit`. It is the default state
+    /// of a freshly installed app (`AXIsProcessTrusted()` is false until the user
+    /// adds the app), and both capabilities it gates degrade rather than stop: the
+    /// Fn tap falls back to passive, insertion falls back to copy-only. Painting a
+    /// fresh install crimson would flatten the ladder from the other end.
+    enum Severity {
+        case neutral
+        case ok
+        case warn
+        case crit
+    }
+
     var label: String
-    var severity: ConsoleStateMark.Severity
+    var severity: Severity
     var detail: String
     /// The 0...1 fraction this state is measuring, when it measures one. Set only by the
     /// downloading branch: the surfaces render a `MeterBar` from it instead of each deciding for
@@ -280,23 +302,5 @@ enum ConsoleReadiness {
                 pane: .accessibility
             )
         )
-    }
-}
-
-extension StatusChip.Mode {
-    /// The island vocabulary for a console readiness severity.
-    ///
-    /// Two mark shapes, one ladder. `ConsoleStateMark` is a native-window mark on
-    /// system semantic colours; `StatusChip` is the app's own mark for the three
-    /// bespoke surfaces, and Home's islands are one of them. The severities are the
-    /// same four rungs, so the readouts stay shared and only the paint differs.
-    /// `.live` has no readiness meaning and is therefore unreachable from here.
-    init(_ severity: ConsoleStateMark.Severity) {
-        switch severity {
-        case .neutral: self = .neutral
-        case .ok: self = .ok
-        case .warn: self = .warn
-        case .crit: self = .crit
-        }
     }
 }

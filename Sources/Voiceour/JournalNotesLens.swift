@@ -378,7 +378,7 @@ struct JournalNotesLens: View {
                 }
             }
 
-            Kit.Card {
+            Kit.Island {
                 Text(note.text)
                     .font(.system(size: Kit.Fonts.readingLarge))
                     .fixedSize(horizontal: false, vertical: true)

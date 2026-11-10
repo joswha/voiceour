@@ -337,7 +337,7 @@ struct JournalThreadsLens: View {
             isSelected: thread.id == openThread,
             action: { select(thread.id) }
         ) {
-            Kit.Glyph(systemImage: "terminal.fill", tint: .indigo)
+            Kit.Badge(systemImage: "terminal.fill", size: .small)
         } trailing: {
             if notSent > 0 {
                 Kit.Mark("\(notSent) NOT SENT", tone: .caution)
@@ -449,15 +449,20 @@ struct JournalThreadsLens: View {
         )
 
         if !openThreadNotes.isEmpty {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
-                Kit.SectionTitle("From the session")
-                ForEach(openThreadNotes) { note in
-                    JournalAgentNoteRow(note)
-                        .accessibilityIdentifier("journal.threads.agent-note")
+            Kit.Island {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                    Kit.SectionTitle("From the session")
+                    ForEach(openThreadNotes) { note in
+                        if note.id != openThreadNotes.first?.id {
+                            Kit.Rule()
+                        }
+                        JournalAgentNoteRow(note)
+                            .accessibilityIdentifier("journal.threads.agent-note")
+                    }
                 }
             }
         } else if offersOutcomePrompt {
-            Kit.Card {
+            Kit.Island {
                 ConsoleCaption(
                     "No outcome recorded yet. Copy Outcome Prompt asks this session's agent to save "
                         + "what came of the work, and it shows here."
@@ -465,26 +470,28 @@ struct JournalThreadsLens: View {
             }
         }
 
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            Kit.SectionTitle("Dictations")
-            ForEach(pageLines) { line in
-                switch line {
-                case .day(let day):
-                    Text(SessionsFormatters.dayHeader.string(from: day))
-                        .font(Kit.Fonts.groupHeader)
-                        .foregroundStyle(.secondary)
-                        .accessibilityAddTraits(.isHeader)
-                        .padding(.top, VoiceourMetrics.Space.sm)
-                case .entry(let entry):
-                    JournalEntryRow(
-                        entry: entry,
-                        isInHistory: historyIDs.contains(entry.id),
-                        showsThreadAction: false,
-                        navigation: navigation,
-                        delete: delete,
-                        topics: topics,
-                        file: file
-                    )
+        Kit.Island {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle("Dictations")
+                ForEach(pageLines) { line in
+                    switch line {
+                    case .day(let day):
+                        Text(SessionsFormatters.dayHeader.string(from: day))
+                            .font(Kit.Fonts.groupHeader)
+                            .foregroundStyle(.secondary)
+                            .accessibilityAddTraits(.isHeader)
+                            .padding(.top, VoiceourMetrics.Space.sm)
+                    case .entry(let entry):
+                        JournalEntryRow(
+                            entry: entry,
+                            isInHistory: historyIDs.contains(entry.id),
+                            showsThreadAction: false,
+                            navigation: navigation,
+                            delete: delete,
+                            topics: topics,
+                            file: file
+                        )
+                    }
                 }
             }
         }
@@ -503,20 +510,22 @@ struct JournalThreadsLens: View {
         return parts.joined(separator: " \u{00B7} ")
     }
 
-    /// The session's id and folder, folded shut: the reader rarely needs them, and a
-    /// resumable session's resume command already carries both.
+    /// The session's id and folder, folded shut in their own island: the reader rarely
+    /// needs them, and a resumable session's resume command already carries both.
     private func details(for thread: JournalThread) -> some View {
-        Kit.Disclosure("Details", isExpanded: $showsDetails, identifier: "journal.threads.details") {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.Fact("Session") {
-                    monospacedReadout(thread.ref.sessionId)
-                        .accessibilityIdentifier("journal.threads.session")
-                }
+        Kit.Island {
+            Kit.Disclosure("Details", isExpanded: $showsDetails, identifier: "journal.threads.details") {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                    Kit.Fact("Session") {
+                        monospacedReadout(thread.ref.sessionId)
+                            .accessibilityIdentifier("journal.threads.session")
+                    }
 
-                if let directory = thread.ref.workingDirectory {
-                    Kit.Fact("Folder") {
-                        monospacedReadout(directory)
-                            .accessibilityIdentifier("journal.threads.folder")
+                    if let directory = thread.ref.workingDirectory {
+                        Kit.Fact("Folder") {
+                            monospacedReadout(directory)
+                                .accessibilityIdentifier("journal.threads.folder")
+                        }
                     }
                 }
             }

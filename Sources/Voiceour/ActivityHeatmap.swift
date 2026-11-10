@@ -38,7 +38,7 @@ struct ActivityHeatmap: View {
         /// immediately replacing it.
         static let defaultWidth: CGFloat =
             VoiceourMetrics.Content.table - VoiceourMetrics.Space.xl * 2
-            - VoiceourMetrics.Space.lg * 2
+            - Kit.Metrics.islandPadding * 2
 
         /// Week columns that fit `width`, clamped to the policy's span.
         static func weeks(fitting width: CGFloat) -> Int {

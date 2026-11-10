@@ -41,7 +41,7 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
             MenuStatusBlock(
                 statusLabel: statusLabel,
-                statusMode: statusMode,
+                statusTone: statusTone,
                 isSystemAudioMuted: coordinator.isSystemAudioMuted,
                 headline: headline
             )
@@ -58,6 +58,7 @@ struct MenuView: View {
                 isGated: isGated,
                 dictationTitle: dictationTitle,
                 dictationRowTitle: dictationRowTitle,
+                dictationRowSystemImage: dictationRowSystemImage,
                 startOrStopDictation: { coordinator.toggle() },
                 takeNote: takeNote,
                 failure: coordinator.lastFailure ?? coordinator.acquisitionFailure,
@@ -228,6 +229,10 @@ struct MenuView: View {
         coordinator.state == .recording ? "Stop Dictation" : "Start Dictation"
     }
 
+    private var dictationRowSystemImage: String {
+        coordinator.state == .recording ? "stop.fill" : "mic.fill"
+    }
+
     // MARK: Status vocabulary
 
     /// Terminal outcomes name themselves. The three `SessionState` cases that
@@ -273,12 +278,12 @@ struct MenuView: View {
     /// It reads the failure the same way, with one exception: while the model is
     /// still arriving, a refusal is amber rather than crimson, so "DOWNLOADING
     /// MODEL" is painted as the wait it is instead of as a fault.
-    private var statusMode: StatusChip.Mode {
+    private var statusTone: Kit.Mark.Tone {
         if let summary = reportedSummary {
             switch summary.severity {
-            case .crit: return .crit
-            case .warn: return .warn
-            case .ok: return .ok
+            case .crit: return .critical
+            case .warn: return .caution
+            case .ok: return .success
             case .neutral: return .neutral
             }
         }
@@ -288,20 +293,20 @@ struct MenuView: View {
         // and it outranks the fraction that is still sitting in `backendHealth`.
         let acquiring = coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming
         if acquiring && coordinator.acquisitionFailure == nil {
-            return .warn
+            return .caution
         }
         if coordinator.errorMessage != nil || coordinator.lastFailure != nil
             || coordinator.acquisitionFailure != nil
         {
-            return .crit
+            return .critical
         }
         if acquiring {
-            return .warn
+            return .caution
         }
 
         switch coordinator.state {
         case .error:
-            return .crit
+            return .critical
         case .recording, .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
             return .live
         default:

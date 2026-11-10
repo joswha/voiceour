@@ -7,7 +7,7 @@ PASS 2 material-open | enabled(false) id=island.material.stock | false
 PASS 3 custom | value id=island.material.finish == "5" | "5"
 PASS 4 custom | description id=island.material.finish == "5 percent" | "5 percent"
 PASS 5 custom | value id=island.showroom.look == "CUSTOM" | "CUSTOM"
-PASS 6 custom | value label="Stock" in id=island.look == "0" | "0"
+PASS 6 custom | selected(false) label="Stock" in id=island.look | false
 PASS 7 custom | model islandLook == "custom" | "custom"
 PASS 8 custom | model islandDraftPending == "0" | 0
 PASS 9 custom | enabled(true) id=island.material.stock | true

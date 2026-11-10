@@ -150,6 +150,23 @@ enum VoiceourTypography {
     /// Oversized numerical readout. Larger than `metric`; pair with
     /// `.monospacedDigit()` at the call site.
     static let heroMetric = Font.system(size: 64, weight: .thin, design: .monospaced)
+    /// The console's display face: a list column's title, a Settings page's title.
+    /// Home's hero at a reading size, so every page opens in the same voice.
+    static let display = Font.system(size: 28, weight: .light, design: .monospaced)
+    /// A page's title: the thread, the day, the term the page is about.
+    static let title = Font.system(size: 22, weight: .semibold, design: .default)
+    /// A row's name, a fold's heading: the line a reader scans a list by.
+    static let heading = Font.system(size: 13, weight: .semibold, design: .default)
+    /// A list's group heading, the sidebar's section heading.
+    static let subheading = Font.system(size: 12, weight: .semibold, design: .default)
+    /// Running text at list density: a preview, a preference's name.
+    static let body = Font.system(size: 13, weight: .regular, design: .default)
+    /// Text set to be read rather than scanned: an entry, an agent's note.
+    static let reading = Font.system(size: 14, weight: .regular, design: .default)
+    /// A code value named on its own line: a glossary term's canonical spelling in a row.
+    static let code = Font.system(size: 13, weight: .medium, design: .monospaced)
+    /// A page's title when the page is about a code value: a glossary term's canonical spelling.
+    static let codeTitle = Font.system(size: 22, weight: .semibold, design: .monospaced)
 }
 
 enum TextRole {
@@ -159,6 +176,14 @@ enum TextRole {
     case label
     case caption
     case micro
+    case display
+    case title
+    case heading
+    case subheading
+    case body
+    case reading
+    case code
+    case codeTitle
 
     var font: Font {
         switch self {
@@ -168,6 +193,14 @@ enum TextRole {
         case .label: VoiceourTypography.label
         case .caption: VoiceourTypography.caption
         case .micro: VoiceourTypography.micro
+        case .display: VoiceourTypography.display
+        case .title: VoiceourTypography.title
+        case .heading: VoiceourTypography.heading
+        case .subheading: VoiceourTypography.subheading
+        case .body: VoiceourTypography.body
+        case .reading: VoiceourTypography.reading
+        case .code: VoiceourTypography.code
+        case .codeTitle: VoiceourTypography.codeTitle
         }
     }
 
@@ -182,9 +215,12 @@ enum TextRole {
         switch self {
         case .heroMetric: 64
         case .metric: 32
+        case .display: 28
+        case .title, .codeTitle: 22
         case .tileValue: 20
-        case .label: 13
-        case .caption: 12
+        case .reading: 14
+        case .label, .heading, .body, .code: 13
+        case .caption, .subheading: 12
         case .micro: 10
         }
     }
@@ -192,9 +228,10 @@ enum TextRole {
     var weight: Font.Weight {
         switch self {
         case .heroMetric: .thin
-        case .metric: .light
-        case .tileValue, .label, .micro: .medium
-        case .caption: .regular
+        case .metric, .display: .light
+        case .tileValue, .label, .micro, .code: .medium
+        case .title, .heading, .subheading, .codeTitle: .semibold
+        case .caption, .body, .reading: .regular
         }
     }
 
@@ -208,10 +245,12 @@ enum TextRole {
 
     var foreground: Color {
         switch self {
-        case .heroMetric, .metric, .label:
+        case .heroMetric, .metric, .label, .display, .title, .heading, .body, .reading, .code, .codeTitle:
             VoiceourPalette.Text.high
         case .tileValue:
             VoiceourPalette.Text.monoStrong
+        case .subheading:
+            VoiceourPalette.Text.mid
         case .caption, .micro:
             VoiceourPalette.Text.low
         }
@@ -295,24 +334,24 @@ private struct TextRoleModifier: ViewModifier {
 /// applied after `.roleStyle(_:)` still overrides the role default, while adding
 /// the harness-only geometry probe at the point where the text becomes a view.
 struct RoleStyledText: View {
-    private let text: Text
+    /// The text in the role's face, still uncoloured. `Text` keeps the first
+    /// foreground it is given, so the colour is applied once, in `body`, and
+    /// `foregroundStyle(_:)` replaces it rather than stacking a second one the
+    /// first would shadow.
+    private let base: Text
     private let role: TextRole
     private let foreground: Color
     private let isBold: Bool
 
     init(_ text: Text, role: TextRole) {
-        self.text =
-            text
-            .font(role.font)
-            .tracking(role.tracking)
-            .foregroundStyle(role.foreground)
+        self.base = text.font(role.font).tracking(role.tracking)
         self.role = role
         self.foreground = role.foreground
         self.isBold = role.isBold
     }
 
-    private init(text: Text, role: TextRole, foreground: Color, isBold: Bool) {
-        self.text = text
+    private init(base: Text, role: TextRole, foreground: Color, isBold: Bool) {
+        self.base = base
         self.role = role
         self.foreground = foreground
         self.isBold = isBold
@@ -320,6 +359,7 @@ struct RoleStyledText: View {
 
     @ViewBuilder
     var body: some View {
+        let text = base.foregroundStyle(foreground)
         if let recorder = RenderOverrides.textRoleRecorder {
             text.modifier(
                 TextRoleRecordingModifier(
@@ -335,21 +375,11 @@ struct RoleStyledText: View {
     }
 
     func foregroundStyle(_ color: Color) -> RoleStyledText {
-        RoleStyledText(
-            text: text.foregroundStyle(color),
-            role: role,
-            foreground: color,
-            isBold: isBold
-        )
+        RoleStyledText(base: base, role: role, foreground: color, isBold: isBold)
     }
 
     func monospacedDigit() -> RoleStyledText {
-        RoleStyledText(
-            text: text.monospacedDigit(),
-            role: role,
-            foreground: foreground,
-            isBold: isBold
-        )
+        RoleStyledText(base: base.monospacedDigit(), role: role, foreground: foreground, isBold: isBold)
     }
 }
 
@@ -403,7 +433,6 @@ enum VoiceourMetrics {
         static let window: CGFloat = 16
         static let card: CGFloat = 20
         static let row: CGFloat = 8
-        static let chip: CGFloat = 6
         static let keycap: CGFloat = 4
 
         /// System `concentric(minimum:)` semantics for painted nested shapes.
@@ -424,7 +453,7 @@ enum VoiceourMetrics {
     }
 
     enum Control {
-        /// The one declared exception: compact status chips are marks, not controls.
+        /// The one declared exception: compact state marks are marks, not controls.
         static let compactMark: CGFloat = 20
         /// A glyph-sized app icon set beside `.caption` text, on History's
         /// heading line. Smaller than `mini`: it is a mark inside a sentence of

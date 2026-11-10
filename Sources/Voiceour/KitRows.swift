@@ -15,6 +15,7 @@ extension Kit {
         private let action: () -> Void
         private let meta: Meta
         private let marks: Marks
+        private var a11y = A11y()
 
         init(
             _ text: String,
@@ -35,8 +36,7 @@ extension Kit {
                 VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                     HStack(spacing: VoiceourMetrics.Space.sm) {
                         meta
-                            .font(Kit.Fonts.meta)
-                            .foregroundStyle(.secondary)
+                            .roleStyle(.caption, color: a11y.textMid)
                             .lineLimit(1)
                         Spacer(minLength: VoiceourMetrics.Space.xs)
                         HStack(spacing: VoiceourMetrics.Space.xs) {
@@ -44,8 +44,7 @@ extension Kit {
                         }
                     }
                     Text(text)
-                        .font(Kit.Fonts.rowBody)
-                        .foregroundStyle(.primary)
+                        .roleStyle(.body)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -61,19 +60,24 @@ extension Kit {
     }
 
     /// A list row that names something — a thread, a topic, a day — with one line of
-    /// facts under the name, a leading glyph and trailing marks or a figure.
+    /// facts under the name, a leading badge and trailing marks or a figure. A name
+    /// that is a code value, such as a glossary term's spelling, sets
+    /// `monospacedTitle` and reads in the code face.
     struct TitleRow<Leading: View, Trailing: View>: View {
         private let title: String
         private let subtitle: String
+        private let monospacedTitle: Bool
         private let isSelected: Bool
         private let action: () -> Void
         private let leading: Leading
         private let trailing: Trailing
+        private var a11y = A11y()
 
         init(
             _ title: String,
             subtitle: String,
             isSelected: Bool,
+            monospacedTitle: Bool = false,
             action: @escaping () -> Void,
             @ViewBuilder leading: () -> Leading,
             @ViewBuilder trailing: () -> Trailing
@@ -81,6 +85,7 @@ extension Kit {
             self.title = title
             self.subtitle = subtitle
             self.isSelected = isSelected
+            self.monospacedTitle = monospacedTitle
             self.action = action
             self.leading = leading()
             self.trailing = trailing()
@@ -92,13 +97,12 @@ extension Kit {
                     leading
                     VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                         Text(title)
-                            .font(Kit.Fonts.rowTitle)
-                            .foregroundStyle(.primary)
+                            .roleStyle(monospacedTitle ? .code : .heading)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Text(subtitle)
-                            .font(Kit.Fonts.meta)
-                            .foregroundStyle(.secondary)
+                            .roleStyle(.caption)
+                            .foregroundStyle(a11y.textMid)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -120,10 +124,17 @@ extension Kit.TitleRow where Leading == EmptyView {
         _ title: String,
         subtitle: String,
         isSelected: Bool,
+        monospacedTitle: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
-        self.init(title, subtitle: subtitle, isSelected: isSelected, action: action) {
+        self.init(
+            title,
+            subtitle: subtitle,
+            isSelected: isSelected,
+            monospacedTitle: monospacedTitle,
+            action: action
+        ) {
             EmptyView()
         } trailing: {
             trailing()

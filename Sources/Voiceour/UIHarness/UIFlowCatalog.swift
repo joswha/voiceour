@@ -217,8 +217,6 @@
             static let topicsCopied = UIQuery.id("journal.topics.copied")
             static let threadsCopied = UIQuery.id("journal.threads.copied")
             static let newTopic = UIQuery.id("journal.topics.new")
-            // Settings ▸ Memory's Copy Install Command keeps its COPIED mark beside the button.
-            static let copiedMark = UIQuery.value("COPIED")
 
             /// The caption `JournalAgentNoteRow` gives `note`, built by the row's own rule in
             /// the calendar the harness pins, so the flows and the lens cannot disagree on it.
@@ -252,6 +250,29 @@
             // for a term created without one.
             static let bundledTermRow = UIQuery.id("glossary.term.kubectl")
             static let addedTermRow = UIQuery.id("glossary.term.FlowTerm")
+            static let taughtTermRow = UIQuery.id("glossary.term.term-neurodock")
+            static let importedTermRow = UIQuery.id("glossary.term.term-voiceourbench")
+            // The Glossary sidebar: the three origins, and Suggestions while any are pending.
+            static let allTermsOrigin = UIQuery.id("glossary.origin.all")
+            static let yoursOrigin = UIQuery.id("glossary.origin.yours")
+            static let builtInOrigin = UIQuery.id("glossary.origin.builtin")
+            static let suggestionsItem = UIQuery.id("glossary.suggestions")
+
+            /// One of the buttons a suggestion's page offers: `accept`, `ignore` or `reject`.
+            static func suggestion(_ id: String, _ action: String) -> UIQuery {
+                .id("suggestion.\(id).\(action)")
+            }
+
+            /// A Settings sidebar item, by its section's raw value. Settings shows one
+            /// section's page at a time and only that page's controls are in the tree, so a
+            /// flow presses the section before it reads any of them. The selected item
+            /// carries `.isSelected`.
+            static func settingsSection(_ rawValue: String) -> UIQuery {
+                .id("settings.section.\(rawValue)")
+            }
+
+            static let microphonePicker = UIQuery.id("voice.microphone.picker")
+            static let historyArm = UIQuery.id("system.history.arm")
 
             static let autoStop = UIQuery.id("voice.auto-stop.toggle")
             static let autoStopDuration = UIQuery.id("voice.auto-stop.duration")
@@ -266,6 +287,9 @@
             // copies; this caption replaces the row's own when that write fails.
             static let memoryCopySkillCommand = UIQuery.id("system.memory.copy-skill-command")
             static let skillWriteFailure = "The skill could not be written on this Mac."
+            // Settings confirms every copy in the page toast, which shows only while a copy
+            // is confirmed.
+            static let settingsCopied = UIQuery.id("settings.copied")
 
             // Settings ▸ Memory's sorting rows. The harness key source has no environment
             // and an absent key file, so every fixture starts with no key on every Mac.
@@ -330,13 +354,11 @@
                 .value("The transcript is on the clipboard."),
             ])
 
-            /// The Dictation trigger row: the preference half of the merged
-            /// Settings tab, and its first row.
+            /// The trigger row: the first row of the Dictation page, which Settings
+            /// opens on.
             static let settingsContent = UIQuery.id("capture.hotkey")
             static let glossaryContent = glossarySearch
             static let historyContent = sessionSearch
-            /// The Privacy row's action: the readiness half of the same tab.
-            static let settingsDiagnostics = UIQuery.id("system.diagnostics.copy")
             static let homeContent = UIQuery.id("home.hero")
 
             static let homeTimeTile = UIQuery.id("home.tile.time")
@@ -360,8 +382,9 @@
                 .id("console.tab.\(tab.rawValue)")
             }
 
-            // Settings ▸ Island. Coats and looks share two radio labels, Oil Slick and
-            // Chameleon, so every radio is addressed inside its own group.
+            // Settings ▸ Island. Coats and looks share two labels, Oil Slick and Chameleon,
+            // so every coat radio and look card is addressed inside its own group. A look
+            // card is a button that carries `.isSelected` when its look is the committed one.
             static let islandShowroom = UIQuery.id("island.showroom")
             static let islandLookMark = UIQuery.id("island.showroom.look")
             static let islandAnotherRoom = UIQuery.id("island.showroom.room")
@@ -1364,6 +1387,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("dictation"))),
+                        .wait(.element(Selector.cleanup)),
                         .check(
                             "enabled",
                             [.value(Selector.cleanup, .equals("1")), .model(.cleanupEnabled, .equals("true"))]
@@ -1381,6 +1406,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("dictation"))),
+                        .wait(.element(Selector.autoStop)),
                         .check(
                             "off",
                             [
@@ -1402,10 +1429,12 @@
 
         // MARK: Island
 
-        /// Settings ▸ Island. Checks read the committed settings (`islandLook`,
-        /// `islandAppearance`) beside the controls, so each journey proves a control's commit
-        /// reached the persisted settings rather than only that the view redrew. Sliders
-        /// move by accessibility increment, which commits exactly as a released drag does.
+        /// Settings ▸ Island. Each journey first presses the Island section, whose page is
+        /// the only one in the tree once it is selected. Checks read the committed settings
+        /// (`islandLook`, `islandAppearance`) beside the controls, so each journey proves a
+        /// control's commit reached the persisted settings rather than only that the view
+        /// redrew. Sliders move by accessibility increment, which commits exactly as a
+        /// released drag does.
         ///
         /// Undo has no flow: ⌘Z is a key equivalent, which AppKit offers only to the key
         /// window, and this one can never become key. The Garage's undo steps are unit-tested
@@ -1427,10 +1456,12 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandLook(.stock))),
                         .check(
                             "stock",
                             [
-                                .value(Selector.islandLook(.stock), .equals("1")),
+                                .selected(Selector.islandLook(.stock), true),
                                 .value(Selector.islandLookMark, .equals("STOCK")),
                                 .model(.islandLook, .equals("stock")),
                             ]
@@ -1439,8 +1470,8 @@
                         .check(
                             "neon-kit",
                             [
-                                .value(Selector.islandLook(.neonKit), .equals("1")),
-                                .value(Selector.islandLook(.stock), .equals("0")),
+                                .selected(Selector.islandLook(.neonKit), true),
+                                .selected(Selector.islandLook(.stock), false),
                                 .value(Selector.islandLookMark, .equals("NEON KIT")),
                                 .model(.islandLook, .equals("neon_kit")),
                                 .model(.islandDraftPending, .equals("0")),
@@ -1450,7 +1481,7 @@
                         .check(
                             "stock-again",
                             [
-                                .value(Selector.islandLook(.stock), .equals("1")),
+                                .selected(Selector.islandLook(.stock), true),
                                 .value(Selector.islandLookMark, .equals("STOCK")),
                                 .model(.islandAppearance, .equals(stock)),
                             ]
@@ -1463,6 +1494,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandMaterialFold)),
                         .act(.press(Selector.islandMaterialFold)),
                         .wait(.element(Selector.islandFinish)),
                         .check(
@@ -1479,7 +1512,8 @@
                                 .value(Selector.islandFinish, .equals("5")),
                                 .valueDescription(Selector.islandFinish, .equals("5 percent")),
                                 .value(Selector.islandLookMark, .equals("CUSTOM")),
-                                .value(Selector.islandLook(.stock), .equals("0")),
+                                // Custom is no card, so the look it left reads unselected.
+                                .selected(Selector.islandLook(.stock), false),
                                 .model(.islandLook, .equals("custom")),
                                 // Committed on the step's editing end, not left as a draft.
                                 .model(.islandDraftPending, .equals("0")),
@@ -1504,6 +1538,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandMaterialFold)),
                         .act(.press(Selector.islandMaterialFold)),
                         .wait(.element(Selector.islandCoat(.none))),
                         .check(
@@ -1555,6 +1591,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandMaterialFold)),
                         .act(.press(Selector.islandMaterialFold)),
                         .wait(.element(Selector.islandCoat(.candy))),
                         .check("bare", [.absent(Selector.islandCandy)]),
@@ -1584,6 +1622,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandLightingFold)),
                         .act(.press(Selector.islandLightingFold)),
                         .wait(.element(Selector.islandUnderglow)),
                         .check(
@@ -1622,6 +1662,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandLightingFold)),
                         .act(.press(Selector.islandLightingFold)),
                         .wait(.element(Selector.islandRoom(.spectralWeather))),
                         .act(.press(Selector.islandRoom(.spectralWeather))),
@@ -1650,6 +1692,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandSurprise)),
                         .check("stock", [.model(.islandLook, .equals("stock"))]),
                         .act(.press(Selector.islandSurprise)),
                         .check(
@@ -1679,6 +1723,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandShowroom)),
                         .check(
                             "room-1",
                             [
@@ -1704,13 +1750,15 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandMaterialFold)),
                         .check(
                             "closed",
                             [
-                                .value(Selector.islandMaterialFold, .equals("false")),
-                                .value(Selector.islandLightingFold, .equals("false")),
-                                .value(Selector.islandBodyFold, .equals("false")),
-                                .value(Selector.islandMotionFold, .equals("false")),
+                                .value(Selector.islandMaterialFold, .equals("Collapsed")),
+                                .value(Selector.islandLightingFold, .equals("Collapsed")),
+                                .value(Selector.islandBodyFold, .equals("Collapsed")),
+                                .value(Selector.islandMotionFold, .equals("Collapsed")),
                                 .absent(Selector.islandFinish),
                                 .absent(Selector.islandTemperature),
                                 .absent(Selector.islandSize),
@@ -1736,7 +1784,7 @@
                             [
                                 .absent(Selector.islandFinish),
                                 .exists(Selector.islandTempo),
-                                .value(Selector.islandMotionFold, .equals("true")),
+                                .value(Selector.islandMotionFold, .equals("Expanded")),
                             ]
                         ),
                     ]),
@@ -1747,6 +1795,8 @@
                     host: .console(.settings),
                     fixture: .static(.islandCustom),
                     steps: [
+                        .act(.press(Selector.settingsSection("island"))),
+                        .wait(.element(Selector.islandPositionDock)),
                         .check(
                             "free",
                             [
@@ -1832,6 +1882,97 @@
                         // confirmation is not flow-covered either.
                         .check("awaiting-confirmation", [.model(.glossaryTermCount, .equals("7"))]),
                     ]),
+                // The sidebar's origins narrow the list without touching the glossary: a
+                // bundled term is Built-in, and a taught or imported term is Yours.
+                UIFlow(
+                    id: "glossary.origins",
+                    title: "The sidebar's origins narrow the list to Yours or Built-in terms",
+                    tags: ["glossary", "console", "origins"],
+                    host: .console(.glossary),
+                    fixture: .static(.mixedGlossary),
+                    steps: [
+                        .wait(.element(Selector.bundledTermRow)),
+                        .check(
+                            "all",
+                            [
+                                .selected(Selector.allTermsOrigin, true),
+                                .exists(Selector.bundledTermRow),
+                                .exists(Selector.taughtTermRow),
+                            ]
+                        ),
+                        .act(.press(Selector.yoursOrigin)),
+                        .wait(.absent(Selector.bundledTermRow)),
+                        .check(
+                            "yours",
+                            [
+                                .selected(Selector.yoursOrigin, true),
+                                .selected(Selector.allTermsOrigin, false),
+                                .exists(Selector.taughtTermRow),
+                                .exists(Selector.importedTermRow),
+                                .absent(Selector.bundledTermRow),
+                            ]
+                        ),
+                        .act(.press(Selector.builtInOrigin)),
+                        .wait(.element(Selector.bundledTermRow)),
+                        .check(
+                            "built-in",
+                            [
+                                .selected(Selector.builtInOrigin, true),
+                                .selected(Selector.yoursOrigin, false),
+                                .exists(Selector.bundledTermRow),
+                                .absent(Selector.taughtTermRow),
+                                .absent(Selector.importedTermRow),
+                                .model(.glossaryTermCount, .equals("7")),
+                            ]
+                        ),
+                    ]),
+                // Suggestions open first while any are pending, on the first suggestion's
+                // page. Teaching it confirms the misheard form on its existing term and moves
+                // the page to the next suggestion; refusing the last one empties Suggestions,
+                // which leaves the sidebar and hands the tab back to All Terms, where the
+                // taught term's row now names the form it was taught.
+                UIFlow(
+                    id: "glossary.suggestion-teach",
+                    title:
+                        "Teaching a suggestion adds its form to the term, and handling the last returns to All Terms",
+                    tags: ["glossary", "console", "suggestions"],
+                    host: .console(.glossary),
+                    fixture: .static(.glossarySuggestions),
+                    steps: [
+                        .wait(.element(Selector.suggestion("suggestion-neurodock", "accept"))),
+                        .check(
+                            "suggestions",
+                            [
+                                .selected(Selector.suggestionsItem, true),
+                                .selected(Selector.allTermsOrigin, false),
+                                .exists(Selector.suggestion("suggestion-neurodock", "accept")),
+                            ]
+                        ),
+                        .act(.press(Selector.suggestion("suggestion-neurodock", "accept"))),
+                        .wait(.element(Selector.suggestion("suggestion-kubectl", "accept"))),
+                        .check(
+                            "next-suggestion",
+                            [
+                                .absent(Selector.suggestion("suggestion-neurodock", "accept")),
+                                .absent(Selector.suggestion("suggestion-neurodock", "ignore")),
+                                .absent(Selector.suggestion("suggestion-neurodock", "reject")),
+                                .exists(Selector.suggestion("suggestion-kubectl", "accept")),
+                            ]
+                        ),
+                        .act(.press(Selector.suggestion("suggestion-kubectl", "reject"))),
+                        .wait(.absent(Selector.suggestionsItem)),
+                        .wait(.element(Selector.taughtTermRow)),
+                        .check(
+                            "all-terms",
+                            [
+                                .absent(Selector.suggestionsItem),
+                                .selected(Selector.allTermsOrigin, true),
+                                .label(Selector.taughtTermRow, .contains("new row dock")),
+                                // Teaching confirms a form on an existing term; it adds none.
+                                .model(.glossaryTermCount, .equals("7")),
+                            ]
+                        ),
+                    ]),
             ]
         }
 
@@ -1846,6 +1987,7 @@
                     host: .console(.settings),
                     fixture: .backendRecovery(),
                     steps: [
+                        .act(.press(Selector.settingsSection("readiness"))),
                         .wait(.element(Selector.backendStatusWithValue("CHECKING…"))),
                         .check(
                             "initial-probe",
@@ -1894,6 +2036,8 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("memory"))),
+                        .wait(.element(Selector.memoryToggle)),
                         .check(
                             "off",
                             [
@@ -1925,22 +2069,23 @@
                     host: .console(.settings),
                     fixture: .static(.remembered),
                     steps: [
+                        .act(.press(Selector.settingsSection("memory"))),
                         .wait(.element(Selector.memoryCopySkillCommand)),
                         .check(
                             "offered",
                             [
                                 .value(Selector.memoryToggle, .equals("1")),
                                 .enabled(Selector.memoryCopySkillCommand, true),
-                                .absent(Selector.copiedMark),
+                                .absent(Selector.settingsCopied),
                                 .model(.pasteboardWrites, .equals("0")),
                             ]
                         ),
                         .act(.press(Selector.memoryCopySkillCommand)),
-                        .wait(.element(Selector.copiedMark)),
+                        .wait(.element(Selector.settingsCopied)),
                         .check(
                             "copied",
                             [
-                                .exists(Selector.copiedMark),
+                                .exists(Selector.settingsCopied),
                                 .model(.pasteboardWrites, .equals("1")),
                                 .text(.equals(Selector.skillWriteFailure), .exactly(0)),
                             ]
@@ -1957,6 +2102,7 @@
                     host: .console(.settings),
                     fixture: .static(.populated),
                     steps: [
+                        .act(.press(Selector.settingsSection("memory"))),
                         .wait(.element(Selector.organizerKeyStatus)),
                         .check(
                             "no-key",
@@ -2004,6 +2150,7 @@
                     host: .console(.settings),
                     fixture: .static(.linkingOn),
                     steps: [
+                        .act(.press(Selector.settingsSection("privacy"))),
                         .wait(.element(Selector.linkEarlier)),
                         .check(
                             "offered",
@@ -2037,6 +2184,7 @@
                 homeStatsFlow,
                 homeFirstRunFlow,
                 tabNavigationFlow,
+                settingsSectionsFlow,
             ]
         }
 
@@ -2191,17 +2339,69 @@
                     ),
                     .act(.navigate(.settings)),
                     .wait(.element(Selector.settingsContent)),
-                    // Both halves of the merged tab in one check: the preference
-                    // rows the General tab used to own and the diagnostics row the
-                    // System tab used to own now render on one destination.
+                    // Settings opens on the Dictation page beside its sidebar, each shown
+                    // once: the sidebar reaches every other section's page from here.
                     .check(
                         "settings",
                         [
                             .count(Selector.settingsContent, .exactly(1)),
-                            .count(Selector.settingsDiagnostics, .exactly(1)),
+                            .count(Selector.settingsSection("privacy"), .exactly(1)),
                             .absent(Selector.historyContent),
                             .value(Selector.tab(.settings), .equals("1")),
                             .value(Selector.tab(.history), .equals("0")),
+                        ]
+                    ),
+                ]
+            )
+        }
+
+        /// Settings shows one section per page. It opens on Dictation, and a sidebar press
+        /// swaps the page rather than scrolling to it: the item reporting itself selected
+        /// is the one whose controls are in the tree, and the previous page's controls
+        /// leave it.
+        private static var settingsSectionsFlow: UIFlow {
+            let dictation = Selector.settingsSection("dictation")
+            let audio = Selector.settingsSection("audio")
+            let danger = Selector.settingsSection("danger")
+            return UIFlow(
+                id: "settings.sections",
+                title: "Settings opens on Dictation and a sidebar item swaps in its section's page",
+                tags: ["console", "settings", "navigation"],
+                host: .console(.settings),
+                fixture: .static(.populated),
+                steps: [
+                    .wait(.element(Selector.settingsContent)),
+                    // `Kit.Screen` paints `Ink.void` behind every page, so the raster the
+                    // geometry and contrast rules read is real paint.
+                    .check(
+                        "dictation",
+                        [
+                            .selected(dictation, true),
+                            .exists(Selector.settingsContent),
+                            .absent(Selector.microphonePicker),
+                            .lintClean,
+                        ]
+                    ),
+                    .act(.press(audio)),
+                    .wait(.element(Selector.microphonePicker)),
+                    .check(
+                        "audio",
+                        [
+                            .selected(audio, true),
+                            .selected(dictation, false),
+                            .exists(Selector.microphonePicker),
+                            .absent(Selector.settingsContent),
+                        ]
+                    ),
+                    .act(.press(danger)),
+                    .wait(.element(Selector.historyArm)),
+                    .check(
+                        "danger",
+                        [
+                            .selected(danger, true),
+                            .selected(audio, false),
+                            .exists(Selector.historyArm),
+                            .absent(Selector.microphonePicker),
                         ]
                     ),
                 ]
@@ -2306,10 +2506,10 @@
                     reaches: [.permission]
                 ),
                 steps: [
-                    // `.lintClean` is affordable here and nowhere else: the menu host paints
-                    // `Ink.void` behind `MenuView`, so the raster the geometry and contrast
-                    // rules read is real paint rather than the unrasterised window ground a
-                    // console render leaves behind.
+                    // `.lintClean` is affordable where the host paints `Ink.void` behind
+                    // the content: the menu host paints it behind `MenuView`, so the raster
+                    // the geometry and contrast rules read is real paint rather than an
+                    // unrasterised window ground.
                     .check(
                         "idle",
                         [

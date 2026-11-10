@@ -1,0 +1,18 @@
+flow: glossary.origins
+title: The sidebar's origins narrow the list to Yours or Built-in terms
+fixture: static
+transitions: idle
+PASS 1 all | selected(true) id=glossary.origin.all | true
+PASS 2 all | exists id=glossary.term.kubectl | 1 match
+PASS 3 all | exists id=glossary.term.term-neurodock | 1 match
+PASS 4 yours | selected(true) id=glossary.origin.yours | true
+PASS 5 yours | selected(false) id=glossary.origin.all | false
+PASS 6 yours | exists id=glossary.term.term-neurodock | 1 match
+PASS 7 yours | exists id=glossary.term.term-voiceourbench | 1 match
+PASS 8 yours | absent id=glossary.term.kubectl | 0 matches
+PASS 9 built-in | selected(true) id=glossary.origin.builtin | true
+PASS 10 built-in | selected(false) id=glossary.origin.yours | false
+PASS 11 built-in | exists id=glossary.term.kubectl | 1 match
+PASS 12 built-in | absent id=glossary.term.term-neurodock | 0 matches
+PASS 13 built-in | absent id=glossary.term.term-voiceourbench | 0 matches
+PASS 14 built-in | model glossaryTermCount == "7" | 7

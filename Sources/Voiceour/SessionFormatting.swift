@@ -2,16 +2,18 @@ import Foundation
 import VoiceCore
 
 extension RecentSessionOutcomeMetadata {
+    /// The outcome's word and the tone it carries on the kit's mark ladder.
+    ///
     /// Copy-only reads `COPY ONLY`, the word the menu uses for the same outcome,
     /// so `COPIED` is left to mean only "you just copied this".
-    var chip: (label: String, mode: StatusChip.Mode) {
+    var outcomeMark: (label: String, tone: Kit.Mark.Tone) {
         switch disposition {
         case .pasteAttempted:
-            ("PASTED", .ok)
+            ("PASTED", .success)
         case .copiedOnly:
-            ("COPY ONLY", .warn)
+            ("COPY ONLY", .caution)
         case .failed:
-            ("FAILED", .crit)
+            ("FAILED", .critical)
         }
     }
 }

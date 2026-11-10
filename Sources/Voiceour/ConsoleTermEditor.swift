@@ -8,8 +8,13 @@ import VoiceCore
 /// It is presentational by construction. It holds no coordinator, reads no
 /// settings and performs no write: it edits the bindings its host owns and
 /// reports the commands the host may run. Both surfaces that author a term —
-/// the Glossary row and History's ⌘T teach — render this view, so a term
+/// the Glossary page and History's ⌘T teach — render this view, so a term
 /// created from either names the same two things the same way.
+///
+/// It is drawn from the kit on the console's fixed-dark ground: each field is a
+/// dark well with a hairline rim that lights cyan while it holds focus, each
+/// spoken form is a plate with its remove control, and the commands are kit
+/// buttons. A host places it inside a `Kit.Island`.
 struct ConsoleTermEditor: View {
     /// A command the host performs, named by the host.
     ///
@@ -31,8 +36,8 @@ struct ConsoleTermEditor: View {
     /// Whether this host offers a well for a form beyond the ones already listed.
     /// Authoring terms is the Glossary's whole job, so it always offers one.
     /// History's teach arrives with the surface it was aimed at already in the
-    /// set, so the well under that row asked for a form nobody had heard yet and
-    /// stood between the reader and the Teach button.
+    /// set, so a well under that row would ask for a form nobody had heard yet and
+    /// stand between the reader and the Teach button.
     var offersAdditionalForms: Bool
     var failure: String?
     var caption: String
@@ -43,33 +48,61 @@ struct ConsoleTermEditor: View {
 
     @State private var addText = ""
     /// Installed while the editor is on screen. Escape is AppKit's to report
-    /// here: both hosts sit inside a grouped `Form`, which is an `NSScrollView`
-    /// that consumes the key before SwiftUI offers it to `onExitCommand` — the
-    /// same measurement that gave History its own input monitor. The modifier
-    /// below is kept for a host that is not inside one.
+    /// here: both hosts sit inside a scrolling page, an `NSScrollView` that
+    /// consumes the key before SwiftUI offers it to `onExitCommand`. The
+    /// modifier below covers a host that is not inside one.
     @State private var escapeMonitor: Any?
     @FocusState private var focused: Field?
+    @Environment(\.surfaceGround) private var inheritedGround
+    private var a11y = A11y()
 
     private enum Field: Hashable {
         case term
         case addForm
     }
 
+    init(
+        term: Binding<String>,
+        spokenForms: Binding<[String]>,
+        derivedForms: [String],
+        offersAdditionalForms: Bool,
+        failure: String?,
+        caption: String,
+        submit: Command,
+        cancel: @escaping () -> Void,
+        destructive: Command?,
+        identifierPrefix: String
+    ) {
+        self._term = term
+        self._spokenForms = spokenForms
+        self.derivedForms = derivedForms
+        self.offersAdditionalForms = offersAdditionalForms
+        self.failure = failure
+        self.caption = caption
+        self.submit = submit
+        self.cancel = cancel
+        self.destructive = destructive
+        self.identifierPrefix = identifierPrefix
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
             termField
             heardAsField
             if !derivedForms.isEmpty {
                 derivedReadout
             }
             commandRow
-            ConsoleCaption(failure ?? caption, color: failure.map { _ in Color.red })
+            Text(failure ?? caption)
+                .roleStyle(.caption)
+                .foregroundStyle(failure == nil ? a11y.textMid : VoiceourPalette.Signal.crimson)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onExitCommand(perform: cancel)
-        // Opening the editor is a request to type the spelling: History's teach
-        // used to focus its first field in `onAppear`, and that affordance is
-        // the editor's own rather than each host's.
+        // Opening the editor is a request to type the spelling, so the affordance
+        // is the editor's own rather than each host's.
         .defaultFocus($focused, .term)
         .onAppear {
             guard escapeMonitor == nil else { return }
@@ -92,21 +125,15 @@ struct ConsoleTermEditor: View {
 
     // MARK: - Term
 
-    /// One labelled, bordered, full-measure well. The caption above the field is
-    /// hidden from accessibility because the field itself publishes the same
-    /// title. A `LabeledContent` here put a fixed-width unbordered field in the
-    /// trailing column of the row, so the term being typed sat unframed against
-    /// the right edge of the window.
+    /// One labelled, full-measure well. The label above the field is hidden from
+    /// accessibility because the field itself publishes the same title.
     private var termField: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-            Text("Term")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            fieldLabel("Term")
                 .accessibilityHidden(true)
             TextField("Term", text: $term, prompt: Text("kubectl"))
+                .textFieldStyle(.plain)
                 .font(.body.monospaced())
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.regular)
                 .autocorrectionDisabled(true)
                 .labelsHidden()
                 .focused($focused, equals: .term)
@@ -114,20 +141,19 @@ struct ConsoleTermEditor: View {
                 // No explicit label: a hidden-label `TextField` still publishes
                 // its title, and adding one made VoiceOver read "Term, Term".
                 .accessibilityIdentifier("\(identifierPrefix).canonical")
+                .modifier(EditorWell(isFocused: focused == .term))
         }
     }
 
     // MARK: - Heard as
 
-    /// The spoken forms, one row each, and — when this host offers one — the well
-    /// that adds another. A set with nothing in it always gets the well: a term
-    /// has to be able to reach its first form, and with no rows the label and the
-    /// prompt are what say where it goes.
+    /// The spoken forms, one plate each, and — when this host offers one — the
+    /// well that adds another. A set with nothing in it always gets the well: a
+    /// term has to be able to reach its first form, and with no rows the label and
+    /// the prompt are what say where it goes.
     private var heardAsField: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-            Text("Heard as")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            fieldLabel("Heard as")
             // Identity is the form itself, never its position: forms are unique
             // case-insensitively, so removing one leaves every surviving row the
             // row it was. The index is row data — it names the remove control.
@@ -146,51 +172,65 @@ struct ConsoleTermEditor: View {
 
     private var addFormField: some View {
         TextField("Heard as", text: $addText, prompt: Text("cube cuddle"))
+            .textFieldStyle(.plain)
             .font(.body.monospaced())
-            .textFieldStyle(.roundedBorder)
-            .controlSize(.regular)
             .autocorrectionDisabled(true)
             .labelsHidden()
             .focused($focused, equals: .addForm)
             .onSubmit { appendForms() }
             .accessibilityIdentifier("\(identifierPrefix).add-form")
+            .modifier(EditorWell(isFocused: focused == .addForm))
     }
 
     private func formRow(index: Int, form: String) -> some View {
-        HStack(spacing: VoiceourMetrics.Space.sm) {
+        let shape = RoundedRectangle(cornerRadius: Kit.Metrics.rowRadius, style: .continuous)
+        return HStack(spacing: VoiceourMetrics.Space.sm) {
             Text(form)
                 .font(.body.monospaced())
+                .foregroundStyle(VoiceourPalette.Text.high)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 0)
             Button {
                 spokenForms.remove(at: index)
             } label: {
                 // The glyph is 13 pt; the affordance has to be bigger than the
-                // ink. A borderless button is exactly its label's size, so
-                // without this frame the target is 13x13 — under this project's
-                // own 22x22 hit floor. `Control.mini` is the first size that
-                // clears the floor and sits on the control scale.
+                // ink. `glyphControl` is the kit's smallest press target and
+                // clears this project's 22x22 hit floor.
                 Image(systemName: "xmark.circle.fill")
                     .imageScale(.medium)
-                    .frame(width: VoiceourMetrics.Control.mini, height: VoiceourMetrics.Control.mini)
+                    .frame(width: Kit.Metrics.glyphControl, height: Kit.Metrics.glyphControl)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .foregroundStyle(a11y.textMid)
             .help("Remove \(form)")
             .accessibilityLabel("Remove spoken form \(form)")
             .accessibilityIdentifier("\(identifierPrefix).form.\(index).remove")
         }
+        .padding(.leading, VoiceourMetrics.Space.sm + VoiceourMetrics.Space.xs)
+        .padding(.trailing, VoiceourMetrics.Space.xs)
+        .frame(height: Kit.Metrics.control)
+        .background(VoiceourPalette.Plate.rest, in: shape)
+        .overlay(shape.strokeBorder(a11y.lineRule, lineWidth: Kit.Colors.hairline(a11y)))
+        .environment(\.surfaceGround, inheritedGround.painting(VoiceourPalette.Plate.rest))
     }
 
     // MARK: - Readouts
 
     private var derivedReadout: some View {
-        LabeledContent("Also matched") {
+        Kit.Fact("Also matched") {
             Text(derivedForms.joined(separator: " · "))
                 .font(.callout.monospaced())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(a11y.textMid)
                 .textSelection(.enabled)
         }
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .roleStyle(.caption)
+            .foregroundStyle(a11y.textMid)
     }
 
     // MARK: - Commands
@@ -199,15 +239,17 @@ struct ConsoleTermEditor: View {
     /// trailing edge so it cannot be hit while reaching for Save.
     private var commandRow: some View {
         HStack(spacing: VoiceourMetrics.Space.sm) {
-            Button(submit.title, action: performSubmit)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!isSubmitEnabled)
-                .accessibilityIdentifier(submit.identifier)
-            Button("Cancel", action: cancel)
-                .accessibilityIdentifier("\(identifierPrefix).cancel")
+            Kit.GlassGroup {
+                Kit.ActionButton(submit.title, prominence: .primary, action: performSubmit)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!isSubmitEnabled)
+                    .accessibilityIdentifier(submit.identifier)
+                Kit.ActionButton("Cancel", action: cancel)
+                    .accessibilityIdentifier("\(identifierPrefix).cancel")
+            }
             Spacer(minLength: 0)
             if let destructive {
-                Button(destructive.title, role: .destructive, action: destructive.perform)
+                Kit.ActionButton(destructive.title, role: .destructive, action: destructive.perform)
                     .disabled(!destructive.isEnabled)
                     .accessibilityIdentifier(destructive.identifier)
             }
@@ -260,5 +302,35 @@ struct ConsoleTermEditor: View {
             return
         }
         spokenForms.append(form)
+    }
+}
+
+/// A text field's well on the dark ground: the `Ink.well` fill, a hairline rim,
+/// and the cyan focus rim the plain field style no longer draws, so a reader
+/// steering with the keyboard still sees where the caret is. The surface ground
+/// is declared so the harness measures the field's text against the well.
+private struct EditorWell: ViewModifier {
+    private let isFocused: Bool
+    private var a11y = A11y()
+
+    init(isFocused: Bool) {
+        self.isFocused = isFocused
+    }
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Kit.Metrics.rowRadius, style: .continuous)
+        content
+            .foregroundStyle(VoiceourPalette.Text.high)
+            .padding(.horizontal, VoiceourMetrics.Space.sm + VoiceourMetrics.Space.xs)
+            .frame(height: Kit.Metrics.control)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VoiceourPalette.Ink.well, in: shape)
+            .overlay(
+                shape.strokeBorder(
+                    isFocused ? VoiceourPalette.Line.focus : a11y.lineEdge,
+                    lineWidth: isFocused ? 1.5 : Kit.Colors.hairline(a11y)
+                )
+            )
+            .environment(\.surfaceGround, SurfaceGround(VoiceourPalette.Ink.well))
     }
 }

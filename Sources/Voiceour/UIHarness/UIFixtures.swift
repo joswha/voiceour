@@ -202,6 +202,12 @@
             /// non-default ledger can show — both origin filter facets —
             /// actually renders.
             case mixedGlossary
+            /// `mixedGlossary` with two term suggestions still pending, as a dictation leaves
+            /// them: "new row dock" for the taught NeuroDock and "cube control" for the bundled
+            /// kubectl. The suggestions are stated, never retrieved: no dictation runs, so
+            /// nothing that clears them (a new recording, Clear Learned Vocabulary) runs either,
+            /// and the Glossary opens on Suggestions with the first one's page.
+            case glossarySuggestions
             /// A live recording session on the dev backend: `state == .recording`.
             case recording
             /// Real backend with the microphone denied: `state == .error`.
@@ -307,10 +313,11 @@
             case .emptyGlossary:
                 return make(sessions: history, settings: settings(glossary: []))
             case .mixedGlossary:
-                return make(
-                    sessions: history,
-                    settings: settings(glossary: VoiceCore.Settings.defaultGlossary + [taughtTerm, importedTerm])
-                )
+                return make(sessions: history, settings: settings(glossary: mixedGlossaryTerms))
+            case .glossarySuggestions:
+                let coordinator = make(sessions: history, settings: settings(glossary: mixedGlossaryTerms))
+                coordinator.pendingSuggestions = pendingTermSuggestions
+                return coordinator
             case .recording:
                 return makeRecording()
             case .micDenied:
@@ -551,6 +558,32 @@
                 detail: "needs 0.77 GB, 384 MB free"
             )
         )
+
+        /// The glossary `mixedGlossary` and `glossarySuggestions` hold: the bundled terms
+        /// plus one taught term and one imported term.
+        private static var mixedGlossaryTerms: [ProtectedTerm] {
+            VoiceCore.Settings.defaultGlossary + [taughtTerm, importedTerm]
+        }
+
+        /// The suggestions `glossarySuggestions` leaves pending, oldest first. Their ids are
+        /// fixed for the same reason the terms' are: each is an accessibility identifier
+        /// (`glossary.suggestion.<id>`) in committed goldens and flow journals. Each points
+        /// at a term the glossary holds — the taught `term-neurodock` and the bundled
+        /// `kubectl`, whose id is its canonical spelling.
+        private static let pendingTermSuggestions = [
+            TermSuggestion(
+                id: "suggestion-neurodock",
+                misheard: "new row dock",
+                canonical: "NeuroDock",
+                termId: "term-neurodock"
+            ),
+            TermSuggestion(
+                id: "suggestion-kubectl",
+                misheard: "cube control",
+                canonical: "kubectl",
+                termId: "kubectl"
+            ),
+        ]
 
         /// The two terms `mixedGlossary` adds. Their ids are fixed rather than
         /// generated: a term id is an accessibility identifier in committed

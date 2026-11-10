@@ -2,10 +2,10 @@ import SwiftUI
 
 /// A determinate horizontal meter: a capsule track with a capsule fill.
 ///
-/// One drawn bar with three consumers — model acquisition on the native Settings plate, the same
-/// acquisition on Home's painted island and in the menu popover, and Home's share-of-busiest-app
-/// magnitude. `Style` picks the palette, the measure and what the bar says, exactly as
-/// `StatusChip.Mode` picks a chip's fill and `ConsoleStateMark.Severity` picks a mark's colour.
+/// One drawn bar with two consumers — model acquisition on Home's island, the Settings readiness
+/// page and the menu popover, and Home's share-of-busiest-app magnitude. `Style` picks the palette,
+/// the measure and what the bar says, exactly as `Kit.Mark.Tone` picks a mark's hue and
+/// `ConsoleReadout.Severity` picks a readout's rung.
 ///
 /// Determinate only, and deliberately: the offscreen harness has no effective animation-disable
 /// seam, so a perpetual indeterminate fill cannot be captured reproducibly. A wait with no fraction
@@ -15,21 +15,11 @@ import SwiftUI
 /// needs a branch on the fill: removing the hue removes nothing the bar is saying. The painted
 /// track alone strengthens, through `A11y.meterRest`.
 struct MeterBar: View {
-    /// Which palette the bar paints in.
-    enum Ground {
-        /// A native console plate. System semantic colours, so the bar follows the window's
-        /// appearance and Increase Contrast the way `ConsoleStateMark` does. Not `Color.accentColor`
-        /// — the accent is machine state, and a golden may not encode the rendering Mac's choice.
-        case system
-        /// An app-painted near-black ground: Home's island, the menu popover.
-        case painted
-    }
-
     enum Style {
         /// Model acquisition. Amber, the app's waiting hue, matching the menu headline and the
         /// menu-bar dot; it announces its own percentage because the sentence beside it no longer
         /// carries the number.
-        case download(ground: Ground)
+        case download
         /// Home's share of the busiest app. Alien bloom, uncapped width, and silent.
         case share
     }
@@ -64,7 +54,7 @@ struct MeterBar: View {
         .frame(height: VoiceourMetrics.Meter.barHeight)
         .frame(maxWidth: maximumWidth, alignment: .leading)
         .animation(a11y.reduceMotion ? nil : VoiceourMotion.meter, value: value)
-        // The share bar is hidden rather than labelled: `HomeAppRow` combines its children and
+        // The share bar is hidden rather than labelled: `Kit.MeterRow` combines its children and
         // states its own counts, so a second voice would repeat them.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Model download")
@@ -74,16 +64,14 @@ struct MeterBar: View {
 
     private var track: Color {
         return switch style {
-        case .download(.system): Color(nsColor: .quaternaryLabelColor)
-        case .download(.painted): a11y.meterRest
+        case .download: a11y.meterRest
         case .share: VoiceourPalette.Plate.rest
         }
     }
 
     private var fill: Color {
         return switch style {
-        case .download(.system): Color.orange
-        case .download(.painted): VoiceourPalette.Signal.amber
+        case .download: VoiceourPalette.Signal.amber
         case .share: VoiceourPalette.Alien.bloom
         }
     }

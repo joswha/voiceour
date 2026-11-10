@@ -95,14 +95,12 @@
         /// `MenuLayout.popoverWidth`, tall enough for the fullest menu state without clipping.
         static let menuSize = CGSize(width: 280, height: 420)
 
-        /// Settings' whole page with every Island fold shut. The Island section puts
-        /// Readiness, Capture, Privacy, Memory and Danger below the first-launch measure, so
-        /// a scene about any of them renders at this height instead: a multiple of 4 that
-        /// reaches the last Danger caption without a scroller.
-        static let settingsPageSize = CGSize(
-            width: VoiceourMetrics.Window.defaultWidth,
-            height: 2_744
-        )
+        /// Settings' Island page at a window tall enough to photograph it whole: `height` is a
+        /// multiple of 4 that reaches the page's last Position caption without a scroller, so it
+        /// depends on which folds the scene opens.
+        static func islandPage(_ height: CGFloat) -> CGSize {
+            CGSize(width: VoiceourMetrics.Window.defaultWidth, height: height)
+        }
 
         /// Ordered so the contact sheet reads top-down like the app does: the
         /// console tab by tab, then the pieces that live outside it.
@@ -182,9 +180,10 @@
                     fixture: .firstRunAcquisitionFailed,
                     tags: ["first-run"]
                 ),
+                // The Glossary opens on All Terms with the first term's page.
                 console(
                     "console.glossary.populated",
-                    "Glossary with the bundled canonical terms",
+                    "Glossary's All Terms with the bundled canonical terms",
                     tab: .glossary,
                     fixture: .populated
                 ),
@@ -195,15 +194,27 @@
                     fixture: .emptyGlossary,
                     tags: ["empty"]
                 ),
+                // A taught and an imported term beside the bundled ones, so the origin
+                // treatment only a non-default glossary shows renders in the list.
                 console(
                     "console.glossary.mixed",
-                    "Glossary with a taught term and an imported term",
+                    "Glossary's All Terms with a taught term and an imported term",
                     tab: .glossary,
                     fixture: .mixedGlossary
                 ),
+                // The Yours origin in the sidebar, a plain button the never-key window takes:
+                // the list narrowed to the taught and imported terms, the sidebar item selected.
+                console(
+                    "console.glossary.yours",
+                    "Glossary narrowed to the user's own terms",
+                    tab: .glossary,
+                    fixture: .mixedGlossary,
+                    tags: ["steps"],
+                    steps: [.press("glossary.origin.yours"), .settle(120)]
+                ),
                 console(
                     "console.glossary.editing",
-                    "Glossary with one term open for editing",
+                    "Glossary with the bundled kubectl term's page open",
                     tab: .glossary,
                     fixture: .mixedGlossary,
                     tags: ["steps"],
@@ -217,9 +228,29 @@
                     tags: ["steps"],
                     steps: [.type("dock", into: "glossary.search.field")]
                 ),
-                // The component kit on its own, in the composition the Journal uses, so a
-                // change to one component shows here before it moves any Journal golden.
-                kitGallery("console.kit.gallery", "The component kit in the Journal's composition"),
+                // Add Term from the list bar: the draft page, its fields empty, that a new
+                // term is written on.
+                console(
+                    "console.glossary.draft",
+                    "Glossary's draft page for a new term",
+                    tab: .glossary,
+                    fixture: .populated,
+                    tags: ["steps"],
+                    steps: [.press("glossary.add-term"), .settle(120)]
+                ),
+                // Two suggestions pending, so the sidebar offers Suggestions and the tab opens
+                // on it with the first suggestion's page: its misheard words, the term they may
+                // be, and Accept, Ignore and Reject. No step: the tab chooses this itself.
+                console(
+                    "console.glossary.suggestions",
+                    "Glossary opened on its pending suggestions, the first one's page shown",
+                    tab: .glossary,
+                    fixture: .glossarySuggestions,
+                    tags: ["suggestions"]
+                ),
+                // The component kit on its own, in the console's composition, so a change to
+                // one component shows here before it moves any tab's golden.
+                kitGallery("console.kit.gallery", "The component kit in the console's composition"),
                 console(
                     "console.sessions.populated",
                     "History list, day groups and transcript detail",
@@ -465,80 +496,171 @@
                     journalDay: UIFixtures.labelledDay,
                     tags: ["memory", "highlights"]
                 ),
-                // The first-launch measure, which now ends inside the Island showroom: what a
-                // fresh install's Settings tab shows before any scrolling.
+                // Settings as it opens, on the Dictation page, which it opens on every time:
+                // the hotkey, auto-stop and its duration, and cleanup.
                 console(
                     "console.settings.granted",
-                    "Settings at the first-launch measure with every permission granted",
+                    "Settings as it opens, on the Dictation page",
                     tab: .settings,
                     fixture: .backendReady
                 ),
+                // The microphone picker on the connected Yeti, and the mute and cue switches.
                 console(
-                    "console.settings.denied",
-                    "Settings' whole page, readiness with permissions denied",
-                    tab: .settings,
-                    fixture: .backendUnavailable,
-                    size: settingsPageSize
-                ),
-                console(
-                    "console.settings.downloading",
-                    "Settings' whole page, readiness while the model is still downloading",
-                    tab: .settings,
-                    fixture: .backendDownloading,
-                    size: settingsPageSize
-                ),
-                // Every Garage control, caption, readout and spoken value at stock, and the
-                // showroom's raster.
-                console(
-                    "console.settings.island.tuning",
-                    "Settings' Island section with all four folds open at the stock look",
+                    "console.settings.audio",
+                    "Settings' Audio page with a connected microphone selected",
                     tab: .settings,
                     fixture: .backendReady,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 3_192),
+                    tags: ["steps"],
+                    steps: settingsPage("audio")
+                ),
+                // The saved microphone unplugged and an output device with no mute: the NOT
+                // CONNECTED and UNAVAILABLE marks, their captions and the Audio item's caution.
+                console(
+                    "console.settings.audio.unavailable",
+                    "Settings' Audio page with the saved microphone missing and mute unavailable",
+                    tab: .settings,
+                    fixture: .backendUnavailable,
+                    tags: ["steps"],
+                    steps: settingsPage("audio")
+                ),
+                // Granite named as the one model, with its single artifact ready.
+                console(
+                    "console.settings.model",
+                    "Settings' Model page with Granite ready",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    tags: ["steps"],
+                    steps: settingsPage("model")
+                ),
+                // Every readiness mark good: the backend ready and every permission granted.
+                console(
+                    "console.settings.readiness",
+                    "Settings' Readiness page with the model ready and every permission granted",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    tags: ["steps"],
+                    steps: settingsPage("readiness")
+                ),
+                // Every readiness mark bad: the backend unreachable and the microphone denied.
+                console(
+                    "console.settings.denied",
+                    "Settings' Readiness page with the backend unreachable and permissions denied",
+                    tab: .settings,
+                    fixture: .backendUnavailable,
+                    tags: ["steps"],
+                    steps: settingsPage("readiness")
+                ),
+                // Capture and insertion both denied, each beside the button that opens its
+                // System Settings pane.
+                console(
+                    "console.settings.capture.denied",
+                    "Settings' Capture page with capture and insertion denied",
+                    tab: .settings,
+                    fixture: .backendUnavailable,
+                    tags: ["steps"],
+                    steps: settingsPage("capture")
+                ),
+                // The model part-way through its 0.51 GB download, with the progress bar.
+                console(
+                    "console.settings.downloading",
+                    "Settings' Readiness page while the speech model downloads",
+                    tab: .settings,
+                    fixture: .backendDownloading,
+                    tags: ["steps"],
+                    steps: settingsPage("readiness")
+                ),
+                // Agent-session linking on, so the page offers Link Earlier Dictations beside
+                // Copy Diagnostics.
+                console(
+                    "console.settings.privacy",
+                    "Settings' Privacy page with agent-session linking on",
+                    tab: .settings,
+                    fixture: .linkingOn,
+                    tags: ["agent-link", "steps"],
+                    steps: settingsPage("privacy")
+                ),
+                // Memory on, so its copy buttons are enabled, and the sorting key "Not set"
+                // with the sorting switch disabled, as on every harness Mac.
+                console(
+                    "console.settings.memory",
+                    "Settings' Memory page with memory on",
+                    tab: .settings,
+                    fixture: .remembered,
+                    tags: ["memory", "steps"],
+                    steps: settingsPage("memory")
+                ),
+                // The arm buttons that clear History, memory and learned vocabulary, unarmed,
+                // over the populated History.
+                console(
+                    "console.settings.danger",
+                    "Settings' Danger page over a populated history",
+                    tab: .settings,
+                    fixture: .populated,
+                    tags: ["steps"],
+                    steps: settingsPage("danger")
+                ),
+                // Every Garage control, caption, readout and spoken value at stock, the look
+                // gallery with Stock selected, and the showroom's raster.
+                console(
+                    "console.settings.island.tuning",
+                    "Settings' Island page with all four folds open at the stock look",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    size: islandPage(3_260),
                     tags: ["island", "steps"],
-                    steps: islandFoldSteps
+                    steps: settingsPage("island") + islandFoldSteps
                 ),
                 // The rows only a non-stock look shows or enables: the film slider, the
                 // underglow's color and strength, the Overcast radio, signed and kelvin
-                // readouts away from stock, and the ARCTIC PLATINUM mark.
+                // readouts away from stock, and the ARCTIC PLATINUM mark and selected card.
                 console(
                     "console.settings.island.look",
-                    "Settings' Island section with all four folds open on the Arctic Platinum look",
+                    "Settings' Island page with all four folds open on the Arctic Platinum look",
                     tab: .settings,
                     fixture: .islandLook,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 3_212),
+                    size: islandPage(3_316),
                     tags: ["island", "steps"],
-                    steps: islandFoldSteps
+                    steps: settingsPage("island") + islandFoldSteps
                 ),
-                // CUSTOM, a look list with nothing selected, and Dock Island live beside the
-                // free placement's caption.
+                // CUSTOM, a look gallery with no card selected, and Dock Island live beside the
+                // free placement's caption, the folds shut as the page first shows them.
                 console(
                     "console.settings.island.custom",
-                    "Settings' Island section tuned off a look, with a free island placement",
+                    "Settings' Island page tuned off a look, with a free island placement",
                     tab: .settings,
                     fixture: .islandCustom,
-                    size: settingsPageSize,
-                    tags: ["island"]
+                    size: islandPage(1_300),
+                    tags: ["island", "steps"],
+                    steps: settingsPage("island")
                 ),
                 // An outcome pose, which only this scene can show: Play Again present and
                 // enabled, and the showroom drawn at the gesture's pinned endpoint, the same
                 // frame semantics as `overlay.island.copied`. Play Again itself is never
-                // pressed here: its 1.2 s hold is wall-clock.
+                // pressed here: its 1.2 s hold is wall-clock. The pose is pinned; the page is
+                // pressed, as every other Island scene's is.
                 console(
                     "console.settings.island.outcome",
-                    "Settings' Island showroom holding the delivery-failed gesture",
+                    "Settings' Island page, its showroom holding the delivery-failed gesture",
                     tab: .settings,
                     fixture: .backendReady,
                     showroomPose: .deliveryFailed,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_024),
-                    tags: ["island"]
+                    tags: ["island", "steps"],
+                    steps: settingsPage("island")
                 ),
             ]
         }
 
-        /// Opens all four Garage folds. Each press reaches one `DisclosureGroup` through the
-        /// identifier and named action on its label; the settle lets the last fold's rows
-        /// finish inserting before the capture.
+        /// Opens one Settings page. Settings opens on Dictation and never remembers the page,
+        /// so a scene of any other page presses its sidebar item, a plain button the never-key
+        /// window takes; the settle lets the chosen page's controls replace Dictation's before
+        /// the next step or the capture. `section` is the page's raw value.
+        private static func settingsPage(_ section: String) -> [UIStep] {
+            [.press("settings.section.\(section)"), .settle(120)]
+        }
+
+        /// Opens all four Garage folds on the Island page. Each press reaches one fold's
+        /// disclosure button through its identifier, shut on the page's first appearance;
+        /// the settle lets the last fold's rows finish inserting before the capture.
         private static let islandFoldSteps: [UIStep] = [
             .press("island.group.material"),
             .press("island.group.lighting"),
@@ -566,20 +688,24 @@
                     "The component kit with Reduce Transparency enabled",
                     adaptation: .reduceTransparency
                 ),
+                // Settings as it opens, on the Dictation page, with rims and text escalated.
                 accessibilityConsole(
                     "a11y.increase-contrast",
-                    "Settings preferences with Increase Contrast enabled",
+                    "Settings' Dictation page with Increase Contrast enabled",
                     tab: .settings,
                     fixture: .populated,
                     adaptation: .increaseContrast
                 ),
+                // Every readiness mark bad, so each carries the symbol that says so without
+                // its colour.
                 accessibilityConsole(
                     "a11y.differentiate-without-color",
-                    "Settings' whole page denied, with Differentiate Without Color enabled",
+                    "Settings' Readiness page denied, with Differentiate Without Color enabled",
                     tab: .settings,
                     fixture: .backendUnavailable,
                     adaptation: .differentiateWithoutColor,
-                    size: settingsPageSize
+                    tags: ["steps"],
+                    steps: settingsPage("readiness")
                 ),
                 accessibilityConsole(
                     "a11y.home.differentiate",
@@ -599,25 +725,25 @@
                 // showroom drawn at the accessible tone the island itself will use.
                 accessibilityConsole(
                     "a11y.island.increase-contrast",
-                    "Settings' Island lighting fold with Increase Contrast enabled",
+                    "Settings' Island page, lighting fold open, with Increase Contrast enabled",
                     tab: .settings,
                     fixture: .backendReady,
                     adaptation: .increaseContrast,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 2_488),
+                    size: islandPage(1_920),
                     tags: ["island", "steps"],
-                    steps: [.press("island.group.lighting"), .settle(120)]
+                    steps: settingsPage("island") + [.press("island.group.lighting"), .settle(120)]
                 ),
                 // Shimmer disabled beside the caption that says why, and the showroom's own
                 // Reduce Motion sentence; the rest of Motion stays live, as voice motion does.
                 accessibilityConsole(
                     "a11y.island.reduce-motion",
-                    "Settings' Island motion fold with Reduce Motion enabled",
+                    "Settings' Island page, motion fold open, with Reduce Motion enabled",
                     tab: .settings,
                     fixture: .backendReady,
                     adaptation: .reduceMotion,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 2_512),
+                    size: islandPage(1_968),
                     tags: ["island", "steps"],
-                    steps: [.press("island.group.motion"), .settle(120)]
+                    steps: settingsPage("island") + [.press("island.group.motion"), .settle(120)]
                 ),
             ]
         }
@@ -1063,7 +1189,7 @@
             }
         }
 
-        /// The component kit's gallery at the console's measure, on the Journal's ground.
+        /// The component kit's gallery at the console's measure, on `Kit.Screen`.
         private static func kitGallery(
             _ identifier: String,
             _ title: String,

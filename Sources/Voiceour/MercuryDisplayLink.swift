@@ -81,6 +81,15 @@ final class MercurySurfaceView: NSView {
         /// that frame advances under, in place of the drive's own. Never for a pinned harness frame,
         /// and nil in the harness, which moves no panel.
         var panelMotion: MercuryPanelMotion?
+        /// Pixels per layout point the engine rasterizes at. The production scale everywhere
+        /// but the Settings showroom's magnified stage, which draws the same body at twice its
+        /// size and needs twice the pixels to stay sharp; each scale is its own cached frame.
+        var rasterScale: CGFloat = MercuryMetrics.rasterScale
+        /// Called with each image the view presents, live or pinned, once per new image and
+        /// never while suspended, so the showroom's floor follows the body without a SwiftUI
+        /// update. An empty body presents no image and calls nothing. Its cost is the
+        /// callee's, on the display link's frame.
+        var onPresent: (@MainActor (CGImage) -> Void)?
     }
 
     private let engine: MercuryEngine
@@ -156,6 +165,9 @@ final class MercurySurfaceView: NSView {
             screenLink?.isPaused = true
             return
         }
+        if layer?.contentsScale != configuration.rasterScale {
+            layer?.contentsScale = configuration.rasterScale
+        }
         if let step = configuration.pinnedStep {
             screenLink?.isPaused = true
             setImage(
@@ -165,7 +177,8 @@ final class MercurySurfaceView: NSView {
                     look: configuration.look,
                     drive: configuration.drive,
                     appearance: configuration.appearance,
-                    layout: configuration.layout
+                    layout: configuration.layout,
+                    rasterScale: configuration.rasterScale
                 )
             )
             return
@@ -245,7 +258,8 @@ final class MercurySurfaceView: NSView {
                 look: configuration.look,
                 drive: drive,
                 appearance: configuration.appearance,
-                layout: configuration.layout
+                layout: configuration.layout,
+                rasterScale: configuration.rasterScale
             )
         )
     }
@@ -254,6 +268,9 @@ final class MercurySurfaceView: NSView {
         guard image !== currentImage else { return }
         currentImage = image
         MercuryLayerPresenter.present(image, on: layer)
+        if let image, let onPresent = configuration?.onPresent {
+            onPresent(image)
+        }
     }
 }
 

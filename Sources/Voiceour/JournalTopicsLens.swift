@@ -169,7 +169,7 @@ struct JournalTopicsLens: View {
             subtitle: detail.joined(separator: " \u{00B7} "),
             isSelected: isSelected,
             action: { select(row.id) },
-            leading: { Kit.Glyph(systemImage: "tag.fill", tint: .teal) },
+            leading: { Kit.Badge(systemImage: "tag.fill", size: .small) },
             trailing: { EmptyView() }
         )
         .accessibilityLabel(([row.topic.name] + detail).joined(separator: ", "))
@@ -195,7 +195,7 @@ struct JournalTopicsLens: View {
     // MARK: New topic
 
     private var newTopicCard: some View {
-        Kit.Card {
+        Kit.Island {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
                 Kit.SectionTitle("New Topic")
 
@@ -257,7 +257,7 @@ struct JournalTopicsLens: View {
     }
 
     private var sortingCard: some View {
-        Kit.Card {
+        Kit.Island {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
                 Kit.SectionTitle("Sorting")
 
@@ -352,11 +352,16 @@ struct JournalTopicsLens: View {
             )
 
             if !selectedTopicNotes.isEmpty {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                    Kit.SectionTitle("From your agents")
-                    ForEach(selectedTopicNotes) { note in
-                        JournalAgentNoteRow(note)
-                            .accessibilityIdentifier("journal.topics.agent-note")
+                Kit.Island {
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                        Kit.SectionTitle("From your agents")
+                        ForEach(selectedTopicNotes) { note in
+                            if note.id != selectedTopicNotes.first?.id {
+                                Kit.Rule()
+                            }
+                            JournalAgentNoteRow(note)
+                                .accessibilityIdentifier("journal.topics.agent-note")
+                        }
                     }
                 }
             }
@@ -364,16 +369,15 @@ struct JournalTopicsLens: View {
             entriesSection(row)
 
             // Last, because a topic is read far more often than it is renamed.
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle("Name and summary")
-                editCard(row.topic)
-            }
+            editIsland(row.topic)
         }
     }
 
-    private func editCard(_ topic: MemoryTopic) -> some View {
-        Kit.Card {
+    private func editIsland(_ topic: MemoryTopic) -> some View {
+        Kit.Island {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle("Name and summary")
+
                 Kit.Fact("Name") {
                     TextField("Name", text: $editedName)
                         .textFieldStyle(.roundedBorder)
@@ -405,31 +409,34 @@ struct JournalTopicsLens: View {
         }
     }
 
-    @ViewBuilder
     private func entriesSection(_ row: TopicRow) -> some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            Kit.SectionTitle("Entries")
+        Kit.Island {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle("Entries")
 
-            if row.days.isEmpty {
-                ConsoleCaption("Nothing is filed under this topic yet. File an entry from its menu in any lens.")
-            } else {
-                ForEach(row.days) { day in
-                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                        ConsoleCaption(SessionsFormatters.dayHeader.string(from: day.day))
-                            .padding(.horizontal, VoiceourMetrics.Space.md)
-                        ForEach(day.entries) { entry in
-                            JournalEntryRow(
-                                entry: entry,
-                                isInHistory: historyIDs.contains(entry.id),
-                                showsThreadAction: true,
-                                navigation: navigation,
-                                delete: delete,
-                                topics: coordinator.memoryTopics,
-                                file: fileEntry
-                            )
+                if row.days.isEmpty {
+                    ConsoleCaption(
+                        "Nothing is filed under this topic yet. File an entry from its menu in any lens."
+                    )
+                } else {
+                    ForEach(row.days) { day in
+                        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                            ConsoleCaption(SessionsFormatters.dayHeader.string(from: day.day))
+                                .padding(.horizontal, VoiceourMetrics.Space.md)
+                            ForEach(day.entries) { entry in
+                                JournalEntryRow(
+                                    entry: entry,
+                                    isInHistory: historyIDs.contains(entry.id),
+                                    showsThreadAction: true,
+                                    navigation: navigation,
+                                    delete: delete,
+                                    topics: coordinator.memoryTopics,
+                                    file: fileEntry
+                                )
+                            }
                         }
+                        .padding(.bottom, VoiceourMetrics.Space.sm)
                     }
-                    .padding(.bottom, VoiceourMetrics.Space.sm)
                 }
             }
         }

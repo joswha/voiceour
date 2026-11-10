@@ -318,22 +318,29 @@ struct JournalRewindLens: View {
             }
 
             if !rewind.highlights.isEmpty {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                    Kit.SectionTitle("Highlights")
-                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-                        ForEach(rewind.highlights) { highlight in
-                            entryRow(highlight.entry)
+                Kit.Island {
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                        Kit.SectionTitle("Highlights")
+                        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+                            ForEach(rewind.highlights) { highlight in
+                                entryRow(highlight.entry)
+                            }
                         }
                     }
                 }
             }
 
             if !dayNotes.isEmpty {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                    Kit.SectionTitle("From your agents")
-                    ForEach(dayNotes) { note in
-                        JournalAgentNoteRow(note)
-                            .accessibilityIdentifier("journal.rewind.agent-note")
+                Kit.Island {
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                        Kit.SectionTitle("From your agents")
+                        ForEach(dayNotes) { note in
+                            if note.id != dayNotes.first?.id {
+                                Kit.Rule()
+                            }
+                            JournalAgentNoteRow(note)
+                                .accessibilityIdentifier("journal.rewind.agent-note")
+                        }
                     }
                 }
             }
@@ -392,30 +399,34 @@ struct JournalRewindLens: View {
 
     // MARK: Blocks
 
+    /// One island per block: its heading, with Open Thread beside it on a session
+    /// block, then the session's title and the block's entries.
     private func blockSection(_ block: RewindBlock) -> some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            Kit.SectionTitle(Self.blockHeader(block)) {
-                if case .thread(let ref) = block.subject {
-                    Button {
-                        navigation.openThread(ref.key)
-                    } label: {
-                        Text("Open Thread")
-                            .frame(minHeight: Kit.Metrics.control)
-                            .contentShape(Rectangle())
+        Kit.Island {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle(Self.blockHeader(block)) {
+                    if case .thread(let ref) = block.subject {
+                        Button {
+                            navigation.openThread(ref.key)
+                        } label: {
+                            Text("Open Thread")
+                                .frame(minHeight: Kit.Metrics.control)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Open this agent session in Threads")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Open this agent session in Threads")
                 }
-            }
 
-            if case .thread(let ref) = block.subject {
-                threadTitleRow(ref)
-            }
+                if case .thread(let ref) = block.subject {
+                    threadTitleRow(ref)
+                }
 
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-                ForEach(block.entries) { entry in
-                    entryRow(entry)
-                        .id(entry.id)
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+                    ForEach(block.entries) { entry in
+                        entryRow(entry)
+                            .id(entry.id)
+                    }
                 }
             }
         }

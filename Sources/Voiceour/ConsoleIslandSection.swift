@@ -115,11 +115,11 @@ extension IslandShowroomPose {
 
 /// Settings ▸ Island: how the recording island looks, previewed live.
 ///
-/// One section in seven rows: the showroom; four folds of options — Material, Lighting, Body
-/// and Motion, independent of one another and all closed on first appearance; the looks with
-/// Surprise Me; and Dock Island. The folds come before the looks so the fullest of them
-/// still fits in the window beside the preview, and the looks then read as the reset for
-/// everything above them.
+/// The page body under the shell's "Island" header, as islands from top to bottom: the stage
+/// with the showroom; the looks gallery with Surprise Me; four folds of options — Material,
+/// Lighting, Body and Motion, independent of one another and all shut on first appearance;
+/// and Position. The looks come before the folds because a look is where tuning starts, and
+/// choosing one resets everything below it.
 ///
 /// No control writes through `settingBinding`, which saves on every set: a slider drag would
 /// rewrite `settings.json` at pointer rate. Each control stages the coordinator's draft
@@ -128,7 +128,7 @@ extension IslandShowroomPose {
 /// `IslandGarageEditor` commits it (`commitIsland`) once per gesture: pickers, radios,
 /// switches and buttons at once; a slider when it is released; a color well, which reports
 /// no editing, after 300 ms without a change; and whatever is still in flight when the
-/// section goes away. Every commit is one save and one undo step that restores the whole
+/// page goes away. Every commit is one save and one undo step that restores the whole
 /// previous look, so choosing a look never costs a hand-tuned one more than ⌘Z.
 ///
 /// Each row is an `Equatable` view of the values it shows, so a staged draft re-evaluates only
@@ -137,10 +137,9 @@ extension IslandShowroomPose {
 /// folds open. A row reads the coordinator only when it writes, so no row body subscribes to
 /// the draft.
 ///
-/// Radio pickers (Coat, Room, Look) stay direct Form rows, because an `HStack` wrapper splits
-/// one into a group per item, and nothing is segmented, because a segmented control answers
-/// an accessibility press with false. Pop-up menus (Metal, the preview pose) sit only where no
-/// flow has to open them.
+/// Nothing is segmented, because a segmented control answers an accessibility press with
+/// false; Coat and Room are radio groups. Pop-up menus (Metal, the preview pose) sit only where
+/// no flow has to open them.
 struct ConsoleIslandSection: View {
     var coordinator: DictationCoordinator
 
@@ -161,23 +160,30 @@ struct ConsoleIslandSection: View {
     }
 
     var body: some View {
-        Section("Island") {
-            // The showroom row is always present, so it carries the section's commit hooks.
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
+            // The stage is always present, so it carries the page's commit hooks.
             IslandShowroom(coordinator: coordinator)
                 .onChange(of: coordinator.islandDraft) {
                     editor.scheduleQuietCommit(undoManager: undoManager)
                 }
                 .onDisappear { editor.finishEditing(undoManager: undoManager) }
 
+            IslandLookGallery(
+                look: IslandLook.matching(island),
+                increasedContrast: increasedContrast,
+                editor: editor,
+                coordinator: coordinator
+            )
+            .equatable()
+
             fold(.material, isExpanded: $showsMaterial) { materialRows }
             fold(.lighting, isExpanded: $showsLighting) { lightingRows }
             fold(.body, isExpanded: $showsBody) { bodyRows }
             fold(.motion, isExpanded: $showsMotion) { motionRows }
 
-            IslandLookRow(look: IslandLook.matching(island), editor: editor, coordinator: coordinator)
-                .equatable()
             IslandPositionRow()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// What every control shows: the draft in flight, else the saved look.
@@ -191,6 +197,7 @@ struct ConsoleIslandSection: View {
 
     // MARK: Folds
 
+    /// One fold as an island: its heading opens and shuts the rows, and Restore Stock ends them.
     private func fold<Rows: View>(
         _ group: IslandGroup,
         isExpanded: Binding<Bool>,
@@ -198,18 +205,13 @@ struct ConsoleIslandSection: View {
     ) -> some View {
         let rows = content()
         let restore = IslandRestoreButton(group: group, isStock: group.isStock(island), editor: editor)
-        return DisclosureGroup(isExpanded: isExpanded) {
-            rows
-            restore.equatable()
-        } label: {
-            Text(group.title)
-                .accessibilityIdentifier(group.identifier)
-                // Measured on History's folds: the triangle SwiftUI publishes answers an
-                // accessibility press with success and does not toggle, so the label's
-                // default action is the one an accessibility press performs.
-                .accessibilityAction {
-                    isExpanded.wrappedValue.toggle()
+        return Kit.Island {
+            Kit.Disclosure(group.title, isExpanded: isExpanded, identifier: group.identifier) {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                    rows
+                    restore.equatable()
                 }
+            }
         }
     }
 
@@ -219,7 +221,7 @@ struct ConsoleIslandSection: View {
     private var materialRows: some View {
         IslandMetalRow(metal: island.metal, editor: editor, coordinator: coordinator)
             .equatable()
-
+        Kit.Rule()
         IslandCoatRow(
             caption: coatCaption,
             coat: island.coat,
@@ -232,7 +234,7 @@ struct ConsoleIslandSection: View {
             coordinator: coordinator
         )
         .equatable()
-
+        Kit.Rule()
         slider(
             "Finish",
             \.finish,
@@ -283,7 +285,7 @@ struct ConsoleIslandSection: View {
     private var lightingRows: some View {
         IslandRoomRow(room: island.room, editor: editor, coordinator: coordinator)
             .equatable()
-
+        Kit.Rule()
         slider(
             "Temperature",
             \.temperature,
@@ -293,7 +295,7 @@ struct ConsoleIslandSection: View {
                 + "without changing its brightness.",
             readout: .kelvin
         )
-
+        Kit.Rule()
         IslandUnderglowRow(
             underglow: island.underglow,
             underglowHue: island.underglowHue,
@@ -303,7 +305,7 @@ struct ConsoleIslandSection: View {
             coordinator: coordinator
         )
         .equatable()
-
+        Kit.Rule()
         slider(
             "Brightness",
             \.brightness,
@@ -316,7 +318,7 @@ struct ConsoleIslandSection: View {
             readout: .signed,
             disabled: increasedContrast
         )
-
+        Kit.Rule()
         slider(
             "Contrast",
             \.contrast,
@@ -352,7 +354,7 @@ struct ConsoleIslandSection: View {
                 + "largest body the island holds. On the notch collar the length follows the "
                 + "camera housing, so Size sets thickness only."
         )
-
+        Kit.Rule()
         slider(
             "Build",
             \.build,
@@ -360,7 +362,7 @@ struct ConsoleIslandSection: View {
             id: "island.body.build",
             caption: "Slims the body's height alone, down to 80%."
         )
-
+        Kit.Rule()
         slider(
             "Crown",
             \.crown,
@@ -369,7 +371,7 @@ struct ConsoleIslandSection: View {
             caption: "How domed the surface is, from a nearly flat 60% to a full half-round at "
                 + "100%; it moves the reflections, not the outline."
         )
-
+        Kit.Rule()
         slider(
             "Taper",
             \.taper,
@@ -390,7 +392,7 @@ struct ConsoleIslandSection: View {
             id: "island.motion.tempo",
             caption: "How fast every ripple runs; your voice still sets how tall they grow."
         )
-
+        Kit.Rule()
         slider(
             "Viscosity",
             \.viscosity,
@@ -398,7 +400,7 @@ struct ConsoleIslandSection: View {
             id: "island.motion.viscosity",
             caption: "How quickly ripples die away, from runny at 50% to syrupy at 200%."
         )
-
+        Kit.Rule()
         // Reduce Motion zeroes the body's autonomous motion whatever this says, so the slider
         // is disabled rather than left moving nothing. Voice and pose motion stay, and so do
         // the other rows.
@@ -413,7 +415,7 @@ struct ConsoleIslandSection: View {
                 : "The body's own restless motion between words.",
             disabled: a11y.reduceMotion
         )
-
+        Kit.Rule()
         slider(
             "Reactivity",
             \.reactivity,
@@ -421,7 +423,7 @@ struct ConsoleIslandSection: View {
             id: "island.motion.reactivity",
             caption: "How strongly the body answers your voice."
         )
-
+        Kit.Rule()
         slider(
             "Slither",
             \.slither,
@@ -430,7 +432,7 @@ struct ConsoleIslandSection: View {
             caption: "How far the two edges snake apart as a crest passes and between words; below "
                 + "75% they mirror into a pill."
         )
-
+        Kit.Rule()
         slider(
             "Morph",
             \.morph,
@@ -440,7 +442,7 @@ struct ConsoleIslandSection: View {
                 + "0.51 s; it still grows in and swallows itself at its usual pace.",
             readout: .seconds
         )
-
+        Kit.Rule()
         slider(
             "Drama",
             \.drama,
@@ -493,7 +495,8 @@ private struct IslandMetalRow: View, Equatable {
     }
 
     var body: some View {
-        ConsoleRow(
+        Kit.SettingRow(
+            "Metal",
             caption: "The body's color is this metal's own reflection of the room; nothing is "
                 + "painted on."
         ) {
@@ -503,6 +506,8 @@ private struct IslandMetalRow: View, Equatable {
                 }
             }
             .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
             .accessibilityIdentifier("island.material.metal")
         }
     }
@@ -540,39 +545,44 @@ private struct IslandCoatRow: View, Equatable {
     }
 
     var body: some View {
-        ConsoleRow(caption: caption) {
-            Picker("Coat", selection: coatSelection) {
-                ForEach(IslandCoat.allCases, id: \.self) { coat in
-                    Text(coat.displayName).tag(coat)
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+            Kit.SettingRow("Coat", caption: caption) {
+                Picker("Coat", selection: coatSelection) {
+                    ForEach(IslandCoat.allCases, id: \.self) { coat in
+                        Text(coat.displayName)
+                            .tag(coat)
+                            .accessibilityIdentifier("island.material.coat.\(coat.rawValue)")
+                    }
                 }
+                .pickerStyle(.radioGroup)
+                .horizontalRadioGroupLayout()
+                .labelsHidden()
+                .accessibilityIdentifier("island.material.coat")
             }
-            .pickerStyle(.radioGroup)
-            .accessibilityIdentifier("island.material.coat")
 
             if let grid = coat.film {
-                IslandSliderControl(
-                    label: "Film",
-                    field: \.film,
-                    grid: grid,
-                    id: "island.material.film",
-                    accessibilityLabel: "Film thickness",
-                    action: "Change Film Thickness",
-                    readout: .nanometers,
-                    value: film,
-                    editor: editor,
-                    coordinator: coordinator
-                )
-                .equatable()
+                Kit.SettingRow("Film") {
+                    IslandSliderControl(
+                        field: \.film,
+                        grid: grid,
+                        id: "island.material.film",
+                        accessibilityLabel: "Film thickness",
+                        action: "Change Film Thickness",
+                        readout: .nanometers,
+                        value: film,
+                        editor: editor,
+                        coordinator: coordinator
+                    )
+                    .equatable()
+                }
             }
 
             if coat == .candy {
-                LabeledContent {
+                Kit.SettingRow("Color") {
                     ColorPicker("Candy color", selection: candyColor, supportsOpacity: false)
                         .labelsHidden()
                         .accessibilityValue(candyDescription)
                         .accessibilityIdentifier("island.material.candy")
-                } label: {
-                    Text("Color")
                 }
             }
         }
@@ -643,7 +653,8 @@ private struct IslandRoomRow: View, Equatable {
     }
 
     var body: some View {
-        ConsoleRow(
+        Kit.SettingRow(
+            "Room",
             caption: "Studio reflects 32 soft area lights with a faint tint; Overcast reflects a "
                 + "gray, cloudlike sky. Each dictation draws a new room of this kind."
         ) {
@@ -653,6 +664,8 @@ private struct IslandRoomRow: View, Equatable {
                 }
             }
             .pickerStyle(.radioGroup)
+            .horizontalRadioGroupLayout()
+            .labelsHidden()
             .accessibilityIdentifier("island.lighting.room")
         }
     }
@@ -687,36 +700,40 @@ private struct IslandUnderglowRow: View, Equatable {
     }
 
     var body: some View {
-        ConsoleRow(
-            caption: "A colored light beneath the body, reflected like the rest of the room. Only "
-                + "its hue and saturation count; Strength sets how bright it glows."
-        ) {
-            Toggle("Underglow", isOn: underglowSwitch)
-                .accessibilityIdentifier("island.lighting.underglow")
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+            Kit.SettingRow(
+                "Underglow",
+                caption: "A colored light beneath the body, reflected like the rest of the room. "
+                    + "Only its hue and saturation count; Strength sets how bright it glows."
+            ) {
+                Toggle("Underglow", isOn: underglowSwitch)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .accessibilityIdentifier("island.lighting.underglow")
+            }
 
-            LabeledContent {
+            Kit.SettingRow("Color") {
                 ColorPicker("Underglow color", selection: underglowColor, supportsOpacity: false)
                     .labelsHidden()
                     .accessibilityValue(underglowDescription)
                     .accessibilityIdentifier("island.lighting.underglow.color")
-            } label: {
-                Text("Color")
             }
             .disabled(!underglow)
 
-            IslandSliderControl(
-                label: "Strength",
-                field: \.underglowStrength,
-                grid: IslandGrids.underglowStrength,
-                id: "island.lighting.underglow.strength",
-                accessibilityLabel: "Underglow strength",
-                action: "Change Underglow Strength",
-                readout: .percent,
-                value: underglowStrength,
-                editor: editor,
-                coordinator: coordinator
-            )
-            .equatable()
+            Kit.SettingRow("Strength") {
+                IslandSliderControl(
+                    field: \.underglowStrength,
+                    grid: IslandGrids.underglowStrength,
+                    id: "island.lighting.underglow.strength",
+                    accessibilityLabel: "Underglow strength",
+                    action: "Change Underglow Strength",
+                    readout: .percent,
+                    value: underglowStrength,
+                    editor: editor,
+                    coordinator: coordinator
+                )
+                .equatable()
+            }
             .disabled(!underglow)
         }
     }
@@ -785,9 +802,8 @@ private struct IslandSliderRow: View, Equatable {
     }
 
     var body: some View {
-        ConsoleRow(caption: caption) {
+        Kit.SettingRow(label, caption: caption) {
             IslandSliderControl(
-                label: label,
                 field: field,
                 grid: grid,
                 id: id,
@@ -799,12 +815,13 @@ private struct IslandSliderRow: View, Equatable {
                 coordinator: coordinator
             )
             .equatable()
-            .disabled(isDisabled)
         }
+        .disabled(isDisabled)
     }
 }
 
-/// One integer option as a slider, in the shape every island slider shares.
+/// One integer option as a slider and its readout, in the shape every island slider shares;
+/// the setting row around it carries the visible title.
 ///
 /// The value is an integer in UI units moved by the grid's explicit step, so the published
 /// accessibility value is an integer (a fractional step leaks float error into it) and a
@@ -813,7 +830,6 @@ private struct IslandSliderRow: View, Equatable {
 /// The readout beside it therefore stays out of accessibility. No end labels:
 /// `minimumValueLabel`/`maximumValueLabel` publish 19×13 pt step buttons.
 private struct IslandSliderControl: View, Equatable {
-    let label: String
     let field: WritableKeyPath<IslandAppearance, Int> & Sendable
     let grid: IslandGrid
     let id: String
@@ -824,45 +840,69 @@ private struct IslandSliderControl: View, Equatable {
     let editor: IslandGarageEditor
     let coordinator: DictationCoordinator
     @Environment(\.undoManager) private var undoManager
+    private var a11y = A11y()
+
+    /// Wide enough that one grid step is several points of travel on the longest grid.
+    private static let sliderWidth: CGFloat = 220
+
+    init(
+        field: WritableKeyPath<IslandAppearance, Int> & Sendable,
+        grid: IslandGrid,
+        id: String,
+        accessibilityLabel: String,
+        action: String,
+        readout: IslandReadout,
+        value: Int,
+        editor: IslandGarageEditor,
+        coordinator: DictationCoordinator
+    ) {
+        self.field = field
+        self.grid = grid
+        self.id = id
+        self.accessibilityLabel = accessibilityLabel
+        self.action = action
+        self.readout = readout
+        self.value = value
+        self.editor = editor
+        self.coordinator = coordinator
+    }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.label == rhs.label && lhs.field == rhs.field && lhs.grid == rhs.grid && lhs.id == rhs.id
+        lhs.field == rhs.field && lhs.grid == rhs.grid && lhs.id == rhs.id
             && lhs.accessibilityLabel == rhs.accessibilityLabel && lhs.action == rhs.action
             && lhs.readout == rhs.readout && lhs.value == rhs.value && lhs.editor === rhs.editor
             && lhs.coordinator === rhs.coordinator
     }
 
     var body: some View {
-        LabeledContent {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Slider(
-                    value: Binding(
-                        get: { Double(value) },
-                        set: { proposed in
-                            let snapped = grid.snap(Int(proposed.rounded()))
-                            guard snapped != coordinator.effectiveIsland[keyPath: field] else { return }
-                            editor.stage(action, undoManager: undoManager) { $0[keyPath: field] = snapped }
-                        }
-                    ),
-                    in: Double(grid.range.lowerBound)...Double(grid.range.upperBound),
-                    step: Double(grid.step),
-                    onEditingChanged: { editing in
-                        editor.sliderEditingChanged(editing, undoManager: undoManager)
+        HStack(spacing: VoiceourMetrics.Space.sm) {
+            Slider(
+                value: Binding(
+                    get: { Double(value) },
+                    set: { proposed in
+                        let snapped = grid.snap(Int(proposed.rounded()))
+                        guard snapped != coordinator.effectiveIsland[keyPath: field] else { return }
+                        editor.stage(action, undoManager: undoManager) { $0[keyPath: field] = snapped }
                     }
-                )
-                .labelsHidden()
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityValue(readout.spoken(value))
-                .accessibilityIdentifier(id)
+                ),
+                in: Double(grid.range.lowerBound)...Double(grid.range.upperBound),
+                step: Double(grid.step),
+                onEditingChanged: { editing in
+                    editor.sliderEditingChanged(editing, undoManager: undoManager)
+                }
+            )
+            .labelsHidden()
+            .frame(width: Self.sliderWidth)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityValue(readout.spoken(value))
+            .accessibilityIdentifier(id)
 
-                Text(readout.text(value))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: VoiceourMetrics.Field.readout, alignment: .trailing)
-                    .accessibilityHidden(true)
-            }
-        } label: {
-            Text(label)
+            Text(readout.text(value))
+                .roleStyle(.caption)
+                .monospacedDigit()
+                .foregroundStyle(a11y.textMid)
+                .frame(width: VoiceourMetrics.Field.readout, alignment: .trailing)
+                .accessibilityHidden(true)
         }
     }
 }
@@ -879,88 +919,32 @@ private struct IslandRestoreButton: View, Equatable {
     }
 
     var body: some View {
-        Button("Restore Stock") {
+        Kit.ActionButton("Restore Stock", systemImage: "arrow.uturn.backward") {
             editor.apply(group.restoreAction, undoManager: undoManager) { group.restore(&$0) }
         }
         .disabled(isStock)
-        .accessibilityLabel(group.restoreLabel)
+        // The closure form replaces the label the kit button derives from its title,
+        // whatever order the modifiers resolve in.
+        .accessibilityLabel { _ in Text(group.restoreLabel) }
         .accessibilityIdentifier(group.restoreIdentifier)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
-/// Derived, never stored: the radio whose look matches, or none for Custom. A radio group
-/// cannot disable one item, so Custom is the showroom's mark rather than a radio a reader
-/// could press to no effect.
-private struct IslandLookRow: View, Equatable {
-    let look: IslandLook?
-    let editor: IslandGarageEditor
-    let coordinator: DictationCoordinator
-    @Environment(\.undoManager) private var undoManager
-
-    /// Surprise Me is replayable: one seed per section lifetime — the mercury seed seam when
-    /// the harness pins it, random otherwise — taken on the first press, and a counter each
-    /// press advances.
-    @State private var surpriseSeed: UInt64?
-    @State private var surpriseDraw: UInt64 = 0
-
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.look == rhs.look && lhs.editor === rhs.editor && lhs.coordinator === rhs.coordinator
-    }
-
-    var body: some View {
-        ConsoleRow(caption: "Choosing a look replaces every option above; ⌘Z undoes it.") {
-            Picker("Look", selection: lookSelection) {
-                ForEach(IslandLook.allCases, id: \.self) { look in
-                    Text(look.displayName).tag(Optional(look))
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .accessibilityIdentifier("island.look")
-
-            Button("Surprise Me") { surprise() }
-                .help("Draws a random look from every option's range.")
-                .accessibilityIdentifier("island.look.surprise")
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-    }
-
-    private var lookSelection: Binding<IslandLook?> {
-        Binding(
-            get: { look },
-            set: { look in
-                guard let look, look != IslandLook.matching(coordinator.effectiveIsland) else {
-                    return
-                }
-                editor.apply("Choose Look", undoManager: undoManager) { $0 = look.appearance }
-            }
-        )
-    }
-
-    private func surprise() {
-        let seed = surpriseSeed ?? RenderOverrides.mercurySeed ?? UInt64.random(in: .min ... .max)
-        surpriseSeed = seed
-        let next = IslandAppearance.surprise(
-            seed: seed,
-            draw: surpriseDraw,
-            avoiding: coordinator.effectiveIsland
-        )
-        surpriseDraw += 1
-        editor.apply("Surprise Me", undoManager: undoManager) { $0 = next }
-    }
-}
-
 // MARK: - Showroom
 
-/// The showroom: the production island renderer in a generated room of its own, on the
-/// island's layout, which every display can show; a collar exists only around the camera
-/// housing it frames.
+/// The stage: the production island renderer in a generated room of its own, on the island's
+/// layout, which every display can show (a collar exists only around the camera housing it
+/// frames), magnified twice over in a lit studio.
 ///
 /// Never the real panel: a visible island means a live microphone, and the island reports
 /// state through its shape alone, so a speaking body there would misstate whether the
 /// microphone is on. The surface is the production `MercurySurface` with a hit region of its
-/// own, hidden from accessibility; one static-text element over it states the pose and the
-/// room, and the look mark beside it states the look.
+/// own, hidden from accessibility, rasterized at twice the production scale so the magnified
+/// body stays sharp. The studio behind it is drawn from the look's own light, and the floor
+/// under it — contact shadow and reflection — is derived from each image the surface
+/// presents, through a link that never invalidates SwiftUI. One static-text element over the
+/// stage states the pose and the room, and the look mark in the bar below states the look.
 ///
 /// The speaking body needs no clock: the engine turns the voice phase every substep, so the
 /// fixed sample buffer makes a crest train that keeps travelling with nothing published
@@ -992,9 +976,9 @@ private struct IslandShowroom: View {
     @State private var isReplaying = false
     @State private var replayHold: Task<Void, Never>?
 
-    /// 48 pt is on the 4 pt grid and the body's 34 pt is not, so the stage — and with it the
-    /// accessibility element — takes this frame around the island's 196×34 canvas.
-    private static let stageSize = CGSize(width: 200, height: 48)
+    /// Carries each presented body image to the floor view below it, outside SwiftUI.
+    @State private var floorLink: ShowroomFloorLink
+
     /// The substep the overlay goldens pin, so a still preview is the body they lock.
     private static let stillStep = 600
     private static let bakeInterval: Duration = .milliseconds(100)
@@ -1012,18 +996,23 @@ private struct IslandShowroom: View {
         self.coordinator = coordinator
         _pose = State(initialValue: RenderOverrides.islandShowroomPose ?? .speaking)
         _shownIsland = State(initialValue: coordinator.effectiveIsland)
+        _floorLink = State(initialValue: ShowroomFloorLink())
     }
 
     var body: some View {
-        ConsoleRow(caption: caption) {
-            VStack(spacing: VoiceourMetrics.Space.sm) {
-                stage
-                controls
-            }
-            .frame(maxWidth: .infinity)
+        let look = MercuryLook(island: shownIsland)
+        Kit.Island {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                stage(look: look)
 
-            if coordinator.state.isActive {
-                ConsoleCaption("Applies from the next recording.")
+                controls
+                    .frame(maxWidth: .infinity)
+
+                IslandCaption(caption)
+
+                if coordinator.state.isActive {
+                    IslandCaption("Applies from the next recording.")
+                }
             }
         }
         .onChange(of: coordinator.effectiveIsland) { _, island in
@@ -1044,33 +1033,54 @@ private struct IslandShowroom: View {
         }
     }
 
-    private var stage: some View {
-        MercurySurface(configuration: configuration, hitRegion: Self.hitRegion)
-            .frame(
-                width: RecordingOverlayLayout.island.canvasRect.width,
-                height: RecordingOverlayLayout.island.canvasRect.height
+    /// The studio, the body standing on its horizon, and the floor it casts, behind the floor
+    /// image's top half so the reflection runs down from the body's base.
+    private func stage(look: MercuryLook) -> some View {
+        let bodySize = IslandStageMetrics.bodySize
+        let floor = IslandStageMetrics.floorSize
+        return ZStack(alignment: .top) {
+            IslandStageBackdrop(
+                lighting: ShowroomStage.Lighting(look: look),
+                horizon: IslandStageMetrics.horizon,
+                increasedContrast: a11y.contrast == .increased
             )
+            .equatable()
+
+            ZStack(alignment: .top) {
+                ShowroomFloor(link: floorLink)
+                    .frame(width: floor.width, height: floor.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                MercurySurface(configuration: configuration(look: look), hitRegion: Self.hitRegion)
+                    .frame(width: bodySize.width, height: bodySize.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .frame(width: floor.width, height: floor.height, alignment: .top)
             .transaction { $0.animation = nil }
-            .allowsHitTesting(false)
+            .padding(.top, IslandStageMetrics.bodyTop)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: IslandStageMetrics.height)
+        .clipShape(RoundedRectangle(cornerRadius: Kit.Metrics.cardRadius, style: .continuous))
+        .overlay {
+            Color.clear
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("island.showroom")
+                .accessibilityLabel("Island preview")
+                .accessibilityValue(previewValue)
+                .accessibilityAddTraits(.isStaticText)
+        }
+        .onScrollVisibilityChange(threshold: 0.2) { visible in
+            onScreen = visible
+        }
+        .background {
+            WindowVisibilityReader { visible in
+                windowVisible = visible
+            }
             .accessibilityHidden(true)
-            .frame(width: Self.stageSize.width, height: Self.stageSize.height)
-            .overlay {
-                Color.clear
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityIdentifier("island.showroom")
-                    .accessibilityLabel("Island preview")
-                    .accessibilityValue(previewValue)
-                    .accessibilityAddTraits(.isStaticText)
-            }
-            .onScrollVisibilityChange(threshold: 0.2) { visible in
-                onScreen = visible
-            }
-            .background {
-                WindowVisibilityReader { visible in
-                    windowVisible = visible
-                }
-                .accessibilityHidden(true)
-            }
+        }
     }
 
     private var controls: some View {
@@ -1104,10 +1114,13 @@ private struct IslandShowroom: View {
         "\(pose.title), \(coordinator.effectiveIsland.room.displayName) room \(room)"
     }
 
-    private var configuration: MercurySurfaceView.Configuration {
-        MercurySurfaceView.Configuration(
+    /// The production configuration at twice the production raster scale, so the magnified
+    /// body is drawn at its own resolution rather than scaled up, and with every presented
+    /// image handed to the floor.
+    private func configuration(look: MercuryLook) -> MercurySurfaceView.Configuration {
+        var configuration = MercurySurfaceView.Configuration(
             seed: roomSeed,
-            look: MercuryLook(island: shownIsland),
+            look: look,
             drive: Self.posed(pose).drive(reduceMotion: a11y.reduceMotion),
             appearance: MercuryAppearance(increasedContrast: a11y.contrast == .increased),
             layout: .island,
@@ -1119,6 +1132,9 @@ private struct IslandShowroom: View {
             onFrame: nil,
             panelMotion: nil
         )
+        configuration.rasterScale = IslandStageMetrics.magnification * MercuryMetrics.rasterScale
+        configuration.onPresent = floorLink.present
+        return configuration
     }
 
     /// Room 1 is the overlay goldens' room (`defaultSeed`, or the seam's seed in the harness);
@@ -1285,8 +1301,8 @@ private struct WindowVisibilityReader: NSViewRepresentable {
     }
 }
 
-/// The look mark is the one place the current look is named, and the only Custom cue:
-/// it sits by the preview, so it stays in view while the folds below are tuned.
+/// The stage's glass bar. The look mark is the one place the current look is named, and the
+/// only Custom cue: it sits under the preview, so it stays beside the body while it is tuned.
 private struct IslandShowroomControls: View, Equatable {
     let lookMark: String
     let pose: IslandShowroomPose
@@ -1304,8 +1320,8 @@ private struct IslandShowroomControls: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: VoiceourMetrics.Space.sm) {
-            ConsoleStateMark(lookMark, .neutral)
+        Kit.GlassGroup {
+            Kit.Mark(lookMark, size: .regular)
                 .accessibilityIdentifier("island.showroom.look")
 
             Picker("Preview pose", selection: Binding(get: { pose }, set: setPose)) {
@@ -1318,7 +1334,7 @@ private struct IslandShowroomControls: View, Equatable {
             .fixedSize()
             .accessibilityIdentifier("island.showroom.pose")
 
-            Button("Another Room") { anotherRoom() }
+            Kit.ActionButton("Another Room", systemImage: "shuffle") { anotherRoom() }
                 .help(
                     "Shows the preview in a different generated room; every dictation draws "
                         + "its own."
@@ -1326,9 +1342,11 @@ private struct IslandShowroomControls: View, Equatable {
                 .accessibilityIdentifier("island.showroom.room")
 
             if let replayLabel {
-                Button("Play Again") { replay() }
+                Kit.ActionButton("Play Again", systemImage: "arrow.counterclockwise") { replay() }
                     .disabled(isReplaying)
-                    .accessibilityLabel(replayLabel)
+                    // The closure form replaces the label the kit button derives from its
+                    // title, whatever order the modifiers resolve in.
+                    .accessibilityLabel { _ in Text(replayLabel) }
                     .accessibilityIdentifier("island.showroom.replay")
             }
         }
@@ -1372,17 +1390,17 @@ private struct IslandPositionRow: View {
     @State private var isFree = false
 
     var body: some View {
-        ConsoleRow(caption: caption) {
-            LabeledContent {
-                Button("Dock Island") {
+        Kit.Island {
+            Kit.SettingRow("Position", caption: caption) {
+                Kit.ActionButton("Dock Island", systemImage: "dock.arrow.down.rectangle") {
                     RecordingOverlayPlacement.requestDock()
                     refresh()
                 }
                 .disabled(!isFree)
-                .accessibilityLabel("Dock the island")
+                // The closure form replaces the label the kit button derives from its title,
+                // whatever order the modifiers resolve in.
+                .accessibilityLabel { _ in Text("Dock the island") }
                 .accessibilityIdentifier("island.position.dock")
-            } label: {
-                Text("Position")
             }
         }
         .onAppear { refresh() }
@@ -1412,6 +1430,25 @@ private struct IslandPositionRow: View {
 }
 
 // MARK: - Shared pieces
+
+/// The Island page's explanatory voice outside a setting row: one sentence in the caption
+/// role, never truncated mid-clause.
+struct IslandCaption: View {
+    private let text: String
+    private var a11y = A11y()
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .roleStyle(.caption)
+            .foregroundStyle(a11y.textMid)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
 
 /// One fold of options and what its Restore Stock resets. `island.group.<raw>` identifies the
 /// fold's label and `island.<raw>.stock` its button.

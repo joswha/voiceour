@@ -68,6 +68,7 @@ final class MercuryEngine {
         var look: MercuryLook
         var appearance: MercuryAppearance
         var layout: RecordingOverlayLayout
+        var rasterScale: CGFloat
     }
 
     private struct RenderedFrame: Equatable {
@@ -76,6 +77,7 @@ final class MercuryEngine {
         var look: MercuryLook
         var appearance: MercuryAppearance
         var layout: RecordingOverlayLayout
+        var rasterScale: CGFloat
     }
 
     /// Everything a baked room depends on.
@@ -181,21 +183,32 @@ final class MercuryEngine {
 
     /// Harness frame after exactly `step` closed-form substeps from rest; it depends on its
     /// arguments alone. A new step, seed, tune or drive settles a new body. Any other change,
-    /// of the light, the appearance or the layout, redraws the body the previous pinned frame
-    /// settled, unless a live frame has moved it since, under light rebuilt only where the
-    /// arguments changed it. A pinned frame never replays, so a pending replay is dropped here
-    /// rather than left to fire on some later live frame.
+    /// of the light, the appearance, the layout or the raster scale, redraws the body the
+    /// previous pinned frame settled, unless a live frame has moved it since, under light
+    /// rebuilt only where the arguments changed it. A pinned frame never replays, so a pending
+    /// replay is dropped here rather than left to fire on some later live frame.
+    ///
+    /// `rasterScale` is the pixels per layout point of the image; only the Settings showroom's
+    /// magnified stage asks for more than the production `MercuryMetrics.rasterScale`, and
+    /// the metering that lights the body never reads it.
     func pinnedFrame(
         step: Int,
         seed: UInt64,
         look: MercuryLook,
         drive: MercurySimulation.Drive,
         appearance: MercuryAppearance,
-        layout: RecordingOverlayLayout
+        layout: RecordingOverlayLayout,
+        rasterScale: CGFloat = MercuryMetrics.rasterScale
     ) -> CGImage? {
         pendingReplay = nil
         let body = PinnedBody(step: step, seed: seed, tune: look.tune, drive: drive)
-        let key = PinnedFrame(body: body, look: look, appearance: appearance, layout: layout)
+        let key = PinnedFrame(
+            body: body,
+            look: look,
+            appearance: appearance,
+            layout: layout,
+            rasterScale: rasterScale
+        )
         guard key != pinned else { return pinnedImage }
         pinned = key
         if body != settledBody {
@@ -210,20 +223,23 @@ final class MercuryEngine {
         pinnedImage = image(
             geometry: simulation.geometry,
             appearance: appearance,
-            layout: layout
+            layout: layout,
+            rasterScale: rasterScale
         )
         return pinnedImage
     }
 
     /// One display-linked frame. `steps` is already expressed in the immutable 120 Hz
-    /// physics clock by `MercuryClock`; no wall clock enters the simulation.
+    /// physics clock by `MercuryClock`; no wall clock enters the simulation. `rasterScale`
+    /// is as for ``pinnedFrame(step:seed:look:drive:appearance:layout:rasterScale:)``.
     func frame(
         advancing steps: Int,
         seed: UInt64,
         look: MercuryLook,
         drive: MercurySimulation.Drive,
         appearance: MercuryAppearance,
-        layout: RecordingOverlayLayout
+        layout: RecordingOverlayLayout,
+        rasterScale: CGFloat = MercuryMetrics.rasterScale
     ) -> CGImage? {
         // A live frame may move the body, so no later pinned frame redraws it as settled.
         settledBody = nil
@@ -255,14 +271,16 @@ final class MercuryEngine {
             seed: seed,
             look: look,
             appearance: appearance,
-            layout: layout
+            layout: layout,
+            rasterScale: rasterScale
         )
         guard key != rendered else { return renderedImage }
         rendered = key
         renderedImage = image(
             geometry: geometry,
             appearance: appearance,
-            layout: layout
+            layout: layout,
+            rasterScale: rasterScale
         )
         return renderedImage
     }
@@ -280,7 +298,8 @@ final class MercuryEngine {
     private func image(
         geometry: MercurySimulation.Geometry,
         appearance: MercuryAppearance,
-        layout: RecordingOverlayLayout
+        layout: RecordingOverlayLayout,
+        rasterScale: CGFloat
     ) -> CGImage? {
         let field = MercuryField(
             geometry: geometry,
@@ -299,7 +318,7 @@ final class MercuryEngine {
             response: lighting.response,
             appearance: appearance,
             paint: lighting.paint,
-            scale: MercuryMetrics.rasterScale
+            scale: rasterScale
         )
     }
 
