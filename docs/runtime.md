@@ -114,5 +114,5 @@ Overrides apply to one run, never persist settings.
 - `make dev`: unbundled debug executable, fake unless `VOICEOUR_ASR_BACKEND` set; stops nothing.
 - `make stop`/`make status` match process name `Voiceour`. Sidecar exits after stdin EOF + bounded shutdown; check lingering `voiceour-asr` when relevant. MUST verify intended PID/bundle with `make status`.
 - `make run`/`make dev` source root `.env` and export every key; bundling reads signing pins. `make run` forwards backend/support names via `open --env`; MUST add forwarding for new app-read env names, NEVER assume LaunchServices inheritance.
-- Run/dev flags use `ARGS`, e.g. `make run ARGS="--debug --show-console"`. Supported: `--debug`, `--show-console`, `--console-section=<home|glossary|history|settings>`, `--no-activate`, `--asr-backend <id>`, `--self-test`; `--ui-harness` only with `-DUI_HARNESS`.
+- Run/dev flags use `ARGS`, e.g. `make run ARGS="--debug --show-console"`. Supported: `--debug`, `--show-console`, `--console-section=<home|glossary|history|settings>` (`history` opens the Journal tab), `--no-activate`, `--asr-backend <id>`, `--self-test`; `--ui-harness` only with `-DUI_HARNESS`.
 - Logs: subsystem `com.voiceour.app`, categories `hotkey`, `audio`, `model` (retired model-cache sweep failures). `stop-path` signposts require Instruments/`xctrace`.

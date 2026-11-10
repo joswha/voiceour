@@ -444,7 +444,10 @@
 
     /// Which surface a flow drives. Sizes come from the same tokens the scene catalog uses.
     enum UIFlowHost {
-        case console(ConsoleTab)
+        /// The console on `tab`. A non-nil `journalLens` opens the Journal on that lens
+        /// through `UIHarnessJournalScope`, the scope the Journal scenes use: the lens
+        /// picker is pinned rather than pressed, as the tab bar is driven by a binding.
+        case console(ConsoleTab, journalLens: JournalLens? = nil)
         case menu
         case overlay
     }

@@ -13,6 +13,9 @@ import SwiftUI
 enum ConsoleTab: String, CaseIterable, Hashable {
     case home
     case glossary
+    /// The Journal. The raw value keeps the name the tab had as History, because
+    /// the stored last tab, the `--console-section=history` deep link and the
+    /// `console.tab.history` identifier all spell it that way.
     case history
     case settings
 
@@ -20,7 +23,7 @@ enum ConsoleTab: String, CaseIterable, Hashable {
         switch self {
         case .home: "Home"
         case .glossary: "Glossary"
-        case .history: "History"
+        case .history: "Journal"
         case .settings: "Settings"
         }
     }
@@ -112,7 +115,7 @@ struct ConsoleWindowView: View {
                 tabLabel(.glossary)
             }
             Tab(value: ConsoleTab.history) {
-                ConsoleHistoryTab(coordinator: coordinator)
+                ConsoleJournalTab(coordinator: coordinator)
             } label: {
                 tabLabel(.history)
             }
@@ -123,8 +126,8 @@ struct ConsoleWindowView: View {
             }
         }
         // One application, not three: the scroll modifiers propagate through the
-        // environment, so this reaches every `Form` on every tab and the History
-        // list and its nested scrollers with one decision. Without it the
+        // environment, so this reaches every `Form` on every tab and the Journal's
+        // lists and their nested scrollers with one decision. Without it the
         // grouped Forms keep painting the system's opaque scroll background and
         // the ground below is never seen. Section plates, row insets and control
         // styling are untouched — the content still sits on native plates, which

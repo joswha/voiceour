@@ -276,6 +276,60 @@
                     fixture: .populated,
                     agentSession: UIFixtures.agentSession
                 ),
+                // The Journal's Rewind and Threads lenses. The tab opens on Timeline, and the
+                // segmented picker that leaves it is not a press a window that never becomes
+                // key can count on, so each scene pins the lens it shows, as the tab bar is
+                // driven by a binding rather than a press.
+                console(
+                    "console.sessions.rewind",
+                    "Journal Rewind on the fixture's newest day",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .rewind
+                ),
+                console(
+                    "console.sessions.rewind.search",
+                    "Journal Rewind searching every day for a typed query",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .rewind,
+                    tags: ["steps"],
+                    steps: [
+                        .type("accessibility", into: "journal.rewind.search"),
+                        .settle(120),
+                    ]
+                ),
+                console(
+                    "console.sessions.rewind.empty",
+                    "Journal Rewind with nothing dictated yet",
+                    tab: .history,
+                    fixture: .firstRun,
+                    journalLens: .rewind,
+                    tags: ["empty"]
+                ),
+                console(
+                    "console.sessions.threads",
+                    "Journal Threads listing the fixture's agent sessions by project",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .threads
+                ),
+                console(
+                    "console.sessions.threads.open",
+                    "Journal Threads with one agent session's page open",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .threads,
+                    journalThread: UIFixtures.agentSession
+                ),
+                console(
+                    "console.sessions.threads.empty",
+                    "Journal Threads with no agent session yet",
+                    tab: .history,
+                    fixture: .firstRun,
+                    journalLens: .threads,
+                    tags: ["empty"]
+                ),
                 // The first-launch measure, which now ends inside the Island showroom: what a
                 // fresh install's Settings tab shows before any scrolling.
                 console(
@@ -722,6 +776,9 @@
             deselected: Bool = false,
             appFilter: String? = nil,
             agentSession: AgentSessionKey? = nil,
+            journalLens: JournalLens? = nil,
+            journalDay: Date? = nil,
+            journalThread: AgentSessionKey? = nil,
             teachingSurface: String? = nil,
             showroomPose: IslandShowroomPose? = nil,
             // Optional rather than `= consoleSize`: a default argument expression is
@@ -766,6 +823,18 @@
                 if let agentSession {
                     return AnyView(
                         UIHarnessAgentFilteredHistoryScope(key: agentSession) {
+                            AnyView(
+                                ConsoleWindowView(
+                                    coordinator: UIFixtures.coordinator(fixture),
+                                    initialTab: tab
+                                )
+                            )
+                        }
+                    )
+                }
+                if journalLens != nil || journalDay != nil || journalThread != nil {
+                    return AnyView(
+                        UIHarnessJournalScope(lens: journalLens, day: journalDay, thread: journalThread) {
                             AnyView(
                                 ConsoleWindowView(
                                     coordinator: UIFixtures.coordinator(fixture),
@@ -1033,6 +1102,46 @@
             content
                 .onDisappear {
                     RenderOverrides.historyInitialAgentSession = previous
+                }
+        }
+    }
+
+    /// Process-wide value seams scoped to the scenes and flows that open the Journal on
+    /// Rewind or Threads. The lens is chosen with a segmented picker, which a window that
+    /// never becomes key cannot be relied on to take a press from, so the lens is pinned
+    /// rather than pressed, as the tab bar is driven by a binding. Rewind's day and the
+    /// open thread are each a click that a scene which only renders cannot make, so they
+    /// are pinned beside it. The three describe one opening state and combine with no other
+    /// seam, so one scope sets all three, nil included, and restores all three. Internal
+    /// rather than private because the flow runner wraps a console host in it too.
+    struct UIHarnessJournalScope: View {
+        private let content: AnyView
+        private let previousLens: JournalLens?
+        private let previousDay: Date?
+        private let previousThread: AgentSessionKey?
+
+        @MainActor
+        init(
+            lens: JournalLens?,
+            day: Date? = nil,
+            thread: AgentSessionKey? = nil,
+            build: @escaping @MainActor () -> AnyView
+        ) {
+            content = build()
+            previousLens = RenderOverrides.journalInitialLens
+            previousDay = RenderOverrides.journalInitialDay
+            previousThread = RenderOverrides.journalInitialThread
+            RenderOverrides.journalInitialLens = lens
+            RenderOverrides.journalInitialDay = day
+            RenderOverrides.journalInitialThread = thread
+        }
+
+        var body: some View {
+            content
+                .onDisappear {
+                    RenderOverrides.journalInitialLens = previousLens
+                    RenderOverrides.journalInitialDay = previousDay
+                    RenderOverrides.journalInitialThread = previousThread
                 }
         }
     }

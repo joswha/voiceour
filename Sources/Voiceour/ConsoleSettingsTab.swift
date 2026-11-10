@@ -139,7 +139,7 @@ struct ConsoleSettingsTab: View {
             Section {
                 ConsoleRow(
                     caption:
-                        "Recent transcript history is saved locally on this Mac for the History tab. Audio temp "
+                        "Recent transcript history is saved locally on this Mac for the Journal tab. Audio temp "
                         + "files are removed after ASR. Network is used only to download the local speech model."
                 ) {
                     LabeledContent {

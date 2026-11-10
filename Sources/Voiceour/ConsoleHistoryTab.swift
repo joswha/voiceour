@@ -78,8 +78,23 @@ struct ConsoleHistoryTab: View {
 
     private var a11y = A11y()
 
-    init(coordinator: DictationCoordinator) {
+    /// The Journal's lens picker, a move another lens asked for, and the way back
+    /// to those lenses. All three are nil wherever History is hosted on its own,
+    /// and then the tab renders exactly as it did before the Journal hosted it.
+    private let lens: Binding<JournalLens>?
+    private let request: Binding<JournalTimelineRequest?>?
+    private let navigation: JournalNavigation?
+
+    init(
+        coordinator: DictationCoordinator,
+        lens: Binding<JournalLens>? = nil,
+        request: Binding<JournalTimelineRequest?>? = nil,
+        navigation: JournalNavigation? = nil
+    ) {
         self.coordinator = coordinator
+        self.lens = lens
+        self.request = request
+        self.navigation = navigation
     }
 
     var body: some View {
@@ -92,6 +107,10 @@ struct ConsoleHistoryTab: View {
         let recedes = selectedID.map { id in filteredSessions.contains { $0.id == id } } ?? false
 
         Form {
+            if let lens {
+                JournalLensHeader(lens: lens)
+            }
+
             if hasSessions {
                 Section {
                     searchRow
@@ -120,6 +139,7 @@ struct ConsoleHistoryTab: View {
             inputMonitor.onDeselect = deselect
             inputMonitor.onTeach = { beginTeaching(surface: selectedSurface) }
             inputMonitor.start()
+            applyJournalRequest()
             reloadDerivedData()
             coordinator.refreshAgentSessions()
         }
@@ -147,6 +167,9 @@ struct ConsoleHistoryTab: View {
         }
         .onChange(of: agentSessionFilter) {
             reloadDerivedData()
+        }
+        .onChange(of: request?.wrappedValue) {
+            applyJournalRequest()
         }
         .onChange(of: selectedSessionID) { _, newSelection in
             pendingFixTeachPrefill = nil
@@ -259,6 +282,26 @@ struct ConsoleHistoryTab: View {
     private func deselect() {
         guard selectedSessionID != nil else { return }
         selectedSessionID = nil
+    }
+
+    /// Carries out a move another Journal lens asked for, then consumes it, so the
+    /// same request made again is carried out again. A row opens with every filter
+    /// cleared, because a filter that hid it would open a transcript the reader
+    /// cannot see. An agent session replaces the query and the app filter, because
+    /// the reader asked for that session's rows and nothing narrower.
+    private func applyJournalRequest() {
+        guard let request, let pending = request.wrappedValue else { return }
+        searchText = ""
+        appFilter = nil
+        switch pending {
+        case .row(let id):
+            agentSessionFilter = nil
+            hasSeededSelection = true
+            selectedSessionID = id
+        case .agentSession(let key):
+            agentSessionFilter = key
+        }
+        request.wrappedValue = nil
     }
 
     // MARK: Search
@@ -643,6 +686,11 @@ struct ConsoleHistoryTab: View {
                 }
             }
             if let binding = session.agentSession {
+                if let navigation {
+                    Button("Open Thread") {
+                        navigation.openThread(binding.key)
+                    }
+                }
                 Button("Show Only This Agent Session") {
                     agentSessionFilter = binding.key
                 }

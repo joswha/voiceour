@@ -1,0 +1,12 @@
+flow: journal.rewind.search
+title: Rewind search counts matches on every day and clears back to the day
+fixture: static
+transitions: idle
+PASS 1 matched | text == "4 matches" exactly 1 | 1 match
+PASS 2 matched | count label~="An activation policy of prohibited is the only setting that never steals focus." exactly 1 | 1 match
+PASS 3 matched | exists id=journal.rewind.search.clear | 1 match
+PASS 4 matched | absent id=journal.rewind.entries | 0 matches
+PASS 5 cleared | value id=journal.rewind.search is empty | ""
+PASS 6 cleared | absent value="4 matches" | 0 matches
+PASS 7 cleared | absent label~="An activation policy of prohibited is the only setting that never steals focus." | 0 matches
+PASS 8 cleared | exists id=journal.rewind.entries & value="3 · 37 words" | 1 match

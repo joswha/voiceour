@@ -165,19 +165,21 @@
 
         private static func resolve(_ host: UIFlowHost, context: UIFlowContext) -> Host {
             switch host {
-            case .console(let tab):
+            case .console(let tab, let journalLens):
                 let bridge = ConsoleNavigationBridge(tab: tab)
                 return Host(
                     size: UISceneCatalog.consoleSize,
                     colorScheme: .dark,
                     navigateConsole: { bridge.tab = $0 },
                     build: {
-                        AnyView(
+                        let console = AnyView(
                             ConsoleFlowHost(
                                 coordinator: context.coordinator,
                                 navigation: bridge
                             )
                         )
+                        guard let journalLens else { return console }
+                        return AnyView(UIHarnessJournalScope(lens: journalLens) { console })
                     }
                 )
 

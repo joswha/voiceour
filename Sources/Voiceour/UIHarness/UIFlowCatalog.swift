@@ -96,6 +96,44 @@
                 "Post the mouse up before sending the mouse down, or AppKit's tracking loop wedges."
             )
 
+            // Journal ▸ Rewind and Threads. A flow opens either lens through its host's
+            // `journalLens` pin rather than pressing `journal.lens`: the segmented picker
+            // is not a press a window that never becomes key can count on.
+            static let rewindEarlier = UIQuery.id("journal.rewind.earlier")
+            static let rewindLater = UIQuery.id("journal.rewind.later")
+            static let rewindSearch = UIQuery.id("journal.rewind.search")
+            static let clearRewindSearch = UIQuery.id("journal.rewind.search.clear")
+            static let rewindEntriesReadout = UIQuery.id("journal.rewind.entries")
+            // Entries and words on the fixture's two newest days: rows 1 to 3 on the day
+            // Rewind opens on, rows 4 and 5 on the day before it.
+            static let newestDayFigure = "3 · 37 words"
+            static let earlierDayFigure = "2 · 23 words"
+            // Rows 1 and 7 say it, and rows 6 and 9 are bound to the omp session whose
+            // title holds it, so the count proves the search reads titles as well as text.
+            static let rewindQuery = "offscreen"
+            static let rewindMatchCaption = "4 matches"
+            // Row 9 matches by its session title alone, on a day Rewind does not open on.
+            static let titleMatchRow = UIQuery.labelContains(
+                "An activation policy of prohibited is the only setting that never steals focus."
+            )
+
+            /// Rewind's Entries readout showing `figure`. The identifier is set on the whole
+            /// `LabeledContent`, so it names the readout and the value names the day.
+            static func rewindEntries(_ figure: String) -> UIQuery {
+                .all([rewindEntriesReadout, .value(figure)])
+            }
+
+            // Every thread row carries `journal.threads.row`, so the omp session's row is
+            // addressed by the title its label leads with, which no other label holds.
+            static let agentThreadRow = UIQuery.all([
+                .id("journal.threads.row"),
+                .labelContains("Harness offscreen capture"),
+            ])
+            static let threadRows = UIQuery.id("journal.threads.row")
+            static let threadSession = UIQuery.id("journal.threads.session")
+            static let threadTimeline = UIQuery.id("journal.threads.timeline")
+            static let clearAgentFilter = UIQuery.id("sessions.agent-filter.clear")
+
             static let addTermButton = UIQuery.id("glossary.add-term")
             static let glossarySearch = UIQuery.id("glossary.search.field")
             static let termCanonical = UIQuery.id("glossary.term.canonical")
@@ -218,8 +256,8 @@
 
         /// Unfiltered declaration order is execution order and groups journeys by surface.
         static func everything() -> [UIFlow] {
-            sessionFlows + voiceFlows + islandFlows + glossaryFlows + systemFlows + consoleFlows
-                + menuFlows + overlayFlows
+            sessionFlows + journalFlows + voiceFlows + islandFlows + glossaryFlows + systemFlows
+                + consoleFlows + menuFlows + overlayFlows
         }
 
         /// Selection goes through `UIHarnessRequest.matches(id:tags:)`, the one spelling of
@@ -466,6 +504,154 @@
                                 .count(Selector.detailsAgent, .exactly(1)),
                                 .count(Selector.agentTitle, .exactly(1)),
                                 .value(Selector.agentTitle, .equals("omp · Harness offscreen capture")),
+                            ]
+                        ),
+                    ]),
+            ]
+        }
+
+        // MARK: Journal
+
+        private static var journalFlows: [UIFlow] {
+            [
+                // Rewind opens on the newest day that holds an entry, so Later is disabled
+                // until Earlier has moved off it; a step back and forth must land on the
+                // same day's figure it left.
+                UIFlow(
+                    id: "journal.rewind.navigate",
+                    title: "Rewind steps to the previous day and back",
+                    tags: ["journal", "console", "rewind"],
+                    host: .console(.history, journalLens: .rewind),
+                    fixture: .static(.populated),
+                    steps: [
+                        .wait(.element(Selector.rewindEntries(Selector.newestDayFigure))),
+                        .check(
+                            "newest",
+                            [
+                                .exists(Selector.rewindEntries(Selector.newestDayFigure)),
+                                .enabled(Selector.rewindEarlier, true),
+                                .enabled(Selector.rewindLater, false),
+                            ]
+                        ),
+                        .act(.press(Selector.rewindEarlier)),
+                        .wait(.element(Selector.rewindEntries(Selector.earlierDayFigure))),
+                        .check(
+                            "earlier",
+                            [
+                                .exists(Selector.rewindEntries(Selector.earlierDayFigure)),
+                                .absent(Selector.rewindEntries(Selector.newestDayFigure)),
+                                .enabled(Selector.rewindLater, true),
+                            ]
+                        ),
+                        .act(.press(Selector.rewindLater)),
+                        .wait(.element(Selector.rewindEntries(Selector.newestDayFigure))),
+                        .check(
+                            "returned",
+                            [
+                                .exists(Selector.rewindEntries(Selector.newestDayFigure)),
+                                .absent(Selector.rewindEntries(Selector.earlierDayFigure)),
+                                .enabled(Selector.rewindLater, false),
+                            ]
+                        ),
+                    ]),
+                // A search covers every day at once and hides the day on screen; clearing
+                // it must bring back that day rather than leave the matches behind.
+                UIFlow(
+                    id: "journal.rewind.search",
+                    title: "Rewind search counts matches on every day and clears back to the day",
+                    tags: ["journal", "console", "rewind", "search"],
+                    host: .console(.history, journalLens: .rewind),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.type(Selector.rewindQuery, into: Selector.rewindSearch)),
+                        .wait(.element(.value(Selector.rewindMatchCaption))),
+                        .check(
+                            "matched",
+                            [
+                                .text(.equals(Selector.rewindMatchCaption), .exactly(1)),
+                                .count(Selector.titleMatchRow, .exactly(1)),
+                                .exists(Selector.clearRewindSearch),
+                                .absent(Selector.rewindEntriesReadout),
+                            ]
+                        ),
+                        .act(.press(Selector.clearRewindSearch)),
+                        .wait(.absent(Selector.clearRewindSearch)),
+                        .wait(.element(Selector.rewindEntries(Selector.newestDayFigure))),
+                        .check(
+                            "cleared",
+                            [
+                                .value(Selector.rewindSearch, .isEmpty),
+                                .absent(.value(Selector.rewindMatchCaption)),
+                                .absent(Selector.titleMatchRow),
+                                .exists(Selector.rewindEntries(Selector.newestDayFigure)),
+                            ]
+                        ),
+                    ]),
+                // A thread opens under its own row and closes from the same row, and the
+                // page names the session it belongs to.
+                UIFlow(
+                    id: "journal.threads.open",
+                    title: "A thread row opens its session's page and closes it again",
+                    tags: ["journal", "console", "threads"],
+                    host: .console(.history, journalLens: .threads),
+                    fixture: .static(.populated),
+                    steps: [
+                        .wait(.element(Selector.agentThreadRow)),
+                        .check(
+                            "closed",
+                            [
+                                .count(Selector.threadRows, .exactly(2)),
+                                .selected(Selector.agentThreadRow, false),
+                                .absent(Selector.threadSession),
+                            ]
+                        ),
+                        .act(.press(Selector.agentThreadRow)),
+                        .wait(.element(Selector.threadSession)),
+                        .check(
+                            "opened",
+                            [
+                                .count(Selector.threadSession, .exactly(1)),
+                                .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                                .selected(Selector.agentThreadRow, true),
+                            ]
+                        ),
+                        .act(.press(Selector.agentThreadRow)),
+                        .wait(.absent(Selector.threadSession)),
+                        .check(
+                            "reclosed",
+                            [
+                                .absent(Selector.threadSession),
+                                .selected(Selector.agentThreadRow, false),
+                                .count(Selector.threadRows, .exactly(2)),
+                            ]
+                        ),
+                    ]),
+                // Show in Timeline leaves the lens for Timeline narrowed to the thread's
+                // rows, the state a row's context menu reaches, which this window cannot open.
+                UIFlow(
+                    id: "journal.threads.show-in-timeline",
+                    title: "An open thread shows its rows in Timeline, filtered to its session",
+                    tags: ["journal", "console", "threads"],
+                    host: .console(.history, journalLens: .threads),
+                    fixture: .static(.populated),
+                    steps: [
+                        .act(.press(Selector.agentThreadRow)),
+                        .wait(.element(Selector.threadTimeline)),
+                        .check(
+                            "opened",
+                            [
+                                .count(Selector.threadTimeline, .exactly(1)),
+                                .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            ]
+                        ),
+                        .act(.press(Selector.threadTimeline)),
+                        .wait(.element(Selector.sessionSearch)),
+                        .check(
+                            "timeline",
+                            [
+                                .count(Selector.sessionSearch, .exactly(1)),
+                                .exists(Selector.clearAgentFilter),
+                                .absent(Selector.threadRows),
                             ]
                         ),
                     ]),

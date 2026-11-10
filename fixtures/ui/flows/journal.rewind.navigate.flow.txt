@@ -1,0 +1,13 @@
+flow: journal.rewind.navigate
+title: Rewind steps to the previous day and back
+fixture: static
+transitions: idle
+PASS 1 newest | exists id=journal.rewind.entries & value="3 · 37 words" | 1 match
+PASS 2 newest | enabled(true) id=journal.rewind.earlier | true
+PASS 3 newest | enabled(false) id=journal.rewind.later | false
+PASS 4 earlier | exists id=journal.rewind.entries & value="2 · 23 words" | 1 match
+PASS 5 earlier | absent id=journal.rewind.entries & value="3 · 37 words" | 0 matches
+PASS 6 earlier | enabled(true) id=journal.rewind.later | true
+PASS 7 returned | exists id=journal.rewind.entries & value="3 · 37 words" | 1 match
+PASS 8 returned | absent id=journal.rewind.entries & value="2 · 23 words" | 0 matches
+PASS 9 returned | enabled(false) id=journal.rewind.later | false
