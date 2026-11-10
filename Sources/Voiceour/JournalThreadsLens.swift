@@ -3,24 +3,19 @@ import SwiftUI
 import VoiceCore
 import VoiceMac
 
-/// Threads: every agent session the user dictated into, read as one page each and
-/// grouped by the project folder the session ran in.
+/// Threads: every agent session the user dictated into, listed by the project folder
+/// the session ran in and read as one page each.
 ///
-/// One grouped form with exactly one thread open, the History shape: the open
-/// thread takes its own plate inside its project, directly under the row that
-/// opened it, so the page reads as one thing rather than as more index. The page
-/// leads with what a reader can do with the session, then everything said into
-/// it, oldest first, because a session is read the way it was spoken; its id and
-/// folder sit folded under Details, because they identify the session for a
-/// machine more than for the reader. It ends with what the session's own agent
-/// reported about the work, attributed and dated, and the prompt that asks for
-/// that report, so the answer sits under the requests it answers.
+/// The list names each session and the page reads it. The page leads with what the
+/// session's own agent reported about the work, because that answer is what a reader
+/// comes back for; then everything said into it, oldest first, because a session is
+/// read the way it was spoken. Its id and folder sit folded under Details, because
+/// they identify the session for a machine more than for the reader.
 struct JournalThreadsLens: View {
     private let entries: [JournalEntry]
     private let historyIDs: Set<UUID>
-    @Binding private var lens: JournalLens
-    /// The tab owns which thread is open, so another lens can open one and the
-    /// choice survives a lens switch.
+    /// The tab owns which thread is selected, so another lens or the sidebar can open
+    /// one and the choice survives a lens switch.
     @Binding private var openThread: AgentSessionKey?
     private let navigation: JournalNavigation
     /// Whether new dictations link to agent sessions; picks what the empty lens tells
@@ -32,7 +27,7 @@ struct JournalThreadsLens: View {
     private let topics: [MemoryTopic]
     /// Files an entry under a topic or under none; nil offers no submenu.
     private let file: ((UUID, String?) -> Void)?
-    /// Every note agents saved under `agents/`; the open thread shows the ones that name it.
+    /// Every note agents saved under `agents/`; the selected thread shows the ones that name it.
     private let agentNotes: [AgentNote]
     /// The ids of the entries memory keeps: a thread's page exists only when it holds
     /// one of them, so the outcome prompt that points an agent at it is offered only then.
@@ -41,25 +36,36 @@ struct JournalThreadsLens: View {
     private let memoryRoot: URL?
 
     @State private var searchText = ""
-    /// The project groups for the current entries and query, cached as a snapshot
-    /// and rebuilt only when either changes: grouping walks every entry, and a body
-    /// pass happens on every open, close and copy confirmation.
+    /// Every thread the entries carry, newest first, whatever the query: the page looks
+    /// its thread up here, so a search that hides the selected row keeps its page.
+    @State private var allThreads: [JournalThread] = []
+    /// The project groups for the current entries and query, cached as a snapshot and
+    /// rebuilt only when either changes: grouping walks every entry, and a body pass
+    /// happens on every selection and copy confirmation.
     @State private var groups: [JournalProjectGroup] = []
-    @State private var copiedThreadID: AgentSessionKey?
-    @State private var resetCopyFeedbackTask: Task<Void, Never>?
-    /// The agent notes whose `session` names the open thread, newest modification first.
-    /// Cached and refiltered only when the open thread or the notes change, never in `body`.
+    /// The listed threads in reading order, which the arrow keys walk.
+    @State private var order: [AgentSessionKey] = []
+    /// The selected thread and what its page shows, refreshed when the selection, the
+    /// entries, History's or memory's ids, or the agent notes change, never in `body`.
+    @State private var selected: JournalThread?
+    @State private var pageLines: [PageLine] = []
+    @State private var selectedIsInTimeline = false
+    @State private var selectedIsInMemory = false
+    /// The agent notes whose `session` names the selected thread, newest modification first.
     @State private var openThreadNotes: [AgentNote] = []
-    /// Whether the open thread's Details fold is open; closed again whenever a
-    /// thread opens, so every page starts with the same reading.
+    /// Whether the page's Details fold is open; shut again whenever another thread is
+    /// selected, so every page starts with the same reading.
     @State private var showsDetails = false
+    /// The row a key press or another lens selected, scrolled into view.
+    @State private var reveal: AgentSessionKey?
+    @State private var flash = Kit.Flash()
+    @FocusState private var listFocused: Bool
 
     private var a11y = A11y()
 
     init(
         entries: [JournalEntry],
         historyIDs: Set<UUID>,
-        lens: Binding<JournalLens>,
         openThread: Binding<AgentSessionKey?>,
         navigation: JournalNavigation,
         bindingEnabled: Bool,
@@ -72,7 +78,6 @@ struct JournalThreadsLens: View {
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
-        self._lens = lens
         self._openThread = openThread
         self.navigation = navigation
         self.bindingEnabled = bindingEnabled
@@ -85,51 +90,48 @@ struct JournalThreadsLens: View {
     }
 
     var body: some View {
-        Form {
-            JournalLensHeader(lens: $lens)
-
-            if !groups.isEmpty || !searchText.isEmpty {
-                Section {
-                    searchRow
-                }
+        content
+            .onAppear {
+                reload()
+                reveal = openThread
             }
-
-            ForEach(groups) { group in
-                groupSections(group)
+            .onDisappear {
+                flash.dismiss()
             }
-
-            if groups.isEmpty {
-                Section {
-                    if query.isEmpty {
-                        noThreads
-                    } else {
-                        noMatches
-                    }
-                }
+            .onChange(of: entries) {
+                reload()
             }
-        }
-        .formStyle(.grouped)
-        .onAppear {
-            reload()
-            reloadOpenThreadNotes()
-        }
-        .onDisappear {
-            resetCopyFeedbackTask?.cancel()
-            resetCopyFeedbackTask = nil
-            copiedThreadID = nil
-        }
-        .onChange(of: entries) {
-            reload()
-        }
-        .onChange(of: searchText) {
-            reload()
-        }
-        .onChange(of: openThread) {
-            showsDetails = false
-            reloadOpenThreadNotes()
-        }
-        .onChange(of: agentNotes) {
-            reloadOpenThreadNotes()
+            .onChange(of: searchText) {
+                regroup()
+            }
+            .onChange(of: openThread) {
+                showsDetails = false
+                reveal = openThread
+                refreshPage()
+            }
+            .onChange(of: agentNotes) {
+                refreshNotes()
+            }
+            .onChange(of: historyIDs) {
+                refreshPage()
+            }
+            .onChange(of: memoryIDs) {
+                refreshPage()
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if allThreads.isEmpty && query.isEmpty {
+            noThreads
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Kit.Split {
+                list
+            } page: {
+                page
+                    .kitToast(flash, identifier: "journal.threads.copied")
+            }
         }
     }
 
@@ -149,27 +151,61 @@ struct JournalThreadsLens: View {
         DictationCoordinator.memoryCalendar(timeZone: calendar.timeZone)
     }
 
-    /// Rebuilds the groups and closes a thread that is gone.
+    // MARK: Derived data
+
+    /// Rebuilds the threads and groups, then keeps the selection on a thread that exists.
     ///
-    /// "Gone" means no entry carries it any more, not that the query hides it: a
-    /// search narrows what is shown, and clearing it must bring the reader back to
-    /// the page they had open. An empty entry list closes nothing, because the tab
-    /// may hand this lens its entries after the lens appears, and a thread named
-    /// before they arrive (by another lens or by the harness) must survive that
-    /// first pass.
+    /// "Gone" means no entry carries the thread any more, not that the query hides it: a
+    /// search narrows what is listed, and clearing it must bring the reader back to the
+    /// page they had open. An empty entry list closes nothing, because the tab may hand
+    /// this lens its entries after the lens appears, and a thread named before they
+    /// arrive (by another lens or by the harness) must survive that first pass.
     private func reload() {
-        groups = JournalQuery.projectGroups(
-            of: JournalQuery.threads(in: JournalQuery.matches(in: entries, query: query))
-        )
-        if let open = openThread, !entries.isEmpty,
-            !entries.contains(where: { $0.thread?.key == open })
-        {
-            openThread = nil
+        let previousOrder = order
+        allThreads = JournalQuery.threads(in: entries)
+        regroup()
+
+        if let open = openThread, !entries.isEmpty, !allThreads.contains(where: { $0.id == open }) {
+            openThread = successor(of: open, in: previousOrder) ?? order.first
+        }
+        refreshPage()
+    }
+
+    /// Regroups the threads the query matches. A query that hides the selected thread
+    /// keeps it selected; with nothing selected, the newest listed thread is.
+    private func regroup() {
+        let threads =
+            query.isEmpty
+            ? allThreads
+            : JournalQuery.threads(in: JournalQuery.matches(in: entries, query: query))
+        groups = JournalQuery.projectGroups(of: threads)
+        order = groups.flatMap { $0.threads.map(\.id) }
+        if openThread == nil, let first = order.first {
+            openThread = first
         }
     }
 
-    /// Picks the notes for the open thread; none while no thread is open.
-    private func reloadOpenThreadNotes() {
+    /// The thread that took a vanished thread's place in the list: the next one that
+    /// is still listed, else the previous one.
+    private func successor(of key: AgentSessionKey, in previousOrder: [AgentSessionKey]) -> AgentSessionKey? {
+        guard let index = previousOrder.firstIndex(of: key) else { return nil }
+        let listed = Set(order)
+        return previousOrder[(index + 1)...].first { listed.contains($0) }
+            ?? previousOrder[..<index].last { listed.contains($0) }
+    }
+
+    /// Looks the selected thread up and builds what its page shows.
+    private func refreshPage() {
+        let thread = openThread.flatMap { key in allThreads.first { $0.id == key } }
+        selected = thread
+        pageLines = thread.map { Self.lines(of: $0, calendar: calendar) } ?? []
+        selectedIsInTimeline = thread?.entries.contains { historyIDs.contains($0.id) } ?? false
+        selectedIsInMemory = thread?.entries.contains { memoryIDs.contains($0.id) } ?? false
+        refreshNotes()
+    }
+
+    /// Picks the notes for the selected thread; none while no thread is selected.
+    private func refreshNotes() {
         guard let openThread else {
             openThreadNotes = []
             return
@@ -186,35 +222,33 @@ struct JournalThreadsLens: View {
         return notes.filter { $0.session == stem }
     }
 
-    // MARK: Search
+    // MARK: Selection
 
-    private var searchRow: some View {
-        HStack(spacing: VoiceourMetrics.Space.sm) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+    private func select(_ key: AgentSessionKey) {
+        openThread = key
+        listFocused = true
+    }
 
-            TextField("Search threads", text: $searchText)
-                .accessibilityIdentifier("journal.threads.search")
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .frame(
-                            width: VoiceourMetrics.Control.mini,
-                            height: VoiceourMetrics.Control.mini
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Clear search")
-                .accessibilityLabel("Clear search")
-                .accessibilityIdentifier("journal.threads.search.clear")
+    /// Steps through the listed threads; a selection the query hides starts from the top.
+    private func move(_ direction: MoveCommandDirection) {
+        guard !order.isEmpty else { return }
+        let target: Int
+        if let open = openThread, let index = order.firstIndex(of: open) {
+            switch direction {
+            case .up: target = max(index - 1, 0)
+            case .down: target = min(index + 1, order.count - 1)
+            default: return
             }
+        } else {
+            target = 0
         }
+        openThread = order[target]
+        reveal = order[target]
+    }
+
+    private func selectFirstMatch() {
+        guard let first = order.first else { return }
+        select(first)
     }
 
     // MARK: Empty states
@@ -250,217 +284,248 @@ struct JournalThreadsLens: View {
 
     // MARK: List
 
-    /// One project, as one to three grouped plates: the threads above the open
-    /// one, the open thread with its page, and the threads below it. The project's
-    /// name stays on whichever plate comes first so it is named exactly once.
-    @ViewBuilder
-    private func groupSections(_ group: JournalProjectGroup) -> some View {
-        let header = group.project ?? "No project folder"
-        let threads = group.threads
-
-        if let open = threads.firstIndex(where: { $0.id == openThread }) {
-            let before = threads[..<open]
-            let after = threads[(open + 1)...]
-
-            if before.isEmpty {
-                Section(header) { openPage(threads[open]) }
+    private var list: some View {
+        Kit.ListColumn(
+            "Threads",
+            subtitle: listSubtitle,
+            reveal: reveal,
+            focus: $listFocused,
+            onMove: move
+        ) {
+            Kit.SearchField(
+                "Search threads",
+                text: $searchText,
+                identifier: "journal.threads.search",
+                clearIdentifier: "journal.threads.search.clear",
+                onSubmit: selectFirstMatch
+            )
+        } content: {
+            if groups.isEmpty {
+                noMatches
+                    .padding(.top, VoiceourMetrics.Space.xl)
             } else {
-                Section(header) { rows(before) }
-                Section { openPage(threads[open]) }
-            }
-
-            if !after.isEmpty {
-                Section { rows(after) }
-            }
-        } else {
-            Section(header) { rows(threads[...]) }
-        }
-    }
-
-    private func rows(_ threads: ArraySlice<JournalThread>) -> some View {
-        ForEach(threads) { thread in
-            row(for: thread, isOpen: false)
-        }
-    }
-
-    private func row(for thread: JournalThread, isOpen: Bool) -> some View {
-        let summary = summaryLine(for: thread)
-
-        return Button {
-            toggle(thread)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                    Text(Self.title(of: thread))
-                        .fontWeight(isOpen ? .semibold : .regular)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-
-                    Text(summary.joined(separator: " \u{00B7} "))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.threads) { thread in
+                            row(for: thread)
+                                .id(thread.id)
+                        }
+                    } header: {
+                        Kit.GroupHeader(group.project ?? "No project folder", detail: String(group.threads.count))
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // The open state's non-colour carrier for a sighted reader;
-                // VoiceOver hears the selected trait instead.
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
             }
-            // Two lines of text come to 35 pt; the row takes the next control height
-            // instead of padding to a height that sits between two of them.
-            .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Control.large, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(([Self.title(of: thread)] + summary).joined(separator: ", "))
-        .accessibilityAddTraits(isOpen ? .isSelected : [])
-        .accessibilityAction(named: isOpen ? "Close thread" : "Open thread") {
-            toggle(thread)
+    }
+
+    /// "4 agent sessions", or "2 of 4 agent sessions match" while a query narrows the list.
+    private var listSubtitle: String {
+        let total = allThreads.count
+        let noun = total == 1 ? "agent session" : "agent sessions"
+        guard !query.isEmpty else { return "\(total) \(noun)" }
+        return "\(order.count) of \(total) \(noun) match"
+    }
+
+    private func row(for thread: JournalThread) -> some View {
+        let title = Self.title(of: thread)
+        let summary = summaryLine(for: thread)
+        let notSent = thread.notSentCount
+
+        return Kit.TitleRow(
+            title,
+            subtitle: summary.joined(separator: " \u{00B7} "),
+            isSelected: thread.id == openThread,
+            action: { select(thread.id) }
+        ) {
+            Kit.Glyph(systemImage: "terminal.fill", tint: .indigo)
+        } trailing: {
+            if notSent > 0 {
+                Kit.Mark("\(notSent) NOT SENT", tone: .caution)
+            }
+        }
+        .accessibilityLabel(([title] + summary + notSentPart(of: thread)).joined(separator: ", "))
+        .accessibilityAction(named: "Open thread") {
+            select(thread.id)
         }
         .accessibilityIdentifier("journal.threads.row")
     }
 
-    private func toggle(_ thread: JournalThread) {
-        openThread = openThread == thread.id ? nil : thread.id
-    }
-
-    /// The row's second line as its parts, so the visible line and the spoken
-    /// label say the same facts in the same order.
+    /// The row's second line as its parts, so the visible line and the spoken label say
+    /// the same facts in the same order. The not-sent count is a mark beside the line,
+    /// so it is spoken from ``notSentPart(of:)`` rather than printed here.
     private func summaryLine(for thread: JournalThread) -> [String] {
         let count = thread.entries.count
-        var parts = [
+        return [
             thread.ref.agent.displayName,
             "\(count) \(count == 1 ? "dictation" : "dictations")",
             Self.span(from: thread.firstAt, to: thread.lastAt, calendar: calendar),
         ]
-        if thread.notSentCount > 0 {
-            parts.append("\(thread.notSentCount) not sent")
-        }
-        return parts
+    }
+
+    private func notSentPart(of thread: JournalThread) -> [String] {
+        thread.notSentCount > 0 ? ["\(thread.notSentCount) not sent"] : []
     }
 
     /// The name a reader knows the session by: its own title, else the folder it
     /// ran in, else its agent's, because an id prefix names nothing a reader knows.
-    /// The row and the page heading it opens both read it here, so they never differ.
-    private static func title(of thread: JournalThread) -> String {
+    /// The row, the page heading and the sidebar all read it here, so they never differ.
+    static func title(of thread: JournalThread) -> String {
         thread.ref.title ?? thread.ref.project ?? "\(thread.ref.agent.displayName) session"
     }
 
     // MARK: Page
 
     @ViewBuilder
-    private func openPage(_ thread: JournalThread) -> some View {
-        row(for: thread, isOpen: true)
+    private var page: some View {
+        if let thread = selected {
+            Kit.PageColumn(identity: thread.id) {
+                pageBar(for: thread)
+            } content: {
+                pageContent(for: thread)
+            }
+        } else {
+            ContentUnavailableView(
+                "No thread selected",
+                systemImage: "bubble.left.and.text.bubble.right",
+                description: Text("Select a thread to read everything said into that agent session.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
 
-        detailsRow(for: thread)
+    /// Whether memory keeps one of the thread's entries, so its thread page exists for
+    /// the outcome prompt to point the agent at.
+    private var offersOutcomePrompt: Bool {
+        memoryRoot != nil && selectedIsInMemory
+    }
 
-        let isInTimeline = thread.entries.contains { historyIDs.contains($0.id) }
-        if thread.ref.resumable || isInTimeline {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
+    @ViewBuilder
+    private func pageBar(for thread: JournalThread) -> some View {
+        if thread.ref.resumable || selectedIsInTimeline || offersOutcomePrompt {
+            Kit.GlassGroup {
                 if thread.ref.resumable {
-                    Button("Copy Resume Command") {
+                    Kit.ActionButton("Copy Resume Command", systemImage: "terminal", prominence: .primary) {
                         copyResumeCommand(of: thread)
                     }
-                    .buttonStyle(.bordered)
+                    .help("Copy the shell command that resumes this session in its folder")
                     .accessibilityIdentifier("journal.threads.resume")
                 }
 
-                if isInTimeline {
-                    Button("Show in Timeline") {
+                if selectedIsInTimeline {
+                    Kit.ActionButton("Show in Timeline", systemImage: "clock") {
                         navigation.showThreadInTimeline(thread.id)
                     }
-                    .buttonStyle(.borderless)
+                    .help("Show this session's dictations in Timeline")
                     .accessibilityIdentifier("journal.threads.timeline")
                 }
 
-                if copiedThreadID == thread.id {
-                    ConsoleStateMark("COPIED TO CLIPBOARD", .ok)
+                if let memoryRoot, selectedIsInMemory {
+                    JournalPromptCopyButton(
+                        "Copy Outcome Prompt",
+                        help: "Copy a prompt that asks this session's agent to record what came of the work",
+                        announcement: "Outcome prompt copied to clipboard",
+                        identifier: "journal.threads.outcome-prompt",
+                        flash: flash,
+                        prompt: {
+                            MemoryPages.outcomePrompt(
+                                thread: thread.id,
+                                day: thread.lastAt,
+                                root: memoryRoot,
+                                calendar: memoryCalendar
+                            )
+                        }
+                    )
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
 
-        ForEach(Self.lines(of: thread, calendar: calendar)) { line in
-            switch line {
-            case .day(let day):
-                ConsoleCaption(SessionsFormatters.dayHeader.string(from: day))
-            case .entry(let entry):
-                JournalEntryRow(
-                    entry: entry,
-                    isInHistory: historyIDs.contains(entry.id),
-                    showsThreadAction: false,
-                    navigation: navigation,
-                    delete: delete,
-                    topics: topics,
-                    file: file
+    @ViewBuilder
+    private func pageContent(for thread: JournalThread) -> some View {
+        Kit.PageHeader(
+            eyebrow: "\(thread.ref.agent.displayName) \u{00B7} \(thread.ref.project ?? "No project folder")",
+            title: Self.title(of: thread),
+            subtitle: pageSubtitle(for: thread)
+        )
+
+        if !openThreadNotes.isEmpty {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                Kit.SectionTitle("From the session")
+                ForEach(openThreadNotes) { note in
+                    JournalAgentNoteRow(note)
+                        .accessibilityIdentifier("journal.threads.agent-note")
+                }
+            }
+        } else if offersOutcomePrompt {
+            Kit.Card {
+                ConsoleCaption(
+                    "No outcome recorded yet. Copy Outcome Prompt asks this session's agent to save "
+                        + "what came of the work, and it shows here."
                 )
             }
         }
 
-        if !openThreadNotes.isEmpty {
-            ConsoleCaption("From the session")
-            ForEach(openThreadNotes) { note in
-                JournalAgentNoteRow(note)
-                    .accessibilityIdentifier("journal.threads.agent-note")
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+            Kit.SectionTitle("Dictations")
+            ForEach(pageLines) { line in
+                switch line {
+                case .day(let day):
+                    Text(SessionsFormatters.dayHeader.string(from: day))
+                        .font(Kit.Fonts.groupHeader)
+                        .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, VoiceourMetrics.Space.sm)
+                case .entry(let entry):
+                    JournalEntryRow(
+                        entry: entry,
+                        isInHistory: historyIDs.contains(entry.id),
+                        showsThreadAction: false,
+                        navigation: navigation,
+                        delete: delete,
+                        topics: topics,
+                        file: file
+                    )
+                }
             }
         }
 
-        if let memoryRoot, thread.entries.contains(where: { memoryIDs.contains($0.id) }) {
-            JournalPromptCopyButton(
-                "Copy Outcome Prompt",
-                help: "Copy a prompt that asks this session's agent to record what came of the work",
-                announcement: "Outcome prompt copied to clipboard",
-                identifier: "journal.threads.outcome-prompt",
-                prompt: {
-                    MemoryPages.outcomePrompt(
-                        thread: thread.id,
-                        day: thread.lastAt,
-                        root: memoryRoot,
-                        calendar: memoryCalendar
-                    )
-                }
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        details(for: thread)
+    }
+
+    /// "12 dictations · Nov 10, 09:27 – 18:42 · 2 not sent".
+    private func pageSubtitle(for thread: JournalThread) -> String {
+        let count = thread.entries.count
+        var parts = [
+            "\(count) \(count == 1 ? "dictation" : "dictations")",
+            Self.span(from: thread.firstAt, to: thread.lastAt, calendar: calendar),
+        ]
+        parts += notSentPart(of: thread)
+        return parts.joined(separator: " \u{00B7} ")
     }
 
     /// The session's id and folder, folded shut: the reader rarely needs them, and a
-    /// resumable session's resume command already carries both. Every newly opened
-    /// thread starts folded.
-    private func detailsRow(for thread: JournalThread) -> some View {
-        DisclosureGroup(isExpanded: $showsDetails) {
-            LabeledContent("Session") {
-                monospacedReadout(thread.ref.sessionId)
-                    .accessibilityIdentifier("journal.threads.session")
-            }
+    /// resumable session's resume command already carries both.
+    private func details(for thread: JournalThread) -> some View {
+        Kit.Disclosure("Details", isExpanded: $showsDetails, identifier: "journal.threads.details") {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.Fact("Session") {
+                    monospacedReadout(thread.ref.sessionId)
+                        .accessibilityIdentifier("journal.threads.session")
+                }
 
-            if let directory = thread.ref.workingDirectory {
-                LabeledContent("Folder") {
-                    monospacedReadout(directory)
-                        .accessibilityIdentifier("journal.threads.folder")
+                if let directory = thread.ref.workingDirectory {
+                    Kit.Fact("Folder") {
+                        monospacedReadout(directory)
+                            .accessibilityIdentifier("journal.threads.folder")
+                    }
                 }
             }
-        } label: {
-            Text("Details")
-                .accessibilityIdentifier("journal.threads.details")
-                // The triangle SwiftUI publishes answers an accessibility press with
-                // success and does not change its own state, so the label carries the
-                // default action a VoiceOver press performs.
-                .accessibilityAction {
-                    showsDetails.toggle()
-                }
         }
     }
 
     private func monospacedReadout(_ value: String) -> some View {
         Text(value)
-            .font(.callout.monospaced())
+            .font(Kit.Fonts.meta.monospaced())
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
@@ -469,8 +534,7 @@ struct JournalThreadsLens: View {
             .accessibilityRepresentation { Text(value) }
     }
 
-    /// One line of the open page: a day's caption, or one entry under it.
-    /// Flattened so every element of the page's `ForEach` is exactly one form row.
+    /// One line of the page's Dictations section: a day's caption, or one entry under it.
     private enum PageLine: Identifiable {
         case day(Date)
         case entry(JournalEntry)
@@ -489,7 +553,7 @@ struct JournalThreadsLens: View {
     }
 
     /// The thread's entries oldest first, with a day caption before each day's
-    /// first entry. Built for the open thread only, so its cost is one session's
+    /// first entry. Built for the selected thread only, so its cost is one session's
     /// entries rather than the journal's.
     private static func lines(of thread: JournalThread, calendar: Calendar) -> [PageLine] {
         var lines: [PageLine] = []
@@ -552,42 +616,10 @@ struct JournalThreadsLens: View {
 
     // MARK: Actions
 
+    /// The toast and the announcement are claims about the clipboard, so a refused
+    /// write leaves the page exactly as it was instead of confirming nothing.
     private func copyResumeCommand(of thread: JournalThread) {
-        // The mark and the announcement are claims about the clipboard, so a
-        // refused write leaves the page exactly as it was instead of confirming
-        // nothing.
         guard GeneralPasteboard.copy(thread.resumeCommand) != nil else { return }
-        announce("Resume command copied to clipboard")
-        resetCopyFeedbackTask?.cancel()
-        withAnimation(feedbackAnimation) {
-            copiedThreadID = thread.id
-        }
-
-        let copiedID = thread.id
-        resetCopyFeedbackTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            guard !Task.isCancelled, copiedThreadID == copiedID else { return }
-            withAnimation(feedbackAnimation) {
-                copiedThreadID = nil
-            }
-        }
-    }
-
-    /// VoiceOver hears the sentence the mark shows, because a mark that appears
-    /// beside a button the cursor has already left confirms nothing. A no-op when
-    /// VoiceOver is not running.
-    private func announce(_ sentence: String) {
-        NSAccessibility.post(
-            element: NSApp as Any,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: sentence,
-                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
-            ]
-        )
-    }
-
-    private var feedbackAnimation: Animation? {
-        a11y.reduceMotion ? nil : .easeInOut(duration: VoiceourMotion.quickDuration)
+        flash.show("Resume command copied to clipboard", animation: Kit.Motion.quick(a11y))
     }
 }

@@ -3,14 +3,14 @@ title: Rewind shows an agent's recap under its day and copies the day's recap pr
 fixture: static
 transitions: idle
 PASS 1 newest | exists id=journal.rewind.recap-prompt | 1 match
-PASS 2 newest | absent value="COPIED" | 0 matches
+PASS 2 newest | absent id=journal.rewind.copied | 0 matches
 PASS 3 newest | model pasteboardWrites == "0" | 0
 PASS 4 recap | exists id=journal.rewind.entries & value="6 · 73 words" | 1 match
 PASS 5 recap | exists value="Wednesday recap · by omp · 2025-05-28 21:05" in id=journal.rewind.agent-note | 1 match
 PASS 6 recap | enabled(true) id=journal.rewind.recap-prompt | true
-PASS 7 recap | absent value="COPIED" | 0 matches
+PASS 7 recap | absent id=journal.rewind.copied | 0 matches
 PASS 8 recap | model pasteboardWrites == "0" | 0
-PASS 9 copied | exists value="COPIED" | 1 match
+PASS 9 copied | exists id=journal.rewind.copied | 1 match
 PASS 10 copied | model pasteboardWrites == "1" | 1
 PASS 11 copied | exists value="Wednesday recap · by omp · 2025-05-28 21:05" in id=journal.rewind.agent-note | 1 match
 PASS 12 later-day | exists id=journal.rewind.entries & value="4 · 54 words" | 1 match

@@ -85,9 +85,8 @@ enum ConsolePresentation {
     /// the offscreen harness's window are all borderless.
     ///
     /// Identifying it by style rather than by a probe view is measured, not
-    /// taste: ``HistoryInputMonitor`` records what a zero-size
-    /// `NSViewRepresentable` behind the content costs, which is one more
-    /// accessibility group in every golden that contains it.
+    /// taste: a zero-size `NSViewRepresentable` behind the content costs one
+    /// more accessibility group in every golden that contains it.
     static func isConsole(_ window: NSWindow) -> Bool {
         window.styleMask.contains(.titled)
     }

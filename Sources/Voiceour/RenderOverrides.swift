@@ -88,9 +88,9 @@ enum RenderOverrides {
     static var historyTeachSurface: String?
 
     /// Pins the lens the Journal tab opens on. The tab otherwise opens on Timeline
-    /// every time it is built, so a scene of Rewind or Threads would have to spend a
-    /// flow step on the segmented picker before it could render anything; the scene
-    /// states the lens instead. Production reads this as nil, which is Timeline.
+    /// every time it is built, so a scene of another lens would have to spend a flow
+    /// step on a sidebar press before it could render anything; the scene states the
+    /// lens instead. Production reads this as nil, which is Timeline.
     static var journalInitialLens: JournalLens?
 
     /// Pins the day Rewind opens on. Rewind's own choice follows the fixture's dates
@@ -99,9 +99,9 @@ enum RenderOverrides {
     /// Production reads this as nil, which is Rewind's own opening day.
     static var journalInitialDay: Date?
 
-    /// Pins the thread Threads opens with. Opening one takes a click on its row,
-    /// which a scene that only renders cannot make, so the scene states the thread
-    /// it shows open. Production reads this as nil, which is no thread open.
+    /// Pins the thread Threads selects. Selecting another takes a click on its row,
+    /// which a scene that only renders cannot make, so the scene states the thread it
+    /// shows. Production reads this as nil, which is the newest thread.
     static var journalInitialThread: AgentSessionKey?
 
     /// Pins the installed-app catalog so a golden never encodes which apps the

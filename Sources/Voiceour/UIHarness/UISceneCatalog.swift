@@ -242,7 +242,7 @@
                 ),
                 console(
                     "console.sessions.deselected",
-                    "History after the open transcript was closed",
+                    "Timeline with no dictation selected",
                     tab: .history,
                     fixture: .populated,
                     deselected: true
@@ -279,17 +279,15 @@
                     fixture: .populated,
                     agentSession: UIFixtures.agentSession
                 ),
-                // The Tern row whose link missed, opened with its Details unfolded: the Agent
+                // The Tern row whose link missed, selected with its Details unfolded: the Agent
                 // heading bound rows use, reading why this one is not linked. No seam pins a
-                // selection other than the newest row's, and a plain press on the closed row
-                // and on the Details disclosure is one this window takes. The row sits below
-                // the first-launch measure, so the scene is tall enough to hold it open.
+                // selection other than the newest row's, and a plain press on the row and on the
+                // Details heading is one this window takes.
                 console(
                     "console.sessions.unlinked",
                     "History row pasted into Tern whose agent link missed, Details open on the reason",
                     tab: .history,
                     fixture: .populated,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_400),
                     tags: ["agent-link", "steps"],
                     steps: [
                         .press(UIFixtures.unlinkedRowText),
@@ -298,16 +296,14 @@
                         .settle(120),
                     ]
                 ),
-                // A row linked by its words, as Link Earlier Dictations links one, opened the
+                // A row linked by its words, as Link Earlier Dictations links one, selected the
                 // same way: its Details name the session under Agent and say the link came from
-                // its words, not from a focused pane. It sits above the Tern row, so the same
-                // height holds it open.
+                // its words, not from a focused pane.
                 console(
                     "console.sessions.evidence",
                     "History row linked to its agent session by its words, Details open on how",
                     tab: .history,
                     fixture: .populated,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_400),
                     tags: ["agent-link", "steps"],
                     steps: [
                         .press(UIFixtures.evidenceRowText),
@@ -316,10 +312,9 @@
                         .settle(120),
                     ]
                 ),
-                // The Journal's Rewind and Threads lenses. The tab opens on Timeline, and the
-                // segmented picker that leaves it is not a press a window that never becomes
-                // key can count on, so each scene pins the lens it shows, as the tab bar is
-                // driven by a binding rather than a press.
+                // The Journal's other lenses. The tab opens on Timeline, and a sidebar press is
+                // not one a window that never becomes key can count on, so each scene pins the
+                // lens it shows, as the tab bar is driven by a binding rather than a press.
                 console(
                     "console.sessions.rewind",
                     "Journal Rewind on the fixture's newest day",
@@ -394,27 +389,16 @@
                     journalDay: UIFixtures.rememberedDay,
                     tags: ["memory", "agent-notes"]
                 ),
+                // The omp thread's page reaches past History's oldest row, and it leads with the
+                // omp agent's outcome note under "From the session", which the loader states
+                // keyed to the thread, beside Copy Outcome Prompt in the page's bar.
                 console(
                     "console.sessions.threads.memory",
-                    "Journal Threads with a session page that reaches past History",
+                    "Journal Threads with a session page that reaches past History, led by its outcome note",
                     tab: .history,
                     fixture: .remembered,
                     journalLens: .threads,
                     journalThread: UIFixtures.agentSession,
-                    tags: ["memory"]
-                ),
-                // The same page tall enough for its end: the omp agent's outcome note under
-                // "From the session", which the loader states keyed to the thread, and Copy
-                // Outcome Prompt, both below the thread's last entry and so below the
-                // default window.
-                console(
-                    "console.sessions.threads.outcome",
-                    "Journal Threads with a session page ending in its agent's outcome note",
-                    tab: .history,
-                    fixture: .remembered,
-                    journalLens: .threads,
-                    journalThread: UIFixtures.agentSession,
-                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_320),
                     tags: ["memory", "agent-notes"]
                 ),
                 // The Notes lens: the remembered fixture's three notes in two day groups,
@@ -437,30 +421,17 @@
                     tags: ["empty", "notes"]
                 ),
                 // The Topics lens: the remembered fixture's three topics, most entries first,
-                // with no topic open; the same list with the first row pressed open, because
-                // no seam pins an open topic and a plain button press is one this window
-                // takes; and the populated fixture, whose memory holds no topic. The harness
-                // key source holds no key, so no Sorting section shows on any Mac. The open
-                // page shows the agent synthesis the fixture's loader states for that topic.
+                // with the largest one's page, the lens's own first selection, showing the agent
+                // synthesis the fixture's loader states for that topic; and the populated
+                // fixture, whose memory holds no topic. The harness key source holds no key, so
+                // no Sorting card shows on any Mac.
                 console(
                     "console.sessions.topics",
-                    "Journal Topics listing the user's topics with none open",
+                    "Journal Topics listing the user's topics, the largest one's page selected",
                     tab: .history,
                     fixture: .remembered,
                     journalLens: .topics,
-                    tags: ["memory", "topics"]
-                ),
-                console(
-                    "console.sessions.topics.open",
-                    "Journal Topics with the largest topic's page open",
-                    tab: .history,
-                    fixture: .remembered,
-                    journalLens: .topics,
-                    tags: ["memory", "topics", "agent-notes", "steps"],
-                    steps: [
-                        .press("journal.topics.row"),
-                        .settle(120),
-                    ]
+                    tags: ["memory", "topics", "agent-notes"]
                 ),
                 console(
                     "console.sessions.topics.empty",
@@ -1293,11 +1264,11 @@
     }
 
     /// Process-wide value seams scoped to the scenes and flows that open the Journal on
-    /// Rewind or Threads. The lens is chosen with a segmented picker, which a window that
-    /// never becomes key cannot be relied on to take a press from, so the lens is pinned
-    /// rather than pressed, as the tab bar is driven by a binding. Rewind's day and the
-    /// open thread are each a click that a scene which only renders cannot make, so they
-    /// are pinned beside it. The three describe one opening state and combine with no other
+    /// another lens than Timeline. The lens is chosen in the sidebar, whose press a window
+    /// that never becomes key cannot be relied on to take, so the lens is pinned rather
+    /// than pressed, as the tab bar is driven by a binding. Rewind's day and the selected
+    /// thread are each a click that a scene which only renders cannot make, so they are
+    /// pinned beside it. The three describe one opening state and combine with no other
     /// seam, so one scope sets all three, nil included, and restores all three. Internal
     /// rather than private because the flow runner wraps a console host in it too.
     struct UIHarnessJournalScope: View {

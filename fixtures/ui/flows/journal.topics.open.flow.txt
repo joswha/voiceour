@@ -1,38 +1,42 @@
 flow: journal.topics.open
-title: A topic row opens the page of its entries and closes it again
+title: The first topic's page lists its entries, and a row press moves the page to another topic
 fixture: static
 transitions: idle
-PASS 1 closed | count id=journal.topics.row exactly 3 | 3 matches
-PASS 2 closed | label id=journal.topics.row & label~="Memory folder" == "Memory folder, 7 entries, How memory is kept on disk and read back." | "Memory folder, 7 entries, How memory is kept on disk and read back."
-PASS 3 closed | selected(false) id=journal.topics.row & label~="Memory folder" | false
-PASS 4 closed | absent id=journal.topics.name | 0 matches
-PASS 5 closed | absent label~="Sketch a journal that remembers more than the last thirty days." | 0 matches
-PASS 6 closed | absent label~="One JSON file per month keeps a year of dictation easy to read." | 0 matches
-PASS 7 closed | absent label~="Start an agent session to draft the memory folder layout." | 0 matches
-PASS 8 closed | absent label~="Ask whether month files should sort their keys before every write." | 0 matches
-PASS 9 closed | absent label~="Memory keeps every dictation verbatim; a model only labels what I said." | 0 matches
-PASS 10 closed | absent label~="The month file is the source of truth and every page is derived from it." | 0 matches
-PASS 11 closed | absent label~="Clear History must leave the memory folder exactly as it was." | 0 matches
-PASS 12 opened | selected(true) id=journal.topics.row & label~="Memory folder" | true
-PASS 13 opened | value id=journal.topics.name == "Memory folder" | "Memory folder"
-PASS 14 opened | value id=journal.topics.summary == "How memory is kept on disk and read back." | "How memory is kept on disk and read back."
-PASS 15 opened | enabled(false) id=journal.topics.save | false
-PASS 16 opened | absent label~="A scene must never wait on a scratch file write to finish." | 0 matches
-PASS 17 opened | count label~="Sketch a journal that remembers more than the last thirty days." exactly 1 | 1 match
-PASS 18 opened | count label~="One JSON file per month keeps a year of dictation easy to read." exactly 1 | 1 match
-PASS 19 opened | count label~="Start an agent session to draft the memory folder layout." exactly 1 | 1 match
-PASS 20 opened | count label~="Ask whether month files should sort their keys before every write." exactly 1 | 1 match
-PASS 21 opened | count label~="Memory keeps every dictation verbatim; a model only labels what I said." exactly 1 | 1 match
-PASS 22 opened | count label~="The month file is the source of truth and every page is derived from it." exactly 1 | 1 match
-PASS 23 opened | count label~="Clear History must leave the memory folder exactly as it was." exactly 1 | 1 match
-PASS 24 reclosed | count id=journal.topics.row exactly 3 | 3 matches
-PASS 25 reclosed | label id=journal.topics.row & label~="Memory folder" == "Memory folder, 7 entries, How memory is kept on disk and read back." | "Memory folder, 7 entries, How memory is kept on disk and read back."
-PASS 26 reclosed | selected(false) id=journal.topics.row & label~="Memory folder" | false
-PASS 27 reclosed | absent id=journal.topics.name | 0 matches
-PASS 28 reclosed | absent label~="Sketch a journal that remembers more than the last thirty days." | 0 matches
-PASS 29 reclosed | absent label~="One JSON file per month keeps a year of dictation easy to read." | 0 matches
-PASS 30 reclosed | absent label~="Start an agent session to draft the memory folder layout." | 0 matches
-PASS 31 reclosed | absent label~="Ask whether month files should sort their keys before every write." | 0 matches
-PASS 32 reclosed | absent label~="Memory keeps every dictation verbatim; a model only labels what I said." | 0 matches
-PASS 33 reclosed | absent label~="The month file is the source of truth and every page is derived from it." | 0 matches
-PASS 34 reclosed | absent label~="Clear History must leave the memory folder exactly as it was." | 0 matches
+PASS 1 first | count id=journal.topics.row exactly 3 | 3 matches
+PASS 2 first | label id=journal.topics.row & label~="Memory folder" == "Memory folder, 7 entries, How memory is kept on disk and read back." | "Memory folder, 7 entries, How memory is kept on disk and read back."
+PASS 3 first | selected(true) id=journal.topics.row & label~="Memory folder" | true
+PASS 4 first | value id=journal.topics.name == "Memory folder" | "Memory folder"
+PASS 5 first | value id=journal.topics.summary == "How memory is kept on disk and read back." | "How memory is kept on disk and read back."
+PASS 6 first | enabled(false) id=journal.topics.save | false
+PASS 7 first | absent label~="A scene must never wait on a scratch file write to finish." | 0 matches
+PASS 8 first | count label~="Sketch a journal that remembers more than the last thirty days." exactly 1 | 1 match
+PASS 9 first | count label~="One JSON file per month keeps a year of dictation easy to read." exactly 1 | 1 match
+PASS 10 first | count label~="Start an agent session to draft the memory folder layout." exactly 1 | 1 match
+PASS 11 first | count label~="Ask whether month files should sort their keys before every write." exactly 1 | 1 match
+PASS 12 first | count label~="Memory keeps every dictation verbatim; a model only labels what I said." exactly 1 | 1 match
+PASS 13 first | count label~="The month file is the source of truth and every page is derived from it." exactly 1 | 1 match
+PASS 14 first | count label~="Clear History must leave the memory folder exactly as it was." exactly 1 | 1 match
+PASS 15 switched | selected(true) id=journal.topics.row & label~="Offscreen harness" | true
+PASS 16 switched | selected(false) id=journal.topics.row & label~="Memory folder" | false
+PASS 17 switched | count label~="A scene must never wait on a scratch file write to finish." exactly 1 | 1 match
+PASS 18 switched | absent label~="Sketch a journal that remembers more than the last thirty days." | 0 matches
+PASS 19 switched | absent label~="One JSON file per month keeps a year of dictation easy to read." | 0 matches
+PASS 20 switched | absent label~="Start an agent session to draft the memory folder layout." | 0 matches
+PASS 21 switched | absent label~="Ask whether month files should sort their keys before every write." | 0 matches
+PASS 22 switched | absent label~="Memory keeps every dictation verbatim; a model only labels what I said." | 0 matches
+PASS 23 switched | absent label~="The month file is the source of truth and every page is derived from it." | 0 matches
+PASS 24 switched | absent label~="Clear History must leave the memory folder exactly as it was." | 0 matches
+PASS 25 returned | count id=journal.topics.row exactly 3 | 3 matches
+PASS 26 returned | label id=journal.topics.row & label~="Memory folder" == "Memory folder, 7 entries, How memory is kept on disk and read back." | "Memory folder, 7 entries, How memory is kept on disk and read back."
+PASS 27 returned | selected(true) id=journal.topics.row & label~="Memory folder" | true
+PASS 28 returned | value id=journal.topics.name == "Memory folder" | "Memory folder"
+PASS 29 returned | value id=journal.topics.summary == "How memory is kept on disk and read back." | "How memory is kept on disk and read back."
+PASS 30 returned | enabled(false) id=journal.topics.save | false
+PASS 31 returned | absent label~="A scene must never wait on a scratch file write to finish." | 0 matches
+PASS 32 returned | count label~="Sketch a journal that remembers more than the last thirty days." exactly 1 | 1 match
+PASS 33 returned | count label~="One JSON file per month keeps a year of dictation easy to read." exactly 1 | 1 match
+PASS 34 returned | count label~="Start an agent session to draft the memory folder layout." exactly 1 | 1 match
+PASS 35 returned | count label~="Ask whether month files should sort their keys before every write." exactly 1 | 1 match
+PASS 36 returned | count label~="Memory keeps every dictation verbatim; a model only labels what I said." exactly 1 | 1 match
+PASS 37 returned | count label~="The month file is the source of truth and every page is derived from it." exactly 1 | 1 match
+PASS 38 returned | count label~="Clear History must leave the memory folder exactly as it was." exactly 1 | 1 match

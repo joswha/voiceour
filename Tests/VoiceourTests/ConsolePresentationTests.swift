@@ -47,7 +47,7 @@ struct ConsolePresentationTests {
         #expect(!window.isRestorable)
     }
 
-    /// The identification rule the presenter and ``HistoryInputMonitor`` share:
+    /// The identification rule the presenter relies on:
     /// the console is the app's one titled window. The menu popover, the
     /// recording panel and the offscreen harness's window are all borderless, so
     /// none of them can be mistaken for it and hardened, ordered front, or

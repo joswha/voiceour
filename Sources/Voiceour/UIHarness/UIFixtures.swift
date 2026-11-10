@@ -1236,10 +1236,10 @@
         /// they were made. Their ids are the slugs `TopicCatalog` gives their names.
         static let rememberedTopics: [MemoryTopic] = [memoryFolderTopic, harnessTopic, planningTopic]
 
-        /// The topic with the most entries, so it leads the Topics list and is the row
-        /// `console.sessions.topics.open` presses. Seven entries count under it: five by a
-        /// confident label, one the user filed by hand over a label that named another
-        /// topic, and one note the model labelled.
+        /// The topic with the most entries, so it leads the Topics list and is the topic
+        /// Topics opens on. Seven entries count under it: five by a confident label, one
+        /// the user filed by hand over a label that named another topic, and one note the
+        /// model labelled.
         static let memoryFolderTopic = MemoryTopic(
             id: "memory-folder",
             name: "Memory folder",
@@ -1276,9 +1276,9 @@
         /// What the `remembered` folder's `agents/` holds, newest modification first, as
         /// `MemoryStore.loadAgentNotes()` would hand it over: the omp session's outcome,
         /// then the synthesis of `memoryFolderTopic`, saved the morning after the recap of
-        /// `rememberedDay`. So `console.sessions.rewind.memory` and
-        /// `console.sessions.topics.open` each show one note under "From your agents", and
-        /// the omp thread's page one under "From the session", without a step. No body
+        /// `rememberedDay`. So `console.sessions.rewind.memory` and `console.sessions.topics`
+        /// each show one note under "From your agents", and the omp thread's page one under
+        /// "From the session", without a step. No body
         /// repeats an entry's text, so a flow that finds an entry by its text never finds a
         /// note as well.
         static let rememberedAgentNotes: [AgentNote] = [
@@ -1316,8 +1316,7 @@
             modifiedAt: rememberedDay.addingTimeInterval(21 * 3_600 + 5 * 60)
         )
 
-        /// An agent's synthesis of `memoryFolderTopic`, the topic
-        /// `console.sessions.topics.open` presses open.
+        /// An agent's synthesis of `memoryFolderTopic`, the topic Topics opens on.
         static let memoryFolderSynthesis = AgentNote(
             id: "memory-folder-synthesis.md",
             author: "omp",

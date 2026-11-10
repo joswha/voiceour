@@ -5,10 +5,12 @@ import VoiceMac
 
 /// Rewind: one day replayed in the order it was spoken, or every day searched at once.
 ///
-/// A day reads as runs of one subject — an agent session, an app, notes — because that
-/// is how a reader remembers a day: "the morning in that session, then mail". The
-/// search covers every day rather than the one on screen, since a reader who types a
-/// phrase rarely knows which day they said it.
+/// The list column is the day picker: every day that holds an entry, grouped by month,
+/// so no choice can land on an empty page. The page reads the day as runs of one
+/// subject — an agent session, an app, notes — because that is how a reader remembers a
+/// day: "the morning in that session, then mail". The search covers every day rather
+/// than the one on screen, since a reader who types a phrase rarely knows which day they
+/// said it; choosing a match opens its day with that entry marked.
 ///
 /// Every derived value is cached in state and rebuilt on appear and when the entries,
 /// the day or the query changes, never in `body`: the memory store is uncapped, and a
@@ -16,7 +18,6 @@ import VoiceMac
 struct JournalRewindLens: View {
     private let entries: [JournalEntry]
     private let historyIDs: Set<UUID>
-    private let lens: Binding<JournalLens>
     private let navigation: JournalNavigation
     /// Removes an entry History no longer holds; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
@@ -33,34 +34,47 @@ struct JournalRewindLens: View {
     private let memoryRoot: URL?
 
     /// The start of the day on screen. Seeded from the harness pin so a golden opens on
-    /// a fixed day; any day that holds no entry falls back to the newest one.
+    /// a fixed day; a day that holds no entry falls back to the newest one.
     @State private var selectedDay: Date? = RenderOverrides.journalInitialDay
     /// Start-of-day dates that hold an entry, newest first.
     @State private var days: [Date] = []
-    /// The days the picker lists directly; older days sit in one submenu per month.
-    @State private var recentDays: [Date] = []
-    @State private var olderMonths: [RewindMonth] = []
+    /// The list column's rows: `days` grouped by calendar month, newest first.
+    @State private var months: [RewindMonth] = []
+    /// Every day's rewind, built once per entries change. The list's row facts need each
+    /// day's figures anyway, so stepping between days reads them here instead of
+    /// filtering the whole store again.
+    @State private var rewinds: [Date: RewindDay] = [:]
     @State private var rewind: RewindDay?
     @State private var searchText = ""
-    /// Every match, before the display limit, so the caption can state the real total.
+    /// The trimmed query the cached matches answer. The list switches between days and
+    /// matches on this rather than on the field, so a keystroke never shows a frame of
+    /// "no matches" before the matches for it are built.
+    @State private var matchQuery = ""
+    /// Every match, before the display limit, so the subtitle can state the real total.
     @State private var matchCount = 0
     @State private var matchDays: [RewindMatchDay] = []
+    /// The search match the page was opened on, washed with the selection tint.
+    @State private var highlightedEntry: UUID?
+    /// The match to scroll the page to once its day is on screen.
+    @State private var pendingReveal: UUID?
+    @State private var listReveal: AnyHashable?
+    @State private var pageReveal: AnyHashable?
     /// Whether the day on screen holds an entry memory keeps.
     @State private var dayIsInMemory = false
     /// The agent notes whose `day` is the day on screen, newest modification first.
     @State private var dayNotes: [AgentNote] = []
+    @State private var flash = Kit.Flash()
+    @FocusState private var listFocused: Bool
 
-    /// How many days the picker lists before it switches to month submenus: two weeks
-    /// is the range a reader names by weekday rather than by date.
-    private static let recentDayLimit = 14
+    private var a11y = A11y()
+
     /// How many matches the lens renders. A one-word query over an uncapped store can
-    /// match thousands of entries, and each match is a full-text row.
+    /// match thousands of entries.
     private static let matchLimit = 200
 
     init(
         entries: [JournalEntry],
         historyIDs: Set<UUID>,
-        lens: Binding<JournalLens>,
         navigation: JournalNavigation,
         delete: ((UUID) async -> Bool)? = nil,
         topics: [MemoryTopic] = [],
@@ -71,7 +85,6 @@ struct JournalRewindLens: View {
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
-        self.lens = lens
         self.navigation = navigation
         self.delete = delete
         self.topics = topics
@@ -82,65 +95,23 @@ struct JournalRewindLens: View {
     }
 
     var body: some View {
-        Form {
-            JournalLensHeader(lens: lens)
-
-            Section {
-                searchRow
-            }
-
-            if query.isEmpty {
-                if let rewind {
-                    navigatorSection(rewind)
-
-                    if !dayNotes.isEmpty {
-                        Section("From your agents") {
-                            ForEach(dayNotes) { note in
-                                JournalAgentNoteRow(note)
-                                    .accessibilityIdentifier("journal.rewind.agent-note")
-                            }
-                        }
-                    }
-
-                    if !rewind.highlights.isEmpty {
-                        Section("Highlights") {
-                            LazyVStack(spacing: Self.rowSpacing) {
-                                ForEach(rewind.highlights) { highlight in
-                                    entryRow(highlight.entry)
-                                }
-                            }
-                        }
-                    }
-
-                    ForEach(rewind.blocks) { block in
-                        blockSection(block)
-                    }
-                } else if entries.isEmpty {
-                    Section {
-                        ContentUnavailableView(
-                            "Nothing to rewind yet",
-                            systemImage: "clock.arrow.circlepath",
-                            description: Text("Dictate something, then come back to replay your day.")
-                        )
-                    }
-                }
-            } else if matchDays.isEmpty {
-                Section {
-                    noMatches
-                }
+        Group {
+            if days.isEmpty {
+                ContentUnavailableView(
+                    "Nothing to rewind yet",
+                    systemImage: "clock.arrow.circlepath",
+                    description: Text("Dictate something, then come back to replay your day.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ForEach(matchDays) { matchDay in
-                    Section(SessionsFormatters.dayHeader.string(from: matchDay.day)) {
-                        LazyVStack(spacing: Self.rowSpacing) {
-                            ForEach(matchDay.entries) { entry in
-                                entryRow(entry)
-                            }
-                        }
-                    }
+                Kit.Split {
+                    listColumn
+                } page: {
+                    pageColumn
+                        .kitToast(flash, identifier: "journal.rewind.copied")
                 }
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             reloadDays()
             reloadMatches()
@@ -163,50 +134,114 @@ struct JournalRewindLens: View {
         }
     }
 
-    // MARK: Search
+    // MARK: List column
 
-    private var query: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var searchRow: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-
-                TextField("Search everything you said", text: $searchText)
-                    .accessibilityIdentifier("journal.rewind.search")
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .frame(
-                                width: VoiceourMetrics.Control.mini,
-                                height: VoiceourMetrics.Control.mini
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Clear search")
-                    .accessibilityLabel("Clear search")
-                    .accessibilityIdentifier("journal.rewind.search.clear")
-                }
-            }
-
-            if !query.isEmpty, matchCount > 0 {
-                ConsoleCaption(Self.matchCaption(count: matchCount))
+    private var listColumn: some View {
+        Kit.ListColumn(
+            "Rewind",
+            subtitle: listSubtitle,
+            reveal: listReveal,
+            focus: $listFocused,
+            onMove: move
+        ) {
+            Kit.SearchField(
+                "Search everything you said",
+                text: $searchText,
+                identifier: "journal.rewind.search",
+                clearIdentifier: "journal.rewind.search.clear",
+                onSubmit: selectFirstMatch
+            )
+        } content: {
+            if matchQuery.isEmpty {
+                dayRows
+            } else if matchDays.isEmpty {
+                noMatches
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, VoiceourMetrics.Space.xl)
+            } else {
+                matchRows
             }
         }
     }
 
+    /// "12 days", or while searching the match count, capped the way the list is.
+    private var listSubtitle: String {
+        matchQuery.isEmpty ? Self.counted(days.count, "day", "days") : Self.matchCaption(count: matchCount)
+    }
+
+    private var dayRows: some View {
+        ForEach(months) { month in
+            Section {
+                ForEach(month.days) { row in
+                    Kit.TitleRow(
+                        row.title,
+                        subtitle: row.subtitle,
+                        isSelected: row.day == selectedDay,
+                        action: {
+                            listFocused = true
+                            selectDay(row.day)
+                        },
+                        trailing: { EmptyView() }
+                    )
+                    .accessibilityLabel(row.accessibilityLabel)
+                    .accessibilityIdentifier("journal.rewind.day-row")
+                    .id(row.day)
+                }
+            } header: {
+                Kit.GroupHeader(month.name, detail: String(month.days.count))
+            }
+        }
+    }
+
+    private var matchRows: some View {
+        ForEach(matchDays) { matchDay in
+            Section {
+                ForEach(matchDay.matches) { match in
+                    matchRow(match)
+                }
+            } header: {
+                Kit.GroupHeader(matchDay.title, detail: String(matchDay.matches.count))
+            }
+        }
+    }
+
+    /// A match previews its words under the time and where they went. Its label is the
+    /// one a reading row gives the same entry, so a flow finds the entry by the same
+    /// words in the list and on the page.
+    private func matchRow(_ match: RewindMatch) -> some View {
+        let entry = match.entry
+        let kind = JournalEntryRow.highlightKind(of: entry)
+        return Kit.PreviewRow(
+            entry.text,
+            isSelected: match.id == highlightedEntry,
+            action: {
+                listFocused = true
+                selectMatch(entry)
+            }
+        ) {
+            Text(match.stamp)
+                .font(Kit.Fonts.stamp)
+            if let subject = match.subject {
+                Kit.AppLabel(subject, icon: match.icon)
+            }
+        } marks: {
+            if entry.kind == .note {
+                Kit.Mark("NOTE", tone: .info)
+            }
+            if entry.thread?.sent == false {
+                Kit.Mark("NOT SENT", tone: .caution)
+            }
+            if let kind {
+                Kit.Mark(kind.displayName.uppercased())
+            }
+        }
+        .accessibilityLabel(match.accessibilityLabel)
+        .id(match.id)
+    }
+
     private var noMatches: some View {
         ContentUnavailableView {
-            Text("Nothing matches \u{201C}\(query)\u{201D}")
+            Text("Nothing matches \u{201C}\(matchQuery)\u{201D}")
         } description: {
             Text("Search runs over what you said, agent session titles, projects and app names, on every day.")
         } actions: {
@@ -215,140 +250,142 @@ struct JournalRewindLens: View {
         }
     }
 
-    // MARK: Day
+    // MARK: Page column
 
     @ViewBuilder
-    private func navigatorSection(_ rewind: RewindDay) -> some View {
-        let earlier = neighbour(olderBy: 1)
-        let later = neighbour(olderBy: -1)
+    private var pageColumn: some View {
+        if let rewind {
+            dayPage(rewind)
+        } else {
+            ContentUnavailableView(
+                "No day selected",
+                systemImage: "calendar",
+                description: Text("Select a day to replay what you said on it.")
+            )
+        }
+    }
 
-        Section {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Button {
-                    selectedDay = earlier
-                } label: {
-                    Label("Earlier Day", systemImage: "chevron.left")
-                        .labelStyle(.iconOnly)
-                        .frame(width: VoiceourMetrics.Control.mini, height: VoiceourMetrics.Control.mini)
-                        .contentShape(Rectangle())
+    private func dayPage(_ rewind: RewindDay) -> some View {
+        let earlier = neighbour(of: rewind.day, olderBy: 1)
+        let later = neighbour(of: rewind.day, olderBy: -1)
+        let offersRecap = dayIsInMemory && memoryRoot != nil
+        return Kit.PageColumn(identity: rewind.day, reveal: pageReveal) {
+            Kit.GlassGroup {
+                Kit.ActionButton("Earlier Day", systemImage: "chevron.left") {
+                    if let earlier { selectDay(earlier) }
                 }
-                .buttonStyle(.borderless)
                 .disabled(earlier == nil)
                 .help("Earlier Day")
                 .accessibilityIdentifier("journal.rewind.earlier")
 
-                Spacer(minLength: VoiceourMetrics.Space.sm)
-
-                dayMenu(rewind.day)
-
-                Spacer(minLength: VoiceourMetrics.Space.sm)
-
-                Button {
-                    selectedDay = later
-                } label: {
-                    Label("Later Day", systemImage: "chevron.right")
-                        .labelStyle(.iconOnly)
-                        .frame(width: VoiceourMetrics.Control.mini, height: VoiceourMetrics.Control.mini)
-                        .contentShape(Rectangle())
+                Kit.ActionButton("Later Day", systemImage: "chevron.right") {
+                    if let later { selectDay(later) }
                 }
-                .buttonStyle(.borderless)
                 .disabled(later == nil)
                 .help("Later Day")
                 .accessibilityIdentifier("journal.rewind.later")
             }
 
-            LabeledContent("Entries") {
-                Text(Self.entriesText(rewind))
+            if dayIsInMemory, let memoryRoot {
+                JournalPromptCopyButton(
+                    "Copy Recap Prompt",
+                    help: "Copy a prompt that asks your coding agent to recap this day",
+                    announcement: "Recap prompt copied to clipboard",
+                    identifier: "journal.rewind.recap-prompt",
+                    prominence: .primary,
+                    flash: flash,
+                    // The day page is named in the memory calendar, so the prompt is too.
+                    prompt: {
+                        MemoryPages.recapPrompt(
+                            day: rewind.day,
+                            root: memoryRoot,
+                            calendar: DictationCoordinator.memoryCalendar(timeZone: calendar.timeZone)
+                        )
+                    }
+                )
             }
+        } content: {
+            // The span is the last figure, so the header names the day alone.
+            Kit.PageHeader(eyebrow: "Rewind", title: Self.pageTitle(of: rewind.day, calendar: calendar))
+
+            figures(rewind)
+
+            if offersRecap {
+                ConsoleCaption(
+                    "Paste it into your coding agent. The agent reads this day in the memory folder and saves "
+                        + "a recap there."
+                )
+            }
+
+            if !rewind.highlights.isEmpty {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                    Kit.SectionTitle("Highlights")
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+                        ForEach(rewind.highlights) { highlight in
+                            entryRow(highlight.entry)
+                        }
+                    }
+                }
+            }
+
+            if !dayNotes.isEmpty {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                    Kit.SectionTitle("From your agents")
+                    ForEach(dayNotes) { note in
+                        JournalAgentNoteRow(note)
+                            .accessibilityIdentifier("journal.rewind.agent-note")
+                    }
+                }
+            }
+
+            ForEach(rewind.blocks) { block in
+                blockSection(block)
+            }
+        }
+    }
+
+    /// The day's figures, two to a row so a place list or a span reads whole at the
+    /// page's width. Where names the first kind of place as the tile's value and the rest
+    /// as its detail, so VoiceOver still hears the whole list as the value.
+    private func figures(_ rewind: RewindDay) -> some View {
+        let places = Self.whereParts(rewind)
+        let columns = [
+            GridItem(.flexible(), spacing: VoiceourMetrics.Space.sm, alignment: .top),
+            GridItem(.flexible(), spacing: VoiceourMetrics.Space.sm, alignment: .top),
+        ]
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+            Kit.MetricTile(
+                "Entries",
+                value: String(rewind.entryCount),
+                detail: SessionsFormatters.wordCountLabel(rewind.wordCount)
+            )
             .accessibilityIdentifier("journal.rewind.entries")
 
             if rewind.captureSeconds >= 1 {
-                LabeledContent("Speaking time") {
-                    Text(Self.durationText(seconds: rewind.captureSeconds))
-                }
-                .accessibilityIdentifier("journal.rewind.speaking-time")
+                Kit.MetricTile("Speaking time", value: Self.durationText(seconds: rewind.captureSeconds))
+                    .accessibilityIdentifier("journal.rewind.speaking-time")
             }
 
-            let places = Self.whereText(rewind)
-            if !places.isEmpty {
-                LabeledContent("Where") {
-                    Text(places)
-                }
+            if let first = places.first {
+                Kit.MetricTile(
+                    "Where",
+                    value: first,
+                    detail: places.count > 1 ? places.dropFirst().joined(separator: " \u{00B7} ") : nil
+                )
                 .accessibilityIdentifier("journal.rewind.where")
             }
 
-            if let firstAt = rewind.firstAt, let lastAt = rewind.lastAt {
-                LabeledContent("Span") {
-                    Text(Self.spanText(from: firstAt, to: lastAt))
-                }
-                .accessibilityIdentifier("journal.rewind.span")
-            }
-
-            if dayIsInMemory, let memoryRoot {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                    JournalPromptCopyButton(
-                        "Copy Recap Prompt",
-                        help: "Copy a prompt that asks your coding agent to recap this day",
-                        announcement: "Recap prompt copied to clipboard",
-                        identifier: "journal.rewind.recap-prompt",
-                        // The day page is named in the memory calendar, so the prompt is too.
-                        prompt: {
-                            MemoryPages.recapPrompt(
-                                day: rewind.day,
-                                root: memoryRoot,
-                                calendar: DictationCoordinator.memoryCalendar(timeZone: calendar.timeZone)
-                            )
-                        }
-                    )
-
-                    ConsoleCaption(
-                        "Paste it into your coding agent. The agent reads this day in the memory folder and saves "
-                            + "a recap there."
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let span = Self.spanText(rewind) {
+                Kit.MetricTile("Span", value: span)
+                    .accessibilityIdentifier("journal.rewind.span")
             }
         }
     }
 
-    /// The day picker. A menu rather than a date picker: only days that hold an entry
-    /// are offered, so no choice can land on an empty page. The newest two weeks are
-    /// listed directly; every earlier month folds into its own submenu so the menu keeps
-    /// one screen's height however long the store has been kept.
-    private func dayMenu(_ day: Date) -> some View {
-        Menu {
-            Picker("Day", selection: $selectedDay) {
-                ForEach(recentDays, id: \.self) { recent in
-                    Text(SessionsFormatters.dayHeader.string(from: recent)).tag(Date?.some(recent))
-                }
-            }
-            .pickerStyle(.inline)
-
-            ForEach(olderMonths) { month in
-                Menu(month.name) {
-                    Picker(month.name, selection: $selectedDay) {
-                        ForEach(month.days, id: \.self) { older in
-                            Text(SessionsFormatters.dayHeader.string(from: older)).tag(Date?.some(older))
-                        }
-                    }
-                    .pickerStyle(.inline)
-                }
-            }
-        } label: {
-            Text(SessionsFormatters.dayHeader.string(from: day))
-                .lineLimit(1)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Choose a day to rewind")
-        .accessibilityIdentifier("journal.rewind.day")
-    }
-
-    /// The day `offset` steps older than the one on screen among the days that hold an
-    /// entry, or nil past either end. `days` runs newest first, so a positive offset is
-    /// earlier.
-    private func neighbour(olderBy offset: Int) -> Date? {
-        guard let selectedDay, let index = days.firstIndex(of: selectedDay) else { return nil }
+    /// The day `offset` steps older than `day` among the days that hold an entry, or nil
+    /// past either end. `days` runs newest first, so a positive offset is earlier.
+    private func neighbour(of day: Date, olderBy offset: Int) -> Date? {
+        guard let index = days.firstIndex(of: day) else { return nil }
         let target = index + offset
         return days.indices.contains(target) ? days[target] : nil
     }
@@ -356,14 +393,29 @@ struct JournalRewindLens: View {
     // MARK: Blocks
 
     private func blockSection(_ block: RewindBlock) -> some View {
-        Section(Self.blockHeader(block)) {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+            Kit.SectionTitle(Self.blockHeader(block)) {
+                if case .thread(let ref) = block.subject {
+                    Button {
+                        navigation.openThread(ref.key)
+                    } label: {
+                        Text("Open Thread")
+                            .frame(minHeight: Kit.Metrics.control)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open this agent session in Threads")
+                }
+            }
+
             if case .thread(let ref) = block.subject {
                 threadTitleRow(ref)
             }
 
-            LazyVStack(spacing: Self.rowSpacing) {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                 ForEach(block.entries) { entry in
                     entryRow(entry)
+                        .id(entry.id)
                 }
             }
         }
@@ -373,8 +425,8 @@ struct JournalRewindLens: View {
     /// row's context menu and are repeated as named accessibility actions, because a
     /// context menu alone is a gesture VoiceOver cannot discover.
     private func threadTitleRow(_ ref: JournalThreadRef) -> some View {
-        Text(ref.title ?? String(ref.sessionId.prefix(8)))
-            .font(.headline)
+        Text(ref.title ?? "\(ref.agent.displayName) session")
+            .font(Kit.Fonts.rowTitle)
             .lineLimit(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -398,6 +450,7 @@ struct JournalRewindLens: View {
             entry: entry,
             isInHistory: historyIDs.contains(entry.id),
             showsThreadAction: true,
+            isHighlighted: entry.id == highlightedEntry,
             navigation: navigation,
             delete: delete,
             topics: topics,
@@ -405,22 +458,73 @@ struct JournalRewindLens: View {
         )
     }
 
+    /// The toast is a claim about the clipboard, so a refused write says nothing.
     private func copyResumeCommand(_ ref: JournalThreadRef) {
         let command = AgentSessionBinding.resumeCommand(
             agent: ref.agent,
             sessionId: ref.sessionId,
             workingDirectory: ref.workingDirectory
         )
-        // The announcement is a claim about the clipboard, so a refused write says nothing.
         guard GeneralPasteboard.copy(command) != nil else { return }
-        NSAccessibility.post(
-            element: NSApp as Any,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: "Resume command copied to clipboard",
-                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
-            ]
-        )
+        flash.show("Resume command copied to clipboard", animation: Kit.Motion.quick(a11y))
+    }
+
+    // MARK: Selection
+
+    /// Opens a day from its row, the page's day buttons or the arrow keys. A day chosen
+    /// directly is read whole, so no search match stays marked on it.
+    private func selectDay(_ day: Date) {
+        highlightedEntry = nil
+        pendingReveal = nil
+        pageReveal = nil
+        selectedDay = day
+        listReveal = day
+    }
+
+    /// Opens a match's day with the match marked and scrolled into view. A match on
+    /// another day waits for that day's page, so the reveal names a row that exists.
+    private func selectMatch(_ entry: JournalEntry) {
+        let day = calendar.startOfDay(for: entry.createdAt)
+        highlightedEntry = entry.id
+        listReveal = entry.id
+        if rewind?.day == day {
+            pendingReveal = nil
+            pageReveal = entry.id
+        } else {
+            pendingReveal = entry.id
+            pageReveal = nil
+            selectedDay = day
+        }
+    }
+
+    /// Return in the search field opens the newest match and hands the arrows to the list.
+    private func selectFirstMatch() {
+        guard let first = matchDays.first?.matches.first else { return }
+        listFocused = true
+        selectMatch(first.entry)
+    }
+
+    /// Up and down step through the days, or through the matches while searching, in
+    /// list order.
+    private func move(_ direction: MoveCommandDirection) {
+        let step: Int
+        switch direction {
+        case .up: step = -1
+        case .down: step = 1
+        default: return
+        }
+        if matchQuery.isEmpty {
+            let index = selectedDay.flatMap { days.firstIndex(of: $0) }
+            let target = index.map { $0 + step } ?? 0
+            guard days.indices.contains(target) else { return }
+            selectDay(days[target])
+        } else {
+            let matches = matchDays.flatMap(\.matches)
+            let index = highlightedEntry.flatMap { id in matches.firstIndex { $0.id == id } }
+            let target = index.map { $0 + step } ?? 0
+            guard matches.indices.contains(target) else { return }
+            selectMatch(matches[target].entry)
+        }
     }
 
     // MARK: Derived data
@@ -429,38 +533,80 @@ struct JournalRewindLens: View {
         RenderOverrides.calendar ?? Calendar.current
     }
 
-    /// Rebuilds the day list and the picker's grouping, then keeps the day on screen
-    /// when it still holds an entry and falls back to the newest day when it does not.
+    /// Rebuilds the days, their rewinds and the month groups, then keeps the day on
+    /// screen while it still holds an entry. A day that emptied hands the page to the day
+    /// that took its place in the list, the next older one, else the next newer one; a
+    /// pinned day that never held an entry falls back to the newest day.
     private func reloadDays() {
         let calendar = self.calendar
+        let previousDays = days
         let days = JournalQuery.days(in: entries, calendar: calendar)
+
+        var buckets: [Date: [JournalEntry]] = [:]
+        for entry in entries {
+            buckets[calendar.startOfDay(for: entry.createdAt), default: []].append(entry)
+        }
+        var rewinds: [Date: RewindDay] = [:]
+        var months: [RewindMonth] = []
+        for day in days {
+            let dayRewind = JournalQuery.rewind(day: day, in: buckets[day] ?? [], calendar: calendar)
+            rewinds[day] = dayRewind
+            let row = Self.dayRow(dayRewind, calendar: calendar)
+            let components = calendar.dateComponents([.year, .month], from: day)
+            let year = components.year ?? 0
+            let month = components.month ?? 0
+            let id = "\(year)-\(month)"
+            if let last = months.indices.last, months[last].id == id {
+                months[last].days.append(row)
+            } else {
+                months.append(RewindMonth(id: id, name: Self.monthTitle(year: year, month: month), days: [row]))
+            }
+        }
         self.days = days
-        recentDays = Array(days.prefix(Self.recentDayLimit))
-        olderMonths = Self.months(of: days.dropFirst(Self.recentDayLimit), calendar: calendar)
+        self.rewinds = rewinds
+        self.months = months
+
         // The tab hands the entries over one turn after the lens first appears. A day
         // chosen before they arrive must survive that empty first pass, or a pinned
         // day would be traded for the newest one.
-        guard !days.isEmpty else {
+        guard let newest = days.first else {
             rewind = nil
             reloadAgentDay()
             return
         }
 
         let wanted = selectedDay.map { calendar.startOfDay(for: $0) }
-        let resolved = wanted.flatMap { days.contains($0) ? $0 : nil } ?? days.first
+        let resolved: Date
+        if let wanted, rewinds[wanted] != nil {
+            resolved = wanted
+        } else if let wanted, let successor = Self.successor(of: wanted, in: previousDays, among: rewinds) {
+            resolved = successor
+        } else {
+            resolved = newest
+        }
         if selectedDay != resolved {
             selectedDay = resolved
         }
-        rewind = resolved.map { JournalQuery.rewind(day: $0, in: entries, calendar: calendar) }
+        rewind = rewinds[resolved]
+        applyPendingReveal()
         reloadAgentDay()
     }
 
-    /// Follows a day chosen from the navigator. `reloadDays` has already built the
-    /// rewind for a day it resolved itself, so that change is not rebuilt twice.
+    /// Follows a day chosen from the list or the page. `reloadDays` has already set the
+    /// rewind for a day it resolved itself, so that change is not applied twice.
     private func reloadRewind() {
         guard rewind?.day != selectedDay else { return }
-        rewind = selectedDay.map { JournalQuery.rewind(day: $0, in: entries, calendar: calendar) }
+        rewind = selectedDay.flatMap { rewinds[$0] }
+        applyPendingReveal()
         reloadAgentDay()
+    }
+
+    /// Scrolls the page to the match it was opened for, in the same update that puts
+    /// the match's day on the page.
+    private func applyPendingReveal() {
+        guard let pendingReveal else { return }
+        self.pendingReveal = nil
+        pageReveal = pendingReveal
     }
 
     /// Rebuilds what the day on screen shows beside its entries: whether memory keeps any
@@ -480,70 +626,152 @@ struct JournalRewindLens: View {
     }
 
     private func reloadMatches() {
-        let query = self.query
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wasSearching = !matchQuery.isEmpty
+        matchQuery = query
         guard !query.isEmpty else {
             matchCount = 0
             matchDays = []
+            // Back on the days, the list scrolls to the day on screen. The reveal was
+            // cleared when the search began, so this is a change that scrolls.
+            if wasSearching, let selectedDay {
+                listReveal = selectedDay
+            }
             return
         }
-        let matches = JournalQuery.matches(in: entries, query: query).sorted { lhs, rhs in
+        if !wasSearching {
+            listReveal = nil
+        }
+        let found = JournalQuery.matches(in: entries, query: query).sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
             return lhs.id.uuidString < rhs.id.uuidString
         }
-        matchCount = matches.count
+        matchCount = found.count
 
         let calendar = self.calendar
         var grouped: [RewindMatchDay] = []
-        for entry in matches.prefix(Self.matchLimit) {
+        for entry in found.prefix(Self.matchLimit) {
             let day = calendar.startOfDay(for: entry.createdAt)
+            let match = Self.match(for: entry)
             if let last = grouped.indices.last, grouped[last].day == day {
-                grouped[last].entries.append(entry)
+                grouped[last].matches.append(match)
             } else {
-                grouped.append(RewindMatchDay(day: day, entries: [entry]))
+                grouped.append(
+                    RewindMatchDay(
+                        day: day,
+                        title: SessionsFormatters.dayHeader.string(from: day),
+                        matches: [match]
+                    )
+                )
             }
         }
         matchDays = grouped
     }
 
-    /// Groups days, newest first, into one entry per calendar month in the same order.
-    private static func months(of days: ArraySlice<Date>, calendar: Calendar) -> [RewindMonth] {
-        var months: [RewindMonth] = []
-        for day in days {
-            let components = calendar.dateComponents([.year, .month], from: day)
-            guard let year = components.year, let month = components.month,
-                Self.monthNames.indices.contains(month - 1)
-            else { continue }
-            let id = "\(year)-\(month)"
-            if let last = months.indices.last, months[last].id == id {
-                months[last].days.append(day)
-            } else {
-                months.append(RewindMonth(id: id, name: "\(Self.monthNames[month - 1]) \(year)", days: [day]))
-            }
+    /// The first day after `day` in `previous` that still holds an entry, else the
+    /// nearest one before it: the day that took `day`'s place in the list.
+    private static func successor(of day: Date, in previous: [Date], among rewinds: [Date: RewindDay]) -> Date? {
+        guard let index = previous.firstIndex(of: day) else { return nil }
+        if let later = previous[(index + 1)...].first(where: { rewinds[$0] != nil }) {
+            return later
         }
-        return months
+        return previous[..<index].last(where: { rewinds[$0] != nil })
+    }
+
+    private static func dayRow(_ rewind: RewindDay, calendar: Calendar) -> RewindDayRow {
+        let parts =
+            [
+                counted(rewind.entryCount, "entry", "entries"),
+                SessionsFormatters.wordCountLabel(rewind.wordCount),
+            ] + whereParts(rewind)
+        let title = listTitle(of: rewind.day, calendar: calendar)
+        return RewindDayRow(
+            day: rewind.day,
+            title: title,
+            subtitle: parts.joined(separator: " \u{00B7} "),
+            accessibilityLabel: ([title] + parts).joined(separator: ", ")
+        )
+    }
+
+    private static func match(for entry: JournalEntry) -> RewindMatch {
+        let stamp = SessionsFormatters.timestamp.string(from: entry.createdAt)
+        var subject: String?
+        var icon: NSImage?
+        if let thread = entry.thread {
+            subject =
+                thread.title
+                ?? thread.project.map { "\(thread.agent.displayName) \u{00B7} \($0)" }
+                ?? thread.agent.displayName
+        } else if entry.kind == .note {
+            subject = "Notes"
+        } else if let app = entry.app {
+            let identity = AppIdentity.resolve(bundleId: app.bundleId, persistedName: app.name)
+            subject = identity.label
+            icon = identity.icon
+        }
+
+        // The label a reading row gives the same entry: the time, the states, the kind,
+        // then the words.
+        var parts = [stamp]
+        if entry.kind == .note { parts.append("note") }
+        if entry.thread?.sent == false { parts.append("not sent") }
+        if let kind = JournalEntryRow.highlightKind(of: entry) { parts.append(kind.displayName.lowercased()) }
+        parts.append(entry.text)
+
+        return RewindMatch(
+            entry: entry,
+            stamp: stamp,
+            subject: subject,
+            icon: icon,
+            accessibilityLabel: parts.joined(separator: ", ")
+        )
     }
 
     // MARK: Text
 
-    private static let rowSpacing = VoiceourMetrics.Space.lg + VoiceourMetrics.Space.xs
-
-    /// English month names, indexed by the calendar's month number minus one. Fixed
-    /// rather than read from a locale-dependent formatter, so a month submenu renders
-    /// the same words on every Mac and in every golden.
+    /// English names, indexed by the calendar's weekday and month numbers minus one.
+    /// Fixed rather than read from a locale-dependent formatter, so a day renders the
+    /// same words on every Mac and in every golden.
+    private static let weekdayNames = [
+        "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    ]
     private static let monthNames = [
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December",
     ]
+    private static let shortMonthNames = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+
+    /// "June 2025".
+    private static func monthTitle(year: Int, month: Int) -> String {
+        guard monthNames.indices.contains(month - 1) else { return String(year) }
+        return "\(monthNames[month - 1]) \(year)"
+    }
+
+    /// "Sunday, Jun 15".
+    private static func listTitle(of day: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.weekday, .month, .day], from: day)
+        guard let weekday = parts.weekday, let month = parts.month, let date = parts.day,
+            weekdayNames.indices.contains(weekday - 1), shortMonthNames.indices.contains(month - 1)
+        else { return SessionsFormatters.dayHeader.string(from: day) }
+        return "\(weekdayNames[weekday - 1]), \(shortMonthNames[month - 1]) \(date)"
+    }
+
+    /// "Sunday, June 15, 2025".
+    private static func pageTitle(of day: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.weekday, .year, .month, .day], from: day)
+        guard let weekday = parts.weekday, let year = parts.year, let month = parts.month, let date = parts.day,
+            weekdayNames.indices.contains(weekday - 1), monthNames.indices.contains(month - 1)
+        else { return SessionsFormatters.dayHeader.string(from: day) }
+        return "\(weekdayNames[weekday - 1]), \(monthNames[month - 1]) \(date), \(year)"
+    }
 
     private static func matchCaption(count: Int) -> String {
         if count > matchLimit {
             return "Showing the newest \(matchLimit) of \(count) matches"
         }
         return count == 1 ? "1 match" : "\(count) matches"
-    }
-
-    private static func entriesText(_ rewind: RewindDay) -> String {
-        "\(rewind.entryCount) · \(SessionsFormatters.wordCountLabel(rewind.wordCount))"
     }
 
     /// Whole seconds as the two largest units, e.g. "6 min 12 s" or "1 h 5 min".
@@ -561,9 +789,9 @@ struct JournalRewindLens: View {
         return "\(remainder) s"
     }
 
-    /// Where the day's words went, e.g. "3 agent sessions · 2 apps · 1 note". Empty
+    /// Where the day's words went, e.g. ["3 agent sessions", "2 apps", "1 note"]. Empty
     /// when every entry went to a target that was never recorded.
-    private static func whereText(_ rewind: RewindDay) -> String {
+    private static func whereParts(_ rewind: RewindDay) -> [String] {
         var parts: [String] = []
         if rewind.threadCount > 0 {
             parts.append(counted(rewind.threadCount, "agent session", "agent sessions"))
@@ -574,11 +802,17 @@ struct JournalRewindLens: View {
         if rewind.noteCount > 0 {
             parts.append(counted(rewind.noteCount, "note", "notes"))
         }
-        return parts.joined(separator: " · ")
+        return parts
     }
 
     private static func counted(_ count: Int, _ singular: String, _ plural: String) -> String {
         "\(count) \(count == 1 ? singular : plural)"
+    }
+
+    /// The day's first to last time, nil for a day with no entry.
+    private static func spanText(_ rewind: RewindDay) -> String? {
+        guard let firstAt = rewind.firstAt, let lastAt = rewind.lastAt else { return nil }
+        return spanText(from: firstAt, to: lastAt)
     }
 
     /// "09:27 – 18:42", or one "09:27" when both ends fall in the same minute.
@@ -605,154 +839,43 @@ struct JournalRewindLens: View {
     }
 }
 
-/// One note an agent saved under the memory folder's `agents/`: who wrote it and what it says.
-///
-/// The body is text and nothing else. It is never parsed as Markdown, never turned into a
-/// link and never opened, because an agent wrote it and Voiceour vouches for none of it;
-/// it stays selectable so the reader can take a passage out by hand. It is not an entry,
-/// so a click copies nothing and there is no menu.
-struct JournalAgentNoteRow: View {
-    /// How much of a body the lens renders. An agent file may run to 256 KB, and one
-    /// unbroken text view that long stalls the form it sits in.
-    static let displayLimit = 4_000
-
-    private let caption: String
-    private let text: String
-
-    init(_ note: AgentNote) {
-        caption = Self.caption(of: note, calendar: RenderOverrides.calendar ?? Calendar.current)
-        text = Self.displayedBody(note.body)
-    }
-
-    /// "<title or file name> · by <author> · YYYY-MM-DD HH:mm". An agent's note is a claim
-    /// made at one moment, so the caption dates it by the file's own modification time in
-    /// the lens calendar; the digits are padded by hand so no locale can reach them.
-    nonisolated static func caption(of note: AgentNote, calendar: Calendar) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: note.modifiedAt)
-        let day = "\(padded(parts.year ?? 0, 4))-\(padded(parts.month ?? 0, 2))-\(padded(parts.day ?? 0, 2))"
-        let time = "\(padded(parts.hour ?? 0, 2)):\(padded(parts.minute ?? 0, 2))"
-        return "\(note.title ?? note.id) \u{00B7} by \(note.author) \u{00B7} \(day) \(time)"
-    }
-
-    private nonisolated static func padded(_ value: Int, _ width: Int) -> String {
-        let digits = String(value)
-        return String(repeating: "0", count: max(0, width - digits.count)) + digits
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            ConsoleCaption(caption)
-
-            Text(verbatim: text)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-                // Keep mouse selection while exposing the text once, not both the
-                // native selection wrapper and its identical accessibility child.
-                .accessibilityRepresentation { Text(verbatim: text) }
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-    }
-
-    /// The body cut at `displayLimit` characters, ending with "…" when anything was cut.
-    /// Walks at most `displayLimit` characters, so a long body costs no more than a short one.
-    static func displayedBody(_ body: String) -> String {
-        guard let end = body.index(body.startIndex, offsetBy: displayLimit, limitedBy: body.endIndex),
-            end < body.endIndex
-        else { return body }
-        return String(body[..<end]) + "\u{2026}"
-    }
-}
-
-/// A button that copies a prompt for the user's own coding agent, with the transient COPIED
-/// mark and the spoken confirmation every copy in the console gives.
-///
-/// The prompt is built only when the button is pressed, so a lens pays nothing for offering it.
-struct JournalPromptCopyButton: View {
-    private let title: String
-    private let help: String
-    private let announcement: String
-    private let identifier: String
-    private let prompt: () -> String
-
-    @State private var showsCopied = false
-    @State private var resetCopyFeedbackTask: Task<Void, Never>?
-
-    private var a11y = A11y()
-
-    /// `identifier` names the button alone, so the COPIED mark beside it never answers to it.
-    init(
-        _ title: String,
-        help: String,
-        announcement: String,
-        identifier: String,
-        prompt: @escaping () -> String
-    ) {
-        self.title = title
-        self.help = help
-        self.announcement = announcement
-        self.identifier = identifier
-        self.prompt = prompt
-    }
-
-    var body: some View {
-        HStack(spacing: VoiceourMetrics.Space.sm) {
-            Button(title, action: copy)
-                .help(help)
-                .accessibilityIdentifier(identifier)
-
-            if showsCopied {
-                ConsoleStateMark("COPIED", .ok)
-            }
-        }
-    }
-
-    /// The mark and the announcement are claims about the clipboard, so a refused write
-    /// shows and says nothing.
-    private func copy() {
-        guard GeneralPasteboard.copy(prompt()) != nil else { return }
-        // A mark beside a control the VoiceOver cursor has already left confirms
-        // nothing, so the same sentence is spoken. A no-op when VoiceOver is not running.
-        NSAccessibility.post(
-            element: NSApp as Any,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: announcement,
-                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
-            ]
-        )
-        resetCopyFeedbackTask?.cancel()
-        withAnimation(feedbackAnimation) {
-            showsCopied = true
-        }
-        resetCopyFeedbackTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(feedbackAnimation) {
-                showsCopied = false
-            }
-        }
-    }
-
-    private var feedbackAnimation: Animation? {
-        a11y.reduceMotion ? nil : .easeInOut(duration: VoiceourMotion.quickDuration)
-    }
-}
-
-/// One calendar month of the picker's older days.
+/// One calendar month of the list's days, newest first.
 private struct RewindMonth: Identifiable {
     /// The calendar year and month number, e.g. "2026-10"; unique per month.
     let id: String
     /// "October 2026", from the fixed English month names.
     let name: String
-    var days: [Date]
+    var days: [RewindDayRow]
+}
+
+/// One day's list row, its words built once per entries change.
+private struct RewindDayRow: Identifiable {
+    let day: Date
+    /// "Sunday, Jun 15".
+    let title: String
+    /// "3 entries · 37 words · 2 apps".
+    let subtitle: String
+    let accessibilityLabel: String
+    var id: Date { day }
+}
+
+/// One search match with the words its row shows, resolved once per query.
+private struct RewindMatch: Identifiable {
+    let entry: JournalEntry
+    let stamp: String
+    /// The thread, app or "Notes" the entry went to; nil for an unrecorded target.
+    let subject: String?
+    let icon: NSImage?
+    let accessibilityLabel: String
+    var id: UUID { entry.id }
 }
 
 /// One day of search matches, newest first.
 private struct RewindMatchDay: Identifiable {
     let day: Date
-    var entries: [JournalEntry]
+    /// The day as `SessionsFormatters.dayHeader` writes it.
+    let title: String
+    var matches: [RewindMatch]
     var id: Date { day }
 }
 

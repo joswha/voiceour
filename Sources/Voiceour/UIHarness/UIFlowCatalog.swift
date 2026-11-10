@@ -102,8 +102,8 @@
             )
 
             // Journal ▸ Rewind and Threads. A flow opens either lens through its host's
-            // `journalLens` pin rather than pressing `journal.lens`: the segmented picker
-            // is not a press a window that never becomes key can count on.
+            // `journalLens` pin rather than pressing its sidebar item: that is not a press a
+            // window that never becomes key can count on.
             static let rewindEarlier = UIQuery.id("journal.rewind.earlier")
             static let rewindLater = UIQuery.id("journal.rewind.later")
             static let rewindSearch = UIQuery.id("journal.rewind.search")
@@ -205,15 +205,19 @@
             // Journal agent notes and the three prompts that ask for them. A note row is one
             // element that contains its caption, "<title> · by <author> · <date> <time>", as
             // the value of a text node, so a note is addressed by its row identifier together
-            // with that caption. A prompt's COPIED mark is a sibling of its button, never one
-            // of its nodes; no entry row on the pages these flows open publishes the word on
-            // its own, and the thread page's Copy Resume Command mark reads COPIED TO CLIPBOARD.
+            // with that caption. A prompt's confirmation is its page's toast, one element per
+            // lens with an identifier of its own, which shows only while a copy is confirmed.
             static let rewindAgentNote = UIQuery.id("journal.rewind.agent-note")
             static let topicAgentNote = UIQuery.id("journal.topics.agent-note")
             static let threadAgentNote = UIQuery.id("journal.threads.agent-note")
             static let recapPrompt = UIQuery.id("journal.rewind.recap-prompt")
             static let synthesisPrompt = UIQuery.id("journal.topics.synthesis-prompt")
             static let outcomePrompt = UIQuery.id("journal.threads.outcome-prompt")
+            static let rewindCopied = UIQuery.id("journal.rewind.copied")
+            static let topicsCopied = UIQuery.id("journal.topics.copied")
+            static let threadsCopied = UIQuery.id("journal.threads.copied")
+            static let newTopic = UIQuery.id("journal.topics.new")
+            // Settings ▸ Memory's Copy Install Command keeps its COPIED mark beside the button.
             static let copiedMark = UIQuery.value("COPIED")
 
             /// The caption `JournalAgentNoteRow` gives `note`, built by the row's own rule in
@@ -512,7 +516,7 @@
                             "folded",
                             [
                                 .count(Selector.rawFold, .exactly(1)),
-                                .value(Selector.rawFold, .equals("false")),
+                                .value(Selector.rawFold, .equals("Collapsed")),
                                 .absent(Selector.newestRaw),
                             ]
                         ),
@@ -522,7 +526,7 @@
                             "unfolded",
                             [
                                 .count(Selector.rawFold, .exactly(1)),
-                                .value(Selector.rawFold, .equals("true")),
+                                .value(Selector.rawFold, .equals("Expanded")),
                                 .count(Selector.newestRaw, .exactly(1)),
                             ]
                         ),
@@ -532,7 +536,7 @@
                             "refolded",
                             [
                                 .count(Selector.rawFold, .exactly(1)),
-                                .value(Selector.rawFold, .equals("false")),
+                                .value(Selector.rawFold, .equals("Collapsed")),
                                 .absent(Selector.newestRaw),
                             ]
                         ),
@@ -553,12 +557,12 @@
                             "folded",
                             [
                                 .count(Selector.detailsFold, .exactly(1)),
-                                .value(Selector.detailsFold, .equals("false")),
+                                .value(Selector.detailsFold, .equals("Collapsed")),
                                 .absent(Selector.detailsTarget),
                                 .absent(Selector.detailsTimings),
                                 .absent(Selector.detailsLeastSure),
                                 .exists(Selector.rawFold),
-                                .value(Selector.rawFold, .equals("false")),
+                                .value(Selector.rawFold, .equals("Collapsed")),
                             ]
                         ),
                         .act(.press(Selector.detailsFold)),
@@ -567,11 +571,11 @@
                             "unfolded",
                             [
                                 .count(Selector.detailsFold, .exactly(1)),
-                                .value(Selector.detailsFold, .equals("true")),
+                                .value(Selector.detailsFold, .equals("Expanded")),
                                 .count(Selector.detailsTarget, .exactly(1)),
                                 .count(Selector.detailsTimings, .exactly(1)),
                                 .count(Selector.detailsLeastSure, .exactly(1)),
-                                .value(Selector.rawFold, .equals("false")),
+                                .value(Selector.rawFold, .equals("Collapsed")),
                             ]
                         ),
                         .act(.press(Selector.detailsFold)),
@@ -580,11 +584,11 @@
                             "refolded",
                             [
                                 .count(Selector.detailsFold, .exactly(1)),
-                                .value(Selector.detailsFold, .equals("false")),
+                                .value(Selector.detailsFold, .equals("Collapsed")),
                                 .absent(Selector.detailsTarget),
                                 .absent(Selector.detailsTimings),
                                 .absent(Selector.detailsLeastSure),
-                                .value(Selector.rawFold, .equals("false")),
+                                .value(Selector.rawFold, .equals("Collapsed")),
                             ]
                         ),
                         // A fold is a question asked about one transcript, so it closes with
@@ -600,7 +604,7 @@
                             "switched",
                             [
                                 .count(Selector.detailsFold, .exactly(1)),
-                                .value(Selector.detailsFold, .equals("false")),
+                                .value(Selector.detailsFold, .equals("Collapsed")),
                                 .absent(Selector.detailsTarget),
                                 .absent(Selector.detailsTimings),
                                 .absent(Selector.detailsLeastSure),
@@ -624,7 +628,7 @@
                             "opened",
                             [
                                 .count(Selector.sentFold, .exactly(1)),
-                                .value(Selector.sentFold, .equals("false")),
+                                .value(Selector.sentFold, .equals("Collapsed")),
                                 .absent(Selector.sentTextNode),
                                 .absent(Selector.rawFold),
                             ]
@@ -634,7 +638,7 @@
                         .check(
                             "sent",
                             [
-                                .value(Selector.sentFold, .equals("true")),
+                                .value(Selector.sentFold, .equals("Expanded")),
                                 .count(Selector.sentTextNode, .exactly(1)),
                             ]
                         ),
@@ -696,11 +700,11 @@
                             ]
                         ),
                     ]),
-                // A search covers every day at once and hides the day on screen; clearing
-                // it must bring back that day rather than leave the matches behind.
+                // A search covers every day at once and turns the list into matches while the
+                // page keeps the day it shows; clearing it brings the days back.
                 UIFlow(
                     id: "journal.rewind.search",
-                    title: "Rewind search counts matches on every day and clears back to the day",
+                    title: "Rewind search counts matches on every day and clears back to the days",
                     tags: ["journal", "console", "rewind", "search"],
                     host: .console(.history, journalLens: .rewind),
                     fixture: .static(.populated),
@@ -713,7 +717,7 @@
                                 .text(.equals(Selector.rewindMatchCaption), .exactly(1)),
                                 .count(Selector.titleMatchRow, .exactly(1)),
                                 .exists(Selector.clearRewindSearch),
-                                .absent(Selector.rewindEntriesReadout),
+                                .exists(Selector.rewindEntries(Selector.newestDayFigure)),
                             ]
                         ),
                         .act(.press(Selector.clearRewindSearch)),
@@ -730,34 +734,38 @@
                         ),
                     ]),
                 rewindMemoryDaysFlow,
-                // A thread opens under its own row and closes from the same row, and the
-                // page names the session it belongs to once its Details fold is opened.
+                // Threads opens on its newest thread, a row press selects another thread's
+                // page, and a press on the selected row keeps it: the page names the session it
+                // belongs to once its Details fold is opened, and the fold stays open.
                 UIFlow(
                     id: "journal.threads.open",
-                    title: "A thread row opens its session's page and closes it again",
+                    title: "A thread row selects its session's page and a second press keeps it",
                     tags: ["journal", "console", "threads"],
                     host: .console(.history, journalLens: .threads),
                     fixture: .static(.populated),
                     steps: [
                         .wait(.element(Selector.agentThreadRow)),
+                        .wait(.element(Selector.threadDetails)),
                         .check(
-                            "closed",
+                            "newest",
                             [
                                 .count(Selector.threadRows, .exactly(2)),
+                                .selected(Selector.wordsThreadRow, true),
                                 .selected(Selector.agentThreadRow, false),
-                                .absent(Selector.threadDetails),
+                                .count(Selector.threadDetails, .exactly(1)),
                                 .absent(Selector.threadSession),
                             ]
                         ),
                         .act(.press(Selector.agentThreadRow)),
-                        .wait(.element(Selector.threadDetails)),
+                        .wait(.element(.all([.role("AXHeading"), .label(UIFixtures.agentSessionTitle)]))),
                         .check(
-                            "opened",
+                            "selected",
                             [
                                 .count(Selector.threadDetails, .exactly(1)),
-                                .value(Selector.threadDetails, .equals("false")),
+                                .value(Selector.threadDetails, .equals("Collapsed")),
                                 .absent(Selector.threadSession),
                                 .selected(Selector.agentThreadRow, true),
+                                .selected(Selector.wordsThreadRow, false),
                             ]
                         ),
                         .act(.press(Selector.threadDetails)),
@@ -771,13 +779,13 @@
                             ]
                         ),
                         .act(.press(Selector.agentThreadRow)),
-                        .wait(.absent(Selector.threadDetails)),
+                        .wait(.element(Selector.threadSession)),
                         .check(
-                            "reclosed",
+                            "kept",
                             [
-                                .absent(Selector.threadDetails),
-                                .absent(Selector.threadSession),
-                                .selected(Selector.agentThreadRow, false),
+                                .value(Selector.threadDetails, .equals("Expanded")),
+                                .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                                .selected(Selector.agentThreadRow, true),
                                 .count(Selector.threadRows, .exactly(2)),
                             ]
                         ),
@@ -854,7 +862,7 @@
                             .value(Selector.tab(.history), .equals("1")),
                             .value(Selector.tab(.home), .equals("0")),
                             .count(Selector.threadDetails, .exactly(1)),
-                            .value(Selector.threadDetails, .equals("false")),
+                            .value(Selector.threadDetails, .equals("Collapsed")),
                             .selected(Selector.agentThreadRow, true),
                             .model(.pendingJournalThread, .isEmpty),
                         ]
@@ -892,7 +900,7 @@
                         [
                             .selected(Selector.agentThreadRow, true),
                             .count(Selector.threadDetails, .exactly(1)),
-                            .value(Selector.threadDetails, .equals("false")),
+                            .value(Selector.threadDetails, .equals("Collapsed")),
                             .absent(Selector.threadSession),
                             .absent(Selector.threadFolder),
                         ]
@@ -902,7 +910,7 @@
                     .check(
                         "unfolded",
                         [
-                            .value(Selector.threadDetails, .equals("true")),
+                            .value(Selector.threadDetails, .equals("Expanded")),
                             .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
                             .value(Selector.threadFolder, .equals(folder)),
                         ]
@@ -915,7 +923,7 @@
                             .selected(Selector.wordsThreadRow, true),
                             .selected(Selector.agentThreadRow, false),
                             .count(Selector.threadDetails, .exactly(1)),
-                            .value(Selector.threadDetails, .equals("false")),
+                            .value(Selector.threadDetails, .equals("Collapsed")),
                             .absent(Selector.threadSession),
                             .absent(Selector.threadFolder),
                         ]
@@ -925,7 +933,7 @@
                     .check(
                         "unfolded-again",
                         [
-                            .value(Selector.threadDetails, .equals("true")),
+                            .value(Selector.threadDetails, .equals("Expanded")),
                             .value(Selector.threadSession, .equals(UIFixtures.wordsLinkedSession.sessionId)),
                             .value(Selector.threadFolder, .equals(folder)),
                         ]
@@ -996,7 +1004,7 @@
                     "newest",
                     [
                         .exists(Selector.recapPrompt),
-                        .absent(Selector.copiedMark),
+                        .absent(Selector.rewindCopied),
                         .model(.pasteboardWrites, .equals("0")),
                     ]
                 ),
@@ -1010,16 +1018,16 @@
                         .exists(Selector.rewindEntries(Selector.rememberedDayFigure)),
                         .exists(recap),
                         .enabled(Selector.recapPrompt, true),
-                        .absent(Selector.copiedMark),
+                        .absent(Selector.rewindCopied),
                         .model(.pasteboardWrites, .equals("0")),
                     ]
                 ),
                 .act(.press(Selector.recapPrompt)),
-                .wait(.element(Selector.copiedMark)),
+                .wait(.element(Selector.rewindCopied)),
                 .check(
                     "copied",
                     [
-                        .exists(Selector.copiedMark),
+                        .exists(Selector.rewindCopied),
                         .model(.pasteboardWrites, .equals("1")),
                         .exists(recap),
                     ]
@@ -1047,34 +1055,26 @@
             )
         }
 
-        /// An agent's synthesis shows on the page of the topic its front matter names, and
-        /// nowhere while that page is shut. Copy Synthesis Prompt writes once through the
-        /// harness pasteboard seam and shows the COPIED mark; the prompt names the scratch
-        /// memory folder, so its text is not checked.
+        /// An agent's synthesis shows on the page of the topic its front matter names, which
+        /// Topics opens on because it holds the most entries, and on no other topic's page.
+        /// Copy Synthesis Prompt writes once through the harness pasteboard seam and shows the
+        /// page's toast; the prompt names the scratch memory folder, so its text is not checked.
         private static var topicsSynthesisPromptFlow: UIFlow {
             let topic = UIFixtures.memoryFolderTopic
             let row = Selector.topicRow(topic.name)
+            let otherRow = Selector.topicRow("Planning")
             let synthesis = UIQuery.within(
                 Selector.topicAgentNote,
                 .value(Selector.agentNoteCaption(UIFixtures.memoryFolderSynthesis))
             )
             return UIFlow(
                 id: "journal.topics.synthesis-prompt",
-                title: "An open topic shows an agent's synthesis and copies the topic's synthesis prompt",
+                title: "The first topic shows an agent's synthesis and copies the topic's synthesis prompt",
                 tags: ["journal", "console", "topics", "memory", "agent-notes", "clipboard"],
                 host: .console(.history, journalLens: .topics),
                 fixture: .static(.remembered),
                 steps: [
                     .wait(.element(row)),
-                    .check(
-                        "closed",
-                        [
-                            .absent(Selector.topicAgentNote),
-                            .absent(Selector.synthesisPrompt),
-                            .model(.pasteboardWrites, .equals("0")),
-                        ]
-                    ),
-                    .act(.press(row)),
                     .wait(.element(Selector.topicName)),
                     // Notes load off the main actor, so the row is waited on, not assumed.
                     .wait(.element(synthesis)),
@@ -1084,29 +1084,40 @@
                             .selected(row, true),
                             .exists(synthesis),
                             .enabled(Selector.synthesisPrompt, true),
-                            .absent(Selector.copiedMark),
+                            .absent(Selector.topicsCopied),
                             .model(.pasteboardWrites, .equals("0")),
                         ]
                     ),
                     .act(.press(Selector.synthesisPrompt)),
-                    .wait(.element(Selector.copiedMark)),
+                    .wait(.element(Selector.topicsCopied)),
                     .check(
                         "copied",
                         [
-                            .exists(Selector.copiedMark),
+                            .exists(Selector.topicsCopied),
                             .model(.pasteboardWrites, .equals("1")),
                             .exists(synthesis),
+                        ]
+                    ),
+                    .act(.press(otherRow)),
+                    .wait(.absent(synthesis)),
+                    .check(
+                        "elsewhere",
+                        [
+                            .selected(otherRow, true),
+                            .absent(Selector.topicAgentNote),
+                            .model(.pasteboardWrites, .equals("1")),
                         ]
                     ),
                 ]
             )
         }
 
-        /// An agent's outcome note shows on the page of the thread its `session` names, and
-        /// nowhere while every thread is shut. Copy Outcome Prompt writes once through the
-        /// harness pasteboard seam and shows the COPIED mark; the prompt names the scratch
-        /// memory folder, so its text is not checked. The page's id is read last, from its
-        /// Details fold, so the note and the prompt are checked on the page as it opens.
+        /// An agent's outcome note shows on the page of the thread its `session` names and
+        /// not on the newest thread's page, where Threads opens. Copy Outcome Prompt writes
+        /// once through the harness pasteboard seam and shows the page's toast; the prompt
+        /// names the scratch memory folder, so its text is not checked. The page's id is read
+        /// last, from its Details fold, so the note and the prompt are checked on the page as
+        /// it opens.
         private static var threadsOutcomePromptFlow: UIFlow {
             let outcome = UIQuery.within(
                 Selector.threadAgentNote,
@@ -1114,45 +1125,44 @@
             )
             return UIFlow(
                 id: "journal.threads.outcome-prompt",
-                title: "An open thread shows its agent's outcome note and copies the thread's outcome prompt",
+                title: "A thread shows its agent's outcome note and copies the thread's outcome prompt",
                 tags: ["journal", "console", "threads", "memory", "agent-notes", "clipboard"],
                 host: .console(.history, journalLens: .threads),
                 fixture: .static(.remembered),
                 steps: [
                     .wait(.element(Selector.agentThreadRow)),
+                    .wait(.element(Selector.threadDetails)),
                     .check(
-                        "closed",
+                        "newest",
                         [
-                            .absent(Selector.threadDetails),
+                            .selected(Selector.agentThreadRow, false),
                             .absent(Selector.threadSession),
                             .absent(Selector.threadAgentNote),
-                            .absent(Selector.outcomePrompt),
                             .model(.pasteboardWrites, .equals("0")),
                         ]
                     ),
                     .act(.press(Selector.agentThreadRow)),
-                    .wait(.element(Selector.threadDetails)),
                     // Notes load off the main actor, so the row is waited on, not assumed.
                     .wait(.element(outcome)),
                     .check(
                         "opened",
                         [
                             .selected(Selector.agentThreadRow, true),
-                            .value(Selector.threadDetails, .equals("false")),
+                            .value(Selector.threadDetails, .equals("Collapsed")),
                             .absent(Selector.threadSession),
                             .count(Selector.threadAgentNote, .exactly(1)),
                             .exists(outcome),
                             .enabled(Selector.outcomePrompt, true),
-                            .absent(Selector.copiedMark),
+                            .absent(Selector.threadsCopied),
                             .model(.pasteboardWrites, .equals("0")),
                         ]
                     ),
                     .act(.press(Selector.outcomePrompt)),
-                    .wait(.element(Selector.copiedMark)),
+                    .wait(.element(Selector.threadsCopied)),
                     .check(
                         "copied",
                         [
-                            .exists(Selector.copiedMark),
+                            .exists(Selector.threadsCopied),
                             .model(.pasteboardWrites, .equals("1")),
                             .exists(outcome),
                         ]
@@ -1218,17 +1228,18 @@
             )
         }
 
-        /// Add Topic makes a row with the name and summary as typed, empties both fields
-        /// for the next topic, and refuses a second topic under the same name with a
-        /// caption that names the topic already holding it, leaving the typed name in
-        /// place to be changed. Memory stays empty: a topic is not an entry.
+        /// Add Topic makes and selects a row with the name and summary as typed and closes
+        /// the creation card; New Topic opens it again with both fields empty, and a second
+        /// topic under the same name is refused with a caption that names the topic already
+        /// holding it, leaving the typed name in place to be changed. Memory stays empty: a
+        /// topic is not an entry.
         private static var topicsAddFlow: UIFlow {
             let name = Selector.addedTopicName
             let summary = Selector.addedTopicSummary
             let added = Selector.topicRow(name)
             return UIFlow(
                 id: "journal.topics.add",
-                title: "Add Topic makes a topic row, empties its fields, and refuses the same name twice",
+                title: "Add Topic makes and selects a topic row, and New Topic refuses the same name twice",
                 tags: ["journal", "console", "topics", "memory"],
                 host: .console(.history, journalLens: .topics),
                 fixture: .static(.populated),
@@ -1259,11 +1270,20 @@
                         [
                             .count(Selector.topicRows, .exactly(1)),
                             .label(added, .equals("\(name), 0 entries, \(summary)")),
+                            .selected(added, true),
+                            .absent(Selector.newTopicName),
+                            .absent(Selector.addTopicRefusal),
+                            .model(.memoryEntryCount, .equals("0")),
+                        ]
+                    ),
+                    .act(.press(Selector.newTopic)),
+                    .wait(.element(Selector.newTopicName)),
+                    .check(
+                        "reopened",
+                        [
                             .value(Selector.newTopicName, .isEmpty),
                             .value(Selector.newTopicSummary, .isEmpty),
                             .enabled(Selector.addTopic, false),
-                            .absent(Selector.addTopicRefusal),
-                            .model(.memoryEntryCount, .equals("0")),
                         ]
                     ),
                     .act(.type(name, into: Selector.newTopicName)),
@@ -1282,50 +1302,53 @@
             )
         }
 
-        /// A topic row opens the topic's page under itself and closes it from the same
-        /// row. The row's label states the count, and the page lists exactly the entries
-        /// that count under the topic: confident labels, the entry the user filed by hand
-        /// over a label that named another topic, and the labelled note, and nothing
+        /// Topics opens on the topic with the most entries, and a row press moves the page to
+        /// another topic and back. The row's label states the count, and the page lists exactly
+        /// the entries that count under the topic: confident labels, the entry the user filed
+        /// by hand over a label that named another topic, and the labelled note, and nothing
         /// another topic holds.
         private static var topicsOpenFlow: UIFlow {
             let topic = UIFixtures.memoryFolderTopic
             let texts = UIFixtures.memoryFolderTexts
             let row = Selector.topicRow(topic.name)
-            // Filed under the harness topic by a confident label, so its absence from
-            // the open page proves the page lists one topic's entries only.
+            let otherRow = Selector.topicRow("Offscreen harness")
+            // Filed under the harness topic by a confident label, so its absence from the
+            // first page proves the page lists one topic's entries only.
             let otherTopicEntry = UIQuery.labelContains("A scene must never wait on a scratch file write to finish.")
             let pageRows: [UIExpectation] = texts.map { .count(.labelContains($0), .exactly(1)) }
             let noRows: [UIExpectation] = texts.map { .absent(.labelContains($0)) }
-            let closed: [UIExpectation] = [
+            let first: [UIExpectation] = [
                 .count(Selector.topicRows, .exactly(3)),
-                // Seven, written out rather than taken from the fixture, so a fixture
-                // whose filing rule drifted fails here instead of moving with the page.
+                // Seven, written out rather than taken from the fixture, so a fixture whose
+                // filing rule drifted fails here instead of moving with the page.
                 .label(row, .equals(Selector.topicRowLabel(topic, entries: 7))),
-                .selected(row, false),
-                .absent(Selector.topicName),
-            ]
-            let opened: [UIExpectation] = [
                 .selected(row, true),
                 .value(Selector.topicName, .equals(topic.name)),
                 .value(Selector.topicSummary, .equals(topic.summary)),
                 .enabled(Selector.topicSave, false),
                 .absent(otherTopicEntry),
             ]
+            let switched: [UIExpectation] = [
+                .selected(otherRow, true),
+                .selected(row, false),
+                .count(otherTopicEntry, .exactly(1)),
+            ]
             return UIFlow(
                 id: "journal.topics.open",
-                title: "A topic row opens the page of its entries and closes it again",
+                title: "The first topic's page lists its entries, and a row press moves the page to another topic",
                 tags: ["journal", "console", "topics", "memory"],
                 host: .console(.history, journalLens: .topics),
                 fixture: .static(.remembered),
                 steps: [
                     .wait(.element(row)),
-                    .check("closed", closed + noRows),
-                    .act(.press(row)),
                     .wait(.element(Selector.topicName)),
-                    .check("opened", opened + pageRows),
+                    .check("first", first + pageRows),
+                    .act(.press(otherRow)),
+                    .wait(.element(otherTopicEntry)),
+                    .check("switched", switched + noRows),
                     .act(.press(row)),
-                    .wait(.absent(Selector.topicName)),
-                    .check("reclosed", closed + noRows),
+                    .wait(.element(.all([Selector.topicName, .value(topic.name)]))),
+                    .check("returned", first + pageRows),
                 ]
             )
         }

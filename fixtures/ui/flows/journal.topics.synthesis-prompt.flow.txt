@@ -1,15 +1,15 @@
 flow: journal.topics.synthesis-prompt
-title: An open topic shows an agent's synthesis and copies the topic's synthesis prompt
+title: The first topic shows an agent's synthesis and copies the topic's synthesis prompt
 fixture: static
 transitions: idle
-PASS 1 closed | absent id=journal.topics.agent-note | 0 matches
-PASS 2 closed | absent id=journal.topics.synthesis-prompt | 0 matches
-PASS 3 closed | model pasteboardWrites == "0" | 0
-PASS 4 opened | selected(true) id=journal.topics.row & label~="Memory folder" | true
-PASS 5 opened | exists value="Where the memory folder stands · by omp · 2025-05-29 09:30" in id=journal.topics.agent-note | 1 match
-PASS 6 opened | enabled(true) id=journal.topics.synthesis-prompt | true
-PASS 7 opened | absent value="COPIED" | 0 matches
-PASS 8 opened | model pasteboardWrites == "0" | 0
-PASS 9 copied | exists value="COPIED" | 1 match
-PASS 10 copied | model pasteboardWrites == "1" | 1
-PASS 11 copied | exists value="Where the memory folder stands · by omp · 2025-05-29 09:30" in id=journal.topics.agent-note | 1 match
+PASS 1 opened | selected(true) id=journal.topics.row & label~="Memory folder" | true
+PASS 2 opened | exists value="Where the memory folder stands · by omp · 2025-05-29 09:30" in id=journal.topics.agent-note | 1 match
+PASS 3 opened | enabled(true) id=journal.topics.synthesis-prompt | true
+PASS 4 opened | absent id=journal.topics.copied | 0 matches
+PASS 5 opened | model pasteboardWrites == "0" | 0
+PASS 6 copied | exists id=journal.topics.copied | 1 match
+PASS 7 copied | model pasteboardWrites == "1" | 1
+PASS 8 copied | exists value="Where the memory folder stands · by omp · 2025-05-29 09:30" in id=journal.topics.agent-note | 1 match
+PASS 9 elsewhere | selected(true) id=journal.topics.row & label~="Planning" | true
+PASS 10 elsewhere | absent id=journal.topics.agent-note | 0 matches
+PASS 11 elsewhere | model pasteboardWrites == "1" | 1

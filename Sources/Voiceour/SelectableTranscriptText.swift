@@ -26,19 +26,23 @@ struct SelectableTranscriptText: NSViewRepresentable {
     /// reader asked for, so History copies it. A drag, a double-click and a
     /// right-click all leave a selection behind and never reach this.
     var onPlainClick: (() -> Void)?
+    /// The point size the transcript is set at. A page that gives the transcript
+    /// its own reading measure sets it larger than the system's body size.
+    var fontSize: CGFloat
 
-    private static let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
     private static let textColor = NSColor.labelColor
 
     init(
         identity: UUID,
         text: String,
+        fontSize: CGFloat = NSFont.systemFontSize,
         onFixTeach: @escaping (String) -> Void,
         onSelectionChange: ((String?) -> Void)? = nil,
         onPlainClick: (() -> Void)? = nil
     ) {
         self.identity = identity
         self.text = text
+        self.fontSize = fontSize
         self.onFixTeach = onFixTeach
         self.onSelectionChange = onSelectionChange
         self.onPlainClick = onPlainClick
@@ -59,7 +63,7 @@ struct SelectableTranscriptText: NSViewRepresentable {
         return NSAttributedString(
             string: text,
             attributes: [
-                .font: Self.font,
+                .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
                 .foregroundColor: Self.textColor,
                 .paragraphStyle: paragraph,
             ])

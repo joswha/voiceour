@@ -5,7 +5,7 @@ transitions: idle
 PASS 1 routed | value id=console.tab.history == "1" | "1"
 PASS 2 routed | value id=console.tab.home == "0" | "0"
 PASS 3 routed | count id=journal.threads.details exactly 1 | 1 match
-PASS 4 routed | value id=journal.threads.details == "false" | "false"
+PASS 4 routed | value id=journal.threads.details == "Collapsed" | "Collapsed"
 PASS 5 routed | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
 PASS 6 routed | model pendingJournalThread is empty | ""
 PASS 7 details | count id=journal.threads.session exactly 1 | 1 match

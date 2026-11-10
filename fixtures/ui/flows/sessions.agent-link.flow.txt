@@ -3,10 +3,10 @@ title: A linked transcript shows its agent session and the text that was sent
 fixture: static
 transitions: idle
 PASS 1 opened | count id=sessions.detail.sent exactly 1 | 1 match
-PASS 2 opened | value id=sessions.detail.sent == "false" | "false"
+PASS 2 opened | value id=sessions.detail.sent == "Collapsed" | "Collapsed"
 PASS 3 opened | absent value="Post the mouse up before sending the mouse down, or AppKit's tracking loop wedges." | 0 matches
 PASS 4 opened | absent id=sessions.detail.raw | 0 matches
-PASS 5 sent | value id=sessions.detail.sent == "true" | "true"
+PASS 5 sent | value id=sessions.detail.sent == "Expanded" | "Expanded"
 PASS 6 sent | count value="Post the mouse up before sending the mouse down, or AppKit's tracking loop wedges." exactly 1 | 1 match
 PASS 7 agent | count value="Agent" exactly 1 | 1 match
 PASS 8 agent | count id=sessions.detail.agent exactly 1 | 1 match

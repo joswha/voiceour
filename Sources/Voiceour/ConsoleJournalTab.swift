@@ -3,12 +3,11 @@ import VoiceCore
 
 /// The ways the Journal reads the same record of what was said.
 ///
-/// Timeline is History as it always was: one row per dictation, newest first,
-/// with the open transcript and its evidence. Rewind reads one day as runs of
-/// work on one subject, Threads reads everything said into each agent session,
-/// Topics reads everything filed under each of the user's topics, and Notes
-/// lists what was saved and pasted nowhere. Ordered as the segmented picker
-/// renders them.
+/// Timeline is History: one row per dictation, newest first, with the open transcript
+/// and its evidence. Rewind reads one day as runs of work on one subject, Threads reads
+/// everything said into each agent session, Topics reads everything filed under each of
+/// the user's topics, and Notes lists what was saved and pasted nowhere. Ordered as the
+/// sidebar lists them.
 enum JournalLens: String, CaseIterable, Hashable {
     case timeline
     case rewind
@@ -25,112 +24,145 @@ enum JournalLens: String, CaseIterable, Hashable {
         case .notes: "Notes"
         }
     }
+
+    var symbol: String {
+        switch self {
+        case .timeline: "clock"
+        case .rewind: "calendar"
+        case .threads: "bubble.left.and.text.bubble.right"
+        case .topics: "tag"
+        case .notes: "note.text"
+        }
+    }
 }
 
 /// What a lens asks the tab to do.
 ///
-/// A lens shows entries and never owns the tab's state, so every move from one
-/// lens to another is a request the tab carries out: the lens says where the
-/// reader wants to go, and the tab is the one place that knows how to get there.
+/// A lens shows entries and never owns the tab's state, so every move from one lens to
+/// another is a request the tab carries out: the lens says where the reader wants to
+/// go, and the tab is the one place that knows how to get there.
 struct JournalNavigation {
-    /// Switches to Timeline with this History row open.
+    /// Switches to Timeline with this History row selected.
     var showInTimeline: (UUID) -> Void
     /// Switches to Timeline filtered to this agent session.
     var showThreadInTimeline: (AgentSessionKey) -> Void
-    /// Switches to Threads with this thread open.
+    /// Switches to Threads with this thread selected.
     var openThread: (AgentSessionKey) -> Void
 }
 
 /// One move into Timeline, carried out once and then consumed.
 ///
-/// Equatable so the History tab can react to it with `onChange`; the History
-/// tab sets it back to nil after applying it, so asking for the same row twice
-/// opens it twice.
+/// Equatable so Timeline can react to it with `onChange`; Timeline sets it back to nil
+/// after applying it, so asking for the same row twice selects it twice.
 enum JournalTimelineRequest: Equatable {
-    /// Open this History row, with every filter cleared so it is listed.
+    /// Select this History row, with every filter cleared so it is listed.
     case row(UUID)
     /// Narrow the list to the rows bound to this agent session.
     case agentSession(AgentSessionKey)
 }
 
-/// The Journal tab. Holds the lens, builds `[JournalEntry]` once per change, and
-/// hosts one lens at a time.
+/// The Journal tab: a glass sidebar of lenses and recent threads beside the lens on
+/// screen, all on one opaque ground.
 ///
-/// The entries are cached rather than derived in `body`: memory is uncapped, and
-/// Rewind and Threads each group the whole list, so rebuilding it on every body
-/// pass would repeat that work on every selection and keystroke. Timeline reads
-/// the coordinator's rows directly, exactly as History did, so it renders the
-/// same list whether or not it is hosted here.
+/// The ground is the reading surface every lens's content sits on and the backdrop every
+/// kit glass surface samples. It covers the window's own glass ground for this tab only,
+/// because glass cannot sample glass, and a page of transcripts reads on an opaque
+/// surface.
+///
+/// The tab holds the lens, builds `[JournalEntry]` once per change, and hosts one lens
+/// at a time. The entries are cached rather than derived in `body`: memory is uncapped,
+/// and Rewind and Threads each group the whole list, so rebuilding it on every body pass
+/// would repeat that work on every selection and keystroke. Timeline reads the
+/// coordinator's rows directly.
 struct ConsoleJournalTab: View {
     var coordinator: DictationCoordinator
 
-    /// Pinned by the harness so a scene renders Rewind or Threads directly.
+    /// Pinned by the harness so a scene renders one lens directly.
     @State private var lens = RenderOverrides.journalInitialLens ?? .timeline
-    /// The thread Threads shows open. Kept here rather than in the lens, so a
-    /// trip to Timeline and back returns to the thread the reader left.
+    /// The thread Threads shows. Kept here rather than in the lens, so a trip to Timeline
+    /// and back returns to the thread the reader left, and the sidebar can mark it.
     @State private var openThread = RenderOverrides.journalInitialThread
-    /// A move into Timeline that another lens asked for and Timeline has not
-    /// carried out yet.
+    /// A move into Timeline that another lens asked for and Timeline has not carried out.
     @State private var timelineRequest: JournalTimelineRequest?
     @State private var entries: [JournalEntry] = []
-    /// The ids of the rows History still holds, so a lens offers "Show in
-    /// Timeline" only for an entry Timeline can actually open.
+    /// The ids of the rows History still holds, so a lens offers "Show in Timeline" only
+    /// for an entry Timeline can actually open.
     @State private var historyIDs: Set<UUID> = []
-    /// The ids of the entries memory keeps, so Rewind and Threads offer a prompt
-    /// only when the day or thread page it points an agent at exists.
+    /// The ids of the entries memory keeps, so Rewind and Threads offer a prompt only when
+    /// the day or thread page it points an agent at exists.
     @State private var memoryIDs: Set<UUID> = []
+    /// Every thread, newest first: the sidebar's count and its recent threads.
+    @State private var threads: [JournalThread] = []
+    @State private var noteCount = 0
+
+    /// How many threads the sidebar lists under Recent Threads.
+    private static let recentThreadLimit = 5
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
     }
 
     var body: some View {
-        lensContent
-            .onAppear {
-                reloadEntries()
+        HStack(spacing: Kit.Metrics.gutter) {
+            JournalSidebar(
+                lens: lens,
+                counts: counts,
+                recentThreads: Array(threads.prefix(Self.recentThreadLimit)),
+                openThread: lens == .threads ? openThread : nil,
+                select: { lens = $0 },
+                open: navigation.openThread
+            )
+            .frame(width: Kit.Metrics.sidebarWidth)
+
+            lensContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding([.leading, .vertical], Kit.Metrics.gutter)
+        .background(Kit.Colors.ground.ignoresSafeArea())
+        .onAppear {
+            reloadEntries()
+            coordinator.refreshAgentNotes()
+            // After the reload, so the request names a thread the lens can find.
+            openRequestedThread()
+        }
+        // The menu's thread line asks while the console may already be open on this tab,
+        // so the request is read on change as well as on appear.
+        .onChange(of: coordinator.pendingJournalThread) {
+            openRequestedThread()
+        }
+        // An agent saves a note whenever it is asked to, so the folder is read again each
+        // time the reader moves to another lens.
+        .onChange(of: lens) {
+            coordinator.refreshAgentNotes()
+        }
+        // The open thread's page shows the outcome its agent saved, which may have landed
+        // since the folder was last read.
+        .onChange(of: openThread) {
+            if openThread != nil {
                 coordinator.refreshAgentNotes()
-                // After the reload, so the request names a thread the lens can find.
-                openRequestedThread()
             }
-            // The menu's thread line asks while the console may already be open on
-            // this tab, so the request is read on change as well as on appear.
-            .onChange(of: coordinator.pendingJournalThread) {
-                openRequestedThread()
-            }
-            // An agent saves a note whenever it is asked to, so the folder is read
-            // again each time the reader moves to another lens.
-            .onChange(of: lens) {
-                coordinator.refreshAgentNotes()
-            }
-            // The open thread's page shows the outcome its agent saved, which may
-            // have landed since the folder was last read.
-            .onChange(of: openThread) {
-                if openThread != nil {
-                    coordinator.refreshAgentNotes()
-                }
-            }
-            .onChange(of: coordinator.recentSessions.map(\.id)) {
-                reloadEntries()
-            }
-            // A binding or a send check changes a row without changing its id, and
-            // the entries are copies, so a thread lands in them only through this.
-            .onChange(of: coordinator.recentSessions.map(\.agentSession)) {
-                reloadEntries()
-            }
-            // Every memory change bumps the revision, so an entry memory adds,
-            // relabels or removes reaches the lenses without comparing the store.
-            .onChange(of: coordinator.memoryRevision) {
-                reloadEntries()
-            }
+        }
+        .onChange(of: coordinator.recentSessions.map(\.id)) {
+            reloadEntries()
+        }
+        // A binding or a send check changes a row without changing its id, and the
+        // entries are copies, so a thread lands in them only through this.
+        .onChange(of: coordinator.recentSessions.map(\.agentSession)) {
+            reloadEntries()
+        }
+        // Every memory change bumps the revision, so an entry memory adds, relabels or
+        // removes reaches the lenses without comparing the store.
+        .onChange(of: coordinator.memoryRevision) {
+            reloadEntries()
+        }
     }
 
     @ViewBuilder
     private var lensContent: some View {
         switch lens {
         case .timeline:
-            ConsoleHistoryTab(
+            JournalTimelineLens(
                 coordinator: coordinator,
-                lens: $lens,
                 request: $timelineRequest,
                 navigation: navigation
             )
@@ -138,7 +170,6 @@ struct ConsoleJournalTab: View {
             JournalRewindLens(
                 entries: entries,
                 historyIDs: historyIDs,
-                lens: $lens,
                 navigation: navigation,
                 delete: deleteEntry,
                 topics: coordinator.memoryTopics,
@@ -147,14 +178,13 @@ struct ConsoleJournalTab: View {
                 agentNotes: coordinator.agentNotes,
                 memoryRoot: coordinator.memoryStore.root
             )
-            // Both lenses name each entry's agent session and whether its prompt
-            // was sent, which only a refresh pass brings up to date.
+            // Both lenses name each entry's agent session and whether its prompt was sent,
+            // which only a refresh pass brings up to date.
             .onAppear { coordinator.refreshAgentSessions() }
         case .threads:
             JournalThreadsLens(
                 entries: entries,
                 historyIDs: historyIDs,
-                lens: $lens,
                 openThread: $openThread,
                 navigation: navigation,
                 bindingEnabled: coordinator.settings.agentSessionBindingEnabled,
@@ -170,7 +200,6 @@ struct ConsoleJournalTab: View {
             JournalTopicsLens(
                 coordinator: coordinator,
                 entries: entries,
-                lens: $lens,
                 navigation: navigation,
                 delete: deleteEntry,
                 agentNotes: coordinator.agentNotes,
@@ -180,7 +209,6 @@ struct ConsoleJournalTab: View {
             JournalNotesLens(
                 coordinator: coordinator,
                 entries: entries,
-                lens: $lens,
                 navigation: navigation,
                 delete: deleteEntry,
                 topics: coordinator.memoryTopics,
@@ -189,8 +217,19 @@ struct ConsoleJournalTab: View {
         }
     }
 
-    /// Captures the bindings rather than the view, so a lens holding this value
-    /// always writes the tab's current state.
+    /// What each lens holds, as the sidebar counts it. Rewind counts nothing: its list
+    /// is of days, and a day count beside item counts would read as one more of them.
+    private var counts: [JournalLens: Int] {
+        [
+            .timeline: coordinator.recentSessions.count,
+            .threads: threads.count,
+            .topics: coordinator.memoryTopics.count,
+            .notes: noteCount,
+        ]
+    }
+
+    /// Captures the bindings rather than the view, so a lens holding this value always
+    /// writes the tab's current state.
     private var navigation: JournalNavigation {
         let lens = $lens
         let request = $timelineRequest
@@ -211,68 +250,137 @@ struct ConsoleJournalTab: View {
         )
     }
 
-    /// Removes the History row and the memory entry with this id, whichever
-    /// exist; false when the removal did not reach disk.
+    /// Removes the History row and the memory entry with this id, whichever exist; false
+    /// when the removal did not reach disk.
     private var deleteEntry: (UUID) async -> Bool {
         let coordinator = coordinator
         return { id in await coordinator.deleteRecentSession(id: id) }
     }
 
-    /// Files an entry under one of the user's topics, or under none. Filing is a
-    /// request to keep the entry, so the coordinator adds a History-only entry to
-    /// memory first.
+    /// Files an entry under one of the user's topics, or under none. Filing is a request
+    /// to keep the entry, so the coordinator adds a History-only entry to memory first.
     private var fileEntry: (UUID, String?) -> Void {
         let coordinator = coordinator
         return { id, topicID in coordinator.fileEntry(id: id, underTopic: topicID) }
     }
 
     private func reloadEntries() {
-        entries = journalEntries()
+        entries = coordinator.journalEntries
         historyIDs = Set(coordinator.recentSessions.map(\.id))
         memoryIDs = Set(coordinator.memoryEntries.map(\.id))
+        threads = JournalQuery.threads(in: entries)
+        noteCount = entries.count(where: { $0.kind == .note })
     }
 
-    /// Carries out the menu's request through the same move a lens makes, then
-    /// consumes it, so asking for the same thread again opens it again. A key no
-    /// entry carries lands on Threads with nothing open: the lens closes a thread
-    /// that is gone.
+    /// Carries out the menu's request through the same move a lens makes, then consumes
+    /// it, so asking for the same thread again opens it again. A key no entry carries
+    /// lands on Threads on its newest thread: the lens selects past a thread that is gone.
     private func openRequestedThread() {
         guard let key = coordinator.pendingJournalThread else { return }
         coordinator.pendingJournalThread = nil
         navigation.openThread(key)
     }
-
-    /// The one place the Journal's entries come from: every memory entry plus
-    /// each History row memory does not hold, so a lens reads one list whether
-    /// or not memory is on.
-    private func journalEntries() -> [JournalEntry] {
-        coordinator.journalEntries
-    }
 }
 
-/// The first Section of every lens's Form: the segmented lens picker.
+/// The Journal's sidebar: the five lenses with what each holds, then the agent sessions
+/// most recently dictated into, on one floating glass panel.
 ///
-/// One view, so every lens puts the picker in the same place with the same
-/// identifier, and switching lenses never moves the control the reader just used.
-struct JournalLensHeader: View {
-    @Binding private var lens: JournalLens
+/// Recent Threads is the Journal's shortcut into delegated work: the sessions a reader
+/// most likely wants to check on are one click from any lens, and each carries a NOT
+/// SENT mark while one of its dictations never reached its agent.
+struct JournalSidebar: View {
+    private let lens: JournalLens
+    private let counts: [JournalLens: Int]
+    private let recentThreads: [JournalThread]
+    private let openThread: AgentSessionKey?
+    private let select: (JournalLens) -> Void
+    private let open: (AgentSessionKey) -> Void
 
-    init(lens: Binding<JournalLens>) {
-        _lens = lens
+    init(
+        lens: JournalLens,
+        counts: [JournalLens: Int],
+        recentThreads: [JournalThread],
+        openThread: AgentSessionKey?,
+        select: @escaping (JournalLens) -> Void,
+        open: @escaping (AgentSessionKey) -> Void
+    ) {
+        self.lens = lens
+        self.counts = counts
+        self.recentThreads = recentThreads
+        self.openThread = openThread
+        self.select = select
+        self.open = open
     }
 
     var body: some View {
-        Section {
-            // The title is the control's spoken name. A second accessibility label
-            // would be read after it, so the title alone names the picker.
-            Picker("Journal view", selection: $lens) {
+        Kit.GlassPanel {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                 ForEach(JournalLens.allCases, id: \.self) { option in
-                    Text(option.label).tag(option)
+                    Kit.SidebarItem(
+                        option.label,
+                        systemImage: option.symbol,
+                        count: counts[option],
+                        isSelected: option == lens
+                    ) {
+                        select(option)
+                    }
+                    .accessibilityIdentifier("journal.lens.\(option.rawValue)")
+                }
+
+                if !recentThreads.isEmpty {
+                    heading("Recent Threads")
+                        .padding(.top, VoiceourMetrics.Space.md)
+                    ForEach(recentThreads) { thread in
+                        threadItem(thread)
+                    }
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityIdentifier("journal.lens")
+            .padding(VoiceourMetrics.Space.sm)
         }
+    }
+
+    private func heading(_ title: String) -> some View {
+        Text(title)
+            .font(Kit.Fonts.groupHeader)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, VoiceourMetrics.Space.sm)
+            .padding(.vertical, VoiceourMetrics.Space.xs)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func threadItem(_ thread: JournalThread) -> some View {
+        let isSelected = thread.id == openThread
+        let title = JournalThreadsLens.title(of: thread)
+        return Button {
+            open(thread.id)
+        } label: {
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Kit.Glyph(systemImage: "terminal.fill", tint: .indigo, size: 18)
+                Text(title)
+                    .font(Kit.Fonts.sidebarItem)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: VoiceourMetrics.Space.xs)
+                if thread.notSentCount > 0 {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                        .help("A dictation in this session was not sent")
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, VoiceourMetrics.Space.sm)
+            .frame(height: VoiceourMetrics.Control.medium)
+        }
+        .buttonStyle(Kit.RowButtonStyle(isSelected: isSelected))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            thread.notSentCount > 0
+                ? "\(title), \(thread.ref.agent.displayName), not sent"
+                : "\(title), \(thread.ref.agent.displayName)"
+        )
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("journal.sidebar.thread")
     }
 }

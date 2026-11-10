@@ -5,11 +5,10 @@ import VoiceCore
 /// under it.
 ///
 /// Topics belong to the user, so the lens is where they are made, renamed and
-/// removed, and where the sorting model is asked to file what the user has not.
-/// One grouped form with at most one topic open, the Threads shape: the open topic's
-/// page takes its own plate directly under the row that opened it, so the page reads
-/// as one thing rather than as more index. The page leads with the topic's own words
-/// (its name and the one line the sorting model reads as the rubric), then everything
+/// removed, and where the sorting model is asked to file what the user has not. The
+/// list column holds the topics and the controls that make or sort them; the page
+/// column reads the selected topic. The page leads with the topic's own words (its
+/// name and the one line the sorting model reads as the rubric), then everything
 /// filed under it, newest day first, because a topic is consulted for where it stands
 /// now.
 ///
@@ -19,11 +18,10 @@ import VoiceCore
 struct JournalTopicsLens: View {
     private let coordinator: DictationCoordinator
     private let entries: [JournalEntry]
-    private let lens: Binding<JournalLens>
     private let navigation: JournalNavigation
     /// Removes an entry History no longer holds; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
-    /// Every note agents saved under `agents/`; an open topic shows the ones that name it.
+    /// Every note agents saved under `agents/`; a topic's page shows the ones that name it.
     private let agentNotes: [AgentNote]
     /// The memory folder the synthesis prompt points an agent at; nil offers no prompt.
     private let memoryRoot: URL?
@@ -34,26 +32,34 @@ struct JournalTopicsLens: View {
     /// Timeline" only when Timeline can open it and "Delete Entry…" only when it
     /// cannot.
     @State private var historyIDs: Set<UUID> = []
-    @State private var openTopicID: String?
-    /// The agent notes that name the open topic, newest modification first.
-    @State private var openTopicNotes: [AgentNote] = []
+    @State private var selectedTopicID: String?
+    /// The row an arrow key selected, scrolled into view.
+    @State private var reveal: String?
+    /// The agent notes that name the selected topic, newest modification first.
+    @State private var selectedTopicNotes: [AgentNote] = []
 
+    /// Whether the reader asked for the creation card. With no topics it shows anyway,
+    /// since making one is the only thing the lens can do then.
+    @State private var isCreating = false
     @State private var newName = ""
     @State private var newSummary = ""
     @State private var addRefusal: String?
 
-    /// The open topic's editable copy, seeded when a topic opens and written back
-    /// only by Save, so typing never renames a topic the reader has not confirmed.
+    /// The selected topic's editable copy, seeded when a topic is selected and written
+    /// back only by Save, so typing never renames a topic the reader has not confirmed.
     @State private var editedName = ""
     @State private var editedSummary = ""
     @State private var saveRefusal: String?
 
     @State private var pendingDeletion: MemoryTopic?
+    @State private var flash = Kit.Flash()
+
+    @FocusState private var isListFocused: Bool
+    @FocusState private var isNewNameFocused: Bool
 
     init(
         coordinator: DictationCoordinator,
         entries: [JournalEntry],
-        lens: Binding<JournalLens>,
         navigation: JournalNavigation,
         delete: ((UUID) async -> Bool)?,
         agentNotes: [AgentNote] = [],
@@ -61,7 +67,6 @@ struct JournalTopicsLens: View {
     ) {
         self.coordinator = coordinator
         self.entries = entries
-        self.lens = lens
         self.navigation = navigation
         self.delete = delete
         self.agentNotes = agentNotes
@@ -69,36 +74,11 @@ struct JournalTopicsLens: View {
     }
 
     var body: some View {
-        Form {
-            JournalLensHeader(lens: lens)
-
-            Section("New topic") {
-                newTopicRows
-            }
-
-            if rows.isEmpty {
-                Section {
-                    ContentUnavailableView(
-                        "No topics yet",
-                        systemImage: "tag",
-                        description: Text(
-                            "Name a topic above. File a dictation or a note under it from the entry's menu."
-                        )
-                    )
-                }
-            }
-
-            if showsSorting {
-                Section("Sorting") {
-                    sortingRow
-                }
-            }
-
-            if !rows.isEmpty {
-                topicSections
-            }
+        Kit.Split {
+            listColumn
+        } page: {
+            pageColumn
         }
-        .formStyle(.grouped)
         .onAppear(perform: reload)
         .onChange(of: entries) {
             reload()
@@ -111,12 +91,13 @@ struct JournalTopicsLens: View {
         .onChange(of: coordinator.recentSessions.map(\.id)) {
             historyIDs = Set(coordinator.recentSessions.map(\.id))
         }
-        .onChange(of: openTopicID) {
+        .onChange(of: selectedTopicID) {
             seedEditor()
-            reloadOpenTopicNotes()
+            reloadSelectedTopicNotes()
+            flash.dismiss()
         }
         .onChange(of: agentNotes) {
-            reloadOpenTopicNotes()
+            reloadSelectedTopicNotes()
         }
         .onChange(of: newName) {
             addRefusal = nil
@@ -141,40 +122,123 @@ struct JournalTopicsLens: View {
         }
     }
 
-    // MARK: New topic
+    // MARK: List
 
-    @ViewBuilder
-    private var newTopicRows: some View {
-        TextField("Name", text: $newName)
-            .onSubmit(addTopic)
-            .accessibilityIdentifier("journal.topics.new.name")
+    private var listColumn: some View {
+        Kit.ListColumn(
+            "Topics",
+            subtitle: Self.counted(rows.count, "topic", "topics"),
+            reveal: reveal.map { AnyHashable($0) },
+            focus: $isListFocused,
+            onMove: move
+        ) {
+            Kit.ActionButton("New Topic", systemImage: "plus") {
+                toggleCreating()
+            }
+            .help(isCreating ? "Close the new topic card" : "Name a new topic")
+            .accessibilityIdentifier("journal.topics.new")
+        } content: {
+            if isCreating || rows.isEmpty {
+                newTopicCard
+                    .padding(.bottom, VoiceourMetrics.Space.sm)
+            }
 
-        TextField("What belongs here, in one line", text: $newSummary)
-            .onSubmit(addTopic)
-            .accessibilityIdentifier("journal.topics.new.summary")
+            ForEach(rows) { row in
+                topicRow(row)
+                    .id(row.id)
+            }
 
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            Button("Add Topic", action: addTopic)
-                .disabled(Self.isBlank(newName))
-                .accessibilityIdentifier("journal.topics.add")
-
-            // A refusal is said under the button that asked, in words that name
-            // what to change, rather than leaving the fields filled and unexplained.
-            if let addRefusal {
-                ConsoleCaption(addRefusal, color: .red)
-                    .accessibilityIdentifier("journal.topics.new.refusal")
+            if showsSorting {
+                sortingCard
+                    .padding(.top, VoiceourMetrics.Space.md)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func toggleCreating() {
+        isCreating.toggle()
+        isNewNameFocused = isCreating
+    }
+
+    private func topicRow(_ row: TopicRow) -> some View {
+        let detail = Self.detailParts(for: row)
+        let isSelected = row.id == selectedTopicID
+
+        return Kit.TitleRow(
+            row.topic.name,
+            subtitle: detail.joined(separator: " \u{00B7} "),
+            isSelected: isSelected,
+            action: { select(row.id) },
+            leading: { Kit.Glyph(systemImage: "tag.fill", tint: .teal) },
+            trailing: { EmptyView() }
+        )
+        .accessibilityLabel(([row.topic.name] + detail).joined(separator: ", "))
+        .accessibilityAction(named: "Open topic") {
+            select(row.id)
+        }
+        .accessibilityIdentifier("journal.topics.row")
+    }
+
+    /// A press also gives the list focus, so the arrow keys move on from the row the
+    /// reader clicked.
+    private func select(_ id: String) {
+        selectedTopicID = id
+        isListFocused = true
+    }
+
+    private func move(_ direction: MoveCommandDirection) {
+        guard let target = Self.step(direction, from: selectedTopicID, in: rows.map(\.id)) else { return }
+        selectedTopicID = target
+        reveal = target
+    }
+
+    // MARK: New topic
+
+    private var newTopicCard: some View {
+        Kit.Card {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle("New Topic")
+
+                TextField("Name", text: $newName)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isNewNameFocused)
+                    .onSubmit(addTopic)
+                    .accessibilityIdentifier("journal.topics.new.name")
+
+                TextField("What belongs here, in one line", text: $newSummary)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(addTopic)
+                    .accessibilityIdentifier("journal.topics.new.summary")
+
+                Kit.ActionButton("Add Topic", systemImage: "plus", action: addTopic)
+                    .disabled(Self.isBlank(newName))
+                    .accessibilityIdentifier("journal.topics.add")
+
+                // A refusal is said under the button that asked, in words that name
+                // what to change, rather than leaving the fields filled and unexplained.
+                if let addRefusal {
+                    ConsoleCaption(addRefusal, color: .red)
+                        .accessibilityIdentifier("journal.topics.new.refusal")
+                }
+            }
+        }
+    }
+
+    /// A new topic is what the reader came to read next, so it becomes the selection
+    /// and the card closes behind it.
     private func addTopic() {
         guard !Self.isBlank(newName) else { return }
+        let existing = Set(coordinator.memoryTopics.map(\.id))
         do {
             try coordinator.addTopic(name: newName, summary: newSummary)
             newName = ""
             newSummary = ""
             addRefusal = nil
+            isCreating = false
+            if let added = coordinator.memoryTopics.first(where: { !existing.contains($0.id) }) {
+                selectedTopicID = added.id
+                reveal = added.id
+            }
         } catch {
             addRefusal = Self.refusalText(error)
         }
@@ -192,26 +256,29 @@ struct JournalTopicsLens: View {
         coordinator.organizerRun.map { !$0.isFinished } ?? false
     }
 
-    private var sortingRow: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            if isSorting {
-                Button("Stop Sorting") {
-                    coordinator.cancelSortEntries()
-                }
-                .help("Stop labelling entries; the ones already filed stay filed")
-                .accessibilityIdentifier("journal.topics.sort.stop")
-            } else {
-                Button("Sort Entries") {
-                    coordinator.sortEntries()
-                }
-                .help("File every entry that has no topic of yours")
-                .accessibilityIdentifier("journal.topics.sort")
-            }
+    private var sortingCard: some View {
+        Kit.Card {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle("Sorting")
 
-            ConsoleCaption(sortingCaption)
-                .accessibilityIdentifier("journal.topics.sort.status")
+                if isSorting {
+                    Kit.ActionButton("Stop Sorting", systemImage: "stop.fill") {
+                        coordinator.cancelSortEntries()
+                    }
+                    .help("Stop labelling entries; the ones already filed stay filed")
+                    .accessibilityIdentifier("journal.topics.sort.stop")
+                } else {
+                    Kit.ActionButton("Sort Entries", systemImage: "wand.and.stars") {
+                        coordinator.sortEntries()
+                    }
+                    .help("File every entry that has no topic of yours")
+                    .accessibilityIdentifier("journal.topics.sort")
+                }
+
+                ConsoleCaption(sortingCaption)
+                    .accessibilityIdentifier("journal.topics.sort.status")
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The run's state as a sentence. A finished run counts the entries that were
@@ -230,155 +297,139 @@ struct JournalTopicsLens: View {
         return "\(summary) \(run.failed) could not be sorted."
     }
 
-    // MARK: Topics
-
-    /// The topic list as one to three grouped plates: the rows down to the open
-    /// topic, the open topic's page, and the rows below it.
-    @ViewBuilder
-    private var topicSections: some View {
-        if let open = rows.firstIndex(where: { $0.id == openTopicID }) {
-            Section("Topics") {
-                topicRows(rows[...open])
-            }
-            Section {
-                page(rows[open])
-            }
-            if open + 1 < rows.count {
-                Section {
-                    topicRows(rows[(open + 1)...])
-                }
-            }
-        } else {
-            Section("Topics") {
-                topicRows(rows[...])
-            }
-        }
-    }
-
-    private func topicRows(_ rows: ArraySlice<TopicRow>) -> some View {
-        ForEach(rows) { row in
-            topicRow(row, isOpen: row.id == openTopicID)
-        }
-    }
-
-    private func topicRow(_ row: TopicRow, isOpen: Bool) -> some View {
-        let detail = Self.detailParts(for: row)
-
-        return Button {
-            toggle(row.id)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                    Text(row.topic.name)
-                        .fontWeight(isOpen ? .semibold : .regular)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-
-                    Text(detail.joined(separator: " \u{00B7} "))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // The open state's non-colour carrier for a sighted reader;
-                // VoiceOver hears the selected trait instead.
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-            // Two lines of text come to 35 pt; the row takes the next control height
-            // instead of padding to a height that sits between two of them.
-            .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Control.large, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(([row.topic.name] + detail).joined(separator: ", "))
-        .accessibilityAddTraits(isOpen ? .isSelected : [])
-        .accessibilityAction(named: isOpen ? "Close topic" : "Open topic") {
-            toggle(row.id)
-        }
-        .accessibilityIdentifier("journal.topics.row")
-    }
-
-    private func toggle(_ id: String) {
-        openTopicID = openTopicID == id ? nil : id
-    }
-
     // MARK: Page
 
     @ViewBuilder
+    private var pageColumn: some View {
+        if let row = rows.first(where: { $0.id == selectedTopicID }) {
+            page(row)
+                .kitToast(flash, identifier: "journal.topics.copied")
+        } else if rows.isEmpty {
+            ContentUnavailableView(
+                "No topics yet",
+                systemImage: "tag",
+                description: Text(
+                    "Name a topic, then file a dictation or a note under it from the entry's menu."
+                )
+            )
+        } else {
+            ContentUnavailableView(
+                "No topic selected",
+                systemImage: "tag",
+                description: Text("Select a topic to read everything filed under it.")
+            )
+        }
+    }
+
     private func page(_ row: TopicRow) -> some View {
-        TextField("Name", text: $editedName)
-            .onSubmit { save(row.topic) }
-            .accessibilityIdentifier("journal.topics.name")
-
-        TextField("Summary", text: $editedSummary, prompt: Text("What belongs here, in one line"))
-            .onSubmit { save(row.topic) }
-            .accessibilityIdentifier("journal.topics.summary")
-
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Button("Save") {
-                    save(row.topic)
+        Kit.PageColumn(identity: row.id) {
+            Kit.GlassGroup {
+                if let memoryRoot {
+                    JournalPromptCopyButton(
+                        "Copy Synthesis Prompt",
+                        help: "Copy a prompt that asks your coding agent to synthesize this topic",
+                        announcement: "Synthesis prompt copied to clipboard",
+                        identifier: "journal.topics.synthesis-prompt",
+                        prominence: .primary,
+                        flash: flash,
+                        prompt: { MemoryPages.synthesisPrompt(topic: row.topic, root: memoryRoot) }
+                    )
                 }
-                .disabled(!isEdited(row.topic))
-                .accessibilityIdentifier("journal.topics.save")
 
-                Spacer(minLength: VoiceourMetrics.Space.sm)
-
-                Button("Delete Topic\u{2026}", role: .destructive) {
+                Kit.ActionButton("Delete Topic\u{2026}", systemImage: "trash", role: .destructive) {
                     pendingDeletion = row.topic
                 }
+                .help("Delete this topic; its entries stay in memory")
                 .accessibilityIdentifier("journal.topics.delete")
             }
-
-            if let saveRefusal {
-                ConsoleCaption(saveRefusal, color: .red)
-                    .accessibilityIdentifier("journal.topics.refusal")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-        if let memoryRoot {
-            JournalPromptCopyButton(
-                "Copy Synthesis Prompt",
-                help: "Copy a prompt that asks your coding agent to synthesize this topic",
-                announcement: "Synthesis prompt copied to clipboard",
-                identifier: "journal.topics.synthesis-prompt",
-                prompt: { MemoryPages.synthesisPrompt(topic: row.topic, root: memoryRoot) }
+        } content: {
+            Kit.PageHeader(
+                eyebrow: "Topic",
+                title: row.topic.name,
+                subtitle: row.topic.summary.isEmpty
+                    ? Self.counted(row.entryCount, "entry", "entries")
+                    : row.topic.summary
             )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
 
-        if !openTopicNotes.isEmpty {
-            ConsoleCaption("From your agents")
-            ForEach(openTopicNotes) { note in
-                JournalAgentNoteRow(note)
-                    .accessibilityIdentifier("journal.topics.agent-note")
+            if !selectedTopicNotes.isEmpty {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                    Kit.SectionTitle("From your agents")
+                    ForEach(selectedTopicNotes) { note in
+                        JournalAgentNoteRow(note)
+                            .accessibilityIdentifier("journal.topics.agent-note")
+                    }
+                }
+            }
+
+            entriesSection(row)
+
+            // Last, because a topic is read far more often than it is renamed.
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.SectionTitle("Name and summary")
+                editCard(row.topic)
             }
         }
+    }
 
-        if row.lines.isEmpty {
-            ConsoleCaption("Nothing is filed under this topic yet. File an entry from its menu in any lens.")
-        } else {
-            ForEach(row.lines) { line in
-                switch line {
-                case .day(let day):
-                    ConsoleCaption(SessionsFormatters.dayHeader.string(from: day))
-                case .entry(let entry):
-                    JournalEntryRow(
-                        entry: entry,
-                        isInHistory: historyIDs.contains(entry.id),
-                        showsThreadAction: true,
-                        navigation: navigation,
-                        delete: delete,
-                        topics: coordinator.memoryTopics,
-                        file: fileEntry
-                    )
+    private func editCard(_ topic: MemoryTopic) -> some View {
+        Kit.Card {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                Kit.Fact("Name") {
+                    TextField("Name", text: $editedName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { save(topic) }
+                        .accessibilityIdentifier("journal.topics.name")
+                }
+
+                Kit.Fact("Summary") {
+                    TextField("Summary", text: $editedSummary, prompt: Text("What belongs here, in one line"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { save(topic) }
+                        .accessibilityIdentifier("journal.topics.summary")
+                }
+
+                HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.md) {
+                    Kit.ActionButton("Save", systemImage: "checkmark") {
+                        save(topic)
+                    }
+                    .disabled(!isEdited(topic))
+                    .accessibilityIdentifier("journal.topics.save")
+
+                    if let saveRefusal {
+                        ConsoleCaption(saveRefusal, color: .red)
+                            .accessibilityIdentifier("journal.topics.refusal")
+                    }
+                }
+                .padding(.leading, Kit.Metrics.factLabel + VoiceourMetrics.Space.md)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func entriesSection(_ row: TopicRow) -> some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+            Kit.SectionTitle("Entries")
+
+            if row.days.isEmpty {
+                ConsoleCaption("Nothing is filed under this topic yet. File an entry from its menu in any lens.")
+            } else {
+                ForEach(row.days) { day in
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+                        ConsoleCaption(SessionsFormatters.dayHeader.string(from: day.day))
+                            .padding(.horizontal, VoiceourMetrics.Space.md)
+                        ForEach(day.entries) { entry in
+                            JournalEntryRow(
+                                entry: entry,
+                                isInHistory: historyIDs.contains(entry.id),
+                                showsThreadAction: true,
+                                navigation: navigation,
+                                delete: delete,
+                                topics: coordinator.memoryTopics,
+                                file: fileEntry
+                            )
+                        }
+                    }
+                    .padding(.bottom, VoiceourMetrics.Space.sm)
                 }
             }
         }
@@ -402,10 +453,10 @@ struct JournalTopicsLens: View {
         }
     }
 
-    /// Fills the editor from the open topic as memory holds it, discarding any
+    /// Fills the editor from the selected topic as memory holds it, discarding any
     /// unsaved edit to the topic the reader left.
     private func seedEditor() {
-        let topic = openTopicID.flatMap { id in coordinator.memoryTopics.first { $0.id == id } }
+        let topic = selectedTopicID.flatMap { id in coordinator.memoryTopics.first { $0.id == id } }
         editedName = topic?.name ?? ""
         editedSummary = topic?.summary ?? ""
         saveRefusal = nil
@@ -429,11 +480,10 @@ struct JournalTopicsLens: View {
         )
     }
 
+    /// The reload that follows the removal moves the selection to the topic that took
+    /// its place in the list.
     private func remove(_ topic: MemoryTopic) {
         pendingDeletion = nil
-        if openTopicID == topic.id {
-            openTopicID = nil
-        }
         coordinator.removeTopic(id: topic.id)
     }
 
@@ -445,9 +495,9 @@ struct JournalTopicsLens: View {
         RenderOverrides.calendar ?? Calendar.current
     }
 
-    /// Rebuilds every topic row and closes a topic that is gone. Topics come from
-    /// the coordinator rather than from the entries, so a topic with nothing filed
-    /// under it still has a row.
+    /// Rebuilds every topic row and keeps the selection on a topic that exists. Topics
+    /// come from the coordinator rather than from the entries, so a topic with nothing
+    /// filed under it still has a row.
     private func reload() {
         let calendar = self.calendar
         let topics = coordinator.memoryTopics
@@ -459,6 +509,7 @@ struct JournalTopicsLens: View {
             }
         }
 
+        let previous = rows.map(\.id)
         rows = topics.map { topic in
             let topicEntries = (filed[topic.id] ?? []).sorted { lhs, rhs in
                 if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
@@ -467,26 +518,32 @@ struct JournalTopicsLens: View {
             return TopicRow(
                 topic: topic,
                 entryCount: topicEntries.count,
-                lines: Self.lines(of: topicEntries, calendar: calendar)
+                days: Self.days(of: topicEntries, calendar: calendar)
             )
         }
         .sorted(by: Self.listOrder)
 
         historyIDs = Set(coordinator.recentSessions.map(\.id))
 
-        if let open = openTopicID, !topics.contains(where: { $0.id == open }) {
-            openTopicID = nil
+        let ids = rows.map(\.id)
+        if let selected = selectedTopicID {
+            if !ids.contains(selected) {
+                selectedTopicID = Self.successor(at: previous.firstIndex(of: selected), in: ids)
+            }
+        } else {
+            selectedTopicID = ids.first
         }
-        reloadOpenTopicNotes()
+        reloadSelectedTopicNotes()
     }
 
-    /// Picks the notes whose `topic` names the open topic; none while no topic is open.
-    private func reloadOpenTopicNotes() {
-        guard let openTopicID else {
-            openTopicNotes = []
+    /// Picks the notes whose `topic` names the selected topic; none while no topic is
+    /// selected.
+    private func reloadSelectedTopicNotes() {
+        guard let selectedTopicID else {
+            selectedTopicNotes = []
             return
         }
-        openTopicNotes = agentNotes.filter { $0.topicID == openTopicID }
+        selectedTopicNotes = agentNotes.filter { $0.topicID == selectedTopicID }
     }
 
     /// Most entries first, then by name compared without the locale so the order is
@@ -498,22 +555,40 @@ struct JournalTopicsLens: View {
         return lhs.id < rhs.id
     }
 
-    /// The topic's entries, already newest first, with a day caption before each
-    /// day's first entry. Flattened so every element of the page's `ForEach` is
-    /// exactly one form row.
-    private static func lines(of entries: [JournalEntry], calendar: Calendar) -> [TopicPageLine] {
-        var lines: [TopicPageLine] = []
-        lines.reserveCapacity(entries.count)
-        var currentDay: Date?
+    /// The topic's entries, already newest first, split at each day boundary.
+    private static func days(of entries: [JournalEntry], calendar: Calendar) -> [TopicDay] {
+        var days: [TopicDay] = []
         for entry in entries {
             let day = calendar.startOfDay(for: entry.createdAt)
-            if day != currentDay {
-                lines.append(.day(day))
-                currentDay = day
+            if let last = days.indices.last, days[last].day == day {
+                days[last].entries.append(entry)
+            } else {
+                days.append(TopicDay(day: day, entries: [entry]))
             }
-            lines.append(.entry(entry))
         }
-        return lines
+        return days
+    }
+
+    /// The row an arrow key lands on: the neighbour in `direction`, the first row when
+    /// nothing listed is selected, nil past either end.
+    private static func step(_ direction: MoveCommandDirection, from current: String?, in ids: [String]) -> String? {
+        let offset: Int
+        switch direction {
+        case .up: offset = -1
+        case .down: offset = 1
+        default: return nil
+        }
+        guard let current, let index = ids.firstIndex(of: current) else { return ids.first }
+        let target = index + offset
+        return ids.indices.contains(target) ? ids[target] : nil
+    }
+
+    /// The row that took a removed row's place: the one now at its index, else the new
+    /// last row; nil when the list is empty.
+    private static func successor(at index: Int?, in ids: [String]) -> String? {
+        guard let last = ids.indices.last else { return nil }
+        guard let index else { return ids.first }
+        return ids[min(index, last)]
     }
 
     // MARK: Text
@@ -560,25 +635,14 @@ struct JournalTopicsLens: View {
 private struct TopicRow: Identifiable {
     let topic: MemoryTopic
     let entryCount: Int
-    /// The page's rows: day captions and entries, newest day first.
-    let lines: [TopicPageLine]
+    /// The page's entries by day, newest day first.
+    let days: [TopicDay]
     var id: String { topic.id }
 }
 
-/// One line of an open topic's page: a day's caption, or one entry under it.
-private enum TopicPageLine: Identifiable {
-    case day(Date)
-    case entry(JournalEntry)
-
-    enum ID: Hashable {
-        case day(Date)
-        case entry(UUID)
-    }
-
-    var id: ID {
-        switch self {
-        case .day(let day): .day(day)
-        case .entry(let entry): .entry(entry.id)
-        }
-    }
+/// One day of a topic's entries, newest first.
+private struct TopicDay: Identifiable {
+    let day: Date
+    var entries: [JournalEntry]
+    var id: Date { day }
 }
