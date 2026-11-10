@@ -221,6 +221,7 @@ struct MemoryJournalTests {
             memoryLoad: load,
             memoryWrite: write,
             memoryClear: clear,
+            memoryPagesFormat: { _ in MemoryPages.formatStamp(calendar: calendar) },
             agentSessions: resolver,
             agentSessionReader: reader,
             runtimeOverride: DictationRuntime(

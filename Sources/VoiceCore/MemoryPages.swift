@@ -26,6 +26,13 @@ public enum MemoryPages {
     /// The threads whose pages `MEMORY.md` links.
     static let recentThreadCount = 20
 
+    /// What `pages-format` holds once every derived page of one format, calendar
+    /// and zone is on disk. A launch that reads anything else rebuilds the
+    /// pages, which also repairs a zone change since the last rebuild.
+    public static func formatStamp(calendar: Calendar) -> String {
+        "2 gregorian \(calendar.timeZone.identifier)"
+    }
+
     public static func dayPath(_ day: Date, calendar: Calendar) -> String {
         "days/\(MemoryDateText.day(day, calendar: calendar)).md"
     }
@@ -52,16 +59,25 @@ public enum MemoryPages {
         let known = Set(topics.map(\.id))
         let noteCount = entries.count(where: { $0.kind == .note })
 
+        var fields: [FrontMatterField] = [
+            ("entries", "\(entries.count)"),
+            ("dictations", "\(entries.count - noteCount)"),
+            ("notes", "\(noteCount)"),
+        ]
         var facts = [
             "- Entries: \(entries.count) (\(counted(entries.count - noteCount, "dictation", "dictations")), "
                 + "\(counted(noteCount, "note", "notes")))"
         ]
         if let first = entries.first, let last = entries.last {
-            facts.append("- First entry: \(MemoryDateText.day(first.createdAt, calendar: calendar))")
-            facts.append("- Last entry: \(MemoryDateText.day(last.createdAt, calendar: calendar))")
+            let firstDay = MemoryDateText.day(first.createdAt, calendar: calendar)
+            let lastDay = MemoryDateText.day(last.createdAt, calendar: calendar)
+            fields += [("first", firstDay), ("last", lastDay)]
+            facts.append("- First entry: \(firstDay)")
+            facts.append("- Last entry: \(lastDay)")
         }
 
         var sections = [
+            frontMatter("index", calendar: calendar, fields),
             "# Voiceour memory",
             "Everything the owner of this Mac dictated or noted with Voiceour, verbatim. "
                 + "Voiceour writes every file here except `agents/`.",
@@ -74,6 +90,11 @@ public enum MemoryPages {
             - `notes/YYYY-MM.md`: notes, which were saved and never pasted anywhere.
             - `entries/YYYY-MM.json`: the source records. Every other file is derived from them.
             - `topics.json`: the topics and their one-line descriptions.
+            - Each entry line reads time · id · state · text. States: sent, not sent, unchecked (not checked yet), \
+            note, unlinked (not linked to an agent session), dictation.
+            - Your own thread, if Voiceour linked a dictation to this session: omp, threads/omp-<id>.md with <id> \
+            the UUID after "Z_" in $PI_SESSION_FILE ($PI_SESSION_ID differs in a subagent); Claude Code, \
+            threads/claude-code-$CLAUDE_CODE_SESSION_ID.md. No file means nothing was linked; read today's day page.
             """,
             "## Rules for agents",
             """
@@ -142,15 +163,13 @@ public enum MemoryPages {
     ) -> MemoryPage? {
         let start = calendar.startOfDay(for: day)
         let known = Set(topics.map(\.id))
-        let dayEntries = MemoryStore.oldestFirst(
+        let journal = MemoryStore.oldestFirst(
             entries.filter { calendar.isDate($0.createdAt, inSameDayAs: start) }
         )
-        let rewind = JournalQuery.rewind(
-            day: start,
-            in: dayEntries.map { JournalEntry($0, knownTopicIDs: known) },
-            calendar: calendar
-        )
+        .map { JournalEntry($0, knownTopicIDs: known) }
+        let rewind = JournalQuery.rewind(day: start, in: journal, calendar: calendar)
         guard !rewind.blocks.isEmpty else { return nil }
+        let ids = lineIDs(journal)
 
         let counts: [(count: Int, singular: String, plural: String)] = [
             (rewind.entryCount, "entry", "entries"),
@@ -160,16 +179,27 @@ public enum MemoryPages {
             (rewind.noteCount, "note", "notes"),
         ]
         let summary = counts.filter { $0.count > 0 }.map { counted($0.count, $0.singular, $0.plural) }
+        let date = MemoryDateText.day(start, calendar: calendar)
 
         var sections = [
-            "# \(MemoryDateText.day(start, calendar: calendar)), \(MemoryDateText.weekday(start, calendar: calendar))",
+            frontMatter(
+                "day",
+                calendar: calendar,
+                [
+                    ("date", date),
+                    ("entries", "\(rewind.entryCount)"),
+                    ("words", "\(rewind.wordCount)"),
+                    ("threads", "\(rewind.threadCount)"),
+                    ("notes", "\(rewind.noteCount)"),
+                ]
+            ),
+            "# \(date), \(MemoryDateText.weekday(start, calendar: calendar))",
             summary.joined(separator: " · "),
         ]
 
         if !rewind.highlights.isEmpty {
             let lines = rewind.highlights.map { highlight in
-                "- \(MemoryDateText.time(highlight.entry.createdAt, calendar: calendar, seconds: false)) · "
-                    + "\(highlight.kind.displayName) · \(indented(highlight.entry.text))"
+                entryLine(highlight.entry, state: highlight.kind.displayName.lowercased(), ids: ids, calendar: calendar)
             }
             sections.append("## Highlights")
             sections.append(lines.joined(separator: "\n"))
@@ -180,23 +210,19 @@ public enum MemoryPages {
             let endTime = MemoryDateText.time(block.endAt, calendar: calendar, seconds: false)
             let span = startTime == endTime ? startTime : "\(startTime)–\(endTime)"
             let continuation = block.isContinuation ? " · continued" : ""
-            let lines: [String]
             switch block.subject {
             case .thread(let ref):
                 sections.append("## \(span) · \(threadSource(ref).joined(separator: " · "))\(continuation)")
                 let linkText = ref.title ?? String(ref.sessionId.prefix(8))
                 sections.append("[\(linkText)](../\(threadPath(ref.key)))")
-                lines = block.entries.map { entryLine($0, markers: threadMarkers($0), calendar: calendar) }
             case .notes:
                 sections.append("## \(span) · Notes\(continuation)")
-                lines = block.entries.map { entryLine($0, markers: [], calendar: calendar) }
             case .app(let app):
                 sections.append("## \(span) · \(app.name ?? app.bundleId)\(continuation)")
-                lines = block.entries.map { entryLine($0, markers: [], calendar: calendar) }
             case .unknown:
                 sections.append("## \(span) · Unknown target\(continuation)")
-                lines = block.entries.map { entryLine($0, markers: [], calendar: calendar) }
             }
+            let lines = block.entries.map { entryLine($0, ids: ids, calendar: calendar) }
             sections.append(lines.joined(separator: "\n"))
         }
 
@@ -211,34 +237,31 @@ public enum MemoryPages {
         guard let thread = JournalQuery.threads(in: journal).first(where: { $0.id == key }) else { return nil }
 
         let ref = thread.ref
-        var facts = [
-            "- Agent: \(ref.agent.displayName)",
-            "- Session: \(ref.sessionId)",
+        let states = thread.entries.map { EntryState($0) }
+        var fields: [FrontMatterField] = [
+            ("agent", ref.agent.rawValue),
+            ("session", idValue(ref.sessionId)),
         ]
-        if let project = ref.project {
-            facts.append("- Project: \(project)")
-        }
         if let directory = ref.workingDirectory {
-            facts.append("- Directory: \(directory)")
+            fields.append(("directory", jsonString(directory)))
         }
-        if ref.resumable {
-            let command = AgentSessionBinding.resumeCommand(
-                agent: ref.agent,
-                sessionId: ref.sessionId,
-                workingDirectory: ref.workingDirectory
-            )
-            facts.append("- Resume: `\(command)`")
-        }
-        facts.append(
-            "- Entries: \(thread.entries.count), from \(MemoryDateText.dayAndTime(thread.firstAt, calendar: calendar)) "
-                + "to \(MemoryDateText.dayAndTime(thread.lastAt, calendar: calendar))"
-        )
+        fields += [
+            ("resumable", ref.resumable ? "true" : "false"),
+            ("entries", "\(thread.entries.count)"),
+            ("not_sent", "\(states.count(where: { $0 == .notSent }))"),
+            ("unchecked", "\(states.count(where: { $0 == .unchecked }))"),
+            ("first", MemoryDateText.dayAndTime(thread.firstAt, calendar: calendar)),
+            ("last", MemoryDateText.dayAndTime(thread.lastAt, calendar: calendar)),
+        ]
 
-        let sections =
-            ["# \(thread.displayTitle)", facts.joined(separator: "\n")]
-            + daySections(thread.entries, calendar: calendar) { entry in
-                entryLine(entry, markers: threadMarkers(entry), calendar: calendar)
-            }
+        var sections = [frontMatter("thread", calendar: calendar, fields), "# \(thread.displayTitle)"]
+        if ref.resumable {
+            sections.append("Resume: `\(thread.resumeCommand)`")
+        }
+        let ids = lineIDs(thread.entries)
+        sections += daySections(thread.entries, calendar: calendar) { entry in
+            entryLine(entry, ids: ids, calendar: calendar)
+        }
         return MemoryPage(path: threadPath(key), text: rendered(sections))
     }
 
@@ -255,14 +278,17 @@ public enum MemoryPages {
         let filed = MemoryStore.oldestFirst(entries.filter { $0.effectiveTopicID(known: known) == topic.id })
             .map { JournalEntry($0, knownTopicIDs: known) }
 
-        var sections = ["# \(topic.name)"]
+        var sections = [
+            frontMatter("topic", calendar: calendar, [("topic", idValue(topic.id)), ("entries", "\(filed.count)")]),
+            "# \(topic.name)",
+        ]
         let summary = topic.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !summary.isEmpty {
             sections.append(summary)
         }
-        sections.append("- Topic id: \(topic.id)\n- Entries: \(filed.count)")
+        let ids = lineIDs(filed)
         sections += daySections(filed, calendar: calendar) { entry in
-            entryLine(entry, markers: topicSource(entry), calendar: calendar)
+            entryLine(entry, ids: ids, calendar: calendar)
         }
         return MemoryPage(path: topicPath(topic.id), text: rendered(sections))
     }
@@ -275,10 +301,14 @@ public enum MemoryPages {
         .map { JournalEntry($0, knownTopicIDs: []) }
         guard !notes.isEmpty else { return nil }
 
+        let ids = lineIDs(notes)
         let sections =
-            ["# Notes, \(month)"]
+            [
+                frontMatter("notes", calendar: calendar, [("month", idValue(month)), ("entries", "\(notes.count)")]),
+                "# Notes, \(month)",
+            ]
             + daySections(notes, calendar: calendar) { entry in
-                entryLine(entry, markers: [], calendar: calendar)
+                entryLine(entry, ids: ids, calendar: calendar)
             }
         return MemoryPage(path: notesPath(month: month), text: rendered(sections))
     }
@@ -319,40 +349,111 @@ public enum MemoryPages {
         return sections
     }
 
-    /// `- HH:mm:ss · <markers> · <text>`, the markers left out when there are none.
-    private static func entryLine(_ entry: JournalEntry, markers: [String], calendar: Calendar) -> String {
-        let parts =
-            [MemoryDateText.time(entry.createdAt, calendar: calendar, seconds: true)] + markers
-            + [indented(entry.text)]
-        return "- " + parts.joined(separator: " · ")
+    /// `- HH:mm:ss · <id> · <state> · <text>`. The text comes last and nothing
+    /// follows it, so a reader splits a line at its first three separators and
+    /// never inside the owner's words. `state` defaults to the entry's own.
+    private static func entryLine(
+        _ entry: JournalEntry,
+        state: String? = nil,
+        ids: [UUID: String],
+        calendar: Calendar
+    ) -> String {
+        let time = MemoryDateText.time(entry.createdAt, calendar: calendar, seconds: true)
+        let id = ids[entry.id] ?? entry.id.uuidString
+        return "- \(time) · \(id) · \(state ?? EntryState(entry).rawValue) · \(indented(entry.text))"
     }
 
-    /// Inside a session, what sets an entry apart from a sent prompt: being a
-    /// note, or never having been sent.
-    private static func threadMarkers(_ entry: JournalEntry) -> [String] {
-        var markers: [String] = []
-        if entry.kind == .note {
-            markers.append("note")
+    /// The id each entry on one page is printed with: the last 12 characters
+    /// of its `uuidString`, as `entries/*.json` writes it, or the whole of it
+    /// when another entry on the same page ends the same way. The rule looks
+    /// at one page only, so a page rewritten by a diff equals its rebuild.
+    private static func lineIDs(_ entries: [JournalEntry]) -> [UUID: String] {
+        let ids = Set(entries.map(\.id))
+        var suffixCounts: [String: Int] = [:]
+        for id in ids {
+            suffixCounts[String(id.uuidString.suffix(12)), default: 0] += 1
         }
-        if entry.thread?.sent == false {
-            markers.append("not sent")
+        var result: [UUID: String] = [:]
+        for id in ids {
+            let short = String(id.uuidString.suffix(12))
+            result[id] = suffixCounts[short] == 1 ? short : id.uuidString
         }
-        return markers
+        return result
     }
 
-    /// Where a topic entry was said: its session, else `note`, else the app;
-    /// nothing for a dictation whose target was not recorded.
-    private static func topicSource(_ entry: JournalEntry) -> [String] {
-        if let thread = entry.thread {
-            return threadSource(thread)
+    /// What became of an entry, first match wins. `unchecked` rather than
+    /// "pending": the send check may never decide, and a page has no clock to
+    /// say how long it waited.
+    private enum EntryState: String {
+        case note
+        case sent
+        case notSent = "not sent"
+        case unchecked
+        case unlinked
+        case dictation
+
+        init(_ entry: JournalEntry) {
+            if entry.kind == .note {
+                self = .note
+            } else if let thread = entry.thread {
+                switch thread.sent {
+                case true?: self = .sent
+                case false?: self = .notSent
+                case nil: self = .unchecked
+                }
+            } else {
+                self = entry.unlinked == nil ? .dictation : .unlinked
+            }
         }
-        if entry.kind == .note {
-            return ["note"]
+    }
+
+    private typealias FrontMatterField = (key: String, value: String)
+
+    /// The `---` block every derived page opens with: flat `key: value` lines
+    /// an agent or `AgentNoteParser` reads without parsing the Markdown below.
+    /// Values that come from records are quoted by the caller, so none of them
+    /// can close the block or start a key of its own.
+    private static func frontMatter(_ type: String, calendar: Calendar, _ fields: [FrontMatterField]) -> String {
+        let common: [FrontMatterField] = [("format", "2"), ("type", type), ("tz", calendar.timeZone.identifier)]
+        let lines = (common + fields).map { "\($0.key): \($0.value)" }
+        return (["---"] + lines + ["---"]).joined(separator: "\n")
+    }
+
+    /// An id bare, as front matter writes ids, when it is a plain token; a
+    /// hand-edited record holding anything else is quoted so it stays on its line.
+    private static func idValue(_ id: String) -> String {
+        let plain =
+            !id.isEmpty
+            && id.unicodeScalars.allSatisfy { scalar in
+                switch scalar {
+                case "A"..."Z", "a"..."z", "0"..."9", ".", "_", "-": true
+                default: false
+                }
+            }
+        return plain ? id : jsonString(id)
+    }
+
+    /// A JSON string literal. Every character a reader may take for a line
+    /// break is escaped, so a value read from records stays on one line.
+    static func jsonString(_ value: String) -> String {
+        var result = String.UnicodeScalarView()
+        result.append("\"")
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\"": result.append(contentsOf: "\\\"".unicodeScalars)
+            case "\\": result.append(contentsOf: "\\\\".unicodeScalars)
+            case "\n": result.append(contentsOf: "\\n".unicodeScalars)
+            case "\r": result.append(contentsOf: "\\r".unicodeScalars)
+            case "\t": result.append(contentsOf: "\\t".unicodeScalars)
+            case _
+            where scalar.value < 0x20 || scalar.value == 0x85 || scalar.value == 0x2028 || scalar.value == 0x2029:
+                let hex = String(scalar.value, radix: 16)
+                result.append(contentsOf: ("\\u" + String(repeating: "0", count: 4 - hex.count) + hex).unicodeScalars)
+            default: result.append(scalar)
+            }
         }
-        if let app = entry.app {
-            return [app.name ?? app.bundleId]
-        }
-        return []
+        result.append("\"")
+        return String(result)
     }
 
     private static func threadSource(_ ref: JournalThreadRef) -> [String] {
@@ -446,19 +547,50 @@ public enum MemoryPlanner {
 
     /// The complete write that rebuilds every file from `entries` and `topics`.
     public static func rebuild(entries: [MemoryEntry], topics: [MemoryTopic], calendar: Calendar) -> MemoryWrite {
+        planned(
+            everySubject(entries: entries, topics: topics, calendar: calendar),
+            entries: MemoryStore.oldestFirst(entries),
+            topics: topics,
+            writesTopics: true,
+            calendar: calendar
+        )
+    }
+
+    /// Every derived page of one state, and nothing else: a new page format or
+    /// time zone never rewrites `entries/` or `topics.json`, whose lenient
+    /// decoding would drop whatever this build cannot read. With `sweep`, the
+    /// store also removes the derived pages this write does not name; the
+    /// stamp lands last, so a write that fails part way is retried. An empty
+    /// state writes nothing, so a rebuild never creates the folder.
+    public static func rebuildPages(
+        entries: [MemoryEntry],
+        topics: [MemoryTopic],
+        calendar: Calendar,
+        sweep: Bool
+    ) -> MemoryWrite {
+        guard !entries.isEmpty || !topics.isEmpty else { return MemoryWrite() }
+        var subjects = everySubject(entries: entries, topics: topics, calendar: calendar)
+        subjects.months = []
+        var write = planned(
+            subjects,
+            entries: MemoryStore.oldestFirst(entries),
+            topics: topics,
+            writesTopics: false,
+            calendar: calendar
+        )
+        write.sweepDerived = sweep
+        write.pagesFormat = MemoryPages.formatStamp(calendar: calendar)
+        return write
+    }
+
+    private static func everySubject(entries: [MemoryEntry], topics: [MemoryTopic], calendar: Calendar) -> Subjects {
         let known = Set(topics.map(\.id))
         var subjects = Subjects()
         for entry in entries {
             subjects.insert(entry, known: known, calendar: calendar)
         }
         subjects.topics.formUnion(known)
-        return planned(
-            subjects,
-            entries: MemoryStore.oldestFirst(entries),
-            topics: topics,
-            writesTopics: true,
-            calendar: calendar
-        )
+        return subjects
     }
 
     /// Renders every subject in `subjects` from `entries`, which must be oldest

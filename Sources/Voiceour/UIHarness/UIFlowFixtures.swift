@@ -230,6 +230,8 @@
                 memoryLoad: { _ in MemoryLoad() },
                 memoryWrite: { _, _ in },
                 memoryClear: { _ in },
+                memoryPagesFormat: { [stamp = MemoryPages.formatStamp(calendar: UIFixtures.pinnedCalendar)] _ in stamp
+                },
                 // No agent has saved anything either, and the real loader would read the
                 // scratch folder's `agents/` rather than state it.
                 memoryAgentNotesLoad: { _ in [] },

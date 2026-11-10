@@ -106,32 +106,125 @@ struct MemoryPagesTests {
         #expect(page.path == "days/2026-11-10.md")
         #expect(
             page.text == """
+                ---
+                format: 2
+                type: day
+                tz: \(utc.timeZone.identifier)
+                date: 2026-11-10
+                entries: 5
+                words: 25
+                threads: 1
+                notes: 2
+                ---
+
                 # 2026-11-10, Tuesday
 
                 5 entries · 25 words · 1 agent session · 1 app · 2 notes
 
                 ## Highlights
 
-                - 09:58 · Decision · We keep the app local only.
+                - 09:58:30 · 000000000003 · decision · We keep the app local only.
 
                 ## 09:27–09:58 · omp · voiceoour
 
                 [Check agent session storage](../threads/omp-01a1c154-ce7b-70a7-9d17-da6c0eb43054.md)
 
-                - 09:27:19 · Testing.
-                - 09:31:02 · note · A note taken inside this session.
-                - 09:58:30 · We keep the app local only.
+                - 09:27:19 · 000000000001 · sent · Testing.
+                - 09:31:02 · 000000000002 · note · A note taken inside this session.
+                - 09:58:30 · 000000000003 · sent · We keep the app local only.
 
                 ## 10:20 · Mail
 
-                - 10:20:11 · Thanks, see you on Friday.
+                - 10:20:11 · 000000000004 · dictation · Thanks, see you on Friday.
 
                 ## 11:02 · Notes
 
-                - 11:02:40 · The memory folder should be plain files.
+                - 11:02:40 · 000000000005 · note · The memory folder should be plain files.
 
                 """
         )
+    }
+
+    /// Each state the grammar names, first match wins: a note stays a note
+    /// inside a thread, and a miss shows only on an entry with no thread.
+    @Test func everyEntryLineNamesItsState() throws {
+        let entries = [
+            MemoryEntry(
+                id: memoryEntryID(1),
+                createdAt: memoryInstant("2026-11-10T09:00:00Z"),
+                kind: .note,
+                text: "Noted.",
+                thread: memorySession(sent: false)
+            ),
+            MemoryEntry(
+                id: memoryEntryID(2),
+                createdAt: memoryInstant("2026-11-10T09:00:01Z"),
+                text: "Sent.",
+                thread: memorySession(sent: true)
+            ),
+            MemoryEntry(
+                id: memoryEntryID(3),
+                createdAt: memoryInstant("2026-11-10T09:00:02Z"),
+                text: "Not sent.",
+                thread: memorySession(sent: false)
+            ),
+            MemoryEntry(
+                id: memoryEntryID(4),
+                createdAt: memoryInstant("2026-11-10T09:00:03Z"),
+                text: "Unchecked.",
+                thread: memorySession(sent: nil)
+            ),
+            MemoryEntry(
+                id: memoryEntryID(5),
+                createdAt: memoryInstant("2026-11-10T09:00:04Z"),
+                text: "Missed.",
+                appBundleId: "com.example.terminal",
+                unlinked: .focusMoved
+            ),
+            MemoryEntry(
+                id: memoryEntryID(6),
+                createdAt: memoryInstant("2026-11-10T09:00:05Z"),
+                text: "Plain.",
+                appBundleId: "com.example.terminal"
+            ),
+        ]
+
+        let page = try #require(
+            MemoryPages.day(memoryInstant("2026-11-10T00:00:00Z"), entries: entries, topics: [], calendar: utc)
+        )
+
+        #expect(page.text.contains("- 09:00:00 · 000000000001 · note · Noted.\n"))
+        #expect(page.text.contains("- 09:00:01 · 000000000002 · sent · Sent.\n"))
+        #expect(page.text.contains("- 09:00:02 · 000000000003 · not sent · Not sent.\n"))
+        #expect(page.text.contains("- 09:00:03 · 000000000004 · unchecked · Unchecked.\n"))
+        #expect(page.text.contains("- 09:00:04 · 000000000005 · unlinked · Missed.\n"))
+        #expect(page.text.contains("- 09:00:05 · 000000000006 · dictation · Plain.\n"))
+    }
+
+    /// Two entries on one page whose ids end alike both print the whole id;
+    /// a page holding only one of them keeps the short form.
+    @Test func idsThatEndAlikeOnOnePagePrintWhole() throws {
+        let first = try #require(UUID(uuidString: "10000000-0000-0000-0000-0000000000AB"))
+        let second = try #require(UUID(uuidString: "20000000-0000-0000-0000-0000000000AB"))
+        let third = try #require(UUID(uuidString: "30000000-0000-0000-0000-0000000000AB"))
+        let entries = [
+            MemoryEntry(id: first, createdAt: memoryInstant("2026-11-10T09:00:00Z"), kind: .note, text: "One."),
+            MemoryEntry(id: second, createdAt: memoryInstant("2026-11-10T09:01:00Z"), kind: .note, text: "Two."),
+            MemoryEntry(id: third, createdAt: memoryInstant("2026-11-11T09:00:00Z"), kind: .note, text: "Three."),
+        ]
+
+        let tenth = try #require(
+            MemoryPages.day(memoryInstant("2026-11-10T00:00:00Z"), entries: entries, topics: [], calendar: utc)
+        )
+        let eleventh = try #require(
+            MemoryPages.day(memoryInstant("2026-11-11T00:00:00Z"), entries: entries, topics: [], calendar: utc)
+        )
+        let notes = try #require(MemoryPages.notes(month: "2026-11", entries: entries, calendar: utc))
+
+        #expect(tenth.text.contains("- 09:00:00 · 10000000-0000-0000-0000-0000000000AB · note · One.\n"))
+        #expect(tenth.text.contains("- 09:01:00 · 20000000-0000-0000-0000-0000000000AB · note · Two.\n"))
+        #expect(eleventh.text.contains("- 09:00:00 · 0000000000AB · note · Three.\n"))
+        #expect(notes.text.contains("- 09:00:00 · 30000000-0000-0000-0000-0000000000AB · note · Three.\n"))
     }
 
     @Test func aSubjectThatReturnsLaterInTheDayIsMarkedContinued() throws {
@@ -187,24 +280,34 @@ struct MemoryPagesTests {
         #expect(page.path == "threads/omp-01a1c154-ce7b-70a7-9d17-da6c0eb43054.md")
         #expect(
             page.text == """
+                ---
+                format: 2
+                type: thread
+                tz: \(utc.timeZone.identifier)
+                agent: omp
+                session: 01a1c154-ce7b-70a7-9d17-da6c0eb43054
+                directory: "/Users/vlad/Desktop/voiceoour"
+                resumable: true
+                entries: 4
+                not_sent: 1
+                unchecked: 0
+                first: 2026-11-10 09:27
+                last: 2026-11-11 08:05
+                ---
+
                 # omp · Check agent session storage
 
-                - Agent: omp
-                - Session: 01a1c154-ce7b-70a7-9d17-da6c0eb43054
-                - Project: voiceoour
-                - Directory: /Users/vlad/Desktop/voiceoour
-                - Resume: `cd /Users/vlad/Desktop/voiceoour && omp --resume 01a1c154-ce7b-70a7-9d17-da6c0eb43054`
-                - Entries: 4, from 2026-11-10 09:27 to 2026-11-11 08:05
+                Resume: `cd /Users/vlad/Desktop/voiceoour && omp --resume 01a1c154-ce7b-70a7-9d17-da6c0eb43054`
 
                 ## 2026-11-10
 
-                - 09:27:19 · Testing.
-                - 09:31:02 · note · A note taken inside this session.
-                - 09:58:30 · We keep the app local only.
+                - 09:27:19 · 000000000001 · sent · Testing.
+                - 09:31:02 · 000000000002 · note · A note taken inside this session.
+                - 09:58:30 · 000000000003 · sent · We keep the app local only.
 
                 ## 2026-11-11
 
-                - 08:05:00 · not sent · This one never left the composer.
+                - 08:05:00 · 000000000006 · not sent · This one never left the composer.
 
                 """
         )
@@ -228,17 +331,67 @@ struct MemoryPagesTests {
 
         #expect(
             page.text == """
-                # Claude Code · abcdef12
+                ---
+                format: 2
+                type: thread
+                tz: \(utc.timeZone.identifier)
+                agent: claude-code
+                session: abcdef123456
+                resumable: false
+                entries: 1
+                not_sent: 0
+                unchecked: 1
+                first: 2026-11-10 09:00
+                last: 2026-11-10 09:00
+                ---
 
-                - Agent: Claude Code
-                - Session: abcdef123456
-                - Entries: 1, from 2026-11-10 09:00 to 2026-11-10 09:00
+                # Claude Code · abcdef12
 
                 ## 2026-11-10
 
-                - 09:00:00 · Hello.
+                - 09:00:00 · 000000000001 · unchecked · Hello.
 
                 """
+        )
+    }
+
+    /// A directory is the agent's record, so a line break or a colon in it
+    /// stays inside one quoted front matter value.
+    @Test func aDirectoryStaysOnOneFrontMatterLine() throws {
+        let entry = MemoryEntry(
+            id: memoryEntryID(1),
+            createdAt: memoryInstant("2026-11-10T09:00:00Z"),
+            text: "Hello.",
+            thread: JournalThreadRef(
+                agent: .omp,
+                sessionId: "abcdef123456",
+                title: "Odd folder",
+                workingDirectory: "/tmp/a: b\n---\nformat: 3 \"q\" \\"
+            )
+        )
+
+        let page = try #require(
+            MemoryPages.thread(AgentSessionKey(agent: .omp, sessionId: "abcdef123456"), entries: [entry], calendar: utc)
+        )
+        let lines = page.text.split(separator: "\n", omittingEmptySubsequences: false)
+        let close = try #require(lines.dropFirst().firstIndex(of: "---"))
+
+        #expect(lines.first == "---")
+        #expect(
+            Array(lines[1..<close]) == [
+                "format: 2",
+                "type: thread",
+                "tz: \(utc.timeZone.identifier)",
+                "agent: omp",
+                "session: abcdef123456",
+                #"directory: "/tmp/a: b\n---\nformat: 3 \"q\" \\""#,
+                "resumable: false",
+                "entries: 1",
+                "not_sent: 0",
+                "unchecked: 1",
+                "first: 2026-11-10 09:00",
+                "last: 2026-11-10 09:00",
+            ]
         )
     }
 
@@ -260,22 +413,27 @@ struct MemoryPagesTests {
         #expect(page.path == "topics/memory-system.md")
         #expect(
             page.text == """
+                ---
+                format: 2
+                type: topic
+                tz: \(utc.timeZone.identifier)
+                topic: memory-system
+                entries: 4
+                ---
+
                 # Memory system
 
                 Design of the persistent store.
 
-                - Topic id: memory-system
-                - Entries: 4
-
                 ## 2026-11-10
 
-                - 09:58:30 · omp · voiceoour · We keep the app local only.
-                - 10:20:11 · Mail · Thanks, see you on Friday.
-                - 11:02:40 · note · The memory folder should be plain files.
+                - 09:58:30 · 000000000003 · sent · We keep the app local only.
+                - 10:20:11 · 000000000004 · dictation · Thanks, see you on Friday.
+                - 11:02:40 · 000000000005 · note · The memory folder should be plain files.
 
                 ## 2026-11-11
 
-                - 12:00:00 · Unsorted words.
+                - 12:00:00 · 000000000007 · dictation · Unsorted words.
 
                 """
         )
@@ -303,16 +461,24 @@ struct MemoryPagesTests {
         #expect(page.path == "notes/2026-11.md")
         #expect(
             page.text == """
+                ---
+                format: 2
+                type: notes
+                tz: \(utc.timeZone.identifier)
+                month: 2026-11
+                entries: 3
+                ---
+
                 # Notes, 2026-11
 
                 ## 2026-11-10
 
-                - 09:31:02 · A note taken inside this session.
-                - 11:02:40 · The memory folder should be plain files.
+                - 09:31:02 · 000000000002 · note · A note taken inside this session.
+                - 11:02:40 · 000000000005 · note · The memory folder should be plain files.
 
                 ## 2026-11-12
 
-                - 07:00:00 · Buy milk.
+                - 07:00:00 · 000000000008 · note · Buy milk.
 
                 """
         )
@@ -325,6 +491,17 @@ struct MemoryPagesTests {
         #expect(page.path == "MEMORY.md")
         #expect(
             page.text == """
+                ---
+                format: 2
+                type: index
+                tz: \(utc.timeZone.identifier)
+                entries: 6
+                dictations: 4
+                notes: 2
+                first: 2026-11-10
+                last: 2026-11-11
+                ---
+
                 # Voiceour memory
 
                 Everything the owner of this Mac dictated or noted with Voiceour, verbatim. \
@@ -342,6 +519,12 @@ struct MemoryPagesTests {
                 - `notes/YYYY-MM.md`: notes, which were saved and never pasted anywhere.
                 - `entries/YYYY-MM.json`: the source records. Every other file is derived from them.
                 - `topics.json`: the topics and their one-line descriptions.
+                - Each entry line reads time · id · state · text. States: sent, not sent, unchecked \
+                (not checked yet), note, unlinked (not linked to an agent session), dictation.
+                - Your own thread, if Voiceour linked a dictation to this session: omp, threads/omp-<id>.md \
+                with <id> the UUID after "Z_" in $PI_SESSION_FILE ($PI_SESSION_ID differs in a subagent); \
+                Claude Code, threads/claude-code-$CLAUDE_CODE_SESSION_ID.md. No file means nothing was linked; \
+                read today's day page.
 
                 ## Rules for agents
 
@@ -371,8 +554,14 @@ struct MemoryPagesTests {
     @Test func anEmptyIndexOmitsTheListsItHasNothingFor() {
         let page = MemoryPages.index(entries: [], topics: [], calendar: utc)
 
+        #expect(
+            page.text.hasPrefix(
+                "---\nformat: 2\ntype: index\ntz: \(utc.timeZone.identifier)\nentries: 0\ndictations: 0\nnotes: 0\n---\n"
+            )
+        )
         #expect(page.text.contains("- Entries: 0 (0 dictations, 0 notes)\n\n## How to read this folder"))
         #expect(!page.text.contains("First entry"))
+        #expect(!page.text.contains("\nfirst: "))
         #expect(!page.text.contains("## Topics"))
         #expect(!page.text.contains("## Recent days"))
         #expect(!page.text.contains("## Recent threads"))
@@ -388,7 +577,7 @@ struct MemoryPagesTests {
 
         let page = try #require(MemoryPages.notes(month: "2026-11", entries: [note], calendar: utc))
 
-        #expect(page.text.hasSuffix("- 07:00:00 · First line\n  Second line\n"))
+        #expect(page.text.hasSuffix("- 07:00:00 · 000000000001 · note · First line\n  Second line\n"))
     }
 
     @Test func pageTimesFollowTheCalendarsTimeZone() throws {
@@ -403,7 +592,8 @@ struct MemoryPagesTests {
 
         let page = try #require(MemoryPages.notes(month: "2026-12", entries: [note], calendar: tokyo))
 
-        #expect(page.text == "# Notes, 2026-12\n\n## 2026-12-01\n\n- 05:30:05 · Late.\n")
+        #expect(page.text.contains("\ntz: \(tokyo.timeZone.identifier)\n"))
+        #expect(page.text.hasSuffix("# Notes, 2026-12\n\n## 2026-12-01\n\n- 05:30:05 · 000000000001 · note · Late.\n"))
     }
 
     @Test func aSessionIdCannotAddAPathComponent() {
@@ -499,8 +689,8 @@ struct MemoryPlannerTests {
         #expect(write.pages.map(\.path) == ["MEMORY.md", "days/2026-11-10.md", "topics/alpha.md", "topics/beta.md"])
         let alphaPage = try #require(write.pages.first { $0.path == "topics/alpha.md" })
         let betaPage = try #require(write.pages.first { $0.path == "topics/beta.md" })
-        #expect(alphaPage.text.contains("- Entries: 0\n"))
-        #expect(betaPage.text.contains("- Entries: 1\n"))
+        #expect(alphaPage.text.contains("\nentries: 0\n"))
+        #expect(betaPage.text.contains("\nentries: 1\n"))
         #expect(write.topics == nil)
     }
 
@@ -566,4 +756,178 @@ struct MemoryPlannerTests {
         )
         #expect(write.removedPages.isEmpty)
     }
+
+    @Test func aPagesRebuildWritesEveryPageAndNoRecord() {
+        let october = mailed(1, "2026-10-20T08:00:00Z")
+        let november = bound(2, "2026-11-09T08:00:00Z", session: "aaaa")
+        let full = MemoryPlanner.rebuild(entries: [november, october], topics: [alpha], calendar: utc)
+
+        let write = MemoryPlanner.rebuildPages(
+            entries: [november, october], topics: [alpha], calendar: utc, sweep: true)
+
+        #expect(write.months.isEmpty)
+        #expect(write.topics == nil)
+        #expect(write.pages == full.pages)
+        #expect(write.removedPages.isEmpty)
+        #expect(write.sweepDerived)
+        // Foundation may name UTC "GMT"; the stamp states whatever identifier the calendar carries.
+        #expect(write.pagesFormat == "2 gregorian \(utc.timeZone.identifier)")
+        #expect(MemoryPages.formatStamp(calendar: utc) == "2 gregorian \(utc.timeZone.identifier)")
+        #expect(
+            !MemoryPlanner.rebuildPages(entries: [october], topics: [], calendar: utc, sweep: false).sweepDerived
+        )
+    }
+
+    /// A launch rebuild of an empty memory must not create the folder.
+    @Test func aPagesRebuildOfAnEmptyStateWritesNothing() {
+        let write = MemoryPlanner.rebuildPages(entries: [], topics: [], calendar: utc, sweep: true)
+
+        #expect(write.isEmpty)
+        #expect(write == MemoryWrite())
+    }
+
+    /// Diff writes applied in order to a map of files leave exactly the pages a
+    /// pages rebuild of the same state renders, byte for byte, after every step.
+    /// Ids share a few endings, so pages often hold two ids that end alike.
+    @Test func diffWritesAppliedInOrderEqualAPagesRebuild() throws {
+        var random = SeededGenerator(seed: 0x2026_1110)
+        let topics = [alpha, beta]
+        let topicChoices: [String?] = ["alpha", "beta", nil]
+        let sessions = ["aaaa", "bbbb", "cccc"]
+        let titles: [String?] = ["First title", "Second title", nil]
+        let sentChoices: [Bool?] = [true, false, nil]
+        let misses: [AgentLinkMiss?] = [.busy, .codex, nil]
+        let kinds: [UtteranceKind] = [.decision, .idea, .todo, .question, .chatter]
+        let endings = ["0000000000A1", "0000000000B2", "0000000000C3", "0000000000D4", "0000000000E5", "0000000000F6"]
+        // Four days across a month boundary.
+        let start = memoryInstant("2026-10-30T18:00:00Z")
+
+        func pick<Element>(_ choices: [Element]) -> Element {
+            choices[Int.random(in: 0..<choices.count, using: &random)]
+        }
+        func chance(_ oneIn: Int) -> Bool {
+            Int.random(in: 0..<oneIn, using: &random) == 0
+        }
+        func session() -> JournalThreadRef {
+            JournalThreadRef(
+                agent: .omp,
+                sessionId: pick(sessions),
+                title: pick(titles),
+                workingDirectory: "/work/\(pick(sessions))",
+                resumable: chance(2),
+                sent: pick(sentChoices)
+            )
+        }
+        func newID(_ serial: Int) -> UUID {
+            let hex = String(serial, radix: 16, uppercase: true)
+            return UUID(
+                uuidString: String(repeating: "0", count: 8 - hex.count) + hex + "-0000-0000-0000-" + pick(endings))!
+        }
+
+        var entries: [MemoryEntry] = []
+        var files = pageFiles(MemoryPlanner.rebuildPages(entries: [], topics: topics, calendar: utc, sweep: true))
+        var serial = 0
+        for step in 1...300 {
+            var next = entries
+            let index = next.isEmpty ? nil : Int.random(in: 0..<next.count, using: &random)
+            switch (Int.random(in: 0..<8, using: &random), index) {
+            case (0...2, _), (_, nil):
+                serial += 1
+                let createdAt = start.addingTimeInterval(TimeInterval(Int.random(in: 0..<(4 * 86_400), using: &random)))
+                let isNote = chance(4)
+                let linked = chance(2)
+                let thread = linked ? session() : nil
+                let app = !isNote && !linked && chance(2) ? "com.apple.mail" : nil
+                let text = chance(5) ? "Entry \(serial).\nSecond line." : "Entry \(serial)."
+                let userTopic = chance(3) ? pick(topicChoices) : nil
+                let label =
+                    chance(4)
+                    ? EntryLabel(
+                        kind: pick(kinds),
+                        kindConfidence: 0.9,
+                        topicID: pick(topicChoices),
+                        topicConfidence: 0.8,
+                        model: "jev-1.14.0",
+                        labeledAt: createdAt
+                    ) : nil
+                let miss = linked ? nil : pick(misses)
+                next.append(
+                    MemoryEntry(
+                        id: newID(serial),
+                        createdAt: createdAt,
+                        kind: isNote ? .note : .dictation,
+                        text: text,
+                        appBundleId: app,
+                        thread: thread,
+                        userTopicID: userTopic,
+                        label: label,
+                        unlinked: miss
+                    )
+                )
+            case (3, let index?):
+                next[index].text += " Edited."
+            case (4, let index?):
+                let topic = pick(topicChoices)
+                next[index].userTopicID = topic
+                next[index].userRemovedTopic = topic == nil
+            case (5, let index?):
+                next[index].thread = session()
+            case (6, let index?):
+                if next[index].thread != nil {
+                    next[index].thread?.sent = pick(sentChoices)
+                } else {
+                    next[index].unlinked = pick(misses)
+                }
+            case (_, let index?):
+                next.remove(at: index)
+            }
+
+            let write = MemoryPlanner.write(
+                before: entries,
+                after: next,
+                topicsBefore: topics,
+                topicsAfter: topics,
+                calendar: utc
+            )
+            #expect(!write.sweepDerived)
+            #expect(write.pagesFormat == nil)
+            for page in write.pages {
+                files[page.path] = page.text
+            }
+            for path in write.removedPages {
+                files[path] = nil
+            }
+            entries = next
+
+            let rebuilt = pageFiles(
+                MemoryPlanner.rebuildPages(entries: entries, topics: topics, calendar: utc, sweep: true)
+            )
+            try #require(files == rebuilt, "step \(step)")
+        }
+
+        #expect(entries.count > 20)
+        // Some page printed whole ids, so the collision rule was exercised.
+        #expect(files.values.contains { $0.contains("-0000-0000-0000-0000000000") })
+    }
+}
+
+/// SplitMix64: a seeded run replays the same steps on every run and every Mac.
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var mixed = state
+        mixed = (mixed ^ (mixed >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        mixed = (mixed ^ (mixed >> 27)) &* 0x94D0_49BB_1331_11EB
+        return mixed ^ (mixed >> 31)
+    }
+}
+
+private func pageFiles(_ write: MemoryWrite) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: write.pages.map { ($0.path, $0.text) })
 }

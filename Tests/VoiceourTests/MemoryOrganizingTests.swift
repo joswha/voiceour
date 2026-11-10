@@ -180,6 +180,7 @@ struct MemoryOrganizingTests {
             memoryLoad: { _ in load },
             memoryWrite: { _, plan in disk.write(plan) },
             memoryClear: { _ in },
+            memoryPagesFormat: { _ in MemoryPages.formatStamp(calendar: calendar) },
             organizer: organizer,
             typeSafeKeys: TypeSafeKeySource(
                 environment: environment,

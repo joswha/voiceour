@@ -187,6 +187,91 @@ struct MemoryStoreTests {
         #expect(store.load() == MemoryLoad())
     }
 
+    // MARK: Pages rebuild
+
+    /// A pages rebuild removes the derived pages it did not write and nothing
+    /// else: not the records, an agent's note, a symlink, a set-aside file or a
+    /// subfolder. The stamp lands last, owner-only.
+    @Test func aSweepRemovesOnlyStaleDerivedPages() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileManager = FileManager.default
+        let entries = fixture()
+        try store.apply(MemoryPlanner.rebuild(entries: entries, topics: [topic], calendar: utc))
+        let root = store.root
+        let outside = directory.appendingPathComponent("outside.md")
+        let note = store.agentsDirectory.appendingPathComponent("recap.md")
+        let staleThread = root.appendingPathComponent("threads/x.md")
+        let otherZoneDay = root.appendingPathComponent("days/2026-11-11.md")
+        let setAside = root.appendingPathComponent("days/2026-11-09.md.corrupt-2026-11-10T09:00:00Z")
+        let setAsidePage = root.appendingPathComponent("topics/old.corrupt-2026-11-10T09:00:00Z.md")
+        let nested = root.appendingPathComponent("notes/folder.md/inner.md")
+        let link = root.appendingPathComponent("threads/link.md")
+        try writeRaw("Outside.\n", to: outside)
+        try writeRaw("---\nauthor: omp\nday: 2026-11-10\n---\n", to: note)
+        try writeRaw("Old layout.\n", to: staleThread)
+        try writeRaw("Another zone.\n", to: otherZoneDay)
+        try writeRaw("Set aside.\n", to: setAside)
+        try writeRaw("Set aside.\n", to: setAsidePage)
+        try writeRaw("Nested.\n", to: nested)
+        try fileManager.createSymbolicLink(at: link, withDestinationURL: outside)
+        try writeRaw("1 gregorian Asia/Tokyo\n", to: store.pagesFormatURL)
+        let month = try Data(contentsOf: store.monthURL("2026-11"))
+        let topics = try Data(contentsOf: store.topicsURL)
+
+        try store.apply(MemoryPlanner.rebuildPages(entries: entries, topics: [topic], calendar: utc, sweep: true))
+
+        #expect(!fileManager.fileExists(atPath: staleThread.path))
+        #expect(!fileManager.fileExists(atPath: otherZoneDay.path))
+        #expect(fileManager.fileExists(atPath: root.appendingPathComponent("days/2026-11-10.md").path))
+        #expect(fileManager.fileExists(atPath: note.path))
+        #expect(fileManager.fileExists(atPath: setAside.path))
+        #expect(fileManager.fileExists(atPath: setAsidePage.path))
+        #expect(fileManager.fileExists(atPath: nested.path))
+        #expect(try fileManager.destinationOfSymbolicLink(atPath: link.path) == outside.path)
+        #expect(fileManager.fileExists(atPath: outside.path))
+        #expect(try Data(contentsOf: store.monthURL("2026-11")) == month)
+        #expect(try Data(contentsOf: store.topicsURL) == topics)
+        #expect(
+            try String(contentsOf: store.pagesFormatURL, encoding: .utf8) == "2 gregorian \(utc.timeZone.identifier)\n"
+        )
+        #expect(store.pagesFormat() == "2 gregorian \(utc.timeZone.identifier)")
+        #expect(try posixMode(store.pagesFormatURL) == 0o600)
+        #expect(try posixMode(root) == 0o700)
+    }
+
+    /// Without a sweep a write leaves pages it does not name alone, and a diff
+    /// write never stamps.
+    @Test func aWriteWithoutASweepKeepsOtherPagesAndWritesNoStamp() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let entries = fixture()
+        let stale = store.root.appendingPathComponent("threads/x.md")
+        try writeRaw("Old layout.\n", to: stale)
+
+        try store.apply(MemoryPlanner.rebuildPages(entries: entries, topics: [topic], calendar: utc, sweep: false))
+        try FileManager.default.removeItem(at: store.pagesFormatURL)
+        try store.apply(
+            MemoryPlanner.write(before: [], after: entries, topicsBefore: [], topicsAfter: [topic], calendar: utc)
+        )
+
+        #expect(FileManager.default.fileExists(atPath: stale.path))
+        #expect(store.pagesFormat() == nil)
+    }
+
+    @Test func aPageWriteThatFailsLeavesTheStampUnwritten() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // A folder where a page belongs makes that page's write throw.
+        try writeRaw("Blocker.\n", to: store.root.appendingPathComponent("days/2026-11-10.md/blocker"))
+
+        #expect(throws: (any Error).self) {
+            try store.apply(MemoryPlanner.rebuildPages(entries: fixture(), topics: [topic], calendar: utc, sweep: true))
+        }
+        #expect(!FileManager.default.fileExists(atPath: store.pagesFormatURL.path))
+        #expect(store.pagesFormat() == nil)
+    }
+
     // MARK: Damage
 
     @Test func aCorruptMonthIsListedAndTheOtherMonthsStillLoad() throws {

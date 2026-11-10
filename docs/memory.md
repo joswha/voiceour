@@ -21,12 +21,13 @@ The memory folder: what it holds, how it is laid out and written, when the app f
 | `threads/<agent>-<session id>.md` | One agent session. |
 | `topics/<topic id>.md` | One topic. |
 | `notes/YYYY-MM.md` | One month's notes. |
+| `pages-format` | The stamp of the last finished pages rebuild, `2 gregorian <time zone id>` and a newline ([Write planner](#write-planner)). |
 | `agents/` | Written by agents only. Voiceour reads the notes there and never writes ([Agent access](#agent-access)). |
 
-- Every file except `entries/` and `topics.json` is derived from them and MUST be rewritten deterministically: one state renders the same bytes on every run, on every Mac.
+- `MEMORY.md` and every page under `days/`, `threads/`, `topics/` and `notes/` are derived from `entries/` and `topics.json` and MUST be rewritten deterministically: one state renders the same bytes on every run, on every Mac.
 - Files MUST be owner-only (0600) and directories 0700, the root included. Each file is written atomically; there is no cross-file transaction, so a later write repairs what an interrupted one left.
 - JSON: ISO 8601 dates with a time zone (`2026-11-10T09:27:19Z`), sorted keys, pretty printed, slashes unescaped. A month or topic list that becomes empty removes its file; a page with nothing left to show is removed.
-- Months, days and note months are read in the time zone of the calendar the planner is given, so an entry made late on the last evening of a month files under the month the user lived it in.
+- Every path, page and prompt is read in the planner calendar (`memoryCalendar`, `Sources/Voiceour/MemoryJournal.swift`): the Gregorian calendar whatever the user's calendar setting, because the folder's `YYYY-MM-DD` and `YYYY-MM` names are Gregorian, in `TimeZone.current`, so an entry made late on the last evening of a month files under the month the user lived it in. A test or harness clock pins the zone through the runtime calendar.
 
 ## Entries
 
@@ -54,28 +55,55 @@ The memory folder: what it holds, how it is laid out and written, when the app f
 
 ## Pages
 
-`MemoryPages` (`Sources/VoiceCore/MemoryPages.swift`) renders every page; its source holds the exact text, which this file does not repeat.
+`MemoryPages` (`Sources/VoiceCore/MemoryPages.swift`) renders every page; its source holds the fixed prose. This section is the format an agent parses: page format 2.
 
-- `MEMORY.md`: entry counts and date span, how to read the folder, the rules for agents, every topic with its count and summary, the 14 newest days and the 20 newest threads. Empty sections are omitted.
-- Day page: a summary line, the day's highlights (confident decision, idea, to-do and question labels), then one section per block in time order. Blocks are `JournalQuery.rewind` blocks (`Sources/VoiceCore/Journal.swift`), so a day page and the Rewind lens group a day identically.
-- Thread page: agent, session id, project, directory, resume command when resumable, entry count and span, then entries by day, marked `note` or `not sent`.
-- Topic page: name, summary, id, count, then entries by day with their source (agent and project, app, or `note`).
-- Notes page: the month's notes by day.
+### Front matter
+
+Every page begins with a block: a line `---`, flat `key: value` lines in the order below, then a line `---`. The block reads with [`AgentNoteParser`'s front matter rules](#agent-access). Numbers, booleans (`true`, `false`), dates and times are bare. An id (`session`, `topic`, `month`) is bare when it holds only `A-Z a-z 0-9 . _ -`, else a JSON string literal; `directory` is always one. A JSON string literal escapes `"`, `\`, every control character and U+0085, U+2028 and U+2029, so a value from the records never leaves its line. Titles and names appear only in the `#` heading.
+
+| page | keys after `format: 2`, `type: <type>`, `tz: <time zone id>` |
+| --- | --- |
+| `MEMORY.md`, type `index` | `entries`, `dictations`, `notes`; then `first: YYYY-MM-DD`, `last: YYYY-MM-DD` when there are entries |
+| day, type `day` | `date: YYYY-MM-DD`, `entries`, `words`, `threads`, `notes` |
+| thread, type `thread` | `agent: <omp\|claude-code>`, `session`, `directory` (absent when unknown), `resumable`, `entries`, `not_sent`, `unchecked`, `first: YYYY-MM-DD HH:mm`, `last: YYYY-MM-DD HH:mm` |
+| topic, type `topic` | `topic: <topic id>`, `entries` |
+| notes, type `notes` | `month: YYYY-MM`, `entries` |
+
+`tz` is the planner calendar's time zone identifier; every date and time on the page is in it.
+
+### Entry lines
+
+Every entry on a day, thread, topic or notes page is one list item: `- HH:mm:ss · <id> · <state> · <text>`. A reader splits at the first three ` · `; the text comes last and nothing follows it.
+
+- `<id>`: the last 12 characters of the entry's `id` as `entries/*.json` writes it (uppercase hex). When two entries on the same page share those 12 characters, both lines on that page carry the whole id. The rule looks at one page only, so a diff and a rebuild print the same id.
+- `<state>`, first match wins: `note` (kind note); `sent`, `not sent` or `unchecked` for an entry with a `thread` whose `sent` is true, false or absent (`unchecked`: the send check has not decided, and may never); `unlinked` (no thread, `unlinked` set); `dictation`.
+- `<text>`: the entry's text verbatim. It keeps its line breaks; every line after the first is indented two spaces so it stays inside its list item. Nothing else in the text changes.
+- A day page's Highlights use the same line with the label's kind in the state slot: `decision`, `idea`, `to-do`, `question`.
+
+### Page bodies
+
+After the front matter, sections are separated by one blank line; a page ends with exactly one newline; counts use singular forms for 1. Empty sections are omitted. `## YYYY-MM-DD` opens each day's entry lines, oldest first, on thread, topic and notes pages.
+
+- `MEMORY.md`: `# Voiceour memory`, the entry counts and date span, How to read this folder, Rules for agents, every topic with its count and summary, the 14 newest days and the 20 newest threads, each a link to its page. How to read this folder ends with two bullets: the entry line (`Each entry line reads time · id · state · text.`, naming every state), and how an agent finds its own thread: omp, `threads/omp-<id>.md` with `<id>` the UUID after `Z_` in `$PI_SESSION_FILE`; Claude Code, `threads/claude-code-$CLAUDE_CODE_SESSION_ID.md`; no file means nothing was linked, so read today's day page.
+- Day page: `# YYYY-MM-DD, <English weekday>`, a summary line of the nonzero counts (entries, words, agent sessions, apps, notes) joined by ` · `, the day's Highlights (decision, idea, to-do and question labels at or above `JournalQuery.highlightConfidence`), then one section per block in time order headed `## HH:mm–HH:mm · <source>` (`## HH:mm · <source>` when both ends match), with ` · continued` appended when the same source already had a block earlier that day. The source is the agent's name and project, followed by a line linking the thread page; `Notes`; the app's name, or its bundle id; or `Unknown target`. Blocks are `JournalQuery.rewind` blocks (`Sources/VoiceCore/Journal.swift`), so a day page and the Rewind lens group a day identically.
+- Thread page: `# <thread title>`, then a line `Resume:` and the resume command in backticks when the session is resumable, then entries by day.
+- Topic page: `# <topic name>`, its summary when set, then entries by day. A topic with no entry still has a page.
+- Notes page: `# Notes, YYYY-MM`, then the month's notes by day.
 - Pages MUST be pure functions of their arguments: NEVER the clock, the locale, the current calendar or a formatter with implicit settings. Times are `HH:mm:ss` or `HH:mm`, dates `YYYY-MM-DD`, zero-padded by hand in the given calendar's time zone; weekday names are English from a fixed array.
-- An entry's text keeps its line breaks; every line after the first is indented two spaces so it stays inside its list item. Nothing else in the text changes.
 - Thread and topic file names replace every character outside `A-Z a-z 0-9 . _ -` with `-`, so a session id from an agent's records or a hand-edited `topics.json` can never add a path component.
-- Every page ends with exactly one newline; counts use singular forms for 1.
 
 ## Write planner
 
 - Every memory mutation except Clear Memory MUST go through `commitMemory(entries:topics:)` (`Sources/Voiceour/MemoryJournal.swift`): it publishes the new state on the main actor and enqueues the one write that brings disk to it. Clear Memory (`clearMemory()`) publishes the empty state and enqueues the folder's removal on the same tail instead, because a plan rewrites only files the store owns.
 - `MemoryPlanner.write(before:after:topicsBefore:topicsAfter:calendar:)` diffs the state disk holds against the new one, off the main actor, and rewrites only what the difference touches: for each entry added, removed or changed, its month file, day page, thread page, effective-topic page and notes page, both before and after the change; for a changed topic list, `topics.json` and every old and new topic page. `MEMORY.md` is rewritten whenever anything changed; no change writes nothing.
 - `MemoryPlanner.rebuild(entries:topics:calendar:)` renders every file from one state. Diffs and a rebuild over the same state MUST produce the same bytes for every file they both write.
-- The planner is pure: no file system, no clock. `MemoryStore.apply` writes months, then `topics.json`, then pages, then removals.
+- `MemoryPlanner.rebuildPages(entries:topics:calendar:sweep:)` renders every page of one state and nothing else: it NEVER rewrites `entries/` or `topics.json`, whose lenient decoding would drop what this build cannot read. With `sweep`, the store removes every regular `*.md` directly in `days/`, `threads/`, `topics/` and `notes/` that the write did not write; it NEVER touches a symlink, a subfolder, `agents/`, `entries/`, `topics.json`, a `*.corrupt-*` file or `pages-format`. The write carries the stamp `MemoryPages.formatStamp(calendar:)`, written last, only after every page, removal and sweep succeeded. An empty state with no topics writes nothing. The diff never sweeps or stamps.
+- The planner is pure: no file system, no clock. `MemoryStore.apply` writes months, then `topics.json`, then pages, then removals, then the sweep, then `pages-format`.
+- Launch rebuild: after the load and its quarantine, when the folder holds at least one entry or topic and `pages-format` is absent or differs from the stamp of the planner calendar (a new page format or a new time zone), the coordinator enqueues `rebuildPages` as the first element of the persistence tail, before any commit, through the same write port. Launch NEVER waits for it. A load that set a file aside rebuilds without sweeping, so the pages of the entries it could not read stay. A failure reports “Memory could not be saved.” and leaves the stamp as it was, so the next launch retries. A matching stamp writes nothing.
 
 ## Lifecycle
 
-- Launch loads the folder whenever it exists, whatever the switch says, and the Journal shows everything it holds. An absent folder is an empty memory; nothing is created until there is something to write.
+- Launch loads the folder whenever it exists, whatever the switch says, and the Journal shows everything it holds. An absent folder is an empty memory; nothing is created until there is something to write, and a launch rebuild never creates the folder.
 - `Settings.memoryEnabled` (`memory_enabled`, off by default, “Keep dictations in memory” in Settings ▸ Memory) decides only whether each newly delivered dictation is folded in. Turning it on adds every History row memory lacks, matched by id, with its binding or its `unlinked`. Turning it off stops new dictations and changes nothing already kept.
 - A delivered dictation MUST fold into memory in the same main-actor turn as History and the ledger, and its files are written through the same FIFO tail (`recentSessionPersistenceTail`) after the History and ledger snapshots. Delivery NEVER waits for the memory write.
 - A dictation delivered to a secure target reaches no record, memory included.

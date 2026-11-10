@@ -10,21 +10,32 @@ public struct MemoryWrite: Equatable, Sendable {
     public var pages: [MemoryPage]
     /// Paths relative to the memory root to remove.
     public var removedPages: [String]
+    /// Also removes every derived page that `pages` does not name, so a rebuild
+    /// leaves no page of an older layout or another time zone behind.
+    public var sweepDerived: Bool
+    /// Non-nil writes `pages-format` after everything else succeeded, so the
+    /// stamp names a format only once every page of it is on disk.
+    public var pagesFormat: String?
 
     public init(
         months: [String: [MemoryEntry]] = [:],
         topics: [MemoryTopic]? = nil,
         pages: [MemoryPage] = [],
-        removedPages: [String] = []
+        removedPages: [String] = [],
+        sweepDerived: Bool = false,
+        pagesFormat: String? = nil
     ) {
         self.months = months
         self.topics = topics
         self.pages = pages
         self.removedPages = removedPages
+        self.sweepDerived = sweepDerived
+        self.pagesFormat = pagesFormat
     }
 
     public var isEmpty: Bool {
-        months.isEmpty && topics == nil && pages.isEmpty && removedPages.isEmpty
+        months.isEmpty && topics == nil && pages.isEmpty && removedPages.isEmpty && !sweepDerived
+            && pagesFormat == nil
     }
 }
 
@@ -74,6 +85,15 @@ public struct MemoryStore: Sendable {
         root.appendingPathComponent("agents", isDirectory: true)
     }
 
+    /// The format, calendar and zone of the derived pages on disk. No diff
+    /// write touches it, so it changes only when a whole rebuild finished.
+    public var pagesFormatURL: URL {
+        root.appendingPathComponent("pages-format")
+    }
+
+    /// The folders whose pages a sweep may remove; nothing else ever is.
+    static let derivedPageFolders = ["days", "threads", "topics", "notes"]
+
     public func monthURL(_ month: String) -> URL {
         entriesDirectory.appendingPathComponent("\(month).json")
     }
@@ -122,8 +142,17 @@ public struct MemoryStore: Sendable {
         return load
     }
 
+    /// The stamp the last finished pages rebuild wrote, trimmed; nil when it
+    /// is absent, unreadable or blank, all of which call for a rebuild.
+    public func pagesFormat() -> String? {
+        guard let text = try? String(contentsOf: pagesFormatURL, encoding: .utf8) else { return nil }
+        let stamp = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stamp.isEmpty ? nil : stamp
+    }
+
     /// Writes every file owner-only (0600) and atomically, with every directory
-    /// 0700. Removing a file that is already absent succeeds.
+    /// 0700. Removing a file that is already absent succeeds. The sweep and then
+    /// the stamp come last, so a throw anywhere leaves the stamp unwritten.
     public func apply(_ write: MemoryWrite) throws {
         let encoder = Self.makeEncoder()
 
@@ -152,11 +181,47 @@ public struct MemoryStore: Sendable {
             try removeVoiceourPrivateState(at: root.appendingPathComponent(path))
         }
 
+        if write.sweepDerived {
+            try sweepDerivedPages(keeping: Set(write.pages.map(\.path)))
+        }
+
         // The page directories are created with intermediates, which leaves the
         // root itself at the default mode until it is tightened here.
         if FileManager.default.fileExists(atPath: root.path) {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
         }
+
+        if let stamp = write.pagesFormat {
+            try writeVoiceourPrivateState(Data("\(stamp)\n".utf8), to: pagesFormatURL)
+        }
+    }
+
+    /// Removes every regular `*.md` file directly inside a derived page folder
+    /// that `kept` does not name. A symlink, a subfolder or a set-aside
+    /// `*.corrupt-*` file is never touched, and neither is a folder that is
+    /// itself a symlink: the sweep never reaches outside the pages it owns.
+    private func sweepDerivedPages(keeping kept: Set<String>) throws {
+        let fileManager = FileManager.default
+        for folder in Self.derivedPageFolders {
+            let directory = root.appendingPathComponent(folder, isDirectory: true)
+            guard fileManager.fileExists(atPath: directory.path),
+                try Self.fileType(at: directory) == .typeDirectory
+            else { continue }
+            for name in try fileManager.contentsOfDirectory(atPath: directory.path) {
+                guard name.hasSuffix(".md"), !name.contains(".corrupt-"), !kept.contains("\(folder)/\(name)") else {
+                    continue
+                }
+                let url = directory.appendingPathComponent(name)
+                if try Self.fileType(at: url) == .typeRegular {
+                    try removeVoiceourPrivateState(at: url)
+                }
+            }
+        }
+    }
+
+    /// The item's own type: a symlink reads as a symlink, never as its target.
+    private static func fileType(at url: URL) throws -> FileAttributeType? {
+        try FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType
     }
 
     /// Removes the whole root, `agents/` included; an absent root is success.

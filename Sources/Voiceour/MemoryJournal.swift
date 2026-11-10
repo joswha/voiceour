@@ -43,7 +43,7 @@ extension DictationCoordinator {
         memoryTopics = topicsAfter
         memoryRevision += 1
 
-        let calendar = runtime.calendar()
+        let calendar = memoryCalendar
         let previous = recentSessionPersistenceTail
         let store = memoryStore
         let write = memoryWrite
@@ -72,6 +72,68 @@ extension DictationCoordinator {
             self.errorMessage = "Memory could not be saved."
         }
         return next
+    }
+
+    /// The calendar every memory page, file name and prompt is read in.
+    ///
+    /// Gregorian whatever the user's calendar setting, because the folder
+    /// names its days and months `YYYY-MM-DD` and `YYYY-MM`, which only the
+    /// Gregorian calendar fills correctly. The zone is the runtime calendar's,
+    /// which is `TimeZone.current` in the app and a pinned zone under a test
+    /// or a harness clock, so a page lands under the day the user lived it.
+    var memoryCalendar: Calendar {
+        Self.memoryCalendar(timeZone: runtime.calendar().timeZone)
+    }
+
+    /// The Gregorian calendar in `timeZone`; a lens that copies a prompt naming
+    /// a page builds its calendar here so the prompt names the page's real path.
+    nonisolated static func memoryCalendar(timeZone: TimeZone) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
+    /// Rebuilds every derived page once, at launch, when the folder's
+    /// `pages-format` stamp, read through `pagesFormat`, names another format,
+    /// calendar or zone than this build writes in. Called from `init` after
+    /// memory loaded and its unreadable files were set aside, before anything
+    /// else can queue a write, so the rebuild is the tail's first element and
+    /// every diff after it starts from pages of the current format.
+    ///
+    /// Nothing waits for it: the plan is rendered and written on the tail.
+    /// Only pages are written; `entries/` and `topics.json` stay as they are,
+    /// because re-encoding them would drop what this build cannot decode. A
+    /// load that set a file aside skips the sweep: the pages of the entries it
+    /// could not read are all that is left of them. A failure reports like any
+    /// memory write, and the stamp stays unwritten so the next launch retries.
+    /// An empty state reads no stamp and writes nothing, so a rebuild never
+    /// creates the folder.
+    func enqueueMemoryPagesRebuild(pagesFormat: (MemoryStore) -> String?, sweep: Bool) {
+        guard !memoryEntries.isEmpty || !memoryTopics.isEmpty else { return }
+        let calendar = memoryCalendar
+        guard pagesFormat(memoryStore) != MemoryPages.formatStamp(calendar: calendar) else { return }
+
+        let entries = memoryEntries
+        let topics = memoryTopics
+        let previous = recentSessionPersistenceTail
+        let store = memoryStore
+        let write = memoryWrite
+        let next = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            let plan = MemoryPlanner.rebuildPages(entries: entries, topics: topics, calendar: calendar, sweep: sweep)
+            guard !plan.isEmpty else { return true }
+            do {
+                try write(store, plan)
+                return true
+            } catch {
+                return false
+            }
+        }
+        recentSessionPersistenceTail = next
+        Task { @MainActor [weak self] in
+            guard await next.value == false, let self else { return }
+            self.errorMessage = "Memory could not be saved."
+        }
     }
 
     /// Folds one journaled dictation into memory when the user keeps

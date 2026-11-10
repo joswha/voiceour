@@ -291,7 +291,14 @@ struct JournalRewindLens: View {
                         help: "Copy a prompt that asks your coding agent to recap this day",
                         announcement: "Recap prompt copied to clipboard",
                         identifier: "journal.rewind.recap-prompt",
-                        prompt: { MemoryPages.recapPrompt(day: rewind.day, root: memoryRoot, calendar: calendar) }
+                        // The day page is named in the memory calendar, so the prompt is too.
+                        prompt: {
+                            MemoryPages.recapPrompt(
+                                day: rewind.day,
+                                root: memoryRoot,
+                                calendar: DictationCoordinator.memoryCalendar(timeZone: calendar.timeZone)
+                            )
+                        }
                     )
 
                     ConsoleCaption(

@@ -249,6 +249,9 @@ public final class DictationCoordinator {
         memoryLoad: @escaping @Sendable (MemoryStore) -> MemoryLoad = { $0.load() },
         memoryWrite: @escaping @Sendable (MemoryStore, MemoryWrite) throws -> Void = { try $0.apply($1) },
         memoryClear: @escaping @Sendable (MemoryStore) throws -> Void = { try $0.clear() },
+        // Default reads the folder's `pages-format`; a fixture that states its
+        // memory reports the current stamp so launch rebuilds nothing.
+        memoryPagesFormat: @escaping @Sendable (MemoryStore) -> String? = { $0.pagesFormat() },
         memoryAgentNotesLoad: @escaping @Sendable (MemoryStore) -> [AgentNote] = { $0.loadAgentNotes() },
         organizer: EntryOrganizing = NoEntryOrganizing(),
         // Nil reads the environment, then `typesafe.key` beside History, so a
@@ -343,6 +346,10 @@ public final class DictationCoordinator {
                 ?? moved.map { "Memory could not be read — kept as \($0.lastPathComponent)." }
                 ?? "Memory could not be read and could not be set aside."
         }
+        // Pages of an older format or another zone are rebuilt once, as the
+        // tail's first element, so the launch never waits for them and every
+        // later diff starts from pages this build wrote.
+        enqueueMemoryPagesRebuild(pagesFormat: memoryPagesFormat, sweep: memory.unreadable.isEmpty)
         // One-time migration: durable state of two deleted subsystems. Left on
         // disk, the retired `dictation-stats.json` is a per-day, per-app record
         // of every dictation — with transcript quotes in it — that no surface can

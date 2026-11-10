@@ -637,6 +637,9 @@
                 // write or removal completing.
                 memoryWrite: { _, _ in },
                 memoryClear: { _ in },
+                // The stated folder is already in the current format: a scene shows
+                // memory, it never rebuilds its pages.
+                memoryPagesFormat: { [stamp = MemoryPages.formatStamp(calendar: pinnedCalendar)] _ in stamp },
                 memoryAgentNotesLoad: { _ in agentNotes },
                 // The default organizer stays: `NoEntryOrganizing` labels nothing and
                 // reaches no network. The key source is explicit for the same reason the
