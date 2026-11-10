@@ -4,7 +4,9 @@ fixture: static
 transitions: idle
 PASS 1 routed | value id=console.tab.history == "1" | "1"
 PASS 2 routed | value id=console.tab.home == "0" | "0"
-PASS 3 routed | count id=journal.threads.session exactly 1 | 1 match
-PASS 4 routed | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
+PASS 3 routed | count id=journal.threads.details exactly 1 | 1 match
+PASS 4 routed | value id=journal.threads.details == "false" | "false"
 PASS 5 routed | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
 PASS 6 routed | model pendingJournalThread is empty | ""
+PASS 7 details | count id=journal.threads.session exactly 1 | 1 match
+PASS 8 details | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"

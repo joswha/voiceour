@@ -4,10 +4,16 @@ fixture: static
 transitions: idle
 PASS 1 closed | count id=journal.threads.row exactly 2 | 2 matches
 PASS 2 closed | selected(false) id=journal.threads.row & label~="Harness offscreen capture" | false
-PASS 3 closed | absent id=journal.threads.session | 0 matches
-PASS 4 opened | count id=journal.threads.session exactly 1 | 1 match
-PASS 5 opened | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
-PASS 6 opened | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
-PASS 7 reclosed | absent id=journal.threads.session | 0 matches
-PASS 8 reclosed | selected(false) id=journal.threads.row & label~="Harness offscreen capture" | false
-PASS 9 reclosed | count id=journal.threads.row exactly 2 | 2 matches
+PASS 3 closed | absent id=journal.threads.details | 0 matches
+PASS 4 closed | absent id=journal.threads.session | 0 matches
+PASS 5 opened | count id=journal.threads.details exactly 1 | 1 match
+PASS 6 opened | value id=journal.threads.details == "false" | "false"
+PASS 7 opened | absent id=journal.threads.session | 0 matches
+PASS 8 opened | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
+PASS 9 details | count id=journal.threads.session exactly 1 | 1 match
+PASS 10 details | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
+PASS 11 details | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
+PASS 12 reclosed | absent id=journal.threads.details | 0 matches
+PASS 13 reclosed | absent id=journal.threads.session | 0 matches
+PASS 14 reclosed | selected(false) id=journal.threads.row & label~="Harness offscreen capture" | false
+PASS 15 reclosed | count id=journal.threads.row exactly 2 | 2 matches

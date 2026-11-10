@@ -442,7 +442,7 @@ struct ConsoleSettingsTab: View {
         if coordinator.isSystemAudioMuted {
             return (
                 "MUTED NOW", .ok,
-                "System audio is currently muted and will be restored when the session ends."
+                "System audio is currently muted and will be restored when the recording ends."
             )
         } else if coordinator.settings.muteSystemAudioDuringCapture, coordinator.isSystemAudioMuteUnavailable {
             return (
@@ -452,7 +452,7 @@ struct ConsoleSettingsTab: View {
         } else if coordinator.settings.muteSystemAudioDuringCapture {
             return (
                 "MUTE ON", .neutral,
-                "System audio fades out for the recording and fades back when the session ends."
+                "System audio fades out for the recording and fades back when it ends."
             )
         } else {
             return ("MUTE OFF", .neutral, "System audio will continue playing while recording.")

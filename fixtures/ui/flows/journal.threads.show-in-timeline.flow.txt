@@ -3,7 +3,9 @@ title: An open thread shows its rows in Timeline, filtered to its session
 fixture: static
 transitions: idle
 PASS 1 opened | count id=journal.threads.timeline exactly 1 | 1 match
-PASS 2 opened | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
-PASS 3 timeline | count id=sessions.search.field exactly 1 | 1 match
-PASS 4 timeline | exists id=sessions.agent-filter.clear | 1 match
-PASS 5 timeline | absent id=journal.threads.row | 0 matches
+PASS 2 opened | absent id=journal.threads.session | 0 matches
+PASS 3 details | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
+PASS 4 details | count id=journal.threads.timeline exactly 1 | 1 match
+PASS 5 timeline | count id=sessions.search.field exactly 1 | 1 match
+PASS 6 timeline | exists id=sessions.agent-filter.clear | 1 match
+PASS 7 timeline | absent id=journal.threads.row | 0 matches

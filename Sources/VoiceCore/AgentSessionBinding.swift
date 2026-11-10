@@ -290,9 +290,11 @@ public struct AgentSessionBinding: Codable, Equatable, Sendable {
     }
 
     /// The agent's name and the session's title, else its folder's name, else
-    /// the start of its id.
+    /// "<agent> session": a person reads this name, and the id stays in
+    /// `locationLine`.
     public var displayTitle: String {
-        "\(agent.displayName) · \(sessionTitle ?? folderName ?? String(sessionId.prefix(8)))"
+        guard let name = sessionTitle ?? folderName else { return "\(agent.displayName) session" }
+        return "\(agent.displayName) · \(name)"
     }
 
     /// The session's folder and id. The folder is left out when the title

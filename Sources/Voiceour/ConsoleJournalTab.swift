@@ -157,6 +157,7 @@ struct ConsoleJournalTab: View {
                 lens: $lens,
                 openThread: $openThread,
                 navigation: navigation,
+                bindingEnabled: coordinator.settings.agentSessionBindingEnabled,
                 delete: deleteEntry,
                 topics: coordinator.memoryTopics,
                 file: fileEntry,

@@ -276,7 +276,7 @@ struct HomeAppRow: View {
     }
 
     private var counts: String {
-        "sessions · \(StatsFormatting.compactCount(figure.words)) words"
+        "dictations · \(StatsFormatting.compactCount(figure.words)) words"
     }
 
     var body: some View {
@@ -304,7 +304,7 @@ struct HomeAppRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(identity.label)
-        .accessibilityValue("\(figure.sessions) sessions, \(figure.words) words")
+        .accessibilityValue("\(figure.sessions) dictations, \(figure.words) words")
     }
 
 }

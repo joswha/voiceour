@@ -121,7 +121,7 @@ struct ConsoleHomeTab: View {
                 // names the gesture. `ConsoleHotkeyHint`'s wording, kept as one caption
                 // line in Home's voice: this page is figures, and how to start is the
                 // one thing a zeroed page still owes the reader.
-                Text("\(ConsoleHotkeyHint.sentence) — your first session lights this up.")
+                Text("\(ConsoleHotkeyHint.sentence) — your first dictation lights this up.")
                     .roleStyle(.caption)
                     .foregroundStyle(a11y.textMid)
                     .accessibilityIdentifier("home.empty")

@@ -1,0 +1,21 @@
+flow: journal.threads.details
+title: An open thread's Details fold shows its id and folder and shuts when another thread opens
+fixture: static
+transitions: idle
+PASS 1 folded | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
+PASS 2 folded | count id=journal.threads.details exactly 1 | 1 match
+PASS 3 folded | value id=journal.threads.details == "false" | "false"
+PASS 4 folded | absent id=journal.threads.session | 0 matches
+PASS 5 folded | absent id=journal.threads.folder | 0 matches
+PASS 6 unfolded | value id=journal.threads.details == "true" | "true"
+PASS 7 unfolded | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
+PASS 8 unfolded | value id=journal.threads.folder == "/Users/harness/voiceour" | "/Users/harness/voiceour"
+PASS 9 switched | selected(true) id=journal.threads.row & label~="Claude Code" | true
+PASS 10 switched | selected(false) id=journal.threads.row & label~="Harness offscreen capture" | false
+PASS 11 switched | count id=journal.threads.details exactly 1 | 1 match
+PASS 12 switched | value id=journal.threads.details == "false" | "false"
+PASS 13 switched | absent id=journal.threads.session | 0 matches
+PASS 14 switched | absent id=journal.threads.folder | 0 matches
+PASS 15 unfolded-again | value id=journal.threads.details == "true" | "true"
+PASS 16 unfolded-again | value id=journal.threads.session == "5f0c2e8a-1d3b-4c6e-9a7f-2b8d4e6f1a3c" | "5f0c2e8a-1d3b-4c6e-9a7f-2b8d4e6f1a3c"
+PASS 17 unfolded-again | value id=journal.threads.folder == "/Users/harness/voiceour" | "/Users/harness/voiceour"

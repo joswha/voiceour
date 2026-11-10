@@ -292,7 +292,9 @@ public struct JournalThread: Equatable, Identifiable, Sendable {
     public var notSentCount: Int { entries.count(where: { $0.thread?.sent == false }) }
 
     /// The agent's name and the session's title, else its folder's name, else
-    /// the start of its id: the same fallback a History row's binding shows.
+    /// the start of its id. Memory pages name threads by it, and an agent that
+    /// reads them matches its own id there; the console names a bare session
+    /// "<agent> session" instead.
     public var displayTitle: String {
         "\(ref.agent.displayName) · \(ref.title ?? ref.project ?? String(ref.sessionId.prefix(8)))"
     }

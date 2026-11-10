@@ -231,7 +231,8 @@
             /// `NoAgentSessionResolving` and no dictation runs.
             case pastedLinked
             /// The same paste, its row carrying the link's miss (`.focusMoved`) instead of a
-            /// binding: the menu's report says why it is not linked.
+            /// binding: the menu's report says why it is not linked. Having no bound row, it also
+            /// shows Threads empty with linking on (`console.sessions.threads.empty.linking`).
             case pastedUnlinked
             /// The populated History with the menu's request to show the fixture's omp thread
             /// still pending, as a press on the report's thread line leaves it before the
@@ -1081,6 +1082,15 @@
 
         /// The title `agentSession` carries on every row and entry bound to it.
         nonisolated static let agentSessionTitle = "Harness offscreen capture"
+
+        /// The Claude Code session row 5 is linked to by its words: Threads' second thread on
+        /// `history`, read off the row so a flow that opens it cannot drift from the fixture.
+        static var wordsLinkedSession: AgentSessionKey {
+            guard let binding = history.lazy.compactMap(\.agentSession).first(where: { $0.evidence == .words }) else {
+                preconditionFailure("history links no row by its words")
+            }
+            return binding.key
+        }
 
         /// The name Tern's rows carry, and the app the menu fixtures' paste went to.
         nonisolated static let ternAppName = "Tern"

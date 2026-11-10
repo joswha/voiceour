@@ -150,8 +150,20 @@
                 .id("journal.threads.row"),
                 .labelContains(UIFixtures.agentSessionTitle),
             ])
+            // The populated fixture's other thread, the Claude Code session row 5 is linked to
+            // by its words. It has no title, so its label leads with its project; the agent's
+            // name in its summary is what no other thread row's label holds.
+            static let wordsThreadRow = UIQuery.all([
+                .id("journal.threads.row"),
+                .labelContains(CodingAgent.claudeCode.displayName),
+            ])
             static let threadRows = UIQuery.id("journal.threads.row")
+            // An open thread's id and folder sit inside its Details fold, which every newly
+            // opened thread starts shut, so neither is in the tree until the fold is pressed.
+            // The fold's label shows while it is shut, so a flow waits on it for the page.
+            static let threadDetails = UIQuery.id("journal.threads.details")
             static let threadSession = UIQuery.id("journal.threads.session")
+            static let threadFolder = UIQuery.id("journal.threads.folder")
             static let threadTimeline = UIQuery.id("journal.threads.timeline")
             static let clearAgentFilter = UIQuery.id("sessions.agent-filter.clear")
 
@@ -413,7 +425,7 @@
                         .check(
                             "no-results",
                             [
-                                .text(.equals("0 of 10 sessions match"), .exactly(1)),
+                                .text(.equals("0 of 10 dictations match"), .exactly(1)),
                                 .text(.equals("Nothing matches “\(noMatchQuery)”"), .exactly(1)),
                                 .exists(Selector.clearSessionSearch),
                             ]
@@ -428,7 +440,7 @@
                     steps: [
                         .act(.type(noMatchQuery, into: Selector.sessionSearch)),
                         .wait(.element(Selector.clearSessionSearch)),
-                        .check("filtered", [.text(.equals("0 of 10 sessions match"), .exactly(1))]),
+                        .check("filtered", [.text(.equals("0 of 10 dictations match"), .exactly(1))]),
                         .act(.press(Selector.clearSessionSearch)),
                         .wait(.absent(Selector.clearSessionSearch)),
                         .wait(.element(Selector.newestTranscript)),
@@ -719,7 +731,7 @@
                     ]),
                 rewindMemoryDaysFlow,
                 // A thread opens under its own row and closes from the same row, and the
-                // page names the session it belongs to.
+                // page names the session it belongs to once its Details fold is opened.
                 UIFlow(
                     id: "journal.threads.open",
                     title: "A thread row opens its session's page and closes it again",
@@ -733,13 +745,25 @@
                             [
                                 .count(Selector.threadRows, .exactly(2)),
                                 .selected(Selector.agentThreadRow, false),
+                                .absent(Selector.threadDetails),
                                 .absent(Selector.threadSession),
                             ]
                         ),
                         .act(.press(Selector.agentThreadRow)),
-                        .wait(.element(Selector.threadSession)),
+                        .wait(.element(Selector.threadDetails)),
                         .check(
                             "opened",
+                            [
+                                .count(Selector.threadDetails, .exactly(1)),
+                                .value(Selector.threadDetails, .equals("false")),
+                                .absent(Selector.threadSession),
+                                .selected(Selector.agentThreadRow, true),
+                            ]
+                        ),
+                        .act(.press(Selector.threadDetails)),
+                        .wait(.element(Selector.threadSession)),
+                        .check(
+                            "details",
                             [
                                 .count(Selector.threadSession, .exactly(1)),
                                 .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
@@ -747,16 +771,18 @@
                             ]
                         ),
                         .act(.press(Selector.agentThreadRow)),
-                        .wait(.absent(Selector.threadSession)),
+                        .wait(.absent(Selector.threadDetails)),
                         .check(
                             "reclosed",
                             [
+                                .absent(Selector.threadDetails),
                                 .absent(Selector.threadSession),
                                 .selected(Selector.agentThreadRow, false),
                                 .count(Selector.threadRows, .exactly(2)),
                             ]
                         ),
                     ]),
+                threadsDetailsFlow,
                 // Show in Timeline leaves the lens for Timeline narrowed to the thread's
                 // rows, the state a row's context menu reaches, which this window cannot open.
                 UIFlow(
@@ -766,13 +792,23 @@
                     host: .console(.history, journalLens: .threads),
                     fixture: .static(.populated),
                     steps: [
+                        .wait(.element(Selector.agentThreadRow)),
                         .act(.press(Selector.agentThreadRow)),
                         .wait(.element(Selector.threadTimeline)),
                         .check(
                             "opened",
                             [
                                 .count(Selector.threadTimeline, .exactly(1)),
+                                .absent(Selector.threadSession),
+                            ]
+                        ),
+                        .act(.press(Selector.threadDetails)),
+                        .wait(.element(Selector.threadSession)),
+                        .check(
+                            "details",
+                            [
                                 .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                                .count(Selector.threadTimeline, .exactly(1)),
                             ]
                         ),
                         .act(.press(Selector.threadTimeline)),
@@ -809,19 +845,93 @@
                 host: .console(.home),
                 fixture: .static(.threadRequested),
                 steps: [
-                    .wait(.element(Selector.threadSession)),
+                    // The fold is shut on a thread the route opens, so the page is waited on
+                    // by its label and the id is read only after the fold is pressed.
+                    .wait(.element(Selector.threadDetails)),
                     .check(
                         "routed",
                         [
                             .value(Selector.tab(.history), .equals("1")),
                             .value(Selector.tab(.home), .equals("0")),
-                            .count(Selector.threadSession, .exactly(1)),
-                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            .count(Selector.threadDetails, .exactly(1)),
+                            .value(Selector.threadDetails, .equals("false")),
                             .selected(Selector.agentThreadRow, true),
                             .model(.pendingJournalThread, .isEmpty),
                         ]
                     ),
+                    .act(.press(Selector.threadDetails)),
+                    .wait(.element(Selector.threadSession)),
+                    .check(
+                        "details",
+                        [
+                            .count(Selector.threadSession, .exactly(1)),
+                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                        ]
+                    ),
                 ])
+        }
+
+        /// The id and folder sit in a fold that every opened thread starts shut, so a press
+        /// shows them and opening another thread shuts it again: the second page reads the
+        /// same as the first until its own fold is pressed. The populated fixture's two threads
+        /// are the omp session and the Claude Code session row 5 is linked to by its words.
+        private static var threadsDetailsFlow: UIFlow {
+            let folder = "/Users/harness/voiceour"
+            return UIFlow(
+                id: "journal.threads.details",
+                title: "An open thread's Details fold shows its id and folder and shuts when another thread opens",
+                tags: ["journal", "console", "threads"],
+                host: .console(.history, journalLens: .threads),
+                fixture: .static(.populated),
+                steps: [
+                    .wait(.element(Selector.agentThreadRow)),
+                    .act(.press(Selector.agentThreadRow)),
+                    .wait(.element(Selector.threadDetails)),
+                    .check(
+                        "folded",
+                        [
+                            .selected(Selector.agentThreadRow, true),
+                            .count(Selector.threadDetails, .exactly(1)),
+                            .value(Selector.threadDetails, .equals("false")),
+                            .absent(Selector.threadSession),
+                            .absent(Selector.threadFolder),
+                        ]
+                    ),
+                    .act(.press(Selector.threadDetails)),
+                    .wait(.element(Selector.threadSession)),
+                    .check(
+                        "unfolded",
+                        [
+                            .value(Selector.threadDetails, .equals("true")),
+                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            .value(Selector.threadFolder, .equals(folder)),
+                        ]
+                    ),
+                    .act(.press(Selector.wordsThreadRow)),
+                    .wait(.absent(Selector.threadSession)),
+                    .check(
+                        "switched",
+                        [
+                            .selected(Selector.wordsThreadRow, true),
+                            .selected(Selector.agentThreadRow, false),
+                            .count(Selector.threadDetails, .exactly(1)),
+                            .value(Selector.threadDetails, .equals("false")),
+                            .absent(Selector.threadSession),
+                            .absent(Selector.threadFolder),
+                        ]
+                    ),
+                    .act(.press(Selector.threadDetails)),
+                    .wait(.element(Selector.threadSession)),
+                    .check(
+                        "unfolded-again",
+                        [
+                            .value(Selector.threadDetails, .equals("true")),
+                            .value(Selector.threadSession, .equals(UIFixtures.wordsLinkedSession.sessionId)),
+                            .value(Selector.threadFolder, .equals(folder)),
+                        ]
+                    ),
+                ]
+            )
         }
 
         /// Rewind's days come from memory as well as History, so Earlier Day walks on past
@@ -995,7 +1105,8 @@
         /// An agent's outcome note shows on the page of the thread its `session` names, and
         /// nowhere while every thread is shut. Copy Outcome Prompt writes once through the
         /// harness pasteboard seam and shows the COPIED mark; the prompt names the scratch
-        /// memory folder, so its text is not checked.
+        /// memory folder, so its text is not checked. The page's id is read last, from its
+        /// Details fold, so the note and the prompt are checked on the page as it opens.
         private static var threadsOutcomePromptFlow: UIFlow {
             let outcome = UIQuery.within(
                 Selector.threadAgentNote,
@@ -1012,6 +1123,7 @@
                     .check(
                         "closed",
                         [
+                            .absent(Selector.threadDetails),
                             .absent(Selector.threadSession),
                             .absent(Selector.threadAgentNote),
                             .absent(Selector.outcomePrompt),
@@ -1019,14 +1131,15 @@
                         ]
                     ),
                     .act(.press(Selector.agentThreadRow)),
-                    .wait(.element(Selector.threadSession)),
+                    .wait(.element(Selector.threadDetails)),
                     // Notes load off the main actor, so the row is waited on, not assumed.
                     .wait(.element(outcome)),
                     .check(
                         "opened",
                         [
                             .selected(Selector.agentThreadRow, true),
-                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            .value(Selector.threadDetails, .equals("false")),
+                            .absent(Selector.threadSession),
                             .count(Selector.threadAgentNote, .exactly(1)),
                             .exists(outcome),
                             .enabled(Selector.outcomePrompt, true),
@@ -1042,6 +1155,15 @@
                             .exists(Selector.copiedMark),
                             .model(.pasteboardWrites, .equals("1")),
                             .exists(outcome),
+                        ]
+                    ),
+                    .act(.press(Selector.threadDetails)),
+                    .wait(.element(Selector.threadSession)),
+                    .check(
+                        "details",
+                        [
+                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            .model(.pasteboardWrites, .equals("1")),
                         ]
                     ),
                 ]

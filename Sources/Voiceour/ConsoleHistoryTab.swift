@@ -368,7 +368,7 @@ struct ConsoleHistoryTab: View {
             }
 
             if !query.isEmpty || appFilter != nil || agentSessionFilter != nil {
-                ConsoleCaption("\(filteredSessions.count) of \(coordinator.recentSessions.count) sessions match")
+                ConsoleCaption("\(filteredSessions.count) of \(coordinator.recentSessions.count) dictations match")
             }
         }
         // The search row shares its plate with every other row, so its own width is
@@ -412,7 +412,7 @@ struct ConsoleHistoryTab: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Show sessions from one app")
+        .help("Show dictations from one app")
         .accessibilityIdentifier("sessions.filter")
     }
 
@@ -480,7 +480,7 @@ struct ConsoleHistoryTab: View {
 
     private var emptyHistory: some View {
         ContentUnavailableView {
-            Text("No sessions yet")
+            Text("No dictations yet")
         } description: {
             Text("Completed dictations are kept here with their transcripts, timestamps and word counts.")
         } actions: {
@@ -599,6 +599,12 @@ struct ConsoleHistoryTab: View {
                         ConsoleStateMark(outcome.chip.label, outcome.severity)
                     }
 
+                    // The paste reached the pane but the agent never took it as a
+                    // prompt: without this mark the row reads PASTED and looks done.
+                    if session.agentSession?.isNotSent == true {
+                        ConsoleStateMark("NOT SENT", .warn)
+                    }
+
                     // A measurement, not a state: the marks beside it grade the
                     // capture, and a word count has nothing to grade.
                     Text(SessionsFormatters.wordCountLabel(session.wordCount))
@@ -627,7 +633,7 @@ struct ConsoleHistoryTab: View {
                                     )
                                     .accessibilityHidden(true)
                             }
-                            Text(identity.label)
+                            Text(Self.destinationName(for: session, appLabel: identity.label))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -747,6 +753,13 @@ struct ConsoleHistoryTab: View {
         appIdentity(for: session, bundleId: bundleId).label
     }
 
+    /// A bound row names its thread rather than its app: every bound row went to
+    /// the same terminal, so the app name tells rows apart by nothing, while the
+    /// thread names the conversation the words joined.
+    private static func destinationName(for session: RecentSession, appLabel: String) -> String {
+        session.agentSession?.displayTitle ?? appLabel
+    }
+
     /// Collapses a transcript to the index's one preview string.
     private static func preview(of session: RecentSession) -> String {
         let collapsed = session.text
@@ -768,8 +781,15 @@ struct ConsoleHistoryTab: View {
         var parts = [SessionsFormatters.timestamp.string(from: session.createdAt)]
         if let outcome = session.outcome {
             parts.append(outcome.chip.label)
+            if session.agentSession?.isNotSent == true {
+                parts.append("NOT SENT")
+            }
             if let bundleId = outcome.targetBundleId {
-                parts.append("to \(appLabel(for: session, bundleId: bundleId))")
+                let destination = Self.destinationName(
+                    for: session,
+                    appLabel: appLabel(for: session, bundleId: bundleId)
+                )
+                parts.append("to \(destination)")
             }
         }
         parts.append(SessionsFormatters.wordCountLabel(session.wordCount, pluralOnly: true))
@@ -1195,7 +1215,7 @@ struct ConsoleHistoryTab: View {
             // asked for it reports that the transcript survived on disk instead
             // of reporting nothing.
             guard isDurable else {
-                deleteError = "Could not delete this session — it is still on disk. Try again."
+                deleteError = "Could not delete this dictation — it is still on disk. Try again."
                 return
             }
         }

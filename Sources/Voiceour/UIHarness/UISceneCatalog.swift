@@ -367,6 +367,17 @@
                     journalLens: .threads,
                     tags: ["empty"]
                 ),
+                // The same empty lens with linking on: the setting is no longer the next step,
+                // so the lens names the paste that makes a thread. The fixture's one row is a
+                // paste into Tern whose link missed, so no thread exists.
+                console(
+                    "console.sessions.threads.empty.linking",
+                    "Journal Threads with no agent session yet and linking on",
+                    tab: .history,
+                    fixture: .pastedUnlinked,
+                    journalLens: .threads,
+                    tags: ["empty", "agent-link"]
+                ),
                 // The same two lenses over a memory folder that reaches past History: a day
                 // only memory holds, and the omp thread with entries older than any History row.
                 // The fixture's loader states an agent's recap of that day, so Rewind shows it

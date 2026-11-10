@@ -9,11 +9,12 @@ import VoiceMac
 /// One grouped form with exactly one thread open, the History shape: the open
 /// thread takes its own plate inside its project, directly under the row that
 /// opened it, so the page reads as one thing rather than as more index. The page
-/// leads with what identifies the session (its id and folder), then the two
-/// things a reader can do with it, then everything said into it, oldest first,
-/// because a session is read the way it was spoken. It ends with what the session's
-/// own agent reported about the work, attributed and dated, and the prompt that asks
-/// for that report, so the answer sits under the requests it answers.
+/// leads with what a reader can do with the session, then everything said into
+/// it, oldest first, because a session is read the way it was spoken; its id and
+/// folder sit folded under Details, because they identify the session for a
+/// machine more than for the reader. It ends with what the session's own agent
+/// reported about the work, attributed and dated, and the prompt that asks for
+/// that report, so the answer sits under the requests it answers.
 struct JournalThreadsLens: View {
     private let entries: [JournalEntry]
     private let historyIDs: Set<UUID>
@@ -22,6 +23,9 @@ struct JournalThreadsLens: View {
     /// choice survives a lens switch.
     @Binding private var openThread: AgentSessionKey?
     private let navigation: JournalNavigation
+    /// Whether new dictations link to agent sessions; picks what the empty lens tells
+    /// the reader to do, since with linking on the setting is no longer the next step.
+    private let bindingEnabled: Bool
     /// Removes an entry History no longer holds; nil offers no delete.
     private let delete: ((UUID) async -> Bool)?
     /// The topics an entry's "File Under" submenu offers.
@@ -46,6 +50,9 @@ struct JournalThreadsLens: View {
     /// The agent notes whose `session` names the open thread, newest modification first.
     /// Cached and refiltered only when the open thread or the notes change, never in `body`.
     @State private var openThreadNotes: [AgentNote] = []
+    /// Whether the open thread's Details fold is open; closed again whenever a
+    /// thread opens, so every page starts with the same reading.
+    @State private var showsDetails = false
 
     private var a11y = A11y()
 
@@ -55,6 +62,7 @@ struct JournalThreadsLens: View {
         lens: Binding<JournalLens>,
         openThread: Binding<AgentSessionKey?>,
         navigation: JournalNavigation,
+        bindingEnabled: Bool,
         delete: ((UUID) async -> Bool)? = nil,
         topics: [MemoryTopic] = [],
         file: ((UUID, String?) -> Void)? = nil,
@@ -67,6 +75,7 @@ struct JournalThreadsLens: View {
         self._lens = lens
         self._openThread = openThread
         self.navigation = navigation
+        self.bindingEnabled = bindingEnabled
         self.delete = delete
         self.topics = topics
         self.file = file
@@ -116,6 +125,7 @@ struct JournalThreadsLens: View {
             reload()
         }
         .onChange(of: openThread) {
+            showsDetails = false
             reloadOpenThreadNotes()
         }
         .onChange(of: agentNotes) {
@@ -209,15 +219,18 @@ struct JournalThreadsLens: View {
 
     // MARK: Empty states
 
-    /// Says how a thread comes to exist, because the link is opt-in and an empty
-    /// lens is otherwise indistinguishable from a broken one.
+    /// Says how a thread comes to exist, because an empty lens is otherwise
+    /// indistinguishable from a broken one: with linking off the setting is the
+    /// next step, with it on only a paste into an agent's pane in Tern is.
     private var noThreads: some View {
         ContentUnavailableView(
             "No agent sessions yet",
             systemImage: "bubble.left.and.text.bubble.right",
             description: Text(
-                "Turn on Link dictations to agent sessions in Settings \u{25B8} Privacy. "
-                    + "A dictation that you paste into Tern then joins its session here."
+                bindingEnabled
+                    ? "Paste a dictation into an omp or Claude Code pane in Tern."
+                    : "Turn on Link dictations to agent sessions in Settings \u{25B8} Privacy. "
+                        + "A dictation that you paste into Tern then joins its session here."
             )
         )
     }
@@ -333,9 +346,10 @@ struct JournalThreadsLens: View {
     }
 
     /// The name a reader knows the session by: its own title, else the folder it
-    /// ran in, else the start of its id, which is at least stable.
+    /// ran in, else its agent's, because an id prefix names nothing a reader knows.
+    /// The row and the page heading it opens both read it here, so they never differ.
     private static func title(of thread: JournalThread) -> String {
-        thread.ref.title ?? thread.ref.project ?? String(thread.ref.sessionId.prefix(8))
+        thread.ref.title ?? thread.ref.project ?? "\(thread.ref.agent.displayName) session"
     }
 
     // MARK: Page
@@ -344,17 +358,7 @@ struct JournalThreadsLens: View {
     private func openPage(_ thread: JournalThread) -> some View {
         row(for: thread, isOpen: true)
 
-        LabeledContent("Session") {
-            monospacedReadout(thread.ref.sessionId)
-                .accessibilityIdentifier("journal.threads.session")
-        }
-
-        if let directory = thread.ref.workingDirectory {
-            LabeledContent("Folder") {
-                monospacedReadout(directory)
-                    .accessibilityIdentifier("journal.threads.folder")
-            }
-        }
+        detailsRow(for: thread)
 
         let isInTimeline = thread.entries.contains { historyIDs.contains($0.id) }
         if thread.ref.resumable || isInTimeline {
@@ -371,7 +375,7 @@ struct JournalThreadsLens: View {
                     Button("Show in Timeline") {
                         navigation.showThreadInTimeline(thread.id)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderless)
                     .accessibilityIdentifier("journal.threads.timeline")
                 }
 
@@ -423,6 +427,34 @@ struct JournalThreadsLens: View {
                 }
             )
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// The session's id and folder, folded shut: the reader rarely needs them, and a
+    /// resumable session's resume command already carries both. Every newly opened
+    /// thread starts folded.
+    private func detailsRow(for thread: JournalThread) -> some View {
+        DisclosureGroup(isExpanded: $showsDetails) {
+            LabeledContent("Session") {
+                monospacedReadout(thread.ref.sessionId)
+                    .accessibilityIdentifier("journal.threads.session")
+            }
+
+            if let directory = thread.ref.workingDirectory {
+                LabeledContent("Folder") {
+                    monospacedReadout(directory)
+                        .accessibilityIdentifier("journal.threads.folder")
+                }
+            }
+        } label: {
+            Text("Details")
+                .accessibilityIdentifier("journal.threads.details")
+                // The triangle SwiftUI publishes answers an accessibility press with
+                // success and does not change its own state, so the label carries the
+                // default action a VoiceOver press performs.
+                .accessibilityAction {
+                    showsDetails.toggle()
+                }
         }
     }
 

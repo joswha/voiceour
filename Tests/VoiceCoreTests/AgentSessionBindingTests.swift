@@ -304,7 +304,7 @@ struct AgentSessionBindingTests {
 
     // MARK: Presentation
 
-    @Test func theDisplayTitleFallsBackFromTitleToFolderToTheStartOfTheId() {
+    @Test func theDisplayTitleFallsBackFromTitleToFolderToTheAgentsName() {
         func title(_ sessionTitle: String?, _ directory: String?, _ agent: CodingAgent = .omp) -> String {
             AgentSessionBinding(
                 agent: agent,
@@ -318,7 +318,7 @@ struct AgentSessionBindingTests {
         #expect(title("BIND: Voice", "/Users/v/voiceour") == "omp · BIND: Voice")
         #expect(title(nil, "/Users/v/voiceour") == "omp · voiceour")
         #expect(title(" ", "/Users/v/voiceour") == "omp · voiceour")
-        #expect(title(nil, nil, .claudeCode) == "Claude Code · 01a1c16f")
+        #expect(title(nil, nil, .claudeCode) == "Claude Code session")
     }
 
     @Test func theLocationLineOmitsTheFolderWhenTheTitleFellBackToIt() {
