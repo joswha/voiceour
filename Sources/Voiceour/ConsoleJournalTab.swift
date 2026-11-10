@@ -1,22 +1,25 @@
 import SwiftUI
 import VoiceCore
 
-/// The three ways the Journal reads the same record of what was said.
+/// The ways the Journal reads the same record of what was said.
 ///
 /// Timeline is History as it always was: one row per dictation, newest first,
 /// with the open transcript and its evidence. Rewind reads one day as runs of
-/// work on one subject, and Threads reads everything said into each agent
-/// session. Ordered as the segmented picker renders them.
+/// work on one subject, Threads reads everything said into each agent session,
+/// and Notes lists what was saved and pasted nowhere. Ordered as the segmented
+/// picker renders them.
 enum JournalLens: String, CaseIterable, Hashable {
     case timeline
     case rewind
     case threads
+    case notes
 
     var label: String {
         switch self {
         case .timeline: "Timeline"
         case .rewind: "Rewind"
         case .threads: "Threads"
+        case .notes: "Notes"
         }
     }
 }
@@ -124,6 +127,14 @@ struct ConsoleJournalTab: View {
                 delete: deleteEntry
             )
             .onAppear { coordinator.refreshAgentSessions() }
+        case .notes:
+            JournalNotesLens(
+                coordinator: coordinator,
+                entries: entries,
+                lens: $lens,
+                navigation: navigation,
+                delete: deleteEntry
+            )
         }
     }
 

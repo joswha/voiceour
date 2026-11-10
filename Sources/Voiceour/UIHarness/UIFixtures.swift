@@ -171,8 +171,8 @@
             case populated
             /// The populated History with memory switched on and a memory folder that
             /// reaches further back: the nine History rows plus twelve older dictations
-            /// History no longer holds, so the Journal shows days and thread entries
-            /// only memory can supply.
+            /// History no longer holds and three notes, so the Journal shows days, thread
+            /// entries and notes only memory can supply.
             case remembered
             /// Populated history, but every glossary term removed.
             case emptyGlossary
@@ -1011,15 +1011,27 @@
         // MARK: Fixed memory
 
         /// What the `remembered` fixture's memory folder holds, oldest first: twelve
-        /// dictations older than every History row, then the nine History rows under
-        /// their History ids, as turning the memory switch on would have kept them.
+        /// dictations and three notes older than every History row, then the nine History
+        /// rows under their History ids, as turning the memory switch on would have kept them.
         static let rememberedMemory: [MemoryEntry] =
-            olderMemory + history.reversed().map { MemoryEntry($0) }
+            (olderMemory + rememberedNotes).sorted { $0.createdAt < $1.createdAt }
+            + history.reversed().map { MemoryEntry($0) }
 
         /// The day `console.sessions.rewind.memory` opens Rewind on: 2025-05-28, older
         /// than every History row, holding a morning run in the omp session, a Slack
-        /// dictation, and the same session again that afternoon as a continued block.
+        /// dictation, a note, the same session again that afternoon as a continued block,
+        /// and a second note that evening as a continued Notes block.
         static let rememberedDay = startOfDay(daysBeforePinnedNow: 18)
+
+        /// A word exactly one remembered note holds, in its text and nowhere in the omp
+        /// session's title or project, so a Notes search on it leaves one row.
+        static let rememberedNoteQuery = "cable"
+
+        /// The three notes' texts, newest first, the order the Notes lens lists them in.
+        static let rememberedNoteTexts: [String] =
+            rememberedNotes
+            .sorted { $0.createdAt > $1.createdAt }
+            .map(\.text)
 
         /// Twelve dictations History no longer holds, over three days in two calendar
         /// months, so Rewind steps past History's oldest day and a month boundary, and
@@ -1145,9 +1157,38 @@
             ),
         ]
 
+        /// Three notes on two days: one taken in the fixture's omp session on 2025-05-20,
+        /// and two with no session on 2025-05-28, an afternoon apart, so the Notes lens has
+        /// two day groups and Rewind's memory day has a Notes block and its continuation.
+        /// A note has no send check, so the omp note's `sent` stays nil.
+        private static let rememberedNotes: [MemoryEntry] = [
+            rememberedNote(
+                index: 22,
+                daysAgo: 26,
+                at: (18, 20, 5),
+                text: "Ask whether month files should sort their keys before every write.",
+                captureSeconds: 3.9,
+                thread: ompThread(sent: nil)
+            ),
+            rememberedNote(
+                index: 23,
+                daysAgo: 18,
+                at: (12, 48, 30),
+                text: "Buy a spare charging cable before the Thursday planning call.",
+                captureSeconds: 3.2
+            ),
+            rememberedNote(
+                index: 24,
+                daysAgo: 18,
+                at: (19, 12, 44),
+                text: "Read a long thread page aloud once to hear how it sounds.",
+                captureSeconds: 3.6
+            ),
+        ]
+
         /// The fixture's omp session as a memory entry records it, under the title and
         /// directory its History rows carry, so the thread reads as one session.
-        private static func ompThread(sent: Bool) -> JournalThreadRef {
+        private static func ompThread(sent: Bool?) -> JournalThreadRef {
             JournalThreadRef(
                 agent: agentSession.agent,
                 sessionId: agentSession.sessionId,
@@ -1175,6 +1216,26 @@
                 text: text,
                 appBundleId: bundleId,
                 appName: appName,
+                thread: thread,
+                captureSeconds: captureSeconds
+            )
+        }
+
+        /// A note as memory keeps it: delivered nowhere, so it names no app.
+        private static func rememberedNote(
+            index: Int,
+            daysAgo: Int,
+            at time: (hour: Int, minute: Int, second: Int),
+            text: String,
+            captureSeconds: Double,
+            thread: JournalThreadRef? = nil
+        ) -> MemoryEntry {
+            MemoryEntry(
+                id: fixedIdentifier(index),
+                createdAt: startOfDay(daysBeforePinnedNow: daysAgo)
+                    .addingTimeInterval(Double(time.hour * 3_600 + time.minute * 60 + time.second)),
+                kind: .note,
+                text: text,
                 thread: thread,
                 captureSeconds: captureSeconds
             )

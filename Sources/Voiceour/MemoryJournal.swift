@@ -90,6 +90,92 @@ extension DictationCoordinator {
         commitMemory(entries: memoryEntries + [entry])
     }
 
+    /// Saves a note: what the user said, verbatim, as a memory entry that was
+    /// delivered nowhere. Saved whatever `settings.memoryEnabled` says, because
+    /// the user asked for this one to be kept. Returns the entry's id, or nil
+    /// for whitespace-only text, which is no note at all.
+    ///
+    /// The write goes through `commitMemory` and is never awaited here.
+    @discardableResult
+    func recordNote(text: String, captureSeconds: Double) -> UUID? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let entry = MemoryEntry(
+            id: runtime.makeUUID(),
+            createdAt: runtime.now(),
+            kind: .note,
+            text: text,
+            captureSeconds: captureSeconds
+        )
+        commitMemory(entries: memoryEntries + [entry])
+        return entry.id
+    }
+
+    /// Hands the capture `before`, taken right after the note's target
+    /// snapshot, to a task that links note `noteID` to the agent session in
+    /// that pane, or cancels it when binding no longer applies or the note is
+    /// gone or already linked. Returns at once.
+    ///
+    /// The task lives in `agentBindingTasks` under the note's id, so it has a
+    /// row binding's lifetime: quit and turning binding off cancel it, Clear
+    /// Memory cancels it with every note, and a later dictation touches none.
+    func startNoteSessionLink(
+        noteID: UUID,
+        target: TargetSnapshot,
+        before: Task<AgentFocusCapture?, Never>
+    ) {
+        guard agentSessionBindingApplies(to: target),
+            memoryEntries.contains(where: { $0.id == noteID && $0.thread == nil })
+        else {
+            before.cancel()
+            return
+        }
+        // Observed, never begun: a note's link must not invalidate a
+        // delivery's binding or a refresh pass.
+        let token = generations.currentToken(.agentLinking)
+        let identity = runtime.makeUUID()
+        let sessions = agentSessions
+        let task = Task { [weak self] in
+            let capture = await withTaskCancellationHandler {
+                await before.value
+            } onCancel: {
+                before.cancel()
+            }
+            guard let capture, !Task.isCancelled else {
+                self?.applyNoteSessionLink(nil, noteID: noteID, identity: identity, token: token)
+                return
+            }
+            let resolved = await sessions.resolve(target: target, before: capture)
+            self?.applyNoteSessionLink(resolved, noteID: noteID, identity: identity, token: token)
+        }
+        agentBindingTasks[noteID] = (identity: identity, task: task)
+    }
+
+    /// Lands one note link: drops its own task entry, then sets the note's
+    /// thread to `resolved` unless binding was turned off or its token
+    /// invalidated, the app is terminating, or the note is gone or already
+    /// linked. A note has no send check, so nothing refreshes afterwards.
+    func applyNoteSessionLink(
+        _ resolved: ResolvedAgentSession?,
+        noteID: UUID,
+        identity: UUID,
+        token: AsyncGenerationGate.Token
+    ) {
+        if agentBindingTasks[noteID]?.identity == identity {
+            agentBindingTasks.removeValue(forKey: noteID)
+        }
+        guard let resolved,
+            !Task.isCancelled,
+            generations.isCurrent(token),
+            settings.agentSessionBindingEnabled,
+            !isPreparingForTermination,
+            let index = memoryEntries.firstIndex(where: { $0.id == noteID }),
+            memoryEntries[index].thread == nil
+        else { return }
+        var entries = memoryEntries
+        entries[index].thread = JournalThreadRef(resolved)
+        commitMemory(entries: entries)
+    }
+
     /// Turns the memory switch on or off.
     ///
     /// On also keeps every History row the folder does not hold yet, matched
@@ -117,6 +203,11 @@ extension DictationCoordinator {
     @discardableResult
     public func clearMemory() async -> Bool {
         guard !isPreparingForTermination else { return false }
+        // A note's link would land on an entry this erase removes; a History
+        // row's binding stays, because the row outlives memory.
+        for entry in memoryEntries where entry.kind == .note {
+            cancelAgentSessionBinding(rowID: entry.id)
+        }
         memoryEntries = []
         memoryTopics = []
         memoryRevision += 1

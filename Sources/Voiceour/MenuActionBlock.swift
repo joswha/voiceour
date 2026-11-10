@@ -7,6 +7,9 @@ struct MenuActionBlock: View {
     let dictationTitle: String
     let dictationRowTitle: String
     let startOrStopDictation: () -> Void
+    /// Starts a recording that is saved as a note, or nil while a session is in
+    /// flight: a recording offers its stop action and nothing else.
+    let takeNote: (() -> Void)?
     /// The failure the rows offer a way out of, when there is one.
     let failure: UserFacingDictationFailure?
     let retry: () -> Void
@@ -19,6 +22,7 @@ struct MenuActionBlock: View {
         dictationTitle: String,
         dictationRowTitle: String,
         startOrStopDictation: @escaping () -> Void,
+        takeNote: (() -> Void)? = nil,
         failure: UserFacingDictationFailure? = nil,
         retry: @escaping () -> Void = {}
     ) {
@@ -26,6 +30,7 @@ struct MenuActionBlock: View {
         self.dictationTitle = dictationTitle
         self.dictationRowTitle = dictationRowTitle
         self.startOrStopDictation = startOrStopDictation
+        self.takeNote = takeNote
         self.failure = failure
         self.retry = retry
     }
@@ -69,6 +74,14 @@ struct MenuActionBlock: View {
                     startOrStopDictation()
                 }
             } else {
+                // A note records through the same microphone and model as a
+                // dictation, so beside a failure's remedy it would buy the same
+                // failure; leaving it out there also keeps the container at the
+                // three rows the popover's height was measured for.
+                if let takeNote, !offersFailureRemedy {
+                    MenuCommandRow(title: "Take a Note", closingRule: true) { takeNote() }
+                        .accessibilityIdentifier("menu.take-note")
+                }
                 MenuCommandRow(title: "Open Console", accessory: .chevron, closingRule: true) {
                     openConsole()
                 }
@@ -87,6 +100,12 @@ struct MenuActionBlock: View {
                     lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
                 )
         }
+    }
+
+    /// Whether the container opens with a row that leads out of `failure`.
+    private var offersFailureRemedy: Bool {
+        guard let failure else { return false }
+        return failure.isRetryable || failure.destination == .systemSettings
     }
 
     /// `openWindow` creates the window on the launch where it does not exist yet;

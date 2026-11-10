@@ -154,8 +154,9 @@ extension DictationCoordinator {
         var audioURL: URL?
         defer { removeTemporaryAudio(&audioURL) }
         // The host's focused pane, captured before the paste. Handed to
-        // `startAgentSessionBinding` once the outcome is recorded; every exit
-        // before that cancels it.
+        // `startAgentSessionBinding` once the outcome is recorded, or to
+        // `startNoteSessionLink` once a note is saved; every exit before that
+        // cancels it.
         var agentFocusCapture: (task: Task<AgentFocusCapture?, Never>, boundAt: Date)?
         defer { agentFocusCapture?.task.cancel() }
         // The mute resolves concurrently with recorder start; await the pending
@@ -269,8 +270,12 @@ extension DictationCoordinator {
             // paste. `PasteboardInserter` re-checks target identity itself before it
             // writes the pasteboard and again before posting Cmd-V, so an app switch
             // inside this window still degrades to copy-only rather than pasting
-            // somewhere unintended.
-            state = .readyToInsert
+            // somewhere unintended. A session started as a note has no delivery
+            // to get ready for; a spoken note cannot know it is one until the
+            // target is read, and the target also decides whether it may be one.
+            if captureIntent == .deliver {
+                state = .readyToInsert
+            }
             let insertionTarget = tracker.snapshot()
             updateTargetLabel(for: insertionTarget)
             // Started before the journal write and the paste, so the pane that
@@ -282,6 +287,31 @@ extension DictationCoordinator {
                     task: Task { await sessions.capture(target: insertionTarget) },
                     boundAt: runtime.now()
                 )
+            }
+
+            if let note = noteText(from: finalText, language: textStage.language, target: insertionTarget) {
+                // Delivered nowhere: no History row, no ledger fold, no
+                // pasteboard write, no paste. The focus capture above is the
+                // one thing it shares with a delivery, handed to the note's
+                // link or cancelled by the `defer`.
+                lastTranscript = note
+                guard let noteID = recordNote(text: note, captureSeconds: Double(audio.meta.durationMs) / 1000)
+                else {
+                    finishCancelledProcessing(generation: generation)
+                    return
+                }
+                completeFirstRun()
+                if !Task.isCancelled, generations.isCurrent(generation) {
+                    lastSavedNoteID = noteID
+                }
+                if let capture = agentFocusCapture {
+                    agentFocusCapture = nil
+                    startNoteSessionLink(noteID: noteID, target: insertionTarget, before: capture.task)
+                }
+                state = .noteSaved
+                refreshTarget()
+                resetToIdleWhenInactive(generation: generation)
+                return
             }
 
             // A secure field is the one target whose text must not outlive the
@@ -410,6 +440,21 @@ extension DictationCoordinator {
                     acquisitionFraction: modelDownloadFraction
                 )
             )
+        }
+    }
+
+    /// The text to save as a note, or nil when this dictation is delivered.
+    ///
+    /// A session started as a note saves everything it heard, whatever has
+    /// focus. Any other dictation becomes a note only through the spoken
+    /// prefix, and never in a secure target: a password field's dictation
+    /// takes the secure path, the prefix's words included.
+    private func noteText(from finalText: String, language: DictationLanguage?, target: TargetSnapshot) -> String? {
+        switch captureIntent {
+        case .note:
+            finalText
+        case .deliver:
+            target.safety == .secure ? nil : NotePrefix.strip(from: finalText, language: language)
         }
     }
 }

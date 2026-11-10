@@ -44,6 +44,11 @@ public final class DictationCoordinator {
             // Escape belongs to the focused app at every other moment, so the
             // binder only claims it while the overlay is on screen.
             hotkey.setCancelArmed(state.isActive)
+            // Every way a session ends or is refused lands on an inactive
+            // state, so the intent cannot outlive the session it was for.
+            if !state.isActive, captureIntent != .deliver {
+                captureIntent = .deliver
+            }
         }
     }
     public var settings: VoiceCore.Settings
@@ -58,6 +63,12 @@ public final class DictationCoordinator {
     public internal(set) var islandDraft: IslandAppearance?
     public private(set) var targetLabel: String = "No target"
     public internal(set) var lastOutcome: InsertionOutcome?
+    /// What the session in flight is for; `.deliver` while idle. Set by an
+    /// accepted `start(intent:)` and reset whenever the session ends.
+    public internal(set) var captureIntent: CaptureIntent = .deliver
+    /// The memory entry the last session saved as a note, read with
+    /// `lastOutcome` by the menu's report. Cleared by the next start.
+    public internal(set) var lastSavedNoteID: UUID?
     public internal(set) var lastTranscript: String = ""
     /// The last failure's plain-language cause, for surfaces that show one line.
     public internal(set) var errorMessage: String?
@@ -117,11 +128,11 @@ public final class DictationCoordinator {
     let sessionCues: SessionCuePlaying
     let agentSessions: AgentSessionResolving
     let agentSessionReader: AgentSessionReading
-    /// Each row's binding task in flight, keyed by row; see
-    /// `startAgentSessionBinding`. The identity guards removal against a newer
-    /// owner.
+    /// Each binding task in flight, keyed by the History row or the note it
+    /// links; see `startAgentSessionBinding` and `startNoteSessionLink`. The
+    /// identity guards removal against a newer owner.
     @ObservationIgnored
-    var agentBindingTasks: [RecentSession.ID: (identity: UUID, task: Task<Void, Never>)] = [:]
+    var agentBindingTasks: [UUID: (identity: UUID, task: Task<Void, Never>)] = [:]
     /// The agent-session refresh pass in flight; see `refreshAgentSessions()`.
     @ObservationIgnored
     var agentRefreshTask: Task<Void, Never>?
@@ -648,7 +659,7 @@ public final class DictationCoordinator {
 
     public func toggle() {
         switch state {
-        case .idle, .pasteAttempted, .copiedOnly, .insertFailed, .error, .cancelled:
+        case .idle, .pasteAttempted, .copiedOnly, .insertFailed, .noteSaved, .error, .cancelled:
             start()
         case .recording:
             stopAndProcess()
@@ -659,7 +670,10 @@ public final class DictationCoordinator {
         }
     }
 
-    public func start() {
+    /// Starts a session whose words go where `intent` says: delivered to the
+    /// focused target, or saved to memory as a note. The hotkey, the island
+    /// and the harness start with `.deliver`.
+    public func start(intent: CaptureIntent = .deliver) {
         guard !isPreparingForTermination else { return }
         guard !isCancellingRecording else { return }
         // A live recording or in-flight processing owns the recorder; starting
@@ -670,7 +684,9 @@ public final class DictationCoordinator {
         errorMessage = nil
         lastFailure = nil
         lastOutcome = nil
+        lastSavedNoteID = nil
         lastTranscript = ""
+        captureIntent = intent
         inputMeter.setLive(false)
         stopInputMetering()
         state = .checkingPermissions
@@ -705,6 +721,12 @@ public final class DictationCoordinator {
                 }
             }
         }
+    }
+
+    /// Starts a session that saves what the user says as a note and delivers
+    /// it nowhere.
+    public func startNote() {
+        start(intent: .note)
     }
 
     /// Reports a refused start and returns to idle, the same shape as a denied

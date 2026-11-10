@@ -9,12 +9,15 @@ public enum SessionState: Equatable, Sendable {
     case pasteAttempted
     case copiedOnly(reason: String)
     case insertFailed(reason: String)
+    /// A note was saved to memory and delivered nowhere. Terminal, like the
+    /// delivery outcomes it stands in for.
+    case noteSaved
     case error(ASRErrorCode)
     case cancelled
 
     public var isActive: Bool {
         switch self {
-        case .idle, .pasteAttempted, .copiedOnly, .insertFailed, .error, .cancelled:
+        case .idle, .pasteAttempted, .copiedOnly, .insertFailed, .noteSaved, .error, .cancelled:
             false
         default:
             true
@@ -42,6 +45,7 @@ public enum SessionState: Equatable, Sendable {
         case .pasteAttempted: "Paste attempted"
         case .copiedOnly(let reason): "Copied: \(reason)"
         case .insertFailed(let reason): "Delivery failed: \(reason)"
+        case .noteSaved: "Note saved"
         case .error(let code): "Error: \(code.rawValue)"
         case .cancelled: "Cancelled"
         }

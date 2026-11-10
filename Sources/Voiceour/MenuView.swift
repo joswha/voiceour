@@ -48,7 +48,7 @@ struct MenuView: View {
                 MenuReportBlock(
                     text: coordinator.lastTranscript,
                     isCopied: $didCopyTranscript,
-                    summary: reportedOutcome?.summary
+                    summary: reportedSummary
                 )
             }
             MenuActionBlock(
@@ -56,6 +56,7 @@ struct MenuView: View {
                 dictationTitle: dictationTitle,
                 dictationRowTitle: dictationRowTitle,
                 startOrStopDictation: { coordinator.toggle() },
+                takeNote: takeNote,
                 failure: coordinator.lastFailure ?? coordinator.acquisitionFailure,
                 retry: { coordinator.warmUpBackend() }
             )
@@ -82,6 +83,7 @@ struct MenuView: View {
             .animation(transition, value: coordinator.state)
             .animation(transition, value: coordinator.lastTranscript)
             .animation(transition, value: coordinator.errorMessage)
+            .animation(transition, value: coordinator.lastSavedNoteID)
             .animation(transition, value: didCopyTranscript)
             .onChange(of: coordinator.lastTranscript) {
                 didCopyTranscript = false
@@ -111,8 +113,17 @@ struct MenuView: View {
         if let acquisition = acquisitionHeadline {
             return (acquisition, VoiceourPalette.Signal.amber, coordinator.modelDownloadFraction)
         }
-        guard reportedOutcome == nil else { return nil }
-        return (coordinator.targetLabel, nil, nil)
+        guard reportedSummary == nil else { return nil }
+        return (targetLine, nil, nil)
+    }
+
+    /// A note is delivered nowhere, so while one is in flight the promise names
+    /// where it goes instead of the app that happens to have focus.
+    private var targetLine: String {
+        if coordinator.state.isActive, coordinator.captureIntent == .note {
+            return "Will save as a note"
+        }
+        return coordinator.targetLabel
     }
 
     /// What the model is doing when it is not ready. Downloading reports its own
@@ -130,7 +141,7 @@ struct MenuView: View {
     // MARK: Report
 
     private var hasReport: Bool {
-        !coordinator.lastTranscript.isEmpty || reportedOutcome != nil
+        !coordinator.lastTranscript.isEmpty || reportedSummary != nil
     }
 
     /// The terminal outcome the chip and the detail line both read from.
@@ -144,10 +155,33 @@ struct MenuView: View {
         return coordinator.lastOutcome
     }
 
+    /// What the chip and the detail line report: the delivery outcome, else a
+    /// saved note. `.noteSaved` lives one main-actor turn like the delivery
+    /// states, so the note is read from `lastSavedNoteID`, which holds until the
+    /// next start, under the same gate as the outcome.
+    private var reportedSummary: InsertionOutcomeSummary? {
+        if let outcome = reportedOutcome {
+            return outcome.summary
+        }
+        guard coordinator.errorMessage == nil, !coordinator.state.isActive,
+            coordinator.lastSavedNoteID != nil
+        else {
+            return nil
+        }
+        return .noteSaved
+    }
+
     // MARK: Actions
 
     private var isGated: Bool {
         coordinator.errorMessage != nil
+    }
+
+    /// Offered only between sessions and outside a gate: a session in flight
+    /// offers its stop action alone, and a gated menu points at the console.
+    private var takeNote: (() -> Void)? {
+        guard !isGated, !coordinator.state.isActive else { return nil }
+        return { coordinator.startNote() }
     }
 
     /// The primary capsule speaks the app's button voice; the same command
@@ -165,7 +199,8 @@ struct MenuView: View {
     /// Terminal outcomes name themselves. The three `SessionState` cases that
     /// used to supply those labels live for exactly one main-actor turn before
     /// `resetToIdleWhenInactive` flips them to `.idle`, so reading them here
-    /// rendered `IDLE` over a dictation that had just failed to paste.
+    /// rendered `IDLE` over a dictation that had just failed to paste. A saved
+    /// note names itself the same way, and `.noteSaved` falls to `IDLE` with them.
     ///
     /// An unacknowledged `errorMessage` is read the same way, and for the same
     /// reason: a microphone denial now returns to idle rather than parking the
@@ -173,7 +208,7 @@ struct MenuView: View {
     /// it describes. The headline above is gated on the same value, so the label
     /// and the reason appear together and clear together on the next `start()`.
     private var statusLabel: String {
-        if let summary = reportedOutcome?.summary {
+        if let summary = reportedSummary {
             return summary.label
         }
         // The failure names itself: "MODEL NEEDED" and "MIC BLOCKED" say what to do
@@ -205,7 +240,7 @@ struct MenuView: View {
     /// still arriving, a refusal is amber rather than crimson, so "DOWNLOADING
     /// MODEL" is painted as the wait it is instead of as a fault.
     private var statusMode: StatusChip.Mode {
-        if let summary = reportedOutcome?.summary {
+        if let summary = reportedSummary {
             switch summary.severity {
             case .crit: return .crit
             case .warn: return .warn

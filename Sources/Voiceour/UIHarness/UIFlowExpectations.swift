@@ -300,6 +300,13 @@
                 return scalarProbe(coordinator.recentSessions.count)
             case .memoryEntryCount:
                 return scalarProbe(coordinator.memoryEntries.count)
+            case .noteCount:
+                return scalarProbe(coordinator.memoryEntries.filter { $0.kind == .note }.count)
+            case .lastSavedNote:
+                let saved = coordinator.lastSavedNoteID.flatMap { id in
+                    coordinator.memoryEntries.first { $0.id == id }
+                }
+                return quotedProbe(saved?.text ?? "")
             case .glossaryTermCount:
                 return scalarProbe(coordinator.settings.glossary.filter { $0.tombstonedAt == nil }.count)
             case .cleanupEnabled:

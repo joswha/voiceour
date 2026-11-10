@@ -1,0 +1,22 @@
+flow: dictation.note.menu
+title: Take a Note saves the dictation to memory and delivers it nowhere
+fixture: dictation
+transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> noteSaved -> idle
+PASS 1 idle | role id=menu.take-note == AXButton | AXButton
+PASS 2 idle | enabled(true) id=menu.take-note | true
+PASS 3 idle | model recentSessionCount == "0" | 0
+PASS 4 idle | model noteCount == "0" | 0
+PASS 5 live | state == recording | recording
+PASS 6 live | text == "Will save as a note" exactly 1 | 1 match
+PASS 7 live | absent id=menu.take-note | 0 matches
+PASS 8 live | enabled(true) label="STOP DICTATION" | true
+PASS 9 saved | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> noteSaved -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> noteSaved -> idle
+PASS 10 saved | text == "NOTE SAVED" exactly 1 | 1 match
+PASS 11 saved | text == "Saved to memory. Nothing was pasted or copied." exactly 1 | 1 match
+PASS 12 saved | model recentSessionCount == "0" | 0
+PASS 13 saved | model deliveryCount == "0" | 0
+PASS 14 saved | model pasteboardWrites == "0" | 0
+PASS 15 saved | model noteCount == "1" | 1
+PASS 16 saved | model lastSavedNote == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 17 saved | model transcript == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
+PASS 18 saved | exists id=menu.take-note | 1 match

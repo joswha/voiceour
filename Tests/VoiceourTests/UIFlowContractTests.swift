@@ -49,11 +49,12 @@
                 (.pasteAttempted, .pasteAttempted),
                 (.copiedOnly(reason: "unsafe target"), .copiedOnly),
                 (.insertFailed(reason: "event post failed"), .insertFailed),
+                (.noteSaved, .noteSaved),
                 (.error(.inferenceFailed), .error),
                 (.cancelled, .cancelled),
             ]
 
-            #expect(cases.count == 12)
+            #expect(cases.count == 13)
             #expect(Set(cases.map(\.1)) == Set(UIStatePattern.allCases))
             for (state, expected) in cases {
                 #expect(UIStatePattern.of(state) == expected)

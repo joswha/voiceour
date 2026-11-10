@@ -326,7 +326,6 @@ struct JournalRewindLens: View {
                     Button("Copy Resume Command") { copyResumeCommand(ref) }
                 }
             }
-            .accessibilityIdentifier("journal.rewind.thread")
     }
 
     private func entryRow(_ entry: JournalEntry) -> some View {
@@ -371,6 +370,13 @@ struct JournalRewindLens: View {
         self.days = days
         recentDays = Array(days.prefix(Self.recentDayLimit))
         olderMonths = Self.months(of: days.dropFirst(Self.recentDayLimit), calendar: calendar)
+        // The tab hands the entries over one turn after the lens first appears. A day
+        // chosen before they arrive must survive that empty first pass, or a pinned
+        // day would be traded for the newest one.
+        guard !days.isEmpty else {
+            rewind = nil
+            return
+        }
 
         let wanted = selectedDay.map { calendar.startOfDay(for: $0) }
         let resolved = wanted.flatMap { days.contains($0) ? $0 : nil } ?? days.first

@@ -145,6 +145,18 @@ public struct JournalThreadRef: Codable, Equatable, Sendable {
         )
     }
 
+    /// The session a note was linked to, straight from the resolver. A note
+    /// has no send check, so `sent` stays nil.
+    public init(_ resolved: ResolvedAgentSession) {
+        self.init(
+            agent: resolved.agent,
+            sessionId: resolved.sessionId,
+            title: resolved.sessionTitle,
+            workingDirectory: resolved.workingDirectory,
+            resumable: resolved.resumable
+        )
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         agent = try container.decode(CodingAgent.self, forKey: .agent)

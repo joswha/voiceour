@@ -159,6 +159,7 @@
         case pasteAttempted
         case copiedOnly
         case insertFailed
+        case noteSaved
         case error
         case cancelled
 
@@ -178,6 +179,7 @@
             case .pasteAttempted: return .pasteAttempted
             case .copiedOnly: return .copiedOnly
             case .insertFailed: return .insertFailed
+            case .noteSaved: return .noteSaved
             case .error: return .error
             case .cancelled: return .cancelled
             }
@@ -217,6 +219,12 @@
         /// Decimal count of `coordinator.memoryEntries` — everything the memory
         /// folder holds, which nothing caps.
         case memoryEntryCount
+        /// Decimal count of `coordinator.memoryEntries` whose kind is `.note`, so a note
+        /// journey proves what it saved apart from the dictations memory already holds.
+        case noteCount
+        /// Text of the memory entry `coordinator.lastSavedNoteID` names (empty when none):
+        /// what was saved, read back from memory rather than from the transcript.
+        case lastSavedNote
         /// Decimal count of active glossary terms in settings.
         case glossaryTermCount
         /// `true`/`false` for `settings.cleanupEnabled`.

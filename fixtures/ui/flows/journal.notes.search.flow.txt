@@ -1,0 +1,22 @@
+flow: journal.notes.search
+title: A Notes search narrows to the one note that holds the word and clears back to every note
+fixture: static
+transitions: idle
+PASS 1 listed | count label~=", note, " exactly 3 | 3 matches
+PASS 2 listed | absent id=journal.notes.search.clear | 0 matches
+PASS 3 listed | model noteCount == "3" | 3
+PASS 4 listed | count label~="Read a long thread page aloud once to hear how it sounds." exactly 1 | 1 match
+PASS 5 listed | count label~="Buy a spare charging cable before the Thursday planning call." exactly 1 | 1 match
+PASS 6 listed | count label~="Ask whether month files should sort their keys before every write." exactly 1 | 1 match
+PASS 7 matched | count label~=", note, " exactly 1 | 1 match
+PASS 8 matched | value id=journal.notes.search == "cable" | "cable"
+PASS 9 matched | exists id=journal.notes.search.clear | 1 match
+PASS 10 matched | model noteCount == "3" | 3
+PASS 11 matched | count label~="Buy a spare charging cable before the Thursday planning call." exactly 1 | 1 match
+PASS 12 matched | absent label~="Read a long thread page aloud once to hear how it sounds." | 0 matches
+PASS 13 matched | absent label~="Ask whether month files should sort their keys before every write." | 0 matches
+PASS 14 restored | value id=journal.notes.search is empty | ""
+PASS 15 restored | count label~=", note, " exactly 3 | 3 matches
+PASS 16 restored | count label~="Read a long thread page aloud once to hear how it sounds." exactly 1 | 1 match
+PASS 17 restored | count label~="Buy a spare charging cable before the Thursday planning call." exactly 1 | 1 match
+PASS 18 restored | count label~="Ask whether month files should sort their keys before every write." exactly 1 | 1 match

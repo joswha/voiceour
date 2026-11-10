@@ -19,6 +19,11 @@
             "The offscreen harness renders every console pane without stealing focus."
         private static let dictatedRawText =
             "The offscreen harness renders renders every console pane without stealing focus."
+        /// `dictatedText` behind the spoken note command, as recognition punctuates it:
+        /// the command and its comma are dropped and the note's first letter capitalised,
+        /// so the saved note is `dictatedText` exactly.
+        private static let spokenNoteText =
+            "Note to self, the offscreen harness renders every console pane without stealing focus."
         private static let pasteBundleID = "com.example.Writer"
         private static let terminalBundleID = "com.apple.Terminal"
         private static let glossaryTerm = "FlowTerm"
@@ -145,6 +150,23 @@
             static let threadSession = UIQuery.id("journal.threads.session")
             static let threadTimeline = UIQuery.id("journal.threads.timeline")
             static let clearAgentFilter = UIQuery.id("sessions.agent-filter.clear")
+
+            // Journal ▸ Notes. Every note row's label reads "<time>, note, <text>", so the
+            // mark between commas counts note rows and a note's text addresses one of them.
+            static let notesSearch = UIQuery.id("journal.notes.search")
+            static let clearNotesSearch = UIQuery.id("journal.notes.search.clear")
+            static let noteRows = UIQuery.labelContains(", note, ")
+
+            static func noteRow(_ text: String) -> UIQuery {
+                .labelContains(text)
+            }
+
+            // The menu's "Take a Note" row, offered only between sessions, and what its
+            // status line and report say while a note records and once it is saved.
+            static let takeNote = UIQuery.id("menu.take-note")
+            static let noteTargetLine = "Will save as a note"
+            static let noteSavedLabel = "NOTE SAVED"
+            static let noteSavedDetail = "Saved to memory. Nothing was pasted or copied."
 
             static let addTermButton = UIQuery.id("glossary.add-term")
             static let glossarySearch = UIQuery.id("glossary.search.field")
@@ -671,6 +693,7 @@
                             ]
                         ),
                     ]),
+                notesSearchFlow,
             ]
         }
 
@@ -706,6 +729,54 @@
                 host: .console(.history, journalLens: .rewind),
                 fixture: .static(.remembered),
                 steps: opened + walk + checked
+            )
+        }
+
+        /// The Notes search runs over every note at once: a word one note holds leaves that
+        /// note's row alone, and clearing the search brings every note back. Which rows match
+        /// is read from the fixture's own texts, so the query and the rows cannot drift apart.
+        private static var notesSearchFlow: UIFlow {
+            let query = UIFixtures.rememberedNoteQuery
+            let texts = UIFixtures.rememberedNoteTexts
+            let matched = texts.filter { $0.lowercased().contains(query) }
+            let hidden = texts.filter { !$0.lowercased().contains(query) }
+            let total = String(texts.count)
+            let everyRow: [UIExpectation] = texts.map { .count(Selector.noteRow($0), .exactly(1)) }
+            let matchedRows: [UIExpectation] = matched.map { .count(Selector.noteRow($0), .exactly(1)) }
+            let hiddenRows: [UIExpectation] = hidden.map { .absent(Selector.noteRow($0)) }
+            let listedChecks: [UIExpectation] = [
+                .count(Selector.noteRows, .exactly(texts.count)),
+                .absent(Selector.clearNotesSearch),
+                .model(.noteCount, .equals(total)),
+            ]
+            let matchedChecks: [UIExpectation] = [
+                .count(Selector.noteRows, .exactly(1)),
+                .value(Selector.notesSearch, .equals(query)),
+                .exists(Selector.clearNotesSearch),
+                .model(.noteCount, .equals(total)),
+            ]
+            let restoredChecks: [UIExpectation] = [
+                .value(Selector.notesSearch, .isEmpty),
+                .count(Selector.noteRows, .exactly(texts.count)),
+            ]
+
+            var steps: [UIFlowStep] = texts.map { .wait(.element(Selector.noteRow($0))) }
+            steps.append(.check("listed", listedChecks + everyRow))
+            steps.append(.act(.type(query, into: Selector.notesSearch)))
+            steps.append(.wait(.element(Selector.clearNotesSearch)))
+            steps += hidden.map { UIFlowStep.wait(.absent(Selector.noteRow($0))) }
+            steps.append(.check("matched", matchedChecks + matchedRows + hiddenRows))
+            steps.append(.act(.press(Selector.clearNotesSearch)))
+            steps.append(.wait(.absent(Selector.clearNotesSearch)))
+            steps += hidden.map { UIFlowStep.wait(.element(Selector.noteRow($0))) }
+            steps.append(.check("restored", restoredChecks + everyRow))
+            return UIFlow(
+                id: "journal.notes.search",
+                title: "A Notes search narrows to the one note that holds the word and clears back to every note",
+                tags: ["journal", "console", "notes", "search", "memory"],
+                host: .console(.history, journalLens: .notes),
+                fixture: .static(.remembered),
+                steps: steps
             )
         }
 
@@ -1461,6 +1532,8 @@
                 cancelledFlow,
                 asrErrorFlow,
                 asrRecoveryFlow,
+                noteMenuFlow,
+                noteSpokenPrefixFlow,
                 UIFlow(
                     id: "menu.copy-transcript",
                     title: "The last transcript can be copied from its card",
@@ -1733,6 +1806,115 @@
                     ),
                 ]
             )
+        }
+
+        /// The menu's Take a Note row starts a recording whose words are saved to memory
+        /// and delivered nowhere: the state machine skips `.readyToInsert` because there is
+        /// no delivery to get ready for, and ends on `.noteSaved`.
+        private static var noteMenuFlow: UIFlow {
+            UIFlow(
+                id: "dictation.note.menu",
+                title: "Take a Note saves the dictation to memory and delivers it nowhere",
+                tags: ["menu", "dictation", "note", "memory"],
+                host: .menu,
+                fixture: noteFixture(transcript: dictatedText),
+                steps: noteSteps(
+                    start: Selector.takeNote,
+                    noteTargetLines: 1,
+                    states: [
+                        .idle, .checkingPermissions, .recording, .finalizingAudio,
+                        .transcribing, .cleaning, .noteSaved, .idle,
+                    ]
+                ))
+        }
+
+        /// "Note to self" at the start of an ordinary dictation files it as a note. The
+        /// session is a delivery until the words are read, so it passes `.readyToInsert`
+        /// before the prefix turns it into a note, and the note is saved without the prefix.
+        private static var noteSpokenPrefixFlow: UIFlow {
+            UIFlow(
+                id: "dictation.note.spoken-prefix",
+                title: "A dictation that starts with note to self is saved as a note without the prefix",
+                tags: ["menu", "dictation", "note", "memory"],
+                host: .menu,
+                fixture: noteFixture(transcript: spokenNoteText),
+                steps: noteSteps(
+                    start: Selector.startDictation,
+                    noteTargetLines: 0,
+                    states: [
+                        .idle, .checkingPermissions, .recording, .finalizingAudio,
+                        .transcribing, .cleaning, .readyToInsert, .noteSaved, .idle,
+                    ]
+                ))
+        }
+
+        /// A note never reaches the insertion boundary, so arming it would leave a gate no
+        /// script can release. The target is an ordinary text field, where a spoken note is
+        /// honoured and a delivery would have pasted.
+        private static func noteFixture(transcript: String) -> UIFlowFixture {
+            .dictation(
+                transcript: transcript,
+                outcome: .pasteAttempted,
+                targetBundleID: pasteBundleID,
+                targetSafety: .normalText,
+                reaches: [.permission, .recorderStop, .transcription]
+            )
+        }
+
+        /// One note from start to the menu's report. `noteTargetLines` is how many times
+        /// the status line promises a note while recording: once for a session started as
+        /// a note, never for a dictation that only becomes one when its words are read.
+        private static func noteSteps(
+            start: UIQuery,
+            noteTargetLines: Int,
+            states: [UIStatePattern]
+        ) -> [UIFlowStep] {
+            [
+                .check(
+                    "idle",
+                    [
+                        .role(Selector.takeNote, "AXButton"),
+                        .enabled(Selector.takeNote, true),
+                        .model(.recentSessionCount, .equals("0")),
+                        .model(.noteCount, .equals("0")),
+                    ]
+                ),
+                .act(.press(start)),
+                .wait(.state(.checkingPermissions)),
+                .release(.permission),
+                .wait(.state(.recording)),
+                .check(
+                    "live",
+                    [
+                        .state(.recording),
+                        .text(.equals(Selector.noteTargetLine), .exactly(noteTargetLines)),
+                        // A session in flight offers its stop action alone.
+                        .absent(Selector.takeNote),
+                        .enabled(Selector.stopDictation, true),
+                    ]
+                ),
+                .act(.press(Selector.stopDictation)),
+                .wait(.state(.finalizingAudio)),
+                .release(.recorderStop),
+                .wait(.state(.transcribing)),
+                .release(.transcription),
+                .wait(.state(.idle)),
+                .check(
+                    "saved",
+                    [
+                        .transitions(states, .exact),
+                        .text(.equals(Selector.noteSavedLabel), .exactly(1)),
+                        .text(.equals(Selector.noteSavedDetail), .exactly(1)),
+                        .model(.recentSessionCount, .equals("0")),
+                        .model(.deliveryCount, .equals("0")),
+                        .model(.pasteboardWrites, .equals("0")),
+                        .model(.noteCount, .equals("1")),
+                        .model(.lastSavedNote, .equals(dictatedText)),
+                        .model(.transcript, .equals(dictatedText)),
+                        .exists(Selector.takeNote),
+                    ]
+                ),
+            ]
         }
 
         private static var pasteFixture: UIFlowFixture {

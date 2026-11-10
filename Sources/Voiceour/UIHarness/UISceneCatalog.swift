@@ -350,6 +350,25 @@
                     journalThread: UIFixtures.agentSession,
                     tags: ["memory"]
                 ),
+                // The Notes lens: the remembered fixture's three notes in two day groups,
+                // one of them taken in the omp session, and the populated fixture, whose
+                // memory is off and holds no note, for the lens with nothing to list.
+                console(
+                    "console.sessions.notes",
+                    "Journal Notes listing every note memory holds, newest day first",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .notes,
+                    tags: ["memory", "notes"]
+                ),
+                console(
+                    "console.sessions.notes.empty",
+                    "Journal Notes with no note taken yet",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .notes,
+                    tags: ["empty", "notes"]
+                ),
                 // The first-launch measure, which now ends inside the Island showroom: what a
                 // fresh install's Settings tab shows before any scrolling.
                 console(

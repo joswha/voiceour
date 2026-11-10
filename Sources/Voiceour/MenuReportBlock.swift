@@ -44,3 +44,15 @@ struct MenuReportBlock: View {
         isCopied = GeneralPasteboard.copy(text) != nil
     }
 }
+
+extension InsertionOutcomeSummary {
+    /// A saved note reports in the shape a delivery outcome uses, so the status
+    /// chip names it and the report's detail line explains it the same way. It is
+    /// not an `InsertionOutcome`: a note is delivered nowhere, and the detail says
+    /// so because the clipboard is exactly where a reader would look for it.
+    static let noteSaved = InsertionOutcomeSummary(
+        label: "NOTE SAVED",
+        detail: "Saved to memory. Nothing was pasted or copied.",
+        severity: .ok
+    )
+}
