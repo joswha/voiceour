@@ -42,6 +42,11 @@ struct DiagnosticsReportTests {
     /// the real support directory.
     @Test func memoryLinesDefaultToOffAndNameTheIsolatedFolder() {
         let coordinator = makeCoordinator(backend: "granite")
+        // A harness suite that ran earlier in this process leaves its own path
+        // pinned, and this test reads the unpinned one.
+        let pinned = RenderOverrides.memoryPath
+        RenderOverrides.memoryPath = nil
+        defer { RenderOverrides.memoryPath = pinned }
 
         let report = DiagnosticsReport.text(
             coordinator: coordinator,
