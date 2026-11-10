@@ -1,0 +1,372 @@
+import Foundation
+import Testing
+
+@testable import VoiceCore
+
+/// A whole-second instant from an ISO 8601 string with an explicit zone, so
+/// the fixture survives the store's ISO 8601 round trip exactly.
+private func memoryInstant(_ iso: String) -> Date {
+    ISO8601DateFormatter().date(from: iso)!
+}
+
+private func memoryEntryID(_ number: Int) -> UUID {
+    let digits = String(number)
+    return UUID(uuidString: "00000000-0000-0000-0000-" + String(repeating: "0", count: 12 - digits.count) + digits)!
+}
+
+private func posixMode(_ url: URL) throws -> Int {
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    let mode = try #require(attributes[.posixPermissions] as? Int)
+    return mode & 0o777
+}
+
+@Suite("Memory store")
+struct MemoryStoreTests {
+    private let thread = JournalThreadRef(
+        agent: .omp,
+        sessionId: "01a1c154-ce7b-70a7-9d17-da6c0eb43054",
+        title: "Check agent session storage",
+        workingDirectory: "/Users/vlad/Desktop/voiceoour",
+        resumable: true,
+        sent: true
+    )
+    private let topic = MemoryTopic(
+        id: "memory-system",
+        name: "Memory system",
+        summary: "Design of the persistent store.",
+        createdAt: memoryInstant("2026-10-01T08:00:00Z")
+    )
+
+    /// A store under a fresh temporary directory, and that directory, which
+    /// the test removes.
+    private func temporaryStore() -> (store: MemoryStore, directory: URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceCoreTests-\(UUID().uuidString)", isDirectory: true)
+        return (MemoryStore(root: directory.appendingPathComponent("memory", isDirectory: true)), directory)
+    }
+
+    private func fixture() -> [MemoryEntry] {
+        [
+            MemoryEntry(
+                id: memoryEntryID(1),
+                createdAt: memoryInstant("2026-10-31T22:15:00Z"),
+                text: "October words.",
+                appBundleId: "com.apple.mail",
+                appName: "Mail",
+                captureSeconds: 2.5
+            ),
+            MemoryEntry(
+                id: memoryEntryID(2),
+                createdAt: memoryInstant("2026-11-10T09:27:19Z"),
+                text: "Testing.",
+                thread: thread,
+                label: EntryLabel(
+                    kind: .decision,
+                    kindConfidence: 0.9,
+                    topicID: "memory-system",
+                    topicConfidence: 0.7,
+                    keep: 2,
+                    model: "jev-1.14.0",
+                    labeledAt: memoryInstant("2026-11-10T09:27:21Z")
+                )
+            ),
+            MemoryEntry(
+                id: memoryEntryID(3),
+                createdAt: memoryInstant("2026-11-10T11:02:40Z"),
+                kind: .note,
+                text: "The memory folder should be plain files.\nAnd readable.",
+                userTopicID: "memory-system"
+            ),
+        ]
+    }
+
+    private func writeRaw(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    // MARK: Round trip
+
+    @Test func everyEntryAndTopicLoadsBackOldestFirst() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let entries = fixture()
+
+        try store.apply(MemoryPlanner.rebuild(entries: entries.reversed(), topics: [topic], calendar: utc))
+        let load = store.load()
+
+        #expect(load.entries == entries)
+        #expect(load.topics == [topic])
+        #expect(load.unreadable.isEmpty)
+    }
+
+    @Test func entriesAtTheSameInstantKeepTheirOrderAcrossMonths() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let same = memoryInstant("2026-11-10T09:00:00Z")
+        let first = MemoryEntry(id: memoryEntryID(9), createdAt: same, text: "First.")
+        let second = MemoryEntry(id: memoryEntryID(4), createdAt: same, text: "Second.")
+        let earlier = MemoryEntry(
+            id: memoryEntryID(7),
+            createdAt: memoryInstant("2026-09-01T00:00:00Z"),
+            text: "Earlier."
+        )
+
+        try store.apply(MemoryWrite(months: ["2026-11": [first, second], "2026-09": [earlier]]))
+
+        #expect(store.load().entries == [earlier, first, second])
+    }
+
+    @Test func filesAreOwnerOnlyAndDirectoriesPrivate() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try store.apply(MemoryPlanner.rebuild(entries: fixture(), topics: [topic], calendar: utc))
+
+        #expect(try posixMode(store.root) == 0o700)
+        #expect(try posixMode(store.entriesDirectory) == 0o700)
+        #expect(try posixMode(store.root.appendingPathComponent("days")) == 0o700)
+        #expect(try posixMode(store.monthURL("2026-11")) == 0o600)
+        #expect(try posixMode(store.topicsURL) == 0o600)
+        #expect(try posixMode(store.root.appendingPathComponent("days/2026-11-10.md")) == 0o600)
+        #expect(try posixMode(store.root.appendingPathComponent(MemoryPages.indexPath)) == 0o600)
+    }
+
+    @Test func pagesLandAtTheirRelativePaths() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let page = MemoryPage(path: "days/2026-11-10.md", text: "# 2026-11-10, Tuesday\n")
+
+        try store.apply(MemoryWrite(pages: [page]))
+
+        let onDisk = try String(contentsOf: store.root.appendingPathComponent("days/2026-11-10.md"), encoding: .utf8)
+        #expect(onDisk == page.text)
+    }
+
+    @Test func theMonthKeyFollowsTheCalendarsTimeZone() throws {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try #require(TimeZone(secondsFromGMT: -5 * 3600))
+        let boundary = memoryInstant("2026-12-01T03:00:00Z")
+
+        #expect(MemoryStore.monthKey(for: boundary, calendar: utc) == "2026-12")
+        #expect(MemoryStore.monthKey(for: boundary, calendar: newYork) == "2026-11")
+        #expect(MemoryStore.monthKey(for: memoryInstant("2026-01-01T00:00:00Z"), calendar: utc) == "2026-01")
+    }
+
+    @Test func anEmptyMonthRemovesItsFile() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let entries = fixture()
+        try store.apply(MemoryPlanner.rebuild(entries: entries, topics: [], calendar: utc))
+
+        try store.apply(MemoryWrite(months: ["2026-10": []]))
+
+        #expect(!FileManager.default.fileExists(atPath: store.monthURL("2026-10").path))
+        #expect(store.load().entries == Array(entries.dropFirst()))
+    }
+
+    @Test func removingAnAbsentFileSucceeds() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try store.apply(MemoryWrite(months: ["2026-10": []], topics: [], removedPages: ["days/2026-10-01.md"]))
+
+        #expect(!FileManager.default.fileExists(atPath: store.root.path))
+    }
+
+    @Test func clearRemovesTheWholeRootAndAgainSucceeds() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.apply(MemoryPlanner.rebuild(entries: fixture(), topics: [topic], calendar: utc))
+        try writeRaw("---\nauthor: omp\n---\n", to: store.agentsDirectory.appendingPathComponent("summary.md"))
+
+        try store.clear()
+        #expect(!FileManager.default.fileExists(atPath: store.root.path))
+
+        try store.clear()
+        #expect(store.load() == MemoryLoad())
+    }
+
+    // MARK: Damage
+
+    @Test func aCorruptMonthIsListedAndTheOtherMonthsStillLoad() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let entries = fixture()
+        try store.apply(MemoryPlanner.rebuild(entries: entries, topics: [topic], calendar: utc))
+
+        try writeRaw("[{\"id\": ", to: store.monthURL("2026-10"))
+        let load = store.load()
+
+        #expect(load.unreadable == [store.monthURL("2026-10")])
+        #expect(load.entries == Array(entries.dropFirst()))
+        #expect(load.topics == [topic])
+    }
+
+    @Test func aCorruptTopicsFileIsListedAndLoadsNoTopics() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let entries = fixture()
+        try store.apply(MemoryPlanner.rebuild(entries: entries, topics: [topic], calendar: utc))
+
+        try writeRaw("{}", to: store.topicsURL)
+        let load = store.load()
+
+        #expect(load.unreadable == [store.topicsURL])
+        #expect(load.topics.isEmpty)
+        #expect(load.entries == entries)
+    }
+
+    @Test func anUnknownKindLoadsAsADictationAndAMalformedThreadOrLabelAsNil() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try writeRaw(
+            """
+            [
+              {
+                "id": "00000000-0000-0000-0000-000000000005",
+                "created_at": "2026-11-10T09:27:19Z",
+                "kind": "memo",
+                "text": "Written by a later version.",
+                "thread": {"agent": "codex", "session_id": "abc"},
+                "label": {"kind": "idea"}
+              }
+            ]
+            """,
+            to: store.monthURL("2026-11")
+        )
+
+        let load = store.load()
+
+        #expect(load.unreadable.isEmpty)
+        #expect(
+            load.entries
+                == [
+                    MemoryEntry(
+                        id: memoryEntryID(5),
+                        createdAt: memoryInstant("2026-11-10T09:27:19Z"),
+                        kind: .dictation,
+                        text: "Written by a later version."
+                    )
+                ]
+        )
+    }
+
+    @Test func aFieldOfTheWrongTypeReadsAsAbsentAndKeepsTheEntry() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try writeRaw(
+            """
+            [
+              {
+                "id": "00000000-0000-0000-0000-000000000006",
+                "created_at": "2026-11-10T09:27:19Z",
+                "kind": "note",
+                "text": "Kept whatever its other fields hold.",
+                "app_bundle_id": 7,
+                "app_name": ["Mail"],
+                "capture_seconds": "long",
+                "user_topic_id": 3,
+                "user_removed_topic": "yes"
+              }
+            ]
+            """,
+            to: store.monthURL("2026-11")
+        )
+
+        let load = store.load()
+
+        #expect(load.unreadable.isEmpty)
+        #expect(
+            load.entries
+                == [
+                    MemoryEntry(
+                        id: memoryEntryID(6),
+                        createdAt: memoryInstant("2026-11-10T09:27:19Z"),
+                        kind: .note,
+                        text: "Kept whatever its other fields hold."
+                    )
+                ]
+        )
+    }
+
+    @Test func theMonthFileHoldsISO8601DateStrings() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try store.apply(MemoryPlanner.rebuild(entries: fixture(), topics: [], calendar: utc))
+
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: store.monthURL("2026-11")))
+        let records = try #require(json as? [[String: Any]])
+
+        #expect(records.map { $0["created_at"] as? String } == ["2026-11-10T09:27:19Z", "2026-11-10T11:02:40Z"])
+        let label = try #require(records[0]["label"] as? [String: Any])
+        #expect(label["labeled_at"] as? String == "2026-11-10T09:27:21Z")
+    }
+}
+
+@Suite("Memory entry topic")
+struct MemoryEntryTopicTests {
+    private let known: Set<String> = ["alpha", "beta"]
+
+    private func entry(
+        userTopicID: String? = nil,
+        userRemovedTopic: Bool = false,
+        labelTopic: String? = nil,
+        confidence: Double? = nil
+    ) -> MemoryEntry {
+        MemoryEntry(
+            id: memoryEntryID(1),
+            createdAt: memoryInstant("2026-11-10T09:27:19Z"),
+            text: "Words.",
+            userTopicID: userTopicID,
+            userRemovedTopic: userRemovedTopic,
+            label: labelTopic.map {
+                EntryLabel(
+                    topicID: $0,
+                    topicConfidence: confidence,
+                    model: "jev-1.14.0",
+                    labeledAt: memoryInstant("2026-11-10T09:27:21Z")
+                )
+            }
+        )
+    }
+
+    @Test func theUsersTopicWinsOverAConfidentLabel() {
+        let filed = entry(userTopicID: "alpha", labelTopic: "beta", confidence: 0.95)
+        #expect(filed.effectiveTopicID(known: known) == "alpha")
+    }
+
+    /// A user's choice of a topic since deleted does not hand the entry to the
+    /// model's guess.
+    @Test func aUserTopicThatIsNoLongerKnownGivesNoTopic() {
+        let orphaned = entry(userTopicID: "gone", labelTopic: "beta", confidence: 0.95)
+        #expect(orphaned.effectiveTopicID(known: known) == nil)
+    }
+
+    @Test func removingTheTopicBeatsAConfidentLabel() {
+        let removed = entry(userRemovedTopic: true, labelTopic: "beta", confidence: 0.95)
+        #expect(removed.effectiveTopicID(known: known) == nil)
+    }
+
+    @Test func aLabelCountsFromConfidenceSixTenths() {
+        #expect(entry(labelTopic: "beta", confidence: 0.6).effectiveTopicID(known: known) == "beta")
+        #expect(entry(labelTopic: "beta", confidence: 0.59).effectiveTopicID(known: known) == nil)
+        #expect(entry(labelTopic: "beta", confidence: nil).effectiveTopicID(known: known) == nil)
+    }
+
+    @Test func aLabelTopicThatIsNotKnownGivesNoTopic() {
+        #expect(entry(labelTopic: "gamma", confidence: 0.95).effectiveTopicID(known: known) == nil)
+    }
+
+    @Test func theJournalEntryCarriesTheEffectiveTopicAndTheApp() {
+        var memory = entry(labelTopic: "beta", confidence: 0.8)
+        memory.appBundleId = "com.apple.mail"
+        memory.appName = "Mail"
+
+        let journal = JournalEntry(memory, knownTopicIDs: known)
+
+        #expect(journal.topicID == "beta")
+        #expect(journal.app == DictationAppIdentity(bundleId: "com.apple.mail", name: "Mail"))
+        #expect(JournalEntry(memory, knownTopicIDs: []).topicID == nil)
+    }
+}

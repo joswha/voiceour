@@ -130,6 +130,10 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Whether a dictation pasted into Tern is bound to the omp or Claude Code session
     /// running in Tern's focused pane. Off unless turned on.
     public var agentSessionBindingEnabled: Bool
+    /// Whether each newly delivered dictation is also kept in the durable memory folder.
+    /// Off unless turned on: memory outlives History's cap, so keeping it is the user's
+    /// choice. Notes are kept whatever this says, and turning it off erases nothing.
+    public var memoryEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -145,6 +149,7 @@ public struct Settings: Codable, Equatable, Sendable {
         case hasCompletedFirstRun = "has_completed_first_run"
         case island
         case agentSessionBindingEnabled = "agent_session_binding_enabled"
+        case memoryEnabled = "memory_enabled"
     }
 
     public init(
@@ -160,7 +165,8 @@ public struct Settings: Codable, Equatable, Sendable {
         preferredMicrophoneName: String? = nil,
         hasCompletedFirstRun: Bool = false,
         island: IslandAppearance = .stock,
-        agentSessionBindingEnabled: Bool = false
+        agentSessionBindingEnabled: Bool = false,
+        memoryEnabled: Bool = false
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -175,6 +181,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.hasCompletedFirstRun = hasCompletedFirstRun
         self.island = island
         self.agentSessionBindingEnabled = agentSessionBindingEnabled
+        self.memoryEnabled = memoryEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -206,6 +213,9 @@ public struct Settings: Codable, Equatable, Sendable {
         agentSessionBindingEnabled =
             try container.decodeIfPresent(Bool.self, forKey: .agentSessionBindingEnabled)
             ?? defaults.agentSessionBindingEnabled
+        memoryEnabled =
+            try container.decodeIfPresent(Bool.self, forKey: .memoryEnabled)
+            ?? defaults.memoryEnabled
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [
