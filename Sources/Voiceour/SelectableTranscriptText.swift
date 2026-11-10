@@ -58,6 +58,12 @@ struct SelectableTranscriptText: NSViewRepresentable {
     private static let selectionFill = NSColor.unemphasizedSelectedTextBackgroundColor
 
     private var attributed: NSAttributedString {
+        Self.attributedText(text, fontSize: fontSize)
+    }
+
+    /// The one place the transcript's attributes are decided, so the text the live view
+    /// draws and the text `Measurer` sizes cannot be set differently.
+    fileprivate static func attributedText(_ text: String, fontSize: CGFloat) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = VoiceourMetrics.Space.hair
         return NSAttributedString(
@@ -69,8 +75,22 @@ struct SelectableTranscriptText: NSViewRepresentable {
             ])
     }
 
+    /// The container geometry the live view and `Measurer` share: no padding at the line
+    /// ends and room for every line, so a width wraps the same way in both.
+    fileprivate static func prepare(_ container: NSTextContainer) {
+        container.lineFragmentPadding = .zero
+        container.size = NSSize(width: container.size.width, height: .greatestFiniteMagnitude)
+    }
+
+    func makeCoordinator() -> Measurer {
+        Measurer()
+    }
+
     func makeNSView(context: Context) -> FixTeachTextView {
-        let view = FixTeachTextView()
+        // TextKit 1 from the start, because `Measurer` typesets on TextKit 1 and the two
+        // must break lines identically. Reading `layoutManager` later, as the right-click
+        // word lookup does, would otherwise swap the view to TextKit 1 after it was sized.
+        let view = FixTeachTextView(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
         view.isRichText = false
@@ -78,8 +98,10 @@ struct SelectableTranscriptText: NSViewRepresentable {
         view.drawsBackground = false
         view.backgroundColor = .clear
         view.textContainerInset = .zero
-        view.textContainer?.lineFragmentPadding = .zero
-        view.textContainer?.widthTracksTextView = true
+        if let container = view.textContainer {
+            Self.prepare(container)
+            container.widthTracksTextView = true
+        }
         view.isHorizontallyResizable = false
         view.isVerticallyResizable = true
         applySelectionStyle(to: view)
@@ -121,17 +143,76 @@ struct SelectableTranscriptText: NSViewRepresentable {
         ]
     }
 
+    /// SwiftUI asks for a size at several widths before it places the view — the widths
+    /// its stacks and splits probe, then the one it settles on — and caches each answer.
+    /// The answer comes from `Measurer`, never from the live view: a probe that resized
+    /// the live view would leave it at the probed width whenever the placement does not
+    /// set its frame again, and the text would wrap at that width, spilling past a height
+    /// reserved for another.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: FixTeachTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width.isFinite, width > 0,
-            let layoutManager = nsView.layoutManager,
-            let container = nsView.textContainer
-        else { return nil }
-        if abs(nsView.frame.width - width) > 0.5 {
-            nsView.frame.size.width = width
+        context.coordinator.size(of: text, fontSize: fontSize, proposedWidth: proposal.width)
+    }
+
+    /// A TextKit 1 stack of its own that lays the transcript out exactly as
+    /// `FixTeachTextView` will — same attributed text, same container geometry, no
+    /// insets — so a width can be measured without touching the view on screen.
+    @MainActor
+    final class Measurer {
+        private let storage = NSTextStorage()
+        private let layoutManager = NSLayoutManager()
+        private let container = NSTextContainer(size: .zero)
+        private var measuredText: String?
+        private var measuredFontSize: CGFloat?
+
+        init() {
+            SelectableTranscriptText.prepare(container)
+            container.widthTracksTextView = false
+            container.heightTracksTextView = false
+            layoutManager.addTextContainer(container)
+            storage.addLayoutManager(layoutManager)
         }
-        layoutManager.ensureLayout(for: container)
-        let used = layoutManager.usedRect(for: container)
-        return CGSize(width: width, height: ceil(used.height))
+
+        /// Answers every proposal SwiftUI makes. A finite width keeps that width and
+        /// reports the wrapped height. No width, or an unbounded one, asks for the ideal
+        /// size: the text on one line, but never wider than the reading measure, wrapped
+        /// there; that width rounds up to a whole point, so a placement at the answered
+        /// width cannot land a fraction below the text's own and wrap its last word. A
+        /// width of zero or less is the narrowest probe: no width, and one line's height,
+        /// because a transcript never takes less than a line and text laid out zero
+        /// points wide shows a reader nothing.
+        func size(of text: String, fontSize: CGFloat, proposedWidth: CGFloat?) -> CGSize {
+            if text != measuredText || fontSize != measuredFontSize {
+                storage.setAttributedString(SelectableTranscriptText.attributedText(text, fontSize: fontSize))
+                measuredText = text
+                measuredFontSize = fontSize
+            }
+            let width: CGFloat
+            if let proposedWidth, proposedWidth.isFinite {
+                width = proposedWidth
+            } else {
+                width = min(ceil(usedRect(width: .greatestFiniteMagnitude).width), Kit.Metrics.readableWidth)
+            }
+            guard width > 0 else {
+                return CGSize(width: 0, height: ceil(firstLineHeight()))
+            }
+            return CGSize(width: width, height: ceil(usedRect(width: width).height))
+        }
+
+        private func usedRect(width: CGFloat) -> CGRect {
+            if container.size.width != width {
+                container.size = NSSize(width: width, height: container.size.height)
+            }
+            layoutManager.ensureLayout(for: container)
+            return layoutManager.usedRect(for: container)
+        }
+
+        private func firstLineHeight() -> CGFloat {
+            _ = usedRect(width: .greatestFiniteMagnitude)
+            guard layoutManager.numberOfGlyphs > 0 else {
+                return layoutManager.extraLineFragmentUsedRect.height
+            }
+            return layoutManager.lineFragmentUsedRect(forGlyphAt: 0, effectiveRange: nil).height
+        }
     }
 }
 
@@ -155,6 +236,19 @@ final class FixTeachTextView: NSTextView {
     private var lastSelectionSurface: String?
     private var textInstallationGeneration = 0
     private var suppressesSelectionReporting = false
+
+    /// SwiftUI reserves the height `SelectableTranscriptText.Measurer` reports for the
+    /// width it places this view at, so the text must wrap at exactly that width. The
+    /// container follows every frame change here, whichever path set the frame, rather
+    /// than relying on `widthTracksTextView` alone to have caught it.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard let textContainer else { return }
+        let width = max(newSize.width - 2 * textContainerInset.width, 0)
+        if textContainer.size.width != width {
+            textContainer.size = NSSize(width: width, height: textContainer.size.height)
+        }
+    }
 
     /// A click is "plain" only if it began and ended a single click that left no
     /// selection: `mouseDown` runs AppKit's whole tracking loop, so by the time it

@@ -343,6 +343,30 @@
                         .settle(120),
                     ]
                 ),
+                // A transcript of one word, "Testing.", pasted into Tern: the newest row, so the
+                // Timeline's own first selection. Its island spans the page while its text is a
+                // few points wide, so a transcript laid out at any width but the island's shows
+                // here as the word broken mid-way and spilling past the island's bottom edge.
+                console(
+                    "console.sessions.short",
+                    "Timeline opened on a one-word transcript pasted into Tern",
+                    tab: .history,
+                    fixture: .transcriptEdges
+                ),
+                // A 225-character URL with no space in it, selected by a press on its row by
+                // its text: the island must break the token at its own edge and grow to hold
+                // every line.
+                console(
+                    "console.sessions.unbroken",
+                    "Timeline transcript of one unbroken URL, wrapped inside its island",
+                    tab: .history,
+                    fixture: .transcriptEdges,
+                    tags: ["steps"],
+                    steps: [
+                        .press(UIFixtures.unbrokenRowText),
+                        .settle(120),
+                    ]
+                ),
                 // The Journal's other lenses. The tab opens on Timeline, and a sidebar press is
                 // not one a window that never becomes key can count on, so each scene pins the
                 // lens it shows, as the tab bar is driven by a binding rather than a press.

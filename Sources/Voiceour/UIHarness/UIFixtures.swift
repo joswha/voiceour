@@ -248,6 +248,12 @@
             /// Earlier Dictations. Its rows are data: the resolver stays `NoAgentSessionResolving`,
             /// and a run reads `UIFixtures.promptEvidence`, which holds one match.
             case linkingOn
+            /// A History of transcripts that are hard to lay out, newest first: the one word
+            /// "Testing." pasted into Tern, which the Timeline opens on; one unbroken
+            /// 225-character URL; two paragraphs split by a newline; and emoji beside Japanese.
+            /// Each is a transcript the island must wrap inside its own edge, at the height it
+            /// reserved for it.
+            case transcriptEdges
         }
 
         /// Every fixture timestamp derives from this instant, and `RenderOverrides`
@@ -367,6 +373,8 @@
                 return coordinator
             case .linkingOn:
                 return make(sessions: history, settings: settings(agentSessionBindingEnabled: true))
+            case .transcriptEdges:
+                return make(sessions: transcriptEdgeHistory)
             }
         }
 
@@ -1142,6 +1150,59 @@
         /// has on its closed row, which no other row or entry says.
         nonisolated static let evidenceRowText =
             "Pump the run loop a fixed number of iterations, never until it looks settled."
+
+        /// The `transcriptEdges` History, newest first. The newest row is one short word, so
+        /// the Timeline's first selection is a transcript far narrower than its island; the
+        /// others are a token no space breaks, a newline, and glyphs from fallback fonts.
+        static let transcriptEdgeHistory: [RecentSession] = [
+            session(
+                index: 27,
+                minutesAgo: 3,
+                text: shortRowText,
+                bundleId: DictationCoordinator.agentSessionHostBundleId,
+                appName: ternAppName,
+                captureMs: 1_100,
+                asrMs: 140
+            ),
+            session(
+                index: 28,
+                minutesAgo: 40,
+                text: unbrokenRowText,
+                bundleId: "com.apple.Safari",
+                appName: "Safari",
+                captureMs: 9_400,
+                asrMs: 560
+            ),
+            session(
+                index: 29,
+                minutesAgo: 130,
+                text: "Rename the scene before its golden lands.\n"
+                    + "Then bless only the scenes whose diff you have read.",
+                bundleId: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                captureMs: 6_300,
+                asrMs: 420
+            ),
+            session(
+                index: 30,
+                minutesAgo: 300,
+                text: "Ship it \u{1F680} 東京のチームに明日のデモを共有してください \u{1F44D} ありがとう",
+                bundleId: "com.tinyspeck.slackmacgap",
+                appName: "Slack",
+                captureMs: 5_200,
+                asrMs: 365
+            ),
+        ]
+
+        /// The newest `transcriptEdges` row: one word, as the owner's paste into Tern held.
+        nonisolated static let shortRowText = "Testing."
+
+        /// One `transcriptEdges` row, a 225-character URL with no space in it: the only
+        /// handle `console.sessions.unbroken` has on its row, which no other row says.
+        nonisolated static let unbrokenRowText =
+            "https://github.com/stencil-labs/voiceour/blob/main/Sources/Voiceour/SelectableTranscriptText.swift"
+            + "?plain=1&highlight=transcript-island-wraps-one-unbroken-token-at-the-island-edge-and-never-spills"
+            + "-past-its-bottom-rim#L124-L135"
 
         /// The prompt logs a harness Link Earlier Dictations run reads, as a table: the Tern
         /// row whose link missed was found in the fixture's omp session 40 s after it was
