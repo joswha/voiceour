@@ -232,6 +232,8 @@
                 memoryClear: { _ in },
                 memoryPagesFormat: { [stamp = MemoryPages.formatStamp(calendar: UIFixtures.pinnedCalendar)] _ in stamp
                 },
+                // Nor does a press of Copy Install Command write the skill anywhere.
+                memorySkillWrite: { _ in },
                 // No agent has saved anything either, and the real loader would read the
                 // scratch folder's `agents/` rather than state it.
                 memoryAgentNotesLoad: { _ in [] },

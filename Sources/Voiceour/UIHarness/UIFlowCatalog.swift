@@ -190,20 +190,25 @@
                 "\(topic.name), \(entries) \(entries == 1 ? "entry" : "entries"), \(topic.summary)"
             }
 
-            // Journal agent notes and the two prompts that ask for them. A note row is one
-            // element that contains its caption, "<title> · by <author>", as the value of a
-            // text node, so a note is addressed by its row identifier together with that
-            // caption. A prompt's COPIED mark is a sibling of its button, never one of its
-            // nodes; no entry row on the pages these flows open publishes the word on its own.
+            // Journal agent notes and the three prompts that ask for them. A note row is one
+            // element that contains its caption, "<title> · by <author> · <date> <time>", as
+            // the value of a text node, so a note is addressed by its row identifier together
+            // with that caption. A prompt's COPIED mark is a sibling of its button, never one
+            // of its nodes; no entry row on the pages these flows open publishes the word on
+            // its own, and the thread page's Copy Resume Command mark reads COPIED TO CLIPBOARD.
             static let rewindAgentNote = UIQuery.id("journal.rewind.agent-note")
             static let topicAgentNote = UIQuery.id("journal.topics.agent-note")
+            static let threadAgentNote = UIQuery.id("journal.threads.agent-note")
             static let recapPrompt = UIQuery.id("journal.rewind.recap-prompt")
             static let synthesisPrompt = UIQuery.id("journal.topics.synthesis-prompt")
+            static let outcomePrompt = UIQuery.id("journal.threads.outcome-prompt")
             static let copiedMark = UIQuery.value("COPIED")
 
-            /// The caption `JournalAgentNoteRow` gives `note`.
+            /// The caption `JournalAgentNoteRow` gives `note`, built by the row's own rule in
+            /// the calendar the harness pins, so the flows and the lens cannot disagree on it.
+            @MainActor
             static func agentNoteCaption(_ note: AgentNote) -> String {
-                "\(note.title ?? note.id) \u{00B7} by \(note.author)"
+                JournalAgentNoteRow.caption(of: note, calendar: UIFixtures.pinnedCalendar)
             }
 
             // The menu's "Take a Note" row, offered only between sessions, and what its
@@ -241,6 +246,10 @@
 
             static let memoryToggle = UIQuery.id("system.memory.toggle")
             static let memoryCopyInstructions = UIQuery.id("system.memory.copy-instructions")
+            // Copy Install Command writes the skill through the coordinator's seam before it
+            // copies; this caption replaces the row's own when that write fails.
+            static let memoryCopySkillCommand = UIQuery.id("system.memory.copy-skill-command")
+            static let skillWriteFailure = "The skill could not be written on this Mac."
 
             // Settings ▸ Memory's sorting rows. The harness key source has no environment
             // and an absent key file, so every fixture starts with no key on every Mac.
@@ -760,6 +769,7 @@
                 topicsOpenFlow,
                 rewindRecapPromptFlow,
                 topicsSynthesisPromptFlow,
+                threadsOutcomePromptFlow,
             ]
         }
 
@@ -953,6 +963,62 @@
                             .exists(Selector.copiedMark),
                             .model(.pasteboardWrites, .equals("1")),
                             .exists(synthesis),
+                        ]
+                    ),
+                ]
+            )
+        }
+
+        /// An agent's outcome note shows on the page of the thread its `session` names, and
+        /// nowhere while every thread is shut. Copy Outcome Prompt writes once through the
+        /// harness pasteboard seam and shows the COPIED mark; the prompt names the scratch
+        /// memory folder, so its text is not checked.
+        private static var threadsOutcomePromptFlow: UIFlow {
+            let outcome = UIQuery.within(
+                Selector.threadAgentNote,
+                .value(Selector.agentNoteCaption(UIFixtures.agentSessionOutcome))
+            )
+            return UIFlow(
+                id: "journal.threads.outcome-prompt",
+                title: "An open thread shows its agent's outcome note and copies the thread's outcome prompt",
+                tags: ["journal", "console", "threads", "memory", "agent-notes", "clipboard"],
+                host: .console(.history, journalLens: .threads),
+                fixture: .static(.remembered),
+                steps: [
+                    .wait(.element(Selector.agentThreadRow)),
+                    .check(
+                        "closed",
+                        [
+                            .absent(Selector.threadSession),
+                            .absent(Selector.threadAgentNote),
+                            .absent(Selector.outcomePrompt),
+                            .model(.pasteboardWrites, .equals("0")),
+                        ]
+                    ),
+                    .act(.press(Selector.agentThreadRow)),
+                    .wait(.element(Selector.threadSession)),
+                    // Notes load off the main actor, so the row is waited on, not assumed.
+                    .wait(.element(outcome)),
+                    .check(
+                        "opened",
+                        [
+                            .selected(Selector.agentThreadRow, true),
+                            .value(Selector.threadSession, .equals(UIFixtures.agentSession.sessionId)),
+                            .count(Selector.threadAgentNote, .exactly(1)),
+                            .exists(outcome),
+                            .enabled(Selector.outcomePrompt, true),
+                            .absent(Selector.copiedMark),
+                            .model(.pasteboardWrites, .equals("0")),
+                        ]
+                    ),
+                    .act(.press(Selector.outcomePrompt)),
+                    .wait(.element(Selector.copiedMark)),
+                    .check(
+                        "copied",
+                        [
+                            .exists(Selector.copiedMark),
+                            .model(.pasteboardWrites, .equals("1")),
+                            .exists(outcome),
                         ]
                     ),
                 ]
@@ -1677,6 +1743,38 @@
                                 .model(.memoryEntryCount, .equals("10")),
                                 .model(.recentSessionCount, .equals("10")),
                                 .enabled(Selector.memoryCopyInstructions, true),
+                            ]
+                        ),
+                    ]),
+                // Copy Install Command first writes the skill through the coordinator's seam,
+                // which the harness keeps inert, then copies the command once. The command names
+                // the fixture's scratch memory folder, an absolute path, so its text is not
+                // checked; only that exactly one write happened and no failure was reported.
+                UIFlow(
+                    id: "system.memory.skill-command",
+                    title: "Copy Install Command copies the skill's install command once",
+                    tags: ["system", "console", "settings", "memory", "clipboard"],
+                    host: .console(.settings),
+                    fixture: .static(.remembered),
+                    steps: [
+                        .wait(.element(Selector.memoryCopySkillCommand)),
+                        .check(
+                            "offered",
+                            [
+                                .value(Selector.memoryToggle, .equals("1")),
+                                .enabled(Selector.memoryCopySkillCommand, true),
+                                .absent(Selector.copiedMark),
+                                .model(.pasteboardWrites, .equals("0")),
+                            ]
+                        ),
+                        .act(.press(Selector.memoryCopySkillCommand)),
+                        .wait(.element(Selector.copiedMark)),
+                        .check(
+                            "copied",
+                            [
+                                .exists(Selector.copiedMark),
+                                .model(.pasteboardWrites, .equals("1")),
+                                .text(.equals(Selector.skillWriteFailure), .exactly(0)),
                             ]
                         ),
                     ]),

@@ -146,6 +146,9 @@ public final class DictationCoordinator {
     let memoryClear: @Sendable (MemoryStore) throws -> Void
     /// Reads the notes under `agents/`; runs off the main actor.
     let memoryAgentNotesLoad: @Sendable (MemoryStore) -> [AgentNote]
+    /// Writes the agent skill for an install press; the harness passes a no-op
+    /// so no scene or flow writes into a memory folder.
+    let memorySkillWrite: @Sendable (MemoryStore) throws -> Void
     /// Labels memory entries; `NoEntryOrganizing` unless the app wires the
     /// TypeSafe client, so no test or fixture can reach the network.
     let organizer: EntryOrganizing
@@ -252,6 +255,7 @@ public final class DictationCoordinator {
         // Default reads the folder's `pages-format`; a fixture that states its
         // memory reports the current stamp so launch rebuilds nothing.
         memoryPagesFormat: @escaping @Sendable (MemoryStore) -> String? = { $0.pagesFormat() },
+        memorySkillWrite: @escaping @Sendable (MemoryStore) throws -> Void = { try $0.writeAgentSkill() },
         memoryAgentNotesLoad: @escaping @Sendable (MemoryStore) -> [AgentNote] = { $0.loadAgentNotes() },
         organizer: EntryOrganizing = NoEntryOrganizing(),
         // Nil reads the environment, then `typesafe.key` beside History, so a
@@ -290,6 +294,7 @@ public final class DictationCoordinator {
         self.memoryWrite = memoryWrite
         self.memoryClear = memoryClear
         self.memoryAgentNotesLoad = memoryAgentNotesLoad
+        self.memorySkillWrite = memorySkillWrite
         self.organizer = organizer
         self.typeSafeKeys =
             typeSafeKeys

@@ -1,0 +1,18 @@
+flow: journal.threads.outcome-prompt
+title: An open thread shows its agent's outcome note and copies the thread's outcome prompt
+fixture: static
+transitions: idle
+PASS 1 closed | absent id=journal.threads.session | 0 matches
+PASS 2 closed | absent id=journal.threads.agent-note | 0 matches
+PASS 3 closed | absent id=journal.threads.outcome-prompt | 0 matches
+PASS 4 closed | model pasteboardWrites == "0" | 0
+PASS 5 opened | selected(true) id=journal.threads.row & label~="Harness offscreen capture" | true
+PASS 6 opened | value id=journal.threads.session == "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a" | "0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a"
+PASS 7 opened | count id=journal.threads.agent-note exactly 1 | 1 match
+PASS 8 opened | exists value="What came of the harness work · by omp · 2025-06-13 18:40" in id=journal.threads.agent-note | 1 match
+PASS 9 opened | enabled(true) id=journal.threads.outcome-prompt | true
+PASS 10 opened | absent value="COPIED" | 0 matches
+PASS 11 opened | model pasteboardWrites == "0" | 0
+PASS 12 copied | exists value="COPIED" | 1 match
+PASS 13 copied | model pasteboardWrites == "1" | 1
+PASS 14 copied | exists value="What came of the harness work · by omp · 2025-06-13 18:40" in id=journal.threads.agent-note | 1 match

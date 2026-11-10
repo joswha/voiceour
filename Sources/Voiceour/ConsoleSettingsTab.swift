@@ -71,6 +71,7 @@ struct ConsoleSettingsTab: View {
     @State private var historyClearFailed = false
     @State private var isClearingMemory = false
     @State private var memoryClearFailed = false
+    @State private var agentSkillWriteFailed = false
     @State private var copiedItem: CopiedItem?
     @State private var resetCopyFeedbackTask: Task<Void, Never>?
 
@@ -87,6 +88,7 @@ struct ConsoleSettingsTab: View {
     private enum CopiedItem {
         case diagnostics
         case agentInstructions
+        case agentSkillCommand
     }
 
     /// One source for the backend vocabulary, so the picker, the running readout
@@ -198,6 +200,7 @@ struct ConsoleSettingsTab: View {
             Section("Memory") {
                 memoryToggleRow
                 agentInstructionsRow
+                agentSkillRow
                 organizerToggleRow
                 typeSafeKeyRow
             }
@@ -605,11 +608,14 @@ struct ConsoleSettingsTab: View {
         copy(report, as: .diagnostics)
     }
 
-    /// Both copy buttons write through here, so the clipboard helper, the success
+    /// Every copy button writes through here, so the clipboard helper, the success
     /// rule and the mark's lifetime cannot drift between them.
-    private func copy(_ text: String, as item: CopiedItem) {
+    private func copy(_ text: String, as item: CopiedItem, announcement: String? = nil) {
         // "Copied" is a statement about the clipboard: a refused write shows nothing.
         guard GeneralPasteboard.copy(text) != nil else { return }
+        if let announcement {
+            announce(announcement)
+        }
         resetCopyFeedbackTask?.cancel()
         withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.quick) {
             copiedItem = item
@@ -621,6 +627,20 @@ struct ConsoleSettingsTab: View {
                 copiedItem = nil
             }
         }
+    }
+
+    /// VoiceOver hears the sentence the mark shows, because a mark that appears
+    /// beside a button the cursor has already left confirms nothing. A no-op when
+    /// VoiceOver is not running.
+    private func announce(_ sentence: String) {
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: sentence,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
     }
 
     // MARK: Memory
@@ -673,6 +693,57 @@ struct ConsoleSettingsTab: View {
 
     private func copyAgentInstructions() {
         copy(MemoryPages.agentInstructions(root: coordinator.memoryStore.root), as: .agentInstructions)
+    }
+
+    /// Offered on the same terms as Copy Agent Instructions, and not while the
+    /// app quits: the press writes the skill into the memory folder, and a write
+    /// the termination drain has already passed would never land.
+    private var agentSkillRow: some View {
+        ConsoleRow(
+            caption: agentSkillWriteFailed
+                ? "The skill could not be written on this Mac."
+                : "Run it once in Terminal. It links one skill into the omp, Claude Code and Codex skill folders "
+                    + "that exist, so every agent learns where your dictations are kept. Voiceour writes only "
+                    + "inside its own folder. Agents may ask before they read outside the project. A project "
+                    + "with an omp includeSkills list must add voiceour-memory.",
+            captionColor: agentSkillWriteFailed ? .red : nil
+        ) {
+            LabeledContent {
+                HStack(spacing: VoiceourMetrics.Space.sm) {
+                    if copiedItem == .agentSkillCommand {
+                        ConsoleStateMark("COPIED", .ok)
+                    }
+                    Button("Copy Install Command") { copyAgentSkillCommand() }
+                        .help(
+                            "Copy a Terminal command that links the Voiceour memory skill into your agents' skill folders."
+                        )
+                        .disabled(
+                            !(coordinator.settings.memoryEnabled || coordinator.memoryExistsOnDisk)
+                                || coordinator.isPreparingForTermination
+                        )
+                        .accessibilityIdentifier("system.memory.copy-skill-command")
+                }
+            } label: {
+                Text("Agent skill")
+            }
+        }
+    }
+
+    /// The command links to the skill file, so it is copied only once that file
+    /// is on disk: a link to nothing would teach no agent anything.
+    private func copyAgentSkillCommand() {
+        agentSkillWriteFailed = false
+        Task {
+            guard await coordinator.prepareAgentSkill() else {
+                agentSkillWriteFailed = true
+                return
+            }
+            copy(
+                MemoryPages.skillInstallCommand(root: coordinator.memoryStore.root),
+                as: .agentSkillCommand,
+                announcement: "Install command copied to clipboard"
+            )
+        }
     }
 
     /// Not `settingBinding`: turning sorting off also cancels every labelling

@@ -1,0 +1,11 @@
+flow: system.memory.skill-command
+title: Copy Install Command copies the skill's install command once
+fixture: static
+transitions: idle
+PASS 1 offered | value id=system.memory.toggle == "1" | "1"
+PASS 2 offered | enabled(true) id=system.memory.copy-skill-command | true
+PASS 3 offered | absent value="COPIED" | 0 matches
+PASS 4 offered | model pasteboardWrites == "0" | 0
+PASS 5 copied | exists value="COPIED" | 1 match
+PASS 6 copied | model pasteboardWrites == "1" | 1
+PASS 7 copied | text == "The skill could not be written on this Mac." exactly 0 | 0 matches

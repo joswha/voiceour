@@ -1,8 +1,9 @@
 import Foundation
 
 /// A Markdown file an agent saved directly under `agents/`, as Voiceour shows it: plain text with
-/// its author, under the day or the topic its front matter names. It is never one of the owner's
-/// entries, so it is never searched, labelled or sent anywhere.
+/// its author, under the day or the topic its front matter names, and beside the thread its
+/// `session` names. It is never one of the owner's entries, so it is never searched, labelled or
+/// sent anywhere.
 public struct AgentNote: Equatable, Identifiable, Sendable {
     /// The file name, unique within `agents/`.
     public var id: String
@@ -11,6 +12,11 @@ public struct AgentNote: Equatable, Identifiable, Sendable {
     /// `YYYY-MM-DD`.
     public var day: String?
     public var topicID: String?
+    /// The file stem of the thread this note reports on (`<agent>-<session id>`, as
+    /// `MemoryPages.threadFileStem` writes it). It is matched by exact equality and never used as a
+    /// path. It places nothing on its own, so a note keyed only to a session nobody linked can never
+    /// crowd the 500-note window with notes no page shows.
+    public var session: String?
     /// The Markdown after the front matter, trimmed of surrounding blank lines.
     public var body: String
     public var modifiedAt: Date
@@ -21,6 +27,7 @@ public struct AgentNote: Equatable, Identifiable, Sendable {
         title: String? = nil,
         day: String? = nil,
         topicID: String? = nil,
+        session: String? = nil,
         body: String,
         modifiedAt: Date
     ) {
@@ -29,6 +36,7 @@ public struct AgentNote: Equatable, Identifiable, Sendable {
         self.title = title
         self.day = day
         self.topicID = topicID
+        self.session = session
         self.body = body
         self.modifiedAt = modifiedAt
     }
@@ -77,6 +85,7 @@ public enum AgentNoteParser {
             title: nonBlank(fields["title"]),
             day: day,
             topicID: topicID,
+            session: nonBlank(fields["session"]).flatMap { isSessionStem($0) ? $0 : nil },
             body: body ?? "",
             modifiedAt: modifiedAt
         )
@@ -111,6 +120,17 @@ public enum AgentNoteParser {
     private static func nonBlank(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
+    }
+
+    /// Only the characters a thread file stem can hold, so a value that no thread page can carry
+    /// is dropped instead of being kept and never matching.
+    static func isSessionStem(_ value: String) -> Bool {
+        value.unicodeScalars.allSatisfy { scalar in
+            switch scalar {
+            case "A"..."Z", "a"..."z", "0"..."9", ".", "_", "-": true
+            default: false
+            }
+        }
     }
 
     /// `YYYY-MM-DD` naming a day that exists in the proleptic Gregorian calendar, checked by hand so
@@ -226,6 +246,39 @@ extension MemoryPages {
             Quote my words exactly wherever you quote. Save it as "\(synthesis)", starting with a front matter \
             block that names author (your own name), topic: \(topic.id) and a title.
             """
+    }
+
+    /// The prompt a user copies into the agent of one thread to have it report what became of the
+    /// owner's requests; the result returns to the Journal as an agent note on that thread.
+    ///
+    /// The note's path and its `session` value are written out literally, so the agent computes
+    /// nothing from its own environment: a subagent's or a resumed session's id cannot misfile it.
+    /// The prompt carries no entry text and no title, only paths and the thread's file stem.
+    public static func outcomePrompt(thread key: AgentSessionKey, day: Date, root: URL, calendar: Calendar) -> String {
+        let date = MemoryDateText.day(day, calendar: calendar)
+        let stem = threadFileStem(key)
+        let page = promptPath(threadPath(key), root: root)
+        let rules = promptPath(indexPath, root: root)
+        let outcome = promptPath(outcomeNotePath(key), root: root)
+        return """
+            Read "\(page)", what I said to you in this session, and "\(rules)" for the folder's rules. Write \
+            what you did with what I asked, what is still open, and what you need from me. Quote my words \
+            exactly wherever you quote. Save it as "\(outcome)", replacing that file if it exists, starting with \
+            a front matter block that names author (your own name), day: \(date), session: \(stem) and a title.
+            """
+    }
+
+    /// The thread page's file name without its folder and extension: the value an agent note's
+    /// `session` must equal to show on that thread. Derived from `threadPath` so the two can never
+    /// disagree about how a session id is sanitized.
+    public static func threadFileStem(_ key: AgentSessionKey) -> String {
+        String(threadPath(key).dropFirst("threads/".count).dropLast(".md".count))
+    }
+
+    /// `agents/<stem>.md`: one outcome note per thread, which each new report replaces. The stem
+    /// holds no `/`, so a session id can never steer the file outside `agents/`.
+    public static func outcomeNotePath(_ key: AgentSessionKey) -> String {
+        "agents/\(threadFileStem(key)).md"
     }
 
     private static func promptPath(_ relativePath: String, root: URL) -> String {

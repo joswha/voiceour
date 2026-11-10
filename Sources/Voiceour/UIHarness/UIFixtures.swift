@@ -640,6 +640,9 @@
                 // The stated folder is already in the current format: a scene shows
                 // memory, it never rebuilds its pages.
                 memoryPagesFormat: { [stamp = MemoryPages.formatStamp(calendar: pinnedCalendar)] _ in stamp },
+                // An Install Command press writes the skill into the memory folder; a
+                // scene or a scripted press must write nothing there, so it lands nowhere.
+                memorySkillWrite: { _ in },
                 memoryAgentNotesLoad: { _ in agentNotes },
                 // The default organizer stays: `NoEntryOrganizing` labels nothing and
                 // reaches no network. The key source is explicit for the same reason the
@@ -1199,12 +1202,36 @@
         }()
 
         /// What the `remembered` folder's `agents/` holds, newest modification first, as
-        /// `MemoryStore.loadAgentNotes()` would hand it over: the synthesis of
-        /// `memoryFolderTopic`, saved the morning after the recap of `rememberedDay`. So
-        /// `console.sessions.rewind.memory` and `console.sessions.topics.open` each show one
-        /// note under "From your agents" without a step. Neither body repeats an entry's
-        /// text, so a flow that finds an entry by its text never finds a note as well.
-        static let rememberedAgentNotes: [AgentNote] = [memoryFolderSynthesis, rememberedDayRecap]
+        /// `MemoryStore.loadAgentNotes()` would hand it over: the omp session's outcome,
+        /// then the synthesis of `memoryFolderTopic`, saved the morning after the recap of
+        /// `rememberedDay`. So `console.sessions.rewind.memory` and
+        /// `console.sessions.topics.open` each show one note under "From your agents", and
+        /// the omp thread's page one under "From the session", without a step. No body
+        /// repeats an entry's text, so a flow that finds an entry by its text never finds a
+        /// note as well.
+        static let rememberedAgentNotes: [AgentNote] = [
+            agentSessionOutcome, memoryFolderSynthesis, rememberedDayRecap,
+        ]
+
+        /// The day of the omp thread's newest entry, History row 6 on 2025-06-13: the day
+        /// the outcome prompt names, so the note the fixture's agent saved names it too.
+        static let agentSessionLastDay = startOfDay(daysBeforePinnedNow: 2)
+
+        /// The omp agent's account of what came of the work in `agentSession`, saved as
+        /// the outcome prompt asks: under the thread's file stem, keyed to it by `session`,
+        /// dated the thread's newest day. Saved that evening, after the thread's last entry,
+        /// so it is the newest note in the folder.
+        static let agentSessionOutcome = AgentNote(
+            id: "\(MemoryPages.threadFileStem(agentSession)).md",
+            author: "omp",
+            title: "What came of the harness work",
+            day: DictationStatsLedger.dayKey(for: agentSessionLastDay, calendar: pinnedCalendar),
+            session: MemoryPages.threadFileStem(agentSession),
+            body: "The capture run finishes now; the event order was the cause. "
+                + "Still open: whether a thread page should name its pane. "
+                + "Needed from you: the release this fix ships in.",
+            modifiedAt: agentSessionLastDay.addingTimeInterval(18 * 3_600 + 40 * 60)
+        )
 
         /// An agent's recap of `rememberedDay`, saved that evening after the day's last note.
         static let rememberedDayRecap = AgentNote(

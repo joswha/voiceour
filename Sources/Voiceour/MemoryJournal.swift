@@ -306,6 +306,34 @@ extension DictationCoordinator {
         return cleared
     }
 
+    /// Writes the agent skill for Settings ▸ Memory ▸ Copy Install Command, so
+    /// the links the copied command makes point at a file. Returns whether the
+    /// skill is on disk: false while terminating, because a write enqueued after
+    /// the termination drain would never land, or when the write failed.
+    ///
+    /// The press is an explicit action, so this is the one memory write that may
+    /// create the folder with nothing else in it. It runs behind every write
+    /// already queued: after a queued Clear Memory it writes into the emptied
+    /// folder instead of being erased by it. A failure publishes nothing; the
+    /// row that asked reports it in place.
+    public func prepareAgentSkill() async -> Bool {
+        guard !isPreparingForTermination else { return false }
+        let previous = recentSessionPersistenceTail
+        let store = memoryStore
+        let write = memorySkillWrite
+        let next = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            do {
+                try write(store)
+                return true
+            } catch {
+                return false
+            }
+        }
+        recentSessionPersistenceTail = next
+        return await next.value
+    }
+
     /// Starts a load of the notes agents saved under `agents/`, or asks the
     /// load in flight to run again when it lands. Nothing here writes under
     /// `agents/`: the folder is the agents' to write and Voiceour's to read.

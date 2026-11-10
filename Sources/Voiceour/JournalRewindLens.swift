@@ -620,8 +620,23 @@ struct JournalAgentNoteRow: View {
     private let text: String
 
     init(_ note: AgentNote) {
-        caption = "\(note.title ?? note.id) \u{00B7} by \(note.author)"
+        caption = Self.caption(of: note, calendar: RenderOverrides.calendar ?? Calendar.current)
         text = Self.displayedBody(note.body)
+    }
+
+    /// "<title or file name> · by <author> · YYYY-MM-DD HH:mm". An agent's note is a claim
+    /// made at one moment, so the caption dates it by the file's own modification time in
+    /// the lens calendar; the digits are padded by hand so no locale can reach them.
+    nonisolated static func caption(of note: AgentNote, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: note.modifiedAt)
+        let day = "\(padded(parts.year ?? 0, 4))-\(padded(parts.month ?? 0, 2))-\(padded(parts.day ?? 0, 2))"
+        let time = "\(padded(parts.hour ?? 0, 2)):\(padded(parts.minute ?? 0, 2))"
+        return "\(note.title ?? note.id) \u{00B7} by \(note.author) \u{00B7} \(day) \(time)"
+    }
+
+    private nonisolated static func padded(_ value: Int, _ width: Int) -> String {
+        let digits = String(value)
+        return String(repeating: "0", count: max(0, width - digits.count)) + digits
     }
 
     var body: some View {

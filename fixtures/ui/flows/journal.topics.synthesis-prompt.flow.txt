@@ -6,10 +6,10 @@ PASS 1 closed | absent id=journal.topics.agent-note | 0 matches
 PASS 2 closed | absent id=journal.topics.synthesis-prompt | 0 matches
 PASS 3 closed | model pasteboardWrites == "0" | 0
 PASS 4 opened | selected(true) id=journal.topics.row & label~="Memory folder" | true
-PASS 5 opened | exists value="Where the memory folder stands · by omp" in id=journal.topics.agent-note | 1 match
+PASS 5 opened | exists value="Where the memory folder stands · by omp · 2025-05-29 09:30" in id=journal.topics.agent-note | 1 match
 PASS 6 opened | enabled(true) id=journal.topics.synthesis-prompt | true
 PASS 7 opened | absent value="COPIED" | 0 matches
 PASS 8 opened | model pasteboardWrites == "0" | 0
 PASS 9 copied | exists value="COPIED" | 1 match
 PASS 10 copied | model pasteboardWrites == "1" | 1
-PASS 11 copied | exists value="Where the memory folder stands · by omp" in id=journal.topics.agent-note | 1 match
+PASS 11 copied | exists value="Where the memory folder stands · by omp · 2025-05-29 09:30" in id=journal.topics.agent-note | 1 match

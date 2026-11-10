@@ -76,8 +76,8 @@ struct ConsoleJournalTab: View {
     /// The ids of the rows History still holds, so a lens offers "Show in
     /// Timeline" only for an entry Timeline can actually open.
     @State private var historyIDs: Set<UUID> = []
-    /// The ids of the entries memory keeps, so Rewind offers a day's recap
-    /// prompt only when the day page it points an agent at exists.
+    /// The ids of the entries memory keeps, so Rewind and Threads offer a prompt
+    /// only when the day or thread page it points an agent at exists.
     @State private var memoryIDs: Set<UUID> = []
 
     init(coordinator: DictationCoordinator) {
@@ -101,6 +101,13 @@ struct ConsoleJournalTab: View {
             // again each time the reader moves to another lens.
             .onChange(of: lens) {
                 coordinator.refreshAgentNotes()
+            }
+            // The open thread's page shows the outcome its agent saved, which may
+            // have landed since the folder was last read.
+            .onChange(of: openThread) {
+                if openThread != nil {
+                    coordinator.refreshAgentNotes()
+                }
             }
             .onChange(of: coordinator.recentSessions.map(\.id)) {
                 reloadEntries()
@@ -152,7 +159,10 @@ struct ConsoleJournalTab: View {
                 navigation: navigation,
                 delete: deleteEntry,
                 topics: coordinator.memoryTopics,
-                file: fileEntry
+                file: fileEntry,
+                agentNotes: coordinator.agentNotes,
+                memoryIDs: memoryIDs,
+                memoryRoot: coordinator.memoryStore.root
             )
             .onAppear { coordinator.refreshAgentSessions() }
         case .topics:

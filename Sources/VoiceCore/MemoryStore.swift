@@ -91,6 +91,12 @@ public struct MemoryStore: Sendable {
         root.appendingPathComponent("pages-format")
     }
 
+    /// The agent skill, `MemoryPages.agentSkillPath` under the root: the one
+    /// file the install command links each agent's skill folder to.
+    public var agentSkillURL: URL {
+        root.appendingPathComponent(MemoryPages.agentSkillPath)
+    }
+
     /// The folders whose pages a sweep may remove; nothing else ever is.
     static let derivedPageFolders = ["days", "threads", "topics", "notes"]
 
@@ -186,9 +192,12 @@ public struct MemoryStore: Sendable {
         }
 
         // The page directories are created with intermediates, which leaves the
-        // root itself at the default mode until it is tightened here.
+        // root itself at the default mode until it is tightened here. A write
+        // that left no folder, such as removals in one never made, writes no
+        // skill either: only an install press creates the folder for it alone.
         if FileManager.default.fileExists(atPath: root.path) {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+            if !write.isEmpty { try writeAgentSkill() }
         }
 
         if let stamp = write.pagesFormat {
@@ -227,6 +236,27 @@ public struct MemoryStore: Sendable {
     /// Removes the whole root, `agents/` included; an absent root is success.
     public func clear() throws {
         try removeVoiceourPrivateState(at: root)
+    }
+
+    /// Writes `MemoryPages.agentSkill(root:)` when the file is missing or its
+    /// bytes differ, so an upgrade or a moved root reaches disk with the next
+    /// change while an unchanged skill keeps its modification time and an
+    /// agent that loads it live sees no churn.
+    ///
+    /// Creates the root when it is absent: a Copy Install Command press is an
+    /// explicit action, and the links it installs must point at a file. Clear
+    /// Memory removes the skill with the rest of the folder, so the links
+    /// dangle until the next memory change or press writes it again.
+    public func writeAgentSkill() throws {
+        let data = Data(MemoryPages.agentSkill(root: root).utf8)
+        guard (try? Data(contentsOf: agentSkillURL)) != data else { return }
+        try writeVoiceourPrivateState(data, to: agentSkillURL)
+        // The write tightens only the skill's own folder; `skills/` and a root
+        // it had to create are made with intermediates at the default mode.
+        let skills = agentSkillURL.deletingLastPathComponent().deletingLastPathComponent()
+        for directory in [skills, root] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        }
     }
 
     /// Stable oldest-first order: entries made in the same instant keep the

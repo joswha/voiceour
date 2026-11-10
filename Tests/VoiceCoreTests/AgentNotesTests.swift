@@ -66,6 +66,37 @@ struct AgentNotesTests {
         #expect(note.title == "Recap: Tuesday")
     }
 
+    @Test func sessionIsTrimmedAndUnquoted() throws {
+        let doubleQuoted = try #require(
+            parse("---\nauthor: omp\nday: 2026-11-10\nsession:   \" omp-5f0c_2b4e.1 \"  \n---\nBody.")
+        )
+        let singleQuoted = try #require(parse("---\nauthor: omp\nday: 2026-11-10\nsession: 'claude-code-a1'\n---\nB."))
+        let bare = try #require(parse("---\nauthor: omp\ntopic: memory-system\nsession: omp-abc\n---\nB."))
+
+        #expect(doubleQuoted.session == "omp-5f0c_2b4e.1")
+        #expect(singleQuoted.session == "claude-code-a1")
+        #expect(bare.session == "omp-abc")
+    }
+
+    @Test(
+        arguments: [
+            "omp/abc",
+            "../omp-abc",
+            "omp abc",
+            "omp:abc",
+            "omp-café",
+            "omp-abc\"",
+            "\"\"",
+            "",
+        ]
+    )
+    func sessionOutsideTheStemAlphabetIsDroppedAndTheNoteKept(_ value: String) throws {
+        let note = try #require(parse("---\nauthor: omp\nday: 2026-11-10\nsession: \(value)\n---\nBody."))
+
+        #expect(note.session == nil)
+        #expect(note.day == "2026-11-10")
+    }
+
     @Test func impossibleDayIsDroppedWhenTopicStillPlacesTheNote() throws {
         let note = try #require(parse("---\nauthor: omp\nday: 2026-13-40\ntopic: memory-system\n---\nBody."))
 
@@ -78,6 +109,7 @@ struct AgentNotesTests {
             "---\nday: 2026-11-10\n---\nMissing author.",
             "---\nauthor:   \nday: 2026-11-10\n---\nBlank author.",
             "---\nauthor: \"\"\nday: 2026-11-10\n---\nQuoted blank author.",
+            "---\nauthor: omp\nsession: omp-abc\n---\nOnly a session.",
             "---\nauthor: omp\ntitle: Neither\n---\nNo day and no topic.",
             "---\nauthor: omp\ntopic:  \n---\nBlank topic.",
             "---\nauthor: omp\nday: 2026-13-40\n---\nImpossible date.",
@@ -263,5 +295,53 @@ struct AgentNotesTests {
             """
 
         #expect(MemoryPages.synthesisPrompt(topic: topic, root: root) == expected)
+    }
+
+    @Test func outcomePromptNamesTheThreadPageAndItsAgentFileLiterally() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Bucharest"))
+        let key = AgentSessionKey(agent: .omp, sessionId: "5f0c2b4e-3a1d-4c8e-9b7a-2d6e1f0a9c33")
+        let expected = """
+            Read "/Users/test/Library/Application Support/Voiceour/memory/threads/\
+            omp-5f0c2b4e-3a1d-4c8e-9b7a-2d6e1f0a9c33.md", what I said to you in this session, and \
+            "/Users/test/Library/Application Support/Voiceour/memory/MEMORY.md" for the folder's rules. Write \
+            what you did with what I asked, what is still open, and what you need from me. Quote my words \
+            exactly wherever you quote. Save it as "/Users/test/Library/Application Support/Voiceour/memory/\
+            agents/omp-5f0c2b4e-3a1d-4c8e-9b7a-2d6e1f0a9c33.md", replacing that file if it exists, starting with \
+            a front matter block that names author (your own name), day: 2026-11-10, \
+            session: omp-5f0c2b4e-3a1d-4c8e-9b7a-2d6e1f0a9c33 and a title.
+            """
+
+        let day = agentNoteInstant("2026-11-09T23:30:00Z")
+
+        #expect(MemoryPages.outcomePrompt(thread: key, day: day, root: root, calendar: calendar) == expected)
+    }
+
+    @Test(
+        arguments: [
+            AgentSessionKey(agent: .omp, sessionId: "5f0c2b4e-3a1d-4c8e-9b7a-2d6e1f0a9c33"),
+            AgentSessionKey(agent: .claudeCode, sessionId: "a1b2c3d4-0000-4000-8000-000000000001"),
+            AgentSessionKey(agent: .omp, sessionId: "id with spaces: and ü"),
+        ]
+    )
+    func threadFileStemIsTheThreadPageNameAndANoteCanCarryIt(_ key: AgentSessionKey) throws {
+        let stem = MemoryPages.threadFileStem(key)
+        let note = try #require(parse("---\nauthor: omp\nday: 2026-11-10\nsession: \(stem)\n---\nBody."))
+
+        #expect("threads/\(stem).md" == MemoryPages.threadPath(key))
+        #expect(MemoryPages.outcomeNotePath(key) == "agents/\(stem).md")
+        #expect(note.session == stem)
+    }
+
+    @Test(arguments: ["../../../etc/passwd", "/absolute/path", "a/../../b", "..", "/"])
+    func sessionIdCannotSteerTheOutcomeNoteOutsideAgents(_ sessionId: String) {
+        let key = AgentSessionKey(agent: .claudeCode, sessionId: sessionId)
+        let path = MemoryPages.outcomeNotePath(key)
+        let resolved = root.appendingPathComponent(path).standardizedFileURL
+
+        #expect(path.hasPrefix("agents/"))
+        #expect(!path.dropFirst("agents/".count).contains("/"))
+        #expect(resolved.deletingLastPathComponent().path == root.appendingPathComponent("agents").path)
+        #expect(resolved.lastPathComponent == "\(MemoryPages.threadFileStem(key)).md")
     }
 }

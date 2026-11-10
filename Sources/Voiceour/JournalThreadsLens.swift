@@ -11,7 +11,9 @@ import VoiceMac
 /// opened it, so the page reads as one thing rather than as more index. The page
 /// leads with what identifies the session (its id and folder), then the two
 /// things a reader can do with it, then everything said into it, oldest first,
-/// because a session is read the way it was spoken.
+/// because a session is read the way it was spoken. It ends with what the session's
+/// own agent reported about the work, attributed and dated, and the prompt that asks
+/// for that report, so the answer sits under the requests it answers.
 struct JournalThreadsLens: View {
     private let entries: [JournalEntry]
     private let historyIDs: Set<UUID>
@@ -26,6 +28,13 @@ struct JournalThreadsLens: View {
     private let topics: [MemoryTopic]
     /// Files an entry under a topic or under none; nil offers no submenu.
     private let file: ((UUID, String?) -> Void)?
+    /// Every note agents saved under `agents/`; the open thread shows the ones that name it.
+    private let agentNotes: [AgentNote]
+    /// The ids of the entries memory keeps: a thread's page exists only when it holds
+    /// one of them, so the outcome prompt that points an agent at it is offered only then.
+    private let memoryIDs: Set<UUID>
+    /// The memory folder the outcome prompt points an agent at; nil offers no prompt.
+    private let memoryRoot: URL?
 
     @State private var searchText = ""
     /// The project groups for the current entries and query, cached as a snapshot
@@ -34,6 +43,9 @@ struct JournalThreadsLens: View {
     @State private var groups: [JournalProjectGroup] = []
     @State private var copiedThreadID: AgentSessionKey?
     @State private var resetCopyFeedbackTask: Task<Void, Never>?
+    /// The agent notes whose `session` names the open thread, newest modification first.
+    /// Cached and refiltered only when the open thread or the notes change, never in `body`.
+    @State private var openThreadNotes: [AgentNote] = []
 
     private var a11y = A11y()
 
@@ -45,7 +57,10 @@ struct JournalThreadsLens: View {
         navigation: JournalNavigation,
         delete: ((UUID) async -> Bool)? = nil,
         topics: [MemoryTopic] = [],
-        file: ((UUID, String?) -> Void)? = nil
+        file: ((UUID, String?) -> Void)? = nil,
+        agentNotes: [AgentNote] = [],
+        memoryIDs: Set<UUID> = [],
+        memoryRoot: URL? = nil
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
@@ -55,6 +70,9 @@ struct JournalThreadsLens: View {
         self.delete = delete
         self.topics = topics
         self.file = file
+        self.agentNotes = agentNotes
+        self.memoryIDs = memoryIDs
+        self.memoryRoot = memoryRoot
     }
 
     var body: some View {
@@ -82,7 +100,10 @@ struct JournalThreadsLens: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            reloadOpenThreadNotes()
+        }
         .onDisappear {
             resetCopyFeedbackTask?.cancel()
             resetCopyFeedbackTask = nil
@@ -94,6 +115,12 @@ struct JournalThreadsLens: View {
         .onChange(of: searchText) {
             reload()
         }
+        .onChange(of: openThread) {
+            reloadOpenThreadNotes()
+        }
+        .onChange(of: agentNotes) {
+            reloadOpenThreadNotes()
+        }
     }
 
     private var query: String {
@@ -104,6 +131,12 @@ struct JournalThreadsLens: View {
     /// the harness pins, so a day boundary never depends on this Mac's settings.
     private var calendar: Calendar {
         RenderOverrides.calendar ?? Calendar.current
+    }
+
+    /// The calendar the memory folder writes its pages in, so the outcome prompt names
+    /// the day the way the thread's page does, whatever the user's calendar setting.
+    private var memoryCalendar: Calendar {
+        DictationCoordinator.memoryCalendar(timeZone: calendar.timeZone)
     }
 
     /// Rebuilds the groups and closes a thread that is gone.
@@ -123,6 +156,24 @@ struct JournalThreadsLens: View {
         {
             openThread = nil
         }
+    }
+
+    /// Picks the notes for the open thread; none while no thread is open.
+    private func reloadOpenThreadNotes() {
+        guard let openThread else {
+            openThreadNotes = []
+            return
+        }
+        openThreadNotes = Self.notes(agentNotes, forThread: openThread)
+    }
+
+    /// The notes whose `session` is exactly `key`'s file stem, in the order given, which
+    /// the coordinator loads newest modification first. Matched by the stem alone: a note
+    /// is an agent's claim, so nothing but the stem the outcome prompt dictated may place
+    /// it on a thread, and a note naming no session is never shown here.
+    nonisolated static func notes(_ notes: [AgentNote], forThread key: AgentSessionKey) -> [AgentNote] {
+        let stem = MemoryPages.threadFileStem(key)
+        return notes.filter { $0.session == stem }
     }
 
     // MARK: Search
@@ -346,6 +397,32 @@ struct JournalThreadsLens: View {
                     file: file
                 )
             }
+        }
+
+        if !openThreadNotes.isEmpty {
+            ConsoleCaption("From the session")
+            ForEach(openThreadNotes) { note in
+                JournalAgentNoteRow(note)
+                    .accessibilityIdentifier("journal.threads.agent-note")
+            }
+        }
+
+        if let memoryRoot, thread.entries.contains(where: { memoryIDs.contains($0.id) }) {
+            JournalPromptCopyButton(
+                "Copy Outcome Prompt",
+                help: "Copy a prompt that asks this session's agent to record what came of the work",
+                announcement: "Outcome prompt copied to clipboard",
+                identifier: "journal.threads.outcome-prompt",
+                prompt: {
+                    MemoryPages.outcomePrompt(
+                        thread: thread.id,
+                        day: thread.lastAt,
+                        root: memoryRoot,
+                        calendar: memoryCalendar
+                    )
+                }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

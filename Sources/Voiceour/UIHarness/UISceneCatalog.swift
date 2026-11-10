@@ -371,6 +371,20 @@
                     journalThread: UIFixtures.agentSession,
                     tags: ["memory"]
                 ),
+                // The same page tall enough for its end: the omp agent's outcome note under
+                // "From the session", which the loader states keyed to the thread, and Copy
+                // Outcome Prompt, both below the thread's last entry and so below the
+                // default window.
+                console(
+                    "console.sessions.threads.outcome",
+                    "Journal Threads with a session page ending in its agent's outcome note",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .threads,
+                    journalThread: UIFixtures.agentSession,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_320),
+                    tags: ["memory", "agent-notes"]
+                ),
                 // The Notes lens: the remembered fixture's three notes in two day groups,
                 // one of them taken in the omp session, and the populated fixture, whose
                 // memory is off and holds no note, for the lens with nothing to list.
