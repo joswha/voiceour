@@ -2,7 +2,7 @@ flow: dictation.asr-recovery
 title: A model failure offers recovery and the next dictation delivers
 fixture: dictation-recovery-manifest_mismatch
 transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> error -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
-PASS 1 model-failure | text == "MODEL MISMATCH" exactly 1 | 1 match
+PASS 1 model-failure | text == "Model mismatch" exactly 1 | 1 match
 PASS 2 model-failure | text == "The cached speech model is not the one this build expects; it will be fetched again." exactly 1 | 1 match
 PASS 3 model-failure | enabled(true) label="Try Again" | true
 PASS 4 model-failure | enabled(true) label="Start Dictation" | true
@@ -21,4 +21,4 @@ PASS 16 recovered | model recentSessionCount == "1" | 1
 PASS 17 recovered | model processingInFlight == "false" | false
 PASS 18 recovered | model errorMessage is empty | ""
 PASS 19 recovered | absent label="Try Again" | 0 matches
-PASS 20 recovered | text == "PASTED" exactly 1 | 1 match
+PASS 20 recovered | text == "Pasted" exactly 1 | 1 match

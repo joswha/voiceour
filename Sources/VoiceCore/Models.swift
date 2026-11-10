@@ -138,6 +138,15 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Off unless turned on: labelling sends the entry's text off this Mac, so it is the
     /// user's choice, and it does nothing until a TypeSafe key is set.
     public var organizerEnabled: Bool
+    /// How the console and the menu look: follow macOS, or keep Light or Dark. The
+    /// recording island keeps its own looks whatever this says.
+    ///
+    /// Decoded as a raw tag and resolved, so an unknown or mistyped value reads as
+    /// `.system` instead of quarantining the file.
+    public var consoleAppearance: ConsoleAppearance
+    /// The accent colour the console and the menu act in. Decoded like
+    /// ``consoleAppearance``; an unknown value reads as `.green`.
+    public var consoleAccent: ConsoleAccent
 
     enum CodingKeys: String, CodingKey {
         case cleanupEnabled = "cleanup_enabled"
@@ -155,6 +164,8 @@ public struct Settings: Codable, Equatable, Sendable {
         case agentSessionBindingEnabled = "agent_session_binding_enabled"
         case memoryEnabled = "memory_enabled"
         case organizerEnabled = "organizer_enabled"
+        case consoleAppearance = "console_appearance"
+        case consoleAccent = "console_accent"
     }
 
     public init(
@@ -172,7 +183,9 @@ public struct Settings: Codable, Equatable, Sendable {
         island: IslandAppearance = .stock,
         agentSessionBindingEnabled: Bool = false,
         memoryEnabled: Bool = false,
-        organizerEnabled: Bool = false
+        organizerEnabled: Bool = false,
+        consoleAppearance: ConsoleAppearance = .system,
+        consoleAccent: ConsoleAccent = .green
     ) {
         self.cleanupEnabled = cleanupEnabled
         self.asrBackend = asrBackend
@@ -189,6 +202,8 @@ public struct Settings: Codable, Equatable, Sendable {
         self.agentSessionBindingEnabled = agentSessionBindingEnabled
         self.memoryEnabled = memoryEnabled
         self.organizerEnabled = organizerEnabled
+        self.consoleAppearance = consoleAppearance
+        self.consoleAccent = consoleAccent
     }
 
     public init(from decoder: Decoder) throws {
@@ -226,6 +241,15 @@ public struct Settings: Codable, Equatable, Sendable {
         organizerEnabled =
             try container.decodeIfPresent(Bool.self, forKey: .organizerEnabled)
             ?? defaults.organizerEnabled
+        // `try?` as well as `resolved`: a number or an object under either key is a type
+        // mismatch, which `decodeIfPresent` throws, and nothing about the console's look
+        // may quarantine the file that holds the glossary.
+        consoleAppearance = ConsoleAppearance.resolved(
+            (try? container.decodeIfPresent(String.self, forKey: .consoleAppearance)) ?? nil
+        )
+        consoleAccent = ConsoleAccent.resolved(
+            (try? container.decodeIfPresent(String.self, forKey: .consoleAccent)) ?? nil
+        )
     }
 
     public static let defaultGlossary: [ProtectedTerm] = [

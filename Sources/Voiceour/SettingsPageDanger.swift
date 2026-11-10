@@ -11,6 +11,7 @@ import VoiceCore
 struct SettingsDangerPage: View {
     private let coordinator: DictationCoordinator
     private let erasure: SettingsErasure
+    @Environment(\.theme) private var theme
 
     @State private var isConfirmingHistoryClear = false
     @State private var isConfirmingMemoryClear = false
@@ -23,11 +24,11 @@ struct SettingsDangerPage: View {
 
     var body: some View {
         SettingsPage(.danger) {
-            SettingsIsland {
+            Kit.Group {
                 clearHistoryRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 clearMemoryRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 clearVocabularyRow
             }
         }
@@ -41,9 +42,9 @@ struct SettingsDangerPage: View {
             caption: erasure.historyClearFailed
                 ? "Transcript history could not be erased from disk — it will come back on relaunch."
                 : Self.historyClearSentence,
-            captionColor: erasure.historyClearFailed ? .red : nil
+            captionColor: erasure.historyClearFailed ? theme.critical.text : nil
         ) {
-            Kit.ActionButton(erasure.isClearingHistory ? "Clearing…" : "Clear History…", role: .destructive) {
+            Kit.Button(erasure.isClearingHistory ? "Clearing…" : "Clear History…", prominence: .destructive) {
                 erasure.historyClearFailed = false
                 isConfirmingHistoryClear = true
             }
@@ -98,9 +99,9 @@ struct SettingsDangerPage: View {
             caption: erasure.memoryClearFailed
                 ? "Memory could not be erased from disk — it will come back on relaunch."
                 : Self.memoryClearSentence,
-            captionColor: erasure.memoryClearFailed ? .red : nil
+            captionColor: erasure.memoryClearFailed ? theme.critical.text : nil
         ) {
-            Kit.ActionButton(erasure.isClearingMemory ? "Clearing…" : "Clear Memory…", role: .destructive) {
+            Kit.Button(erasure.isClearingMemory ? "Clearing…" : "Clear Memory…", prominence: .destructive) {
                 erasure.memoryClearFailed = false
                 isConfirmingMemoryClear = true
             }
@@ -144,7 +145,7 @@ struct SettingsDangerPage: View {
     /// durability result, so there is no failure state for the row to report.
     private var clearVocabularyRow: some View {
         Kit.SettingRow("Clear vocabulary", caption: Self.vocabularyClearSentence) {
-            Kit.ActionButton("Clear Vocabulary…", role: .destructive) {
+            Kit.Button("Clear Vocabulary…", prominence: .destructive) {
                 isConfirmingVocabularyClear = true
             }
             .disabled(!coordinator.hasLearnedVocabulary)

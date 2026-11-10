@@ -338,6 +338,10 @@
                 return flagProbe(coordinator.islandDraft != nil)
             case .islandPlacement:
                 return quotedProbe(RecordingOverlayPlacement.persisted.isFree ? "free" : "docked")
+            case .consoleAppearance:
+                return quotedProbe(coordinator.settings.consoleAppearance.rawValue)
+            case .consoleAccent:
+                return quotedProbe(coordinator.settings.consoleAccent.rawValue)
             }
         }
 

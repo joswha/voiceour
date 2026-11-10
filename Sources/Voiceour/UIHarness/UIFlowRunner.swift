@@ -14,6 +14,7 @@
     import Combine
     import Foundation
     import SwiftUI
+    import VoiceCore
 
     @MainActor
     enum UIFlowRunner {
@@ -184,16 +185,22 @@
                 )
 
             case .menu:
+                let colorScheme = ColorScheme.dark
                 return Host(
                     size: UISceneCatalog.menuSize,
-                    colorScheme: .dark,
+                    colorScheme: colorScheme,
                     navigateConsole: nil
                 ) {
+                    // The popover paints its own theme ground; this fills the window
+                    // below it with the same ground, so the raster the geometry and
+                    // contrast rules read is real paint everywhere.
                     AnyView(
                         MenuView(coordinator: context.coordinator)
                             .frame(width: UISceneCatalog.menuSize.width, alignment: .top)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .background(VoiceourPalette.Ink.void)
+                            .background(
+                                Theme.resolve(scheme: colorScheme, accent: .green, increasedContrast: false).ground
+                            )
                     )
                 }
 

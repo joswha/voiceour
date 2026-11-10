@@ -115,11 +115,11 @@ extension IslandShowroomPose {
 
 /// Settings ▸ Island: how the recording island looks, previewed live.
 ///
-/// The page body under the shell's "Island" header, as islands from top to bottom: the stage
-/// with the showroom; the looks gallery with Surprise Me; four folds of options — Material,
-/// Lighting, Body and Motion, independent of one another and all shut on first appearance;
-/// and Position. The looks come before the folds because a look is where tuning starts, and
-/// choosing one resets everything below it.
+/// The page body under the shell's "Island" header, as cards from top to bottom: the stage
+/// with the showroom and its control bar; the looks gallery with Surprise Me; four folds of
+/// options — Material, Lighting, Body and Motion, independent of one another and all shut on
+/// first appearance; and Position. The looks come before the folds because a look is where
+/// tuning starts, and choosing one resets everything below it.
 ///
 /// No control writes through `settingBinding`, which saves on every set: a slider drag would
 /// rewrite `settings.json` at pointer rate. Each control stages the coordinator's draft
@@ -154,13 +154,16 @@ struct ConsoleIslandSection: View {
     /// Commits what the controls stage, and leaves the undo step for each commit.
     @State private var editor: IslandGarageEditor
 
+    /// Fold rows are separated as a group's rows are: inset by the setting row's own padding.
+    private static let ruleInset: CGFloat = 12
+
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
         _editor = State(initialValue: IslandGarageEditor(coordinator: coordinator))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.lg) {
+        VStack(alignment: .leading, spacing: Kit.Metrics.sectionGap) {
             // The stage is always present, so it carries the page's commit hooks.
             IslandShowroom(coordinator: coordinator)
                 .onChange(of: coordinator.islandDraft) {
@@ -197,7 +200,7 @@ struct ConsoleIslandSection: View {
 
     // MARK: Folds
 
-    /// One fold as an island: its heading opens and shuts the rows, and Restore Stock ends them.
+    /// One fold as a card: its heading opens and shuts the rows, and Restore Stock ends them.
     private func fold<Rows: View>(
         _ group: IslandGroup,
         isExpanded: Binding<Bool>,
@@ -205,11 +208,12 @@ struct ConsoleIslandSection: View {
     ) -> some View {
         let rows = content()
         let restore = IslandRestoreButton(group: group, isStock: group.isStock(island), editor: editor)
-        return Kit.Island {
+        return Kit.Card {
             Kit.Disclosure(group.title, isExpanded: isExpanded, identifier: group.identifier) {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                VStack(alignment: .leading, spacing: 0) {
                     rows
                     restore.equatable()
+                        .padding(.top, VoiceourMetrics.Space.sm)
                 }
             }
         }
@@ -221,7 +225,7 @@ struct ConsoleIslandSection: View {
     private var materialRows: some View {
         IslandMetalRow(metal: island.metal, editor: editor, coordinator: coordinator)
             .equatable()
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         IslandCoatRow(
             caption: coatCaption,
             coat: island.coat,
@@ -234,7 +238,7 @@ struct ConsoleIslandSection: View {
             coordinator: coordinator
         )
         .equatable()
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Finish",
             \.finish,
@@ -285,7 +289,7 @@ struct ConsoleIslandSection: View {
     private var lightingRows: some View {
         IslandRoomRow(room: island.room, editor: editor, coordinator: coordinator)
             .equatable()
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Temperature",
             \.temperature,
@@ -295,7 +299,7 @@ struct ConsoleIslandSection: View {
                 + "without changing its brightness.",
             readout: .kelvin
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         IslandUnderglowRow(
             underglow: island.underglow,
             underglowHue: island.underglowHue,
@@ -305,7 +309,7 @@ struct ConsoleIslandSection: View {
             coordinator: coordinator
         )
         .equatable()
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Brightness",
             \.brightness,
@@ -318,7 +322,7 @@ struct ConsoleIslandSection: View {
             readout: .signed,
             disabled: increasedContrast
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Contrast",
             \.contrast,
@@ -354,7 +358,7 @@ struct ConsoleIslandSection: View {
                 + "largest body the island holds. On the notch collar the length follows the "
                 + "camera housing, so Size sets thickness only."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Build",
             \.build,
@@ -362,7 +366,7 @@ struct ConsoleIslandSection: View {
             id: "island.body.build",
             caption: "Slims the body's height alone, down to 80%."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Crown",
             \.crown,
@@ -371,7 +375,7 @@ struct ConsoleIslandSection: View {
             caption: "How domed the surface is, from a nearly flat 60% to a full half-round at "
                 + "100%; it moves the reflections, not the outline."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Taper",
             \.taper,
@@ -392,7 +396,7 @@ struct ConsoleIslandSection: View {
             id: "island.motion.tempo",
             caption: "How fast every ripple runs; your voice still sets how tall they grow."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Viscosity",
             \.viscosity,
@@ -400,7 +404,7 @@ struct ConsoleIslandSection: View {
             id: "island.motion.viscosity",
             caption: "How quickly ripples die away, from runny at 50% to syrupy at 200%."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         // Reduce Motion zeroes the body's autonomous motion whatever this says, so the slider
         // is disabled rather than left moving nothing. Voice and pose motion stay, and so do
         // the other rows.
@@ -415,7 +419,7 @@ struct ConsoleIslandSection: View {
                 : "The body's own restless motion between words.",
             disabled: a11y.reduceMotion
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Reactivity",
             \.reactivity,
@@ -423,7 +427,7 @@ struct ConsoleIslandSection: View {
             id: "island.motion.reactivity",
             caption: "How strongly the body answers your voice."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Slither",
             \.slither,
@@ -432,7 +436,7 @@ struct ConsoleIslandSection: View {
             caption: "How far the two edges snake apart as a crest passes and between words; below "
                 + "75% they mirror into a pill."
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Morph",
             \.morph,
@@ -442,7 +446,7 @@ struct ConsoleIslandSection: View {
                 + "0.51 s; it still grows in and swallows itself at its usual pace.",
             readout: .seconds
         )
-        Kit.Rule()
+        Kit.Rule(inset: Self.ruleInset)
         slider(
             "Drama",
             \.drama,
@@ -545,7 +549,7 @@ private struct IslandCoatRow: View, Equatable {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+        VStack(alignment: .leading, spacing: 0) {
             Kit.SettingRow("Coat", caption: caption) {
                 Picker("Coat", selection: coatSelection) {
                     ForEach(IslandCoat.allCases, id: \.self) { coat in
@@ -700,7 +704,7 @@ private struct IslandUnderglowRow: View, Equatable {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+        VStack(alignment: .leading, spacing: 0) {
             Kit.SettingRow(
                 "Underglow",
                 caption: "A colored light beneath the body, reflected like the rest of the room. "
@@ -840,10 +844,11 @@ private struct IslandSliderControl: View, Equatable {
     let editor: IslandGarageEditor
     let coordinator: DictationCoordinator
     @Environment(\.undoManager) private var undoManager
-    private var a11y = A11y()
 
-    /// Wide enough that one grid step is several points of travel on the longest grid.
+    /// Wide enough that one grid step is several points of travel on the longest grid; a
+    /// narrow page shrinks it as far as the minimum rather than overflowing the card.
     private static let sliderWidth: CGFloat = 220
+    private static let sliderMinimumWidth: CGFloat = 120
 
     init(
         field: WritableKeyPath<IslandAppearance, Int> & Sendable,
@@ -892,15 +897,14 @@ private struct IslandSliderControl: View, Equatable {
                 }
             )
             .labelsHidden()
-            .frame(width: Self.sliderWidth)
+            .frame(minWidth: Self.sliderMinimumWidth, idealWidth: Self.sliderWidth, maxWidth: Self.sliderWidth)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityValue(readout.spoken(value))
             .accessibilityIdentifier(id)
 
             Text(readout.text(value))
-                .roleStyle(.caption)
+                .roleStyle(.meta)
                 .monospacedDigit()
-                .foregroundStyle(a11y.textMid)
                 .frame(width: VoiceourMetrics.Field.readout, alignment: .trailing)
                 .accessibilityHidden(true)
         }
@@ -919,7 +923,7 @@ private struct IslandRestoreButton: View, Equatable {
     }
 
     var body: some View {
-        Kit.ActionButton("Restore Stock", systemImage: "arrow.uturn.backward") {
+        Kit.Button("Restore Stock", systemImage: "arrow.uturn.backward") {
             editor.apply(group.restoreAction, undoManager: undoManager) { group.restore(&$0) }
         }
         .disabled(isStock)
@@ -935,16 +939,18 @@ private struct IslandRestoreButton: View, Equatable {
 
 /// The stage: the production island renderer in a generated room of its own, on the island's
 /// layout, which every display can show (a collar exists only around the camera housing it
-/// frames), magnified twice over in a lit studio.
+/// frames), magnified twice over in a lit studio, in a card with its control bar below.
 ///
 /// Never the real panel: a visible island means a live microphone, and the island reports
 /// state through its shape alone, so a speaking body there would misstate whether the
 /// microphone is on. The surface is the production `MercurySurface` with a hit region of its
 /// own, hidden from accessibility, rasterized at twice the production scale so the magnified
-/// body stays sharp. The studio behind it is drawn from the look's own light, and the floor
-/// under it — contact shadow and reflection — is derived from each image the surface
-/// presents, through a link that never invalidates SwiftUI. One static-text element over the
-/// stage states the pose and the room, and the look mark in the bar below states the look.
+/// body stays sharp. The studio behind it is drawn from the look's own light on the studio's
+/// constant dark ground, never the console theme, and the floor under it — contact shadow and
+/// reflection — is derived from each image the surface presents, through a link that never
+/// invalidates SwiftUI. On a page narrower than the full-size stage the whole stage scales
+/// down, keeping its aspect. One static-text element over the stage states the pose and the
+/// room, and the look pill in the bar below states the look.
 ///
 /// The speaking body needs no clock: the engine turns the voice phase every substep, so the
 /// fixed sample buffer makes a crest train that keeps travelling with nothing published
@@ -1001,7 +1007,7 @@ private struct IslandShowroom: View {
 
     var body: some View {
         let look = MercuryLook(island: shownIsland)
-        Kit.Island {
+        Kit.Card {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
                 stage(look: look)
 
@@ -1034,36 +1040,48 @@ private struct IslandShowroom: View {
     }
 
     /// The studio, the body standing on its horizon, and the floor it casts, behind the floor
-    /// image's top half so the reflection runs down from the body's base.
+    /// image's top half so the reflection runs down from the body's base. Below the full-size
+    /// width every measure scales by the same factor; the surfaces keep their raster scale and
+    /// their layers fit each image to the smaller frame.
     private func stage(look: MercuryLook) -> some View {
-        let bodySize = IslandStageMetrics.bodySize
-        let floor = IslandStageMetrics.floorSize
-        return ZStack(alignment: .top) {
-            IslandStageBackdrop(
-                lighting: ShowroomStage.Lighting(look: look),
-                horizon: IslandStageMetrics.horizon,
-                increasedContrast: a11y.contrast == .increased
-            )
-            .equatable()
+        let increasedContrast = a11y.contrast == .increased
+        let fullSizeWidth = IslandStageMetrics.fullSizeWidth
+        let stageFrame = IslandStageFrame(fullSizeWidth: fullSizeWidth, fullHeight: IslandStageMetrics.height)
+        return stageFrame {
+            GeometryReader { proxy in
+                let scale = IslandStageFrame.scale(width: proxy.size.width, fullSizeWidth: fullSizeWidth)
+                let bodySize = IslandStageMetrics.bodySize
+                let floor = IslandStageMetrics.floorSize
+                ZStack(alignment: .top) {
+                    IslandStageBackdrop(
+                        lighting: ShowroomStage.Lighting(look: look),
+                        horizon: IslandStageMetrics.horizon * scale,
+                        scale: scale,
+                        increasedContrast: increasedContrast
+                    )
+                    .equatable()
 
-            ZStack(alignment: .top) {
-                ShowroomFloor(link: floorLink)
-                    .frame(width: floor.width, height: floor.height)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    ZStack(alignment: .top) {
+                        ShowroomFloor(link: floorLink)
+                            .frame(width: floor.width * scale, height: floor.height * scale)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
 
-                MercurySurface(configuration: configuration(look: look), hitRegion: Self.hitRegion)
-                    .frame(width: bodySize.width, height: bodySize.height)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                        MercurySurface(configuration: configuration(look: look), hitRegion: Self.hitRegion)
+                            .frame(width: bodySize.width * scale, height: bodySize.height * scale)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(width: floor.width * scale, height: floor.height * scale, alignment: .top)
+                    .transaction { $0.animation = nil }
+                    .padding(.top, IslandStageMetrics.bodyTop * scale)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
             }
-            .frame(width: floor.width, height: floor.height, alignment: .top)
-            .transaction { $0.animation = nil }
-            .padding(.top, IslandStageMetrics.bodyTop)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: IslandStageMetrics.height)
-        .clipShape(RoundedRectangle(cornerRadius: Kit.Metrics.cardRadius, style: .continuous))
+        .clipShape(
+            RoundedRectangle(cornerRadius: IslandStageMetrics.cornerRadius, style: .continuous)
+        )
         .overlay {
             Color.clear
                 .accessibilityElement(children: .ignore)
@@ -1105,7 +1123,7 @@ private struct IslandShowroom: View {
     }
 
     private var lookMark: String {
-        IslandLook.matching(coordinator.effectiveIsland)?.displayName.uppercased() ?? "CUSTOM"
+        IslandLook.matching(coordinator.effectiveIsland)?.displayName ?? "Custom"
     }
 
     /// The pose and the room by name, e.g. "Speaking, Studio room 1". The room kind is the
@@ -1301,8 +1319,10 @@ private struct WindowVisibilityReader: NSViewRepresentable {
     }
 }
 
-/// The stage's glass bar. The look mark is the one place the current look is named, and the
+/// The stage's control bar. The look pill is the one place the current look is named, and the
 /// only Custom cue: it sits under the preview, so it stays beside the body while it is tuned.
+/// When the titled bar is wider than the card, its buttons draw their glyphs alone and keep
+/// their titles as accessibility labels, so a narrow page keeps every control on one line.
 private struct IslandShowroomControls: View, Equatable {
     let lookMark: String
     let pose: IslandShowroomPose
@@ -1320,8 +1340,15 @@ private struct IslandShowroomControls: View, Equatable {
     }
 
     var body: some View {
-        Kit.GlassGroup {
-            Kit.Mark(lookMark, size: .regular)
+        ViewThatFits(in: .horizontal) {
+            bar.environment(\.kitCompactControls, false)
+            bar.environment(\.kitCompactControls, true)
+        }
+    }
+
+    private var bar: some View {
+        HStack(spacing: VoiceourMetrics.Space.sm) {
+            Kit.Pill(lookMark, tone: .neutral, size: .regular)
                 .accessibilityIdentifier("island.showroom.look")
 
             Picker("Preview pose", selection: Binding(get: { pose }, set: setPose)) {
@@ -1334,7 +1361,7 @@ private struct IslandShowroomControls: View, Equatable {
             .fixedSize()
             .accessibilityIdentifier("island.showroom.pose")
 
-            Kit.ActionButton("Another Room", systemImage: "shuffle") { anotherRoom() }
+            Kit.Button("Another Room", systemImage: "shuffle") { anotherRoom() }
                 .help(
                     "Shows the preview in a different generated room; every dictation draws "
                         + "its own."
@@ -1342,7 +1369,7 @@ private struct IslandShowroomControls: View, Equatable {
                 .accessibilityIdentifier("island.showroom.room")
 
             if let replayLabel {
-                Kit.ActionButton("Play Again", systemImage: "arrow.counterclockwise") { replay() }
+                Kit.Button("Play Again", systemImage: "arrow.counterclockwise") { replay() }
                     .disabled(isReplaying)
                     // The closure form replaces the label the kit button derives from its
                     // title, whatever order the modifiers resolve in.
@@ -1390,9 +1417,9 @@ private struct IslandPositionRow: View {
     @State private var isFree = false
 
     var body: some View {
-        Kit.Island {
+        Kit.Group {
             Kit.SettingRow("Position", caption: caption) {
-                Kit.ActionButton("Dock Island", systemImage: "dock.arrow.down.rectangle") {
+                Kit.Button("Dock Island", systemImage: "dock.arrow.down.rectangle") {
                     RecordingOverlayPlacement.requestDock()
                     refresh()
                 }
@@ -1431,11 +1458,10 @@ private struct IslandPositionRow: View {
 
 // MARK: - Shared pieces
 
-/// The Island page's explanatory voice outside a setting row: one sentence in the caption
+/// The Island page's explanatory voice outside a setting row: one sentence in the `meta`
 /// role, never truncated mid-clause.
 struct IslandCaption: View {
     private let text: String
-    private var a11y = A11y()
 
     init(_ text: String) {
         self.text = text
@@ -1443,8 +1469,7 @@ struct IslandCaption: View {
 
     var body: some View {
         Text(text)
-            .roleStyle(.caption)
-            .foregroundStyle(a11y.textMid)
+            .roleStyle(.meta)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

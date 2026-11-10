@@ -27,7 +27,7 @@
 #       whatever is behind it lands in the image — never commit one of these
 #       without looking at what it caught.
 #
-# Three environment knobs shape what is photographed:
+# Five environment knobs shape what is photographed:
 #
 #   CONSOLE_SHOT_SAMPLE_DATA=1
 #       Runs the app against a scratch support directory seeded from
@@ -48,6 +48,13 @@
 #       unactivated window photographs its inactive appearance — dimmed lights and
 #       greyed labels — which reads as a broken screenshot in documentation. It
 #       costs a real focus change, so it is opt-in rather than the default.
+#
+#   CONSOLE_SHOT_APPEARANCE=system|light|dark and CONSOLE_SHOT_ACCENT=<accent>
+#       Only with CONSOLE_SHOT_SAMPLE_DATA=1: writes the console's Appearance and
+#       accent colour (green, blue, purple, pink, red, orange, yellow, graphite,
+#       system) into the scratch support directory's settings.json before launch,
+#       so each appearance can be photographed without touching your own settings.
+#       Unset, the app starts on its defaults (System, green).
 #
 # Launches the fake backend (no mic / model / network), opens the console via the
 # dev-only --show-console flag, captures, then quits the app. This DOES disrupt you:
@@ -84,6 +91,11 @@ if [ "$SAMPLE_DATA" = "1" ]; then
     rm -rf "$SUPPORT_DIR"
     mkdir -p "$SUPPORT_DIR"
     "$ROOT/.build/seed_console_data" "$ROOT/fixtures/media/console-sample" "$SUPPORT_DIR" >/dev/null
+    # Only the two keys: every other setting decodes to its default.
+    if [ -n "${CONSOLE_SHOT_APPEARANCE:-}" ] || [ -n "${CONSOLE_SHOT_ACCENT:-}" ]; then
+        printf '{"console_appearance":"%s","console_accent":"%s"}\n' \
+            "${CONSOLE_SHOT_APPEARANCE:-system}" "${CONSOLE_SHOT_ACCENT:-green}" >"$SUPPORT_DIR/settings.json"
+    fi
     VOICEOUR_SUPPORT_DIR="$SUPPORT_DIR"
     export VOICEOUR_SUPPORT_DIR
 fi

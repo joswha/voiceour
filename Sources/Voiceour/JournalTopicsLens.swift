@@ -1,16 +1,59 @@
 import SwiftUI
 import VoiceCore
 
+/// The unsaved new topic: a draft row at the head of the Topics list and the draft page
+/// it opens.
+///
+/// The Journal tab owns it rather than the lens, because the tab hosts one lens at a time
+/// and a lens's own state ends when the reader moves to another: what the reader typed
+/// must still be there when they come back.
+@MainActor
+@Observable
+final class JournalTopicDraft {
+    /// True while the draft row and its page exist.
+    private(set) var isOpen = false
+    /// True while the draft, not a topic, is the list's selection.
+    var isSelected = false
+    var name = ""
+    var summary = ""
+    /// The sentence that says why the last Add Topic was refused; nil until one was.
+    var refusal: String?
+    /// The topic selected when the draft was opened; Cancel returns to it.
+    private(set) var returnTopicID: String?
+
+    init() {}
+
+    /// Opens the draft, or returns to the one already open with its words intact.
+    func open(returningTo topicID: String?) {
+        if !isOpen {
+            isOpen = true
+            returnTopicID = topicID
+        }
+        isSelected = true
+    }
+
+    /// Ends the draft and forgets its words.
+    func close() {
+        isOpen = false
+        isSelected = false
+        name = ""
+        summary = ""
+        refusal = nil
+        returnTopicID = nil
+    }
+}
+
 /// Topics: the subjects the user named, each read as one page of everything filed
 /// under it.
 ///
 /// Topics belong to the user, so the lens is where they are made, renamed and
 /// removed, and where the sorting model is asked to file what the user has not. The
-/// list column holds the topics and the controls that make or sort them; the page
-/// column reads the selected topic. The page leads with the topic's own words (its
-/// name and the one line the sorting model reads as the rubric), then everything
-/// filed under it, newest day first, because a topic is consulted for where it stands
-/// now.
+/// list column holds the topics; the page column reads the selected one. A new topic is
+/// made the way a new note is in Notes: a draft row at the head of the list, selected,
+/// opening a draft page with the form, so creation never squeezes a form into the list.
+/// The page leads with the topic's own words (its name and the one line the sorting
+/// model reads as the rubric), then everything filed under it, newest day first,
+/// because a topic is consulted for where it stands now.
 ///
 /// The topic rows are cached in state and rebuilt on appear and when the entries or
 /// the topics change, never in `body`: memory is uncapped, and a body pass that
@@ -25,6 +68,10 @@ struct JournalTopicsLens: View {
     private let agentNotes: [AgentNote]
     /// The memory folder the synthesis prompt points an agent at; nil offers no prompt.
     private let memoryRoot: URL?
+    /// The tab's draft, so its words survive a lens switch.
+    @Bindable private var draft: JournalTopicDraft
+
+    @Environment(\.theme) private var theme
 
     /// Every topic with the entries filed under it, most entries first.
     @State private var rows: [TopicRow] = []
@@ -32,18 +79,12 @@ struct JournalTopicsLens: View {
     /// Timeline" only when Timeline can open it and "Delete Entry…" only when it
     /// cannot.
     @State private var historyIDs: Set<UUID> = []
+    /// The topic the page reads while the draft is not selected.
     @State private var selectedTopicID: String?
     /// The row an arrow key selected, scrolled into view.
-    @State private var reveal: String?
+    @State private var reveal: AnyHashable?
     /// The agent notes that name the selected topic, newest modification first.
     @State private var selectedTopicNotes: [AgentNote] = []
-
-    /// Whether the reader asked for the creation card. With no topics it shows anyway,
-    /// since making one is the only thing the lens can do then.
-    @State private var isCreating = false
-    @State private var newName = ""
-    @State private var newSummary = ""
-    @State private var addRefusal: String?
 
     /// The selected topic's editable copy, seeded when a topic is selected and written
     /// back only by Save, so typing never renames a topic the reader has not confirmed.
@@ -55,7 +96,10 @@ struct JournalTopicsLens: View {
     @State private var flash = Kit.Flash()
 
     @FocusState private var isListFocused: Bool
-    @FocusState private var isNewNameFocused: Bool
+    @FocusState private var isDraftNameFocused: Bool
+
+    /// The draft row's scroll identity, apart from every topic id.
+    private static let draftRowID = "journal.topics.draft-row"
 
     init(
         coordinator: DictationCoordinator,
@@ -63,7 +107,8 @@ struct JournalTopicsLens: View {
         navigation: JournalNavigation,
         delete: ((UUID) async -> Bool)?,
         agentNotes: [AgentNote] = [],
-        memoryRoot: URL? = nil
+        memoryRoot: URL? = nil,
+        draft: JournalTopicDraft
     ) {
         self.coordinator = coordinator
         self.entries = entries
@@ -71,54 +116,77 @@ struct JournalTopicsLens: View {
         self.delete = delete
         self.agentNotes = agentNotes
         self.memoryRoot = memoryRoot
+        self.draft = draft
     }
 
     var body: some View {
-        Kit.Split {
-            listColumn
-        } page: {
-            pageColumn
-        }
-        .onAppear(perform: reload)
-        .onChange(of: entries) {
-            reload()
-        }
-        .onChange(of: coordinator.memoryTopics) {
-            reload()
-        }
-        // A History row can leave while memory keeps its entry, which changes no
-        // entry, so the ids that decide each row's menu are followed on their own.
-        .onChange(of: coordinator.recentSessions.map(\.id)) {
-            historyIDs = Set(coordinator.recentSessions.map(\.id))
-        }
-        .onChange(of: selectedTopicID) {
-            seedEditor()
-            reloadSelectedTopicNotes()
-            flash.dismiss()
-        }
-        .onChange(of: agentNotes) {
-            reloadSelectedTopicNotes()
-        }
-        .onChange(of: newName) {
-            addRefusal = nil
-        }
-        .onChange(of: editedName) {
-            saveRefusal = nil
-        }
-        .confirmationDialog(
-            "Delete this topic?",
-            isPresented: deletionConfirmationPresented,
-            titleVisibility: .visible,
-            presenting: pendingDeletion
-        ) { topic in
-            Button("Delete Topic", role: .destructive) {
-                remove(topic)
+        content
+            .onAppear(perform: reload)
+            .onChange(of: entries) {
+                reload()
             }
-            Button("Cancel", role: .cancel) {
-                pendingDeletion = nil
+            .onChange(of: coordinator.memoryTopics) {
+                reload()
             }
-        } message: { _ in
-            Text("Its entries stay in memory and become unfiled.")
+            // A History row can leave while memory keeps its entry, which changes no
+            // entry, so the ids that decide each row's menu are followed on their own.
+            .onChange(of: coordinator.recentSessions.map(\.id)) {
+                historyIDs = Set(coordinator.recentSessions.map(\.id))
+            }
+            .onChange(of: selectedTopicID) {
+                seedEditor()
+                reloadSelectedTopicNotes()
+                flash.dismiss()
+            }
+            .onChange(of: draft.isSelected) {
+                flash.dismiss()
+            }
+            .onChange(of: agentNotes) {
+                reloadSelectedTopicNotes()
+            }
+            .onChange(of: draft.name) {
+                draft.refusal = nil
+            }
+            .onChange(of: editedName) {
+                saveRefusal = nil
+            }
+            .confirmationDialog(
+                "Delete this topic?",
+                isPresented: deletionConfirmationPresented,
+                titleVisibility: .visible,
+                presenting: pendingDeletion
+            ) { topic in
+                Button("Delete Topic", role: .destructive) {
+                    remove(topic)
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingDeletion = nil
+                }
+            } message: { _ in
+                Text("Its entries stay in memory and become unfiled.")
+            }
+    }
+
+    /// With no topic and no draft the lens holds nothing to list or read, so one empty
+    /// state across both columns offers the one thing it can do.
+    @ViewBuilder
+    private var content: some View {
+        if rows.isEmpty && !draft.isOpen {
+            Kit.EmptyState(
+                systemImage: "tag",
+                title: "No topics yet",
+                message: "Name a topic, then file dictations and notes under it from their menu.",
+                actionTitle: "New Topic",
+                actionIdentifier: "journal.topics.new",
+                action: openDraft
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Kit.Split {
+                listColumn
+            } page: {
+                pageColumn
+            }
         }
     }
 
@@ -128,48 +196,42 @@ struct JournalTopicsLens: View {
         Kit.ListColumn(
             "Topics",
             subtitle: Self.counted(rows.count, "topic", "topics"),
-            reveal: reveal.map { AnyHashable($0) },
+            reveal: reveal,
             focus: $isListFocused,
             onMove: move
         ) {
-            Kit.ActionButton("New Topic", systemImage: "plus") {
-                toggleCreating()
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Kit.Button("New Topic", systemImage: "plus", action: openDraft)
+                    .help("Name a new topic")
+                    .accessibilityIdentifier("journal.topics.new")
+                Spacer(minLength: 0)
             }
-            .help(isCreating ? "Close the new topic card" : "Name a new topic")
-            .accessibilityIdentifier("journal.topics.new")
         } content: {
-            if isCreating || rows.isEmpty {
-                newTopicCard
-                    .padding(.bottom, VoiceourMetrics.Space.sm)
+            if draft.isOpen {
+                Kit.DraftRow("New topic", isSelected: draft.isSelected) {
+                    draft.isSelected = true
+                    isListFocused = true
+                }
+                .accessibilityIdentifier("journal.topics.draft")
+                .id(Self.draftRowID)
             }
 
             ForEach(rows) { row in
                 topicRow(row)
                     .id(row.id)
             }
-
-            if showsSorting {
-                sortingCard
-                    .padding(.top, VoiceourMetrics.Space.md)
-            }
         }
-    }
-
-    private func toggleCreating() {
-        isCreating.toggle()
-        isNewNameFocused = isCreating
     }
 
     private func topicRow(_ row: TopicRow) -> some View {
         let detail = Self.detailParts(for: row)
-        let isSelected = row.id == selectedTopicID
 
         return Kit.TitleRow(
             row.topic.name,
             subtitle: detail.joined(separator: " \u{00B7} "),
-            isSelected: isSelected,
+            isSelected: !draft.isSelected && row.id == selectedTopicID,
             action: { select(row.id) },
-            leading: { Kit.Badge(systemImage: "tag.fill", size: .small) },
+            leading: { Kit.IconTile(systemImage: "tag.fill", size: .small) },
             trailing: { EmptyView() }
         )
         .accessibilityLabel(([row.topic.name] + detail).joined(separator: ", "))
@@ -180,67 +242,120 @@ struct JournalTopicsLens: View {
     }
 
     /// A press also gives the list focus, so the arrow keys move on from the row the
-    /// reader clicked.
+    /// reader clicked. Choosing a topic leaves the draft in its row, words kept.
     private func select(_ id: String) {
+        draft.isSelected = false
         selectedTopicID = id
         isListFocused = true
     }
 
+    /// Up and down walk the draft row, then the topics, in list order.
     private func move(_ direction: MoveCommandDirection) {
-        guard let target = Self.step(direction, from: selectedTopicID, in: rows.map(\.id)) else { return }
-        selectedTopicID = target
-        reveal = target
+        var ids: [String] = draft.isOpen ? [Self.draftRowID] : []
+        ids += rows.map(\.id)
+        let current = draft.isSelected ? Self.draftRowID : selectedTopicID
+        guard let target = Self.step(direction, from: current, in: ids) else { return }
+        if target == Self.draftRowID {
+            draft.isSelected = true
+        } else {
+            draft.isSelected = false
+            selectedTopicID = target
+        }
+        reveal = AnyHashable(target)
     }
 
-    // MARK: New topic
+    // MARK: Draft
 
-    private var newTopicCard: some View {
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle("New Topic")
+    /// Opens the draft selected with its name field focused, or returns to the draft
+    /// already open, keeping what was typed.
+    private func openDraft() {
+        draft.open(returningTo: selectedTopicID)
+        reveal = AnyHashable(Self.draftRowID)
+        isDraftNameFocused = true
+    }
 
-                TextField("Name", text: $newName)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isNewNameFocused)
-                    .onSubmit(addTopic)
-                    .accessibilityIdentifier("journal.topics.new.name")
-
-                TextField("What belongs here, in one line", text: $newSummary)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addTopic)
-                    .accessibilityIdentifier("journal.topics.new.summary")
-
-                Kit.ActionButton("Add Topic", systemImage: "plus", action: addTopic)
-                    .disabled(Self.isBlank(newName))
-                    .accessibilityIdentifier("journal.topics.add")
-
-                // A refusal is said under the button that asked, in words that name
-                // what to change, rather than leaving the fields filled and unexplained.
-                if let addRefusal {
-                    ConsoleCaption(addRefusal, color: .red)
-                        .accessibilityIdentifier("journal.topics.new.refusal")
-                }
-            }
+    /// Removes the draft and its words and returns to the topic the reader left, or to
+    /// the first topic when that one is gone.
+    private func cancelDraft() {
+        let returnID = draft.returnTopicID
+        draft.close()
+        if let returnID, rows.contains(where: { $0.id == returnID }) {
+            selectedTopicID = returnID
+        } else if selectedTopicID == nil || !rows.contains(where: { $0.id == selectedTopicID }) {
+            selectedTopicID = rows.first?.id
+        }
+        if let selectedTopicID {
+            reveal = AnyHashable(selectedTopicID)
         }
     }
 
     /// A new topic is what the reader came to read next, so it becomes the selection
-    /// and the card closes behind it.
+    /// and the draft closes behind it.
     private func addTopic() {
-        guard !Self.isBlank(newName) else { return }
+        guard !Self.isBlank(draft.name) else { return }
         let existing = Set(coordinator.memoryTopics.map(\.id))
         do {
-            try coordinator.addTopic(name: newName, summary: newSummary)
-            newName = ""
-            newSummary = ""
-            addRefusal = nil
-            isCreating = false
+            try coordinator.addTopic(name: draft.name, summary: draft.summary)
+            draft.close()
             if let added = coordinator.memoryTopics.first(where: { !existing.contains($0.id) }) {
                 selectedTopicID = added.id
-                reveal = added.id
+                reveal = AnyHashable(added.id)
             }
         } catch {
-            addRefusal = Self.refusalText(error)
+            draft.refusal = Self.refusalText(error)
+        }
+    }
+
+    private var draftPage: some View {
+        Kit.PageColumn(identity: AnyHashable(Self.draftRowID)) {
+            EmptyView()
+        } content: {
+            Kit.PageHeader(title: "New topic") {
+                EmptyView()
+            }
+
+            Kit.Card {
+                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                    Kit.Property("Name") {
+                        TextField("Name", text: $draft.name, prompt: Text("Name").foregroundStyle(theme.text3))
+                            .textFieldStyle(.roundedBorder)
+                            .focused($isDraftNameFocused)
+                            .onSubmit(addTopic)
+                            .onAppear { isDraftNameFocused = true }
+                            .accessibilityIdentifier("journal.topics.new.name")
+                    }
+
+                    Kit.Property("Summary") {
+                        TextField(
+                            "What belongs here, in one line",
+                            text: $draft.summary,
+                            prompt: Text("What belongs here, in one line").foregroundStyle(theme.text3)
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(addTopic)
+                        .accessibilityIdentifier("journal.topics.new.summary")
+                    }
+
+                    // A refusal is said under the fields that caused it, in words that
+                    // name what to change, rather than leaving them filled and unexplained.
+                    if let refusal = draft.refusal {
+                        JournalCaption(refusal, color: theme.critical.text)
+                            .accessibilityIdentifier("journal.topics.new.refusal")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                Spacer(minLength: 0)
+                Kit.Button("Cancel", action: cancelDraft)
+                    .keyboardShortcut(.cancelAction)
+                    .help("Discard this topic")
+                    .accessibilityIdentifier("journal.topics.new.cancel")
+                Kit.Button("Add Topic", systemImage: "plus", prominence: .primary, action: addTopic)
+                    .disabled(Self.isBlank(draft.name))
+                    .accessibilityIdentifier("journal.topics.add")
+            }
         }
     }
 
@@ -256,27 +371,25 @@ struct JournalTopicsLens: View {
         coordinator.organizerRun.map { !$0.isFinished } ?? false
     }
 
-    private var sortingCard: some View {
-        Kit.Island {
+    private var sortingSection: some View {
+        JournalSectionCard("Sorting") {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle("Sorting")
+                JournalCaption(sortingCaption)
+                    .accessibilityIdentifier("journal.topics.sort.status")
 
                 if isSorting {
-                    Kit.ActionButton("Stop Sorting", systemImage: "stop.fill") {
+                    Kit.Button("Stop Sorting", systemImage: "stop.fill") {
                         coordinator.cancelSortEntries()
                     }
                     .help("Stop labelling entries; the ones already filed stay filed")
                     .accessibilityIdentifier("journal.topics.sort.stop")
                 } else {
-                    Kit.ActionButton("Sort Entries", systemImage: "wand.and.stars") {
+                    Kit.Button("Sort Entries", systemImage: "wand.and.stars") {
                         coordinator.sortEntries()
                     }
                     .help("File every entry that has no topic of yours")
                     .accessibilityIdentifier("journal.topics.sort")
                 }
-
-                ConsoleCaption(sortingCaption)
-                    .accessibilityIdentifier("journal.topics.sort.status")
             }
         }
     }
@@ -301,60 +414,54 @@ struct JournalTopicsLens: View {
 
     @ViewBuilder
     private var pageColumn: some View {
-        if let row = rows.first(where: { $0.id == selectedTopicID }) {
+        if draft.isOpen && draft.isSelected {
+            draftPage
+        } else if let row = rows.first(where: { $0.id == selectedTopicID }) {
             page(row)
                 .kitToast(flash, identifier: "journal.topics.copied")
-        } else if rows.isEmpty {
-            ContentUnavailableView(
-                "No topics yet",
-                systemImage: "tag",
-                description: Text(
-                    "Name a topic, then file a dictation or a note under it from the entry's menu."
-                )
-            )
         } else {
-            ContentUnavailableView(
-                "No topic selected",
+            Kit.EmptyState(
                 systemImage: "tag",
-                description: Text("Select a topic to read everything filed under it.")
+                title: "No topic selected",
+                message: "Select a topic to read everything filed under it."
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private func page(_ row: TopicRow) -> some View {
-        Kit.PageColumn(identity: row.id) {
-            Kit.GlassGroup {
-                if let memoryRoot {
-                    JournalPromptCopyButton(
-                        "Copy Synthesis Prompt",
-                        help: "Copy a prompt that asks your coding agent to synthesize this topic",
-                        announcement: "Synthesis prompt copied to clipboard",
-                        identifier: "journal.topics.synthesis-prompt",
-                        prominence: .primary,
-                        flash: flash,
-                        prompt: { MemoryPages.synthesisPrompt(topic: row.topic, root: memoryRoot) }
-                    )
-                }
-
-                Kit.ActionButton("Delete Topic\u{2026}", systemImage: "trash", role: .destructive) {
-                    pendingDeletion = row.topic
-                }
-                .help("Delete this topic; its entries stay in memory")
-                .accessibilityIdentifier("journal.topics.delete")
+        Kit.PageColumn(identity: AnyHashable(row.id)) {
+            if let memoryRoot {
+                JournalPromptCopyButton(
+                    "Copy Synthesis Prompt",
+                    help: "Copy a prompt that asks your coding agent to synthesize this topic",
+                    announcement: "Synthesis prompt copied to clipboard",
+                    identifier: "journal.topics.synthesis-prompt",
+                    prominence: .primary,
+                    flash: flash,
+                    prompt: { MemoryPages.synthesisPrompt(topic: row.topic, root: memoryRoot) }
+                )
             }
+
+            Kit.Button("Delete Topic\u{2026}", systemImage: "trash", prominence: .destructive) {
+                pendingDeletion = row.topic
+            }
+            .help("Delete this topic; its entries stay in memory")
+            .accessibilityIdentifier("journal.topics.delete")
         } content: {
             Kit.PageHeader(
-                eyebrow: "Topic",
+                kicker: "Topic",
                 title: row.topic.name,
-                subtitle: row.topic.summary.isEmpty
+                meta: row.topic.summary.isEmpty
                     ? Self.counted(row.entryCount, "entry", "entries")
                     : row.topic.summary
-            )
+            ) {
+                EmptyView()
+            }
 
             if !selectedTopicNotes.isEmpty {
-                Kit.Island {
-                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                        Kit.SectionTitle("From your agents")
+                JournalSectionCard("From your agents") {
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
                         ForEach(selectedTopicNotes) { note in
                             if note.id != selectedTopicNotes.first?.id {
                                 Kit.Rule()
@@ -368,74 +475,78 @@ struct JournalTopicsLens: View {
 
             entriesSection(row)
 
-            // Last, because a topic is read far more often than it is renamed.
-            editIsland(row.topic)
+            // After the entries, because a topic is read far more often than it is
+            // renamed or sorted.
+            editSection(row.topic)
+
+            if showsSorting {
+                sortingSection
+            }
         }
     }
 
-    private func editIsland(_ topic: MemoryTopic) -> some View {
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle("Name and summary")
-
-                Kit.Fact("Name") {
-                    TextField("Name", text: $editedName)
+    private func editSection(_ topic: MemoryTopic) -> some View {
+        JournalSectionCard("Name and summary") {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                Kit.Property("Name") {
+                    TextField("Name", text: $editedName, prompt: Text("Name").foregroundStyle(theme.text3))
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { save(topic) }
                         .accessibilityIdentifier("journal.topics.name")
                 }
 
-                Kit.Fact("Summary") {
-                    TextField("Summary", text: $editedSummary, prompt: Text("What belongs here, in one line"))
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { save(topic) }
-                        .accessibilityIdentifier("journal.topics.summary")
+                Kit.Property("Summary") {
+                    TextField(
+                        "Summary",
+                        text: $editedSummary,
+                        prompt: Text("What belongs here, in one line").foregroundStyle(theme.text3)
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { save(topic) }
+                    .accessibilityIdentifier("journal.topics.summary")
                 }
 
-                HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.md) {
-                    Kit.ActionButton("Save", systemImage: "checkmark") {
+                if let saveRefusal {
+                    JournalCaption(saveRefusal, color: theme.critical.text)
+                        .accessibilityIdentifier("journal.topics.refusal")
+                }
+
+                HStack(spacing: VoiceourMetrics.Space.sm) {
+                    Spacer(minLength: 0)
+                    Kit.Button("Save", systemImage: "checkmark") {
                         save(topic)
                     }
                     .disabled(!isEdited(topic))
                     .accessibilityIdentifier("journal.topics.save")
-
-                    if let saveRefusal {
-                        ConsoleCaption(saveRefusal, color: .red)
-                            .accessibilityIdentifier("journal.topics.refusal")
-                    }
                 }
-                .padding(.leading, Kit.Metrics.factLabel + VoiceourMetrics.Space.md)
             }
         }
     }
 
+    /// The topic's entries by day. Lazy, because a topic can hold hundreds of entries
+    /// and the page builds only the ones near the viewport.
     private func entriesSection(_ row: TopicRow) -> some View {
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle("Entries")
-
-                if row.days.isEmpty {
-                    ConsoleCaption(
-                        "Nothing is filed under this topic yet. File an entry from its menu in any lens."
-                    )
-                } else {
+        JournalSectionCard("Entries") {
+            if row.days.isEmpty {
+                JournalCaption(
+                    "Nothing is filed under this topic yet. File an entry from its menu in any lens."
+                )
+            } else {
+                LazyVStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                     ForEach(row.days) { day in
-                        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
-                            ConsoleCaption(SessionsFormatters.dayHeader.string(from: day.day))
-                                .padding(.horizontal, VoiceourMetrics.Space.md)
-                            ForEach(day.entries) { entry in
-                                JournalEntryRow(
-                                    entry: entry,
-                                    isInHistory: historyIDs.contains(entry.id),
-                                    showsThreadAction: true,
-                                    navigation: navigation,
-                                    delete: delete,
-                                    topics: coordinator.memoryTopics,
-                                    file: fileEntry
-                                )
-                            }
+                        JournalDayCaption(SessionsFormatters.dayHeader.string(from: day.day))
+                            .padding(.top, day.id == row.days.first?.id ? 0 : VoiceourMetrics.Space.md)
+                        ForEach(day.entries) { entry in
+                            JournalEntryRow(
+                                entry: entry,
+                                isInHistory: historyIDs.contains(entry.id),
+                                showsThreadAction: true,
+                                navigation: navigation,
+                                delete: delete,
+                                topics: coordinator.memoryTopics,
+                                file: fileEntry
+                            )
                         }
-                        .padding(.bottom, VoiceourMetrics.Space.sm)
                     }
                 }
             }

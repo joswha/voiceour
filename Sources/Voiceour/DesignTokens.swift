@@ -1,238 +1,110 @@
+import AppKit
 import SwiftUI
 
 // Harness instrumentation for these tokens lives in DesignTokenInstrumentation.swift.
 
-/// Shared design vocabulary for Voiceour's glass console and recording overlay.
-/// Keep literal colors, font sizes, spacing, radii, and motion timings here so view
-/// files compose tokens instead of inventing one-off styling.
-enum VoiceourPalette {
-    enum Ink {
-        static let void = Color(.sRGB, red: 0.02, green: 0.03, blue: 0.05, opacity: 1.00)
-        static let pane = Color(.sRGB, red: 0.06, green: 0.07, blue: 0.09, opacity: 0.62)
-        static let rimDark = Color(.sRGB, red: 0.00, green: 0.00, blue: 0.00, opacity: 0.34)
-        static let surface = Color(.sRGB, red: 0.055, green: 0.065, blue: 0.085, opacity: 1.00)
-        static let well = Color(.sRGB, red: 0.030, green: 0.036, blue: 0.048, opacity: 1.00)
-    }
-
-    enum Plate {
-        static let rest = Color.white.opacity(0.05)
-        static let hover = Color.white.opacity(0.09)
-        static let pressed = Color.white.opacity(0.14)
-    }
-
-    enum Text {
-        static let high = Color(.sRGB, red: 0.89, green: 0.91, blue: 0.95, opacity: 1.00)
-        static let mid = Color(.sRGB, red: 0.64, green: 0.71, blue: 0.80, opacity: 1.00)
-        static let low = Color(.sRGB, red: 0.51, green: 0.56, blue: 0.64, opacity: 1.00)
-        static let monoStrong = Color(.sRGB, red: 0.84, green: 0.92, blue: 0.98, opacity: 1.00)
-    }
-
-    enum Mark {
-        static let faint = Color(.sRGB, red: 0.38, green: 0.42, blue: 0.48, opacity: 1.00)
-    }
-
-    enum Line {
-        static let rule = Color.white.opacity(0.13)
-        static let edge = Color.white.opacity(0.18)
-        static let control = Color.white.opacity(0.35)
-        static let controlHover = Color.white.opacity(0.48)
-        static let focus = Signal.cyan
-    }
-
-    enum Contrast {
-        static let lineRule = Color.white.opacity(0.24)
-        static let lineEdge = Color.white.opacity(0.30)
-        static let lineControl = Color.white.opacity(0.55)
-        static let meterRest = Color.white.opacity(0.55)
-    }
-
-    enum Meter {
-        static let rest = Color.white.opacity(0.35)
-        static let accent = Signal.cyan
-    }
-
-    enum Signal {
-        static let cyan = Color(.sRGB, red: 0.62, green: 0.86, blue: 1.00, opacity: 1.00)
-        static let cyanDeep = Color(.sRGB, red: 0.32, green: 0.60, blue: 0.92, opacity: 1.00)
-        static let mint = Color(.sRGB, red: 0.66, green: 0.96, blue: 0.82, opacity: 1.00)
-        static let amber = Color(.sRGB, red: 0.98, green: 0.78, blue: 0.42, opacity: 1.00)
-        static let crimson = Color(.sRGB, red: 0.98, green: 0.44, blue: 0.44, opacity: 1.00)
-        static let focusHalo = cyan.opacity(0.25)
-    }
-
-    /// Home's one accent. A single dominant signal on that surface: cyan stays
-    /// focus-only there and neither amber nor crimson appears, so the green
-    /// never competes with a severity.
-    ///
-    /// Fills, glyph tints and glows only — never a text colour. Home's text goes
-    /// through the existing `Text` roles, which is what keeps the contrast lint
-    /// meaningful.
-    enum Alien {
-        static let bloom = Color(.sRGB, red: 0.45, green: 1.00, blue: 0.55, opacity: 1.00)
-        /// Activity ladder, darkest to brightest. Four steps because the grid
-        /// scales every day against the window's busiest one in quartiles.
-        static let heat1 = Color(.sRGB, red: 0.07, green: 0.22, blue: 0.12, opacity: 1.00)
-        static let heat2 = Color(.sRGB, red: 0.10, green: 0.38, blue: 0.18, opacity: 1.00)
-        static let heat3 = Color(.sRGB, red: 0.18, green: 0.62, blue: 0.30, opacity: 1.00)
-        static let heat4 = bloom
-        static let bloomGlow = bloom.opacity(0.35)
-        /// A day with no dictation. Deliberately `Plate.rest`: an empty square
-        /// is a plate, not a dark shade of the accent.
-        static let emptyCell = Plate.rest
-
-        static func heat(_ level: Int) -> Color {
-            switch level {
-            case 1: heat1
-            case 2: heat2
-            case 3: heat3
-            case 4...: heat4
-            default: emptyCell
-            }
-        }
-    }
-
-    static let specularRim = LinearGradient(
-        stops: [
-            .init(color: Color.white.opacity(0.55), location: 0.00),
-            .init(color: Color.white.opacity(0.16), location: 0.38),
-            .init(color: Color.white.opacity(0.06), location: 0.62),
-            .init(color: Color.white.opacity(0.22), location: 1.00),
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
-    static let glassTint = LinearGradient(
-        stops: [
-            .init(color: Color.white.opacity(0.05), location: 0.00),
-            .init(color: Ink.pane, location: 0.38),
-            .init(color: Color.black.opacity(0.28), location: 1.00),
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
-    /// Signal hues for the macOS 26 system-glass ground.
-    ///
-    /// `Signal`'s values are pastels — cyan (0.62, 0.86, 1.00), mint (0.66, 0.96, 0.82)
-    /// — because they were authored for the island's near-black painted pill, and the
-    /// contrast that justified them was measured against that pill. Liquid Glass is
-    /// adaptive: over a light desktop the same surface renders light, so those pastels
-    /// land on near-white and the meter reads as faint dots. That is the wash-out, and
-    /// it is a palette bug rather than a material one.
-    ///
-    /// Neutral text and glyphs on glass do not appear here at all: they use `.primary`
-    /// and `.secondary`, because SwiftUI's documented vibrancy treatment applies to the
-    /// system semantic colours and an explicit literal is exactly what defeats it. These
-    /// four exist only for hues that must survive because they carry meaning. Their
-    /// relative luminance sits in the narrow band that clears WCAG AA at 10pt against
-    /// BOTH white and black, so one value remains legible either way the material adapts.
-    enum OnGlass {
-        /// 4.56:1 on white, 4.61:1 on black.
-        static let cyan = Color(.sRGB, red: 0.03, green: 0.49, blue: 0.71, opacity: 1)
-        /// 4.52:1 on white, 4.64:1 on black.
-        static let mint = Color(.sRGB, red: 0.05, green: 0.53, blue: 0.36, opacity: 1)
-        /// 4.59:1 on white, 4.57:1 on black.
-        static let amber = Color(.sRGB, red: 0.66, green: 0.40, blue: 0.02, opacity: 1)
-        /// 4.58:1 on white, 4.59:1 on black.
-        static let crimson = Color(.sRGB, red: 0.90, green: 0.12, blue: 0.20, opacity: 1)
-    }
-}
-
+/// The console's faces, one per `TextRole`. SF throughout; monospaced only where the content
+/// is code-like (a term, a path, a model id) or the greeting's display voice, and figures get
+/// monospaced digits so a changing count never jitters its column.
 enum VoiceourTypography {
-    static let label = Font.system(size: 13, weight: .medium, design: .default)
-    static let caption = Font.system(size: 12, weight: .regular, design: .default)
-    static let micro = Font.system(size: 10, weight: .medium, design: .monospaced)
-    static let metric = Font.system(size: 32, weight: .light, design: .monospaced)
-    /// Widget-tile readout for word values (READY, GRANTED): smaller than
-    /// `metric` numerals but still unmistakably the tile's payload.
-    static let tileValue = Font.system(size: 20, weight: .medium, design: .monospaced)
-    /// Oversized numerical readout. Larger than `metric`; pair with
-    /// `.monospacedDigit()` at the call site.
-    static let heroMetric = Font.system(size: 64, weight: .thin, design: .monospaced)
-    /// The console's display face: a list column's title, a Settings page's title.
-    /// Home's hero at a reading size, so every page opens in the same voice.
-    static let display = Font.system(size: 28, weight: .light, design: .monospaced)
-    /// A page's title: the thread, the day, the term the page is about.
+    /// Home's greeting only.
+    static let hero = Font.system(size: 44, weight: .light, design: .monospaced)
+    /// Settings page titles.
+    static let display = Font.system(size: 26, weight: .semibold, design: .default)
+    /// A detail page's title: the thread, the day, the topic the page is about.
     static let title = Font.system(size: 22, weight: .semibold, design: .default)
-    /// A row's name, a fold's heading: the line a reader scans a list by.
-    static let heading = Font.system(size: 13, weight: .semibold, design: .default)
-    /// A list's group heading, the sidebar's section heading.
-    static let subheading = Font.system(size: 12, weight: .semibold, design: .default)
-    /// Running text at list density: a preview, a preference's name.
-    static let body = Font.system(size: 13, weight: .regular, design: .default)
-    /// Text set to be read rather than scanned: an entry, an agent's note.
-    static let reading = Font.system(size: 14, weight: .regular, design: .default)
-    /// A code value named on its own line: a glossary term's canonical spelling in a row.
-    static let code = Font.system(size: 13, weight: .medium, design: .monospaced)
-    /// A page's title when the page is about a code value: a glossary term's canonical spelling.
+    /// A page's title when the page is about a code value: a glossary term's spelling.
     static let codeTitle = Font.system(size: 22, weight: .semibold, design: .monospaced)
+    /// List-column titles, section headers, card titles, empty-state titles.
+    static let heading = Font.system(size: 15, weight: .semibold, design: .default)
+    /// The line a reader scans a list by: row titles, the sidebar's selected item.
+    static let rowTitle = Font.system(size: 13, weight: .semibold, design: .default)
+    /// Everything else, at the macOS default size.
+    static let body = Font.system(size: 13, weight: .regular, design: .default)
+    /// Text set to be read rather than scanned: transcripts, notes, reading rows.
+    static let reading = Font.system(size: 15, weight: .regular, design: .default)
+    /// A code value on its own line: term names, paths, model ids.
+    static let code = Font.system(size: 13, weight: .medium, design: .monospaced)
+    /// Captions, row metadata, descriptions.
+    static let meta = Font.system(size: 12, weight: .regular, design: .default)
+    /// Group headers, pill words, counts, sidebar section headers. Sentence case.
+    static let label = Font.system(size: 11, weight: .medium, design: .default)
+    /// Keycaps and chart axes only: 10 pt is the macOS floor.
+    static let micro = Font.system(size: 10, weight: .medium, design: .default)
+    /// Stat tile values.
+    static let figure = Font.system(size: 28, weight: .medium, design: .default).monospacedDigit()
+    /// Small figures and meter-row values.
+    static let figureSmall = Font.system(size: 17, weight: .semibold, design: .default).monospacedDigit()
+
+    /// The extra leading between `reading` lines: a little air for paragraphs read whole,
+    /// on top of the face's own line height.
+    static let readingLineSpacing: CGFloat = 2
 }
 
+/// The console's type roles. A role fixes the face and the default colour, which comes from
+/// the environment theme, so the same role reads correctly in every appearance.
 enum TextRole {
-    case heroMetric
-    case metric
-    case tileValue
-    case label
-    case caption
-    case micro
+    case hero
     case display
     case title
+    case codeTitle
     case heading
-    case subheading
+    case rowTitle
     case body
     case reading
     case code
-    case codeTitle
+    case meta
+    case label
+    case micro
+    case figure
+    case figureSmall
 
     var font: Font {
         switch self {
-        case .heroMetric: VoiceourTypography.heroMetric
-        case .metric: VoiceourTypography.metric
-        case .tileValue: VoiceourTypography.tileValue
-        case .label: VoiceourTypography.label
-        case .caption: VoiceourTypography.caption
-        case .micro: VoiceourTypography.micro
+        case .hero: VoiceourTypography.hero
         case .display: VoiceourTypography.display
         case .title: VoiceourTypography.title
+        case .codeTitle: VoiceourTypography.codeTitle
         case .heading: VoiceourTypography.heading
-        case .subheading: VoiceourTypography.subheading
+        case .rowTitle: VoiceourTypography.rowTitle
         case .body: VoiceourTypography.body
         case .reading: VoiceourTypography.reading
         case .code: VoiceourTypography.code
-        case .codeTitle: VoiceourTypography.codeTitle
-        }
-    }
-
-    var tracking: CGFloat {
-        switch self {
-        case .micro: 0.8
-        default: 0
+        case .meta: VoiceourTypography.meta
+        case .label: VoiceourTypography.label
+        case .micro: VoiceourTypography.micro
+        case .figure: VoiceourTypography.figure
+        case .figureSmall: VoiceourTypography.figureSmall
         }
     }
 
     var pointSize: CGFloat {
         switch self {
-        case .heroMetric: 64
-        case .metric: 32
-        case .display: 28
+        case .hero: 44
+        case .figure: 28
+        case .display: 26
         case .title, .codeTitle: 22
-        case .tileValue: 20
-        case .reading: 14
-        case .label, .heading, .body, .code: 13
-        case .caption, .subheading: 12
+        case .figureSmall: 17
+        case .heading, .reading: 15
+        case .rowTitle, .body, .code: 13
+        case .meta: 12
+        case .label: 11
         case .micro: 10
         }
     }
 
     var weight: Font.Weight {
         switch self {
-        case .heroMetric: .thin
-        case .metric, .display: .light
-        case .tileValue, .label, .micro, .code: .medium
-        case .title, .heading, .subheading, .codeTitle: .semibold
-        case .caption, .body, .reading: .regular
+        case .hero: .light
+        case .display, .title, .codeTitle, .heading, .rowTitle, .figureSmall: .semibold
+        case .code, .label, .micro, .figure: .medium
+        case .body, .reading, .meta: .regular
         }
+    }
+
+    /// Extra leading between lines; only `reading` sets any.
+    var lineSpacing: CGFloat {
+        self == .reading ? VoiceourTypography.readingLineSpacing : 0
     }
 
     var isBold: Bool {
@@ -243,16 +115,17 @@ enum TextRole {
         weight == .bold || weight == .heavy || weight == .black
     }
 
-    var foreground: Color {
+    /// The role's default colour in `theme`: text1 for what is read, text2 for what
+    /// describes it, text3 for keycaps and axes.
+    func foreground(in theme: Theme) -> Color {
         switch self {
-        case .heroMetric, .metric, .label, .display, .title, .heading, .body, .reading, .code, .codeTitle:
-            VoiceourPalette.Text.high
-        case .tileValue:
-            VoiceourPalette.Text.monoStrong
-        case .subheading:
-            VoiceourPalette.Text.mid
-        case .caption, .micro:
-            VoiceourPalette.Text.low
+        case .hero, .display, .title, .codeTitle, .heading, .rowTitle, .body, .reading, .code, .figure,
+            .figureSmall:
+            theme.text1
+        case .meta, .label:
+            theme.text2
+        case .micro:
+            theme.text3
         }
     }
 }
@@ -304,29 +177,18 @@ enum ControlState: Equatable {
 }
 
 private struct TextRoleModifier: ViewModifier {
+    @Environment(\.theme) private var theme
+
     let role: TextRole
     var color: Color?
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        let foreground = color ?? role.foreground
-        let styled =
-            content
+        let foreground = color ?? role.foreground(in: theme)
+        content
             .font(role.font)
-            .tracking(role.tracking)
             .foregroundStyle(foreground)
-        if let recorder = RenderOverrides.textRoleRecorder {
-            styled.modifier(
-                TextRoleRecordingModifier(
-                    role: role,
-                    foreground: foreground,
-                    isBold: role.isBold,
-                    recorder: recorder
-                )
-            )
-        } else {
-            styled
-        }
+            .lineSpacing(for: role)
+            .recordTextRole(role, foreground: foreground)
     }
 }
 
@@ -334,52 +196,55 @@ private struct TextRoleModifier: ViewModifier {
 /// applied after `.roleStyle(_:)` still overrides the role default, while adding
 /// the harness-only geometry probe at the point where the text becomes a view.
 struct RoleStyledText: View {
+    @Environment(\.theme) private var theme
+
     /// The text in the role's face, still uncoloured. `Text` keeps the first
     /// foreground it is given, so the colour is applied once, in `body`, and
     /// `foregroundStyle(_:)` replaces it rather than stacking a second one the
     /// first would shadow.
     private let base: Text
     private let role: TextRole
-    private let foreground: Color
-    private let isBold: Bool
+    /// An explicit colour; nil paints the role's default from the environment theme,
+    /// which is only known in `body`.
+    private let foreground: Color?
 
     init(_ text: Text, role: TextRole) {
-        self.base = text.font(role.font).tracking(role.tracking)
-        self.role = role
-        self.foreground = role.foreground
-        self.isBold = role.isBold
+        self.init(base: text.font(role.font), role: role, foreground: nil)
     }
 
-    private init(base: Text, role: TextRole, foreground: Color, isBold: Bool) {
+    private init(base: Text, role: TextRole, foreground: Color?) {
         self.base = base
         self.role = role
         self.foreground = foreground
-        self.isBold = isBold
     }
 
-    @ViewBuilder
     var body: some View {
-        let text = base.foregroundStyle(foreground)
-        if let recorder = RenderOverrides.textRoleRecorder {
-            text.modifier(
-                TextRoleRecordingModifier(
-                    role: role,
-                    foreground: foreground,
-                    isBold: isBold,
-                    recorder: recorder
-                )
-            )
-        } else {
-            text
-        }
+        let resolved = foreground ?? role.foreground(in: theme)
+        base.foregroundStyle(resolved)
+            .lineSpacing(for: role)
+            .recordTextRole(role, foreground: resolved)
     }
 
     func foregroundStyle(_ color: Color) -> RoleStyledText {
-        RoleStyledText(base: base, role: role, foreground: color, isBold: isBold)
+        RoleStyledText(base: base, role: role, foreground: color)
     }
 
     func monospacedDigit() -> RoleStyledText {
-        RoleStyledText(base: base.monospacedDigit(), role: role, foreground: foreground, isBold: isBold)
+        RoleStyledText(base: base.monospacedDigit(), role: role, foreground: foreground)
+    }
+}
+
+@MainActor
+extension View {
+    /// The role's leading, and nothing for roles that set none, so a caller's own
+    /// `lineSpacing` further out still reaches every other role.
+    @ViewBuilder
+    fileprivate func lineSpacing(for role: TextRole) -> some View {
+        if role.lineSpacing > 0 {
+            lineSpacing(role.lineSpacing)
+        } else {
+            self
+        }
     }
 }
 
@@ -428,49 +293,13 @@ extension Text {
     }
 }
 
+/// Metrics shared beyond the kit (`Kit.Metrics` owns the console's own measures): the 4 pt
+/// spacing ladder the recording island also lays out on, the window's sizes, and a few
+/// purpose-sized widths.
 enum VoiceourMetrics {
-    enum Radius {
-        static let window: CGFloat = 16
-        static let card: CGFloat = 20
-        static let row: CGFloat = 8
-        static let keycap: CGFloat = 4
-
-        /// System `concentric(minimum:)` semantics for painted nested shapes.
-        static func nested(_ outer: CGFloat, inset: CGFloat) -> CGFloat {
-            max(outer - inset, 0)
-        }
-    }
-
-    enum Column {
-        static let rail: CGFloat = 176
-    }
-
-    /// The capped width every pane's content sits on, so a pane holds a fixed
-    /// measure instead of stretching edge-to-edge with the window. Every pane is
-    /// left-flush against this column.
-    enum Content {
-        static let table: CGFloat = 940
-    }
-
     enum Control {
-        /// The one declared exception: compact state marks are marks, not controls.
-        static let compactMark: CGFloat = 20
-        /// A glyph-sized app icon set beside `.caption` text, on History's
-        /// heading line. Smaller than `mini`: it is a mark inside a sentence of
-        /// small type, not something to hit.
-        ///
-        /// 13 rather than 14 because the icon has to fit inside the line box the
-        /// caption already occupies. Centred on a `.caption` box that is
-        /// baseline-aligned with the row's `.body` stamp, an icon taller than
-        /// ~13.9 pt reaches past the row's own descent and makes the row one
-        /// point taller — so a row would change height depending on whether the
-        /// reader still has the app installed.
-        static let inlineIcon: CGFloat = 13
+        /// The smallest interactive height: the lint's reference control.
         static let mini: CGFloat = 24
-        static let small: CGFloat = 28
-        static let medium: CGFloat = 32
-        static let large: CGFloat = 40
-        static let pressedScale: CGFloat = 0.985
     }
 
     /// The explicit width for a short, purpose-sized field such as a millisecond
@@ -485,15 +314,9 @@ enum VoiceourMetrics {
     }
 
     enum Stroke {
-        static let specular: CGFloat = 0.75
-        static let hairline: CGFloat = 0.5
-
+        /// A drawn hairline, heavier under Increase Contrast.
         static func hairline(_ contrast: ColorSchemeContrast) -> CGFloat {
             contrast == .increased ? 1.0 : 0.5
-        }
-
-        static func selected(_ contrast: ColorSchemeContrast) -> CGFloat {
-            contrast == .increased ? 2.0 : 1.5
         }
     }
 
@@ -506,45 +329,19 @@ enum VoiceourMetrics {
         static let xl: CGFloat = 24
     }
 
-    enum Row {
-        static let list: CGFloat = 64
-    }
-
-    enum Chip {
-        static let horizontal: CGFloat = 10
-    }
-
     enum Icon {
+        /// A glyph set inside a line of small type.
         static let mark: CGFloat = 10
-        static let row: CGFloat = 13
-    }
-
-    /// The one determinate meter measure: `MeterBar`.
-    enum Meter {
-        static let barHeight: CGFloat = 4
-        /// The measure a console readiness caption already occupies at this type size, so a
-        /// progress bar spans the sentence it belongs to instead of ruling the whole 704 pt
-        /// plate. It never binds inside the 280 pt menu popover, whose inner width is smaller.
-        static let barWidth: CGFloat = 320
-    }
-
-    enum Shadow {
-        /// Home's app-drawn stats panes only. The recording island now relies on
-        /// Liquid Glass's adaptive elevation on macOS 26 and draws no app shadow
-        /// on any path; native console content is AppKit's own plate chrome.
-        static let homeOuter: (color: Color, radius: CGFloat, y: CGFloat) =
-            (Color.black.opacity(0.26), 18, 6)
-        static let homeInner: (color: Color, radius: CGFloat, y: CGFloat) =
-            (Color.black.opacity(0.18), 4, 1)
     }
 
     enum Window {
-        static let minWidth: CGFloat = Column.rail + Space.xl * 2 + Content.table
-        /// First-launch size. Width IS `minWidth`: `Content.table` fits the
-        /// region exactly, so the console opens at its tightest legal,
-        /// geometrically fitted size instead of floating its column in spare
-        /// glass. Growing the window only grows the gutters evenly.
-        static let defaultWidth: CGFloat = minWidth
+        /// The smallest window the console lays out in: the Journal's sidebar folded to its
+        /// rail, the list column and a page still wide enough to read.
+        static let minWidth: CGFloat = 800
+        static let minHeight: CGFloat = 560
+        /// First-launch size: sidebar, list and page side by side, with the page's reading
+        /// measure inside its padding.
+        static let defaultWidth: CGFloat = 1164
         static let defaultHeight: CGFloat = 820
     }
 }

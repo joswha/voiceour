@@ -5,6 +5,7 @@ import VoiceCore
 /// the cleanup pass before insertion.
 struct SettingsDictationPage: View {
     private let coordinator: DictationCoordinator
+    @Environment(\.theme) private var theme
 
     private enum FocusTarget: Hashable {
         case silence
@@ -31,11 +32,11 @@ struct SettingsDictationPage: View {
 
     var body: some View {
         SettingsPage(.dictation) {
-            SettingsIsland {
+            Kit.Group {
                 triggerRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 autoStopRows
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 cleanupRow
             }
         }
@@ -53,11 +54,12 @@ struct SettingsDictationPage: View {
         ) {
             HStack(spacing: VoiceourMetrics.Space.sm) {
                 Text("Fn or Globe")
-                    .font(.body.monospaced())
+                    .roleStyle(.code)
+                    .lineLimit(1)
                     .accessibilityLabel("Capture hotkey")
                     .accessibilityValue("Fn or Globe")
                     .accessibilityIdentifier("capture.hotkey")
-                Kit.Mark("STANDALONE TAP")
+                Kit.Pill("Standalone tap")
             }
         }
     }
@@ -66,7 +68,7 @@ struct SettingsDictationPage: View {
     /// page can never read as "auto-stop is on at 2500 ms" while the switch above
     /// it is off.
     private var autoStopRows: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+        VStack(alignment: .leading, spacing: 0) {
             Kit.SettingRow("Stop after silence") {
                 Toggle("Stop after silence", isOn: settingBinding(coordinator, \.autoStopEnabled))
                     .toggleStyle(.switch)
@@ -74,23 +76,30 @@ struct SettingsDictationPage: View {
                     .accessibilityIdentifier("voice.auto-stop.toggle")
             }
 
+            Kit.Rule(inset: VoiceourMetrics.Space.md)
+
             Kit.SettingRow(
                 "Auto-stop silence",
                 caption: "Ends a recording after \(Self.silenceRange.lowerBound)–\(Self.silenceRange.upperBound) ms "
                     + "of silence, never before 3 s of capture."
             ) {
                 HStack(spacing: VoiceourMetrics.Space.xs) {
-                    TextField(silencePlaceholder, text: silenceBinding)
-                        .frame(width: VoiceourMetrics.Field.short)
-                        .multilineTextAlignment(.trailing)
-                        .monospacedDigit()
-                        .focused($focusedField, equals: .silence)
-                        .onSubmit { commitSilence() }
-                        .accessibilityLabel("Auto-stop silence, milliseconds")
-                        .accessibilityIdentifier("voice.auto-stop.duration")
+                    TextField(
+                        silencePlaceholder,
+                        text: silenceBinding,
+                        prompt: Text(silencePlaceholder).foregroundStyle(theme.text3)
+                    )
+                    .frame(width: VoiceourMetrics.Field.short)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .focused($focusedField, equals: .silence)
+                    .onSubmit { commitSilence() }
+                    .accessibilityLabel("Auto-stop silence, milliseconds")
+                    .accessibilityIdentifier("voice.auto-stop.duration")
 
                     Text("ms")
-                        .foregroundStyle(.secondary)
+                        .roleStyle(.body)
+                        .foregroundStyle(coordinator.settings.autoStopEnabled ? theme.text2 : theme.textDisabled)
                         .accessibilityHidden(true)
 
                     Stepper(

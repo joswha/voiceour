@@ -1,27 +1,34 @@
 import SwiftUI
 
 struct MenuBarLabel: View {
+    /// The status dot sits in the system menu bar, outside the console's theme:
+    /// the bar's own appearance follows the wallpaper, not the reader's console
+    /// choice, so these stay fixed signal tints.
+    private static let errorTint = Color(.sRGB, red: 0.98, green: 0.44, blue: 0.44, opacity: 1)
+    private static let liveTint = Color(.sRGB, red: 0.62, green: 0.86, blue: 1.00, opacity: 1)
+    private static let preparingTint = Color(.sRGB, red: 0.98, green: 0.78, blue: 0.42, opacity: 1)
+
     var coordinator: DictationCoordinator
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Model acquisition is not a `SessionState`, so without a case of its own the
     /// icon sat at rest for however long 1.26 GB takes on a first run — the one
-    /// window where nothing the reader tries can work. Amber is the colour the menu
-    /// and the System pane already give a PREPARING backend, and it ranks below both
-    /// signals about a session the reader started: an error still shows crimson and a
-    /// live session still shows cyan.
+    /// window where nothing the reader tries can work. Amber matches the caution
+    /// tone the menu's Preparing pill wears, and it ranks below both signals about
+    /// a session the reader started: an error still shows crimson and a live
+    /// session still shows cyan.
     private var isAcquiringModel: Bool {
         coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming
     }
 
     private var dotColor: Color? {
         if coordinator.state.isCritical {
-            VoiceourPalette.Signal.crimson
+            Self.errorTint
         } else if coordinator.state.isActive {
-            VoiceourPalette.Signal.cyan
+            Self.liveTint
         } else if isAcquiringModel {
-            VoiceourPalette.Signal.amber
+            Self.preparingTint
         } else {
             nil
         }

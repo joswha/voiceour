@@ -1,0 +1,22 @@
+flow: journal.topics.create
+title: New Topic opens a draft row and page, and Add Topic replaces the draft with the selected topic
+fixture: static
+transitions: idle
+PASS 1 listed | count id=journal.topics.row exactly 3 | 3 matches
+PASS 2 listed | selected(true) id=journal.topics.row & label~="Memory folder" | true
+PASS 3 listed | absent id=journal.topics.draft | 0 matches
+PASS 4 listed | absent id=journal.topics.new.name | 0 matches
+PASS 5 drafting | count id=journal.topics.draft exactly 1 | 1 match
+PASS 6 drafting | selected(true) id=journal.topics.draft | true
+PASS 7 drafting | selected(false) id=journal.topics.row & label~="Memory folder" | false
+PASS 8 drafting | exists id=journal.topics.new.name | 1 match
+PASS 9 drafting | value id=journal.topics.new.name is empty | ""
+PASS 10 drafting | enabled(false) id=journal.topics.add | false
+PASS 11 typed | enabled(true) id=journal.topics.add | true
+PASS 12 added | count id=journal.topics.row exactly 4 | 4 matches
+PASS 13 added | label id=journal.topics.row & label~="Release notes" == "Release notes, 0 entries" | "Release notes, 0 entries"
+PASS 14 added | selected(true) id=journal.topics.row & label~="Release notes" | true
+PASS 15 added | selected(false) id=journal.topics.row & label~="Memory folder" | false
+PASS 16 added | absent id=journal.topics.draft | 0 matches
+PASS 17 added | absent id=journal.topics.new.name | 0 matches
+PASS 18 added | value id=journal.topics.name == "Release notes" | "Release notes"

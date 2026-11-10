@@ -5,9 +5,11 @@ import VoiceMac
 /// Settings ▸ Model: the one model Voiceour transcribes with, what it downloads
 /// and what it keeps on disk. Not debug-gated, unlike Backend.
 struct SettingsModelPage: View {
+    @Environment(\.theme) private var theme
+
     var body: some View {
         SettingsPage(.model) {
-            SettingsIsland {
+            Kit.Group {
                 speechModelRow
             }
         }
@@ -24,7 +26,9 @@ struct SettingsModelPage: View {
                 + "uses about \(ConsoleReadiness.gigabytes(artifact.sizeBytes)) after first load."
         ) {
             Text(artifact.displayName)
-                .foregroundStyle(.secondary)
+                .roleStyle(.body)
+                .foregroundStyle(theme.text2)
+                .lineLimit(1)
                 .accessibilityIdentifier("voice.model.granite")
         }
     }
@@ -48,7 +52,7 @@ struct SettingsBackendPage: View {
 
     var body: some View {
         SettingsPage(.backend) {
-            SettingsIsland {
+            Kit.Group {
                 backendRow
             }
         }
@@ -56,18 +60,18 @@ struct SettingsBackendPage: View {
 
     /// The picker states what is *saved*; the caption under it states what is
     /// *running*. They are the same thing until the user changes the picker, at
-    /// which point the mark turns amber and the restart action appears beside it
+    /// which point the pill turns to caution and the restart action appears beside it
     /// — the user never has to quit and relaunch the app manually.
     private var backendRow: some View {
         Kit.SettingRow("ASR backend", caption: runningSummary) {
             HStack(spacing: VoiceourMetrics.Space.sm) {
-                Kit.Mark(
-                    restartRequired ? "RESTART TO APPLY" : "IN USE",
+                Kit.Pill(
+                    restartRequired ? "Restart to apply" : "In use",
                     tone: restartRequired ? .caution : .neutral
                 )
 
                 if restartRequired && restartAvailable {
-                    Kit.ActionButton("Restart Voiceour") { restartApplication() }
+                    Kit.Button("Restart Voiceour") { restartApplication() }
                         .accessibilityLabel("Restart Voiceour to apply backend")
                         .accessibilityIdentifier("voice.backend.restart")
                 }
@@ -99,7 +103,7 @@ struct SettingsBackendPage: View {
 
     /// What is transcribing right now: the model when the running backend is the
     /// saved one, and the running backend's own name when it is not. Both halves
-    /// say "in use" so the mark and the line share one vocabulary.
+    /// say "in use" so the pill and the line share one vocabulary.
     ///
     /// An unregistered id resolves here to the descriptor the registry would
     /// actually build, because this caption answers "what will load". The

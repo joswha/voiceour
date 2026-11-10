@@ -50,7 +50,7 @@ private struct TextRoleRecordingProbe: View {
 }
 /// Ordered paint stack below role-styled text. Opaque surfaces start a new
 /// stack; translucent controls append their fill so the recorder resolves the
-/// same composition SwiftUI paints instead of flattening alpha over `Ink.void`.
+/// same composition SwiftUI paints instead of flattening alpha over a guessed ground.
 struct SurfaceGround {
     fileprivate let layers: [Color]
 
@@ -68,7 +68,8 @@ struct SurfaceGround {
 }
 
 private struct SurfaceGroundKey: EnvironmentKey {
-    static let defaultValue = SurfaceGround(VoiceourPalette.Ink.void)
+    /// Outside any root that declares a ground, text sits on the fallback theme's.
+    static let defaultValue = SurfaceGround(Theme.fallback.ground)
 }
 
 extension EnvironmentValues {
@@ -87,15 +88,25 @@ extension TextRoleSample {
         isBold: Bool,
         frame: CGRect
     ) -> TextRoleSample? {
-        guard let void = ResolvedTextColor(VoiceourPalette.Ink.void),
-            let rawForeground = ResolvedTextColor(foreground)
-        else {
-            return nil
-        }
-        var opaqueGround = void
+        guard let rawForeground = ResolvedTextColor(foreground) else { return nil }
+        var resolvedLayers: [ResolvedTextColor] = []
         for layer in ground.layers {
             guard let resolvedLayer = ResolvedTextColor(layer) else { return nil }
-            opaqueGround = resolvedLayer.composited(over: opaqueGround)
+            resolvedLayers.append(resolvedLayer)
+        }
+        // What the reader sees starts at the topmost opaque layer: the ground a root (or an
+        // opaque surface above it) declared. Only a stack with no opaque layer at all falls
+        // back to the fallback theme's ground.
+        let start = resolvedLayers.lastIndex(where: { $0.alpha >= 1 })
+        var opaqueGround: ResolvedTextColor
+        if let start {
+            opaqueGround = resolvedLayers[start]
+        } else {
+            guard let fallback = ResolvedTextColor(Theme.fallback.ground) else { return nil }
+            opaqueGround = fallback
+        }
+        for layer in resolvedLayers[(start.map { $0 + 1 } ?? 0)...] {
+            opaqueGround = layer.composited(over: opaqueGround)
         }
         let opaqueForeground = rawForeground.composited(over: opaqueGround)
         return TextRoleSample(

@@ -5,9 +5,10 @@ import VoiceCore
 /// look in force lit, and Surprise Me.
 ///
 /// Derived, never stored: the card whose look matches is selected, and none is for Custom,
-/// which the showroom's look mark names instead. Each card is a button whose accessibility
+/// which the showroom's look pill names instead. Each card is a button whose accessibility
 /// label is the look's name and which carries the selected trait while its look is in force;
-/// the cards share the `island.look` container.
+/// the cards share the `island.look` container. Four cards to a row in `IslandLook`'s order;
+/// a page too narrow for four lays out three or two, never a clipped card.
 ///
 /// The thumbnails are stills from `IslandLookThumbnails`, warmed when the page appears, one per
 /// main-actor turn, so no card renders a body inside a view update and no card runs a display
@@ -27,16 +28,6 @@ struct IslandLookGallery: View, Equatable {
     @State private var surpriseSeed: UInt64?
     @State private var surpriseDraw: UInt64 = 0
 
-    /// Four looks to a row, in `IslandLook`'s order.
-    private static let columns = 4
-    private static let rows: [[IslandLook]] = stride(
-        from: 0,
-        to: IslandLook.allCases.count,
-        by: columns
-    ).map { start in
-        Array(IslandLook.allCases[start..<min(start + columns, IslandLook.allCases.count)])
-    }
-
     init(
         look: IslandLook?,
         increasedContrast: Bool,
@@ -55,30 +46,25 @@ struct IslandLookGallery: View, Equatable {
     }
 
     var body: some View {
-        Kit.Island {
+        Kit.Card {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
-                Kit.SectionTitle("Look") {
-                    Kit.ActionButton("Surprise Me", systemImage: "dice") { surprise() }
+                Kit.SectionHeader("Look") {
+                    Kit.Button("Surprise Me", systemImage: "dice") { surprise() }
                         .help("Draws a random look from every option's range.")
                         .accessibilityIdentifier("island.look.surprise")
                 }
 
-                Grid(
-                    horizontalSpacing: VoiceourMetrics.Space.sm,
-                    verticalSpacing: VoiceourMetrics.Space.sm
-                ) {
-                    ForEach(Self.rows, id: \.self) { row in
-                        GridRow {
-                            ForEach(row, id: \.self) { card in
-                                IslandLookCard(
-                                    look: card,
-                                    image: thumbnails[card],
-                                    isSelected: card == look,
-                                    choose: { choose(card) }
-                                )
-                                .equatable()
-                            }
-                        }
+                // `callAsFunction` spelled out: a trailing closure after the type would be read
+                // as an initializer argument.
+                IslandLookGrid().callAsFunction {
+                    ForEach(IslandLook.allCases, id: \.self) { card in
+                        IslandLookCard(
+                            look: card,
+                            image: thumbnails[card],
+                            isSelected: card == look,
+                            choose: { choose(card) }
+                        )
+                        .equatable()
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -122,7 +108,78 @@ struct IslandLookGallery: View, Equatable {
     }
 }
 
-/// One look: its still in a dark well over its name, lit while the look is in force.
+/// The gallery's grid: equal columns, as many as fit up to four, each card as wide as its
+/// column and each row as tall as its tallest card. Not lazy, so every card is in the
+/// accessibility tree whatever the scroll position. Twelve looks fill four, three or two
+/// columns evenly.
+private struct IslandLookGrid: Layout {
+    private static let spacing: CGFloat = 8
+    /// Wide enough for the longest look name in `meta` beside the card's padding.
+    private static let minimumCardWidth: CGFloat = 128
+    private static let maximumColumns = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = Self.width(proposed: proposal.width)
+        let rows = Self.rowHeights(width: width, subviews: subviews)
+        let height = rows.reduce(0, +) + CGFloat(max(rows.count - 1, 0)) * Self.spacing
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let columns = Self.columns(fitting: bounds.width)
+        let cardWidth = Self.cardWidth(bounds.width, columns: columns)
+        let rows = Self.rowHeights(width: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for (row, height) in rows.enumerated() {
+            for column in 0..<columns {
+                let index = row * columns + column
+                guard index < subviews.count else { break }
+                subviews[index].place(
+                    at: CGPoint(x: bounds.minX + CGFloat(column) * (cardWidth + Self.spacing), y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: cardWidth, height: height)
+                )
+            }
+            y += height + Self.spacing
+        }
+    }
+
+    /// The offered width; with none, or an unbounded one, four cards at their narrowest.
+    private static func width(proposed: CGFloat?) -> CGFloat {
+        guard let proposed, proposed.isFinite else {
+            let columns = CGFloat(maximumColumns)
+            return columns * minimumCardWidth + (columns - 1) * spacing
+        }
+        return max(proposed, 0)
+    }
+
+    private static func columns(fitting width: CGFloat) -> Int {
+        let fitting = Int(((width + spacing) / (minimumCardWidth + spacing)).rounded(.down))
+        return min(maximumColumns, max(1, fitting))
+    }
+
+    private static func cardWidth(_ width: CGFloat, columns: Int) -> CGFloat {
+        max(0, (width - CGFloat(columns - 1) * spacing) / CGFloat(columns))
+    }
+
+    private static func rowHeights(width: CGFloat, subviews: Subviews) -> [CGFloat] {
+        let columns = columns(fitting: width)
+        let proposal = ProposedViewSize(width: cardWidth(width, columns: columns), height: nil)
+        return stride(from: 0, to: subviews.count, by: columns).map { start in
+            subviews[start..<min(start + columns, subviews.count)]
+                .map { $0.sizeThatFits(proposal).height }
+                .max() ?? 0
+        }
+    }
+}
+
+/// One look: its still in a small dark studio over its name, on a raised tile with a border;
+/// the look in force on the selection plate inside a 2 pt focus-ring outline.
 ///
 /// One accessibility element, a button named for the look, so the still and the name are not
 /// two stops for one choice.
@@ -135,6 +192,10 @@ private struct IslandLookCard: View, Equatable {
     /// The well's height: the island canvas's 196:34 aspect at a card's width, with room
     /// around it.
     private static let wellHeight: CGFloat = 40
+    private static let wellRadius: CGFloat = 4
+    /// The whole card: the well, the name and the padding around them, fixed rather than
+    /// left to the name's line height so the card stays on the 4 pt grid.
+    private static let cardHeight: CGFloat = 80
 
     /// Leaves the closure out: it only names this card's look, which `look` already compares.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -145,26 +206,29 @@ private struct IslandLookCard: View, Equatable {
         Button {
             choose()
         } label: {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
                 well
                 Text(look.displayName)
-                    .roleStyle(.label)
+                    .roleStyle(.meta)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .padding(VoiceourMetrics.Space.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: Self.cardHeight, alignment: .top)
         }
-        .buttonStyle(Kit.RowButtonStyle(isSelected: isSelected))
+        .buttonStyle(IslandLookCardStyle(isSelected: isSelected))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(look.displayName)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
+    /// The still on the studio's own dark ground, as the stage shows the body, in every
+    /// console appearance.
     private var well: some View {
-        let shape = RoundedRectangle(cornerRadius: Kit.Metrics.rowRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Self.wellRadius, style: .continuous)
         return ZStack {
-            shape.fill(VoiceourPalette.Ink.well)
+            shape.fill(IslandStudio.ground)
             if let image {
                 Image(decorative: image, scale: MercuryMetrics.rasterScale)
                     .resizable()
@@ -177,5 +241,58 @@ private struct IslandLookCard: View, Equatable {
         .frame(maxWidth: .infinity)
         .frame(height: Self.wellHeight)
         .accessibilityHidden(true)
+    }
+}
+
+/// A look card's tile: `raised` with a `border` at rest, the hover and pressed washes under
+/// the pointer, and the `selection` plate inside a 2 pt `focusRing` outline while its look is
+/// in force, so the lit card reads by its outline as well as its fill.
+private struct IslandLookCardStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        IslandLookCardTile(
+            label: configuration.label,
+            isSelected: isSelected,
+            isPressed: configuration.isPressed
+        )
+    }
+}
+
+private struct IslandLookCardTile: View {
+    let label: ButtonStyleConfiguration.Label
+    let isSelected: Bool
+    let isPressed: Bool
+    @Environment(\.theme) private var theme
+    @State private var isHovered = false
+
+    private static let radius: CGFloat = 8
+    private static let selectedStroke: CGFloat = 2
+    private static let restingStroke: CGFloat = 1
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+        let fill = plate
+        label
+            .background(fill, in: shape)
+            .environment(\.surfaceGround, SurfaceGround(fill))
+            .overlay {
+                shape.strokeBorder(
+                    isSelected ? theme.focusRing : theme.border,
+                    lineWidth: isSelected ? Self.selectedStroke : Self.restingStroke
+                )
+            }
+            .contentShape(shape)
+            .onHover { isHovered = $0 }
+    }
+
+    private var plate: Color {
+        if isSelected {
+            return theme.selection
+        }
+        if isPressed {
+            return theme.pressed
+        }
+        return isHovered ? theme.hover : theme.raised
     }
 }

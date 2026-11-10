@@ -3,27 +3,26 @@ import SwiftUI
 /// One command in the popover's action container.
 ///
 /// Rest carries no fill and no rim: the container owns the single boundary, and
-/// a permanent rim per row is the noise this structure exists to remove. The row
-/// is `Control.medium` tall and opens with the command's glyph on a mini
-/// ``Kit/Badge`` disc, Home's green signal. Its label is the `label` role, 13 pt
-/// SF Pro in sentence case — these are menu rows, not status chips — and its
-/// trailing slot always carries something, so the plate's width means "this row
-/// has a right-hand payload" instead of committing 40–85 % of its area to
-/// nothing.
+/// a permanent plate per row is the noise this structure exists to remove. The
+/// row is one row pitch (32 pt) tall and opens with the command's glyph on a mini
+/// ``Kit/IconTile``; its title is the `body` role in sentence case — these are
+/// menu rows, not status pills.
 struct MenuCommandRow: View {
     enum Accessory {
         case none
+        /// The command leaves the popover (System Settings, the console).
         case chevron
+        /// The command's key equivalent.
         case keys(String)
     }
 
     let title: String
-    /// The SF Symbol the leading badge draws.
+    /// The SF Symbol the leading tile draws.
     let systemImage: String
     var accessory: Accessory = .none
-    /// A row that is followed by another closes itself with an inset rule drawn
-    /// as an overlay, so the rule costs no layout height and the row pitch stays
-    /// exactly `Control.medium`. The last row in the container closes nothing.
+    /// A row that is followed by another closes itself with a rule drawn as an
+    /// overlay, so the rule costs no layout height and the row pitch stays
+    /// exactly 32 pt. The last row in the container closes nothing.
     var closingRule: Bool = false
     let action: () -> Void
 
@@ -77,6 +76,7 @@ private struct MenuCommandBody: View {
         self.closingRule = closingRule
     }
 
+    @Environment(\.theme) private var theme
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.isFocused) private var isFocused
     @Environment(\.surfaceGround) private var inheritedGround
@@ -94,13 +94,14 @@ private struct MenuCommandBody: View {
 
     var body: some View {
         HStack(spacing: VoiceourMetrics.Space.sm) {
-            Kit.Badge(systemImage: systemImage, size: .mini)
+            Kit.IconTile(systemImage: systemImage, size: .mini)
 
             // One modifier for role and state colour: a colour applied after the
             // role would be shadowed by the role's own.
             configuration.label
-                .roleStyle(.label, color: foreground)
+                .roleStyle(.body, color: isEnabled ? theme.text1 : theme.textDisabled)
                 .lineLimit(1)
+                .truncationMode(.tail)
 
             Spacer(minLength: VoiceourMetrics.Space.sm)
 
@@ -108,33 +109,28 @@ private struct MenuCommandBody: View {
         }
         .padding(.horizontal, VoiceourMetrics.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: VoiceourMetrics.Control.medium)
+        .frame(height: Kit.Metrics.rowHeightOne)
         // Square, not rounded: the container's clip supplies the two outer
-        // corners and a middle row has none. A full-bleed row inside a clip
-        // also cannot take the shared pressed `scaleEffect` without exposing
-        // the container edge, so pressed is carried by the fill alone.
+        // corners and a middle row has none. Pressed is carried by the fill
+        // alone, since a scaled full-bleed row would expose the container edge.
         .background(Rectangle().fill(fill))
-        // The wash sits under the title, so the contrast lint measures the
-        // title against it.
+        // The wash sits under the title, so the contrast lint measures the title
+        // against it.
         .environment(\.surfaceGround, inheritedGround.painting(fill))
         .overlay {
+            // Inside the row, because the container clips anything outset; dropped
+            // while pressed so focus and press never read as one state.
             if state == .focused {
-                RoundedRectangle(
-                    cornerRadius: VoiceourMetrics.Radius.keycap,
-                    style: .continuous
-                )
-                .strokeBorder(
-                    VoiceourPalette.Line.focus,
-                    lineWidth: VoiceourMetrics.Stroke.selected(a11y.contrast)
-                )
-                .padding(VoiceourMetrics.Space.hair)
-                .allowsHitTesting(false)
+                RoundedRectangle(cornerRadius: Kit.Metrics.controlRadius, style: .continuous)
+                    .strokeBorder(theme.focusRing, lineWidth: 2)
+                    .padding(VoiceourMetrics.Space.hair)
+                    .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .bottom) {
             if closingRule {
-                HairlineDivider()
-                    .padding(.horizontal, VoiceourMetrics.Space.md)
+                Kit.Rule()
+                    .padding(.leading, MenuLayout.commandTitleInset)
             }
         }
         .contentShape(Rectangle())
@@ -151,33 +147,21 @@ private struct MenuCommandBody: View {
         case .chevron:
             Image(systemName: "chevron.right")
                 .font(.system(size: VoiceourMetrics.Icon.mark, weight: .semibold))
-                .foregroundStyle(VoiceourPalette.Text.low)
+                .foregroundStyle(theme.text3)
                 .accessibilityHidden(true)
         case .keys(let equivalent):
-            KeyCap(equivalent)
+            Kit.KeyCap(equivalent)
                 .accessibilityHidden(true)
         }
     }
 
+    /// Opaque, so the rule and the title are measured against what is painted.
+    /// Rest is the container's own `raised`, which `inheritedGround` already holds.
     private var fill: Color {
         switch state {
-        case .pressed:
-            VoiceourPalette.Plate.pressed
-        case .hover, .focused, .selected:
-            VoiceourPalette.Plate.hover
-        case .rest, .disabled, .inFlight:
-            Color.clear
-        }
-    }
-
-    private var foreground: Color {
-        switch state {
-        case .disabled:
-            a11y.textLow
-        case .rest, .inFlight:
-            a11y.textMid
-        case .hover, .pressed, .focused, .selected:
-            VoiceourPalette.Text.high
+        case .pressed: theme.pressed
+        case .hover, .focused, .selected: theme.hover
+        case .rest, .disabled, .inFlight: theme.raised
         }
     }
 }

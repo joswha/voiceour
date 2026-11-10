@@ -20,7 +20,7 @@ struct MenuReportBlock: View {
     let summary: InsertionOutcomeSummary?
     let link: MenuReportLink?
     let openThread: (AgentSessionKey) -> Void
-    private var a11y = A11y()
+    @Environment(\.theme) private var theme
 
     init(
         text: String,
@@ -43,16 +43,15 @@ struct MenuReportBlock: View {
             }
 
             if isCopied {
-                CaptionText("Copied to the clipboard.", color: VoiceourPalette.Signal.mint)
+                caption("Copied to the clipboard.", color: theme.success.text)
             }
 
             if summary != nil || link != nil {
                 // The outcome and where it landed read as one statement, so they
-                // sit flush: a one-line detail plus the link line is the height of
-                // the two-line detail this replaced, and the popover does not grow.
+                // sit flush.
                 VStack(alignment: .leading, spacing: 0) {
                     if let summary {
-                        CaptionText(summary.detail, color: detailColor(for: summary.severity))
+                        caption(summary.detail, color: detailColor(for: summary.severity))
                     }
                     if let link {
                         linkLine(link)
@@ -60,6 +59,16 @@ struct MenuReportBlock: View {
                 }
             }
         }
+    }
+
+    /// Report sentences wrap in full: each is the one place the menu says what
+    /// happened, so none is cut.
+    private func caption(_ string: String, color: Color) -> some View {
+        Text(string)
+            .roleStyle(.meta)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -70,35 +79,37 @@ struct MenuReportBlock: View {
                 openThread(key)
             } label: {
                 HStack(spacing: VoiceourMetrics.Space.xs) {
+                    // The link colour says "this goes somewhere" without a plate,
+                    // which would make the line a second bounded control beside
+                    // the primary.
                     Text(title)
-                        .foregroundStyle(a11y.textMid)
-                        .recordTextRole(.caption, foreground: a11y.textMid)
+                        .roleStyle(.meta)
+                        .foregroundStyle(theme.accentText)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Image(systemName: "chevron.right")
-                        .imageScale(.small)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: VoiceourMetrics.Icon.mark, weight: .semibold))
+                        .foregroundStyle(theme.text3)
                         .accessibilityHidden(true)
                 }
-                .font(VoiceourTypography.caption)
-                // On the control scale like every other button the menu draws.
-                .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Control.mini, alignment: .leading)
+                // The kit's control height, so the line is a full hit target.
+                .frame(maxWidth: .infinity, minHeight: Kit.Metrics.controlHeight, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Open thread, \(title)")
             .accessibilityIdentifier("menu.report.thread")
         case .unlinked(let miss):
-            CaptionText("Not linked. \(miss.sentence)")
+            caption("Not linked. \(miss.sentence)", color: theme.text2)
                 .accessibilityIdentifier("menu.report.unlinked")
         }
     }
 
     private func detailColor(for severity: StatusSeverity) -> Color {
         switch severity {
-        case .crit: VoiceourPalette.Signal.crimson
-        case .warn: VoiceourPalette.Signal.amber
-        case .ok, .neutral: a11y.textMid
+        case .crit: theme.critical.text
+        case .warn: theme.caution.text
+        case .ok, .neutral: theme.text2
         }
     }
 

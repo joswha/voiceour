@@ -7,8 +7,8 @@ import VoiceMac
 /// this Mac has to allow for those choices to hold, then what is kept on disk
 /// and how to unkeep it.
 ///
-/// One section per page, chosen in a glass sidebar the way System Settings is
-/// read. The sidebar keeps the contract order — preferences lead and readouts
+/// One section per page, chosen in a sidebar the way System Settings is read.
+/// The sidebar keeps the contract order — preferences lead and readouts
 /// follow, because that is the order the questions arrive in: a reader opens this
 /// tab to change something, and only reads the readiness pages when what they
 /// changed did not happen. A readiness page whose readout is not healthy marks
@@ -22,9 +22,11 @@ import VoiceMac
 /// grants the key tap and synthetic paste depend on. Two sections both called
 /// "Capture" would leave a heading that is a lie for half its rows.
 ///
-/// **Island** is the only preference drawn as a picture: how the recording island
-/// looks, previewed in a showroom of its own rather than on the real panel,
-/// because a visible island means a live microphone.
+/// **Appearance** and **Island** are the two preferences about looks, and they
+/// stay apart: Appearance themes the console and the menu, while the recording
+/// island keeps its own looks. Island is the only preference drawn as a picture:
+/// how the recording island looks, previewed in a showroom of its own rather
+/// than on the real panel, because a visible island means a live microphone.
 ///
 /// Every OS grant this app asks for is reported exactly once, in the row for the
 /// capability it gates — microphone by **Microphone**, Accessibility by **Fn/Globe
@@ -80,16 +82,15 @@ struct ConsoleSettingsTab: View {
 
     var body: some View {
         Kit.Screen {
-            HStack(spacing: Kit.Metrics.gutter) {
+            HStack(spacing: 0) {
+                // The sidebar sizes itself: its column, or its rail while compact.
                 sidebar
                     .environment(\.kitCompactControls, isNarrow)
-                    .frame(width: isNarrow ? Kit.Metrics.railWidth : Kit.Metrics.sidebarWidth)
 
                 page
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .kitToast(flash, identifier: "settings.copied")
             }
-            .padding([.leading, .vertical], Kit.Metrics.gutter)
         }
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Kit.Metrics.railBelow
@@ -155,7 +156,7 @@ struct ConsoleSettingsTab: View {
             ]
         case .audio:
             severities = SettingsAudioPage.severities(coordinator, availableMicrophones: availableMicrophones)
-        case .dictation, .model, .backend, .island, .privacy, .memory, .danger:
+        case .dictation, .model, .backend, .appearance, .island, .privacy, .memory, .danger:
             return nil
         }
         if severities.contains(.crit) { return .critical }
@@ -176,6 +177,8 @@ struct ConsoleSettingsTab: View {
             SettingsModelPage()
         case .backend:
             SettingsBackendPage(coordinator: coordinator)
+        case .appearance:
+            SettingsAppearancePage(coordinator: coordinator)
         case .island:
             SettingsPage(.island) {
                 ConsoleIslandSection(coordinator: coordinator)
@@ -231,6 +234,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case audio
     case model
     case backend
+    case appearance
     case island
     case readiness
     case capture
@@ -246,6 +250,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .audio: "Audio"
         case .model: "Model"
         case .backend: "Backend"
+        case .appearance: "Appearance"
         case .island: "Island"
         case .readiness: "Readiness"
         case .capture: "Capture"
@@ -261,6 +266,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .audio: "speaker.wave.2"
         case .model: "cpu"
         case .backend: "server.rack"
+        case .appearance: "circle.lefthalf.filled"
         case .island: "capsule"
         case .readiness: "checkmark.seal"
         case .capture: "keyboard"
@@ -281,6 +287,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             "The speech model Voiceour transcribes with, on this Mac."
         case .backend:
             "The recognizer a development launch transcribes with."
+        case .appearance:
+            "How the console and the menu look. The recording island keeps its own looks."
         case .island:
             "How the recording island looks while you dictate."
         case .readiness:

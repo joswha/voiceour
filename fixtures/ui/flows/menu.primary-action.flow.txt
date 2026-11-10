@@ -12,7 +12,7 @@ PASS 7 live | absent label="START DICTATION" | 0 matches
 PASS 8 live | role label="STOP DICTATION" == AXButton | AXButton
 PASS 9 live | label label="STOP DICTATION" == "STOP DICTATION" | "STOP DICTATION"
 PASS 10 live | enabled(true) label="STOP DICTATION" | true
-PASS 11 live | text == "LIVE" exactly 1 | 1 match
+PASS 11 live | text == "Live" exactly 1 | 1 match
 PASS 12 idle-again | state == idle | idle
 PASS 13 idle-again | transitions exact [idle -> checkingPermissions -> recording -> cancelled -> idle] | idle -> checkingPermissions -> recording -> cancelled -> idle
 PASS 14 idle-again | absent label="STOP DICTATION" | 0 matches

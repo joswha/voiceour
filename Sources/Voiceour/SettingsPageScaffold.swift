@@ -2,14 +2,13 @@ import SwiftUI
 import VoiceMac
 
 /// One Settings page: the section's name in the display face, one sentence
-/// saying what it governs, then the page's islands.
+/// saying what it governs, then the page's groups.
 ///
 /// No bar: no Settings page has an action that belongs to the page rather than
 /// to one of its rows. `identity` is the section, so each page opens at its top.
 struct SettingsPage<Content: View>: View {
     private let section: SettingsSection
     private let content: Content
-    private var a11y = A11y()
 
     init(_ section: SettingsSection, @ViewBuilder content: () -> Content) {
         self.section = section
@@ -23,10 +22,10 @@ struct SettingsPage<Content: View>: View {
             VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
                 Text(section.title)
                     .roleStyle(.display)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
                 Text(section.sentence)
-                    .roleStyle(.label)
-                    .foregroundStyle(a11y.textMid)
+                    .roleStyle(.meta)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -36,30 +35,11 @@ struct SettingsPage<Content: View>: View {
     }
 }
 
-/// One island of preferences: its rows stacked full width, separated by the
-/// caller's `Kit.Rule`s.
-struct SettingsIsland<Content: View>: View {
-    private let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-/// A second sentence under a row, in the row caption's voice: a fact that holds
-/// only for now, such as a change waiting for the next recording.
+/// A second sentence under a row inside a `Kit.Group`, in the row caption's
+/// voice and inset to the row's text: a fact that holds only for now, such as a
+/// change waiting for the next recording.
 struct SettingsNote: View {
     private let text: String
-    private var a11y = A11y()
 
     init(_ text: String) {
         self.text = text
@@ -67,10 +47,11 @@ struct SettingsNote: View {
 
     var body: some View {
         Text(text)
-            .roleStyle(.caption)
-            .foregroundStyle(a11y.textMid)
+            .roleStyle(.meta)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VoiceourMetrics.Space.md)
+            .padding(.bottom, VoiceourMetrics.Space.md)
     }
 }
 

@@ -183,7 +183,10 @@
             static let newTopicName = UIQuery.id("journal.topics.new.name")
             static let newTopicSummary = UIQuery.id("journal.topics.new.summary")
             static let addTopic = UIQuery.id("journal.topics.add")
+            static let cancelTopic = UIQuery.id("journal.topics.new.cancel")
             static let addTopicRefusal = UIQuery.id("journal.topics.new.refusal")
+            // The unsaved topic's row at the head of the list, while New Topic's page is open.
+            static let topicDraft = UIQuery.id("journal.topics.draft")
             static let topicRows = UIQuery.id("journal.topics.row")
             static let topicName = UIQuery.id("journal.topics.name")
             static let topicSummary = UIQuery.id("journal.topics.summary")
@@ -229,7 +232,7 @@
             // status line and report say while a note records and once it is saved.
             static let takeNote = UIQuery.id("menu.take-note")
             static let noteTargetLine = "Will save as a note"
-            static let noteSavedLabel = "NOTE SAVED"
+            static let noteSavedLabel = "Note saved"
             static let noteSavedDetail = "Saved to memory. Nothing was pasted or copied."
 
             // The menu report's link line: a borderless button naming the thread the
@@ -246,6 +249,9 @@
             static let draftCanonical = UIQuery.id("glossary.draft.canonical")
             static let draftAddForm = UIQuery.id("glossary.draft.add-form")
             static let draftSave = UIQuery.id("glossary.draft.save")
+            static let draftCancel = UIQuery.id("glossary.draft.cancel")
+            // The unsaved term's row at the head of the list, while its page is open.
+            static let draftRow = UIQuery.id("glossary.draft.row")
             // A row is addressed by its term id, which is the canonical spelling
             // for a term created without one.
             static let bundledTermRow = UIQuery.id("glossary.term.kubectl")
@@ -272,6 +278,19 @@
             }
 
             static let microphonePicker = UIQuery.id("voice.microphone.picker")
+
+            /// A Settings ▸ Appearance tile, by `ConsoleAppearance` raw value. The chosen
+            /// tile carries `.isSelected`.
+            static func appearanceTile(_ appearance: ConsoleAppearance) -> UIQuery {
+                .id("settings.appearance.\(appearance.rawValue)")
+            }
+
+            /// A Settings ▸ Appearance accent swatch, by `ConsoleAccent` raw value. The chosen
+            /// swatch carries `.isSelected`.
+            static func accentSwatch(_ accent: ConsoleAccent) -> UIQuery {
+                .id("settings.accent.\(accent.rawValue)")
+            }
+
             static let historyArm = UIQuery.id("system.history.arm")
 
             static let autoStop = UIQuery.id("voice.auto-stop.toggle")
@@ -448,12 +467,12 @@
                     fixture: .static(.populated),
                     steps: [
                         .act(.type(noMatchQuery, into: Selector.sessionSearch)),
-                        .wait(.element(.value("Nothing matches “\(noMatchQuery)”"))),
+                        .wait(.element(.label("Nothing matches “\(noMatchQuery)”"))),
                         .check(
                             "no-results",
                             [
                                 .text(.equals("0 of 10 dictations match"), .exactly(1)),
-                                .text(.equals("Nothing matches “\(noMatchQuery)”"), .exactly(1)),
+                                .count(.label("Nothing matches “\(noMatchQuery)”"), .exactly(1)),
                                 .exists(Selector.clearSessionSearch),
                             ]
                         ),
@@ -475,7 +494,7 @@
                             "restored",
                             [
                                 .value(Selector.sessionSearch, .isEmpty),
-                                .absent(.value("Nothing matches “\(noMatchQuery)”")),
+                                .absent(.label("Nothing matches “\(noMatchQuery)”")),
                                 .exists(Selector.newestTranscript),
                                 .model(.recentSessionCount, .equals("10")),
                             ]
@@ -856,6 +875,8 @@
                 routeThreadFlow,
                 notesSearchFlow,
                 topicsAddFlow,
+                topicsCreateFlow,
+                topicsCancelFlow,
                 topicsOpenFlow,
                 rewindRecapPromptFlow,
                 topicsSynthesisPromptFlow,
@@ -1002,7 +1023,7 @@
 
         /// An agent's recap shows under the day its front matter names, with its title and
         /// author, and not on the next day that holds an entry. Copy Recap Prompt writes once
-        /// through the harness pasteboard seam and shows the COPIED mark. The prompt names the
+        /// through the harness pasteboard seam and shows the page's toast. The prompt names the
         /// fixture's scratch memory folder, so its text is not checked; only that exactly one
         /// write happened.
         private static var rewindRecapPromptFlow: UIFlow {
@@ -1251,11 +1272,12 @@
             )
         }
 
-        /// Add Topic makes and selects a row with the name and summary as typed and closes
-        /// the creation card; New Topic opens it again with both fields empty, and a second
-        /// topic under the same name is refused with a caption that names the topic already
-        /// holding it, leaving the typed name in place to be changed. Memory stays empty: a
-        /// topic is not an entry.
+        /// On a Journal with no topic, Topics is one empty state whose New Topic opens the
+        /// draft page. Add Topic makes and selects a row with the name and summary as typed
+        /// and closes the draft; New Topic, now in the list bar, opens it again with both
+        /// fields empty, and a second topic under the same name is refused with a caption
+        /// that names the topic already holding it, leaving the typed name in place to be
+        /// changed. Memory stays empty: a topic is not an entry.
         private static var topicsAddFlow: UIFlow {
             let name = Selector.addedTopicName
             let summary = Selector.addedTopicSummary
@@ -1267,11 +1289,22 @@
                 host: .console(.history, journalLens: .topics),
                 fixture: .static(.populated),
                 steps: [
-                    .wait(.element(Selector.newTopicName)),
+                    .wait(.element(Selector.newTopic)),
                     .check(
                         "empty",
                         [
                             .absent(Selector.topicRows),
+                            .absent(Selector.topicDraft),
+                            .absent(Selector.newTopicName),
+                            .count(.label("No topics yet"), .exactly(1)),
+                        ]
+                    ),
+                    .act(.press(Selector.newTopic)),
+                    .wait(.element(Selector.newTopicName)),
+                    .check(
+                        "drafting",
+                        [
+                            .exists(Selector.topicDraft),
                             .enabled(Selector.addTopic, false),
                             .absent(Selector.addTopicRefusal),
                         ]
@@ -1295,6 +1328,7 @@
                             .label(added, .equals("\(name), 0 entries, \(summary)")),
                             .selected(added, true),
                             .absent(Selector.newTopicName),
+                            .absent(Selector.topicDraft),
                             .absent(Selector.addTopicRefusal),
                             .model(.memoryEntryCount, .equals("0")),
                         ]
@@ -1372,6 +1406,121 @@
                     .act(.press(row)),
                     .wait(.element(.all([Selector.topicName, .value(topic.name)]))),
                     .check("returned", first + pageRows),
+                ]
+            )
+        }
+
+        /// New Topic on a Journal that holds topics puts a draft row at the head of the list,
+        /// selected, and opens the draft page, where Add Topic waits for a name. Adding makes
+        /// the topic, selects its row and closes the draft; the summary is optional, so the
+        /// row's label is the name and its count alone.
+        private static var topicsCreateFlow: UIFlow {
+            let name = Selector.addedTopicName
+            let first = Selector.topicRow(UIFixtures.memoryFolderTopic.name)
+            let added = Selector.topicRow(name)
+            return UIFlow(
+                id: "journal.topics.create",
+                title: "New Topic opens a draft row and page, and Add Topic replaces the draft with the selected topic",
+                tags: ["journal", "console", "topics", "memory"],
+                host: .console(.history, journalLens: .topics),
+                fixture: .static(.remembered),
+                steps: [
+                    .wait(.element(first)),
+                    .wait(.element(Selector.topicName)),
+                    .check(
+                        "listed",
+                        [
+                            .count(Selector.topicRows, .exactly(3)),
+                            .selected(first, true),
+                            .absent(Selector.topicDraft),
+                            .absent(Selector.newTopicName),
+                        ]
+                    ),
+                    .act(.press(Selector.newTopic)),
+                    .wait(.element(Selector.newTopicName)),
+                    .check(
+                        "drafting",
+                        [
+                            .count(Selector.topicDraft, .exactly(1)),
+                            .selected(Selector.topicDraft, true),
+                            .selected(first, false),
+                            .exists(Selector.newTopicName),
+                            .value(Selector.newTopicName, .isEmpty),
+                            .enabled(Selector.addTopic, false),
+                        ]
+                    ),
+                    .act(.type(name, into: Selector.newTopicName)),
+                    .wait(.element(.all([Selector.newTopicName, .value(name)]))),
+                    .check("typed", [.enabled(Selector.addTopic, true)]),
+                    .act(.press(Selector.addTopic)),
+                    .wait(.element(added)),
+                    .wait(.absent(Selector.topicDraft)),
+                    .check(
+                        "added",
+                        [
+                            .count(Selector.topicRows, .exactly(4)),
+                            .label(added, .equals("\(name), 0 entries")),
+                            .selected(added, true),
+                            .selected(first, false),
+                            .absent(Selector.topicDraft),
+                            .absent(Selector.newTopicName),
+                            .value(Selector.topicName, .equals(name)),
+                        ]
+                    ),
+                ]
+            )
+        }
+
+        /// Cancel on the draft page removes the draft row and its words and gives the
+        /// selection back to the topic that was open when New Topic was pressed, so a second
+        /// New Topic starts empty.
+        private static var topicsCancelFlow: UIFlow {
+            let topic = UIFixtures.memoryFolderTopic
+            let row = Selector.topicRow(topic.name)
+            return UIFlow(
+                id: "journal.topics.cancel",
+                title: "Cancel discards the draft topic and returns to the topic that was open",
+                tags: ["journal", "console", "topics", "memory"],
+                host: .console(.history, journalLens: .topics),
+                fixture: .static(.remembered),
+                steps: [
+                    .wait(.element(row)),
+                    .wait(.element(Selector.topicName)),
+                    .act(.press(Selector.newTopic)),
+                    .wait(.element(Selector.newTopicName)),
+                    .act(.type(Selector.addedTopicName, into: Selector.newTopicName)),
+                    .wait(.element(.all([Selector.newTopicName, .value(Selector.addedTopicName)]))),
+                    .check(
+                        "drafting",
+                        [
+                            .selected(Selector.topicDraft, true),
+                            .selected(row, false),
+                            .enabled(Selector.addTopic, true),
+                        ]
+                    ),
+                    .act(.press(Selector.cancelTopic)),
+                    .wait(.absent(Selector.topicDraft)),
+                    .wait(.element(.all([Selector.topicName, .value(topic.name)]))),
+                    .check(
+                        "cancelled",
+                        [
+                            .absent(Selector.topicDraft),
+                            .absent(Selector.newTopicName),
+                            .count(Selector.topicRows, .exactly(3)),
+                            .selected(row, true),
+                            .value(Selector.topicName, .equals(topic.name)),
+                            .absent(Selector.topicRow(Selector.addedTopicName)),
+                        ]
+                    ),
+                    .act(.press(Selector.newTopic)),
+                    .wait(.element(Selector.newTopicName)),
+                    .check(
+                        "reopened-empty",
+                        [
+                            .value(Selector.newTopicName, .isEmpty),
+                            .enabled(Selector.addTopic, false),
+                        ]
+                    ),
                 ]
             )
         }
@@ -1462,7 +1611,7 @@
                             "stock",
                             [
                                 .selected(Selector.islandLook(.stock), true),
-                                .value(Selector.islandLookMark, .equals("STOCK")),
+                                .value(Selector.islandLookMark, .equals("Stock")),
                                 .model(.islandLook, .equals("stock")),
                             ]
                         ),
@@ -1472,7 +1621,7 @@
                             [
                                 .selected(Selector.islandLook(.neonKit), true),
                                 .selected(Selector.islandLook(.stock), false),
-                                .value(Selector.islandLookMark, .equals("NEON KIT")),
+                                .value(Selector.islandLookMark, .equals("Neon Kit")),
                                 .model(.islandLook, .equals("neon_kit")),
                                 .model(.islandDraftPending, .equals("0")),
                             ]
@@ -1482,7 +1631,7 @@
                             "stock-again",
                             [
                                 .selected(Selector.islandLook(.stock), true),
-                                .value(Selector.islandLookMark, .equals("STOCK")),
+                                .value(Selector.islandLookMark, .equals("Stock")),
                                 .model(.islandAppearance, .equals(stock)),
                             ]
                         ),
@@ -1511,7 +1660,7 @@
                             [
                                 .value(Selector.islandFinish, .equals("5")),
                                 .valueDescription(Selector.islandFinish, .equals("5 percent")),
-                                .value(Selector.islandLookMark, .equals("CUSTOM")),
+                                .value(Selector.islandLookMark, .equals("Custom")),
                                 // Custom is no card, so the look it left reads unselected.
                                 .selected(Selector.islandLook(.stock), false),
                                 .model(.islandLook, .equals("custom")),
@@ -1525,7 +1674,7 @@
                             "stock-again",
                             [
                                 .value(Selector.islandFinish, .equals("0")),
-                                .value(Selector.islandLookMark, .equals("STOCK")),
+                                .value(Selector.islandLookMark, .equals("Stock")),
                                 .enabled(Selector.islandMaterialStock, false),
                                 .model(.islandLook, .equals("stock")),
                             ]
@@ -1831,7 +1980,7 @@
                     host: .console(.glossary),
                     fixture: .static(.emptyGlossary),
                     steps: [
-                        .check("empty", [.text(.equals("No terms yet"), .exactly(1))]),
+                        .check("empty", [.count(.label("No terms yet"), .exactly(1))]),
                         .act(.press(Selector.addTermButton)),
                         .act(.type(glossaryTerm, into: Selector.draftCanonical)),
                         .act(.type(glossaryForms, into: Selector.draftAddForm)),
@@ -1973,6 +2122,46 @@
                             ]
                         ),
                     ]),
+                // Add Term puts a "New term" draft row at the head of the list and opens its
+                // page; Cancel removes both and adds nothing.
+                UIFlow(
+                    id: "glossary.draft-cancel",
+                    title: "Cancel on a new term's page removes its draft row and adds nothing",
+                    tags: ["glossary", "console"],
+                    host: .console(.glossary),
+                    fixture: .static(.mixedGlossary),
+                    steps: [
+                        .wait(.element(Selector.bundledTermRow)),
+                        .check(
+                            "listed",
+                            [
+                                .absent(Selector.draftRow),
+                                .absent(Selector.draftCanonical),
+                            ]
+                        ),
+                        .act(.press(Selector.addTermButton)),
+                        .wait(.element(Selector.draftRow)),
+                        .check(
+                            "drafting",
+                            [
+                                .count(Selector.draftRow, .exactly(1)),
+                                .selected(Selector.draftRow, true),
+                                .exists(Selector.draftCanonical),
+                                .exists(Selector.draftCancel),
+                            ]
+                        ),
+                        .act(.press(Selector.draftCancel)),
+                        .wait(.absent(Selector.draftRow)),
+                        .check(
+                            "cancelled",
+                            [
+                                .absent(Selector.draftRow),
+                                .absent(Selector.draftCanonical),
+                                .exists(Selector.bundledTermRow),
+                                .model(.glossaryTermCount, .equals("7")),
+                            ]
+                        ),
+                    ]),
             ]
         }
 
@@ -1982,26 +2171,26 @@
             [
                 UIFlow(
                     id: "system.recheck-backend",
-                    title: "An unanswered backend probe reads as ENGINE OFFLINE until re-proven",
+                    title: "An unanswered backend probe reads as Engine offline until re-proven",
                     tags: ["system", "console", "settings"],
                     host: .console(.settings),
                     fixture: .backendRecovery(),
                     steps: [
                         .act(.press(Selector.settingsSection("readiness"))),
-                        .wait(.element(Selector.backendStatusWithValue("CHECKING…"))),
+                        .wait(.element(Selector.backendStatusWithValue("Checking…"))),
                         .check(
                             "initial-probe",
-                            [.value(Selector.backendStatus, .equals("CHECKING…"))]
+                            [.value(Selector.backendStatus, .equals("Checking…"))]
                         ),
                         .release(.backendHealthUnavailable),
                         // A probe that never answered, with no cached model, is the
                         // engine being absent — not a failed download (nothing was
-                        // downloading) and not a shrug ("CHECK NEEDED").
-                        .wait(.element(Selector.backendStatusWithValue("ENGINE OFFLINE"))),
+                        // downloading) and not a shrug ("Check needed").
+                        .wait(.element(Selector.backendStatusWithValue("Engine offline"))),
                         .check(
                             "unavailable",
                             [
-                                .value(Selector.backendStatus, .equals("ENGINE OFFLINE")),
+                                .value(Selector.backendStatus, .equals("Engine offline")),
                                 .label(Selector.backendRecheck, .equals("Re-check backend health")),
                                 .role(Selector.backendRecheck, "AXButton"),
                             ]
@@ -2011,14 +2200,14 @@
                         // erase it. Only fresh good evidence may clear the row.
                         .check(
                             "rechecking",
-                            [.value(Selector.backendStatus, .equals("ENGINE OFFLINE"))]
+                            [.value(Selector.backendStatus, .equals("Engine offline"))]
                         ),
                         .release(.backendHealth),
-                        .wait(.element(Selector.backendStatusWithValue("READY"))),
+                        .wait(.element(Selector.backendStatusWithValue("Ready"))),
                         .check(
                             "ready",
                             [
-                                .value(Selector.backendStatus, .equals("READY")),
+                                .value(Selector.backendStatus, .equals("Ready")),
                                 .text(
                                     .equals("GRANITE is configured for local transcription."),
                                     .exactly(1)
@@ -2185,6 +2374,7 @@
                 homeFirstRunFlow,
                 tabNavigationFlow,
                 settingsSectionsFlow,
+                settingsAppearanceFlow,
             ]
         }
 
@@ -2408,6 +2598,72 @@
             )
         }
 
+        /// Settings ▸ Appearance: each tile and swatch commits its choice to the settings the
+        /// console and the menu theme themselves from, and the chosen one alone carries
+        /// `.isSelected`. The populated fixture opens on System and Green.
+        private static var settingsAppearanceFlow: UIFlow {
+            let system = Selector.appearanceTile(.system)
+            let light = Selector.appearanceTile(.light)
+            let green = Selector.accentSwatch(.green)
+            let purple = Selector.accentSwatch(.purple)
+            return UIFlow(
+                id: "settings.appearance",
+                title: "Appearance tiles and accent swatches commit the console's look",
+                tags: ["console", "settings", "appearance"],
+                host: .console(.settings),
+                fixture: .static(.populated),
+                steps: [
+                    .act(.press(Selector.settingsSection("appearance"))),
+                    .wait(.element(system)),
+                    .check(
+                        "system",
+                        [
+                            .selected(Selector.settingsSection("appearance"), true),
+                            .selected(system, true),
+                            .selected(light, false),
+                            .selected(green, true),
+                            .model(.consoleAppearance, .equals("system")),
+                            .model(.consoleAccent, .equals("green")),
+                        ]
+                    ),
+                    .act(.press(light)),
+                    .wait(.element(light)),
+                    .check(
+                        "light",
+                        [
+                            .selected(light, true),
+                            .selected(system, false),
+                            .model(.consoleAppearance, .equals("light")),
+                            .model(.consoleAccent, .equals("green")),
+                        ]
+                    ),
+                    .act(.press(purple)),
+                    .wait(.element(purple)),
+                    .check(
+                        "purple",
+                        [
+                            .selected(purple, true),
+                            .selected(green, false),
+                            .selected(light, true),
+                            .model(.consoleAccent, .equals("purple")),
+                            .model(.consoleAppearance, .equals("light")),
+                        ]
+                    ),
+                    .act(.press(system)),
+                    .wait(.element(system)),
+                    .check(
+                        "system-again",
+                        [
+                            .selected(system, true),
+                            .selected(light, false),
+                            .model(.consoleAppearance, .equals("system")),
+                            .model(.consoleAccent, .equals("purple")),
+                        ]
+                    ),
+                ]
+            )
+        }
+
         // MARK: Menu and dictation
 
         private static var menuFlows: [UIFlow] {
@@ -2466,7 +2722,7 @@
                     .check(
                         "linked",
                         [
-                            .text(.equals("PASTED"), .exactly(1)),
+                            .text(.equals("Pasted"), .exactly(1)),
                             .text(.equals("Pasted into \(UIFixtures.ternAppName)."), .exactly(1)),
                             .role(Selector.reportThread, "AXButton"),
                             .label(
@@ -2533,7 +2789,7 @@
                             .role(Selector.stopDictation, "AXButton"),
                             .label(Selector.stopDictation, .equals("STOP DICTATION")),
                             .enabled(Selector.stopDictation, true),
-                            .text(.equals("LIVE"), .exactly(1)),
+                            .text(.equals("Live"), .exactly(1)),
                         ]
                     ),
                     .act(.dictate(.cancel)),
@@ -2564,9 +2820,10 @@
                     terminalState: .pasteAttempted,
                     disposition: "paste",
                     bundleID: pasteBundleID,
-                    reportLabel: "PASTED",
-                    // "Pasted into <app>." or, for an app with no name, "Pasted.".
-                    reportDetail: .contains("Pasted")
+                    reportLabel: "Pasted",
+                    // The pill reads "Pasted" too, so the detail is matched whole: the
+                    // harness target has no name of its own and is named from its bundle id.
+                    reportDetail: .equals("Pasted into Writer.")
                 ))
         }
 
@@ -2586,7 +2843,7 @@
                     terminalState: .copiedOnly,
                     disposition: "copy",
                     bundleID: terminalBundleID,
-                    reportLabel: "COPY ONLY",
+                    reportLabel: "Copy only",
                     // The policy's own reason reaches its explicit sentence, never the
                     // humanized fallback. The app's name leads it when the target has one.
                     reportDetail: .contains(" is a terminal. Press \u{2318}V to paste.")
@@ -2614,7 +2871,7 @@
                     .wait(.state(.checkingPermissions)),
                     .release(.permission),
                     .wait(.state(.recording)),
-                    .check("recording", [.state(.recording), .text(.equals("LIVE"), .exactly(1))]),
+                    .check("recording", [.state(.recording), .text(.equals("Live"), .exactly(1))]),
                     .act(.dictate(.cancel)),
                     .wait(.state(.idle)),
                     .check(
@@ -2658,7 +2915,7 @@
                             .model(.deliveryCount, .equals("0")),
                             .model(.recentSessionCount, .equals("0")),
                             .model(.processingInFlight, .equals("false")),
-                            .text(.equals(failure.title), .exactly(1)),
+                            .text(.equals(Kit.Pill.sentence(failure.title)), .exactly(1)),
                             .text(.equals(failure.cause), .exactly(1)),
                             .enabled(Selector.retryDictation, true),
                         ]
@@ -2688,7 +2945,7 @@
                     .check(
                         "model-failure",
                         [
-                            .text(.equals(failure.title), .exactly(1)),
+                            .text(.equals(Kit.Pill.sentence(failure.title)), .exactly(1)),
                             .text(.equals(failure.cause), .exactly(1)),
                             .enabled(Selector.retryDictation, true),
                             .enabled(Selector.startAfterFailure, true),
@@ -2732,7 +2989,7 @@
                             .model(.processingInFlight, .equals("false")),
                             .model(.errorMessage, .isEmpty),
                             .absent(Selector.retryDictation),
-                            .text(.equals("PASTED"), .exactly(1)),
+                            .text(.equals("Pasted"), .exactly(1)),
                         ]
                     ),
                 ]
@@ -2857,7 +3114,7 @@
             )
         }
 
-        /// The menu's LIVE chip breathes on a wall-clock-driven animation. The semantic
+        /// The menu's Live pill breathes on a wall-clock-driven animation. The semantic
         /// expectations below therefore carry the complete journey without sampling an
         /// arbitrary animation phase.
         private static func fullDeliverySteps(
@@ -2870,26 +3127,26 @@
             [
                 .act(.press(Selector.startDictation)),
                 .wait(.state(.checkingPermissions)),
-                .check("checking-permissions", [.state(.checkingPermissions), .text(.equals("WORKING"), .exactly(1))]),
+                .check("checking-permissions", [.state(.checkingPermissions), .text(.equals("Working"), .exactly(1))]),
                 .release(.permission),
                 .wait(.state(.recording)),
                 .check(
                     "live",
                     [
                         .state(.recording),
-                        .text(.equals("LIVE"), .exactly(1)),
+                        .text(.equals("Live"), .exactly(1)),
                         .exists(Selector.stopDictation),
                     ]
                 ),
                 .act(.press(Selector.stopDictation)),
                 .wait(.state(.finalizingAudio)),
-                .check("finalizing-audio", [.state(.finalizingAudio), .text(.equals("WORKING"), .exactly(1))]),
+                .check("finalizing-audio", [.state(.finalizingAudio), .text(.equals("Working"), .exactly(1))]),
                 .release(.recorderStop),
                 .wait(.state(.transcribing)),
-                .check("transcribing", [.state(.transcribing), .text(.equals("WORKING"), .exactly(1))]),
+                .check("transcribing", [.state(.transcribing), .text(.equals("Working"), .exactly(1))]),
                 .release(.transcription),
                 .wait(.state(.readyToInsert)),
-                .check("ready-to-insert", [.state(.readyToInsert), .text(.equals("WORKING"), .exactly(1))]),
+                .check("ready-to-insert", [.state(.readyToInsert), .text(.equals("Working"), .exactly(1))]),
                 .release(.insertion),
                 .wait(.state(.idle)),
                 .check(

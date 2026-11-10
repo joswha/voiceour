@@ -7,6 +7,7 @@ struct SettingsMemoryPage: View {
     private let coordinator: DictationCoordinator
     private let flash: Kit.Flash
     private var a11y = A11y()
+    @Environment(\.theme) private var theme
 
     @State private var agentSkillWriteFailed = false
 
@@ -24,16 +25,16 @@ struct SettingsMemoryPage: View {
 
     var body: some View {
         SettingsPage(.memory) {
-            SettingsIsland {
+            Kit.Group {
                 memoryToggleRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 agentInstructionsRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 agentSkillRow
             }
-            SettingsIsland {
+            Kit.Group {
                 organizerToggleRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 typeSafeKeyRow
             }
         }
@@ -75,7 +76,7 @@ struct SettingsMemoryPage: View {
                 "Copies one paragraph for AGENTS.md or CLAUDE.md that tells an agent where the memory folder "
                 + "is and how to use it."
         ) {
-            Kit.ActionButton("Copy Agent Instructions") { copyAgentInstructions() }
+            Kit.Button("Copy Agent Instructions") { copyAgentInstructions() }
                 .help("Copy a paragraph that tells a coding agent where the memory folder is.")
                 .disabled(!(coordinator.settings.memoryEnabled || coordinator.memoryExistsOnDisk))
                 .accessibilityIdentifier("system.memory.copy-instructions")
@@ -103,9 +104,9 @@ struct SettingsMemoryPage: View {
                     + "that exist, so every agent learns where your dictations are kept. Voiceour writes only "
                     + "inside its own folder. Agents may ask before they read outside the project. A project "
                     + "with an omp includeSkills list must add voiceour-memory.",
-            captionColor: agentSkillWriteFailed ? .red : nil
+            captionColor: agentSkillWriteFailed ? theme.critical.text : nil
         ) {
-            Kit.ActionButton("Copy Install Command") { copyAgentSkillCommand() }
+            Kit.Button("Copy Install Command") { copyAgentSkillCommand() }
                 .help(
                     "Copy a Terminal command that links the Voiceour memory skill into your agents' skill folders."
                 )
@@ -176,26 +177,33 @@ struct SettingsMemoryPage: View {
                 ? "The key file could not be changed on this Mac."
                 : "The key stays on this Mac, in a file only your account can read. An environment variable "
                     + "takes precedence over the file.",
-            captionColor: typeSafeKeyWriteFailed ? .red : nil
+            captionColor: typeSafeKeyWriteFailed ? theme.critical.text : nil
         ) {
             VStack(alignment: .trailing, spacing: VoiceourMetrics.Space.xs) {
                 Text(Self.typeSafeKeyStatus(origin))
-                    .foregroundStyle(.secondary)
+                    .roleStyle(.body)
+                    .foregroundStyle(theme.text2)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("system.organizer.key.status")
                 HStack(spacing: VoiceourMetrics.Space.sm) {
                     // The prompt is drawn inside the field, where a click lands on the
                     // field; a visible title would sit beside an empty field that shows
                     // nothing of itself.
-                    SecureField("TypeSafe key to save", text: $typeSafeKeyDraft, prompt: Text("Paste a key"))
-                        .labelsHidden()
-                        .frame(minWidth: VoiceourMetrics.Field.short)
-                        .onSubmit { saveTypeSafeKey() }
-                        .accessibilityIdentifier("system.organizer.key.field")
-                    Kit.ActionButton("Save Key") { saveTypeSafeKey() }
+                    SecureField(
+                        "TypeSafe key to save",
+                        text: $typeSafeKeyDraft,
+                        prompt: Text("Paste a key").foregroundStyle(theme.text3)
+                    )
+                    .labelsHidden()
+                    .frame(minWidth: VoiceourMetrics.Field.short)
+                    .onSubmit { saveTypeSafeKey() }
+                    .accessibilityIdentifier("system.organizer.key.field")
+                    Kit.Button("Save Key") { saveTypeSafeKey() }
                         .disabled(isTypeSafeKeyDraftBlank)
                         .accessibilityIdentifier("system.organizer.key.save")
                     if origin == .keyFile {
-                        Kit.ActionButton("Remove Key", role: .destructive) {
+                        Kit.Button("Remove Key", prominence: .destructive) {
                             typeSafeKeyWriteFailed = false
                             isConfirmingTypeSafeKeyRemoval = true
                         }

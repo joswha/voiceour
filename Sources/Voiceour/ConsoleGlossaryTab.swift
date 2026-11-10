@@ -13,10 +13,11 @@ enum GlossaryShelf: Hashable {
 /// Glossary: the spellings dictation is held to, the spoken forms that map onto
 /// them, and the corrections the last dictation proposed.
 ///
-/// Three panes, the Journal's shape: a glass sidebar of origins and Suggestions,
-/// a list column of terms, and a page for the selected term with
-/// `ConsoleTermEditor` in an island. Add Term opens a "New term" page; a
-/// selected suggestion's page offers Teach, Ignore and Never Suggest This.
+/// Three panes, the Journal's shape: a sidebar of origins and Suggestions, a list
+/// column of terms, and a page for the selected term with `ConsoleTermEditor` in a
+/// card. Add Term puts a "New term" draft row at the head of the list and opens
+/// its draft page; a selected suggestion's page offers Teach, Ignore and Never
+/// Suggest This.
 ///
 /// A row says what it holds: the spelling, then the spoken forms that reach it,
 /// or that it is matched by its spelling only. The case and spacing variants a
@@ -27,7 +28,8 @@ struct ConsoleGlossaryTab: View {
 
     @State private var shelf: GlossaryShelf = .terms(nil)
     /// The open term, or nil. A lexicon opens as a list: the reader came to find
-    /// one spelling among many, not to edit the first.
+    /// one spelling among many, not to edit the first. While a draft exists, nil
+    /// means the draft's page is open.
     @State private var selectedTermId: String?
     /// Whether a new term is being composed, and the term it is so far. Three
     /// plain properties rather than one optional struct: a non-optional binding
@@ -37,6 +39,8 @@ struct ConsoleGlossaryTab: View {
     @State private var isComposing = false
     @State private var draftTerm = ""
     @State private var draftForms: [String] = []
+    /// The term that was open when the draft opened, given back by Cancel.
+    @State private var termBeforeDraft: String?
     @State private var searchText = ""
     /// The refusal the last commit published, held so the editor can stay open
     /// on the text the reader typed. Read from `glossaryNotice` only when a
@@ -51,7 +55,7 @@ struct ConsoleGlossaryTab: View {
     @FocusState private var searchFocused: Bool
     @FocusState private var listFocused: Bool
     /// The row a key press or a move selected, scrolled into view.
-    @State private var reveal: String?
+    @State private var reveal: AnyHashable?
     /// True while the tab is narrower than `Kit.Metrics.railBelow`, so the sidebar
     /// folds to its rail of glyphs and the page keeps its reading width.
     @State private var isNarrow = false
@@ -81,10 +85,17 @@ struct ConsoleGlossaryTab: View {
     @State private var visibleSuggestions: [TermSuggestion] = []
     @State private var selectedSuggestionId: String?
 
+    @Environment(\.theme) private var theme
     private var a11y = A11y()
 
     init(coordinator: DictationCoordinator) {
         self.coordinator = coordinator
+    }
+
+    /// A stop in the term list a key press can land on: the draft row or a term.
+    private enum ListStop: Hashable {
+        case draft
+        case term(String)
     }
 
     private static let editorCaption =
@@ -95,6 +106,9 @@ struct ConsoleGlossaryTab: View {
     private static let wordListHint =
         "Import a newline- or JSON-array word list. Terms stay on this Mac, and duplicates are merged."
     private static let suggestionsHeading = "From your last dictation"
+    /// The longest query an empty state echoes whole; a longer one is cut so the
+    /// title stays a sentence rather than a column of broken characters.
+    private static let echoedQueryLimit = 32
 
     var body: some View {
         Kit.Screen {
@@ -166,10 +180,9 @@ struct ConsoleGlossaryTab: View {
             emptyTerms
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            HStack(spacing: Kit.Metrics.gutter) {
+            HStack(spacing: 0) {
                 sidebar
                     .environment(\.kitCompactControls, isNarrow)
-                    .frame(width: isNarrow ? Kit.Metrics.railWidth : Kit.Metrics.sidebarWidth)
 
                 Kit.Split {
                     listColumn
@@ -179,7 +192,6 @@ struct ConsoleGlossaryTab: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding([.leading, .vertical], Kit.Metrics.gutter)
         }
     }
 
@@ -246,10 +258,10 @@ struct ConsoleGlossaryTab: View {
     /// on Suggestions while any are pending, with the first one's page showing.
     private func openInitialShelf() {
         if !visibleSuggestions.isEmpty {
-            endDraft()
+            dropDraftIfBlank()
             shelf = .suggestions
             selectedSuggestionId = visibleSuggestions.first?.id
-            reveal = selectedSuggestionId
+            reveal = selectedSuggestionId.map { AnyHashable($0) }
         } else if shelf == .suggestions {
             shelf = .terms(nil)
         }
@@ -258,7 +270,7 @@ struct ConsoleGlossaryTab: View {
     private func ensureSuggestionSelection() {
         guard !visibleSuggestions.contains(where: { $0.id == selectedSuggestionId }) else { return }
         selectedSuggestionId = visibleSuggestions.first?.id
-        reveal = selectedSuggestionId
+        reveal = selectedSuggestionId.map { AnyHashable($0) }
     }
 
     private var selectedSuggestion: TermSuggestion? {
@@ -294,10 +306,7 @@ struct ConsoleGlossaryTab: View {
             }
 
             if !visibleSuggestions.isEmpty {
-                if !isNarrow {
-                    Kit.SidebarHeading(Self.suggestionsHeading)
-                        .padding(.top, VoiceourMetrics.Space.md)
-                }
+                Kit.SidebarSection(Self.suggestionsHeading)
                 Kit.SidebarItem(
                     "Suggestions",
                     systemImage: "sparkles",
@@ -313,7 +322,7 @@ struct ConsoleGlossaryTab: View {
 
     private func selectShelf(_ choice: GlossaryShelf) {
         if choice == .suggestions {
-            endDraft()
+            dropDraftIfBlank()
         }
         shelf = choice
     }
@@ -354,15 +363,21 @@ struct ConsoleGlossaryTab: View {
             if shelf == .suggestions {
                 ForEach(visibleSuggestions) { suggestion in
                     suggestionRow(suggestion)
-                        .id(suggestion.id)
+                        .id(AnyHashable(suggestion.id))
                 }
-            } else if matchingTerms.isEmpty && liveTermCount > 0 {
-                noMatches
-                    .padding(.top, VoiceourMetrics.Space.xl)
             } else {
-                ForEach(matchingTerms) { term in
-                    row(for: term)
-                        .id(term.termId)
+                if isComposing {
+                    draftRow
+                        .id(AnyHashable(ListStop.draft))
+                }
+                if matchingTerms.isEmpty && liveTermCount > 0 {
+                    noMatches
+                        .padding(.top, 32)
+                } else {
+                    ForEach(matchingTerms) { term in
+                        row(for: term)
+                            .id(AnyHashable(ListStop.term(term.termId)))
+                    }
                 }
             }
         }
@@ -381,12 +396,12 @@ struct ConsoleGlossaryTab: View {
         return liveTermCount == 1 ? "1 term" : "\(liveTermCount) terms"
     }
 
-    /// The search field, then Add Term and Import as glyph buttons — the list is
+    /// The search field, then Add Term and Import as icon buttons — the list is
     /// too narrow for their titles beside the field, and each keeps its title as
     /// its accessibility label. A failed import's reason sits under them.
     private var listBar: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
                 Kit.SearchField(
                     "Search terms and spoken forms",
                     text: $searchText,
@@ -395,37 +410,30 @@ struct ConsoleGlossaryTab: View {
                     focus: $searchFocused,
                     onSubmit: selectFirstMatch
                 )
-                Kit.GlassGroup {
-                    addTermButton
-                    importButton
-                }
-                .environment(\.kitCompactControls, true)
+                Kit.IconButton(systemImage: "plus", label: "Add Term", action: beginDraft)
+                    .accessibilityIdentifier("glossary.add-term")
+                Kit.IconButton(systemImage: "square.and.arrow.down", label: "Import\u{2026}", action: importWordList)
+                    .help(Self.wordListHint)
+                    .accessibilityIdentifier("glossary.import")
             }
             if let importFailure {
                 importFailureCaption(importFailure)
-                    .padding(.horizontal, VoiceourMetrics.Space.sm)
             }
         }
     }
 
-    private var addTermButton: some View {
-        Kit.ActionButton("Add Term", systemImage: "plus", action: beginDraft)
-            .help("Add Term")
-            .accessibilityIdentifier("glossary.add-term")
-    }
-
-    private var importButton: some View {
-        Kit.ActionButton("Import\u{2026}", systemImage: "square.and.arrow.down", action: importWordList)
-            .help(Self.wordListHint)
-            .accessibilityIdentifier("glossary.import")
-    }
-
     private func importFailureCaption(_ message: String) -> some View {
         Text(message)
-            .roleStyle(.caption)
-            .foregroundStyle(VoiceourPalette.Signal.crimson)
+            .roleStyle(.meta)
+            .foregroundStyle(theme.critical.text)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The unsaved term, at the head of the list for as long as it exists.
+    private var draftRow: some View {
+        Kit.DraftRow("New term", isSelected: isDraftOpen, action: openDraft)
+            .accessibilityIdentifier("glossary.draft.row")
     }
 
     private func row(for term: ProtectedTerm) -> some View {
@@ -433,12 +441,12 @@ struct ConsoleGlossaryTab: View {
         return Kit.TitleRow(
             term.canonical,
             subtitle: Self.summary(of: forms),
-            isSelected: shelf != .suggestions && !isComposing && term.termId == selectedTermId,
+            isSelected: shelf != .suggestions && term.termId == selectedTermId,
             monospacedTitle: true,
             action: { select(term) }
         ) {
             if GlossaryQuery.origin(of: term) == .builtIn {
-                Kit.Mark("BUILT-IN")
+                Kit.Pill("Built-in")
             }
         }
         .help(term.canonical)
@@ -462,6 +470,7 @@ struct ConsoleGlossaryTab: View {
         ) {
             EmptyView()
         }
+        .help("\(suggestion.misheard) \u{2192} \(suggestion.canonical)")
         .accessibilityLabel(Self.suggestionLabel(suggestion))
         .accessibilityIdentifier("glossary.suggestion.\(suggestion.id)")
     }
@@ -486,27 +495,43 @@ struct ConsoleGlossaryTab: View {
 
     /// Empty results imply a non-empty query: an origin offered by the sidebar can
     /// never rule out every term on its own. It can still be the reason a query
-    /// found nothing, so it is offered back.
+    /// found nothing, so the message names it and where the rest are.
     private var noMatches: some View {
-        ContentUnavailableView {
-            Text("Nothing matches \u{201C}\(query)\u{201D}")
-        } description: {
-            Text("Search runs over terms and their spoken forms.")
-        } actions: {
-            Kit.ActionButton("Clear Search") { searchText = "" }
-            if originFilter != nil {
-                Kit.ActionButton("Show All Terms") { shelf = .terms(nil) }
-            }
-        }
+        let message =
+            originFilter.map {
+                "Search runs over \(Self.originTitle($0)) terms and their spoken forms. "
+                    + "All Terms in the sidebar searches every term."
+            } ?? "Search runs over terms and their spoken forms."
+        return Kit.EmptyState(
+            systemImage: "magnifyingglass",
+            title: "Nothing matches \u{201C}\(Self.echoed(query))\u{201D}",
+            message: message,
+            actionTitle: "Clear Search",
+            actionIdentifier: "glossary.search.nomatch.clear",
+            action: { searchText = "" }
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    private static func echoed(_ query: String) -> String {
+        guard query.count > echoedQueryLimit else { return query }
+        return String(query.prefix(echoedQueryLimit)) + "\u{2026}"
     }
 
     // MARK: Selection
 
+    /// Whether the draft's page is the one showing.
+    private var isDraftOpen: Bool {
+        isComposing && shelf != .suggestions && selectedTermId == nil
+    }
+
+    /// Whether the draft holds anything the reader typed.
+    private var draftHasText: Bool {
+        !draftTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftForms.isEmpty
+    }
+
     private func select(_ term: ProtectedTerm) {
-        // Pressing a row is an answer to the draft as well: a two-field draft is
-        // not worth a confirmation, and Save is the default action.
-        endDraft()
-        selectedTermId = term.termId
+        open(.term(term.termId))
         listFocused = true
     }
 
@@ -515,41 +540,61 @@ struct ConsoleGlossaryTab: View {
         listFocused = true
     }
 
+    private func openDraft() {
+        open(.draft)
+        listFocused = true
+    }
+
+    /// Opens a list stop's page. Leaving a blank draft drops it, as a note left
+    /// empty is; a draft that holds typed text stays at the head of the list so
+    /// nothing typed is lost by looking at another term.
+    private func open(_ stop: ListStop) {
+        switch stop {
+        case .draft:
+            guard isComposing else { return }
+            if let current = selectedTermId {
+                termBeforeDraft = current
+            }
+            selectedTermId = nil
+        case .term(let id):
+            dropDraftIfBlank()
+            selectedTermId = id
+        }
+        reveal = AnyHashable(stop)
+    }
+
     /// Steps through the listed rows; a selection the list does not show starts
     /// from the top.
     private func move(_ direction: MoveCommandDirection) {
-        let ids =
-            shelf == .suggestions
-            ? visibleSuggestions.map(\.id)
-            : matchingTerms.map(\.termId)
-        guard !ids.isEmpty else { return }
-        let current = shelf == .suggestions ? selectedSuggestionId : selectedTermId
-        let target: Int
-        if let current, let index = ids.firstIndex(of: current) {
-            switch direction {
-            case .up: target = max(index - 1, 0)
-            case .down: target = min(index + 1, ids.count - 1)
-            default: return
-            }
-        } else {
-            target = 0
-        }
         if shelf == .suggestions {
-            selectedSuggestionId = ids[target]
-        } else {
-            endDraft()
-            selectedTermId = ids[target]
+            let ids = visibleSuggestions.map(\.id)
+            guard let target = Self.step(direction, from: selectedSuggestionId, in: ids) else { return }
+            selectedSuggestionId = target
+            reveal = AnyHashable(target)
+            return
         }
-        reveal = ids[target]
+        var stops: [ListStop] = isComposing ? [.draft] : []
+        stops += matchingTerms.map { ListStop.term($0.termId) }
+        let current: ListStop? = selectedTermId.map(ListStop.term) ?? (isComposing ? .draft : nil)
+        guard let target = Self.step(direction, from: current, in: stops) else { return }
+        open(target)
+    }
+
+    private static func step<ID: Equatable>(_ direction: MoveCommandDirection, from current: ID?, in ids: [ID]) -> ID? {
+        guard !ids.isEmpty else { return nil }
+        guard let current, let index = ids.firstIndex(of: current) else { return ids[0] }
+        switch direction {
+        case .up: return ids[max(index - 1, 0)]
+        case .down: return ids[min(index + 1, ids.count - 1)]
+        default: return nil
+        }
     }
 
     /// Return in the search field opens the first match and hands focus to the
     /// list, instead of re-running the filter every keystroke already ran.
     private func selectFirstMatch() {
         guard shelf != .suggestions, let first = matchingTerms.first else { return }
-        endDraft()
-        selectedTermId = first.termId
-        reveal = first.termId
+        open(.term(first.termId))
         searchFocused = false
         listFocused = true
     }
@@ -560,35 +605,37 @@ struct ConsoleGlossaryTab: View {
     private var page: some View {
         if shelf == .suggestions, let suggestion = selectedSuggestion {
             suggestionPage(suggestion)
-        } else if isComposing {
-            draftPage
         } else if let term = openTerm {
             termPage(term)
+        } else if isComposing {
+            draftPage
         } else {
-            ContentUnavailableView(
-                "No term selected",
+            Kit.EmptyState(
                 systemImage: "character.book.closed",
-                description: Text(Self.termsFooter)
+                title: "No term selected",
+                message: Self.termsFooter
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private func termPage(_ term: ProtectedTerm) -> some View {
-        Kit.PageColumn(identity: term.termId) {
-            Kit.ActionButton("Remove Term\u{2026}", systemImage: "trash", role: .destructive) {
+        Kit.PageColumn(identity: AnyHashable(term.termId)) {
+            Kit.Button("Remove Term\u{2026}", systemImage: "trash", prominence: .destructive) {
                 pendingRemoval = term
             }
             .help("Remove this term from the glossary")
             .accessibilityIdentifier("glossary.term.remove")
         } content: {
             Kit.PageHeader(
-                eyebrow: Self.originTitle(GlossaryQuery.origin(of: term)),
+                kicker: Self.originTitle(GlossaryQuery.origin(of: term)),
                 title: term.canonical,
-                subtitle: Self.summary(of: openTermForms),
+                meta: Self.summary(of: openTermForms),
                 monospacedTitle: true
-            )
-            editorIsland {
+            ) {
+                EmptyView()
+            }
+            editorCard {
                 ConsoleTermEditor(
                     term: $editedTerm,
                     spokenForms: $editedForms,
@@ -615,8 +662,10 @@ struct ConsoleGlossaryTab: View {
         Kit.PageColumn(identity: AnyHashable("glossary.draft")) {
             EmptyView()
         } content: {
-            Kit.PageHeader(title: "New term")
-            editorIsland {
+            Kit.PageHeader(title: "New term") {
+                EmptyView()
+            }
+            editorCard {
                 ConsoleTermEditor(
                     term: $draftTerm,
                     spokenForms: $draftForms,
@@ -630,7 +679,7 @@ struct ConsoleGlossaryTab: View {
                         isEnabled: !draftTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                         perform: saveDraft
                     ),
-                    cancel: endDraft,
+                    cancel: cancelDraft,
                     destructive: nil,
                     identifierPrefix: "glossary.draft"
                 )
@@ -638,10 +687,12 @@ struct ConsoleGlossaryTab: View {
         }
     }
 
-    private func editorIsland<Editor: View>(@ViewBuilder editor: () -> Editor) -> some View {
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
-                Kit.SectionTitle("Spelling and spoken forms")
+    private func editorCard<Editor: View>(@ViewBuilder editor: () -> Editor) -> some View {
+        Kit.Card {
+            VStack(alignment: .leading, spacing: 8) {
+                Kit.SectionHeader("Spelling and spoken forms") {
+                    EmptyView()
+                }
                 editor()
             }
         }
@@ -652,61 +703,83 @@ struct ConsoleGlossaryTab: View {
     /// glossary never to offer it. Never Suggest This is that second answer, and
     /// the only one that writes a rejection.
     private func suggestionPage(_ suggestion: TermSuggestion) -> some View {
-        Kit.PageColumn(identity: suggestion.id) {
-            Kit.GlassGroup {
-                Kit.ActionButton("Teach", systemImage: "checkmark", prominence: .primary) {
-                    teach(suggestion)
-                }
-                .help(
-                    "Teach Voiceour to use \u{201C}\(suggestion.canonical)\u{201D} next time. "
-                        + "Your pasted text is unchanged."
-                )
-                // The closure form replaces the label the kit button derives from
-                // its title, whatever order the modifiers resolve in.
-                .accessibilityLabel { _ in
-                    Text("Teach correction from \(suggestion.misheard) to \(suggestion.canonical)")
-                }
-                .accessibilityIdentifier("suggestion.\(suggestion.id).accept")
-
-                Kit.ActionButton("Ignore", systemImage: "eye.slash") {
-                    ignore(suggestion)
-                }
-                .help("Hide this suggestion. Nothing is taught and the pasted text is unchanged.")
-                .accessibilityLabel { _ in Text("Ignore suggestion for \(suggestion.misheard)") }
-                .accessibilityIdentifier("suggestion.\(suggestion.id).ignore")
-
-                Kit.ActionButton("Never Suggest This", systemImage: "hand.raised") {
-                    neverSuggest(suggestion)
-                }
-                .help("Never offer this correction again. The pasted text is unchanged.")
-                .accessibilityIdentifier("suggestion.\(suggestion.id).reject")
+        Kit.PageColumn(identity: AnyHashable(suggestion.id)) {
+            Kit.Button("Teach", systemImage: "checkmark", prominence: .primary) {
+                teach(suggestion)
             }
+            .help(
+                "Teach Voiceour to use \u{201C}\(suggestion.canonical)\u{201D} next time. "
+                    + "Your pasted text is unchanged."
+            )
+            // The closure form replaces the label the kit button derives from
+            // its title, whatever order the modifiers resolve in.
+            .accessibilityLabel { _ in
+                Text("Teach correction from \(suggestion.misheard) to \(suggestion.canonical)")
+            }
+            .accessibilityIdentifier("suggestion.\(suggestion.id).accept")
+
+            Kit.Button("Ignore", systemImage: "eye.slash") {
+                ignore(suggestion)
+            }
+            .help("Hide this suggestion. Nothing is taught and the pasted text is unchanged.")
+            .accessibilityLabel { _ in Text("Ignore suggestion for \(suggestion.misheard)") }
+            .accessibilityIdentifier("suggestion.\(suggestion.id).ignore")
+
+            Kit.Button("Never Suggest This", systemImage: "hand.raised") {
+                neverSuggest(suggestion)
+            }
+            .help("Never offer this correction again. The pasted text is unchanged.")
+            .accessibilityIdentifier("suggestion.\(suggestion.id).reject")
         } content: {
             Kit.PageHeader(
-                eyebrow: Self.suggestionsHeading,
+                kicker: Self.suggestionsHeading,
                 title: suggestion.canonical,
-                subtitle: "Heard as \(suggestion.misheard)",
+                meta: "Heard as \(suggestion.misheard)",
                 monospacedTitle: true
-            )
-            Kit.Island {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
-                    Kit.SectionTitle("Suggested correction")
-                    HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
-                        Text(suggestion.misheard)
-                            .roleStyle(.tileValue)
-                            .foregroundStyle(a11y.textMid)
-                        Image(systemName: "arrow.right")
-                            .foregroundStyle(VoiceourPalette.Alien.bloom)
-                            .accessibilityHidden(true)
-                        Text(suggestion.canonical)
-                            .roleStyle(.tileValue)
+            ) {
+                EmptyView()
+            }
+            Kit.Card {
+                VStack(alignment: .leading, spacing: 8) {
+                    Kit.SectionHeader("Suggested correction") {
+                        EmptyView()
                     }
-                    .textSelection(.enabled)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(Self.suggestionLabel(suggestion))
+                    correctionPair(suggestion)
+                        .textSelection(.enabled)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(Self.suggestionLabel(suggestion))
                     Text("Accept teaches future dictation only — the text you already pasted is never changed.")
-                        .roleStyle(.caption)
-                        .foregroundStyle(a11y.textMid)
+                        .roleStyle(.meta)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    /// The heard form, an arrow, the spelling: on one line when they fit, the
+    /// spelling under the heard form when they do not.
+    private func correctionPair(_ suggestion: TermSuggestion) -> some View {
+        let misheard = Text(suggestion.misheard)
+            .roleStyle(.code)
+            .foregroundStyle(theme.text2)
+        let arrow = Image(systemName: "arrow.right")
+            .foregroundStyle(theme.accentText)
+            .accessibilityHidden(true)
+        let canonical = Text(suggestion.canonical)
+            .roleStyle(.code)
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                misheard
+                arrow
+                canonical
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                misheard
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    arrow
+                    canonical
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -748,7 +821,7 @@ struct ConsoleGlossaryTab: View {
         }
         if let next {
             selectedSuggestionId = next
-            reveal = next
+            reveal = AnyHashable(next)
             reloadSuggestions()
             return
         }
@@ -763,7 +836,7 @@ struct ConsoleGlossaryTab: View {
         } else {
             selectedTermId = termId
         }
-        reveal = termId
+        reveal = termId.map { AnyHashable(ListStop.term($0)) }
     }
 
     // MARK: Editing
@@ -821,16 +894,21 @@ struct ConsoleGlossaryTab: View {
         }
     }
 
+    /// Opens the draft at the head of the list, selected. A draft already in
+    /// progress is reopened with what it holds rather than wiped.
     private func beginDraft() {
         refusal = nil
         if shelf == .suggestions {
             shelf = .terms(nil)
         }
-        selectedTermId = nil
-        draftTerm = ""
-        draftForms = []
-        draftDerived = []
-        isComposing = true
+        if !isComposing {
+            draftTerm = ""
+            draftForms = []
+            draftDerived = []
+            termBeforeDraft = nil
+            isComposing = true
+        }
+        open(.draft)
     }
 
     private func endDraft() {
@@ -838,6 +916,28 @@ struct ConsoleGlossaryTab: View {
         isComposing = false
         draftTerm = ""
         draftForms = []
+        termBeforeDraft = nil
+    }
+
+    private func dropDraftIfBlank() {
+        guard isComposing, !draftHasText else { return }
+        endDraft()
+    }
+
+    /// Cancel removes the draft row and gives back the term that was open
+    /// before the draft, if it is still a term.
+    private func cancelDraft() {
+        guard isComposing else { return }
+        let previous = termBeforeDraft
+        let draftWasOpen = selectedTermId == nil
+        endDraft()
+        refusal = nil
+        guard draftWasOpen,
+            let previous,
+            liveTerms.contains(where: { $0.termId == previous })
+        else { return }
+        selectedTermId = previous
+        reveal = AnyHashable(ListStop.term(previous))
     }
 
     /// A new term is refused rather than merged when the spelling already
@@ -875,7 +975,7 @@ struct ConsoleGlossaryTab: View {
         }
         let created = coordinator.settings.glossary.first { !before.contains($0.termId) }?.termId
         selectedTermId = created
-        reveal = created
+        reveal = created.map { AnyHashable(ListStop.term($0)) }
     }
 
     // MARK: Removal
@@ -901,35 +1001,40 @@ struct ConsoleGlossaryTab: View {
         if selectedTermId == term.termId {
             selectedTermId = nil
         }
+        if termBeforeDraft == term.termId {
+            termBeforeDraft = nil
+        }
         pendingRemoval = nil
     }
 
     // MARK: Empty state
 
     /// Says what a term is rather than reporting that a list is empty, and offers
-    /// both ways a first term arrives.
+    /// both ways a first term arrives: Add Term leads, Import… sits beside it —
+    /// the one empty state with two actions, because an import is how a whole
+    /// lexicon arrives at once.
     private var emptyTerms: some View {
-        ContentUnavailableView {
-            Text("No terms yet")
-        } description: {
-            Text(
-                "A term is the spelling Voiceour holds a word to when dictation keeps hearing it wrong. "
-                    + "Add one, or import a word list."
+        VStack(spacing: 16) {
+            Kit.EmptyState(
+                systemImage: "character.book.closed",
+                title: "No terms yet",
+                message: "A term is the spelling Voiceour holds a word to when dictation keeps hearing it wrong. "
+                    + "Add one, or import a word list.",
+                actionTitle: "Add Term",
+                actionIdentifier: "glossary.add-term",
+                action: beginDraft,
+                secondaryActionTitle: "Import\u{2026}",
+                secondaryActionIdentifier: "glossary.import",
+                secondaryAction: importWordList
             )
-        } actions: {
-            VStack(spacing: VoiceourMetrics.Space.md) {
-                Kit.GlassGroup {
-                    Kit.ActionButton("Add Term", systemImage: "plus", prominence: .primary, action: beginDraft)
-                        .accessibilityIdentifier("glossary.add-term")
-                    importButton
-                }
-                if let importFailure {
-                    importFailureCaption(importFailure)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: Kit.Metrics.listWidth)
-                }
+            .fixedSize(horizontal: false, vertical: true)
+            if let importFailure {
+                importFailureCaption(importFailure)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
             }
         }
+        .padding(Kit.Metrics.pagePadding)
     }
 
     // MARK: Word list

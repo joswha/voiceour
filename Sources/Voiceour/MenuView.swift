@@ -3,26 +3,24 @@ import VoiceCore
 
 /// The menu-bar popover.
 ///
-/// Three blocks separated by `Space.lg`, each block internally at `Space.sm` /
-/// `Space.xs`, so the grouping is legible from the whitespace alone instead of
-/// resting entirely on two hairlines (one of which used to rasterise to zero
-/// pixels and separated nothing):
+/// Three blocks separated by 16 pt, each block internally at 8 / 4 pt, so the
+/// grouping is legible from the whitespace alone:
 ///
-/// * **status** — the session chip, the mute chip and the capture hotkey on one
+/// * **status** — the session pill, the mute pill and the capture hotkey on one
 ///   row, then the target line. The target line is suppressed whenever it would
 ///   contradict the state under it: it is a future-tense promise, and an error
 ///   means it cannot be kept while a finished outcome means it is already spent.
-/// * **report** — what just happened: the error, the transcript, the copy
-///   confirmation, the outcome detail. Absent entirely when there is nothing to
-///   report.
+/// * **report** — what just happened: the transcript, the copy confirmation, the
+///   outcome detail. Absent entirely when there is nothing to report.
 /// * **actions** — one floating primary, then ONE bordered container holding the
-///   remaining commands as zero-gap rows closed by inset rules. Four
-///   independently filled and stroked plates for four peer commands read as
-///   "four unrelated objects"; a single container reads as "one list of
-///   choices", and it leaves the primary as the only bounded, filled, tinted
-///   object in the action region.
+///   remaining commands as zero-gap rows closed by rules. Independently filled
+///   plates for peer commands read as unrelated objects; a single container
+///   reads as one list of choices, and it leaves the primary as the only filled,
+///   tinted object in the action region.
 ///
-/// The standard popover owns its system glass chrome; content adds no second ground.
+/// The popover follows the console's appearance and accent. Its content paints
+/// the theme's opaque `ground` over the system popover chrome, so every text
+/// colour is measured against a known surface in either appearance.
 struct MenuView: View {
     var coordinator: DictationCoordinator
     private var a11y = A11y()
@@ -35,6 +33,11 @@ struct MenuView: View {
 
     var body: some View {
         menuBehavior(menuContent)
+            .modifier(MenuGround())
+            .themeRoot(
+                appearance: coordinator.settings.consoleAppearance,
+                accent: coordinator.settings.consoleAccent
+            )
     }
 
     private var menuContent: some View {
@@ -57,7 +60,7 @@ struct MenuView: View {
             MenuActionBlock(
                 isGated: isGated,
                 dictationTitle: dictationTitle,
-                dictationRowTitle: dictationRowTitle,
+                dictationAccessibilityLabel: dictationAccessibilityLabel,
                 dictationRowSystemImage: dictationRowSystemImage,
                 startOrStopDictation: { coordinator.toggle() },
                 takeNote: takeNote,
@@ -108,18 +111,18 @@ struct MenuView: View {
     /// means the promise cannot be kept; a model that has not arrived yet means the
     /// promise cannot be kept either, and saying so is the difference between a
     /// download and a hang.
-    private var headline: (text: String, color: Color?, progress: Double?)? {
+    private var headline: MenuStatusBlock.Headline? {
         if let failure = coordinator.lastFailure ?? coordinator.acquisitionFailure {
-            return (failure.cause, VoiceourPalette.Signal.crimson, nil)
+            return .init(text: failure.cause, tone: .critical, progress: nil)
         }
         if let error = coordinator.errorMessage {
-            return (error, VoiceourPalette.Signal.crimson, nil)
+            return .init(text: error, tone: .critical, progress: nil)
         }
         if let acquisition = acquisitionHeadline {
-            return (acquisition, VoiceourPalette.Signal.amber, coordinator.modelDownloadFraction)
+            return .init(text: acquisition, tone: .caution, progress: coordinator.modelDownloadFraction)
         }
         guard reportedSummary == nil else { return nil }
-        return (targetLine, nil, nil)
+        return .init(text: targetLine, tone: .plain, progress: nil)
     }
 
     /// A note is delivered nowhere, so while one is in flight the promise names
@@ -219,14 +222,16 @@ struct MenuView: View {
         return { coordinator.startNote() }
     }
 
-    /// The primary capsule speaks the app's button voice; the same command
-    /// demoted into the menu list speaks the list's sentence voice.
+    /// The dictation command's title, in Title Case like a macOS button: the primary
+    /// capsule's, and the command row's while the capsule opens the console instead.
     private var dictationTitle: String {
-        coordinator.state == .recording ? "STOP DICTATION" : "START DICTATION"
+        coordinator.state == .recording ? "Stop Dictation" : "Start Dictation"
     }
 
-    private var dictationRowTitle: String {
-        coordinator.state == .recording ? "Stop Dictation" : "Start Dictation"
+    /// The primary's accessibility label: the capitalised command name it has
+    /// always published, which flows and VoiceOver users key on.
+    private var dictationAccessibilityLabel: String {
+        coordinator.state == .recording ? "STOP DICTATION" : "START DICTATION"
     }
 
     private var dictationRowSystemImage: String {
@@ -238,47 +243,51 @@ struct MenuView: View {
     /// Terminal outcomes name themselves. The three `SessionState` cases that
     /// used to supply those labels live for exactly one main-actor turn before
     /// `resetToIdleWhenInactive` flips them to `.idle`, so reading them here
-    /// rendered `IDLE` over a dictation that had just failed to paste. A saved
-    /// note names itself the same way, and `.noteSaved` falls to `IDLE` with them.
+    /// rendered "Idle" over a dictation that had just failed to paste. A saved
+    /// note names itself the same way, and `.noteSaved` falls to "Idle" with them.
     ///
     /// An unacknowledged `errorMessage` is read the same way, and for the same
     /// reason: a microphone denial now returns to idle rather than parking the
     /// coordinator in `.error`, so the state enum no longer outlives the failure
     /// it describes. The headline above is gated on the same value, so the label
     /// and the reason appear together and clear together on the next `start()`.
+    ///
+    /// Sentence case, the pill's voice: outcome labels and failure titles arrive
+    /// capitalised from `VoiceCore` and are converted here, once.
     private var statusLabel: String {
         if let summary = reportedSummary {
-            return summary.label
+            return Kit.Pill.sentence(summary.label)
         }
-        // The failure names itself: "MODEL NEEDED" and "MIC BLOCKED" say what to do
-        // about it, where a bare "ERROR" makes the user open the console to find out.
+        // The failure names itself: "Model needed" and "Mic blocked" say what to do
+        // about it, where a bare "Error" makes the user open the console to find out.
         if let failure = coordinator.lastFailure ?? coordinator.acquisitionFailure {
-            return failure.title
+            return Kit.Pill.sentence(failure.title)
         }
         if coordinator.errorMessage != nil {
-            return "ERROR"
+            return "Error"
         }
         if coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming {
-            return "PREPARING"
+            return "Preparing"
         }
 
         switch coordinator.state {
         case .recording:
-            return "LIVE"
+            return "Live"
         case .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
-            return "WORKING"
+            return "Working"
         case .error:
-            return "ERROR"
+            return "Error"
         default:
-            return "IDLE"
+            return "Idle"
         }
     }
 
     /// Same lifetime as `statusLabel`, and the colour has to agree with the word.
     /// It reads the failure the same way, with one exception: while the model is
-    /// still arriving, a refusal is amber rather than crimson, so "DOWNLOADING
-    /// MODEL" is painted as the wait it is instead of as a fault.
-    private var statusTone: Kit.Mark.Tone {
+    /// still arriving, a refusal is caution rather than critical, so "Downloading
+    /// model" is painted as the wait it is instead of as a fault. A session in
+    /// flight is `.info`: the live hue, distinct from both the accent and success.
+    private var statusTone: Kit.Pill.Tone {
         if let summary = reportedSummary {
             switch summary.severity {
             case .crit: return .critical
@@ -288,7 +297,7 @@ struct MenuView: View {
             }
         }
         // A start refused because the model is still arriving is a wait, not a fault, so it
-        // keeps the amber the chip already showed before the tap: nothing got worse by asking.
+        // keeps the caution tone the pill already showed before the tap: nothing got worse by asking.
         // `acquisitionFailure` is excluded deliberately — a download that stopped IS a fault,
         // and it outranks the fraction that is still sitting in `backendHealth`.
         let acquiring = coordinator.modelDownloadFraction != nil || coordinator.isBackendWarming
@@ -308,9 +317,23 @@ struct MenuView: View {
         case .error:
             return .critical
         case .recording, .checkingPermissions, .finalizingAudio, .transcribing, .cleaning, .readyToInsert:
-            return .live
+            return .info
         default:
             return .neutral
         }
+    }
+}
+
+/// The popover's opaque ground, applied inside `themeRoot` so it reads the
+/// resolved theme. The system popover chrome is a material whose colour depends
+/// on whatever sits behind the menu bar; text measured against it would be
+/// measured against a guess.
+private struct MenuGround: ViewModifier {
+    @Environment(\.theme) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.surfaceGround, SurfaceGround(theme.ground))
+            .background(theme.ground.ignoresSafeArea())
     }
 }

@@ -9,7 +9,7 @@ import VoiceMac
 /// link and never opened, because an agent wrote it and Voiceour vouches for none of it;
 /// it stays selectable so the reader can take a passage out by hand. It is not an entry,
 /// so a click copies nothing and there is no menu. The row draws no surface of its own: it
-/// sits full width inside its section's island, marked with the agent badge so a reader
+/// sits full width inside its section's card, marked with the sparkles tile so a reader
 /// tells an agent's words from their own at a glance, and the section rules it off from
 /// the next note.
 struct JournalAgentNoteRow: View {
@@ -41,17 +41,16 @@ struct JournalAgentNoteRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Kit.Badge(systemImage: "sparkles", size: .small)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Kit.IconTile(systemImage: "sparkles", size: .small)
                 Text(caption)
-                    .font(Kit.Fonts.meta)
-                    .foregroundStyle(.secondary)
+                    .roleStyle(.meta)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Text(verbatim: text)
-                .font(Kit.Fonts.reading)
+                .roleStyle(.reading)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 // Keep mouse selection while exposing the text once, not both the
@@ -73,7 +72,7 @@ struct JournalAgentNoteRow: View {
     }
 }
 
-/// A glass button that copies a prompt for the user's own coding agent, confirmed by the
+/// A kit button that copies a prompt for the user's own coding agent, confirmed by the
 /// page's toast in the sentence VoiceOver hears.
 ///
 /// The prompt is built only when the button is pressed, so a page pays nothing for
@@ -84,7 +83,7 @@ struct JournalPromptCopyButton: View {
     private let help: String
     private let announcement: String
     private let identifier: String
-    private let prominence: Kit.ActionButton.Prominence
+    private let prominence: Kit.Button.Prominence
     private let flash: Kit.Flash
     private let prompt: () -> String
 
@@ -96,7 +95,7 @@ struct JournalPromptCopyButton: View {
         help: String,
         announcement: String,
         identifier: String,
-        prominence: Kit.ActionButton.Prominence = .standard,
+        prominence: Kit.Button.Prominence = .secondary,
         flash: Kit.Flash,
         prompt: @escaping () -> String
     ) {
@@ -110,7 +109,7 @@ struct JournalPromptCopyButton: View {
     }
 
     var body: some View {
-        Kit.ActionButton(title, systemImage: "doc.on.clipboard", prominence: prominence, action: copy)
+        Kit.Button(title, systemImage: "doc.on.clipboard", prominence: prominence, action: copy)
             .help(help)
             .accessibilityIdentifier(identifier)
     }

@@ -2,15 +2,16 @@ import SwiftUI
 import VoiceCore
 import VoiceMac
 
-/// One readiness readout: the word the mark carries, its rung on the severity
+/// One readiness readout: the word the pill carries, its rung on the severity
 /// ladder, the sentence that explains it, and the one remediation the console can
 /// offer for it.
 ///
 /// A value rather than a view so the two surfaces that report readiness cannot
 /// describe the same state differently. Settings renders these as setting rows on
-/// its Readiness and Capture pages; Home's first-run card renders the same values
-/// on its island. Both draw the word as a `Kit.Mark` toned by `Kit.Mark.Tone(_:)`.
-/// The words are decided once, here.
+/// its Readiness and Capture pages; Home's "Get started" checklist renders the
+/// same values. Both draw the word as a `Kit.Pill` in sentence case
+/// (`Kit.Pill.sentence`), toned by `Kit.Pill.Tone(_:)`. The words are decided
+/// once, here.
 struct ConsoleReadout {
     /// The rung a readout sits on.
     ///
@@ -37,7 +38,7 @@ struct ConsoleReadout {
     var severity: Severity
     var detail: String
     /// The 0...1 fraction this state is measuring, when it measures one. Set only by the
-    /// downloading branch: the surfaces render a `MeterBar` from it instead of each deciding for
+    /// downloading branch: the surfaces render a `Kit.Meter` from it instead of each deciding for
     /// itself what is acquiring, which is the same reason the sentences live here.
     var progress: Double? = nil
     var remediation: ConsoleRemediation?

@@ -51,7 +51,13 @@ enum StatsFormatting {
     }
 
     static func dayLabel(_ count: Int) -> String {
-        "\(count) \(count == 1 ? "day" : "days")"
+        "\(count) \(noun("day", count: count))"
+    }
+
+    /// The noun a count takes: "1 word", "2 words", "0 words". Every noun Home counts
+    /// (day, dictation, word) takes a plain "s".
+    static func noun(_ singular: String, count: Int) -> String {
+        count == 1 ? singular : singular + "s"
     }
 
     /// One heatmap square's hover sentence: the words first — that is what the
@@ -73,7 +79,7 @@ enum StatsFormatting {
         formatter.locale = calendar.locale
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "EEE, MMM d, yyyy"
-        let count = words == 1 ? "1 word" : "\(words) words"
+        let count = "\(words) \(noun("word", count: words))"
         return "\(words > 0 ? count : "No dictation") · \(formatter.string(from: date))"
     }
 }

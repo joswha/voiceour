@@ -27,12 +27,12 @@ struct SettingsPrivacyPage: View {
 
     var body: some View {
         SettingsPage(.privacy) {
-            SettingsIsland {
+            Kit.Group {
                 dataHandlingRow
             }
-            SettingsIsland {
+            Kit.Group {
                 agentLinksRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 linkEarlierRow
             }
         }
@@ -45,7 +45,7 @@ struct SettingsPrivacyPage: View {
                 "Recent transcript history is saved locally on this Mac for the Journal tab. Audio temp "
                 + "files are removed after ASR. Network is used only to download the local speech model."
         ) {
-            Kit.ActionButton("Copy Diagnostics") { copyDiagnostics() }
+            Kit.Button("Copy Diagnostics") { copyDiagnostics() }
                 .help("Copy storage paths, backend health, permissions and build info.")
                 .accessibilityIdentifier("system.diagnostics.copy")
         }
@@ -96,7 +96,7 @@ struct SettingsPrivacyPage: View {
                 ?? "Finds earlier dictations whose exact words reached one omp or Claude Code session on this "
                 + "Mac, and links them to it."
         ) {
-            Kit.ActionButton("Link Earlier Dictations") { coordinator.linkEarlierDictations() }
+            Kit.Button("Link Earlier Dictations") { coordinator.linkEarlierDictations() }
                 .help("Link earlier dictations to the agent session whose prompts hold their exact words.")
                 .disabled(!coordinator.settings.agentSessionBindingEnabled || run?.isRunning == true)
                 .accessibilityIdentifier("system.agent.link-earlier")

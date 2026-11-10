@@ -7,11 +7,9 @@ import SwiftUI
 /// an extensible selection menu on
 /// the macOS 14 deployment target, so this wraps `NSTextView` directly.
 ///
-/// Every colour here is a semantic system colour, so the transcript reads
-/// correctly in both appearances. It used to paint the console's own near-white
-/// ink on a cyan selection wash, which was legible only because the window
-/// pinned a dark scheme — a native window follows the appearance the user chose,
-/// and this is the one view in it that holds arbitrary user text.
+/// The text and selection colours come from the caller, which reads them from the
+/// console theme: the transcript sits in a themed well, and a system colour such as
+/// `labelColor` follows the Mac's appearance rather than the one the console chose.
 struct SelectableTranscriptText: NSViewRepresentable {
     /// Identifies the transcript the text belongs to, not just its characters.
     /// SwiftUI reuses the backing `NSTextView` across sessions, and two sessions
@@ -29,13 +27,20 @@ struct SelectableTranscriptText: NSViewRepresentable {
     /// The point size the transcript is set at. A page that gives the transcript
     /// its own reading measure sets it larger than the system's body size.
     var fontSize: CGFloat
-
-    private static let textColor = NSColor.labelColor
+    /// The words' colour, the theme's primary text on the well it sits in.
+    var textColor: NSColor
+    /// The selection wash. Never `selectedTextBackgroundColor`: that one follows the
+    /// user's System Settings accent, which no environment key overrides, so a
+    /// committed golden containing it would not port between machines. The theme's
+    /// selection is opaque and keeps the words legible at full strength on it.
+    var selectionColor: NSColor
 
     init(
         identity: UUID,
         text: String,
         fontSize: CGFloat = NSFont.systemFontSize,
+        textColor: NSColor,
+        selectionColor: NSColor,
         onFixTeach: @escaping (String) -> Void,
         onSelectionChange: ((String?) -> Void)? = nil,
         onPlainClick: (() -> Void)? = nil
@@ -43,36 +48,35 @@ struct SelectableTranscriptText: NSViewRepresentable {
         self.identity = identity
         self.text = text
         self.fontSize = fontSize
+        self.textColor = textColor
+        self.selectionColor = selectionColor
         self.onFixTeach = onFixTeach
         self.onSelectionChange = onSelectionChange
         self.onPlainClick = onPlainClick
     }
 
-    /// Deliberately not `selectedTextBackgroundColor`: that one is derived from
-    /// the user's System Settings accent, which no environment key overrides, so a
-    /// committed golden containing it would not port between machines. The
-    /// unemphasized pair is the system's own answer for a selection in a text view
-    /// that does not hold focus — appearance-aware, contrast-aware, and the same
-    /// on every Mac. It also keeps the wash light enough not to swallow the words
-    /// the user is reading to decide what to teach.
-    private static let selectionFill = NSColor.unemphasizedSelectedTextBackgroundColor
-
     private var attributed: NSAttributedString {
-        Self.attributedText(text, fontSize: fontSize)
+        Self.attributedText(text, fontSize: fontSize, color: textColor)
     }
 
     /// The one place the transcript's attributes are decided, so the text the live view
-    /// draws and the text `Measurer` sizes cannot be set differently.
-    fileprivate static func attributedText(_ text: String, fontSize: CGFloat) -> NSAttributedString {
+    /// draws and the text `Measurer` sizes cannot be set differently. The colour does not
+    /// change a line break, so the measurer typesets without one.
+    fileprivate static func attributedText(
+        _ text: String,
+        fontSize: CGFloat,
+        color: NSColor? = nil
+    ) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = VoiceourMetrics.Space.hair
-        return NSAttributedString(
-            string: text,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
-                .foregroundColor: Self.textColor,
-                .paragraphStyle: paragraph,
-            ])
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .paragraphStyle: paragraph,
+        ]
+        if let color {
+            attributes[.foregroundColor] = color
+        }
+        return NSAttributedString(string: text, attributes: attributes)
     }
 
     /// The container geometry the live view and `Measurer` share: no padding at the line
@@ -128,18 +132,21 @@ struct SelectableTranscriptText: NSViewRepresentable {
                 selectionSurface: RenderOverrides.transcriptSelectionSurface ?? ""
             )
             view.invalidateIntrinsicContentSize()
+        } else {
+            // An appearance or accent change recolours the words in place, keeping the
+            // reader's selection.
+            view.recolor(textColor)
         }
     }
 
     /// Left unset, NSTextView paints the user's system accent across the widest
     /// selectable surface in the app, which no golden can reproduce on another
-    /// Mac. Both colours are dynamic, so a single assignment survives an
-    /// appearance or Increase Contrast change; it is still reapplied on update
-    /// because a recycled view may be carrying another mount's attributes.
+    /// Mac. Reapplied on every update: the theme may have changed, and a recycled
+    /// view may be carrying another mount's attributes.
     private func applySelectionStyle(to view: FixTeachTextView) {
         view.selectedTextAttributes = [
-            .backgroundColor: Self.selectionFill,
-            .foregroundColor: Self.textColor,
+            .backgroundColor: selectionColor,
+            .foregroundColor: textColor,
         ]
     }
 
@@ -288,6 +295,19 @@ final class FixTeachTextView: NSTextView {
         let range = (string as NSString).range(of: selectionSurface)
         guard range.location != NSNotFound else { return }
         setSelectedRange(range, affinity: .downstream, stillSelecting: false)
+    }
+
+    /// Repaints the words in `color` without reinstalling them, so the selection and
+    /// the reported surface survive a theme change. Free when the colour is unchanged.
+    func recolor(_ color: NSColor) {
+        guard let textStorage, textStorage.length > 0,
+            (textStorage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) != color
+        else { return }
+        textStorage.addAttribute(
+            .foregroundColor,
+            value: color,
+            range: NSRange(location: 0, length: textStorage.length)
+        )
     }
 
     private var currentSelectionSurface: String? {

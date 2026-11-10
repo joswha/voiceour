@@ -1,0 +1,15 @@
+flow: journal.topics.cancel
+title: Cancel discards the draft topic and returns to the topic that was open
+fixture: static
+transitions: idle
+PASS 1 drafting | selected(true) id=journal.topics.draft | true
+PASS 2 drafting | selected(false) id=journal.topics.row & label~="Memory folder" | false
+PASS 3 drafting | enabled(true) id=journal.topics.add | true
+PASS 4 cancelled | absent id=journal.topics.draft | 0 matches
+PASS 5 cancelled | absent id=journal.topics.new.name | 0 matches
+PASS 6 cancelled | count id=journal.topics.row exactly 3 | 3 matches
+PASS 7 cancelled | selected(true) id=journal.topics.row & label~="Memory folder" | true
+PASS 8 cancelled | value id=journal.topics.name == "Memory folder" | "Memory folder"
+PASS 9 cancelled | absent id=journal.topics.row & label~="Release notes" | 0 matches
+PASS 10 reopened-empty | value id=journal.topics.new.name is empty | ""
+PASS 11 reopened-empty | enabled(false) id=journal.topics.add | false

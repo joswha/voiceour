@@ -1,0 +1,14 @@
+flow: glossary.draft-cancel
+title: Cancel on a new term's page removes its draft row and adds nothing
+fixture: static
+transitions: idle
+PASS 1 listed | absent id=glossary.draft.row | 0 matches
+PASS 2 listed | absent id=glossary.draft.canonical | 0 matches
+PASS 3 drafting | count id=glossary.draft.row exactly 1 | 1 match
+PASS 4 drafting | selected(true) id=glossary.draft.row | true
+PASS 5 drafting | exists id=glossary.draft.canonical | 1 match
+PASS 6 drafting | exists id=glossary.draft.cancel | 1 match
+PASS 7 cancelled | absent id=glossary.draft.row | 0 matches
+PASS 8 cancelled | absent id=glossary.draft.canonical | 0 matches
+PASS 9 cancelled | exists id=glossary.term.kubectl | 1 match
+PASS 10 cancelled | model glossaryTermCount == "7" | 7

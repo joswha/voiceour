@@ -96,8 +96,9 @@
         /// Longest list of paths embedded in a single `duplicate-identifier` message.
         private static let duplicatePathLimit = 4
 
-        /// Canonical interactive heights: four controls plus the four row pitches.
-        private static let allowedControlHeights: Set<CGFloat> = [24, 28, 32, 40, 44, 64]
+        /// Canonical interactive heights: four controls plus the five row pitches (one-line 32,
+        /// two-line 48 and preview 64 kit rows; 40 and 44 for rows that grow with their text).
+        private static let allowedControlHeights: Set<CGFloat> = [24, 28, 32, 40, 44, 48, 64]
 
         /// Above the tallest row pitch an interactive node is a content container, not a
         /// control, and is checked against the 4 pt grid instead of the control scale.
@@ -586,7 +587,7 @@
                         severity: .warning,
                         message: "\(describe(entry.node)) is \(number(height)) pt tall; "
                             + "the Control scale is 24 / 28 / 32 / 40 and the Row scale "
-                            + "is 32 / 40 / 44 / 64",
+                            + "is 32 / 40 / 44 / 48 / 64",
                         path: entry.path,
                         frame: frame
                     )

@@ -3,21 +3,21 @@ title: A complete menu dictation is pasted and persisted
 fixture: dictation
 transitions: idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
 PASS 1 checking-permissions | state == checkingPermissions | checkingPermissions
-PASS 2 checking-permissions | text == "WORKING" exactly 1 | 1 match
+PASS 2 checking-permissions | text == "Working" exactly 1 | 1 match
 PASS 3 live | state == recording | recording
-PASS 4 live | text == "LIVE" exactly 1 | 1 match
+PASS 4 live | text == "Live" exactly 1 | 1 match
 PASS 5 live | exists label="STOP DICTATION" | 1 match
 PASS 6 finalizing-audio | state == finalizingAudio | finalizingAudio
-PASS 7 finalizing-audio | text == "WORKING" exactly 1 | 1 match
+PASS 7 finalizing-audio | text == "Working" exactly 1 | 1 match
 PASS 8 transcribing | state == transcribing | transcribing
-PASS 9 transcribing | text == "WORKING" exactly 1 | 1 match
+PASS 9 transcribing | text == "Working" exactly 1 | 1 match
 PASS 10 ready-to-insert | state == readyToInsert | readyToInsert
-PASS 11 ready-to-insert | text == "WORKING" exactly 1 | 1 match
+PASS 11 ready-to-insert | text == "Working" exactly 1 | 1 match
 PASS 12 delivered | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> pasteAttempted -> idle
 PASS 13 delivered | model deliveredText == "The offscreen harness renders every console pane without stealing focus." | "The offscreen harness renders every console pane without stealing focus."
 PASS 14 delivered | model deliveryBundleID == "com.example.Writer" | "com.example.Writer"
 PASS 15 delivered | model deliveryDisposition == "paste" | "paste"
 PASS 16 delivered | model deliveryCount == "1" | 1
 PASS 17 delivered | model recentSessionCount == "1" | 1
-PASS 18 delivered | text == "PASTED" exactly 1 | 1 match
-PASS 19 delivered | text contains "Pasted" exactly 1 | 1 match
+PASS 18 delivered | text == "Pasted" exactly 1 | 1 match
+PASS 19 delivered | text == "Pasted into Writer." exactly 1 | 1 match

@@ -262,6 +262,11 @@
         /// `docked`, or `free` while the persisted placement (`RecordingOverlayPlacement.persisted`,
         /// read through the harness's defaults seam) is an island the user tore off.
         case islandPlacement
+        /// Raw value of `settings.consoleAppearance` (`system`, `light` or `dark`), read from
+        /// the committed settings, so a press on an appearance tile proves it was saved.
+        case consoleAppearance
+        /// Raw value of `settings.consoleAccent` (`green`, `purple`, …), read the same way.
+        case consoleAccent
 
         var description: String { rawValue }
     }

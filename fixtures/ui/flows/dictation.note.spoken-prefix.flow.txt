@@ -11,7 +11,7 @@ PASS 6 live | text == "Will save as a note" exactly 0 | 0 matches
 PASS 7 live | absent id=menu.take-note | 0 matches
 PASS 8 live | enabled(true) label="STOP DICTATION" | true
 PASS 9 saved | transitions exact [idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> noteSaved -> idle] | idle -> checkingPermissions -> recording -> finalizingAudio -> transcribing -> cleaning -> readyToInsert -> noteSaved -> idle
-PASS 10 saved | text == "NOTE SAVED" exactly 1 | 1 match
+PASS 10 saved | text == "Note saved" exactly 1 | 1 match
 PASS 11 saved | text == "Saved to memory. Nothing was pasted or copied." exactly 1 | 1 match
 PASS 12 saved | model recentSessionCount == "0" | 0
 PASS 13 saved | model deliveryCount == "0" | 0

@@ -120,6 +120,8 @@ struct JournalThreadsLens: View {
             }
     }
 
+    /// With no thread at all the lens holds nothing to list or read, so one empty state
+    /// spans both columns. A query never takes this branch: it narrows the list only.
     @ViewBuilder
     private var content: some View {
         if allThreads.isEmpty && query.isEmpty {
@@ -257,29 +259,29 @@ struct JournalThreadsLens: View {
     /// indistinguishable from a broken one: with linking off the setting is the
     /// next step, with it on only a paste into an agent's pane in Tern is.
     private var noThreads: some View {
-        ContentUnavailableView(
-            "No agent sessions yet",
+        Kit.EmptyState(
             systemImage: "bubble.left.and.text.bubble.right",
-            description: Text(
-                bindingEnabled
-                    ? "Paste a dictation into an omp or Claude Code pane in Tern."
-                    : "Turn on Link dictations to agent sessions in Settings \u{25B8} Privacy. "
-                        + "A dictation that you paste into Tern then joins its session here."
-            )
+            title: "No agent sessions yet",
+            message: bindingEnabled
+                ? "Paste a dictation into an omp or Claude Code pane in Tern."
+                : "Turn on Link dictations to agent sessions in Settings \u{25B8} Privacy. "
+                    + "A dictation that you paste into Tern then joins its session here."
         )
     }
 
     /// The query is the only thing that can hide every thread, so it is named
-    /// and offered back.
+    /// and offered back; the page keeps the thread it shows.
     private var noMatches: some View {
-        ContentUnavailableView {
-            Text("Nothing matches \u{201C}\(query)\u{201D}")
-        } description: {
-            Text("Search runs over what was said, thread titles, project folders and app names.")
-        } actions: {
-            Button("Clear Search") { searchText = "" }
-                .accessibilityIdentifier("journal.threads.nomatch.clear")
-        }
+        Kit.EmptyState(
+            systemImage: "magnifyingglass",
+            title: "Nothing matches \u{201C}\(query)\u{201D}",
+            message: "Search runs over what was said, thread titles, project folders and app names.",
+            actionTitle: "Clear Search",
+            actionIdentifier: "journal.threads.nomatch.clear",
+            action: { searchText = "" }
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.top, VoiceourMetrics.Space.xl + VoiceourMetrics.Space.sm)
     }
 
     // MARK: List
@@ -302,7 +304,6 @@ struct JournalThreadsLens: View {
         } content: {
             if groups.isEmpty {
                 noMatches
-                    .padding(.top, VoiceourMetrics.Space.xl)
             } else {
                 ForEach(groups) { group in
                     Section {
@@ -337,10 +338,10 @@ struct JournalThreadsLens: View {
             isSelected: thread.id == openThread,
             action: { select(thread.id) }
         ) {
-            Kit.Badge(systemImage: "terminal.fill", size: .small)
+            Kit.IconTile(systemImage: "terminal.fill", size: .small)
         } trailing: {
             if notSent > 0 {
-                Kit.Mark("\(notSent) NOT SENT", tone: .caution)
+                Kit.Pill("\(notSent) not sent", tone: .caution)
             }
         }
         .accessibilityLabel(([title] + summary + notSentPart(of: thread)).joined(separator: ", "))
@@ -351,7 +352,7 @@ struct JournalThreadsLens: View {
     }
 
     /// The row's second line as its parts, so the visible line and the spoken label say
-    /// the same facts in the same order. The not-sent count is a mark beside the line,
+    /// the same facts in the same order. The not-sent count is a pill beside the line,
     /// so it is spoken from ``notSentPart(of:)`` rather than printed here.
     private func summaryLine(for thread: JournalThread) -> [String] {
         let count = thread.entries.count
@@ -378,16 +379,16 @@ struct JournalThreadsLens: View {
     @ViewBuilder
     private var page: some View {
         if let thread = selected {
-            Kit.PageColumn(identity: thread.id) {
+            Kit.PageColumn(identity: AnyHashable(thread.id)) {
                 pageBar(for: thread)
             } content: {
                 pageContent(for: thread)
             }
         } else {
-            ContentUnavailableView(
-                "No thread selected",
+            Kit.EmptyState(
                 systemImage: "bubble.left.and.text.bubble.right",
-                description: Text("Select a thread to read everything said into that agent session.")
+                title: "No thread selected",
+                message: "Select a thread to read everything said into that agent session."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -401,57 +402,54 @@ struct JournalThreadsLens: View {
 
     @ViewBuilder
     private func pageBar(for thread: JournalThread) -> some View {
-        if thread.ref.resumable || selectedIsInTimeline || offersOutcomePrompt {
-            Kit.GlassGroup {
-                if thread.ref.resumable {
-                    Kit.ActionButton("Copy Resume Command", systemImage: "terminal", prominence: .primary) {
-                        copyResumeCommand(of: thread)
-                    }
-                    .help("Copy the shell command that resumes this session in its folder")
-                    .accessibilityIdentifier("journal.threads.resume")
-                }
+        if thread.ref.resumable {
+            Kit.Button("Copy Resume Command", systemImage: "terminal", prominence: .primary) {
+                copyResumeCommand(of: thread)
+            }
+            .help("Copy the shell command that resumes this session in its folder")
+            .accessibilityIdentifier("journal.threads.resume")
+        }
 
-                if selectedIsInTimeline {
-                    Kit.ActionButton("Show in Timeline", systemImage: "clock") {
-                        navigation.showThreadInTimeline(thread.id)
-                    }
-                    .help("Show this session's dictations in Timeline")
-                    .accessibilityIdentifier("journal.threads.timeline")
-                }
+        if selectedIsInTimeline {
+            Kit.Button("Show in Timeline", systemImage: "clock") {
+                navigation.showThreadInTimeline(thread.id)
+            }
+            .help("Show this session's dictations in Timeline")
+            .accessibilityIdentifier("journal.threads.timeline")
+        }
 
-                if let memoryRoot, selectedIsInMemory {
-                    JournalPromptCopyButton(
-                        "Copy Outcome Prompt",
-                        help: "Copy a prompt that asks this session's agent to record what came of the work",
-                        announcement: "Outcome prompt copied to clipboard",
-                        identifier: "journal.threads.outcome-prompt",
-                        flash: flash,
-                        prompt: {
-                            MemoryPages.outcomePrompt(
-                                thread: thread.id,
-                                day: thread.lastAt,
-                                root: memoryRoot,
-                                calendar: memoryCalendar
-                            )
-                        }
+        if let memoryRoot, selectedIsInMemory {
+            JournalPromptCopyButton(
+                "Copy Outcome Prompt",
+                help: "Copy a prompt that asks this session's agent to record what came of the work",
+                announcement: "Outcome prompt copied to clipboard",
+                identifier: "journal.threads.outcome-prompt",
+                flash: flash,
+                prompt: {
+                    MemoryPages.outcomePrompt(
+                        thread: thread.id,
+                        day: thread.lastAt,
+                        root: memoryRoot,
+                        calendar: memoryCalendar
                     )
                 }
-            }
+            )
         }
     }
 
     @ViewBuilder
     private func pageContent(for thread: JournalThread) -> some View {
         Kit.PageHeader(
-            eyebrow: "\(thread.ref.agent.displayName) \u{00B7} \(thread.ref.project ?? "No project folder")",
+            kicker: "\(thread.ref.agent.displayName) \u{00B7} \(thread.ref.project ?? "No project folder")",
             title: Self.title(of: thread),
-            subtitle: pageSubtitle(for: thread)
-        )
+            meta: pageSubtitle(for: thread)
+        ) {
+            EmptyView()
+        }
 
         if !openThreadNotes.isEmpty {
-            Kit.Island {
+            JournalSectionCard("From the session") {
                 VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
-                    Kit.SectionTitle("From the session")
                     ForEach(openThreadNotes) { note in
                         if note.id != openThreadNotes.first?.id {
                             Kit.Rule()
@@ -462,25 +460,23 @@ struct JournalThreadsLens: View {
                 }
             }
         } else if offersOutcomePrompt {
-            Kit.Island {
-                ConsoleCaption(
+            Kit.Card {
+                JournalCaption(
                     "No outcome recorded yet. Copy Outcome Prompt asks this session's agent to save "
                         + "what came of the work, and it shows here."
                 )
             }
         }
 
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle("Dictations")
+        // Lazy, because one session can hold hundreds of dictations and the page builds
+        // only the ones near the viewport.
+        JournalSectionCard("Dictations") {
+            LazyVStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
                 ForEach(pageLines) { line in
                     switch line {
                     case .day(let day):
-                        Text(SessionsFormatters.dayHeader.string(from: day))
-                            .font(Kit.Fonts.groupHeader)
-                            .foregroundStyle(.secondary)
-                            .accessibilityAddTraits(.isHeader)
-                            .padding(.top, VoiceourMetrics.Space.sm)
+                        JournalDayCaption(SessionsFormatters.dayHeader.string(from: day))
+                            .padding(.top, line.id == pageLines.first?.id ? 0 : VoiceourMetrics.Space.md)
                     case .entry(let entry):
                         JournalEntryRow(
                             entry: entry,
@@ -510,33 +506,36 @@ struct JournalThreadsLens: View {
         return parts.joined(separator: " \u{00B7} ")
     }
 
-    /// The session's id and folder, folded shut in their own island: the reader rarely
+    /// The session's id and folder, folded shut in their own card: the reader rarely
     /// needs them, and a resumable session's resume command already carries both.
     private func details(for thread: JournalThread) -> some View {
-        Kit.Island {
+        Kit.Card {
             Kit.Disclosure("Details", isExpanded: $showsDetails, identifier: "journal.threads.details") {
                 VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                    Kit.Fact("Session") {
+                    Kit.Property("Session") {
                         monospacedReadout(thread.ref.sessionId)
                             .accessibilityIdentifier("journal.threads.session")
                     }
 
                     if let directory = thread.ref.workingDirectory {
-                        Kit.Fact("Folder") {
+                        Kit.Property("Folder") {
                             monospacedReadout(directory)
                                 .accessibilityIdentifier("journal.threads.folder")
                         }
                     }
                 }
+                .padding(.top, VoiceourMetrics.Space.sm)
             }
         }
     }
 
+    /// An id or a path in the code face, wrapped whole: both are unbroken tokens, so
+    /// they break at any character rather than run past the card.
     private func monospacedReadout(_ value: String) -> some View {
         Text(value)
-            .font(Kit.Fonts.meta.monospaced())
-            .foregroundStyle(.secondary)
+            .roleStyle(.code)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
             // Keep mouse selection while exposing the text once, not both the
             // native selection wrapper and its identical accessibility child.

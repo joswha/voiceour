@@ -254,6 +254,43 @@
             /// Each is a transcript the island must wrap inside its own edge, at the height it
             /// reserved for it.
             case transcriptEdges
+            /// 520 History rows over 60 days and a memory folder that reaches further back,
+            /// built to overflow every Journal measure at once. The store keeps its newest 500
+            /// (`RecentSessionStore.normalized`, applied when the fixture seeds it), so the 20
+            /// oldest generated rows, on days 54 to 59, reach memory but never History. Newest
+            /// first: a Tern paste bound to a thread with a 96-character unbroken title whose
+            /// 128 entries were never sent, the Timeline's first selection; transcripts of 1, 3,
+            /// 400 and 10,000 words; an unbroken 300-character token; Japanese, Arabic and emoji
+            /// rows; then yesterday's 300 rows, a three-digit day group, and 211 rows over 58
+            /// older days across 40 apps whose names run to 60 characters. The cap leaves no
+            /// History day room for four digits, so the four-digit day is memory's: 1,000
+            /// dictations on `stressBusyDay`, a day only memory holds.
+            case stressHistory
+            /// Lifetime figures past every tile's measure: 98,765 dictations, 12,345,678 words,
+            /// "12345 hr 59 min", 1,234 active days, 40 apps with long names led by one at
+            /// 1,000,000 words, and 30 weeks of days that reach every heat level, empty included.
+            case stressStats
+            /// The smallest figures Home can show: one dictation of one word into one app,
+            /// today, so the streak reads one day.
+            case minimalStats
+            /// 480 terms: the bundled five, 474 generated ones of both user origins, and one
+            /// whose canonical is 80 unbroken characters with 40 spoken forms, the longest 64.
+            case stressGlossary
+            /// The populated History with memory on and a folder of long topics and notes: two
+            /// topics with 70-character names sharing their first 54 and 120-character
+            /// summaries, the first with 600 entries filed under it, a one-letter topic and an
+            /// empty one; and notes of one word and of 20,000 characters, the longer the newest.
+            case stressMemory
+            /// The menu after a capture failed with a 300-character cause, still reporting a
+            /// 3,000-character last transcript, with system audio muted: the status row's
+            /// pills, the headline and the transcript well at their longest at once.
+            case stressMenu
+            /// The menu after a paste whose transcript is one unbroken 200-character token into
+            /// an app with a 60-character name, with system audio muted.
+            case stressMenuTranscript
+            /// `backendReady` with its saved microphone a 70-character name that is not
+            /// connected and an output device with no mute, so every Audio caption is long.
+            case stressSettings
         }
 
         /// Every fixture timestamp derives from this instant, and `RenderOverrides`
@@ -375,6 +412,41 @@
                 return make(sessions: history, settings: settings(agentSessionBindingEnabled: true))
             case .transcriptEdges:
                 return make(sessions: transcriptEdgeHistory)
+            case .stressHistory:
+                return make(
+                    sessions: stressHistory,
+                    settings: settings(memoryEnabled: true),
+                    memory: stressHistoryMemory
+                )
+            case .stressStats:
+                return make(sessions: history, stats: stressStatsLedger)
+            case .minimalStats:
+                return make(sessions: [minimalSession], stats: minimalStatsLedger)
+            case .stressGlossary:
+                return make(sessions: history, settings: settings(glossary: stressGlossaryTerms))
+            case .stressMemory:
+                return make(
+                    sessions: history,
+                    settings: settings(memoryEnabled: true),
+                    memory: stressMemory,
+                    topics: stressTopics
+                )
+            case .stressMenu:
+                return makeStressMenu(failed: true)
+            case .stressMenuTranscript:
+                return makeStressMenu(failed: false)
+            case .stressSettings:
+                return make(
+                    sessions: history,
+                    settings: settings(
+                        backend: realBackend,
+                        preferredMicrophoneUID: "harness-unplugged-studio-desk",
+                        preferredMicrophoneName: stressMicrophoneName
+                    ),
+                    backend: realBackend,
+                    health: realBackendHealth,
+                    muteUnavailable: true
+                )
             }
         }
 
@@ -421,6 +493,9 @@
             // The showroom opens on its production pose, Speaking. The one scene that
             // shows another pins it in a scope of its own.
             RenderOverrides.islandShowroomPose = nil
+            // An explicit Light or Dark choice is applied app-wide by `ThemeRoot`; a flow that
+            // stops part-way must not leave it set for the next scene, as with every pin above.
+            NSApplication.shared.appearance = nil
         }
 
         /// The harness's own defaults suite for the island's placement, so no scene or flow
@@ -622,13 +697,18 @@
             /// The committed island look. Stock everywhere but the Garage fixtures, which
             /// is also what every overlay golden renders.
             island: IslandAppearance = .stock,
-            /// Whether new dictations fold into memory. Off everywhere but the fixture
-            /// that holds memory, because off is what a fresh install holds.
+            /// Whether new dictations fold into memory. Off everywhere but the fixtures
+            /// that hold memory, because off is what a fresh install holds.
             memoryEnabled: Bool = false,
             /// Whether a paste into Tern links to its agent session. Off everywhere but the
             /// menu fixtures that show the report's link line and `linkingOn`, because off is
             /// what a fresh install holds; the resolver stays `NoAgentSessionResolving` either way.
-            agentSessionBindingEnabled: Bool = false
+            agentSessionBindingEnabled: Bool = false,
+            /// The console's appearance. System, what a fresh install holds, so the scene's
+            /// own colour scheme decides how a golden is painted.
+            consoleAppearance: ConsoleAppearance = .system,
+            /// The console's accent. Green, what a fresh install holds.
+            consoleAccent: ConsoleAccent = .green
         ) -> VoiceCore.Settings {
             VoiceCore.Settings(
                 asrBackend: backend,
@@ -641,7 +721,9 @@
                 hasCompletedFirstRun: hasCompletedFirstRun,
                 island: island,
                 agentSessionBindingEnabled: agentSessionBindingEnabled,
-                memoryEnabled: memoryEnabled
+                memoryEnabled: memoryEnabled,
+                consoleAppearance: consoleAppearance,
+                consoleAccent: consoleAccent
             )
         }
 
@@ -836,6 +918,29 @@
             coordinator.lastOutcome = .pasteAttempted
             coordinator.lastDeliveredRowID = row.id
             coordinator.lastDeliveredApp = ternAppName
+            return coordinator
+        }
+
+        /// The menu at its longest, system audio muted as a capture leaves it. `failed` is a
+        /// capture that stopped, published through the coordinator's own recording-error path
+        /// with `UserFacingDictationFailure.captureFailed(reason:)`, the failure whose cause
+        /// carries the device's own words, beside the 3,000-character transcript the last
+        /// dictation left. Otherwise the last dictation is a paste of one unbroken token into
+        /// an app with a 60-character name, its outcome stated as `makePastedToTern` states one.
+        private static func makeStressMenu(failed: Bool) -> DictationCoordinator {
+            let coordinator = make(sessions: history)
+            coordinator.isSystemAudioMuted = true
+            if failed {
+                coordinator.lastTranscript = stressMenuLongTranscript
+                coordinator.publishRecordingError(
+                    .internalError,
+                    failure: .captureFailed(reason: stressCaptureFailureReason)
+                )
+            } else {
+                coordinator.lastTranscript = stressMenuUnbrokenTranscript
+                coordinator.lastOutcome = .pasteAttempted
+                coordinator.lastDeliveredApp = stressLongAppName
+            }
             return coordinator
         }
 
@@ -1227,8 +1332,8 @@
             "/Users/harness/.omp/agent/sessions/-Users-harness-voiceour/"
             + "2025-06-07T13-40-12-512Z_0190f6c2-5a1e-7c3d-9b2a-4e8f1d2c3b4a.jsonl"
 
-        /// A binding made when its row was recorded, to a resumable session that
-        /// sent the dictation 40 s later.
+        /// A binding made when its row was recorded, to a resumable session that sent the
+        /// dictation 40 s later, or, with `sent` false, whose prompts never carried it.
         private static func binding(
             _ agent: CodingAgent,
             sessionId: String,
@@ -1236,19 +1341,21 @@
             title: String?,
             minutesAgo: Int,
             sentText: String?,
-            evidence: AgentLinkEvidence = .pane
+            evidence: AgentLinkEvidence = .pane,
+            workingDirectory: String? = "/Users/harness/voiceour",
+            sent: Bool = true
         ) -> AgentSessionBinding {
             let boundAt = pinnedNow.addingTimeInterval(-Double(minutesAgo) * 60)
             return AgentSessionBinding(
                 agent: agent,
                 sessionId: sessionId,
                 sessionFile: sessionFile,
-                workingDirectory: "/Users/harness/voiceour",
+                workingDirectory: workingDirectory,
                 sessionTitle: title,
                 boundAt: boundAt,
                 promptLogOffset: 0,
                 resumable: true,
-                send: .sent(sentAt: boundAt.addingTimeInterval(40), text: sentText),
+                send: sent ? .sent(sentAt: boundAt.addingTimeInterval(40), text: sentText) : .notSent,
                 evidence: evidence
             )
         }
@@ -1293,6 +1400,506 @@
                 unlinked: unlinked
             )
         }
+
+        // MARK: QA stress fixtures
+
+        /// Where stress rows and entries are numbered: clear of every hand-authored id, so no
+        /// stress row can share an identity with a row a flow or another scene addresses.
+        private static let stressIndexBase = 100_000
+
+        /// The words every generated stress text is spelled from. Twenty-four, so a stride of
+        /// seven visits each of them before one repeats, and a text is a pure function of its
+        /// length and seed.
+        private static let stressVocabulary = [
+            "offscreen", "harness", "renders", "every", "console", "pane", "without", "stealing",
+            "focus", "golden", "island", "journal", "thread", "memory", "topic", "glossary",
+            "capture", "layout", "measure", "window", "sidebar", "transcript", "readiness", "model",
+        ]
+
+        /// `count` words of the vocabulary from `seed`, capitalised and closed by a full stop.
+        private static func stressWords(_ count: Int, seed: Int = 0) -> String {
+            let text = (0..<count)
+                .map { stressVocabulary[(seed + $0 * 7) % stressVocabulary.count] }
+                .joined(separator: " ")
+            return String(text.prefix(1)).uppercased() + String(text.dropFirst()) + "."
+        }
+
+        /// One token with no space in it, `length` characters long: a URL running into hex.
+        private static func stressUnbrokenToken(_ length: Int) -> String {
+            let token =
+                "https://github.com/stencil-labs/voiceour/compare/main...harness-stress-"
+                + String(repeating: "0123456789abcdef", count: length / 16 + 1)
+            return String(token.prefix(length))
+        }
+
+        /// Forty apps, none of them installed, so every one draws its monogram: ten products in
+        /// four editions, their names 34 to 55 characters.
+        private static let stressApps: [(bundleId: String, name: String)] = {
+            let products = [
+                "Visual Studio Code", "JetBrains IntelliJ IDEA", "Microsoft Outlook for Mac",
+                "Google Chrome Canary", "Adobe Photoshop 2025", "Brave Browser Nightly",
+                "Figma Desktop Agent", "Linear Issue Tracker", "Notion Calendar", "Obsidian Vault Manager",
+            ]
+            let editions = [
+                "Insiders Channel", "Remote Development Session", "Accessibility Preview Build",
+                "Enterprise Managed Edition",
+            ]
+            return (0..<40).map { rank in
+                (
+                    bundleId: "com.example.stress.app-\(rank)",
+                    name: "\(products[rank % 10]) \u{2013} \(editions[rank / 10])"
+                )
+            }
+        }()
+
+        /// The app name `stressHistory`'s 400-word row and the unbroken menu paste carry: 60
+        /// characters, and not installed.
+        static let stressLongAppName = "Visual Studio Code \u{2013} Insiders (Extension Development Host 2)"
+
+        /// The thread title `stressHistory`'s newest row and its 127 unsent companions carry:
+        /// 96 characters and one word, so nothing but a character break can wrap it.
+        static let stressThreadTitle =
+            "RefactorTheOffscreenHarnessSoEveryStressFixtureRendersItsLongestThreadTitleWithoutAnySpaceInItAt"
+
+        /// A 90-character project folder, one `stressHistory` thread's.
+        private static let stressProjectPath =
+            "/Users/harness/Developer/clients/northwind-traders/platform/services/dictation-ingester-v2"
+
+        /// `stressHistory`'s threads: the unbroken title whose 128 entries were never sent; a
+        /// session its agent never named, in no project folder; and one in the 90-character folder.
+        static let stressThread = AgentSessionKey(agent: .omp, sessionId: "0190f6c2-5a1e-7c3d-9b2a-00000000a001")
+        private static let stressUntitledThread = AgentSessionKey(
+            agent: .claudeCode, sessionId: "0190f6c2-5a1e-7c3d-9b2a-00000000a002")
+        private static let stressProjectThread = AgentSessionKey(
+            agent: .omp, sessionId: "0190f6c2-5a1e-7c3d-9b2a-00000000a003")
+
+        private static func stressSessionFile(_ key: AgentSessionKey) -> String {
+            "/Users/harness/.omp/agent/sessions/-Users-harness-stress/\(key.sessionId).jsonl"
+        }
+
+        /// A paste into `stressThread` that none of its prompts carried.
+        private static func unsentStressBinding(minutesAgo: Int) -> AgentSessionBinding {
+            binding(
+                .omp,
+                sessionId: stressThread.sessionId,
+                sessionFile: stressSessionFile(stressThread),
+                title: stressThreadTitle,
+                minutesAgo: minutesAgo,
+                sentText: nil,
+                sent: false
+            )
+        }
+
+        /// `stressHistory`'s 520 rows, newest first: nine hand-written edge rows today, then 511
+        /// generated ones.
+        static let stressHistory: [RecentSession] = stressEdgeRows + stressGeneratedRows
+
+        /// Today's rows, newest first, so each sits at the top of the list where a golden sees it.
+        private static var stressEdgeRows: [RecentSession] {
+            [
+                // Muted (its index is a multiple of three), pasted into Tern and bound to the
+                // unbroken title without ever being sent: the Timeline's first selection.
+                session(
+                    index: stressIndexBase + 2,
+                    minutesAgo: 1,
+                    text: stressWords(24, seed: 3),
+                    bundleId: DictationCoordinator.agentSessionHostBundleId,
+                    appName: ternAppName,
+                    captureMs: 7_200,
+                    asrMs: 480,
+                    agentSession: unsentStressBinding(minutesAgo: 1)
+                ),
+                session(
+                    index: stressIndexBase + 4,
+                    minutesAgo: 2,
+                    text: shortRowText,
+                    bundleId: "com.apple.dt.Xcode",
+                    appName: "Xcode",
+                    captureMs: 1_100,
+                    asrMs: 140
+                ),
+                session(
+                    index: stressIndexBase + 5,
+                    minutesAgo: 3,
+                    text: "Ship it today.",
+                    bundleId: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    captureMs: 1_600,
+                    asrMs: 170
+                ),
+                session(
+                    index: stressIndexBase + 7,
+                    minutesAgo: 4,
+                    text: stressWords(400, seed: 5),
+                    bundleId: "com.microsoft.VSCodeInsiders",
+                    appName: stressLongAppName,
+                    disposition: .copiedOnly,
+                    reason: "target is a secure field",
+                    captureMs: 160_000,
+                    asrMs: 2_900
+                ),
+                session(
+                    index: stressIndexBase + 8,
+                    minutesAgo: 5,
+                    text: stressWords(10_000, seed: 11),
+                    bundleId: "com.apple.TextEdit",
+                    appName: "TextEdit",
+                    captureMs: 3_600_000,
+                    asrMs: 41_000
+                ),
+                session(
+                    index: stressIndexBase + 10,
+                    minutesAgo: 6,
+                    text: stressUnbrokenToken(300),
+                    bundleId: "com.apple.Safari",
+                    appName: "Safari",
+                    captureMs: 9_800,
+                    asrMs: 590
+                ),
+                session(
+                    index: stressIndexBase + 11,
+                    minutesAgo: 7,
+                    text: "東京のチームに明日のデモを共有してくださいそれから資料を更新して週末までに確認をお願いしますリリースノートも忘れずに",
+                    bundleId: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    captureMs: 8_400,
+                    asrMs: 510
+                ),
+                session(
+                    index: stressIndexBase + 13,
+                    minutesAgo: 8,
+                    text:
+                        "أرسل التقرير إلى الفريق قبل اجتماع الغد، ثم راجع ملاحظات الإصدار 2.4 في Xcode وأخبرني بما تغيّر.",
+                    bundleId: "com.apple.mail",
+                    appName: "Mail",
+                    captureMs: 6_900,
+                    asrMs: 430
+                ),
+                session(
+                    index: stressIndexBase + 14,
+                    minutesAgo: 9,
+                    text:
+                        "Ship it \u{1F680} \u{1F44D}\u{1F3FD} \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} "
+                        + "\u{1F1EF}\u{1F1F5} cafe\u{0301} nai\u{0308}ve \u{1F389} then tell the team \u{2705}",
+                    bundleId: "com.apple.MobileSMS",
+                    appName: "Messages",
+                    captureMs: 4_100,
+                    asrMs: 260
+                ),
+            ]
+        }
+
+        /// 300 rows yesterday, four minutes apart from 23:59 back, then 211 over the 58 days
+        /// before it, up to four a day. The even rows among the first 254 went into
+        /// `stressThread` and were never sent; rows ending in 1 went into the untitled thread
+        /// and rows ending in 3 into the 90-character folder's; the rest went to the forty
+        /// apps, every seventh copied only and every thirteenth failed.
+        private static var stressGeneratedRows: [RecentSession] {
+            (0..<511).map { i -> RecentSession in
+                let minutesAgo: Int
+                if i < 300 {
+                    minutesAgo = 867 + i * 4
+                } else {
+                    let k = i - 300
+                    minutesAgo = (1 + k * 58 / 211) * 1_440 + 867 + (k % 4) * 300
+                }
+                let words = [6, 14, 30, 60][i % 4]
+                let index = stressIndexBase + 100 + i
+                let text = stressWords(words, seed: i % stressVocabulary.count)
+                let captureMs = 1_000 + words * 380
+                let asrMs = 120 + words * 6
+                if i < 254, i.isMultiple(of: 2) {
+                    return session(
+                        index: index,
+                        minutesAgo: minutesAgo,
+                        text: text,
+                        bundleId: DictationCoordinator.agentSessionHostBundleId,
+                        appName: ternAppName,
+                        captureMs: captureMs,
+                        asrMs: asrMs,
+                        agentSession: unsentStressBinding(minutesAgo: minutesAgo)
+                    )
+                }
+                if i % 10 == 1 || i % 10 == 3 {
+                    let untitled = i % 10 == 1
+                    let key = untitled ? stressUntitledThread : stressProjectThread
+                    return session(
+                        index: index,
+                        minutesAgo: minutesAgo,
+                        text: text,
+                        bundleId: DictationCoordinator.agentSessionHostBundleId,
+                        appName: ternAppName,
+                        captureMs: captureMs,
+                        asrMs: asrMs,
+                        agentSession: binding(
+                            key.agent,
+                            sessionId: key.sessionId,
+                            sessionFile: stressSessionFile(key),
+                            title: untitled ? nil : "Ingest worker release",
+                            minutesAgo: minutesAgo,
+                            sentText: nil,
+                            workingDirectory: untitled ? nil : stressProjectPath
+                        )
+                    )
+                }
+                let app = stressApps[i % stressApps.count]
+                let copied = i % 7 == 6
+                let failed = !copied && i % 13 == 12
+                return session(
+                    index: index,
+                    minutesAgo: minutesAgo,
+                    text: text,
+                    bundleId: app.bundleId,
+                    appName: app.name,
+                    disposition: copied ? .copiedOnly : failed ? .failed : .pasteAttempted,
+                    reason: copied ? "target is a secure field" : failed ? "no insertion target" : nil,
+                    captureMs: captureMs,
+                    asrMs: asrMs
+                )
+            }
+        }
+
+        /// The day only `stressHistory`'s memory holds, 75 days back, with 1,000 dictations
+        /// across twelve apps: the Journal's one four-digit day.
+        static let stressBusyDay = startOfDay(daysBeforePinnedNow: 75)
+
+        /// `stressHistory`'s memory folder, oldest first: `stressBusyDay`'s 1,000 dictations and
+        /// all 520 rows under their History ids, the 20 the History cap drops included, as
+        /// memory keeps what History no longer holds.
+        private static let stressHistoryMemory: [MemoryEntry] = {
+            let busyDay = (0..<1_000).map { j -> MemoryEntry in
+                let app = stressApps[j % 12]
+                return MemoryEntry(
+                    id: fixedIdentifier(stressIndexBase + 10_000 + j),
+                    createdAt: stressBusyDay.addingTimeInterval(Double(6 * 3_600 + j * 50)),
+                    text: stressWords([4, 9, 16][j % 3], seed: j % stressVocabulary.count),
+                    appBundleId: app.bundleId,
+                    appName: app.name,
+                    captureSeconds: Double(2 + j % 5)
+                )
+            }
+            return (busyDay + stressHistory.map { MemoryEntry($0) }).sorted { $0.createdAt < $1.createdAt }
+        }()
+
+        /// `stressStats`' ledger. The lifetime totals are stated on their own, as a ledger holds
+        /// them past the 400 days its buckets keep: 98,765 dictations, 12,345,678 words and
+        /// 44,445,540 s, which Home reads as "12345 hr 59 min". The buckets cover 30 weeks,
+        /// every ninth day empty and the rest between 1 and 60 dictations, so the grid holds
+        /// every heat level; today is active and four days back is not, so the current streak
+        /// is four days. The forty apps rank by dictations, the first at 1,000,000 words.
+        static let stressStatsLedger: DictationStatsLedger = {
+            var days: [String: DictationDayStat] = [:]
+            for offset in 0..<210 where offset % 9 != 4 {
+                let sessions = 1 + (offset * 37) % 60
+                days[dayKey(daysBeforePinnedNow: offset)] = DictationDayStat(
+                    sessions: sessions,
+                    words: sessions * 187,
+                    seconds: Double(sessions * 412)
+                )
+            }
+            var apps: [String: DictationAppStat] = [:]
+            for (rank, app) in stressApps.enumerated() {
+                apps[app.bundleId] = DictationAppStat(
+                    sessions: 9_876 - rank * 200,
+                    words: 1_000_000 - rank * 24_000,
+                    seconds: Double(400_000 - rank * 9_600),
+                    name: app.name,
+                    lastDay: dayKey(daysBeforePinnedNow: rank % 7)
+                )
+            }
+            return DictationStatsLedger(
+                totalSessions: 98_765,
+                totalWords: 12_345_678,
+                totalSeconds: 44_445_540,
+                totalActiveDays: 1_234,
+                longestStreakDays: 400,
+                days: days,
+                apps: apps
+            )
+        }()
+
+        /// `minimalStats`' one History row: one word into Notes, five minutes ago.
+        static let minimalSession = session(
+            index: stressIndexBase + 20_001,
+            minutesAgo: 5,
+            text: "Hello.",
+            bundleId: "com.apple.Notes",
+            appName: "Notes",
+            captureMs: 1_000,
+            asrMs: 120
+        )
+
+        /// The ledger that one row leaves: one dictation, one word, one second, today.
+        static let minimalStatsLedger = DictationStatsLedger(
+            totalSessions: 1,
+            totalWords: 1,
+            totalSeconds: 1,
+            totalActiveDays: 1,
+            longestStreakDays: 1,
+            days: [dayKey(daysBeforePinnedNow: 0): DictationDayStat(sessions: 1, words: 1, seconds: 1)],
+            apps: [
+                "com.apple.Notes": DictationAppStat(
+                    sessions: 1, words: 1, seconds: 1, name: "Notes", lastDay: dayKey(daysBeforePinnedNow: 0))
+            ]
+        )
+
+        /// The `stressGlossary` term a scene opens: its canonical 80 characters with no space,
+        /// its 40 spoken forms led by one of 64 characters.
+        static let stressLongTermID = "stress-term-longest"
+
+        /// The bundled five, then 474 terms named from sixteen heads and thirty tails, taught and
+        /// imported by turns so both origins fill, then the longest term: 480 in all. Ids are
+        /// fixed for the reason `taughtTerm`'s is.
+        private static var stressGlossaryTerms: [ProtectedTerm] {
+            let heads = [
+                "Mercury", "Garage", "Island", "Ledger", "Journal", "Sidecar", "Granite", "Topic",
+                "Thread", "Rewind", "Collar", "Showroom", "Lexicon", "Readiness", "Capture", "Console",
+            ]
+            let tails = [
+                "Engine", "Store", "Layout", "Probe", "Bridge", "Seam", "Runner", "Sheet", "Lens", "Pane",
+                "Tile", "Gate", "Fold", "Badge", "Meter", "Well", "Rail", "Chip", "Toast", "Card",
+                "Group", "Row", "Mark", "Pill", "Grid", "Stage", "Model", "Query", "Clock", "Pump",
+            ]
+            let generated = (0..<474).map { n -> ProtectedTerm in
+                let head = heads[n % heads.count]
+                let tail = tails[n / heads.count]
+                return ProtectedTerm(
+                    canonical: head + tail,
+                    spokenAliases: ["\(head.lowercased()) \(tail.lowercased())"],
+                    termId: "stress-term-\(n)",
+                    source: n.isMultiple(of: 2) ? .explicitCorrection : .manualImport
+                )
+            }
+            // The later forms run one to seven words, under 64 characters, and no two share
+            // both a first word and a length, so no two match.
+            let forms =
+                ["selectable transcript text measures every probe at its own width"]
+                + (1..<40).map { n in
+                    (0..<(1 + n % 7))
+                        .map { stressVocabulary[(n + $0 * 7) % stressVocabulary.count] }
+                        .joined(separator: " ")
+                }
+            let longest = ProtectedTerm(
+                canonical: "SelectableTranscriptTextMeasuresEveryProbeAtTheWidthItIsPlacedAtAndNeverNarrower",
+                spokenAliases: forms,
+                termId: stressLongTermID,
+                source: .explicitCorrection
+            )
+            return VoiceCore.Settings.defaultGlossary + generated + [longest]
+        }
+
+        /// A 60-character Glossary query no term or form contains.
+        static let stressGlossaryQuery = "xylophone quartz jukebox zephyr wyvern quixotic sphinx vexed"
+
+        /// A `stressMemory` topic, its id the slug `TopicCatalog` gives its name, as every
+        /// fixture topic's is.
+        private static func stressMemoryTopic(_ name: String, summary: String, daysAgo: Int) -> MemoryTopic {
+            MemoryTopic(
+                id: TopicCatalog.slug(for: name),
+                name: name,
+                summary: summary,
+                createdAt: startOfDay(daysBeforePinnedNow: daysAgo)
+            )
+        }
+
+        /// The topic Topics opens on, the largest: a 70-character name, a 120-character summary
+        /// and 600 entries filed under it.
+        static let stressTopic = stressMemoryTopic(
+            "Release engineering for the offscreen harness and its blessed goldens.",
+            summary: "Everything about how a change is rendered, diffed, read and blessed before it ships, "
+                + "even the scenes nobody ever checks.",
+            daysAgo: 60
+        )
+
+        /// Its 70-character sibling, the same first 54 characters, with three entries.
+        private static let stressSiblingTopic = stressMemoryTopic(
+            "Release engineering for the offscreen harness and its journals, flows.",
+            summary: "Which flow journals a change moves, who reads every diff, and why a red flow is never "
+                + "blessed, whatever a deadline said.",
+            daysAgo: 59
+        )
+
+        /// A one-letter topic with one entry, and a topic nothing is filed under.
+        private static let stressLetterTopic = stressMemoryTopic("A", summary: "One letter.", daysAgo: 58)
+        private static let stressUnfiledTopic = stressMemoryTopic(
+            "Unfiled ideas", summary: "Nothing has been filed here yet.", daysAgo: 57)
+
+        /// The four topics `stressMemory`'s `topics.json` holds, in the order they were made.
+        static let stressTopics = [stressTopic, stressSiblingTopic, stressLetterTopic, stressUnfiledTopic]
+
+        /// `stressMemory`'s folder, oldest first: 600 dictations over the 30 days from 20 days
+        /// back filed under `stressTopic`, three under its sibling and one under "A"; three notes,
+        /// the newest 20,000 characters long and one a single word; and the ten History rows
+        /// under their History ids.
+        static let stressMemory: [MemoryEntry] = {
+            let apps = [
+                ("com.apple.dt.Xcode", "Xcode"),
+                ("com.apple.Terminal", "Terminal"),
+                ("com.tinyspeck.slackmacgap", "Slack"),
+            ]
+            @MainActor
+            func filed(_ index: Int, daysAgo: Int, at seconds: Int, words: Int, topic: MemoryTopic) -> MemoryEntry {
+                let app = apps[index % apps.count]
+                return MemoryEntry(
+                    id: fixedIdentifier(stressIndexBase + index),
+                    createdAt: startOfDay(daysBeforePinnedNow: daysAgo).addingTimeInterval(Double(seconds)),
+                    text: stressWords(words, seed: index % stressVocabulary.count),
+                    appBundleId: app.0,
+                    appName: app.1,
+                    captureSeconds: Double(3 + index % 4),
+                    userTopicID: topic.id
+                )
+            }
+            let topicEntries =
+                (0..<600).map { j in
+                    filed(
+                        30_000 + j, daysAgo: 20 + j / 20, at: 9 * 3_600 + (j % 20) * 1_500,
+                        words: [5, 12, 28][j % 3], topic: stressTopic)
+                }
+                + (0..<3).map { j in
+                    filed(31_000 + j, daysAgo: 15, at: 10 * 3_600 + j * 600, words: 9, topic: stressSiblingTopic)
+                }
+                + [filed(31_100, daysAgo: 14, at: 11 * 3_600, words: 6, topic: stressLetterTopic)]
+            let notes = [
+                MemoryEntry(
+                    id: fixedIdentifier(stressIndexBase + 31_200),
+                    createdAt: startOfDay(daysBeforePinnedNow: 1).addingTimeInterval(20 * 3_600),
+                    kind: .note,
+                    text: String(stressWords(3_000, seed: 2).prefix(20_000)),
+                    captureSeconds: 1_800
+                ),
+                MemoryEntry(
+                    id: fixedIdentifier(stressIndexBase + 31_201),
+                    createdAt: startOfDay(daysBeforePinnedNow: 2).addingTimeInterval(9 * 3_600),
+                    kind: .note,
+                    text: "Milk.",
+                    captureSeconds: 1
+                ),
+                MemoryEntry(
+                    id: fixedIdentifier(stressIndexBase + 31_202),
+                    createdAt: startOfDay(daysBeforePinnedNow: 3).addingTimeInterval(11 * 3_600),
+                    kind: .note,
+                    text: stressWords(40, seed: 9),
+                    captureSeconds: 14
+                ),
+            ]
+            return (topicEntries + notes + history.map { MemoryEntry($0) }).sorted { $0.createdAt < $1.createdAt }
+        }()
+
+        /// `stressSettings`' saved microphone: 70 characters, and not among the pinned devices.
+        static let stressMicrophoneName = "Elgato Wave:3 USB Condenser Microphone with Clipguard (Studio Desk 22)"
+
+        /// What `stressMenu`'s capture failure reports the device said: the 276 characters that
+        /// make `captureFailed(reason:)`'s cause exactly 300.
+        private static let stressCaptureFailureReason =
+            "the input device stopped delivering audio part-way through the recording because another app "
+            + "took exclusive control of it or it was unplugged, so nothing reached the speech model and "
+            + "nothing was pasted; reconnect the device or pick another microphone in Settings, then redo it"
+
+        /// `stressMenu`'s last transcript, 3,000 characters, and `stressMenuTranscript`'s, one
+        /// 200-character token.
+        private static let stressMenuLongTranscript = String(stressWords(600, seed: 4).prefix(3_000))
+        private static let stressMenuUnbrokenTranscript = stressUnbrokenToken(200)
 
         // MARK: Fixed memory
 

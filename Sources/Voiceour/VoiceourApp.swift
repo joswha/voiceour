@@ -52,6 +52,9 @@ struct VoiceourApp: App {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 1])
         NSApplication.shared.setActivationPolicy(.accessory)
         let liveCoordinator = DictationCoordinator.live()
+        // Before any window exists, so the console's first frame is already in the saved
+        // appearance rather than flashing the system's.
+        ThemeRoot.applyAppAppearance(liveCoordinator.settings.consoleAppearance)
         let recordingOverlay = RecordingOverlayController(coordinator: liveCoordinator)
         recordingOverlay.bind(to: liveCoordinator.statePublisher)
         _coordinator = State(initialValue: liveCoordinator)
@@ -74,5 +77,7 @@ struct VoiceourApp: App {
             width: VoiceourMetrics.Window.defaultWidth,
             height: VoiceourMetrics.Window.defaultHeight
         )
+        // The root's minimum frame is the window's minimum size.
+        .windowResizability(.contentMinSize)
     }
 }

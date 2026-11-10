@@ -3,20 +3,12 @@ import SwiftUI
 
 /// The console's component kit: the parts every console tab is built from.
 ///
-/// Two layers, and the line between them is the design. Content — figures, rows,
-/// transcripts, preferences — sits on Home's fixed-dark ground (``Kit/Screen``) in
-/// app-painted islands (``Kit/Island``) and the app palette, because Home is the
-/// reference look and a reader should meet one surface wherever they open the
-/// console. Navigation and controls — the sidebar, the search and action bars,
-/// the copy confirmation — float above it in Liquid Glass, because they are what a
-/// reader steers with.
-///
-/// Glass never sits on glass. Every kit surface samples the painted ground or the
-/// content scrolling over it, never ``ConsoleGlassGround``: glass cannot sample
-/// other glass, and two stacked blurs read as mud. The islands are painted for the
-/// same reason. Reduce Transparency swaps every kit glass surface for an opaque
-/// control fill with a drawn rim and flattens every island, so a reader who turned
-/// the material off still sees each boundary.
+/// Every colour comes from the resolved ``Theme`` in `@Environment(\.theme)`, so one
+/// set of components serves the light and dark appearances, every accent and
+/// Increase Contrast without a branch of its own. Surfaces are opaque and painted:
+/// no Liquid Glass in content, bars or sidebars, because glass picks up whatever is
+/// under it and the offscreen harness cannot see it. The window's own chrome
+/// (``ConsoleGlassGround``) is the one material left.
 ///
 /// Every kit text goes through ``TextRole`` and every painted surface under text
 /// declares `\.surfaceGround`, so the harness's contrast lint measures what the
@@ -27,115 +19,65 @@ import SwiftUI
 enum Kit {}
 
 extension Kit {
-    /// The kit's measures. Spacing stays on the 4 pt grid `VoiceourMetrics.Space`
-    /// already uses; the column widths are what the console's 1164 pt minimum
-    /// window divides into.
+    /// The kit's measures, on the 4 pt grid. Columns are flush; each one draws its
+    /// trailing 1 pt rule inside its own width, so the widths add up without odd
+    /// points. At the 1164 pt default window a browsing tab (1158 pt inside its 3 pt
+    /// insets) divides into 222 + 320 + 616, and Settings into 222 + 936; at the 800 pt
+    /// minimum the rail leaves the page 420 pt.
     enum Metrics {
-        /// The inset around the floating sidebar, and the gap beside it.
-        static let gutter: CGFloat = VoiceourMetrics.Space.sm
-        /// Wide enough for "Timeline" and a three-digit count at 13 pt. With the tab's own
-        /// 3 pt insets it leaves the page column a width on the 4 pt grid at the console's
-        /// 1164 pt minimum.
-        static let sidebarWidth: CGFloat = 206
-        /// The sidebar as a rail of glyphs, in a window too narrow for its names: one
-        /// 32 pt item and the panel's 8 pt insets on either side, plus its rim.
-        static let railWidth: CGFloat = 52
-        /// The width under which a browser's sidebar folds to its rail. The console opens
-        /// at 1164 pt, but a window the user narrowed keeps its size across launches, and
-        /// at 1000 pt the page column would otherwise drop under 440 pt.
+        /// The space between columns: none, because a 1 pt rule separates them.
+        static let gutter: CGFloat = 0
+        /// Wide enough for "Recent threads" and a loud badge at 13 pt. Includes the
+        /// column's trailing 1 pt hairline.
+        static let sidebarWidth: CGFloat = 222
+        /// The sidebar folded to glyphs: a 36 pt item, 8 pt in from the leading edge and
+        /// 10 pt from the trailing one, which includes the column's 1 pt hairline. 54
+        /// keeps the page beside it on the grid.
+        static let railWidth: CGFloat = 54
+        /// The width under which a browsing tab folds its sidebar to the rail. A window
+        /// the user narrowed keeps its size across launches, and below this the page
+        /// column would drop under a readable width.
         static let railBelow: CGFloat = 1_000
-        /// A two-line preview at 13 pt holds roughly a sentence at this width.
-        static let listWidth: CGFloat = 344
-        /// The reading measure: about 90 characters of 15 pt text.
-        static let readableWidth: CGFloat = 720
-        static let pagePadding: CGFloat = 32
-        static let panelRadius: CGFloat = 16
+        /// A two-line preview at 13 pt holds roughly a sentence at this width. Includes
+        /// the column's trailing 1 pt hairline, which ``Kit/Split`` draws inside it.
+        static let listWidth: CGFloat = 320
+        /// The reading measure: about 70 characters of 15 pt text.
+        static let readableWidth: CGFloat = 680
+        static let pagePadding: CGFloat = 24
+        /// List rows on the Row scale: a line, a title with one meta line, a preview.
+        static let rowHeightOne: CGFloat = 32
+        static let rowHeightTwo: CGFloat = 48
+        static let rowHeightPreview: CGFloat = 64
+        static let rowRadius: CGFloat = 6
+        /// How far a row's plate sits in from its column's edge, so selection reads as
+        /// a rounded plate rather than a full-bleed stripe.
+        static let rowInset: CGFloat = 4
+        /// Every kit control: a button, a menu, the search field.
+        static let controlHeight: CGFloat = 28
+        static let controlRadius: CGFloat = 6
         static let cardRadius: CGFloat = 12
-        static let rowRadius: CGFloat = 8
-        /// Every glass control — a button, a menu, the search field, a chip: the Control
-        /// scale's 28, the height a large glass button takes with a boxed glyph.
-        static let control: CGFloat = VoiceourMetrics.Control.small
-        /// The transient confirmation capsule, which holds a sentence rather than a verb.
-        static let toast: CGFloat = VoiceourMetrics.Control.medium
-        /// The smallest press target the kit draws, for a glyph inside a field or a chip.
-        static let glyphControl: CGFloat = VoiceourMetrics.Control.mini
-        /// A list row that previews text: a meta line and two lines of words, on the
-        /// Row scale's 64.
-        static let previewRow: CGFloat = VoiceourMetrics.Row.list
-        /// A list row that names something: a title and one meta line, on the Row scale's 44.
-        static let titleRow: CGFloat = 44
-        /// A compact state mark, the Control scale's declared exception for marks.
-        static let markHeight: CGFloat = VoiceourMetrics.Control.compactMark
-        /// A mark that heads a block, such as the menu's status chip.
-        static let markHeightRegular: CGFloat = VoiceourMetrics.Control.mini
-        /// Home's pane: the radius and inset every island shares.
-        static let islandRadius: CGFloat = VoiceourMetrics.Radius.card
-        static let islandPadding: CGFloat = VoiceourMetrics.Space.lg
-        /// The dot grid's pitch, one dot every 24 pt, on the spacing scale's `xl`.
-        static let dotPitch: CGFloat = VoiceourMetrics.Space.xl
+        static let cardPadding: CGFloat = 16
+        static let pillHeightSmall: CGFloat = 18
+        static let pillHeightRegular: CGFloat = 22
+        /// The confirmation toast's least height and widest measure; a message that
+        /// outgrows one line wraps to a second rather than clipping.
+        static let toastHeight: CGFloat = 36
+        static let toastMaxWidth: CGFloat = 440
+        static let iconTileRegular: CGFloat = 28
+        static let iconTileSmall: CGFloat = 20
+        static let iconTileMini: CGFloat = 16
+        /// The gap between a page's sections; sections are told apart by space and a
+        /// heading, not by rules.
+        static let sectionGap: CGFloat = 24
+        /// The label column of a properties grid.
+        static let propertyLabelWidth: CGFloat = 120
+        /// The smallest glyph box the kit draws, such as a key cap.
+        static let glyphControl: CGFloat = 20
+        /// The press target of a glyph inside a field or a chip, such as a clear button:
+        /// the 24 pt control scale, so a small glyph is still easy to hit.
+        static let glyphTarget: CGFloat = 24
         /// The timestamp column of a reading row: "00:00:00" at 12 pt monospaced digits.
         static let stampGutter: CGFloat = 60
-        /// The label column of a fact row.
-        static let factLabel: CGFloat = 96
-    }
-
-    /// The kit's type ramp, drawn from ``TextRole`` so a font set here and a role set
-    /// on a `Text` are the same face. Explicit sizes rather than text styles: macOS
-    /// has no Dynamic Type for these, and a golden must not depend on a setting.
-    /// Numbers and display lines are monospaced, as on Home; labels and prose are SF.
-    enum Fonts {
-        static let columnTitle = TextRole.display.font
-        static let pageTitle = TextRole.title.font
-        static let eyebrow = TextRole.caption.font
-        static let sectionTitle = TextRole.label.font
-        static let groupHeader = TextRole.subheading.font
-        static let rowTitle = TextRole.heading.font
-        static let rowBody = TextRole.body.font
-        static let reading = TextRole.reading.font
-        /// The open transcript, the one place the kit sets text to be read slowly.
-        static let readingLarge: CGFloat = 15
-        static let meta = TextRole.caption.font
-        static let stamp = TextRole.caption.font.monospacedDigit()
-        static let mark = TextRole.micro.font
-        static let metricValue = TextRole.tileValue.font
-        static let sidebarItem = TextRole.body.font
-        static let toast = TextRole.label.font
-    }
-
-    /// Colours, from the app palette, because every kit surface sits on the
-    /// fixed-dark ground ``Kit/Screen`` paints whatever the system appearance.
-    /// Increase Contrast escalates the washes and rules; Reduce Transparency
-    /// escalates the rules, which then draw the edges the material drew.
-    @MainActor
-    enum Colors {
-        /// Home's near-black. Fixed: the islands' text ladder is authored for it.
-        static let ground = VoiceourPalette.Ink.void
-
-        /// The console's one signal colour: glyph discs, selection rims, meters, the
-        /// heat grid. Never text.
-        static let signal = VoiceourPalette.Alien.bloom
-
-        static func rule(_ a11y: A11y) -> Color {
-            a11y.lineRule
-        }
-
-        /// The pane fill of a selected row. The row's bloom rim carries the selection;
-        /// the fill makes the row a small island rather than a tinted stripe.
-        static func selection(_ a11y: A11y) -> Color {
-            VoiceourPalette.Ink.pane
-        }
-
-        static func hover(_ a11y: A11y) -> Color {
-            a11y.contrast == .increased ? VoiceourPalette.Plate.pressed : VoiceourPalette.Plate.hover
-        }
-
-        static func pressed(_ a11y: A11y) -> Color {
-            a11y.contrast == .increased ? Color.white.opacity(0.2) : VoiceourPalette.Plate.pressed
-        }
-
-        static func hairline(_ a11y: A11y) -> CGFloat {
-            VoiceourMetrics.Stroke.hairline(a11y.contrast)
-        }
     }
 
     /// Motion, nil under Reduce Motion so a state change lands without travel.
@@ -178,8 +120,9 @@ extension Kit {
         private(set) var message: String?
         @ObservationIgnored private var clearTask: Task<Void, Never>?
 
-        /// How long a confirmation stays, the hold every console copy mark used.
-        static let hold: Duration = .milliseconds(1_400)
+        /// How long a confirmation stays: long enough to read a short sentence, short
+        /// enough that it never outlives the moment it confirms.
+        static let hold: Duration = .seconds(2)
 
         func show(_ message: String, animation: Animation?) {
             Kit.announce(message)
@@ -211,4 +154,15 @@ extension EnvironmentValues {
     /// too narrow for their titles. Every control keeps its title as its accessibility
     /// label and its tooltip, so only the drawing changes.
     @Entry var kitCompactControls: Bool = false
+
+    /// Whether the list a row sits in holds keyboard focus. A selected row in a focused
+    /// list shows the accent-tinted selection and a focus bar; in an unfocused list it
+    /// shows the neutral inactive selection, so a reader always knows which column the
+    /// arrow keys move. ``Kit/ListColumn`` publishes it to its rows.
+    @Entry var kitListFocused: Bool = false
+
+    /// The bottom space a showing toast covers, published by `kitToast(_:identifier:)`
+    /// so the scrolling columns under it extend their content past it and the last
+    /// line is never hidden behind the confirmation. Zero while no toast shows.
+    @Entry var kitToastInset: CGFloat = 0
 }

@@ -61,13 +61,8 @@ enum JournalTimelineRequest: Equatable {
     case agentSession(AgentSessionKey)
 }
 
-/// The Journal tab: a glass sidebar of lenses and recent threads beside the lens on
-/// screen, all on one opaque ground.
-///
-/// The ground is the reading surface every lens's content sits on and the backdrop every
-/// kit glass surface samples. It covers the window's own glass ground for this tab only,
-/// because glass cannot sample glass, and a page of transcripts reads on an opaque
-/// surface.
+/// The Journal tab: a dim sidebar of lenses and recent threads beside the lens on screen,
+/// all on the theme's ground.
 ///
 /// The tab holds the lens, builds `[JournalEntry]` once per change, and hosts one lens
 /// at a time. The entries are cached rather than derived in `body`: memory is uncapped,
@@ -94,6 +89,8 @@ struct ConsoleJournalTab: View {
     /// Every thread, newest first: the sidebar's count and its recent threads.
     @State private var threads: [JournalThread] = []
     @State private var noteCount = 0
+    /// The New Topic draft, kept here so its typed text survives a trip to another lens.
+    @State private var topicDraft = JournalTopicDraft()
     /// True while the tab is narrower than `Kit.Metrics.railBelow`, so the sidebar folds
     /// to its rail of glyphs and the page keeps its reading width.
     @State private var isNarrow = false
@@ -107,22 +104,20 @@ struct ConsoleJournalTab: View {
 
     var body: some View {
         Kit.Screen {
-            HStack(spacing: Kit.Metrics.gutter) {
+            HStack(spacing: 0) {
                 JournalSidebar(
                     lens: lens,
                     counts: counts,
-                    recentThreads: isNarrow ? [] : Array(threads.prefix(Self.recentThreadLimit)),
+                    recentThreads: Array(threads.prefix(Self.recentThreadLimit)),
                     openThread: lens == .threads ? openThread : nil,
                     select: { lens = $0 },
                     open: navigation.openThread
                 )
                 .environment(\.kitCompactControls, isNarrow)
-                .frame(width: isNarrow ? Kit.Metrics.railWidth : Kit.Metrics.sidebarWidth)
 
                 lensContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding([.leading, .vertical], Kit.Metrics.gutter)
         }
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Kit.Metrics.railBelow
@@ -213,7 +208,8 @@ struct ConsoleJournalTab: View {
                 navigation: navigation,
                 delete: deleteEntry,
                 agentNotes: coordinator.agentNotes,
-                memoryRoot: coordinator.memoryStore.root
+                memoryRoot: coordinator.memoryStore.root,
+                draft: topicDraft
             )
         case .notes:
             JournalNotesLens(
@@ -293,11 +289,12 @@ struct ConsoleJournalTab: View {
 }
 
 /// The Journal's sidebar: the five lenses with what each holds, then the agent sessions
-/// most recently dictated into, on the kit's floating glass sidebar.
+/// most recently dictated into.
 ///
-/// Recent Threads is the Journal's shortcut into delegated work: the sessions a reader
-/// most likely wants to check on are one click from any lens, and each carries a NOT
-/// SENT mark while one of its dictations never reached its agent.
+/// Recent threads is the Journal's shortcut into delegated work: the sessions a reader
+/// most likely wants to check on are one click from any lens. A session one of whose
+/// dictations never reached its agent carries the loud caution badge instead of a quiet
+/// count, because it is the one that needs the reader.
 struct JournalSidebar: View {
     private let lens: JournalLens
     private let counts: [JournalLens: Int]
@@ -337,8 +334,7 @@ struct JournalSidebar: View {
             }
 
             if !recentThreads.isEmpty {
-                Kit.SidebarHeading("Recent Threads")
-                    .padding(.top, VoiceourMetrics.Space.md)
+                Kit.SidebarSection("Recent threads")
                 ForEach(recentThreads) { thread in
                     threadItem(thread)
                 }
@@ -346,38 +342,25 @@ struct JournalSidebar: View {
         }
     }
 
+    /// The item keeps the label it has always had — the title, the agent, and "not
+    /// sent" while a dictation was not — so VoiceOver names the agent the glyph cannot.
     private func threadItem(_ thread: JournalThread) -> some View {
-        let isSelected = thread.id == openThread
         let title = JournalThreadsLens.title(of: thread)
-        return Button {
+        let isNotSent = thread.notSentCount > 0
+        return Kit.SidebarItem(
+            title,
+            systemImage: "terminal",
+            isSelected: thread.id == openThread,
+            attention: isNotSent ? .caution : nil
+        ) {
             open(thread.id)
-        } label: {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
-                Kit.Badge(systemImage: "terminal.fill", size: .mini)
-                Text(title)
-                    .roleStyle(isSelected ? .heading : .body)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: VoiceourMetrics.Space.xs)
-                if thread.notSentCount > 0 {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(VoiceourPalette.Signal.amber)
-                        .help("A dictation in this session was not sent")
-                        .accessibilityHidden(true)
-                }
-            }
-            .padding(.horizontal, VoiceourMetrics.Space.sm)
-            .frame(height: VoiceourMetrics.Control.medium)
         }
-        .buttonStyle(Kit.RowButtonStyle(isSelected: isSelected))
-        .accessibilityElement(children: .combine)
+        .help(isNotSent ? "\(title). A dictation in this session was not sent" : title)
         .accessibilityLabel(
-            thread.notSentCount > 0
+            isNotSent
                 ? "\(title), \(thread.ref.agent.displayName), not sent"
                 : "\(title), \(thread.ref.agent.displayName)"
         )
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("journal.sidebar.thread")
     }
 }

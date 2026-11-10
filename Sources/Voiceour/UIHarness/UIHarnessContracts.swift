@@ -22,9 +22,10 @@
     // without a window ever appearing on the user's display.
 
     /// One get-only accessibility environment adaptation exercised by a scene.
-    /// The scope below installs it before SwiftUI evaluates the hierarchy and
-    /// restores the prior process-wide seams when the hierarchy disappears.
-    enum UIHarnessAccessibilityAdaptation {
+    /// The scope below installs a scene's set of them before SwiftUI evaluates the
+    /// hierarchy and restores the prior process-wide seams when the hierarchy disappears.
+    /// A set, because macOS lets a user turn several on at once.
+    enum UIHarnessAccessibilityAdaptation: Hashable {
         case reduceTransparency
         case reduceMotion
         case increaseContrast
@@ -46,8 +47,9 @@
         let tags: [String]
         /// Interaction script applied after the first settle and before capture.
         let steps: [UIStep]
-        /// Optional accessibility adaptation scoped to this scene's hierarchy.
-        let accessibilityAdaptation: UIHarnessAccessibilityAdaptation?
+        /// Accessibility adaptations scoped to this scene's hierarchy; empty for the standard
+        /// presentation.
+        let accessibilityAdaptations: Set<UIHarnessAccessibilityAdaptation>
         /// Builds the view. Runs on the main actor inside the harness process only.
         let build: @MainActor () -> AnyView
 
@@ -58,7 +60,7 @@
             colorScheme: ColorScheme = .dark,
             tags: [String] = [],
             steps: [UIStep] = [],
-            accessibilityAdaptation: UIHarnessAccessibilityAdaptation? = nil,
+            accessibilityAdaptations: Set<UIHarnessAccessibilityAdaptation> = [],
             build: @escaping @MainActor () -> AnyView
         ) {
             self.id = id
@@ -67,18 +69,18 @@
             self.colorScheme = colorScheme
             self.tags = tags
             self.steps = steps
-            self.accessibilityAdaptation = accessibilityAdaptation
-            if let accessibilityAdaptation {
+            self.accessibilityAdaptations = accessibilityAdaptations
+            if accessibilityAdaptations.isEmpty {
+                self.build = build
+            } else {
                 self.build = {
                     AnyView(
                         UIHarnessAccessibilityScope(
-                            adaptation: accessibilityAdaptation,
+                            adaptations: accessibilityAdaptations,
                             build: build
                         )
                     )
                 }
-            } else {
-                self.build = build
             }
         }
     }
@@ -89,14 +91,14 @@
 
         @MainActor
         init(
-            adaptation: UIHarnessAccessibilityAdaptation,
+            adaptations: Set<UIHarnessAccessibilityAdaptation>,
             build: @escaping @MainActor () -> AnyView
         ) {
             previous = .capture()
             // Fixture construction restores the deterministic baseline, so install
-            // the adaptation after building the value but before SwiftUI reads it.
+            // the adaptations after building the value but before SwiftUI reads it.
             content = build()
-            adaptation.install()
+            UIHarnessAccessibilityAdaptation.install(adaptations)
         }
 
         var body: some View {
@@ -131,23 +133,13 @@
     }
 
     extension UIHarnessAccessibilityAdaptation {
+        /// Turns on exactly `adaptations`, every other one off.
         @MainActor
-        fileprivate func install() {
-            RenderOverrides.reduceTransparency = false
-            RenderOverrides.reduceMotion = false
-            RenderOverrides.differentiateWithoutColor = false
-            RenderOverrides.increasedContrast = false
-
-            switch self {
-            case .reduceTransparency:
-                RenderOverrides.reduceTransparency = true
-            case .reduceMotion:
-                RenderOverrides.reduceMotion = true
-            case .increaseContrast:
-                RenderOverrides.increasedContrast = true
-            case .differentiateWithoutColor:
-                RenderOverrides.differentiateWithoutColor = true
-            }
+        fileprivate static func install(_ adaptations: Set<Self>) {
+            RenderOverrides.reduceTransparency = adaptations.contains(.reduceTransparency)
+            RenderOverrides.reduceMotion = adaptations.contains(.reduceMotion)
+            RenderOverrides.differentiateWithoutColor = adaptations.contains(.differentiateWithoutColor)
+            RenderOverrides.increasedContrast = adaptations.contains(.increaseContrast)
         }
     }
 

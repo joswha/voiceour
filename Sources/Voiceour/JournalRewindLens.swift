@@ -95,42 +95,47 @@ struct JournalRewindLens: View {
     }
 
     var body: some View {
-        Group {
-            if days.isEmpty {
-                ContentUnavailableView(
-                    "Nothing to rewind yet",
-                    systemImage: "clock.arrow.circlepath",
-                    description: Text("Dictate something, then come back to replay your day.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Kit.Split {
-                    listColumn
-                } page: {
-                    pageColumn
-                        .kitToast(flash, identifier: "journal.rewind.copied")
-                }
+        content
+            .onAppear {
+                reloadDays()
+                reloadMatches()
             }
-        }
-        .onAppear {
-            reloadDays()
-            reloadMatches()
-        }
-        .onChange(of: entries) {
-            reloadDays()
-            reloadMatches()
-        }
-        .onChange(of: selectedDay) {
-            reloadRewind()
-        }
-        .onChange(of: searchText) {
-            reloadMatches()
-        }
-        .onChange(of: memoryIDs) {
-            reloadAgentDay()
-        }
-        .onChange(of: agentNotes) {
-            reloadAgentDay()
+            .onChange(of: entries) {
+                reloadDays()
+                reloadMatches()
+            }
+            .onChange(of: selectedDay) {
+                reloadRewind()
+            }
+            .onChange(of: searchText) {
+                reloadMatches()
+            }
+            .onChange(of: memoryIDs) {
+                reloadAgentDay()
+            }
+            .onChange(of: agentNotes) {
+                reloadAgentDay()
+            }
+    }
+
+    /// With no day to replay the lens holds nothing to list or read, so one empty state
+    /// spans both columns.
+    @ViewBuilder
+    private var content: some View {
+        if days.isEmpty {
+            Kit.EmptyState(
+                systemImage: "clock.arrow.circlepath",
+                title: "Nothing to rewind yet",
+                message: "Dictate something, then come back to replay your day."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Kit.Split {
+                listColumn
+            } page: {
+                pageColumn
+                    .kitToast(flash, identifier: "journal.rewind.copied")
+            }
         }
     }
 
@@ -156,8 +161,6 @@ struct JournalRewindLens: View {
                 dayRows
             } else if matchDays.isEmpty {
                 noMatches
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, VoiceourMetrics.Space.xl)
             } else {
                 matchRows
             }
@@ -220,34 +223,38 @@ struct JournalRewindLens: View {
             }
         ) {
             Text(match.stamp)
-                .font(Kit.Fonts.stamp)
+                .monospacedDigit()
             if let subject = match.subject {
                 Kit.AppLabel(subject, icon: match.icon)
             }
         } marks: {
             if entry.kind == .note {
-                Kit.Mark("NOTE", tone: .info)
+                Kit.Pill("Note", tone: .info)
             }
             if entry.thread?.sent == false {
-                Kit.Mark("NOT SENT", tone: .caution)
+                Kit.Pill("Not sent", tone: .caution)
             }
             if let kind {
-                Kit.Mark(kind.displayName.uppercased())
+                Kit.Pill(Kit.Pill.sentence(kind.displayName))
             }
         }
         .accessibilityLabel(match.accessibilityLabel)
         .id(match.id)
     }
 
+    /// The query is the only thing that can empty the list, so it is echoed and
+    /// offered back; the page keeps the day it shows.
     private var noMatches: some View {
-        ContentUnavailableView {
-            Text("Nothing matches \u{201C}\(matchQuery)\u{201D}")
-        } description: {
-            Text("Search runs over what you said, agent session titles, projects and app names, on every day.")
-        } actions: {
-            Button("Clear Search") { searchText = "" }
-                .accessibilityIdentifier("journal.rewind.no-matches.clear")
-        }
+        Kit.EmptyState(
+            systemImage: "magnifyingglass",
+            title: "Nothing matches \u{201C}\(matchQuery)\u{201D}",
+            message: "Search runs over what you said, agent session titles, projects and app names, on every day.",
+            actionTitle: "Clear Search",
+            actionIdentifier: "journal.rewind.no-matches.clear",
+            action: { searchText = "" }
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.top, VoiceourMetrics.Space.xl + VoiceourMetrics.Space.sm)
     }
 
     // MARK: Page column
@@ -257,11 +264,12 @@ struct JournalRewindLens: View {
         if let rewind {
             dayPage(rewind)
         } else {
-            ContentUnavailableView(
-                "No day selected",
+            Kit.EmptyState(
                 systemImage: "calendar",
-                description: Text("Select a day to replay what you said on it.")
+                title: "No day selected",
+                message: "Select a day to replay what you said on it."
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -269,22 +277,18 @@ struct JournalRewindLens: View {
         let earlier = neighbour(of: rewind.day, olderBy: 1)
         let later = neighbour(of: rewind.day, olderBy: -1)
         let offersRecap = dayIsInMemory && memoryRoot != nil
-        return Kit.PageColumn(identity: rewind.day, reveal: pageReveal) {
-            Kit.GlassGroup {
-                Kit.ActionButton("Earlier Day", systemImage: "chevron.left") {
-                    if let earlier { selectDay(earlier) }
-                }
-                .disabled(earlier == nil)
-                .help("Earlier Day")
-                .accessibilityIdentifier("journal.rewind.earlier")
-
-                Kit.ActionButton("Later Day", systemImage: "chevron.right") {
-                    if let later { selectDay(later) }
-                }
-                .disabled(later == nil)
-                .help("Later Day")
-                .accessibilityIdentifier("journal.rewind.later")
+        return Kit.PageColumn(identity: AnyHashable(rewind.day), reveal: pageReveal) {
+            Kit.IconButton(systemImage: "chevron.left", label: "Earlier Day") {
+                if let earlier { selectDay(earlier) }
             }
+            .disabled(earlier == nil)
+            .accessibilityIdentifier("journal.rewind.earlier")
+
+            Kit.IconButton(systemImage: "chevron.right", label: "Later Day") {
+                if let later { selectDay(later) }
+            }
+            .disabled(later == nil)
+            .accessibilityIdentifier("journal.rewind.later")
 
             if dayIsInMemory, let memoryRoot {
                 JournalPromptCopyButton(
@@ -306,34 +310,34 @@ struct JournalRewindLens: View {
             }
         } content: {
             // The span is the last figure, so the header names the day alone.
-            Kit.PageHeader(eyebrow: "Rewind", title: Self.pageTitle(of: rewind.day, calendar: calendar))
+            Kit.PageHeader(kicker: "Rewind", title: Self.pageTitle(of: rewind.day, calendar: calendar)) {
+                EmptyView()
+            }
 
-            figures(rewind)
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
+                figures(rewind)
 
-            if offersRecap {
-                ConsoleCaption(
-                    "Paste it into your coding agent. The agent reads this day in the memory folder and saves "
-                        + "a recap there."
-                )
+                if offersRecap {
+                    JournalCaption(
+                        "Paste it into your coding agent. The agent reads this day in the memory folder and saves "
+                            + "a recap there."
+                    )
+                }
             }
 
             if !rewind.highlights.isEmpty {
-                Kit.Island {
-                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                        Kit.SectionTitle("Highlights")
-                        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
-                            ForEach(rewind.highlights) { highlight in
-                                entryRow(highlight.entry)
-                            }
+                JournalSectionCard("Highlights") {
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.hair) {
+                        ForEach(rewind.highlights) { highlight in
+                            entryRow(highlight.entry)
                         }
                     }
                 }
             }
 
             if !dayNotes.isEmpty {
-                Kit.Island {
-                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                        Kit.SectionTitle("From your agents")
+                JournalSectionCard("From your agents") {
+                    VStack(alignment: .leading, spacing: VoiceourMetrics.Space.md) {
                         ForEach(dayNotes) { note in
                             if note.id != dayNotes.first?.id {
                                 Kit.Rule()
@@ -353,14 +357,15 @@ struct JournalRewindLens: View {
 
     /// The day's figures, two to a row so a place list or a span reads whole at the
     /// page's width. Where names the first kind of place as the tile's value and the rest
-    /// as its detail, so VoiceOver still hears the whole list as the value.
+    /// as its detail, so VoiceOver still hears the whole list as the value. Each tile is
+    /// its own card.
     private func figures(_ rewind: RewindDay) -> some View {
         let places = Self.whereParts(rewind)
         let columns = [
-            GridItem(.flexible(), spacing: VoiceourMetrics.Space.sm, alignment: .top),
-            GridItem(.flexible(), spacing: VoiceourMetrics.Space.sm, alignment: .top),
+            GridItem(.flexible(), spacing: VoiceourMetrics.Space.md, alignment: .top),
+            GridItem(.flexible(), spacing: VoiceourMetrics.Space.md, alignment: .top),
         ]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: VoiceourMetrics.Space.md) {
             Kit.MetricTile(
                 "Entries",
                 value: String(rewind.entryCount),
@@ -399,25 +404,18 @@ struct JournalRewindLens: View {
 
     // MARK: Blocks
 
-    /// One island per block: its heading, with Open Thread beside it on a session
-    /// block, then the session's title and the block's entries.
+    /// One card per block: its heading, with Open Thread beside it on a session block,
+    /// then the session's title and the block's entries.
     private func blockSection(_ block: RewindBlock) -> some View {
-        Kit.Island {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-                Kit.SectionTitle(Self.blockHeader(block)) {
-                    if case .thread(let ref) = block.subject {
-                        Button {
-                            navigation.openThread(ref.key)
-                        } label: {
-                            Text("Open Thread")
-                                .frame(minHeight: Kit.Metrics.control)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Open this agent session in Threads")
-                    }
+        JournalSectionCard(Self.blockHeader(block)) {
+            if case .thread(let ref) = block.subject {
+                Kit.Button("Open Thread", prominence: .plain) {
+                    navigation.openThread(ref.key)
                 }
-
+                .help("Open this agent session in Threads")
+            }
+        } content: {
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
                 if case .thread(let ref) = block.subject {
                     threadTitleRow(ref)
                 }
@@ -437,7 +435,7 @@ struct JournalRewindLens: View {
     /// context menu alone is a gesture VoiceOver cannot discover.
     private func threadTitleRow(_ ref: JournalThreadRef) -> some View {
         Text(ref.title ?? "\(ref.agent.displayName) session")
-            .font(Kit.Fonts.rowTitle)
+            .roleStyle(.rowTitle)
             .lineLimit(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -899,4 +897,77 @@ private enum RewindFormatters {
         formatter.dateFormat = "HH:mm"
         return formatter
     }()
+}
+
+/// One group of content on a Journal page: a card headed by its section header, the
+/// shape every lens page groups its content in.
+struct JournalSectionCard<Trailing: View, Content: View>: View {
+    private let title: String
+    private let trailing: Trailing
+    private let content: Content
+
+    init(_ title: String, @ViewBuilder trailing: () -> Trailing, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.trailing = trailing()
+        self.content = content()
+    }
+
+    var body: some View {
+        Kit.Card {
+            VStack(alignment: .leading, spacing: 0) {
+                Kit.SectionHeader(title) {
+                    trailing
+                }
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+extension JournalSectionCard where Trailing == EmptyView {
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.init(title, trailing: { EmptyView() }, content: content)
+    }
+}
+
+/// A day's caption above its entries inside a page section, in the voice of the list's
+/// group headers, and a heading to VoiceOver so a reader can jump day to day.
+struct JournalDayCaption: View {
+    private let text: String
+    @Environment(\.theme) private var theme
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .roleStyle(.label)
+            .foregroundStyle(theme.text3)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A lens's explanatory sentence: `meta`, wrapped whole, never truncated mid-clause.
+/// `color` replaces the quiet text step, as a refusal's critical text does.
+struct JournalCaption: View {
+    private let text: String
+    private let color: Color?
+    @Environment(\.theme) private var theme
+
+    init(_ text: String, color: Color? = nil) {
+        self.text = text
+        self.color = color
+    }
+
+    var body: some View {
+        Text(text)
+            .roleStyle(.meta)
+            .foregroundStyle(color ?? theme.text2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }

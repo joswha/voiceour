@@ -49,6 +49,7 @@ struct JournalNotesLens: View {
     @FocusState private var isListFocused: Bool
     @FocusState private var isSearchFocused: Bool
 
+    @Environment(\.theme) private var theme
     private var a11y = A11y()
 
     init(
@@ -68,42 +69,47 @@ struct JournalNotesLens: View {
     }
 
     var body: some View {
-        Group {
-            if noteOrder.isEmpty {
-                noNotes
-            } else {
-                Kit.Split {
-                    listColumn
-                } page: {
-                    pageColumn
+        content
+            .onAppear(perform: reloadNotes)
+            .onChange(of: entries) {
+                reloadNotes()
+            }
+            .onChange(of: searchText) {
+                reloadNotes()
+            }
+            .onChange(of: selectedID) {
+                deleteFailed = false
+                flash.dismiss()
+            }
+            .confirmationDialog(
+                "Delete this entry?",
+                isPresented: deletionConfirmationPresented,
+                titleVisibility: .visible,
+                presenting: pendingDeletion
+            ) { id in
+                Button("Delete Entry", role: .destructive) {
+                    confirmDelete(id)
                 }
+                Button("Cancel", role: .cancel) {
+                    pendingDeletion = nil
+                }
+            } message: { _ in
+                Text("The entry is removed from this Mac's memory. Text you already pasted is not affected.")
             }
-        }
-        .onAppear(perform: reloadNotes)
-        .onChange(of: entries) {
-            reloadNotes()
-        }
-        .onChange(of: searchText) {
-            reloadNotes()
-        }
-        .onChange(of: selectedID) {
-            deleteFailed = false
-            flash.dismiss()
-        }
-        .confirmationDialog(
-            "Delete this entry?",
-            isPresented: deletionConfirmationPresented,
-            titleVisibility: .visible,
-            presenting: pendingDeletion
-        ) { id in
-            Button("Delete Entry", role: .destructive) {
-                confirmDelete(id)
+    }
+
+    /// With no note at all the lens holds nothing to list or read, so one empty state
+    /// spans both columns and still offers the button its words point at.
+    @ViewBuilder
+    private var content: some View {
+        if noteOrder.isEmpty {
+            noNotes
+        } else {
+            Kit.Split {
+                listColumn
+            } page: {
+                pageColumn
             }
-            Button("Cancel", role: .cancel) {
-                pendingDeletion = nil
-            }
-        } message: { _ in
-            Text("The entry is removed from this Mac's memory. Text you already pasted is not affected.")
         }
     }
 
@@ -120,41 +126,49 @@ struct JournalNotesLens: View {
         !isRecordingNote && (coordinator.state.isActive || coordinator.isProcessingInFlight)
     }
 
+    private var takeNoteTitle: String {
+        isRecordingNote ? "Finish Note" : "Take a Note"
+    }
+
+    /// Acts on the title the reader saw: a "Finish Note" pressed after the recording
+    /// already ended asks to stop, which the coordinator ignores, rather than starting a
+    /// second note.
+    private func takeOrFinishNote(recordingNote: Bool) {
+        if recordingNote {
+            coordinator.stopAndProcess()
+        } else {
+            coordinator.startNote()
+        }
+    }
+
     private var takeNoteButton: some View {
         let recordingNote = isRecordingNote
 
-        return Kit.ActionButton(
-            recordingNote ? "Finish Note" : "Take a Note",
+        return Kit.Button(
+            takeNoteTitle,
             systemImage: recordingNote ? "stop.fill" : "mic.fill",
             prominence: .primary
         ) {
-            // Acts on the title the reader saw: a "Finish Note" pressed after the
-            // recording already ended asks to stop, which the coordinator ignores,
-            // rather than starting a second note.
-            if recordingNote {
-                coordinator.stopAndProcess()
-            } else {
-                coordinator.startNote()
-            }
+            takeOrFinishNote(recordingNote: recordingNote)
         }
         .disabled(isOtherSessionBusy)
         .help(recordingNote ? "Stop recording and save the note" : "Record a note that is saved here")
         .accessibilityIdentifier("journal.notes.take")
     }
 
-    /// With no note at all the lens is this one view, and it still offers the button
-    /// its words point at.
     private var noNotes: some View {
-        ContentUnavailableView {
-            Label("No notes yet", systemImage: "note.text")
-        } description: {
-            Text(
-                "Take a note from here or from the menu, or say \u{201C}note to self\u{201D} "
-                    + "at the start of a dictation."
-            )
-        } actions: {
-            takeNoteButton
-        }
+        let recordingNote = isRecordingNote
+
+        return Kit.EmptyState(
+            systemImage: "note.text",
+            title: "No notes yet",
+            message: "Take a note from here or from the menu, or say \u{201C}note to self\u{201D} "
+                + "at the start of a dictation.",
+            actionTitle: takeNoteTitle,
+            actionIdentifier: "journal.notes.take",
+            action: { takeOrFinishNote(recordingNote: recordingNote) }
+        )
+        .disabled(isOtherSessionBusy)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -206,26 +220,30 @@ struct JournalNotesLens: View {
                         )
                     }
                 }
-            }
 
-            ConsoleCaption(
-                "Or say \u{201C}note to self\u{201D} at the start of a dictation. "
-                    + "A note is saved here and pasted nowhere."
-            )
-            .padding(.horizontal, VoiceourMetrics.Space.sm + VoiceourMetrics.Space.xs)
-            .padding(.top, VoiceourMetrics.Space.md)
+                JournalCaption(
+                    "Or say \u{201C}note to self\u{201D} at the start of a dictation. "
+                        + "A note is saved here and pasted nowhere."
+                )
+                .padding(.horizontal, VoiceourMetrics.Space.md)
+                .padding(.top, VoiceourMetrics.Space.lg)
+            }
         }
     }
 
+    /// The query is the only thing that can empty the list, so it is echoed and
+    /// offered back; the page keeps the note it shows.
     private var noMatches: some View {
-        ContentUnavailableView {
-            Text("No note matches \u{201C}\(query)\u{201D}")
-        } description: {
-            Text("Search runs over every note's text and the agent session it was taken in.")
-        } actions: {
-            Button("Clear Search") { searchText = "" }
-                .accessibilityIdentifier("journal.notes.no-matches.clear")
-        }
+        Kit.EmptyState(
+            systemImage: "magnifyingglass",
+            title: "No note matches \u{201C}\(query)\u{201D}",
+            message: "Search runs over every note's text and the agent session it was taken in.",
+            actionTitle: "Clear Search",
+            actionIdentifier: "journal.notes.no-matches.clear",
+            action: { searchText = "" }
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.top, VoiceourMetrics.Space.xl + VoiceourMetrics.Space.sm)
     }
 
     private func noteRow(_ entry: JournalEntry) -> some View {
@@ -236,17 +254,18 @@ struct JournalNotesLens: View {
         return Kit.PreviewRow(entry.text, isSelected: entry.id == selectedID) {
             select(entry.id)
         } meta: {
-            Text(stamp).font(Kit.Fonts.stamp)
+            Text(stamp)
+                .monospacedDigit()
             if let thread = entry.thread {
                 Text(Self.threadTitle(thread))
                     .truncationMode(.tail)
             }
         } marks: {
             if isNotSent {
-                Kit.Mark("NOT SENT", tone: .caution)
+                Kit.Pill("Not sent", tone: .caution)
             }
             if let kind {
-                Kit.Mark(kind.displayName.uppercased())
+                Kit.Pill(Kit.Pill.sentence(kind.displayName))
             }
         }
         .accessibilityLabel(Self.accessibilityLabel(stamp: stamp, isNotSent: isNotSent, kind: kind, text: entry.text))
@@ -315,11 +334,12 @@ struct JournalNotesLens: View {
             page(note)
                 .kitToast(flash, identifier: "journal.notes.copied")
         } else {
-            ContentUnavailableView(
-                "No note selected",
+            Kit.EmptyState(
                 systemImage: "note.text",
-                description: Text("Select a note to read it, copy it or file it under a topic.")
+                title: "No note selected",
+                message: "Select a note to read it, copy it or file it under a topic."
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -327,60 +347,58 @@ struct JournalNotesLens: View {
         let isNotSent = note.thread?.sent == false
         let kind = JournalEntryRow.highlightKind(of: note)
 
-        return Kit.PageColumn(identity: note.id) {
-            Kit.GlassGroup {
-                Kit.ActionButton("Copy", systemImage: "doc.on.doc", prominence: .primary) {
-                    copy(note)
-                }
-                .help("Copy the note's text")
-                .accessibilityIdentifier("journal.notes.copy")
+        return Kit.PageColumn(identity: AnyHashable(note.id)) {
+            Kit.Button("Copy", systemImage: "doc.on.doc", prominence: .primary) {
+                copy(note)
+            }
+            .help("Copy the note's text")
+            .accessibilityIdentifier("journal.notes.copy")
 
-                if let file {
-                    Kit.MenuButton("File Under", systemImage: "tag", identifier: "journal.entry.file") {
-                        JournalFileUnderChoices(entry: note, topics: topics, file: file)
-                    }
+            if let file {
+                Kit.MenuButton("File Under", systemImage: "tag", identifier: "journal.entry.file") {
+                    JournalFileUnderChoices(entry: note, topics: topics, file: file)
                 }
+            }
 
-                if let thread = note.thread {
-                    Kit.ActionButton("Open Thread", systemImage: "bubble.left.and.text.bubble.right") {
-                        navigation.openThread(thread.key)
-                    }
-                    .help("Open the agent session this note was taken in")
-                    .accessibilityIdentifier("journal.notes.thread")
+            if let thread = note.thread {
+                Kit.Button("Open Thread", systemImage: "bubble.left.and.text.bubble.right") {
+                    navigation.openThread(thread.key)
                 }
+                .help("Open the agent session this note was taken in")
+                .accessibilityIdentifier("journal.notes.thread")
+            }
 
-                if delete != nil {
-                    Kit.ActionButton("Delete\u{2026}", systemImage: "trash", role: .destructive) {
-                        deleteFailed = false
-                        pendingDeletion = note.id
-                    }
-                    .disabled(isDeleting)
-                    .help("Delete this note from memory")
-                    .accessibilityIdentifier("journal.notes.delete")
+            if delete != nil {
+                Kit.Button("Delete\u{2026}", systemImage: "trash", prominence: .destructive) {
+                    deleteFailed = false
+                    pendingDeletion = note.id
                 }
+                .disabled(isDeleting)
+                .help("Delete this note from memory")
+                .accessibilityIdentifier("journal.notes.delete")
             }
         } content: {
             Kit.PageHeader(
-                eyebrow: SessionsFormatters.dayHeader.string(from: note.createdAt)
+                kicker: SessionsFormatters.dayHeader.string(from: note.createdAt)
                     + " at " + SessionsFormatters.timestamp.string(from: note.createdAt),
                 title: "Note",
-                subtitle: note.thread.map(Self.threadTitle) ?? "Saved to memory. Nothing was pasted or copied."
+                meta: note.thread.map(Self.threadTitle) ?? "Saved to memory. Nothing was pasted or copied."
             ) {
                 if isNotSent || kind != nil {
                     HStack(spacing: VoiceourMetrics.Space.xs) {
                         if isNotSent {
-                            Kit.Mark("NOT SENT", tone: .caution)
+                            Kit.Pill("Not sent", tone: .caution)
                         }
                         if let kind {
-                            Kit.Mark(kind.displayName.uppercased())
+                            Kit.Pill(Kit.Pill.sentence(kind.displayName))
                         }
                     }
                 }
             }
 
-            Kit.Island {
+            Kit.Card {
                 Text(note.text)
-                    .font(.system(size: Kit.Fonts.readingLarge))
+                    .roleStyle(.reading)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     // Keep mouse selection while exposing the text once, not both the
@@ -392,7 +410,7 @@ struct JournalNotesLens: View {
             // A destructive action that fails must say so on the page that asked for
             // it, rather than leave the note on screen unexplained.
             if deleteFailed {
-                ConsoleCaption("The entry could not be deleted.", color: .red)
+                JournalCaption("The entry could not be deleted.", color: theme.critical.text)
                     .accessibilityIdentifier("journal.entry.delete-error")
             }
         }

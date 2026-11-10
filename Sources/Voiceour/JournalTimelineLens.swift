@@ -9,8 +9,8 @@ import VoiceMac
 /// is for finding a dictation — by its words, its day, its app or its agent session —
 /// and the page is for using it: the words first, then the line that names the
 /// gestures on them, the teach editor when it is open, and the folds that hold the
-/// evidence. The page's glass bar carries the actions the transcript's own gestures
-/// also reach, so a reader who never right-clicks still finds them.
+/// evidence. The page's bar carries the actions the transcript's own gestures also
+/// reach, so a reader who never right-clicks still finds them.
 ///
 /// The first visit selects the newest dictation, because a lens whose reason to exist
 /// is the transcript should not open on a list of timestamps.
@@ -69,8 +69,9 @@ struct JournalTimelineLens: View {
     @State private var showsSessionDetails = false
 
     private var a11y = A11y()
+    @Environment(\.theme) private var theme
 
-    /// The `.id` of the teach editor's island, which the page scrolls to when it opens.
+    /// The `.id` of the teach editor's card, which the page scrolls to when it opens.
     private static let teachAnchor = "sessions.teach.anchor"
 
     init(
@@ -280,7 +281,7 @@ struct JournalTimelineLens: View {
         } content: {
             if dayGroups.isEmpty {
                 noMatches
-                    .padding(.top, VoiceourMetrics.Space.xl)
+                    .padding(.top, 32)
             } else {
                 ForEach(dayGroups) { group in
                     Section {
@@ -308,8 +309,8 @@ struct JournalTimelineLens: View {
 
     @ViewBuilder
     private var listBar: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
-            Kit.GlassGroup {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Kit.SearchField(
                     "Search dictations",
                     text: $searchText,
@@ -325,28 +326,36 @@ struct JournalTimelineLens: View {
             }
 
             if appFilter != nil || agentSessionFilter != nil {
-                Kit.GlassGroup {
-                    if let appFilter {
-                        Kit.FilterChip(
-                            activeFilterLabel(appFilter),
-                            systemImage: "app",
-                            clearLabel: "Show all apps",
-                            clearIdentifier: "sessions.app-filter.clear"
-                        ) {
-                            self.appFilter = nil
-                        }
-                    }
-                    if let agentSessionFilter {
-                        Kit.FilterChip(
-                            agentSessionLabel(agentSessionFilter),
-                            systemImage: "bubble.left.and.text.bubble.right",
-                            clearLabel: "Show all agent sessions",
-                            clearIdentifier: "sessions.agent-filter.clear"
-                        ) {
-                            self.agentSessionFilter = nil
-                        }
-                    }
+                // Side by side while both fit the column, else one under the other, so a
+                // long app or thread name keeps its chip readable.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { filterChips }
+                    VStack(alignment: .leading, spacing: 8) { filterChips }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var filterChips: some View {
+        if let appFilter {
+            Kit.FilterChip(
+                activeFilterLabel(appFilter),
+                systemImage: "app",
+                clearLabel: "Show all apps",
+                clearIdentifier: "sessions.app-filter.clear"
+            ) {
+                self.appFilter = nil
+            }
+        }
+        if let agentSessionFilter {
+            Kit.FilterChip(
+                agentSessionLabel(agentSessionFilter),
+                systemImage: "bubble.left.and.text.bubble.right",
+                clearLabel: "Show all agent sessions",
+                clearIdentifier: "sessions.agent-filter.clear"
+            ) {
+                self.agentSessionFilter = nil
             }
         }
     }
@@ -447,39 +456,45 @@ struct JournalTimelineLens: View {
 
     // MARK: Empty states
 
+    /// First use: what fills this lens, and the one gesture that fills it. The gesture
+    /// is a key on the keyboard rather than a button, so the state offers no action.
     private var emptyHistory: some View {
-        ContentUnavailableView {
-            Text("No dictations yet")
-        } description: {
-            Text("Completed dictations are kept here with their transcripts, timestamps and word counts.")
-        } actions: {
-            ConsoleHotkeyHint()
-        }
+        Kit.EmptyState(
+            systemImage: "waveform",
+            title: "No dictations yet",
+            message: "Completed dictations are kept here with their transcripts, timestamps and word counts. "
+                + ConsoleHotkeyHint.fullGesture
+        )
     }
 
     /// Each filter is validated against the rows, so neither can rule out every row on
     /// its own; a query can, and so can the app and agent-session filters together.
-    /// Whatever narrowed the list is named and offered back.
+    /// Whatever narrowed the list is named, and the one action lifts it: the query when
+    /// there is one, else both filters, which only together rule out every row. Each
+    /// filter's own chip still lifts it alone.
+    @ViewBuilder
     private var noMatches: some View {
-        ContentUnavailableView {
-            if query.isEmpty {
-                Text("Nothing matches these filters")
-            } else if let appFilter {
-                Text("Nothing matches \u{201C}\(query)\u{201D} in \(activeFilterLabel(appFilter))")
-            } else {
-                Text("Nothing matches \u{201C}\(query)\u{201D}")
+        if query.isEmpty {
+            Kit.EmptyState(
+                systemImage: "line.3.horizontal.decrease.circle",
+                title: "Nothing matches these filters",
+                message: "No dictation went to this app in this agent session.",
+                actionTitle: "Clear Filters",
+                actionIdentifier: "sessions.filter.nomatch.clear"
+            ) {
+                appFilter = nil
+                agentSessionFilter = nil
             }
-        } description: {
-            Text("Search runs over transcript text, timestamps and day names.")
-        } actions: {
-            if !query.isEmpty {
-                Button("Clear Search") { searchText = "" }
-            }
-            if appFilter != nil {
-                Button("Show All Apps") { appFilter = nil }
-            }
-            if agentSessionFilter != nil {
-                Button("Show All Agent Sessions") { agentSessionFilter = nil }
+        } else {
+            Kit.EmptyState(
+                systemImage: "magnifyingglass",
+                title: appFilter.map { "Nothing matches \u{201C}\(query)\u{201D} in \(activeFilterLabel($0))" }
+                    ?? "Nothing matches \u{201C}\(query)\u{201D}",
+                message: "Search runs over transcript text, timestamps and day names.",
+                actionTitle: "Clear Search",
+                actionIdentifier: "sessions.search.nomatch.clear"
+            ) {
+                searchText = ""
             }
         }
     }
@@ -495,9 +510,11 @@ struct JournalTimelineLens: View {
                 listFocused = true
             }
         ) {
-            HStack(spacing: VoiceourMetrics.Space.sm) {
+            HStack(spacing: 8) {
+                // The time never truncates: it is what tells two rows of the same app apart.
                 Text(SessionsFormatters.timestamp.string(from: session.createdAt))
-                    .font(Kit.Fonts.stamp)
+                    .monospacedDigit()
+                    .fixedSize()
 
                 if session.mutedDuringCapture {
                     mutedGlyph
@@ -508,17 +525,23 @@ struct JournalTimelineLens: View {
                 // faster than by reading five small words.
                 if let bundleId = session.outcome?.targetBundleId {
                     let identity = appIdentity(for: session, bundleId: bundleId)
-                    Kit.AppLabel(Self.destinationName(for: session, appLabel: identity.label), icon: identity.icon)
+                    HStack(spacing: 4) {
+                        Kit.AppIcon(name: identity.label, icon: identity.icon, size: Kit.Metrics.iconTileMini)
+                        Text(Self.destinationName(for: session, appLabel: identity.label))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .layoutPriority(-1)
                 }
             }
         } marks: {
             if let outcome = session.outcome {
-                Kit.Mark(outcome.outcomeMark.label, tone: outcome.outcomeMark.tone)
+                Kit.Pill(outcome.outcomeMark.label, tone: outcome.outcomeMark.tone)
             }
             // The paste reached the pane but the agent never took it as a prompt:
-            // without this mark the row reads PASTED and looks done.
+            // without this pill the row reads Pasted and looks done.
             if session.agentSession?.isNotSent == true {
-                Kit.Mark("NOT SENT", tone: .caution)
+                Kit.Pill("Not sent", tone: .caution)
             }
         }
         .accessibilityLabel(accessibilityLabel(for: session))
@@ -570,7 +593,7 @@ struct JournalTimelineLens: View {
     private var mutedGlyph: some View {
         Image(systemName: "mic.slash.fill")
             .imageScale(.small)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.text3)
             .help("System audio muted for this recording.")
             .accessibilityLabel("Recorded with system audio muted")
     }
@@ -618,7 +641,7 @@ struct JournalTimelineLens: View {
         if let outcome = session.outcome {
             parts.append(outcome.outcomeMark.label)
             if session.agentSession?.isNotSent == true {
-                parts.append("NOT SENT")
+                parts.append("Not sent")
             }
             if let bundleId = outcome.targetBundleId {
                 let destination = Self.destinationName(
@@ -643,11 +666,12 @@ struct JournalTimelineLens: View {
             if let session = selectedSession {
                 page(for: session)
             } else {
-                ContentUnavailableView(
-                    "No dictation selected",
+                Kit.EmptyState(
                     systemImage: "text.quote",
-                    description: Text("Select a dictation to read it, copy it or teach a word from it.")
+                    title: "No dictation selected",
+                    message: "Select a dictation to read it, copy it or teach a word from it."
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .kitToast(flash, identifier: "sessions.detail.copied")
@@ -659,16 +683,20 @@ struct JournalTimelineLens: View {
         } content: {
             pageHeader(for: session)
 
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+            VStack(alignment: .leading, spacing: 8) {
                 transcript(for: session)
                 gestureCaption
                 if let deleteError {
-                    ConsoleCaption(deleteError, color: .red)
+                    Text(deleteError)
+                        .roleStyle(.meta)
+                        .foregroundStyle(theme.critical.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
             if isTeachingOpen {
-                Kit.Island {
+                Kit.Card {
                     ConsoleTeachHost(
                         coordinator: coordinator,
                         session: session,
@@ -684,32 +712,31 @@ struct JournalTimelineLens: View {
         }
     }
 
+    @ViewBuilder
     private func pageBar(for session: RecentSession) -> some View {
-        Kit.GlassGroup {
-            Kit.ActionButton("Copy", systemImage: "doc.on.doc", prominence: .primary) {
-                copy(session.text, announcement: "Transcript copied to clipboard")
-            }
-            .help("Copy the transcript")
-            .accessibilityIdentifier("sessions.detail.copy")
+        Kit.Button("Copy", systemImage: "doc.on.doc", prominence: .primary) {
+            copy(session.text, announcement: "Transcript copied to clipboard")
+        }
+        .help("Copy the transcript")
+        .accessibilityIdentifier("sessions.detail.copy")
 
-            Kit.ActionButton("Fix / Teach", systemImage: "character.cursor.ibeam") {
-                beginTeaching(surface: selectedSurface)
-            }
-            .keyboardShortcut("t", modifiers: .command)
-            .help("Teach a correction for the selected words (\u{2318}T)")
-            .accessibilityIdentifier("sessions.detail.teach")
+        Kit.Button("Fix / Teach", systemImage: "character.cursor.ibeam") {
+            beginTeaching(surface: selectedSurface)
+        }
+        .keyboardShortcut("t", modifiers: .command)
+        .help("Teach a correction for the selected words (\u{2318}T)")
+        .accessibilityIdentifier("sessions.detail.teach")
 
-            if let binding = session.agentSession, let navigation {
-                Kit.ActionButton("Open Thread", systemImage: "bubble.left.and.text.bubble.right") {
-                    navigation.openThread(binding.key)
-                }
-                .help("Open this dictation's agent session in Threads")
-                .accessibilityIdentifier("sessions.detail.thread")
+        if let binding = session.agentSession, let navigation {
+            Kit.Button("Open Thread", systemImage: "bubble.left.and.text.bubble.right") {
+                navigation.openThread(binding.key)
             }
+            .help("Open this dictation's agent session in Threads")
+            .accessibilityIdentifier("sessions.detail.thread")
+        }
 
-            Kit.MenuButton("More", systemImage: "ellipsis", showsTitle: false, identifier: "sessions.detail.more") {
-                moreMenuItems(for: session)
-            }
+        Kit.MenuButton("More", systemImage: "ellipsis", showsTitle: false, identifier: "sessions.detail.more") {
+            moreMenuItems(for: session)
         }
     }
 
@@ -740,30 +767,38 @@ struct JournalTimelineLens: View {
     }
 
     /// When, what and how much: the day and time, the thread or app the words went
-    /// to, and how they were delivered, then the marks the row carries.
+    /// to, and how they were delivered, then the pills the row carries.
     private func pageHeader(for session: RecentSession) -> some View {
         Kit.PageHeader(
-            eyebrow: "\(SessionsFormatters.dayHeader.string(from: session.createdAt)) at "
+            kicker: "\(SessionsFormatters.dayHeader.string(from: session.createdAt)) at "
                 + SessionsFormatters.timestamp.string(from: session.createdAt),
             title: pageTitle(for: session),
-            subtitle: pageSubtitle(for: session)
+            meta: pageSubtitle(for: session)
         ) {
             if hasHeaderMarks(session) {
-                HStack(spacing: VoiceourMetrics.Space.xs) {
-                    if let outcome = session.outcome {
-                        Kit.Mark(outcome.outcomeMark.label, tone: outcome.outcomeMark.tone)
-                        if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
-                            Kit.Mark(targetSafety.displayLabel)
-                        }
-                    }
-                    if session.agentSession?.isNotSent == true {
-                        Kit.Mark("NOT SENT", tone: .caution)
-                    }
-                    if session.mutedDuringCapture {
-                        mutedGlyph
-                    }
+                // In a row while they fit the page, else stacked, so a narrow page never
+                // clips a pill.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) { headerPills(for: session) }
+                    VStack(alignment: .leading, spacing: 4) { headerPills(for: session) }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func headerPills(for session: RecentSession) -> some View {
+        if let outcome = session.outcome {
+            Kit.Pill(outcome.outcomeMark.label, tone: outcome.outcomeMark.tone)
+            if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
+                Kit.Pill(targetSafety.displayLabel)
+            }
+        }
+        if session.agentSession?.isNotSent == true {
+            Kit.Pill("Not sent", tone: .caution)
+        }
+        if session.mutedDuringCapture {
+            mutedGlyph
         }
     }
 
@@ -801,25 +836,30 @@ struct JournalTimelineLens: View {
         return "\(deliverySentence(for: session)) \u{00B7} \(words)"
     }
 
-    /// The transcript, on its own island. A plain click copies it, and a selection plus
-    /// ⌘T (or a right-click) teaches a correction. Under Reduce Transparency the island
-    /// is opaque, so the one place in the window that holds arbitrary user text and
-    /// supports selection never sits on a translucent surface.
+    /// The transcript, in its own sunken well. A plain click copies it, and a selection
+    /// plus ⌘T (or a right-click) teaches a correction. The well is opaque, so the one
+    /// place in the window that holds arbitrary user text and supports selection reads
+    /// the same on every ground, and its words and selection take the theme's colours.
     private func transcript(for session: RecentSession) -> some View {
-        Kit.Island {
-            SelectableTranscriptText(
-                identity: session.id,
-                text: session.text.isEmpty ? "Empty transcript" : session.text,
-                fontSize: Kit.Fonts.readingLarge,
-                onFixTeach: { word in
-                    beginTeaching(surface: word)
-                },
-                onSelectionChange: { selectedSurface = $0 },
-                onPlainClick: { copy(session.text, announcement: "Transcript copied to clipboard") }
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .contentShape(Rectangle())
+        let well = RoundedRectangle(cornerRadius: Self.wellRadius, style: .continuous)
+        return SelectableTranscriptText(
+            identity: session.id,
+            text: session.text.isEmpty ? "Empty transcript" : session.text,
+            fontSize: Self.transcriptSize,
+            textColor: NSColor(theme.text1),
+            selectionColor: NSColor(theme.selection),
+            onFixTeach: { word in
+                beginTeaching(surface: word)
+            },
+            onSelectionChange: { selectedSurface = $0 },
+            onPlainClick: { copy(session.text, announcement: "Transcript copied to clipboard") }
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Kit.Metrics.cardPadding)
+        .background(theme.sunken, in: well)
+        .overlay(well.strokeBorder(theme.border, lineWidth: 1))
+        .environment(\.surfaceGround, SurfaceGround(theme.sunken))
+        .contentShape(well)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Transcript")
         .accessibilityValue(
@@ -841,17 +881,30 @@ struct JournalTimelineLens: View {
     @ViewBuilder
     private var gestureCaption: some View {
         if let surface = selectedSurface, !surface.isEmpty {
-            ConsoleCaption(
+            caption(
                 "Press \u{2318}T to teach a correction for \u{201C}\(Self.shortened(surface))\u{201D}. "
                     + "Teaching changes future dictation only."
             )
         } else {
-            ConsoleCaption(
+            caption(
                 "Click the transcript to copy it. Select any words, or right-click one, then press "
                     + "\u{2318}T to teach a correction."
             )
         }
     }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .roleStyle(.meta)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The transcript's well: a field-like recess, rounder than a control and squarer
+    /// than a card.
+    private static let wellRadius: CGFloat = 10
+    /// The `reading` role's size: the transcript is the page's text to read.
+    private static let transcriptSize: CGFloat = 15
 
     /// Trims an arbitrary user selection for the caption. A selection can be the whole
     /// transcript, and the line that names it is one sentence.
@@ -899,8 +952,8 @@ struct JournalTimelineLens: View {
         let raw = rawTranscript(for: session)
         let hasDetails = hasSessionDetails(for: session)
         if sent != nil || raw != nil || hasDetails {
-            Kit.Island {
-                VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            Kit.Card {
+                VStack(alignment: .leading, spacing: 4) {
                     // Only where the prompt differs from the delivered text: edited, or
                     // with words added around it.
                     if let sent {
@@ -933,7 +986,7 @@ struct JournalTimelineLens: View {
     }
 
     private func details(for session: RecentSession) -> some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+        VStack(alignment: .leading, spacing: 8) {
             targetFact(for: session)
 
             if let binding = session.agentSession {
@@ -943,7 +996,7 @@ struct JournalTimelineLens: View {
             }
 
             if let stages = session.stages {
-                Kit.Fact("Timings") {
+                Kit.Property("Timings") {
                     metadataText(stages.detailLine, mono: false)
                 }
             }
@@ -975,14 +1028,15 @@ struct JournalTimelineLens: View {
     @ViewBuilder
     private func targetFact(for session: RecentSession) -> some View {
         if let outcome = session.outcome, hasTargetDetails(for: session) {
-            Kit.Fact("Target") {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
+            Kit.Property("Target") {
+                HStack(spacing: 8) {
                     if let bundleId = outcome.targetBundleId {
                         Text(appLabel(for: session, bundleId: bundleId))
-                            .font(Kit.Fonts.rowBody)
+                            .roleStyle(.body)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if let targetSafety = outcome.targetSafety, targetSafety != .normalText {
-                        Kit.Mark(targetSafety.displayLabel)
+                        Kit.Pill(targetSafety.displayLabel)
                     }
                 }
             }
@@ -993,14 +1047,15 @@ struct JournalTimelineLens: View {
     /// directory and session id a resume needs, and whether the dictation was never
     /// sent from it. Nothing is said while the send check is pending.
     private func agentFact(_ binding: AgentSessionBinding) -> some View {
-        Kit.Fact("Agent") {
-            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+        Kit.Property("Agent") {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(binding.displayTitle)
-                    .font(Kit.Fonts.rowBody)
+                    .roleStyle(.body)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("sessions.detail.agent")
                 Text(binding.isNotSent ? "\(binding.locationLine) · Not sent" : binding.locationLine)
-                    .font(Kit.Fonts.meta.monospaced())
-                    .foregroundStyle(.secondary)
+                    .roleStyle(.code)
+                    .foregroundStyle(theme.text2)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(binding.workingDirectory ?? binding.sessionId)
@@ -1008,8 +1063,7 @@ struct JournalTimelineLens: View {
                     // A words link was found later in the agent's own prompt log, not
                     // seen in the focused pane, so the reader is told which.
                     Text("Linked by its words")
-                        .font(Kit.Fonts.meta)
-                        .foregroundStyle(.secondary)
+                        .roleStyle(.meta)
                         .accessibilityIdentifier("sessions.detail.evidence")
                 }
             }
@@ -1020,10 +1074,10 @@ struct JournalTimelineLens: View {
     /// a bound row uses, so a reader looking for the session finds the reason in the
     /// same place.
     private func unlinkedFact(_ miss: AgentLinkMiss) -> some View {
-        Kit.Fact("Agent") {
+        Kit.Property("Agent") {
             Text("Not linked. \(miss.sentence)")
-                .font(Kit.Fonts.rowBody)
-                .foregroundStyle(.secondary)
+                .roleStyle(.body)
+                .foregroundStyle(theme.text2)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("sessions.detail.unlinked")
         }
@@ -1033,10 +1087,10 @@ struct JournalTimelineLens: View {
     /// probability. Not calibrated, and not a control: a reader who wants to correct
     /// it selects it in the transcript and presses ⌘T, like any other word.
     private func leastSureFact(_ leastSure: LeastConfidentWord) -> some View {
-        Kit.Fact("Least sure") {
+        Kit.Property("Least sure") {
             Text("\(leastSure.text) · \(Int(leastSure.score * 100))%")
-                .font(Kit.Fonts.meta.monospaced())
-                .foregroundStyle(.secondary)
+                .roleStyle(.code)
+                .foregroundStyle(theme.text2)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(leastSure.text)
@@ -1053,11 +1107,13 @@ struct JournalTimelineLens: View {
         return raw
     }
 
-    /// One styling site for every measured value and folded text on the page.
+    /// One styling site for every measured value and folded text on the page: the raw
+    /// transcript in the code face, everything else in the body face, both quieter than
+    /// the transcript they explain.
     private func metadataText(_ value: String, mono: Bool) -> some View {
         Text(value)
-            .font(mono ? Kit.Fonts.rowBody.monospaced() : Kit.Fonts.rowBody)
-            .foregroundStyle(.secondary)
+            .roleStyle(mono ? .code : .body)
+            .foregroundStyle(theme.text2)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
             // Keep mouse selection while exposing the text once, not both the native

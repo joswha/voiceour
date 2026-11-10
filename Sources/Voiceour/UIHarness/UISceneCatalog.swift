@@ -23,7 +23,7 @@
         let colorScheme: ColorScheme
         let tags: [String]
         let steps: [UIStep]
-        let accessibilityAdaptation: UIHarnessAccessibilityAdaptation?
+        let accessibilityAdaptations: Set<UIHarnessAccessibilityAdaptation>
         let build: @MainActor () -> AnyView
 
         init(
@@ -33,7 +33,7 @@
             colorScheme: ColorScheme = .dark,
             tags: [String] = [],
             steps: [UIStep] = [],
-            accessibilityAdaptation: UIHarnessAccessibilityAdaptation? = nil,
+            accessibilityAdaptations: Set<UIHarnessAccessibilityAdaptation> = [],
             build: @escaping @MainActor () -> AnyView
         ) {
             self.id = id
@@ -42,7 +42,7 @@
             self.colorScheme = colorScheme
             self.tags = tags
             self.steps = steps
-            self.accessibilityAdaptation = accessibilityAdaptation
+            self.accessibilityAdaptations = accessibilityAdaptations
             self.build = build
         }
 
@@ -54,7 +54,7 @@
                 colorScheme: colorScheme,
                 tags: tags,
                 steps: steps,
-                accessibilityAdaptation: accessibilityAdaptation,
+                accessibilityAdaptations: accessibilityAdaptations,
                 build: build
             )
         }
@@ -63,8 +63,8 @@
     // The curated list of things the offscreen UI harness renders, dumps and lints.
     //
     // Adding a scene is a one-place edit: append a `UIScene` to the matching group
-    // array below (`consoleScenes`, `menuScenes`, `overlayScenes`,
-    // `accessibilityScenes`), which is all `all()` concatenates.
+    // array below (`consoleScenes`, `qaScenes`, `lightScenes`, `menuScenes`,
+    // `overlayScenes`, `accessibilityScenes`), which is all `all()` concatenates.
     // Prefer the area factories over a raw `UIScene(...)` so sizes, tags and appearance
     // stay consistent. Every scene must be reproducible byte for
     // byte, which in practice means:
@@ -92,20 +92,32 @@
         )
 
         /// `MenuBarExtra` popover measure: matches `MenuView`'s fixed 280 pt
-        /// `MenuLayout.popoverWidth`, tall enough for the fullest menu state without clipping.
+        /// `MenuLayout.popoverWidth`, tall enough for every ordinary menu state without
+        /// clipping. The stress scenes pass their own height.
         static let menuSize = CGSize(width: 280, height: 420)
+
+        /// The console window's minimum, which AppKit will not let a user resize below: the
+        /// narrowest and shortest window any console scene may photograph.
+        static let minimumSize = CGSize(
+            width: VoiceourMetrics.Window.minWidth,
+            height: VoiceourMetrics.Window.minHeight
+        )
 
         /// Settings' Island page at a window tall enough to photograph it whole: `height` is a
         /// multiple of 4 that reaches the page's last Position caption without a scroller, so it
-        /// depends on which folds the scene opens.
-        static func islandPage(_ height: CGFloat) -> CGSize {
-            CGSize(width: VoiceourMetrics.Window.defaultWidth, height: height)
+        /// depends on which folds the scene opens and on `width`, which the page wraps to. Nil
+        /// is the first-launch width, for the reason `console`'s size is optional.
+        static func islandPage(_ height: CGFloat, width: CGFloat? = nil) -> CGSize {
+            CGSize(width: width ?? VoiceourMetrics.Window.defaultWidth, height: height)
         }
 
         /// Ordered so the contact sheet reads top-down like the app does: the
-        /// console tab by tab, then the pieces that live outside it.
+        /// console tab by tab, its edge cases and its light twins, then the pieces
+        /// that live outside it.
         private static var registry: [UISceneDescriptor] {
             consoleScenes
+                + qaScenes
+                + lightScenes
                 + menuScenes
                 + overlayScenes
                 + accessibilityScenes
@@ -251,6 +263,13 @@
                 // The component kit on its own, in the console's composition, so a change to
                 // one component shows here before it moves any tab's golden.
                 kitGallery("console.kit.gallery", "The component kit in the console's composition"),
+                // The gallery in another accent, so a theme change that moves only one accent's
+                // colours shows in a golden. The light accents are in `lightScenes`.
+                kitGallery(
+                    "console.kit.gallery.blue",
+                    "The component kit in the blue accent",
+                    accent: .blue
+                ),
                 console(
                     "console.sessions.populated",
                     "History list, day groups and transcript detail",
@@ -412,10 +431,10 @@
                     journalLens: .threads,
                     journalThread: UIFixtures.agentSession
                 ),
-                // The same page in a window narrowed to 798 pt, as a window the user resized
-                // keeps its size across launches: the sidebar folds to its rail of glyphs and
-                // the page's bar, too narrow for its titles, draws its buttons' glyphs alone.
-                // 798 leaves the page 380 pt, on the 4 pt grid.
+                // The same page in a window at the console's minimum width, 800 pt, as a window
+                // the user narrowed keeps its size across launches: the sidebar folds to its
+                // rail of glyphs and the page's bar, too narrow for its titles, draws its
+                // buttons' glyphs alone.
                 console(
                     "console.sessions.narrow",
                     "Journal Threads in a narrow window, the sidebar a rail and the page's actions glyphs",
@@ -423,7 +442,7 @@
                     fixture: .populated,
                     journalLens: .threads,
                     journalThread: UIFixtures.agentSession,
-                    size: CGSize(width: 798, height: VoiceourMetrics.Window.defaultHeight)
+                    size: CGSize(width: VoiceourMetrics.Window.minWidth, height: VoiceourMetrics.Window.defaultHeight)
                 ),
                 console(
                     "console.sessions.threads.empty",
@@ -509,6 +528,22 @@
                     journalLens: .topics,
                     tags: ["empty", "topics"]
                 ),
+                // New Topic pressed beside existing topics, and a name typed: the draft row in
+                // the list and its page, with Add Topic enabled because the name is not blank.
+                console(
+                    "console.sessions.topics.draft",
+                    "Journal Topics with a new topic's draft named and not yet added",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .topics,
+                    tags: ["memory", "topics", "steps"],
+                    steps: [
+                        .press("journal.topics.new"),
+                        .settle(120),
+                        .type("Release notes", into: "journal.topics.new.name"),
+                        .settle(120),
+                    ]
+                ),
                 // Rewind on the remembered fixture's labelled day, whose four confident
                 // highlight kinds lead the day as Highlights and mark their rows.
                 console(
@@ -527,6 +562,16 @@
                     "Settings as it opens, on the Dictation page",
                     tab: .settings,
                     fixture: .backendReady
+                ),
+                // The Appearance page on a fresh install: System and Green selected, and the
+                // preview drawn in the scene's own appearance.
+                console(
+                    "console.settings.appearance",
+                    "Settings' Appearance page with System and Green selected",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    tags: ["appearance", "steps"],
+                    steps: settingsPage("appearance")
                 ),
                 // The microphone picker on the connected Yeti, and the mute and cue switches.
                 console(
@@ -630,7 +675,7 @@
                     "Settings' Island page with all four folds open at the stock look",
                     tab: .settings,
                     fixture: .backendReady,
-                    size: islandPage(3_260),
+                    size: islandPage(3_048),
                     tags: ["island", "steps"],
                     steps: settingsPage("island") + islandFoldSteps
                 ),
@@ -642,7 +687,7 @@
                     "Settings' Island page with all four folds open on the Arctic Platinum look",
                     tab: .settings,
                     fixture: .islandLook,
-                    size: islandPage(3_316),
+                    size: islandPage(3_104),
                     tags: ["island", "steps"],
                     steps: settingsPage("island") + islandFoldSteps
                 ),
@@ -693,11 +738,358 @@
             .settle(120),
         ]
 
+        // MARK: QA — the edge cases every tab and the menu must hold
+
+        /// The stress, minimal and narrow states a reader's own data and window reach, on the
+        /// QA fixtures. Ids keep their tab's prefix so each counts as that tab's golden. Every
+        /// console scene here is at least the window's 800 × 560 minimum.
+        private static var qaScenes: [UISceneDescriptor] {
+            [
+                // The Timeline on 500 rows: its first selection the Tern paste bound to the
+                // 96-character unbroken thread title and never sent, beside rows of one word,
+                // 400 and 10,000 words, an unbroken token, Japanese, Arabic and emoji, a
+                // 60-character app name, and a day group of 300.
+                console(
+                    "console.sessions.stress",
+                    "Timeline on 500 rows, opened on a never-sent paste into a thread with an unbroken title",
+                    tab: .history,
+                    fixture: .stressHistory,
+                    tags: ["qa", "stress"]
+                ),
+                // The same at the window's minimum: the sidebar a rail, the page at its
+                // narrowest and only 560 pt of the list.
+                console(
+                    "console.sessions.stress.narrow",
+                    "Timeline on 500 rows in the minimum window",
+                    tab: .history,
+                    fixture: .stressHistory,
+                    size: minimumSize,
+                    tags: ["qa", "stress", "narrow"]
+                ),
+                // The day only memory holds, with 1,000 dictations across twelve apps: the
+                // four-digit entry count, the twelve-app Where tile and a page of 1,000 rows.
+                console(
+                    "console.sessions.rewind.stress",
+                    "Journal Rewind on a day of 1,000 dictations",
+                    tab: .history,
+                    fixture: .stressHistory,
+                    journalLens: .rewind,
+                    journalDay: UIFixtures.stressBusyDay,
+                    tags: ["qa", "stress", "memory"]
+                ),
+                // The largest topic, the lens's own first selection: a 70-character name beside
+                // its 70-character sibling, a 120-character summary and 600 filed entries.
+                console(
+                    "console.sessions.topics.stress",
+                    "Journal Topics opened on a long-named topic with 600 entries",
+                    tab: .history,
+                    fixture: .stressMemory,
+                    journalLens: .topics,
+                    tags: ["qa", "stress", "memory", "topics"]
+                ),
+                // The newest note, the lens's own first selection, is 20,000 characters long;
+                // a one-word note sits in the list below it.
+                console(
+                    "console.sessions.notes.stress",
+                    "Journal Notes opened on a 20,000-character note",
+                    tab: .history,
+                    fixture: .stressMemory,
+                    journalLens: .notes,
+                    tags: ["qa", "stress", "memory", "notes"]
+                ),
+                // Every Home figure past its tile's measure, at `console.home.full-page`'s
+                // height so the activity grid, its 30 weeks and the forty apps' top five all show.
+                console(
+                    "console.home.stress",
+                    "Home with seven-digit figures, a 12345-hour total and forty long app names",
+                    tab: .home,
+                    fixture: .stressStats,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: 1_080),
+                    tags: ["qa", "stress"]
+                ),
+                // The smallest figures: one dictation, one word, one app, a one-day streak.
+                console(
+                    "console.home.minimal",
+                    "Home with one dictation of one word",
+                    tab: .home,
+                    fixture: .minimalStats,
+                    tags: ["qa"]
+                ),
+                // The stress figures at the minimum width, tall enough for the whole page:
+                // the greeting, the stat grid and the activity grid at their narrowest.
+                console(
+                    "console.home.narrow",
+                    "Home's whole page with the stress figures at the minimum width",
+                    tab: .home,
+                    fixture: .stressStats,
+                    size: CGSize(width: VoiceourMetrics.Window.minWidth, height: 940),
+                    tags: ["qa", "stress", "narrow"]
+                ),
+                // 480 terms narrowed by a search to the one whose canonical is 80 unbroken
+                // characters, and its page with 40 spoken forms. The press needs the search:
+                // the list is lazy, and the term sorts too far down to be built unsearched.
+                console(
+                    "console.glossary.stress",
+                    "Glossary of 480 terms open on an 80-character term with 40 spoken forms",
+                    tab: .glossary,
+                    fixture: .stressGlossary,
+                    tags: ["qa", "stress", "steps"],
+                    steps: [
+                        .type("selectable", into: "glossary.search.field"),
+                        .settle(120),
+                        .press("glossary.term.\(UIFixtures.stressLongTermID)"),
+                        .settle(120),
+                    ]
+                ),
+                // A 60-character query that matches nothing: the no-matches state and its
+                // actions in the list column, the query held in the field.
+                console(
+                    "console.glossary.nomatch",
+                    "Glossary searched for a 60-character query that matches no term",
+                    tab: .glossary,
+                    fixture: .stressGlossary,
+                    tags: ["qa", "stress", "steps"],
+                    steps: [.type(UIFixtures.stressGlossaryQuery, into: "glossary.search.field"), .settle(120)]
+                ),
+                // Every readiness mark bad at the minimum width: each row's title, mark and
+                // remediation sharing a page at its narrowest.
+                console(
+                    "console.settings.readiness.narrow",
+                    "Settings' Readiness page denied at the minimum width",
+                    tab: .settings,
+                    fixture: .backendUnavailable,
+                    size: CGSize(width: VoiceourMetrics.Window.minWidth, height: VoiceourMetrics.Window.defaultHeight),
+                    tags: ["qa", "narrow", "steps"],
+                    steps: settingsPage("readiness")
+                ),
+                // A 70-character microphone that is not connected and an output with no mute:
+                // the picker, both marks and both captions at their longest.
+                console(
+                    "console.settings.audio.stress",
+                    "Settings' Audio page with a 70-character microphone missing and mute unavailable",
+                    tab: .settings,
+                    fixture: .stressSettings,
+                    tags: ["qa", "stress", "steps"],
+                    steps: settingsPage("audio")
+                ),
+                // The Island page with all four folds open at the minimum width: the showroom,
+                // the look gallery and the slider rows at their narrowest.
+                console(
+                    "console.settings.island.narrow",
+                    "Settings' Island page with all four folds open at the minimum width",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    size: islandPage(3_048, width: VoiceourMetrics.Window.minWidth),
+                    tags: ["qa", "island", "narrow", "steps"],
+                    steps: settingsPage("island") + islandFoldSteps
+                ),
+                // The window at its minimum height: Settings' sidebar and its pages' first
+                // rows in 560 pt.
+                console(
+                    "console.settings.short",
+                    "Settings as it opens in a window at the minimum height",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    size: CGSize(width: VoiceourMetrics.Window.defaultWidth, height: VoiceourMetrics.Window.minHeight),
+                    tags: ["qa", "short"]
+                ),
+                // A capture failure with a 300-character cause, system audio muted and a
+                // 3,000-character last transcript: the status row's pills, the headline and the
+                // transcript well at their longest at once, 20 pt taller than `menuSize`.
+                menu(
+                    "menu.stress.failure",
+                    "Menu bar popover after a capture failure with a long cause, audio muted",
+                    fixture: .stressMenu,
+                    size: CGSize(width: menuSize.width, height: 440),
+                    tags: ["qa", "stress"]
+                ),
+                // A paste of one unbroken 200-character token into an app with a 60-character
+                // name: the well's three lines and the report's detail line.
+                menu(
+                    "menu.stress.transcript",
+                    "Menu bar popover after pasting one unbroken token into a long-named app",
+                    fixture: .stressMenuTranscript,
+                    tags: ["qa", "stress"]
+                ),
+            ]
+        }
+
+        // MARK: Light twins
+
+        /// Fresh installs follow the system's appearance, and a fixture keeps System, so these
+        /// scenes render the same fixtures as their dark twins in a light window: one per
+        /// surface a light reader meets first, so a light-only regression shows in a golden.
+        /// Each id is its dark twin's with `.light` appended.
+        private static var lightScenes: [UISceneDescriptor] {
+            [
+                console(
+                    "console.home.populated.light",
+                    "Home lifetime stats, streaks and the activity grid, light",
+                    tab: .home,
+                    fixture: .populated,
+                    colorScheme: .light,
+                    tags: ["light"]
+                ),
+                console(
+                    "console.home.first-run.ready.light",
+                    "Home's first-run card with the model ready and no permission answered, light",
+                    tab: .home,
+                    fixture: .firstRunReady,
+                    colorScheme: .light,
+                    tags: ["light", "first-run"]
+                ),
+                console(
+                    "console.sessions.populated.light",
+                    "History list, day groups and transcript detail, light",
+                    tab: .history,
+                    fixture: .populated,
+                    colorScheme: .light,
+                    tags: ["light"]
+                ),
+                console(
+                    "console.sessions.rewind.light",
+                    "Journal Rewind on the fixture's newest day, light",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .rewind,
+                    colorScheme: .light,
+                    tags: ["light"]
+                ),
+                console(
+                    "console.sessions.threads.open.light",
+                    "Journal Threads with one agent session's page open, light",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .threads,
+                    journalThread: UIFixtures.agentSession,
+                    colorScheme: .light,
+                    tags: ["light"]
+                ),
+                console(
+                    "console.sessions.topics.light",
+                    "Journal Topics listing the user's topics, the largest one's page selected, light",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .topics,
+                    colorScheme: .light,
+                    tags: ["light", "memory", "topics", "agent-notes"]
+                ),
+                console(
+                    "console.sessions.notes.light",
+                    "Journal Notes listing every note memory holds, light",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .notes,
+                    colorScheme: .light,
+                    tags: ["light", "memory", "notes"]
+                ),
+                console(
+                    "console.glossary.editing.light",
+                    "Glossary with the bundled kubectl term's page open, light",
+                    tab: .glossary,
+                    fixture: .mixedGlossary,
+                    colorScheme: .light,
+                    tags: ["light", "steps"],
+                    steps: [.press("glossary.term.kubectl")]
+                ),
+                console(
+                    "console.glossary.suggestions.light",
+                    "Glossary opened on its pending suggestions, light",
+                    tab: .glossary,
+                    fixture: .glossarySuggestions,
+                    colorScheme: .light,
+                    tags: ["light", "suggestions"]
+                ),
+                console(
+                    "console.settings.granted.light",
+                    "Settings as it opens, on the Dictation page, light",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    colorScheme: .light,
+                    tags: ["light"]
+                ),
+                console(
+                    "console.settings.denied.light",
+                    "Settings' Readiness page with the backend unreachable and permissions denied, light",
+                    tab: .settings,
+                    fixture: .backendUnavailable,
+                    colorScheme: .light,
+                    tags: ["light", "steps"],
+                    steps: settingsPage("readiness")
+                ),
+                console(
+                    "console.settings.appearance.light",
+                    "Settings' Appearance page with System and Green selected, light",
+                    tab: .settings,
+                    fixture: .backendReady,
+                    colorScheme: .light,
+                    tags: ["light", "appearance", "steps"],
+                    steps: settingsPage("appearance")
+                ),
+                // As tall as its dark twin: the same page and folds.
+                console(
+                    "console.settings.island.look.light",
+                    "Settings' Island page with all four folds open on the Arctic Platinum look, light",
+                    tab: .settings,
+                    fixture: .islandLook,
+                    size: islandPage(3_104),
+                    colorScheme: .light,
+                    tags: ["light", "island", "steps"],
+                    steps: settingsPage("island") + islandFoldSteps
+                ),
+                kitGallery(
+                    "console.kit.gallery.light",
+                    "The component kit in the console's composition, light",
+                    colorScheme: .light
+                ),
+                // Three more accents in the light, where a pale accent is hardest to keep
+                // legible: yellow, orange and the hueless graphite.
+                kitGallery(
+                    "console.kit.gallery.light.yellow",
+                    "The component kit in the yellow accent, light",
+                    colorScheme: .light,
+                    accent: .yellow
+                ),
+                kitGallery(
+                    "console.kit.gallery.light.orange",
+                    "The component kit in the orange accent, light",
+                    colorScheme: .light,
+                    accent: .orange
+                ),
+                kitGallery(
+                    "console.kit.gallery.light.graphite",
+                    "The component kit in the graphite accent, light",
+                    colorScheme: .light,
+                    accent: .graphite
+                ),
+                menu(
+                    "menu.idle.light", "Menu bar popover at rest, light", fixture: .populated, colorScheme: .light),
+                menu(
+                    "menu.transcript.light",
+                    "Menu bar popover with the last transcript, light",
+                    fixture: .completedDictation,
+                    colorScheme: .light
+                ),
+                menu(
+                    "menu.error.light",
+                    "Menu bar popover after a failed start, light",
+                    fixture: .micDenied,
+                    colorScheme: .light
+                ),
+                menu(
+                    "menu.downloading.light",
+                    "Menu bar popover while the speech model downloads, light",
+                    fixture: .backendDownloading,
+                    colorScheme: .light
+                ),
+            ]
+        }
+
         // MARK: Accessibility adaptations
 
-        /// Each scene is a native console tab with exactly one accessibility
-        /// adaptation enabled. The app-owned seams are necessary because the SDK
-        /// environment values are get-only.
+        /// Each scene is a native console tab or the kit with accessibility adaptations
+        /// enabled: one at a time in the dark, one each in the light, and one pair at once.
+        /// The app-owned seams are necessary because the SDK environment values are get-only.
         private static var accessibilityScenes: [UISceneDescriptor] {
             [
                 accessibilityConsole(
@@ -705,12 +1097,12 @@
                     "History transcript with Reduce Transparency enabled",
                     tab: .history,
                     fixture: .populated,
-                    adaptation: .reduceTransparency
+                    adaptations: [.reduceTransparency]
                 ),
                 kitGallery(
                     "a11y.kit.reduce-transparency",
                     "The component kit with Reduce Transparency enabled",
-                    adaptation: .reduceTransparency
+                    adaptations: [.reduceTransparency]
                 ),
                 // Settings as it opens, on the Dictation page, with rims and text escalated.
                 accessibilityConsole(
@@ -718,7 +1110,7 @@
                     "Settings' Dictation page with Increase Contrast enabled",
                     tab: .settings,
                     fixture: .populated,
-                    adaptation: .increaseContrast
+                    adaptations: [.increaseContrast]
                 ),
                 // Every readiness mark bad, so each carries the symbol that says so without
                 // its colour.
@@ -727,7 +1119,7 @@
                     "Settings' Readiness page denied, with Differentiate Without Color enabled",
                     tab: .settings,
                     fixture: .backendUnavailable,
-                    adaptation: .differentiateWithoutColor,
+                    adaptations: [.differentiateWithoutColor],
                     tags: ["steps"],
                     steps: settingsPage("readiness")
                 ),
@@ -736,14 +1128,14 @@
                     "Home activity grid with Differentiate Without Color enabled",
                     tab: .home,
                     fixture: .populated,
-                    adaptation: .differentiateWithoutColor
+                    adaptations: [.differentiateWithoutColor]
                 ),
                 accessibilityConsole(
                     "a11y.home.reduce-transparency",
                     "Home islands with Reduce Transparency enabled",
                     tab: .home,
                     fixture: .populated,
-                    adaptation: .reduceTransparency
+                    adaptations: [.reduceTransparency]
                 ),
                 // Brightness and Contrast disabled beside the caption that says why, and the
                 // showroom drawn at the accessible tone the island itself will use.
@@ -752,8 +1144,8 @@
                     "Settings' Island page, lighting fold open, with Increase Contrast enabled",
                     tab: .settings,
                     fixture: .backendReady,
-                    adaptation: .increaseContrast,
-                    size: islandPage(1_920),
+                    adaptations: [.increaseContrast],
+                    size: islandPage(1_856),
                     tags: ["island", "steps"],
                     steps: settingsPage("island") + [.press("island.group.lighting"), .settle(120)]
                 ),
@@ -764,10 +1156,42 @@
                     "Settings' Island page, motion fold open, with Reduce Motion enabled",
                     tab: .settings,
                     fixture: .backendReady,
-                    adaptation: .reduceMotion,
-                    size: islandPage(1_968),
+                    adaptations: [.reduceMotion],
+                    size: islandPage(1_924),
                     tags: ["island", "steps"],
                     steps: settingsPage("island") + [.press("island.group.motion"), .settle(120)]
+                ),
+                // Every readiness mark bad in the light, with rims and text escalated: Increase
+                // Contrast where the light theme's quietest text sits closest to its ground.
+                accessibilityConsole(
+                    "a11y.light.increase-contrast",
+                    "Settings' Readiness page denied, light, with Increase Contrast enabled",
+                    tab: .settings,
+                    fixture: .backendUnavailable,
+                    adaptations: [.increaseContrast],
+                    colorScheme: .light,
+                    tags: ["light", "steps"],
+                    steps: settingsPage("readiness")
+                ),
+                // The Timeline in the light with every surface opaque.
+                accessibilityConsole(
+                    "a11y.light.reduce-transparency",
+                    "History transcript, light, with Reduce Transparency enabled",
+                    tab: .history,
+                    fixture: .populated,
+                    adaptations: [.reduceTransparency],
+                    colorScheme: .light,
+                    tags: ["light"]
+                ),
+                // Two adaptations at once on the stress Timeline, whose newest row carries the
+                // most marks a row can: each mark escalated and carrying its symbol together.
+                accessibilityConsole(
+                    "a11y.combined",
+                    "Stress Timeline with Increase Contrast and Differentiate Without Color enabled",
+                    tab: .history,
+                    fixture: .stressHistory,
+                    adaptations: [.increaseContrast, .differentiateWithoutColor],
+                    tags: ["qa", "stress"]
                 ),
             ]
         }
@@ -919,7 +1343,7 @@
                     title: "Recording overlay island with Reduce Motion enabled",
                     size: RecordingOverlayLayout.island.canvasRect.size,
                     tags: ["overlay", "a11y"],
-                    accessibilityAdaptation: .reduceMotion
+                    accessibilityAdaptations: [.reduceMotion]
                 ) {
                     AnyView(
                         RecordingOverlayView(
@@ -1031,7 +1455,7 @@
                     "overlay.notch.reduced-motion",
                     "Recording overlay collar with Reduce Motion enabled",
                     tags: ["a11y"],
-                    accessibilityAdaptation: .reduceMotion,
+                    accessibilityAdaptations: [.reduceMotion],
                     model: { IslandShowroomPose.speaking.model() }
                 ),
                 // Over a full-screen app the band beside the housing is empty black, and the
@@ -1066,9 +1490,11 @@
 
         // MARK: - Factories
 
-        /// A full native console window, at the app's first-launch measure.
-        /// `ConsoleWindowView` suppresses activation while the harness keeps the
-        /// process policy `.prohibited`, so hosting it can never take focus.
+        /// A full native console window, at the app's first-launch measure, dark unless the
+        /// scene is a light twin. Fixtures keep the System appearance, so the window's colour
+        /// scheme is what the console resolves. `ConsoleWindowView` suppresses activation
+        /// while the harness keeps the process policy `.prohibited`, so hosting it can never
+        /// take focus.
         private static func console(
             _ identifier: String,
             _ title: String,
@@ -1087,6 +1513,7 @@
             // evaluated outside this enum's main-actor context, so it may not read a
             // main-actor static. Nil is the first-launch measure, resolved below.
             size: CGSize? = nil,
+            colorScheme: ColorScheme = .dark,
             tags: [String] = [],
             steps: [UIStep] = []
         ) -> UISceneDescriptor {
@@ -1094,7 +1521,7 @@
                 id: identifier,
                 title: title,
                 size: size ?? consoleSize,
-                colorScheme: .dark,
+                colorScheme: colorScheme,
                 tags: ["console"] + tags,
                 steps: steps
             ) {
@@ -1187,14 +1614,15 @@
         }
 
         /// A full-console accessibility variant. The scene contract installs the
-        /// selected adaptation before SwiftUI evaluates the hierarchy and restores
+        /// selected adaptations before SwiftUI evaluates the hierarchy and restores
         /// the prior process-wide seams during teardown.
         private static func accessibilityConsole(
             _ identifier: String,
             _ title: String,
             tab: ConsoleTab,
             fixture: UIFixtures.Kind,
-            adaptation: UIHarnessAccessibilityAdaptation,
+            adaptations: Set<UIHarnessAccessibilityAdaptation>,
+            colorScheme: ColorScheme = .dark,
             // Nil is the first-launch measure, for the same reason as in `console`.
             size: CGSize? = nil,
             tags: [String] = [],
@@ -1204,44 +1632,59 @@
                 id: identifier,
                 title: title,
                 size: size ?? consoleSize,
-                colorScheme: .dark,
+                colorScheme: colorScheme,
                 tags: ["console", "a11y"] + tags,
                 steps: steps,
-                accessibilityAdaptation: adaptation
+                accessibilityAdaptations: adaptations
             ) {
                 AnyView(ConsoleWindowView(coordinator: UIFixtures.coordinator(fixture), initialTab: tab))
             }
         }
 
-        /// The component kit's gallery at the console's measure, on `Kit.Screen`.
+        /// The component kit's gallery at the console's measure, on `Kit.Screen`, in the theme
+        /// `colorScheme` and `accent` resolve.
         private static func kitGallery(
             _ identifier: String,
             _ title: String,
-            adaptation: UIHarnessAccessibilityAdaptation? = nil
+            colorScheme: ColorScheme = .dark,
+            accent: ConsoleAccent = .green,
+            adaptations: Set<UIHarnessAccessibilityAdaptation> = []
         ) -> UISceneDescriptor {
             UISceneDescriptor(
                 id: identifier,
                 title: title,
                 size: consoleSize,
-                colorScheme: .dark,
-                tags: adaptation == nil ? ["console", "kit"] : ["console", "kit", "a11y"],
-                accessibilityAdaptation: adaptation
+                colorScheme: colorScheme,
+                tags: adaptations.isEmpty ? ["console", "kit"] : ["console", "kit", "a11y"],
+                accessibilityAdaptations: adaptations
             ) {
-                AnyView(KitGallery())
+                AnyView(KitGallery(accent: accent))
             }
         }
 
+        /// The menu popover at its fixed width over the theme's ground. `size` is nil for
+        /// `menuSize`, for the reason `console`'s is optional; a stress scene passes the height
+        /// its content needs.
         private static func menu(
             _ identifier: String,
             _ title: String,
-            fixture: UIFixtures.Kind
+            fixture: UIFixtures.Kind,
+            colorScheme: ColorScheme = .dark,
+            size: CGSize? = nil,
+            tags: [String] = []
         ) -> UISceneDescriptor {
-            UISceneDescriptor(id: identifier, title: title, size: menuSize, tags: ["menu"]) {
+            UISceneDescriptor(
+                id: identifier,
+                title: title,
+                size: size ?? menuSize,
+                colorScheme: colorScheme,
+                tags: ["menu"] + tags
+            ) {
                 AnyView(
                     MenuView(coordinator: UIFixtures.coordinator(fixture))
                         .frame(width: menuSize.width, alignment: .top)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .background(backdrop(for: .dark))
+                        .background(backdrop(for: colorScheme))
                 )
             }
         }
@@ -1257,7 +1700,7 @@
             display: OverlayDisplay = .fixtureNotch,
             island: IslandAppearance = .stock,
             tags: [String] = [],
-            accessibilityAdaptation: UIHarnessAccessibilityAdaptation? = nil,
+            accessibilityAdaptations: Set<UIHarnessAccessibilityAdaptation> = [],
             model makeModel: @escaping @MainActor () -> RecordingOverlayModel
         ) -> UISceneDescriptor {
             let layout = UIFixtures.collarLayout(on: display)
@@ -1266,7 +1709,7 @@
                 title: title,
                 size: layout.canvasRect.size,
                 tags: ["overlay"] + tags,
-                accessibilityAdaptation: accessibilityAdaptation
+                accessibilityAdaptations: accessibilityAdaptations
             ) {
                 let model = makeModel()
                 model.update(layout: layout)
@@ -1283,11 +1726,11 @@
             }
         }
 
-        /// Literal fills, not `NSColor` system colours: a dynamic system colour
-        /// resolves against this Mac's accent and appearance settings and would not
-        /// port between machines.
+        /// The green theme's ground for `scheme`, from the generator, not an `NSColor` system
+        /// colour: a dynamic system colour resolves against this Mac's accent and appearance
+        /// settings and would not port between machines.
         private static func backdrop(for scheme: ColorScheme) -> Color {
-            scheme == .dark ? VoiceourPalette.Ink.void : Color(white: 0.96)
+            Theme.resolve(scheme: scheme, accent: .green, increasedContrast: false).ground
         }
 
         // MARK: - Overlay state

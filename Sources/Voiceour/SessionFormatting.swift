@@ -2,18 +2,18 @@ import Foundation
 import VoiceCore
 
 extension RecentSessionOutcomeMetadata {
-    /// The outcome's word and the tone it carries on the kit's mark ladder.
+    /// The outcome's word and the tone it carries as a pill.
     ///
-    /// Copy-only reads `COPY ONLY`, the word the menu uses for the same outcome,
-    /// so `COPIED` is left to mean only "you just copied this".
-    var outcomeMark: (label: String, tone: Kit.Mark.Tone) {
+    /// Copy-only reads "Copy only", the word the menu uses for the same outcome,
+    /// so "Copied" is left to mean only "you just copied this".
+    var outcomeMark: (label: String, tone: Kit.Pill.Tone) {
         switch disposition {
         case .pasteAttempted:
-            ("PASTED", .success)
+            ("Pasted", .success)
         case .copiedOnly:
-            ("COPY ONLY", .caution)
+            ("Copy only", .caution)
         case .failed:
-            ("FAILED", .critical)
+            ("Failed", .critical)
         }
     }
 }
@@ -29,15 +29,15 @@ extension SessionStageTimings {
 }
 
 extension TargetSafetyClass {
-    /// `rawValue` is a serialisation key; uppercasing it destroys the word
-    /// boundary and ships "CODEEDITOR" on the highest-stakes chip in the row.
+    /// `rawValue` is a serialisation key; capitalising it destroys the word
+    /// boundary and ships "Codeeditor" on the highest-stakes pill in the row.
     var displayLabel: String {
         switch self {
-        case .normalText: "TEXT"
-        case .terminal: "TERMINAL"
-        case .codeEditor: "CODE EDITOR"
-        case .secure: "SECURE"
-        case .unknownRisky: "UNKNOWN"
+        case .normalText: "Text"
+        case .terminal: "Terminal"
+        case .codeEditor: "Code editor"
+        case .secure: "Secure"
+        case .unknownRisky: "Unknown"
         }
     }
 }

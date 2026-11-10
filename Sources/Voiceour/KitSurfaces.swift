@@ -1,89 +1,14 @@
 import SwiftUI
 
 extension Kit {
-    /// The kit's one path onto Liquid Glass, and the opaque surface that replaces it.
+    /// The ground every console tab draws its content on: the theme's `ground`.
     ///
-    /// Reduce Transparency asks for an opaque surface, so the material becomes the
-    /// system's control fill with a drawn rim. Under that setting SwiftUI would frost
-    /// the glass on its own; the kit draws the replacement itself because the setting
-    /// also reaches it through the harness's pin, which SwiftUI cannot see, and an
-    /// adaptation no golden can show is an adaptation nobody checks.
-    struct GlassSurface<S: Shape>: ViewModifier {
-        private let shape: S
-        private let isInteractive: Bool
-        private var a11y = A11y()
-
-        init(shape: S, isInteractive: Bool) {
-            self.shape = shape
-            self.isInteractive = isInteractive
-        }
-
-        @ViewBuilder
-        func body(content: Content) -> some View {
-            if a11y.reduceTransparency {
-                content
-                    .background(Color(nsColor: .controlBackgroundColor), in: shape)
-                    .overlay(shape.stroke(Kit.Colors.rule(a11y), lineWidth: Kit.Colors.hairline(a11y)))
-            } else {
-                content.glassEffect(isInteractive ? .regular.interactive() : .regular, in: shape)
-            }
-        }
-    }
-
-    /// Glass controls that sit side by side, sampled as one group.
-    ///
-    /// Glass cannot sample other glass, so two neighbouring glass shapes in separate
-    /// containers each refract a different backdrop and read as two materials. One
-    /// container gives the group one sampling region, and lets a control that appears
-    /// or leaves blend into its neighbours instead of popping.
-    struct GlassGroup<Content: View>: View {
-        private let spacing: CGFloat
-        private let content: Content
-
-        init(spacing: CGFloat = VoiceourMetrics.Space.sm, @ViewBuilder content: () -> Content) {
-            self.spacing = spacing
-            self.content = content()
-        }
-
-        var body: some View {
-            GlassEffectContainer(spacing: spacing) {
-                HStack(spacing: spacing) {
-                    content
-                }
-            }
-        }
-    }
-
-    /// The floating panel the sidebar is: glass over the screen's ground, inset from
-    /// the window's edges the way a macOS sidebar floats.
-    struct GlassPanel<Content: View>: View {
-        private let content: Content
-        private var a11y = A11y()
-
-        init(@ViewBuilder content: () -> Content) {
-            self.content = content()
-        }
-
-        var body: some View {
-            let shape = RoundedRectangle(cornerRadius: Kit.Metrics.panelRadius, style: .continuous)
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .modifier(GlassSurface(shape: shape, isInteractive: false))
-        }
-    }
-
-    /// The ground every console tab draws its content on: Home's near-black with
-    /// Home's dot grid, fixed dark.
-    ///
-    /// Fixed dark because the islands, marks and rows are app-painted with a text
-    /// ladder authored for near-black; following a light system appearance would put
-    /// `Text.high` on a light plate. The dark colour scheme reaches everything inside,
-    /// so native controls, glass and semantic colours render dark too, while the
-    /// window's own title bar and tab strip keep the system's appearance. The ground
-    /// ignores the safe area so it runs under the tab strip; the content does not.
-    /// It declares `Ink.void` as the ground text outside an island is measured on.
+    /// The colour runs under the window's safe area so it meets the tab strip without
+    /// a seam; the content keeps to the safe area. It declares the ground as the
+    /// surface text outside any card is measured on.
     struct Screen<Content: View>: View {
         private let content: Content
+        @Environment(\.theme) private var theme
 
         init(@ViewBuilder content: () -> Content) {
             self.content = content()
@@ -93,170 +18,123 @@ extension Kit {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background {
-                    ZStack {
-                        Kit.Colors.ground
-                        DotGrid()
-                    }
-                    .ignoresSafeArea()
-                    .accessibilityHidden(true)
+                    theme.ground
+                        .ignoresSafeArea()
+                        .accessibilityHidden(true)
                 }
-                .environment(\.surfaceGround, SurfaceGround(Kit.Colors.ground))
-                .environment(\.colorScheme, .dark)
+                .environment(\.surfaceGround, SurfaceGround(theme.ground))
         }
     }
 
-    /// Home's dark pane, the surface every group of content sits on: a heading at its
-    /// top (``Kit/SectionTitle``) and what it heads under it.
+    /// A raised surface that holds one group of content: a figure, a section of a page,
+    /// a list of preferences.
     ///
-    /// Painted rather than glass. The console window already has a system Liquid
-    /// Glass ground, and glass cannot sample other glass — a glass island on a glass
-    /// window is two blurs arguing. Painting keeps one system material in the window
-    /// and keeps the offscreen harness able to prove the island's structure, which it
-    /// cannot do for either real glass path. `glow: false` drops the neon rim alone,
-    /// for an island that sits inside a glowing one or beside a dozen others.
-    struct Island<Content: View>: View {
+    /// Elevation reads differently per appearance, so the theme decides how it shows: a
+    /// soft shadow in light, a 1 pt top highlight in dark, where shadows vanish into the
+    /// ground. The outline is quiet beside the light shadow, which already lifts the card,
+    /// and steps up to the border wherever no shadow draws; under Increase Contrast it is
+    /// what identifies the card, so it takes the strong border there. The card clips its
+    /// content to its corners, so a hover plate or an overflowing line never paints past
+    /// the rounded edge.
+    struct Card<Content: View>: View {
         private let padding: CGFloat
-        private let glow: Bool
         private let content: Content
 
-        init(
-            padding: CGFloat = Kit.Metrics.islandPadding,
-            glow: Bool = true,
-            @ViewBuilder content: () -> Content
-        ) {
+        init(padding: CGFloat = Kit.Metrics.cardPadding, @ViewBuilder content: () -> Content) {
             self.padding = padding
-            self.glow = glow
             self.content = content()
         }
 
         var body: some View {
+            let shape = RoundedRectangle(cornerRadius: Kit.Metrics.cardRadius, style: .continuous)
             content
                 .padding(padding)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .kitIslandSurface(cornerRadius: Kit.Metrics.islandRadius, glow: glow, elevated: true)
+                .clipShape(shape)
+                .modifier(PaintedSurface(shape: shape, fill: \.raised))
         }
     }
 
-    /// The painted stack an island is, as a background any kit surface can take: a
-    /// metric tile, the menu's transcript well.
+    /// A System Settings group: an optional quiet header, a card holding the rows, and
+    /// an optional footer that explains them.
     ///
-    /// Void at 55 %, `Ink.pane` and the `glassTint` gradient, then the neon rim, the
-    /// white specular rim and an inner dark hairline; two soft shadows when
-    /// `elevated`. Under Reduce Transparency it is flat `Ink.surface` with a drawn
-    /// `lineEdge` rim: with the material gone there is nothing for a highlight to be a
-    /// highlight of, and a plus-lighter edge over an opaque fill is just a bright line.
-    ///
-    /// It declares its opaque fills as the ground under its text. Only the opaque
-    /// ones: `glassTint` is a gradient, and reporting its lightest stop would
-    /// understate the ground under text near the top edge.
-    struct IslandSurface: ViewModifier {
-        private let cornerRadius: CGFloat
-        private let glow: Bool
-        private let elevated: Bool
-        private var a11y = A11y()
-        @Environment(\.surfaceGround) private var inheritedGround
+    /// The card has no padding of its own, so each row owns its insets and its hover
+    /// plate reaches the card's edge. Callers place `Kit.Rule(inset: 12)` between rows;
+    /// the group never inserts separators itself, because it cannot see where one row
+    /// ends inside a `ForEach`.
+    struct Group<Content: View>: View {
+        private let title: String?
+        private let footer: String?
+        private let rows: Content
 
-        init(cornerRadius: CGFloat, glow: Bool, elevated: Bool) {
-            self.cornerRadius = cornerRadius
-            self.glow = glow
-            self.elevated = elevated
-        }
-
-        func body(content: Content) -> some View {
-            content
-                .background { surface }
-                .environment(
-                    \.surfaceGround,
-                    a11y.reduceTransparency
-                        ? SurfaceGround(VoiceourPalette.Ink.surface)
-                        : inheritedGround
-                            .painting(VoiceourPalette.Ink.void.opacity(0.55))
-                            .painting(VoiceourPalette.Ink.pane)
-                )
-        }
-
-        private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        }
-
-        @ViewBuilder
-        private var surface: some View {
-            let hairline = VoiceourMetrics.Stroke.hairline(a11y.contrast)
-            if a11y.reduceTransparency {
-                shape
-                    .fill(VoiceourPalette.Ink.surface)
-                    .overlay {
-                        shape.strokeBorder(a11y.lineEdge, lineWidth: hairline)
-                    }
-            } else {
-                ZStack {
-                    shape.fill(VoiceourPalette.Ink.void.opacity(0.55))
-                    shape.fill(VoiceourPalette.Ink.pane)
-                    shape.fill(VoiceourPalette.glassTint)
-                    if glow {
-                        // The neon rim. A drop shadow cannot do this job: the fills
-                        // above are translucent, so a green shadow behind the stack
-                        // shows through the pane, tints the whole island and spills
-                        // into the ground. A blurred stroke lights only the edge.
-                        shape
-                            .strokeBorder(VoiceourPalette.Alien.bloomGlow, lineWidth: 1.5)
-                            .blur(radius: 2.5)
-                            .blendMode(.plusLighter)
-                    }
-                    shape
-                        .strokeBorder(
-                            VoiceourPalette.specularRim,
-                            lineWidth: a11y.contrast == .increased ? 1 : VoiceourMetrics.Stroke.specular
-                        )
-                        .blendMode(.plusLighter)
-                    RoundedRectangle(
-                        cornerRadius: VoiceourMetrics.Radius.nested(cornerRadius, inset: hairline),
-                        style: .continuous
-                    )
-                    .strokeBorder(VoiceourPalette.Ink.rimDark, lineWidth: hairline)
-                    .padding(hairline)
-                }
-                .shadow(
-                    color: elevated ? VoiceourMetrics.Shadow.homeOuter.color : .clear,
-                    radius: VoiceourMetrics.Shadow.homeOuter.radius,
-                    y: VoiceourMetrics.Shadow.homeOuter.y
-                )
-                .shadow(
-                    color: elevated ? VoiceourMetrics.Shadow.homeInner.color : .clear,
-                    radius: VoiceourMetrics.Shadow.homeInner.radius,
-                    y: VoiceourMetrics.Shadow.homeInner.y
-                )
-            }
-        }
-    }
-
-    /// A hairline between two regions, at the weight the kit's rims use.
-    struct Rule: View {
-        private let axis: Axis
-        private var a11y = A11y()
-
-        init(_ axis: Axis = .horizontal) {
-            self.axis = axis
+        init(_ title: String? = nil, footer: String? = nil, @ViewBuilder rows: () -> Content) {
+            self.title = title
+            self.footer = footer
+            self.rows = rows()
         }
 
         var body: some View {
-            let thickness = Kit.Colors.hairline(a11y)
-            Rectangle()
-                .fill(Kit.Colors.rule(a11y))
-                .frame(
-                    width: axis == .vertical ? thickness : nil,
-                    height: axis == .horizontal ? thickness : nil
-                )
-                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: VoiceourMetrics.Space.sm) {
+                if let title {
+                    Text(title)
+                        .roleStyle(.label)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, VoiceourMetrics.Space.xs)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                Kit.Card(padding: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        rows
+                    }
+                }
+                if let footer {
+                    Text(footer)
+                        .roleStyle(.meta)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, VoiceourMetrics.Space.xs)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    /// A transient confirmation in a glass capsule: what just happened, in the same
-    /// sentence VoiceOver hears. It names no control and holds none, so a press never
-    /// lands on it by accident.
+    /// A 1 pt `separator` line between two regions: rows in a group, the columns of a
+    /// browsing tab. `inset` pulls both ends in, so a separator between grouped rows
+    /// starts where their text does rather than at the card's edge.
+    struct Rule: View {
+        private let axis: Axis
+        private let inset: CGFloat
+        @Environment(\.theme) private var theme
+
+        init(_ axis: Axis = .horizontal, inset: CGFloat = 0) {
+            self.axis = axis
+            self.inset = inset
+        }
+
+        var body: some View {
+            Rectangle()
+                .fill(theme.separator)
+                .frame(
+                    width: axis == .vertical ? Self.thickness : nil,
+                    height: axis == .horizontal ? Self.thickness : nil
+                )
+                .padding(axis == .horizontal ? .horizontal : .vertical, inset)
+                .accessibilityHidden(true)
+        }
+
+        /// One point. A column draws its rule inside its own width, so the widths beside
+        /// it stay on the grid. Increase Contrast darkens the colour instead.
+        static let thickness: CGFloat = 1
+    }
+
+    /// A transient confirmation: what just happened, in the same sentence VoiceOver
+    /// hears, on the `overlay` surface. It names no control and holds none, so a press
+    /// never lands on it by accident. A message too long for one line wraps to a second
+    /// and then truncates in the middle; VoiceOver still hears all of it.
     struct Toast: View {
         private let message: String
         private let systemImage: String
+        @Environment(\.theme) private var theme
 
         init(_ message: String, systemImage: String = "checkmark.circle.fill") {
             self.message = message
@@ -266,85 +144,130 @@ extension Kit {
         var body: some View {
             HStack(spacing: VoiceourMetrics.Space.sm) {
                 Image(systemName: systemImage)
-                    .foregroundStyle(VoiceourPalette.Signal.mint)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.success.text)
                     .accessibilityHidden(true)
                 Text(message)
-                    .roleStyle(.label)
-                    .lineLimit(1)
+                    .roleStyle(.body)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, VoiceourMetrics.Space.lg)
-            .frame(height: Kit.Metrics.toast)
-            .modifier(GlassSurface(shape: Capsule(), isInteractive: false))
+            .padding(.vertical, VoiceourMetrics.Space.sm)
+            .frame(minHeight: Kit.Metrics.toastHeight)
+            .frame(maxWidth: Kit.Metrics.toastMaxWidth)
+            .modifier(
+                PaintedSurface(
+                    shape: RoundedRectangle(cornerRadius: Self.radius, style: .continuous),
+                    fill: \.overlay
+                )
+            )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(message)
         }
+
+        private static let radius: CGFloat = 10
+    }
+
+    /// Shows a ``Kit/Flash`` as a ``Kit/Toast`` centred along the bottom edge, 16 pt
+    /// above it, and publishes the space the toast covers as `\.kitToastInset`, so the
+    /// scrolling columns beneath extend their content past it and the last line is
+    /// never hidden behind the confirmation.
+    fileprivate struct ToastPresenter: ViewModifier {
+        private let flash: Kit.Flash
+        private let identifier: String
+
+        init(flash: Kit.Flash, identifier: String) {
+            self.flash = flash
+            self.identifier = identifier
+        }
+
+        func body(content: Content) -> some View {
+            content
+                .environment(\.kitToastInset, flash.message == nil ? 0 : Self.inset)
+                .overlay(alignment: .bottom) {
+                    if let message = flash.message {
+                        Kit.Toast(message)
+                            .accessibilityIdentifier(identifier)
+                            .padding(.horizontal, Self.edge)
+                            .padding(.bottom, Self.edge)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    }
+                }
+        }
+
+        private static let edge: CGFloat = VoiceourMetrics.Space.lg
+        /// The toast's height and its gap above the edge. A column adds it to its own
+        /// bottom padding, which covers a toast that wraps to a second line.
+        static let inset: CGFloat = Kit.Metrics.toastHeight + edge
     }
 }
 
 extension View {
-    /// Liquid Glass in `shape`, or its opaque replacement under Reduce Transparency.
-    func kitGlass(in shape: some Shape, interactive: Bool = false) -> some View {
-        modifier(Kit.GlassSurface(shape: shape, isInteractive: interactive))
-    }
-
-    /// Paints ``Kit/IslandSurface`` behind the view and declares its ground.
-    func kitIslandSurface(
-        cornerRadius: CGFloat = Kit.Metrics.islandRadius,
-        glow: Bool = true,
-        elevated: Bool = true
-    ) -> some View {
-        modifier(Kit.IslandSurface(cornerRadius: cornerRadius, glow: glow, elevated: elevated))
-    }
-
     /// Shows `flash`'s message as a ``Kit/Toast`` along the bottom edge while it lasts.
     func kitToast(_ flash: Kit.Flash, identifier: String) -> some View {
-        overlay(alignment: .bottom) {
-            if let message = flash.message {
-                Kit.Toast(message)
-                    .accessibilityIdentifier(identifier)
-                    .padding(.bottom, VoiceourMetrics.Space.lg)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-        }
+        modifier(Kit.ToastPresenter(flash: flash, identifier: identifier))
     }
 }
 
-/// Decorative dot field under a ``Kit/Screen``, so the page reads as a surface
-/// rather than as panes floating in the window ground: 2 pt white-3 % dots every
-/// ``Kit/Metrics/dotPitch``.
+/// The painted stack every raised kit surface shares: an opaque theme fill, a 1 pt
+/// outline, then the theme's elevation — its shadow in light, its top highlight in
+/// dark. It declares the fill as the ground under the surface's text.
 ///
-/// One `Canvas`, not a grid of views: at a 24 pt pitch a full console page is about
-/// 2,000 dots, and 2,000 `Circle`s is 2,000 layout participants and 2,000
-/// accessibility nodes for something nobody can address. Skipped outright under
-/// Reduce Transparency, which asks for fewer decorative layers, not more.
-private struct DotGrid: View {
+/// Reduce Transparency changes nothing here except the shadow, which drops, and the
+/// outline, which steps up to the border in its place: every fill is already opaque, and
+/// a shadow is the one soft, see-through layer left.
+private struct PaintedSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let fill: KeyPath<Theme, Color>
+    @Environment(\.theme) private var theme
     private var a11y = A11y()
 
-    private static let diameter: CGFloat = 2
+    init(shape: S, fill: KeyPath<Theme, Color>) {
+        self.shape = shape
+        self.fill = fill
+    }
 
-    var body: some View {
-        if a11y.reduceTransparency {
-            Color.clear
-        } else {
-            Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-                let pitch = Kit.Metrics.dotPitch
-                let dot = Path(
-                    ellipseIn: CGRect(x: 0, y: 0, width: Self.diameter, height: Self.diameter)
-                )
-                let shading = GraphicsContext.Shading.color(Color.white.opacity(0.03))
-                var y = pitch
-                while y < size.height {
-                    var x = pitch
-                    while x < size.width {
-                        context.translateBy(x: x, y: y)
-                        context.fill(dot, with: shading)
-                        context.translateBy(x: -x, y: -y)
-                        x += pitch
-                    }
-                    y += pitch
-                }
+    func body(content: Content) -> some View {
+        let color = theme[keyPath: fill]
+        let shadow = a11y.reduceTransparency ? nil : theme.cardShadow
+        content
+            .background { surface(color, shadow: shadow) }
+            // The outline sits over the content, so a row's hover plate reaching the
+            // card's edge never paints over the boundary that identifies the card.
+            .overlay {
+                shape
+                    .strokeBorder(outline(beside: shadow), lineWidth: Kit.Rule.thickness)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
-            .accessibilityHidden(true)
+            .environment(\.surfaceGround, SurfaceGround(color))
+    }
+
+    /// The strong border under Increase Contrast, where the outline alone identifies the
+    /// surface; the quiet separator beside the light theme's shadow, which already lifts
+    /// it; the border wherever no shadow draws.
+    private func outline(beside shadow: Theme.Shadow?) -> Color {
+        if theme.isIncreasedContrast { return theme.borderStrong }
+        return shadow == nil ? theme.border : theme.separator
+    }
+
+    private func surface(_ color: Color, shadow: Theme.Shadow?) -> some View {
+        ZStack {
+            shape.fill(color)
+            if let highlight = theme.topHighlight {
+                // A line across the top, short of the corners so it never draws a
+                // second, brighter curve inside the outline.
+                Rectangle()
+                    .fill(highlight)
+                    .frame(height: Kit.Rule.thickness)
+                    .padding(.horizontal, Kit.Metrics.cardRadius)
+                    .padding(.top, Kit.Rule.thickness)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
         }
+        .shadow(color: shadow?.color ?? .clear, radius: shadow?.radius ?? 0, y: shadow?.y ?? 0)
+        .accessibilityHidden(true)
     }
 }

@@ -9,7 +9,7 @@ import VoiceMac
 /// Rewind, Threads, Topics and Notes pages are read rather than scanned, so a row holds
 /// the whole text instead of a list row's two-line preview, and the timestamp sits in a
 /// gutter of its own so the text's left edge lines up from row to row. The row is the
-/// control: a click copies the text, and a transient COPIED mark in the gutter and a
+/// control: a click copies the text, and a transient "Copied" pill in the gutter and a
 /// VoiceOver announcement confirm the write where the click landed.
 ///
 /// An entry that only memory holds has no Timeline row to delete it from, so the row
@@ -36,11 +36,12 @@ struct JournalEntryRow: View {
     @State private var deleteFailed = false
 
     private var a11y = A11y()
+    @Environment(\.theme) private var theme
 
     /// `isInHistory` offers "Show in Timeline", which only a row History still holds can
     /// answer. `showsThreadAction` offers "Open Thread", which a page already showing the
-    /// entry's thread has no use for. `isHighlighted` washes the row with the selection
-    /// tint: the search match a Rewind page was opened on. `delete` offers "Delete Entry…"
+    /// entry's thread has no use for. `isHighlighted` lights the row as selected: the
+    /// search match a Rewind page was opened on. `delete` offers "Delete Entry…"
     /// only on an entry History no longer holds: an entry still in History is deleted from
     /// Timeline, where its transcript is. It returns false when the entry could not be
     /// removed. `file` offers "File Under", which files the entry under one of `topics` or,
@@ -66,62 +67,43 @@ struct JournalEntryRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+        VStack(alignment: .leading, spacing: 4) {
             entryButton
             // A destructive action that fails must say so under the row that asked for
             // it, rather than leave the entry on screen unexplained.
             if deleteFailed {
-                ConsoleCaption("The entry could not be deleted.", color: .red)
-                    .padding(.leading, Kit.Metrics.stampGutter + VoiceourMetrics.Space.md * 2)
+                Text("The entry could not be deleted.")
+                    .roleStyle(.meta)
+                    .foregroundStyle(theme.critical.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, Kit.Metrics.stampGutter + Self.gap + Self.horizontalPadding)
                     .accessibilityIdentifier("journal.entry.delete-error")
             }
         }
     }
 
+    /// The space between the gutter, the text and the pills.
+    private static let gap: CGFloat = 12
+    private static let horizontalPadding: CGFloat = 12
+
+    /// The space above and below a row's content, inside the rhythm's step.
+    private static let verticalPadding: CGFloat = 8
+
+    /// The reading face's own line height, `ascender − descender + leading` from NSFont:
+    /// the box the pills centre in on the first line.
+    private static let textLineHeight: CGFloat = {
+        let font = NSFont.systemFont(ofSize: TextRole.reading.pointSize)
+        return font.ascender - font.descender + font.leading
+    }()
+
+    /// The first line's baseline below the text's top, where the pills align.
+    private static let textAscent: CGFloat = NSFont.systemFont(ofSize: TextRole.reading.pointSize).ascender
+
     private var entryButton: some View {
         Button(action: copyText) {
-            HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.md) {
-                // The copy confirmation takes the timestamp's place rather than a line
-                // of its own, so a click never moves the rows below it.
-                Text(timestamp)
-                    .font(Kit.Fonts.stamp)
-                    .foregroundStyle(.secondary)
-                    .opacity(showsCopied ? 0 : 1)
-                    .overlay(alignment: .leading) {
-                        if showsCopied {
-                            Kit.Mark("COPIED", tone: .success)
-                        }
-                    }
-                    .frame(width: Kit.Metrics.stampGutter, alignment: .leading)
-
-                Text(entry.text)
-                    .font(Kit.Fonts.reading)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                // The marks close the first line, as they close a list row's meta line,
-                // so a marked entry is no taller than its words.
-                if hasMarks {
-                    HStack(spacing: VoiceourMetrics.Space.xs) {
-                        if isNote {
-                            Kit.Mark("NOTE", tone: .info)
-                        }
-                        if isNotSent {
-                            Kit.Mark("NOT SENT", tone: .caution)
-                        }
-                        if let highlightKind {
-                            Kit.Mark(highlightKind.displayName.uppercased())
-                        }
-                    }
-                }
+            ReadingRowRhythm {
+                entryContent
             }
-            .padding(.horizontal, VoiceourMetrics.Space.md)
-            // Two lines of 14 pt text and this padding are the Row scale's 44, and one line
-            // takes the Control scale's 32 below, so the common rows sit on the scales.
-            .padding(.vertical, VoiceourMetrics.Space.xs + 1)
-            .frame(minHeight: VoiceourMetrics.Control.medium, alignment: .leading)
         }
         .buttonStyle(Kit.RowButtonStyle(isSelected: isHighlighted))
         .accessibilityElement(children: .combine)
@@ -163,6 +145,55 @@ struct JournalEntryRow: View {
         .onDisappear {
             resetCopyFeedbackTask?.cancel()
         }
+    }
+
+    /// The gutter, the words and the pills, padded inside the row.
+    private var entryContent: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Self.gap) {
+            // The copy confirmation takes the timestamp's place rather than a line
+            // of its own, so a click never moves the rows below it.
+            Text(timestamp)
+                .monospacedDigit()
+                .roleStyle(.meta)
+                .foregroundStyle(theme.text3)
+                .lineLimit(1)
+                .opacity(showsCopied ? 0 : 1)
+                .overlay(alignment: .leading) {
+                    if showsCopied {
+                        Kit.Pill("Copied", tone: .success)
+                            .fixedSize()
+                    }
+                }
+                .frame(width: Kit.Metrics.stampGutter, alignment: .leading)
+
+            Text(entry.text)
+                .roleStyle(.reading)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The pills close the first line, as they close a list row's meta line,
+            // so a marked entry is no taller than its words: they centre in the first
+            // line's box, whose top meets the text's.
+            if hasMarks {
+                HStack(spacing: 4) {
+                    if isNote {
+                        Kit.Pill("Note", tone: .info)
+                    }
+                    if isNotSent {
+                        Kit.Pill("Not sent", tone: .caution)
+                    }
+                    if let highlightKind {
+                        Kit.Pill(highlightKind.displayName)
+                    }
+                }
+                .fixedSize()
+                .frame(height: Self.textLineHeight)
+                .alignmentGuide(.firstTextBaseline) { [ascent = Self.textAscent] _ in ascent }
+            }
+        }
+        .padding(.horizontal, Self.horizontalPadding)
+        .padding(.vertical, Self.verticalPadding)
     }
 
     // MARK: Derived
@@ -211,7 +242,7 @@ struct JournalEntryRow: View {
     }
 
     /// The time, then the states a reader acts on and the kind the row marks, then the
-    /// words. The marks are words on screen, so VoiceOver hears them as words too.
+    /// words. The pills are words on screen, so VoiceOver hears them as words too.
     private var accessibilityLabel: String {
         var parts = [timestamp]
         if isNote { parts.append("note") }
@@ -223,7 +254,7 @@ struct JournalEntryRow: View {
 
     // MARK: Copy
 
-    /// The mark and the announcement are claims about the clipboard, so a refused write
+    /// The pill and the announcement are claims about the clipboard, so a refused write
     /// leaves the row exactly as it was.
     private func copyText() {
         guard GeneralPasteboard.copy(entry.text) != nil else { return }
@@ -292,7 +323,7 @@ struct JournalFileUnderItems: View {
 }
 
 /// The choices a File Under menu offers, without the menu around them, for a page whose
-/// own glass menu is the File Under control.
+/// own menu button is the File Under control.
 struct JournalFileUnderChoices: View {
     private let entry: JournalEntry
     private let topics: [MemoryTopic]
@@ -327,6 +358,37 @@ struct JournalFileUnderChoices: View {
         return Binding(
             get: { entry.topicID == topicID },
             set: { _ in file(entry.id, topicID) }
+        )
+    }
+}
+
+/// Stands a reading row on a 20 pt rhythm from 44 pt: its content, centred, in the smallest
+/// of 44, 64, 84, 104… points that holds it. Every row height then sits on the control
+/// scale's row pitches or on the 4 pt grid, whatever line height the reading face measures
+/// on this Mac, and a list of rows keeps one vertical rhythm.
+private struct ReadingRowRhythm: Layout {
+    /// The one-line row, the row scale's 44 pt.
+    static let first: CGFloat = 44
+    /// Each step past one line: one reading line of 15 pt type.
+    static let step: CGFloat = 20
+
+    static func snapped(_ height: CGFloat) -> CGFloat {
+        guard height > first else { return first }
+        return first + ((height - first) / step).rounded(.up) * step
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return CGSize(width: proposal.width ?? 0, height: Self.first) }
+        let natural = content.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? natural.width, height: Self.snapped(natural.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let content = subviews.first else { return }
+        let natural = content.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        content.place(
+            at: CGPoint(x: bounds.minX, y: (bounds.midY - natural.height / 2).rounded(.down)),
+            proposal: ProposedViewSize(width: bounds.width, height: natural.height)
         )
     }
 }

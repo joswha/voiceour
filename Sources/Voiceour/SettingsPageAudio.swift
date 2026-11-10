@@ -17,11 +17,11 @@ struct SettingsAudioPage: View {
 
     var body: some View {
         SettingsPage(.audio) {
-            SettingsIsland {
+            Kit.Group {
                 microphoneRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 muteRow
-                Kit.Rule()
+                Kit.Rule(inset: VoiceourMetrics.Space.md)
                 cueRow
             }
         }
@@ -41,15 +41,15 @@ struct SettingsAudioPage: View {
 
     /// The picker states what is *saved*: a durable device UID, or nil for
     /// Automatic. An unplugged selection stays on the menu under its persisted
-    /// name with a NOT CONNECTED mark, because silently snapping the control back
+    /// name with a "Not connected" pill, because silently snapping the control back
     /// to Automatic would misreport what the next recording will try first.
     private var microphoneRow: some View {
         let missing = Self.isMissing(coordinator, availableMicrophones: availableMicrophones)
-        return VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+        return VStack(alignment: .leading, spacing: 0) {
             Kit.SettingRow("Microphone", caption: microphoneCaption(missing: missing)) {
                 HStack(spacing: VoiceourMetrics.Space.sm) {
                     if missing {
-                        Kit.Mark("NOT CONNECTED", tone: .caution)
+                        Kit.Pill("Not connected", tone: .caution)
                     }
                     Picker("Microphone", selection: microphoneBinding) {
                         Text("Automatic").tag(String?.none)
@@ -63,7 +63,13 @@ struct SettingsAudioPage: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .fixedSize()
+                    // One steady width: a long device name truncates inside the menu
+                    // button rather than pushing the row's title off its column.
+                    .frame(
+                        minWidth: VoiceourMetrics.Field.short,
+                        idealWidth: Self.pickerWidth,
+                        maxWidth: Self.pickerWidth
+                    )
                     .accessibilityIdentifier("voice.microphone.picker")
                 }
             }
@@ -97,6 +103,10 @@ struct SettingsAudioPage: View {
         return !availableMicrophones.contains { $0.uid == uid }
     }
 
+    /// The microphone menu's width: room for a typical device name, and never so
+    /// wide that the row has to drop its control under the caption.
+    private static let pickerWidth: CGFloat = 240
+
     private func microphoneCaption(missing: Bool) -> String {
         guard let name = coordinator.settings.preferredMicrophoneName ?? coordinator.settings.preferredMicrophoneUID
         else {
@@ -115,17 +125,17 @@ struct SettingsAudioPage: View {
     /// readout *of* the switch beside it, so it rides that row rather than
     /// restating the setting as a fact of its own.
     ///
-    /// UNAVAILABLE outranks MUTE ON because it is the same promise, refused. A
+    /// "Unavailable" outranks "Mute on" because it is the same promise, refused. A
     /// device with neither a settable mute nor a settable volume — a DisplayPort
     /// monitor, measured — cannot be silenced at all, and a row that kept saying
     /// "will be muted" is exactly how that went unnoticed. The state is sticky
     /// until the next capture answers the question again.
     private var muteRow: some View {
         let readout = Self.muteReadout(coordinator)
-        return VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+        return VStack(alignment: .leading, spacing: 0) {
             Kit.SettingRow("Mute system audio while recording", caption: readout.detail) {
                 HStack(spacing: VoiceourMetrics.Space.sm) {
-                    Kit.Mark(readout.label, tone: Kit.Mark.Tone(readout.severity))
+                    Kit.Pill(readout.label, tone: Kit.Pill.Tone(readout.severity))
                     Toggle(
                         "Mute system audio while recording",
                         isOn: settingBinding(coordinator, \.muteSystemAudioDuringCapture)
@@ -147,21 +157,21 @@ struct SettingsAudioPage: View {
     ) -> (label: String, severity: ConsoleReadout.Severity, detail: String) {
         if coordinator.isSystemAudioMuted {
             return (
-                "MUTED NOW", .ok,
+                "Muted now", .ok,
                 "System audio is currently muted and will be restored when the recording ends."
             )
         } else if coordinator.settings.muteSystemAudioDuringCapture, coordinator.isSystemAudioMuteUnavailable {
             return (
-                "UNAVAILABLE", .warn,
+                "Unavailable", .warn,
                 "The current output device offers no mute or volume control, so audio kept playing."
             )
         } else if coordinator.settings.muteSystemAudioDuringCapture {
             return (
-                "MUTE ON", .neutral,
+                "Mute on", .neutral,
                 "System audio fades out for the recording and fades back when it ends."
             )
         } else {
-            return ("MUTE OFF", .neutral, "System audio will continue playing while recording.")
+            return ("Mute off", .neutral, "System audio will continue playing while recording.")
         }
     }
 

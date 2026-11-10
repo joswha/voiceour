@@ -1,0 +1,23 @@
+flow: settings.appearance
+title: Appearance tiles and accent swatches commit the console's look
+fixture: static
+transitions: idle
+PASS 1 system | selected(true) id=settings.section.appearance | true
+PASS 2 system | selected(true) id=settings.appearance.system | true
+PASS 3 system | selected(false) id=settings.appearance.light | false
+PASS 4 system | selected(true) id=settings.accent.green | true
+PASS 5 system | model consoleAppearance == "system" | "system"
+PASS 6 system | model consoleAccent == "green" | "green"
+PASS 7 light | selected(true) id=settings.appearance.light | true
+PASS 8 light | selected(false) id=settings.appearance.system | false
+PASS 9 light | model consoleAppearance == "light" | "light"
+PASS 10 light | model consoleAccent == "green" | "green"
+PASS 11 purple | selected(true) id=settings.accent.purple | true
+PASS 12 purple | selected(false) id=settings.accent.green | false
+PASS 13 purple | selected(true) id=settings.appearance.light | true
+PASS 14 purple | model consoleAccent == "purple" | "purple"
+PASS 15 purple | model consoleAppearance == "light" | "light"
+PASS 16 system-again | selected(true) id=settings.appearance.system | true
+PASS 17 system-again | selected(false) id=settings.appearance.light | false
+PASS 18 system-again | model consoleAppearance == "system" | "system"
+PASS 19 system-again | model consoleAccent == "purple" | "purple"

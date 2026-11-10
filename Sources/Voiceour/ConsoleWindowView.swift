@@ -50,9 +50,10 @@ enum ConsoleTab: String, CaseIterable, Hashable {
 /// (``ConsoleGlassGround``) behind unmodified native content.
 ///
 /// The window keeps its scene id (`main`), so the menu-bar item's
-/// `openWindow(id:)` and the `--show-console` launch notification both reach it,
-/// and it keeps the appearance the user chose: pinning a colour scheme is
-/// exactly the kind of override a native window has no business making.
+/// `openWindow(id:)` and the `--show-console` launch notification both reach it.
+/// Its appearance is the reader's own choice in Settings › Appearance: System
+/// leaves the window to macOS, Light or Dark sets it, and ``ThemeRoot`` themes
+/// everything inside to match.
 struct ConsoleWindowView: View {
     var coordinator: DictationCoordinator
     @State private var tab: ConsoleTab
@@ -156,6 +157,11 @@ struct ConsoleWindowView: View {
         // as well.
         .onAppear { ConsolePresentation.show() }
         .onDisappear { ConsolePresentation.windowDidClose() }
+        .frame(minWidth: VoiceourMetrics.Window.minWidth, minHeight: VoiceourMetrics.Window.minHeight)
+        .themeRoot(
+            appearance: coordinator.settings.consoleAppearance,
+            accent: coordinator.settings.consoleAccent
+        )
     }
 
     private func selectJournalIfRequested(_ request: AgentSessionKey?) {
@@ -179,57 +185,19 @@ struct ConsoleWindowView: View {
     }
 }
 
-// MARK: - Shared row shapes
-
-/// The window's explanatory voice: one sentence, never truncated mid-clause.
-struct ConsoleCaption: View {
-    private let text: String
-    private let color: Color?
-
-    init(_ text: String, color: Color? = nil) {
-        self.text = text
-        self.color = color
-    }
-
-    var body: some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(color ?? Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// The app's one global gesture, stated wherever a reader needs to know how to
 /// start. `KeyboardShortcutsBinder` toggles on RELEASE of a solitary Fn/Globe
 /// tap, so the verb is TAP: holding Fn and speaking starts nothing.
 ///
 /// The word `or` carries its own weight — it is the only thing distinguishing
 /// "Fn or Globe" from "Fn then Globe".
-struct ConsoleHotkeyHint: View {
-    /// The gesture as one sentence, for surfaces that state it as text instead of
-    /// as this view's keycap-weighted line. Home reads it: its islands are
-    /// fixed-dark in both system appearances and carry their own text ladder, so
-    /// they cannot host a view that paints itself `.secondary`.
+enum ConsoleHotkeyHint {
+    /// The gesture as one sentence, for every surface that reminds a reader of it.
     static let sentence = "Tap Fn or Globe to dictate"
 
-    /// The whole gesture, for the one surface that teaches it rather than
-    /// reminding of it. The second tap is what finishes, because the binder
-    /// toggles on release: a reader who holds the key down dictates nothing, and
-    /// a first run is exactly where that goes wrong.
+    /// The whole gesture, for the surfaces that teach it rather than remind of it.
+    /// The second tap is what finishes, because the binder toggles on release: a
+    /// reader who holds the key down dictates nothing, and a first run is exactly
+    /// where that goes wrong.
     static let fullGesture = "\(sentence), speak, then tap again to finish."
-
-    var body: some View {
-        HStack(spacing: VoiceourMetrics.Space.xs) {
-            Text("Tap")
-            Text("Fn").fontWeight(.semibold)
-            Text("or")
-            Text("Globe").fontWeight(.semibold)
-            Text("to dictate")
-        }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Self.sentence)
-    }
 }

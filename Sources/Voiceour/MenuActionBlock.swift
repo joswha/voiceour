@@ -4,9 +4,14 @@ import VoiceCore
 
 struct MenuActionBlock: View {
     let isGated: Bool
+    /// The dictation command's title, in Title Case like a macOS button: the primary
+    /// capsule's visible title, and the command row's while the capsule opens the
+    /// console instead.
     let dictationTitle: String
-    let dictationRowTitle: String
-    /// The glyph the dictation row's badge draws, in step with its title.
+    /// The primary's accessibility label, which flows and VoiceOver users key on;
+    /// it stays the uppercased command name.
+    let dictationAccessibilityLabel: String
+    /// The glyph the dictation row's icon tile draws, in step with its title.
     let dictationRowSystemImage: String
     let startOrStopDictation: () -> Void
     /// Starts a recording that is saved as a note, or nil while a session is in
@@ -17,12 +22,13 @@ struct MenuActionBlock: View {
     let retry: () -> Void
 
     @Environment(\.openWindow) private var openWindow
-    private var a11y = A11y()
+    @Environment(\.theme) private var theme
+    @Environment(\.surfaceGround) private var inheritedGround
 
     init(
         isGated: Bool,
         dictationTitle: String,
-        dictationRowTitle: String,
+        dictationAccessibilityLabel: String,
         dictationRowSystemImage: String,
         startOrStopDictation: @escaping () -> Void,
         takeNote: (() -> Void)? = nil,
@@ -31,7 +37,7 @@ struct MenuActionBlock: View {
     ) {
         self.isGated = isGated
         self.dictationTitle = dictationTitle
-        self.dictationRowTitle = dictationRowTitle
+        self.dictationAccessibilityLabel = dictationAccessibilityLabel
         self.dictationRowSystemImage = dictationRowSystemImage
         self.startOrStopDictation = startOrStopDictation
         self.takeNote = takeNote
@@ -54,10 +60,11 @@ struct MenuActionBlock: View {
     /// the slot count and the layout do not move between states.
     private var primaryAction: some View {
         Button(action: isGated ? openConsole : startOrStopDictation) {
-            Text(isGated ? "OPEN CONSOLE" : dictationTitle)
+            Text(isGated ? "Open Console" : dictationTitle)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(PrimaryActionButtonStyle())
+        .accessibilityLabel(isGated ? "OPEN CONSOLE" : dictationAccessibilityLabel)
     }
 
     private var commandGroup: some View {
@@ -79,7 +86,7 @@ struct MenuActionBlock: View {
             }
 
             if isGated {
-                MenuCommandRow(title: dictationRowTitle, systemImage: dictationRowSystemImage, closingRule: true) {
+                MenuCommandRow(title: dictationTitle, systemImage: dictationRowSystemImage, closingRule: true) {
                     startOrStopDictation()
                 }
             } else {
@@ -102,13 +109,12 @@ struct MenuActionBlock: View {
             }
             .keyboardShortcut("q")
         }
+        .background(theme.raised)
+        // The rows paint over this, so the lint measures them from it.
+        .environment(\.surfaceGround, inheritedGround.painting(theme.raised))
         .clipShape(MenuLayout.innerShape)
         .overlay {
-            MenuLayout.innerShape
-                .strokeBorder(
-                    a11y.lineControl,
-                    lineWidth: VoiceourMetrics.Stroke.hairline(a11y.contrast)
-                )
+            MenuLayout.innerShape.strokeBorder(theme.border, lineWidth: 1)
         }
     }
 
