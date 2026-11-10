@@ -65,11 +65,22 @@ struct ConsoleSettingsTab: View {
     @State private var availableMicrophones: [CoreAudioInputDevice.AvailableMicrophone] = []
 
     @State private var isConfirmingHistoryClear = false
+    @State private var isConfirmingMemoryClear = false
     @State private var isConfirmingVocabularyClear = false
     @State private var isClearingHistory = false
     @State private var historyClearFailed = false
-    @State private var didCopyDiagnostics = false
+    @State private var isClearingMemory = false
+    @State private var memoryClearFailed = false
+    @State private var copiedItem: CopiedItem?
     @State private var resetCopyFeedbackTask: Task<Void, Never>?
+
+    /// Which copy action last reached the clipboard. One value rather than a flag
+    /// per button: a copy replaces the clipboard, so the previous button's COPIED
+    /// mark would be a false statement the moment the next copy lands.
+    private enum CopiedItem {
+        case diagnostics
+        case agentInstructions
+    }
 
     /// One source for the backend vocabulary, so the picker, the running readout
     /// and the restart notice can never disagree about a name.
@@ -144,7 +155,7 @@ struct ConsoleSettingsTab: View {
                 ) {
                     LabeledContent {
                         HStack(spacing: VoiceourMetrics.Space.sm) {
-                            if didCopyDiagnostics {
+                            if copiedItem == .diagnostics {
                                 ConsoleStateMark("COPIED", .ok)
                             }
                             Button("Copy Diagnostics") { copyDiagnostics() }
@@ -177,8 +188,14 @@ struct ConsoleSettingsTab: View {
                 Text("Privacy")
             }
 
+            Section("Memory") {
+                memoryToggleRow
+                agentInstructionsRow
+            }
+
             Section("Danger") {
                 clearHistoryRow
+                clearMemoryRow
                 clearVocabularyRow
             }
         }
@@ -576,28 +593,86 @@ struct ConsoleSettingsTab: View {
             accessibility: accessibility,
             synthPaste: synthPaste
         )
+        copy(report, as: .diagnostics)
+    }
+
+    /// Both copy buttons write through here, so the clipboard helper, the success
+    /// rule and the mark's lifetime cannot drift between them.
+    private func copy(_ text: String, as item: CopiedItem) {
         // "Copied" is a statement about the clipboard: a refused write shows nothing.
-        guard GeneralPasteboard.copy(report) != nil else { return }
+        guard GeneralPasteboard.copy(text) != nil else { return }
         resetCopyFeedbackTask?.cancel()
         withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.quick) {
-            didCopyDiagnostics = true
+            copiedItem = item
         }
         resetCopyFeedbackTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_400_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(a11y.reduceMotion ? nil : VoiceourMotion.quick) {
-                didCopyDiagnostics = false
+                copiedItem = nil
             }
         }
     }
 
+    // MARK: Memory
+
+    /// Not `settingBinding`: turning memory on also keeps every History row the
+    /// folder does not hold yet, and a bare setting write would leave those out.
+    private var memoryToggleRow: some View {
+        ConsoleRow(
+            caption:
+                "Voiceour keeps every dictation, verbatim, in a memory folder on this Mac with no 500-row "
+                + "limit, and writes Markdown pages there that coding agents can read. Dictations into secure "
+                + "fields are never kept. Turning this off stops new dictations from being added and keeps "
+                + "the folder; Clear Memory erases it."
+        ) {
+            Toggle(
+                "Keep dictations in memory",
+                isOn: Binding(
+                    get: { coordinator.settings.memoryEnabled },
+                    set: { coordinator.setMemoryEnabled($0) }
+                )
+            )
+            .accessibilityIdentifier("system.memory.toggle")
+        }
+    }
+
+    /// Offered while memory is on or a folder is left over from when it was:
+    /// either way there is a folder, now or after the next dictation, for the
+    /// paragraph to point an agent at.
+    private var agentInstructionsRow: some View {
+        ConsoleRow(
+            caption:
+                "Copies one paragraph for AGENTS.md or CLAUDE.md that tells an agent where the memory folder "
+                + "is and how to use it."
+        ) {
+            LabeledContent {
+                HStack(spacing: VoiceourMetrics.Space.sm) {
+                    if copiedItem == .agentInstructions {
+                        ConsoleStateMark("COPIED", .ok)
+                    }
+                    Button("Copy Agent Instructions") { copyAgentInstructions() }
+                        .help("Copy a paragraph that tells a coding agent where the memory folder is.")
+                        .disabled(!(coordinator.settings.memoryEnabled || coordinator.memoryExistsOnDisk))
+                        .accessibilityIdentifier("system.memory.copy-instructions")
+                }
+            } label: {
+                Text("Agent access")
+            }
+        }
+    }
+
+    private func copyAgentInstructions() {
+        copy(MemoryPages.agentInstructions(root: coordinator.memoryStore.root), as: .agentInstructions)
+    }
+
     // MARK: Danger
 
-    /// The two erases the app owns. They read directly on the privacy row above:
-    /// that row states what is kept locally, these two are how a user unkeeps it.
-    /// Both are guarded by the system's own destructive confirmation rather than a
-    /// typed token — the sheet names the subject, states the scope, and puts the
-    /// destructive verb behind a deliberate second press.
+    /// The erases the app owns. They read directly on the Privacy and Memory rows
+    /// above: those rows state what is kept locally, these are how a user unkeeps
+    /// it. Each is guarded by the system's own destructive confirmation rather
+    /// than a typed token — the sheet names the subject, states the scope, and
+    /// puts the destructive verb behind a deliberate second press.
     private var clearHistoryRow: some View {
         ConsoleRow(
             caption: historyClearFailed
@@ -621,8 +696,15 @@ struct ConsoleSettingsTab: View {
             isPresented: $isConfirmingHistoryClear,
             titleVisibility: .visible
         ) {
-            Button("Clear History", role: .destructive) { clearHistory() }
+            Button("Clear History", role: .destructive) { clearHistory(includingMemory: false) }
                 .accessibilityIdentifier("system.history.confirm")
+            // Offered beside the plain clear, never folded into it: Clear History
+            // leaves memory alone, and a reader erasing History to start over is
+            // the one most likely to want the kept copy gone too.
+            if hasMemoryToClear {
+                Button("Clear History and Memory", role: .destructive) { clearHistory(includingMemory: true) }
+                    .accessibilityIdentifier("system.history.confirm-with-memory")
+            }
             Button("Cancel", role: .cancel) {}
                 .accessibilityLabel("Cancel clearing transcript history")
                 .accessibilityIdentifier("system.history.cancel")
@@ -645,16 +727,88 @@ struct ConsoleSettingsTab: View {
         coordinator.recentSessions.isEmpty && coordinator.dictationStats == DictationStatsLedger()
     }
 
-    private func clearHistory() {
+    /// With `includingMemory` the memory erase runs after History and the ledger,
+    /// and the row stays in its clearing state until all three have answered.
+    /// Each failure is reported on the row that names what survived: a memory
+    /// folder that could not be removed is the Clear memory row's caption, so the
+    /// History row never claims transcripts survived when they did not.
+    private func clearHistory(includingMemory: Bool) {
         isClearingHistory = true
         historyClearFailed = false
+        if includingMemory {
+            isClearingMemory = true
+            memoryClearFailed = false
+        }
         Task {
             let historyCleared = await coordinator.clearRecentSessions()
             let statsCleared = await coordinator.clearDictationStats()
+            if includingMemory {
+                let memoryCleared = await coordinator.clearMemory()
+                isClearingMemory = false
+                memoryClearFailed = !memoryCleared
+            }
             isClearingHistory = false
             // A destructive action that half-succeeds must say so: the row reports
             // that the data survived on disk instead of reporting nothing.
             historyClearFailed = !(historyCleared && statsCleared)
+        }
+    }
+
+    private var clearMemoryRow: some View {
+        ConsoleRow(
+            caption: memoryClearFailed
+                ? "Memory could not be erased from disk — it will come back on relaunch."
+                : Self.memoryClearSentence,
+            captionColor: memoryClearFailed ? .red : nil
+        ) {
+            LabeledContent {
+                Button(isClearingMemory ? "Clearing…" : "Clear Memory…", role: .destructive) {
+                    memoryClearFailed = false
+                    isConfirmingMemoryClear = true
+                }
+                .disabled(!hasMemoryToClear || isClearingMemory)
+                .accessibilityIdentifier("system.memory.arm")
+            } label: {
+                Text("Clear memory")
+            }
+        }
+        .confirmationDialog(
+            "Clear memory?",
+            isPresented: $isConfirmingMemoryClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear Memory", role: .destructive) { clearMemory() }
+                .accessibilityIdentifier("system.memory.confirm")
+            Button("Cancel", role: .cancel) {}
+                .accessibilityLabel("Cancel clearing memory")
+                .accessibilityIdentifier("system.memory.cancel")
+        } message: {
+            Text(Self.memoryClearSentence)
+        }
+    }
+
+    /// Named once for the same reason as `historyClearSentence`: the caption and
+    /// the confirmation must state one scope.
+    private static let memoryClearSentence =
+        "Erase the memory folder: every kept dictation and note, your topics, the Markdown pages, and "
+        + "anything agents saved there. History and the Home figures are kept."
+
+    /// The folder on disk, or entries whose first write is still queued behind
+    /// it. The second half matters for one turn only: a memory switched on with
+    /// History already present publishes its entries before the folder exists,
+    /// and the disk check alone is not something this view observes.
+    private var hasMemoryToClear: Bool {
+        coordinator.memoryExistsOnDisk || !coordinator.memoryEntries.isEmpty
+    }
+
+    private func clearMemory() {
+        isClearingMemory = true
+        memoryClearFailed = false
+        Task {
+            let cleared = await coordinator.clearMemory()
+            isClearingMemory = false
+            // Mirrors the History row: an erase that left the folder says so.
+            memoryClearFailed = !cleared
         }
     }
 

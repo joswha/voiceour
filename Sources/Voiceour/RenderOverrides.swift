@@ -44,6 +44,7 @@ enum RenderOverrides {
     static var settingsPath: String?
     static var recentSessionsPath: String?
     static var dictationStatsPath: String?
+    static var memoryPath: String?
 
     /// Writable harness mirrors for the SDK's get-only accessibility
     /// environment values. They stay nil in production; production views

@@ -10,17 +10,17 @@ The console window, the Journal tab, and the visual vocabulary shared with the m
 - Destructive actions MUST use titled native confirmation dialogs with destructive roles.
 - App styling inside Forms: monospaced code values, `ConsoleStateMark`, `ConsoleCaption`, `ConsoleRow`, `MeterBar`, the Island showroom (production `MercurySurface`). Native-plate meters/marks use system semantic colours; `StatusChip` uses app palette.
 - Ground: `NSGlassEffectView(style: .regular)` behind native section plates; no app tint. Clear only `NSWindow.isOpaque` + `backgroundColor`. Reduce Transparency → `windowBackgroundColor`. NEVER place text directly on sampled desktop or use SwiftUI `.glassEffect` in shipping views.
-- Settings order: Dictation, Audio, Model, debug-only Backend, Island, Readiness, Capture, Privacy, Danger. No General tab.
+- Settings order: Dictation, Audio, Model, debug-only Backend, Island, Readiness, Capture, Privacy, Memory, Danger. No General tab. Memory: the “Keep dictations in memory” toggle (`setMemoryEnabled`) and Copy Agent Instructions (`MemoryPages.agentInstructions(root:)`). Danger: Clear History…, Clear Memory… (offered while `memoryExistsOnDisk`), Clear Vocabulary…. Clear History's confirmation dialog carries a second destructive button, “Clear History and Memory”, that erases memory too.
 - Home/Settings MUST share `ConsoleReadiness` values, sentences, remediation. `DictationPolicy.owesFirstRunGuidance` = `Settings.hasCompletedFirstRun == false` AND both durable records empty; missing flag defaults false. `completeFirstRun()` stays outside the journaling branch: secure delivery completes onboarding; refusal/cancel/failed decode does not.
 - All showing routes MUST use `ConsolePresentation`: menu, `--show-console`, `applicationShouldHandleReopen` (Dock, `open -a`, reopening), `onAppear`. Console open → `.regular`, front/deminiaturized; close → `.accessory`. `--no-activate` or `.prohibited` → no presentation management. Disable miniaturization and restoration.
 
 ## Journal
 
-History is the record: the newest 500 dictations delivered to non-secure targets, stored in `recent-sessions.json`, cleared by Clear History. The Journal tab shows that record through three lenses. Views: `ConsoleJournalTab.swift` (tab, lens picker), `ConsoleHistoryTab.swift` (Timeline), `JournalRewindLens.swift`, `JournalThreadsLens.swift`, `JournalEntryRow.swift`; pure grouping lives in `Sources/VoiceCore/Journal.swift` (`JournalQuery`).
+History is the record: the newest 500 dictations delivered to non-secure targets, stored in `recent-sessions.json`, cleared by Clear History. Memory is the durable, uncapped record in `<support>/memory/` ([memory.md](memory.md)). The Journal tab shows both through three lenses. Views: `ConsoleJournalTab.swift` (tab, lens picker), `ConsoleHistoryTab.swift` (Timeline), `JournalRewindLens.swift`, `JournalThreadsLens.swift`, `JournalEntryRow.swift`; pure grouping lives in `Sources/VoiceCore/Journal.swift` (`JournalQuery`).
 
 - Every lens MUST be its own grouped `Form` whose first section is the lens picker: a native segmented `Picker` (`journal.lens`) with Timeline, Rewind, Threads. The tab always opens on Timeline; NEVER persist the lens. `RenderOverrides.journalInitialLens`, `journalInitialDay` and `journalInitialThread` pin a lens state for the harness.
-- Rewind and Threads read the same History rows as Timeline. NEVER store anything new for them; nothing leaves the Mac.
-- Derived lists (days, blocks, threads, matches) MUST be rebuilt on appear and on change of the rows they read, NEVER in `body`.
+- Timeline reads History's rows. Rewind and Threads read `coordinator.journalEntries`: every memory entry plus each History row memory does not hold, oldest first, memory winning for an id both hold. NEVER store anything new for them; nothing leaves the Mac.
+- Derived lists (entries, days, blocks, threads, matches) MUST be rebuilt on appear, on change of History's row ids or bindings, and on change of `coordinator.memoryRevision`, NEVER in `body`.
 - Rewind and Threads MUST take the calendar from `RenderOverrides.calendar ?? .current` and render month names from fixed arrays, so goldens never depend on the locale.
 
 ### Timeline
@@ -53,7 +53,7 @@ History is the record: the newest 500 dictations delivered to non-secure targets
 
 - Rewind and Threads render dictations as `JournalEntryRow`: timestamp + the whole text, NEVER truncated. The row is the control: a click copies the text as a plain, non-transient string; transient COPIED mark + VoiceOver confirmation.
 - NOT SENT mark when the bound session never sent the dictation.
-- Context menu: Copy Text; Show in Timeline (row still in History); Open Thread (row has a session). Teach, Raw, Sent, Details and Delete stay in Timeline; NEVER add them to a reading row.
+- Context menu: Copy Text; Show in Timeline (row still in History); Open Thread (row has a session); Delete Entry… only when History no longer holds the entry, behind a titled confirmation dialog with a destructive role, deleting the memory entry with that id. Teach, Raw, Sent and Details stay in Timeline, and so does Delete for a row History holds; NEVER add them to a reading row.
 
 ### App identity
 

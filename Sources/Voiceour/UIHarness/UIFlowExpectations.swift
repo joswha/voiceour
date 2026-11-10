@@ -298,6 +298,8 @@
                 return quotedProbe(coordinator.targetLabel)
             case .recentSessionCount:
                 return scalarProbe(coordinator.recentSessions.count)
+            case .memoryEntryCount:
+                return scalarProbe(coordinator.memoryEntries.count)
             case .glossaryTermCount:
                 return scalarProbe(coordinator.settings.glossary.filter { $0.tombstonedAt == nil }.count)
             case .cleanupEnabled:

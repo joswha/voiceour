@@ -169,6 +169,11 @@
             case erasedFigures
             /// A fixed nine-session history on the dev backend.
             case populated
+            /// The populated History with memory switched on and a memory folder that
+            /// reaches further back: the nine History rows plus twelve older dictations
+            /// History no longer holds, so the Journal shows days and thread entries
+            /// only memory can supply.
+            case remembered
             /// Populated history, but every glossary term removed.
             case emptyGlossary
             /// Populated history with a glossary that is not all bundled: one
@@ -253,6 +258,8 @@
                 )
             case .populated:
                 return make(sessions: history)
+            case .remembered:
+                return make(sessions: history, settings: settings(memoryEnabled: true), memory: rememberedMemory)
             case .emptyGlossary:
                 return make(sessions: history, settings: settings(glossary: []))
             case .mixedGlossary:
@@ -313,6 +320,7 @@
             RenderOverrides.settingsPath = Ledger.settingsPath
             RenderOverrides.recentSessionsPath = Ledger.recentSessionsPath
             RenderOverrides.dictationStatsPath = Ledger.dictationStatsPath
+            RenderOverrides.memoryPath = Ledger.memoryPath
             // Accessibility settings are machine state too. Base scenes explicitly
             // pin the standard presentation; dedicated a11y scenes opt one in.
             RenderOverrides.reduceTransparency = false
@@ -377,6 +385,7 @@
                 "/Users/harness/Library/Application Support/Voiceour/recent-sessions.json"
             static let dictationStatsPath =
                 "/Users/harness/Library/Application Support/Voiceour/dictation-activity.json"
+            static let memoryPath = "/Users/harness/Library/Application Support/Voiceour/memory"
         }
 
         // MARK: Pinned installed apps
@@ -517,7 +526,10 @@
             hasCompletedFirstRun: Bool = false,
             /// The committed island look. Stock everywhere but the Garage fixtures, which
             /// is also what every overlay golden renders.
-            island: IslandAppearance = .stock
+            island: IslandAppearance = .stock,
+            /// Whether new dictations fold into memory. Off everywhere but the fixture
+            /// that holds memory, because off is what a fresh install holds.
+            memoryEnabled: Bool = false
         ) -> VoiceCore.Settings {
             VoiceCore.Settings(
                 asrBackend: backend,
@@ -528,7 +540,8 @@
                 preferredMicrophoneUID: preferredMicrophoneUID,
                 preferredMicrophoneName: preferredMicrophoneName,
                 hasCompletedFirstRun: hasCompletedFirstRun,
-                island: island
+                island: island,
+                memoryEnabled: memoryEnabled
             )
         }
 
@@ -553,7 +566,11 @@
             /// ledger. Either way the file's presence is decided here, so no
             /// fixture ever takes the coordinator's one-time backfill path by
             /// accident and folds the nine seeded transcripts into its totals.
-            stats: DictationStatsLedger? = nil
+            stats: DictationStatsLedger? = nil,
+            /// What the memory folder holds, oldest first. Handed to the coordinator by
+            /// its load closure rather than written to the scratch folder, so a scene
+            /// never depends on a scratch-file write; empty is a folder never made.
+            memory: [MemoryEntry] = []
         ) -> DictationCoordinator {
             RenderOverrides.permissions = HarnessPermissions(state: permissions)
             let scratch = nextScratchDirectory()
@@ -575,6 +592,12 @@
                     stats ?? (sessions.isEmpty ? DictationStatsLedger() : statsLedger),
                     in: scratch
                 ),
+                memoryLoad: { _ in MemoryLoad(entries: memory) },
+                // Inert for the reason the History snapshot save is: a scripted turn of
+                // the memory switch or a Clear Memory must not depend on a scratch-file
+                // write or removal completing.
+                memoryWrite: { _, _ in },
+                memoryClear: { _ in },
                 // Fixtures keep the persistence tail inert: a scripted dictation
                 // must not depend on a scratch-file write completing.
                 recentSessionSnapshotSave: { _, _ in },
@@ -983,6 +1006,185 @@
                 leastConfidentWord: leastConfidentWord,
                 agentSession: agentSession
             )
+        }
+
+        // MARK: Fixed memory
+
+        /// What the `remembered` fixture's memory folder holds, oldest first: twelve
+        /// dictations older than every History row, then the nine History rows under
+        /// their History ids, as turning the memory switch on would have kept them.
+        static let rememberedMemory: [MemoryEntry] =
+            olderMemory + history.reversed().map { MemoryEntry($0) }
+
+        /// The day `console.sessions.rewind.memory` opens Rewind on: 2025-05-28, older
+        /// than every History row, holding a morning run in the omp session, a Slack
+        /// dictation, and the same session again that afternoon as a continued block.
+        static let rememberedDay = startOfDay(daysBeforePinnedNow: 18)
+
+        /// Twelve dictations History no longer holds, over three days in two calendar
+        /// months, so Rewind steps past History's oldest day and a month boundary, and
+        /// the omp thread holds entries older than any History row. Some went into the
+        /// fixture's omp session, one of them never sent; the rest went to apps.
+        private static let olderMemory: [MemoryEntry] = [
+            // 2025-05-20, a Tuesday.
+            remembered(
+                index: 10,
+                daysAgo: 26,
+                at: (13, 10, 4),
+                text: "Sketch a journal that remembers more than the last thirty days.",
+                bundleId: "com.microsoft.VSCode",
+                appName: "Visual Studio Code",
+                captureSeconds: 4.8
+            ),
+            remembered(
+                index: 11,
+                daysAgo: 26,
+                at: (13, 22, 37),
+                text: "One JSON file per month keeps a year of dictation easy to read.",
+                bundleId: "com.microsoft.VSCode",
+                appName: "Visual Studio Code",
+                captureSeconds: 5.4
+            ),
+            remembered(
+                index: 12,
+                daysAgo: 26,
+                at: (17, 45, 12),
+                text: "Compare how other dictation apps store transcripts on disk.",
+                bundleId: "com.apple.Safari",
+                appName: "Safari",
+                captureSeconds: 4.1
+            ),
+            remembered(
+                index: 13,
+                daysAgo: 26,
+                at: (18, 2, 50),
+                text: "Start an agent session to draft the memory folder layout.",
+                bundleId: "com.apple.Terminal",
+                appName: "Terminal",
+                captureSeconds: 4.4,
+                thread: ompThread(sent: false)
+            ),
+            // 2025-05-28, a Wednesday.
+            remembered(
+                index: 14,
+                daysAgo: 18,
+                at: (9, 15, 21),
+                text: "Memory keeps every dictation verbatim; a model only labels what I said.",
+                bundleId: "com.apple.Terminal",
+                appName: "Terminal",
+                captureSeconds: 5.9,
+                thread: ompThread(sent: true)
+            ),
+            remembered(
+                index: 15,
+                daysAgo: 18,
+                at: (9, 40, 8),
+                text: "The month file is the source of truth and every page is derived from it.",
+                bundleId: "com.apple.Terminal",
+                appName: "Terminal",
+                captureSeconds: 6.3,
+                thread: ompThread(sent: true)
+            ),
+            remembered(
+                index: 16,
+                daysAgo: 18,
+                at: (11, 5, 46),
+                text: "Moving the planning call to Thursday so the memory review can land first.",
+                bundleId: "com.tinyspeck.slackmacgap",
+                appName: "Slack",
+                captureSeconds: 5.7
+            ),
+            remembered(
+                index: 17,
+                daysAgo: 18,
+                at: (16, 30, 19),
+                text: "Clear History must leave the memory folder exactly as it was.",
+                bundleId: "com.apple.Terminal",
+                appName: "Terminal",
+                captureSeconds: 4.9,
+                thread: ompThread(sent: true)
+            ),
+            // 2025-06-03, a Tuesday: the newest day older than every History row.
+            remembered(
+                index: 18,
+                daysAgo: 12,
+                at: (10, 2, 33),
+                text: "Pin the memory folder path in Diagnostics the same way the other storage paths are pinned.",
+                bundleId: "com.apple.Terminal",
+                appName: "Terminal",
+                captureSeconds: 6.6,
+                thread: ompThread(sent: true)
+            ),
+            remembered(
+                index: 19,
+                daysAgo: 12,
+                at: (10, 9, 58),
+                text: "A scene must never wait on a scratch file write to finish.",
+                bundleId: "com.apple.Terminal",
+                appName: "Terminal",
+                captureSeconds: 4.7,
+                thread: ompThread(sent: true)
+            ),
+            remembered(
+                index: 20,
+                daysAgo: 12,
+                at: (15, 20, 14),
+                text: "Rewind groups a day into runs of one subject, split by a half hour pause.",
+                bundleId: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                captureSeconds: 5.8
+            ),
+            remembered(
+                index: 21,
+                daysAgo: 12,
+                at: (15, 31, 40),
+                text: "Keep the older days in the fixture, not in the golden.",
+                bundleId: "com.apple.dt.Xcode",
+                appName: "Xcode",
+                captureSeconds: 4.2
+            ),
+        ]
+
+        /// The fixture's omp session as a memory entry records it, under the title and
+        /// directory its History rows carry, so the thread reads as one session.
+        private static func ompThread(sent: Bool) -> JournalThreadRef {
+            JournalThreadRef(
+                agent: agentSession.agent,
+                sessionId: agentSession.sessionId,
+                title: "Harness offscreen capture",
+                workingDirectory: "/Users/harness/voiceour",
+                resumable: true,
+                sent: sent
+            )
+        }
+
+        private static func remembered(
+            index: Int,
+            daysAgo: Int,
+            at time: (hour: Int, minute: Int, second: Int),
+            text: String,
+            bundleId: String,
+            appName: String,
+            captureSeconds: Double,
+            thread: JournalThreadRef? = nil
+        ) -> MemoryEntry {
+            MemoryEntry(
+                id: fixedIdentifier(index),
+                createdAt: startOfDay(daysBeforePinnedNow: daysAgo)
+                    .addingTimeInterval(Double(time.hour * 3_600 + time.minute * 60 + time.second)),
+                text: text,
+                appBundleId: bundleId,
+                appName: appName,
+                thread: thread,
+                captureSeconds: captureSeconds
+            )
+        }
+
+        /// Midnight `offset` days before the pinned day, in the pinned calendar. Whole
+        /// days of seconds are exact here because the pinned time zone is UTC, which
+        /// has no daylight-saving shift for a day to lose or gain an hour to.
+        private static func startOfDay(daysBeforePinnedNow offset: Int) -> Date {
+            pinnedCalendar.startOfDay(for: pinnedNow).addingTimeInterval(-Double(offset) * 86_400)
         }
 
         /// Stable RFC-4122-shaped identifier. The harness must never call `UUID()`:

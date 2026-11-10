@@ -214,6 +214,9 @@
         /// Decimal count of `coordinator.recentSessions` — kept transcripts,
         /// which the store caps.
         case recentSessionCount
+        /// Decimal count of `coordinator.memoryEntries` — everything the memory
+        /// folder holds, which nothing caps.
+        case memoryEntryCount
         /// Decimal count of active glossary terms in settings.
         case glossaryTermCount
         /// `true`/`false` for `settings.cleanupEnabled`.

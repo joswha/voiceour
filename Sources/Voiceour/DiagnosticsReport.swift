@@ -34,6 +34,10 @@ enum DiagnosticsReport {
         lines.append("  version: \(appVersion) (build \(appBuild))")
         lines.append("  saved sessions: \(coordinator.recentSessions.count)")
         lines.append("  agent session links: \(coordinator.settings.agentSessionBindingEnabled ? "on" : "off")")
+        // The switch and a count only: what memory holds, its topics and the sessions
+        // it links to stay out of a report that is made to be pasted elsewhere.
+        lines.append("  keep dictations in memory: \(coordinator.settings.memoryEnabled ? "on" : "off")")
+        lines.append("  memory entries: \(coordinator.memoryEntries.count)")
         lines.append("  self-test: \(selfTestCommand)")
 
         lines.append("")
@@ -71,6 +75,7 @@ enum DiagnosticsReport {
         lines.append("  settings: \(settingsPath)")
         lines.append("  recent sessions: \(recentSessionsPath)")
         lines.append("  dictation stats: \(dictationStatsPath)")
+        lines.append("  memory: \(memoryPath(coordinator))")
 
         return lines.joined(separator: "\n") + "\n"
     }
@@ -157,6 +162,14 @@ enum DiagnosticsReport {
 
     private static var dictationStatsPath: String {
         RenderOverrides.dictationStatsPath ?? DictationStatsStore.defaultURL.path
+    }
+
+    /// Read from the coordinator rather than a default URL: the memory folder sits
+    /// beside the History file the coordinator was built with, so a report from an
+    /// isolated support directory names that directory's folder.
+    @MainActor
+    private static func memoryPath(_ coordinator: DictationCoordinator) -> String {
+        RenderOverrides.memoryPath ?? coordinator.memoryStore.root.path
     }
 
     /// The human sentence inside a backend health payload.

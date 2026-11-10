@@ -20,6 +20,8 @@ struct JournalThreadsLens: View {
     /// choice survives a lens switch.
     @Binding private var openThread: AgentSessionKey?
     private let navigation: JournalNavigation
+    /// Removes an entry History no longer holds; nil offers no delete.
+    private let delete: ((UUID) async -> Bool)?
 
     @State private var searchText = ""
     /// The project groups for the current entries and query, cached as a snapshot
@@ -36,13 +38,15 @@ struct JournalThreadsLens: View {
         historyIDs: Set<UUID>,
         lens: Binding<JournalLens>,
         openThread: Binding<AgentSessionKey?>,
-        navigation: JournalNavigation
+        navigation: JournalNavigation,
+        delete: ((UUID) async -> Bool)? = nil
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
         self._lens = lens
         self._openThread = openThread
         self.navigation = navigation
+        self.delete = delete
     }
 
     var body: some View {
@@ -328,7 +332,8 @@ struct JournalThreadsLens: View {
                     entry: entry,
                     isInHistory: historyIDs.contains(entry.id),
                     showsThreadAction: false,
-                    navigation: navigation
+                    navigation: navigation,
+                    delete: delete
                 )
             }
         }

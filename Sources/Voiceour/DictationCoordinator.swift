@@ -75,6 +75,14 @@ public final class DictationCoordinator {
     /// Lifetime dictation counts, published for the Home tab. Aggregates only:
     /// the transcripts themselves live in `recentSessions`, which is capped.
     public internal(set) var dictationStats = DictationStatsLedger()
+    /// Everything the memory folder holds, oldest first. Loaded at launch
+    /// whatever `settings.memoryEnabled` says: the switch decides only whether
+    /// new dictations fold in, never whether kept ones show.
+    public internal(set) var memoryEntries: [MemoryEntry] = []
+    public internal(set) var memoryTopics: [MemoryTopic] = []
+    /// Increments on every memory change, so a view can key its reload on one
+    /// integer rather than compare an uncapped array.
+    public internal(set) var memoryRevision: Int = 0
     public internal(set) var isSystemAudioMuted: Bool = false
     /// True when the last capture asked for a mute the output device could not
     /// provide. Sticky until the next capture answers the question again.
@@ -101,6 +109,10 @@ public final class DictationCoordinator {
     let recentSessionStore: RecentSessionStore
     let recentSessionSnapshotSave: @Sendable (RecentSessionStore, [RecentSession]) throws -> Void
     let dictationStatsStore: DictationStatsStore
+    let memoryStore: MemoryStore
+    let memoryLoad: @Sendable (MemoryStore) -> MemoryLoad
+    let memoryWrite: @Sendable (MemoryStore, MemoryWrite) throws -> Void
+    let memoryClear: @Sendable (MemoryStore) throws -> Void
     let audioMuter: SystemAudioMuting
     let sessionCues: SessionCuePlaying
     let agentSessions: AgentSessionResolving
@@ -178,6 +190,12 @@ public final class DictationCoordinator {
         settingsStore: SettingsStore = SettingsStore(),
         recentSessionStore: RecentSessionStore = RecentSessionStore(),
         dictationStatsStore: DictationStatsStore = DictationStatsStore(),
+        // Nil derives the folder from History's own directory, so a test or
+        // fixture that isolates History isolates memory with it.
+        memoryStore: MemoryStore? = nil,
+        memoryLoad: @escaping @Sendable (MemoryStore) -> MemoryLoad = { $0.load() },
+        memoryWrite: @escaping @Sendable (MemoryStore, MemoryWrite) throws -> Void = { try $0.apply($1) },
+        memoryClear: @escaping @Sendable (MemoryStore) throws -> Void = { try $0.clear() },
         recentSessionSnapshotSave: @escaping @Sendable (RecentSessionStore, [RecentSession]) throws -> Void = {
             store, sessions in
             try store.save(sessions)
@@ -203,14 +221,21 @@ public final class DictationCoordinator {
         self.recentSessionStore = recentSessionStore
         self.recentSessionSnapshotSave = recentSessionSnapshotSave
         self.dictationStatsStore = dictationStatsStore
+        let supportDirectory = recentSessionStore.url.deletingLastPathComponent()
+        let resolvedMemoryStore =
+            memoryStore ?? MemoryStore(root: supportDirectory.appendingPathComponent("memory", isDirectory: true))
+        self.memoryStore = resolvedMemoryStore
+        self.memoryLoad = memoryLoad
+        self.memoryWrite = memoryWrite
+        self.memoryClear = memoryClear
         self.audioMuter = audioMuter
         self.sessionCues = sessionCues
         self.agentSessions = agentSessions
         self.agentSessionReader = agentSessionReader
         self.temporaryAudioRemover = temporaryAudioRemover
         self.runtime = runtimeOverride ?? .live
-        // Two durable files, both moved aside rather than overwritten when they
-        // cannot be read: the next snapshot would otherwise replace them with
+        // Three durable records, each moved aside rather than overwritten when
+        // it cannot be read: the next snapshot would otherwise replace it with
         // empty state and destroy whatever was still recoverable. `errorMessage`
         // is set below, after the hotkey wiring, because the property is only
         // meaningful once the coordinator exists.
@@ -238,6 +263,20 @@ public final class DictationCoordinator {
                 ?? moved.map { "Dictation stats could not be read — kept as \($0.lastPathComponent)." }
                 ?? "Dictation stats could not be read and could not be set aside."
         }
+        // Memory loads whether or not new dictations fold into it: what the
+        // folder holds is the user's and always shows. An absent folder is an
+        // empty load and creates nothing. An unreadable file is moved aside so
+        // no later write can mistake its absence from memory for a deletion.
+        let memory = memoryLoad(resolvedMemoryStore)
+        self.memoryEntries = memory.entries
+        self.memoryTopics = memory.topics
+        for unreadable in memory.unreadable {
+            let moved = quarantineUnreadableVoiceourState(at: unreadable)
+            loadFailure =
+                loadFailure
+                ?? moved.map { "Memory could not be read — kept as \($0.lastPathComponent)." }
+                ?? "Memory could not be read and could not be set aside."
+        }
         // One-time migration: durable state of two deleted subsystems. Left on
         // disk, the retired `dictation-stats.json` is a per-day, per-app record
         // of every dictation — with transcript quotes in it — that no surface can
@@ -246,7 +285,6 @@ public final class DictationCoordinator {
         // this build keeps is a different, smaller file (see
         // `DictationStatsStore`), so this sweep stays. Removal is best-effort and
         // silent: neither is load-bearing, and a failure must not cost a launch.
-        let supportDirectory = recentSessionStore.url.deletingLastPathComponent()
         for retired in ["dictation-stats.json", "omp-rpc"] {
             try? FileManager.default.removeItem(at: supportDirectory.appendingPathComponent(retired))
         }

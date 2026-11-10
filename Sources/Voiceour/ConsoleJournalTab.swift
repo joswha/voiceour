@@ -50,11 +50,11 @@ enum JournalTimelineRequest: Equatable {
 /// The Journal tab. Holds the lens, builds `[JournalEntry]` once per change, and
 /// hosts one lens at a time.
 ///
-/// The entries are cached rather than derived in `body`: History retains up to
-/// 500 rows, and Rewind and Threads each group the whole list, so rebuilding it
-/// on every body pass would repeat that work on every selection and keystroke.
-/// Timeline reads the coordinator's rows directly, exactly as History did, so it
-/// renders the same list whether or not it is hosted here.
+/// The entries are cached rather than derived in `body`: memory is uncapped, and
+/// Rewind and Threads each group the whole list, so rebuilding it on every body
+/// pass would repeat that work on every selection and keystroke. Timeline reads
+/// the coordinator's rows directly, exactly as History did, so it renders the
+/// same list whether or not it is hosted here.
 struct ConsoleJournalTab: View {
     var coordinator: DictationCoordinator
 
@@ -86,6 +86,11 @@ struct ConsoleJournalTab: View {
             .onChange(of: coordinator.recentSessions.map(\.agentSession)) {
                 reloadEntries()
             }
+            // Every memory change bumps the revision, so an entry memory adds,
+            // relabels or removes reaches the lenses without comparing the store.
+            .onChange(of: coordinator.memoryRevision) {
+                reloadEntries()
+            }
     }
 
     @ViewBuilder
@@ -103,7 +108,8 @@ struct ConsoleJournalTab: View {
                 entries: entries,
                 historyIDs: historyIDs,
                 lens: $lens,
-                navigation: navigation
+                navigation: navigation,
+                delete: deleteEntry
             )
             // Both lenses name each entry's agent session and whether its prompt
             // was sent, which only a refresh pass brings up to date.
@@ -114,7 +120,8 @@ struct ConsoleJournalTab: View {
                 historyIDs: historyIDs,
                 lens: $lens,
                 openThread: $openThread,
-                navigation: navigation
+                navigation: navigation,
+                delete: deleteEntry
             )
             .onAppear { coordinator.refreshAgentSessions() }
         }
@@ -142,15 +149,23 @@ struct ConsoleJournalTab: View {
         )
     }
 
+    /// Removes the History row and the memory entry with this id, whichever
+    /// exist; false when the removal did not reach disk.
+    private var deleteEntry: (UUID) async -> Bool {
+        let coordinator = coordinator
+        return { id in await coordinator.deleteRecentSession(id: id) }
+    }
+
     private func reloadEntries() {
         entries = journalEntries()
         historyIDs = Set(coordinator.recentSessions.map(\.id))
     }
 
-    /// The one place the Journal's entries come from, so a different source
-    /// changes this function and nothing that reads the entries.
+    /// The one place the Journal's entries come from: every memory entry plus
+    /// each History row memory does not hold, so a lens reads one list whether
+    /// or not memory is on.
     private func journalEntries() -> [JournalEntry] {
-        coordinator.recentSessions.map(JournalEntry.init)
+        coordinator.journalEntries
     }
 }
 

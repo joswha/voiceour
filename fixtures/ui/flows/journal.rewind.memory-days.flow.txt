@@ -1,0 +1,8 @@
+flow: journal.rewind.memory-days
+title: Rewind steps past History's oldest day into days only memory holds
+fixture: static
+transitions: idle
+PASS 1 older-than-history | exists id=journal.rewind.entries & value="4 · 54 words" | 1 match
+PASS 2 older-than-history | count label~="Pin the memory folder path in Diagnostics the same way the other storage paths are pinned." exactly 1 | 1 match
+PASS 3 older-than-history | enabled(true) id=journal.rewind.later | true
+PASS 4 older-than-history | enabled(true) id=journal.rewind.earlier | true

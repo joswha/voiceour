@@ -1,0 +1,11 @@
+flow: system.memory.toggle
+title: Turning memory on keeps the History rows and offers the agent instructions
+fixture: static
+transitions: idle
+PASS 1 off | value id=system.memory.toggle == "0" | "0"
+PASS 2 off | enabled(false) id=system.memory.copy-instructions | false
+PASS 3 off | model memoryEntryCount == "0" | 0
+PASS 4 on | value id=system.memory.toggle == "1" | "1"
+PASS 5 on | model memoryEntryCount == "9" | 9
+PASS 6 on | model recentSessionCount == "9" | 9
+PASS 7 on | enabled(true) id=system.memory.copy-instructions | true

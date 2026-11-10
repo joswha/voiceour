@@ -18,6 +18,8 @@ struct JournalRewindLens: View {
     private let historyIDs: Set<UUID>
     private let lens: Binding<JournalLens>
     private let navigation: JournalNavigation
+    /// Removes an entry History no longer holds; nil offers no delete.
+    private let delete: ((UUID) async -> Bool)?
 
     /// The start of the day on screen. Seeded from the harness pin so a golden opens on
     /// a fixed day; any day that holds no entry falls back to the newest one.
@@ -44,12 +46,14 @@ struct JournalRewindLens: View {
         entries: [JournalEntry],
         historyIDs: Set<UUID>,
         lens: Binding<JournalLens>,
-        navigation: JournalNavigation
+        navigation: JournalNavigation,
+        delete: ((UUID) async -> Bool)? = nil
     ) {
         self.entries = entries
         self.historyIDs = historyIDs
         self.lens = lens
         self.navigation = navigation
+        self.delete = delete
     }
 
     var body: some View {
@@ -330,7 +334,8 @@ struct JournalRewindLens: View {
             entry: entry,
             isInHistory: historyIDs.contains(entry.id),
             showsThreadAction: true,
-            navigation: navigation
+            navigation: navigation,
+            delete: delete
         )
     }
 

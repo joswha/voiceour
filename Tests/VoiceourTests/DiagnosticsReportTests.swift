@@ -37,6 +37,74 @@ struct DiagnosticsReportTests {
         #expect(report.contains(DiagnosticsReport.selfTestCommand))
     }
 
+    /// Memory off by default: the report says so, counts nothing, and names the
+    /// folder beside the History file this coordinator was built with rather than
+    /// the real support directory.
+    @Test func memoryLinesDefaultToOffAndNameTheIsolatedFolder() {
+        let coordinator = makeCoordinator(backend: "granite")
+
+        let report = DiagnosticsReport.text(
+            coordinator: coordinator,
+            microphone: .granted,
+            accessibility: .granted,
+            synthPaste: .granted
+        )
+
+        #expect(report.contains("  keep dictations in memory: off\n"))
+        #expect(report.contains("  memory entries: 0\n"))
+        #expect(report.contains("  memory: \(coordinator.memoryStore.root.path)\n"))
+        #expect(coordinator.memoryStore.root.path.hasSuffix("/memory"))
+    }
+
+    /// The switch and the count are reported, and the pinned path wins over the
+    /// real one; what memory holds never reaches a report meant to be pasted:
+    /// no kept text, topic name, session id or session directory.
+    @Test func memoryLinesReportStateAndCountButNeverContents() {
+        let coordinator = makeCoordinator(
+            backend: "granite",
+            settings: VoiceCore.Settings(asrBackend: "granite", memoryEnabled: true)
+        )
+        let createdAt = Date(timeIntervalSince1970: 1_793_000_000)
+        coordinator.memoryTopics = [
+            MemoryTopic(id: "garden-plans", name: "Garden plans", summary: "Beds and seeds.", createdAt: createdAt)
+        ]
+        coordinator.memoryEntries = [
+            MemoryEntry(
+                id: UUID(),
+                createdAt: createdAt,
+                text: "plant the tomatoes beside the fence",
+                thread: JournalThreadRef(
+                    agent: .claudeCode,
+                    sessionId: "session-4f2a9c",
+                    title: "Sprinkler timer",
+                    workingDirectory: "/Users/someone/projects/sprinkler"
+                ),
+                userTopicID: "garden-plans"
+            ),
+            MemoryEntry(id: UUID(), createdAt: createdAt, kind: .note, text: "order more mulch"),
+        ]
+        RenderOverrides.memoryPath = "/pinned/memory"
+        defer { RenderOverrides.memoryPath = nil }
+
+        let report = DiagnosticsReport.text(
+            coordinator: coordinator,
+            microphone: .granted,
+            accessibility: .granted,
+            synthPaste: .granted
+        )
+
+        #expect(report.contains("  keep dictations in memory: on\n"))
+        #expect(report.contains("  memory entries: 2\n"))
+        #expect(report.contains("  memory: /pinned/memory\n"))
+        #expect(!report.contains(coordinator.memoryStore.root.path))
+        for secret in [
+            "tomatoes", "mulch", "Garden plans", "garden-plans", "session-4f2a9c", "Sprinkler timer",
+            "/projects/sprinkler",
+        ] {
+            #expect(!report.contains(secret))
+        }
+    }
+
     /// Granite names its own pin and file in the `<id>@<rev> (<file>)` spelling bug reports
     /// carry — even with a variant tag saved in settings, which no backend reads.
     @Test func graniteIdentifierNamesItsOwnPinAndFile() {

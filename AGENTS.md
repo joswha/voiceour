@@ -10,6 +10,7 @@ Before editing, read the contract for what you are changing; update it in the sa
 - [docs/text-pipeline.md](docs/text-pipeline.md): term spotting, literal commands, cleanup, repair, language detection, glossary and its editors, word-list import.
 - [docs/asr.md](docs/asr.md): `voiceour-asr`, the NDJSON protocol, the model pin, model cache and acquisition, Granite, `Vendor/`.
 - [docs/console-ui.md](docs/console-ui.md): console window and tabs, History, menu, design tokens.
+- [docs/memory.md](docs/memory.md): memory folder, entry schema, derived pages, write planner, when dictations fold in, agent access.
 - [docs/recording-island.md](docs/recording-island.md): recording island, notch collar, mercury, Island garage; derivations in [docs/mercury-renderer.md](docs/mercury-renderer.md).
 - [docs/ui-harness.md](docs/ui-harness.md): UI harness, scenes, flows, goldens, `RenderOverrides`.
 - [docs/benchmarks.md](docs/benchmarks.md): benchmarks, `bench/`, `voiceour-bench`.

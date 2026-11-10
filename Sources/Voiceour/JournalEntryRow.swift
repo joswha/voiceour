@@ -11,33 +11,73 @@ import VoiceMac
 /// gutter of its own so the text's left edge lines up from row to row. The text
 /// is the control, as it is in History's open transcript: a click copies it, and
 /// a transient COPIED mark and a VoiceOver announcement confirm the write.
+///
+/// An entry that only memory holds has no Timeline row to delete it from, so
+/// the row itself offers "Delete Entry…" for it, behind the same titled
+/// confirmation History uses for a transcript.
 struct JournalEntryRow: View {
     private let entry: JournalEntry
     private let isInHistory: Bool
     private let showsThreadAction: Bool
     private let navigation: JournalNavigation
+    private let delete: ((UUID) async -> Bool)?
 
     @State private var showsCopied = false
     @State private var resetCopyFeedbackTask: Task<Void, Never>?
+    @State private var confirmsDelete = false
+    /// True while a confirmed delete is in flight, so a second confirmation
+    /// cannot start a second removal of the same entry.
+    @State private var isDeleting = false
+    @State private var deleteFailed = false
 
     private var a11y = A11y()
 
     /// `isInHistory` offers "Show in Timeline", which only a row History still
     /// holds can answer. `showsThreadAction` offers "Open Thread", which a lens
-    /// already showing the entry's thread has no use for.
-    init(entry: JournalEntry, isInHistory: Bool, showsThreadAction: Bool, navigation: JournalNavigation) {
+    /// already showing the entry's thread has no use for. `delete` offers
+    /// "Delete Entry…" only on an entry History no longer holds: an entry still
+    /// in History is deleted from Timeline, where its transcript is. It returns
+    /// false when the entry could not be removed.
+    init(
+        entry: JournalEntry,
+        isInHistory: Bool,
+        showsThreadAction: Bool,
+        navigation: JournalNavigation,
+        delete: ((UUID) async -> Bool)? = nil
+    ) {
         self.entry = entry
         self.isInHistory = isInHistory
         self.showsThreadAction = showsThreadAction
         self.navigation = navigation
+        self.delete = delete
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
+            entryButton
+            // A destructive action that fails must say so under the row that
+            // asked for it, rather than leave the entry on screen unexplained.
+            if deleteFailed {
+                ConsoleCaption("The entry could not be deleted.", color: .red)
+                    .accessibilityIdentifier("journal.entry.delete-error")
+            }
+        }
+    }
+
+    private var entryButton: some View {
         Button(action: copyText) {
             HStack(alignment: .firstTextBaseline, spacing: VoiceourMetrics.Space.sm) {
+                // The copy confirmation takes the timestamp's place rather than a
+                // line of its own, so a click never moves the rows below it.
                 Text(timestamp)
                     .font(.body.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .opacity(showsCopied ? 0 : 1)
+                    .overlay(alignment: .leading) {
+                        if showsCopied {
+                            ConsoleStateMark("COPIED", .ok)
+                        }
+                    }
                     .fixedSize(horizontal: true, vertical: false)
 
                 VStack(alignment: .leading, spacing: VoiceourMetrics.Space.xs) {
@@ -57,16 +97,18 @@ struct JournalEntryRow: View {
                             if let highlightKind {
                                 ConsoleStateMark(highlightKind.displayName.uppercased(), .neutral)
                             }
-                            if showsCopied {
-                                ConsoleStateMark("COPIED", .ok)
-                            }
                         }
                     }
                 }
             }
-            // One line of text is 16 pt tall; the row takes the smallest control
-            // height so a short entry is still a full click target.
-            .frame(maxWidth: .infinity, minHeight: VoiceourMetrics.Control.mini, alignment: .leading)
+            // One line of text is 16 pt tall and a line of marks brings it to 33 pt;
+            // the row takes the control height above each, so a short entry is still
+            // a full click target and no height falls between two of the scale's.
+            .frame(
+                maxWidth: .infinity,
+                minHeight: hasMarks ? VoiceourMetrics.Control.large : VoiceourMetrics.Control.mini,
+                alignment: .leading
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -85,6 +127,22 @@ struct JournalEntryRow: View {
                     navigation.openThread(thread.key)
                 }
             }
+            if offersDelete {
+                Button("Delete Entry\u{2026}", role: .destructive) {
+                    deleteFailed = false
+                    confirmsDelete = true
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete this entry?",
+            isPresented: $confirmsDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Entry", role: .destructive, action: confirmDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The entry is removed from this Mac's memory. Text you already pasted is not affected.")
         }
         .onDisappear {
             resetCopyFeedbackTask?.cancel()
@@ -123,7 +181,11 @@ struct JournalEntryRow: View {
     }
 
     private var hasMarks: Bool {
-        isNote || isNotSent || highlightKind != nil || showsCopied
+        isNote || isNotSent || highlightKind != nil
+    }
+
+    private var offersDelete: Bool {
+        delete != nil && !isInHistory
     }
 
     /// The time, then the two states a reader acts on, then the words. The
@@ -172,5 +234,21 @@ struct JournalEntryRow: View {
 
     private var feedbackAnimation: Animation? {
         a11y.reduceMotion ? nil : .easeInOut(duration: VoiceourMotion.quickDuration)
+    }
+
+    // MARK: Delete
+
+    /// Mirrors History's delete: the outcome is reported on the row that asked
+    /// for it, and a removal that did not reach disk says so.
+    private func confirmDelete() {
+        guard let delete, !isDeleting else { return }
+        deleteFailed = false
+        isDeleting = true
+        let id = entry.id
+        Task {
+            let isDeleted = await delete(id)
+            isDeleting = false
+            deleteFailed = !isDeleted
+        }
     }
 }

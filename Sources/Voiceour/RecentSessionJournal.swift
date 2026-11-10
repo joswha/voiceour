@@ -20,6 +20,8 @@ import VoiceCore
 /// one main-actor turn either.
 @MainActor
 extension DictationCoordinator {
+    /// Erases History. Memory is left alone: it is a separate record the user
+    /// keeps on purpose, and Clear Memory is the one way to erase it.
     @discardableResult
     public func clearRecentSessions() async -> Bool {
         guard !isPreparingForTermination else { return false }
@@ -29,12 +31,29 @@ extension DictationCoordinator {
         return await enqueueJournalSnapshot().value
     }
 
+    /// Deletes one transcript wherever it is kept: the History row and the
+    /// memory entry with `id`, whichever exist, published in one main-actor
+    /// turn. An id only memory holds — an entry older than History's cap, or a
+    /// note — is deleted too. True only when every write this enqueued
+    /// succeeded.
     @discardableResult
     public func deleteRecentSession(id: RecentSession.ID) async -> Bool {
         guard !isPreparingForTermination else { return false }
         cancelAgentSessionBinding(rowID: id)
-        recentSessions = recentSessionStore.normalized(recentSessions.filter { $0.id != id })
-        return await enqueueJournalSnapshot().value
+        var writes: [Task<Bool, Never>] = []
+        if recentSessions.contains(where: { $0.id == id }) {
+            recentSessions = recentSessionStore.normalized(recentSessions.filter { $0.id != id })
+            writes.append(enqueueJournalSnapshot())
+        }
+        if memoryEntries.contains(where: { $0.id == id }) {
+            writes.append(commitMemory(entries: memoryEntries.filter { $0.id != id }))
+        }
+        var durable = true
+        for write in writes {
+            let succeeded = await write.value
+            durable = durable && succeeded
+        }
+        return durable
     }
 
     /// Journals one delivered dictation: the transcript row, and the same
@@ -53,7 +72,11 @@ extension DictationCoordinator {
     ///
     /// Returns nil and folds nothing for a transcript that is only whitespace:
     /// there is no dictation to record. A secure delivery target never arrives
-    /// here at all — it reaches neither record.
+    /// here at all — it reaches neither record, memory included.
+    ///
+    /// With `settings.memoryEnabled` the same dictation folds into memory in
+    /// this turn too, its files queued after the History and ledger snapshots.
+    /// That write is never awaited: delivery does not wait for memory.
     @discardableResult
     func recordDeliveredDictation(
         text: String,
@@ -80,6 +103,7 @@ extension DictationCoordinator {
 
         let journal = enqueueJournalSnapshot()
         let ledger = enqueueDictationStatsSnapshot()
+        foldMemory(for: session, deliveredTo: app)
         _ = await journal.value
         _ = await ledger.value
         return session.id

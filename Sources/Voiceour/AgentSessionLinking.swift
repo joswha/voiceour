@@ -31,8 +31,9 @@ extension DictationCoordinator {
     }
 
     /// Turns binding on or off. Off discards every binding and refresh in
-    /// flight and deletes every binding, in memory and on disk; nothing is
-    /// rebuilt when it is turned back on.
+    /// flight and deletes every binding, in memory and on disk, and every
+    /// memory entry's thread with them; nothing is rebuilt when it is turned
+    /// back on.
     public func setAgentSessionBinding(_ enabled: Bool) {
         guard settings.agentSessionBindingEnabled != enabled else { return }
         settings.agentSessionBindingEnabled = enabled
@@ -40,13 +41,15 @@ extension DictationCoordinator {
         guard !enabled else { return }
         generations.invalidate(.agentLinking)
         cancelAgentSessionWork()
-        guard recentSessions.contains(where: { $0.agentSession != nil }) else { return }
-        recentSessions = recentSessions.map { session in
-            var session = session
-            session.agentSession = nil
-            return session
+        if recentSessions.contains(where: { $0.agentSession != nil }) {
+            recentSessions = recentSessions.map { session in
+                var session = session
+                session.agentSession = nil
+                return session
+            }
+            _ = enqueueJournalSnapshot()
         }
-        _ = enqueueJournalSnapshot()
+        stripMemoryThreads()
     }
 
     /// Cancels every binding task and the refresh pass. Their landings are
@@ -128,8 +131,10 @@ extension DictationCoordinator {
             let index = recentSessions.firstIndex(where: { $0.id == rowID }),
             recentSessions[index].agentSession == nil
         else { return }
-        recentSessions[index].agentSession = AgentSessionBinding(resolved, boundAt: boundAt)
+        let binding = AgentSessionBinding(resolved, boundAt: boundAt)
+        recentSessions[index].agentSession = binding
         _ = enqueueJournalSnapshot()
+        mirrorAgentSessionBindings([rowID: binding])
         refreshAgentSessions()
     }
 
@@ -177,17 +182,18 @@ extension DictationCoordinator {
             !isPreparingForTermination
         {
             var sessions = recentSessions
-            var changed = false
+            var changed: [RecentSession.ID: AgentSessionBinding] = [:]
             for result in refreshed {
                 guard let index = sessions.firstIndex(where: { $0.id == result.id }),
                     sessions[index].agentSession == result.original
                 else { continue }
                 sessions[index].agentSession = result.updated
-                changed = true
+                changed[result.id] = result.updated
             }
-            if changed {
+            if !changed.isEmpty {
                 recentSessions = sessions
                 _ = enqueueJournalSnapshot()
+                mirrorAgentSessionBindings(changed)
             }
         }
         if rerun {

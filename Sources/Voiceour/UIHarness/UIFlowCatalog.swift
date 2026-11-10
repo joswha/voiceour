@@ -123,6 +123,18 @@
                 .all([rewindEntriesReadout, .value(figure)])
             }
 
+            // The History days older than those two, newest first: rows 6, 7, 8 and 9, one
+            // a day. Rows 7 and 9 hold the same count, so the day between them is what
+            // tells the two apart on a walk through every day.
+            static let olderHistoryDayFigures = ["1 · 14 words", "1 · 13 words", "1 · 8 words", "1 · 13 words"]
+            // 2025-06-03, the newest day only memory holds: two entries in the omp session
+            // and two in Xcode. Its first entry is addressed by its text, which no History
+            // row and no other day holds.
+            static let memoryDayFigure = "4 · 54 words"
+            static let memoryDayRow = UIQuery.labelContains(
+                "Pin the memory folder path in Diagnostics the same way the other storage paths are pinned."
+            )
+
             // Every thread row carries `journal.threads.row`, so the omp session's row is
             // addressed by the title its label leads with, which no other label holds.
             static let agentThreadRow = UIQuery.all([
@@ -154,6 +166,9 @@
 
             static let backendRecheck = UIQuery.id("system.backend.recheck")
             static let backendStatus = UIQuery.id("system.backend.status")
+
+            static let memoryToggle = UIQuery.id("system.memory.toggle")
+            static let memoryCopyInstructions = UIQuery.id("system.memory.copy-instructions")
 
             static func backendStatusWithValue(_ value: String) -> UIQuery {
                 .all([backendStatus, .value(value)])
@@ -587,6 +602,7 @@
                             ]
                         ),
                     ]),
+                rewindMemoryDaysFlow,
                 // A thread opens under its own row and closes from the same row, and the
                 // page names the session it belongs to.
                 UIFlow(
@@ -656,6 +672,41 @@
                         ),
                     ]),
             ]
+        }
+
+        /// Rewind's days come from memory as well as History, so Earlier Day walks on past
+        /// History's oldest day into the days only memory holds. The walk waits on every
+        /// day's figure, so a day memory failed to add, or a History day it hid, stops it
+        /// on the step where the figure first differs.
+        private static var rewindMemoryDaysFlow: UIFlow {
+            let figures: [String] =
+                [Selector.earlierDayFigure] + Selector.olderHistoryDayFigures + [Selector.memoryDayFigure]
+            let walk: [UIFlowStep] = figures.flatMap { figure -> [UIFlowStep] in
+                [
+                    .act(.press(Selector.rewindEarlier)),
+                    .wait(.element(Selector.rewindEntries(figure))),
+                ]
+            }
+            let opened: [UIFlowStep] = [.wait(.element(Selector.rewindEntries(Selector.newestDayFigure)))]
+            let checked: [UIFlowStep] = [
+                .check(
+                    "older-than-history",
+                    [
+                        .exists(Selector.rewindEntries(Selector.memoryDayFigure)),
+                        .count(Selector.memoryDayRow, .exactly(1)),
+                        .enabled(Selector.rewindLater, true),
+                        .enabled(Selector.rewindEarlier, true),
+                    ]
+                )
+            ]
+            return UIFlow(
+                id: "journal.rewind.memory-days",
+                title: "Rewind steps past History's oldest day into days only memory holds",
+                tags: ["journal", "console", "rewind", "memory"],
+                host: .console(.history, journalLens: .rewind),
+                fixture: .static(.remembered),
+                steps: opened + walk + checked
+            )
         }
 
         // MARK: Voice
@@ -1188,7 +1239,37 @@
                                 ),
                             ]
                         ),
-                    ])
+                    ]),
+                // Turning memory on keeps every History row memory lacks, in the same turn,
+                // and offers the agent paragraph, which is withheld while memory is off and
+                // no folder exists for it to point at.
+                UIFlow(
+                    id: "system.memory.toggle",
+                    title: "Turning memory on keeps the History rows and offers the agent instructions",
+                    tags: ["system", "console", "settings", "memory"],
+                    host: .console(.settings),
+                    fixture: .static(.populated),
+                    steps: [
+                        .check(
+                            "off",
+                            [
+                                .value(Selector.memoryToggle, .equals("0")),
+                                .enabled(Selector.memoryCopyInstructions, false),
+                                .model(.memoryEntryCount, .equals("0")),
+                            ]
+                        ),
+                        .act(.press(Selector.memoryToggle)),
+                        .wait(.element(.all([Selector.memoryToggle, .value("1")]))),
+                        .check(
+                            "on",
+                            [
+                                .value(Selector.memoryToggle, .equals("1")),
+                                .model(.memoryEntryCount, .equals("9")),
+                                .model(.recentSessionCount, .equals("9")),
+                                .enabled(Selector.memoryCopyInstructions, true),
+                            ]
+                        ),
+                    ]),
             ]
         }
 

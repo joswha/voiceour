@@ -223,6 +223,13 @@
                 dictationStatsStore: DictationStatsStore(
                     url: scratch.appendingPathComponent("dictation-activity.json")
                 ),
+                // The gated journeys start with nothing kept, stated rather than read. Memory
+                // is written through the same tail as the History snapshot, so it is inert
+                // for the same reason: a scripted dictation must not depend on a scratch-file
+                // write or removal completing.
+                memoryLoad: { _ in MemoryLoad() },
+                memoryWrite: { _, _ in },
+                memoryClear: { _ in },
                 recentSessionSnapshotSave: { _, _ in },
                 audioMuter: NoOpSystemAudioMuter(),
                 runtimeOverride: clock.runtime

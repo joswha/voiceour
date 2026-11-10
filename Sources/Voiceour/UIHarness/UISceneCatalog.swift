@@ -330,6 +330,26 @@
                     journalLens: .threads,
                     tags: ["empty"]
                 ),
+                // The same two lenses over a memory folder that reaches past History: a day
+                // only memory holds, and the omp thread with entries older than any History row.
+                console(
+                    "console.sessions.rewind.memory",
+                    "Journal Rewind on a day only memory holds",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .rewind,
+                    journalDay: UIFixtures.rememberedDay,
+                    tags: ["memory"]
+                ),
+                console(
+                    "console.sessions.threads.memory",
+                    "Journal Threads with a session page that reaches past History",
+                    tab: .history,
+                    fixture: .remembered,
+                    journalLens: .threads,
+                    journalThread: UIFixtures.agentSession,
+                    tags: ["memory"]
+                ),
                 // The first-launch measure, which now ends inside the Island showroom: what a
                 // fresh install's Settings tab shows before any scrolling.
                 console(
