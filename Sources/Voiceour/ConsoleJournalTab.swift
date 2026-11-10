@@ -94,6 +94,9 @@ struct ConsoleJournalTab: View {
     /// Every thread, newest first: the sidebar's count and its recent threads.
     @State private var threads: [JournalThread] = []
     @State private var noteCount = 0
+    /// True while the tab is narrower than `Kit.Metrics.railBelow`, so the sidebar folds
+    /// to its rail of glyphs and the page keeps its reading width.
+    @State private var isNarrow = false
 
     /// How many threads the sidebar lists under Recent Threads.
     private static let recentThreadLimit = 5
@@ -107,18 +110,24 @@ struct ConsoleJournalTab: View {
             JournalSidebar(
                 lens: lens,
                 counts: counts,
-                recentThreads: Array(threads.prefix(Self.recentThreadLimit)),
+                recentThreads: isNarrow ? [] : Array(threads.prefix(Self.recentThreadLimit)),
                 openThread: lens == .threads ? openThread : nil,
                 select: { lens = $0 },
                 open: navigation.openThread
             )
-            .frame(width: Kit.Metrics.sidebarWidth)
+            .environment(\.kitCompactControls, isNarrow)
+            .frame(width: isNarrow ? Kit.Metrics.railWidth : Kit.Metrics.sidebarWidth)
 
             lensContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding([.leading, .vertical], Kit.Metrics.gutter)
         .background(Kit.Colors.ground.ignoresSafeArea())
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.width < Kit.Metrics.railBelow
+        } action: { narrow in
+            isNarrow = narrow
+        }
         .onAppear {
             reloadEntries()
             coordinator.refreshAgentNotes()

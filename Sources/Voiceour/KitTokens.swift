@@ -30,6 +30,13 @@ extension Kit {
         /// 3 pt insets it leaves the page column a width on the 4 pt grid at the console's
         /// 1164 pt minimum.
         static let sidebarWidth: CGFloat = 206
+        /// The sidebar as a rail of glyphs, in a window too narrow for its names: one
+        /// 32 pt item and the panel's 8 pt insets on either side, plus its rim.
+        static let railWidth: CGFloat = 52
+        /// The width under which a browser's sidebar folds to its rail. The console opens
+        /// at 1164 pt, but a window the user narrowed keeps its size across launches, and
+        /// at 1000 pt the page column would otherwise drop under 440 pt.
+        static let railBelow: CGFloat = 1_000
         /// A two-line preview at 13 pt holds roughly a sentence at this width.
         static let listWidth: CGFloat = 344
         /// The reading measure: about 90 characters of 15 pt text.
@@ -184,4 +191,11 @@ extension Kit {
             message = nil
         }
     }
+}
+
+extension EnvironmentValues {
+    /// Whether the kit's controls show their glyph alone, because the bar they sit in is
+    /// too narrow for their titles. Every control keeps its title as its accessibility
+    /// label and its tooltip, so only the drawing changes.
+    @Entry var kitCompactControls: Bool = false
 }

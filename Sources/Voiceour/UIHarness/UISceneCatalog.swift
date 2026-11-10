@@ -357,6 +357,19 @@
                     journalLens: .threads,
                     journalThread: UIFixtures.agentSession
                 ),
+                // The same page in a window narrowed to 798 pt, as a window the user resized
+                // keeps its size across launches: the sidebar folds to its rail of glyphs and
+                // the page's bar, too narrow for its titles, draws its buttons' glyphs alone.
+                // 798 leaves the page 380 pt, on the 4 pt grid.
+                console(
+                    "console.sessions.narrow",
+                    "Journal Threads in a narrow window, the sidebar a rail and the page's actions glyphs",
+                    tab: .history,
+                    fixture: .populated,
+                    journalLens: .threads,
+                    journalThread: UIFixtures.agentSession,
+                    size: CGSize(width: 798, height: VoiceourMetrics.Window.defaultHeight)
+                ),
                 console(
                     "console.sessions.threads.empty",
                     "Journal Threads with no agent session yet",

@@ -133,10 +133,12 @@ extension Kit {
     /// The page scrolls under its glass buttons, so they refract the words passing
     /// beneath them. The bar holds glass and nothing else, which keeps it legible with
     /// the scroll edge effect hidden — the effect an offscreen capture paints as an
-    /// opaque white sheet over the whole page. `identity` names what the page shows, so
-    /// moving to another item starts its page at the top rather than at the scroll
-    /// offset the last one was left at; `reveal` scrolls one element of the page into
-    /// view.
+    /// opaque white sheet over the whole page. When the bar's titles do not fit the
+    /// page's width, its controls draw their glyphs alone (`kitCompactControls`), so a
+    /// narrow window keeps every action rather than truncating them. `identity` names
+    /// what the page shows, so moving to another item starts its page at the top rather
+    /// than at the scroll offset the last one was left at; `reveal` scrolls one element
+    /// of the page into view.
     struct PageColumn<Bar: View, Content: View>: View {
         private let identity: AnyHashable?
         private let reveal: AnyHashable?
@@ -175,13 +177,21 @@ extension Kit {
             }
             .scrollEdgeEffectHidden(true, for: .top)
             .safeAreaBar(edge: .top, spacing: 0) {
-                HStack(spacing: VoiceourMetrics.Space.sm) {
-                    bar
+                ViewThatFits(in: .horizontal) {
+                    barRow(compact: false)
+                    barRow(compact: true)
                 }
                 .frame(maxWidth: .infinity, minHeight: Kit.Metrics.control, alignment: .trailing)
                 .padding(.horizontal, VoiceourMetrics.Space.lg)
                 .padding(.vertical, VoiceourMetrics.Space.md)
             }
+        }
+
+        private func barRow(compact: Bool) -> some View {
+            HStack(spacing: VoiceourMetrics.Space.sm) {
+                bar
+            }
+            .environment(\.kitCompactControls, compact)
         }
     }
 

@@ -84,7 +84,9 @@ extension Kit {
     ///
     /// The glyph sits in a fixed box: at the large control size a glass button is 28 pt
     /// with a text label, and a tall symbol such as `doc.on.doc` grows it to 30, off the
-    /// Control scale and out of line with its neighbours in the bar.
+    /// Control scale and out of line with its neighbours in the bar. In a compact bar
+    /// (`kitCompactControls`) a button with a glyph draws the glyph alone and keeps its
+    /// title as its accessibility label; its caller's tooltip says the rest.
     struct ActionButton: View {
         enum Prominence {
             case standard
@@ -96,6 +98,7 @@ extension Kit {
         private let prominence: Prominence
         private let role: ButtonRole?
         private let action: () -> Void
+        @Environment(\.kitCompactControls) private var isCompact
         private var a11y = A11y()
 
         init(
@@ -113,8 +116,9 @@ extension Kit {
         }
 
         var body: some View {
+            let showsTitle = !isCompact || systemImage == nil
             let button = Button(role: role, action: action) {
-                Kit.ControlLabel(title, systemImage: systemImage)
+                Kit.ControlLabel(showsTitle ? title : nil, systemImage: systemImage)
             }
             .controlSize(.large)
             .accessibilityLabel(title)
@@ -140,6 +144,7 @@ extension Kit {
         private let help: String?
         private let identifier: String
         private let content: Content
+        @Environment(\.kitCompactControls) private var isCompact
         private var a11y = A11y()
 
         /// `showsTitle` false draws the glyph alone; the title still names the control.
@@ -164,7 +169,7 @@ extension Kit {
             let menu = Menu {
                 content
             } label: {
-                Kit.ControlLabel(showsTitle ? title : nil, systemImage: systemImage)
+                Kit.ControlLabel(showsTitle && !isCompact ? title : nil, systemImage: systemImage)
             }
             .menuIndicator(.hidden)
             .menuStyle(.button)
@@ -367,13 +372,16 @@ extension Kit {
         }
     }
 
-    /// One destination in the sidebar: a glyph, a name and how many items it holds.
+    /// One destination in the sidebar: a glyph, a name and how many items it holds. On the
+    /// rail (`kitCompactControls`) it draws the glyph alone, and the name and count stay
+    /// its accessibility label and value and become its tooltip.
     struct SidebarItem: View {
         private let title: String
         private let systemImage: String
         private let count: Int?
         private let isSelected: Bool
         private let action: () -> Void
+        @Environment(\.kitCompactControls) private var isCompact
 
         init(
             _ title: String,
@@ -390,28 +398,31 @@ extension Kit {
         }
 
         var body: some View {
-            Button(action: action) {
+            let item = Button(action: action) {
                 HStack(spacing: VoiceourMetrics.Space.sm) {
                     Image(systemName: systemImage)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         .frame(width: VoiceourMetrics.Space.xl - VoiceourMetrics.Space.xs)
                         .accessibilityHidden(true)
-                    Text(title)
-                        .font(Kit.Fonts.sidebarItem)
-                        .fontWeight(isSelected ? .semibold : .regular)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: VoiceourMetrics.Space.xs)
-                    if let count {
-                        // Digits by hand, so no locale's grouping separator reaches a golden.
-                        Text(verbatim: String(count))
-                            .font(Kit.Fonts.meta)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                    if !isCompact {
+                        Text(title)
+                            .font(Kit.Fonts.sidebarItem)
+                            .fontWeight(isSelected ? .semibold : .regular)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: VoiceourMetrics.Space.xs)
+                        if let count {
+                            // Digits by hand, so no locale's grouping separator reaches a golden.
+                            Text(verbatim: String(count))
+                                .font(Kit.Fonts.meta)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .padding(.horizontal, VoiceourMetrics.Space.sm)
+                .padding(.horizontal, isCompact ? 0 : VoiceourMetrics.Space.sm)
+                .frame(maxWidth: isCompact ? .infinity : nil)
                 .frame(height: VoiceourMetrics.Control.medium)
             }
             .buttonStyle(RowButtonStyle(isSelected: isSelected))
@@ -419,6 +430,12 @@ extension Kit {
             .accessibilityLabel(title)
             .accessibilityValue(count.map(String.init) ?? "")
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+
+            if isCompact {
+                item.help(count.map { "\(title), \($0)" } ?? title)
+            } else {
+                item
+            }
         }
     }
 }
