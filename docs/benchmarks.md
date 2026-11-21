@@ -42,7 +42,7 @@ uv --no-config run python -m voiceour_bench.run --tier librispeech --mode stt --
 
 `--backend` is `fake` or `granite`, and defaults to `granite`; `voiceour-bench pipeline` without one runs the registry default, also `granite`. `--mode stt` and `--mode e2e` both run `voiceour-bench pipeline` (ASR, then `CleanupEngine` under the transcript's detected language); the mode records intent, not execution. Each row's `cleaned_text` is that glossary-free cleanup. Without `--vocabulary`, `final_text` equals it. With `--vocabulary <file>` (a repair vocabulary, or a `[{"term", "heard_as"}]` word list whose heard-as forms are text-stage aliases only), the run takes the production path: each transcribe request carries the file's spot terms (`TermSpotTargets`), and `final_text` is the app's `DictationTextStage` over the result — term spotting at `TermSpottingPolicy.frozen`, literal composition, cleanup with the file's terms as the Glossary, and the app's repair engine for those terms. `make bench-gate` refuses a cross-model pair; compare two models through the [paired gate](#paired-fixed-corpus-promotion-gate).
 
-`voiceour-bench` offers `pipeline` and `repair-verify`, plus the research probes `granite-spot` (in-process decode, CTC term spotting, the app's text stage), `granite-tokenize`, `detect-language` and `polish` (a Qwen3 GGUF polish pass decoded in-process by `CQwen3`, greedy with optional n-gram drafting, writing `rows.jsonl` and `summary.json` in the polish-lab harness schema; bench-only, never in the app).
+`voiceour-bench` offers `pipeline` and `repair-verify`, plus the research probes `granite-spot` (in-process decode, CTC term spotting, the app's text stage), `granite-tokenize`, `detect-language` and `polish` (a Qwen3 GGUF polish pass decoded in-process by `CQwen3`, greedy with optional n-gram drafting, writing `rows.jsonl` and `summary.json` as [Local polish pass screen](#local-polish-pass-screen--2026-11-21) describes; bench-only, never in the app).
 
 ## Row identity
 
@@ -443,3 +443,41 @@ Held out, rows 201–500 of each language, none seen while the detector's word l
   which one Portuguese row lost its article (`prometeu um novo` → `prometeu novo`).
 - **Limits.** FLEURS is read speech, 300 held-out rows per language, on one Mac. A code-switched transcript is
   classified as a whole. The raw column is the recognizer's own accuracy on this corpus, not a product claim.
+
+## Local polish pass screen — 2026-11-21
+
+A benchmark-only screen of local runtimes for a dictation polish model, plus a first trained model.
+[research/polish-2026-11-21.md](../research/polish-2026-11-21.md) holds the full record, and the
+[results](../benchmarks/results/20261121-polish-runtime-screen.json) hold every config's numbers. It changed no
+product behavior: [README › What happens to the words](../README.md#what-happens-to-the-words) still holds.
+
+```sh
+swift build -c release --product voiceour-bench
+.build/release/voiceour-bench polish --input bench/polish/cases/agent36.jsonl --output <out_dir> --model <qwen3.gguf>
+python3 bench/polish/polishlab.py score <out_dir>/rows.jsonl
+```
+
+- `polish` loads the GGUF, runs two warm-ups and then `--reps` (default 3) repetitions over all input rows, all
+  rows each time, and times each request from input string to output string. The prompt is `"text: " + input +
+  "\nout:"`, decoding is greedy to `<|endoftext|>`, and `--ngram-n`/`--ngram-m` (default 2/8) or `--no-ngram`
+  set the drafting. It writes `rows.jsonl` (`id`, `output`, median `ms`, `ms_all`, token counts, prefill and
+  decode ms) and `summary.json` (load, first request, p50, p95, the long cases G01 and G02, peak footprint,
+  device).
+- `bench/polish/cases/agent36.jsonl` holds 36 held-out cases — fillers, self-corrections, grammar slips, spoken
+  lists, safety traps, clean text and two long dictations — with the tokens each output must keep or drop. No
+  training data may contain them. `polishlab.py` scores them and holds `verify` and `merge_allowed`, the
+  deterministic edit check the record describes.
+
+Apple M4 Pro, macOS 27.3, AC power; the same weights in every runtime (`spokenly/cleanup-1` @ `cd95b502`); a
+forward and a reverse pass under one exclusive lock; medians in ms:
+
+| runtime | config | unit | p50 | G02 (155 words) |
+| --- | --- | --- | ---: | ---: |
+| llama.cpp b12606 (ggml 1.0) | Q8_0 + n-gram drafts | GPU | 45 | 340 |
+| MLX 0.32.4 | 8-bit + prompt lookup | GPU | 43 | 311 |
+| Core ML | Spokenly's int8 export, guesses | Neural Engine | 52 | 385 |
+| `voiceour-bench polish` (ggml 0.19.0) | Q8_0 + n-gram drafts | GPU | 60 | 503 |
+| Core AI | iOS mixed 4/8-bit + prompt lookup | Neural Engine | 65 | 514 |
+
+- **Limits.** One Mac. 36 hand-written cases with one annotator. The trained model's test split comes from the
+  generator that made its training data, so its scores there are optimistic.

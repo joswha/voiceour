@@ -1,0 +1,531 @@
+{
+ "record": "research/polish-2026-11-21.md",
+ "machine": {
+  "chip": "Apple M4 Pro",
+  "os": "27.3",
+  "memory_gb": 24,
+  "power": "AC, 100% charged, powermode 2"
+ },
+ "reference_weights": {
+  "repo": "spokenly/cleanup-1",
+  "revision": "cd95b5028cefd3a8cee4cefb4cdf159c88676f91",
+  "gguf_repo": "spokenly/cleanup-1-gguf",
+  "gguf_revision": "79936c95e5c0ea9162ae7a435e64cb3127020e36",
+  "coreml_repo": "spokenly/cleanup-1-coreml",
+  "coreml_revision": "19212532215b2b64ca86c14b6b61129a4ab72a50"
+ },
+ "cases": "bench/polish/cases/agent36.jsonl",
+ "protocol": "one process per config: load, 2 warm-ups, 3 repetitions over 36 cases rep-major; per-request wall time from input string to output string; every model run under one exclusive lock; a forward and a reverse pass, medians over both",
+ "latency_sweep": {
+  "env": {
+   "start": "2026-11-21T18:26:00.322438+00:00",
+   "power_start": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=24707171)\t100%; charged; 0:00 remaining present: true",
+   "therm_start": "Note: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded",
+   "os": "27.3",
+   "chip": "Apple M4 Pro",
+   "load_start": "20:26  up 1 day, 38 mins, 1 user, load averages: 2.84 3.36 3.88",
+   "end": "2026-11-21T18:35:28.698244+00:00",
+   "power_end": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=24707171)\t100%; charged; 0:00 remaining present: true",
+   "therm_end": "Note: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded",
+   "load_end": "20:35  up 1 day, 47 mins, 1 user, load averages: 22.87 13.80 8.36"
+  },
+  "table": [
+   {
+    "runtime": "ggml",
+    "config": "q8",
+    "p50_ms": 88.47011475,
+    "p95_ms": 191.663125,
+    "max_ms": 947.9098125,
+    "G01_ms": 620.6591665,
+    "G02_ms": 947.9098125,
+    "load_ms": 166.89999999999998,
+    "first_request_ms": 28.6,
+    "peak_footprint_mb": 295.5,
+    "compute_device": "Metal GPU (all layers + KV + output)",
+    "quantization": "Q8_0 (published GGUF)",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     85.6383125,
+     91.1541875
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "ggml",
+    "config": "q8-ngram",
+    "p50_ms": 44.612760249999994,
+    "p95_ms": 118.57325,
+    "max_ms": 339.9395415,
+    "G01_ms": 213.22385450000002,
+    "G02_ms": 339.9395415,
+    "load_ms": 172.6,
+    "first_request_ms": 26.85,
+    "peak_footprint_mb": 299.7,
+    "compute_device": "Metal GPU (all layers + KV + output)",
+    "quantization": "Q8_0 (published GGUF)",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     44.27089599999999,
+     44.772896
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "ggml",
+    "config": "q8-cpu",
+    "p50_ms": 119.97614575,
+    "p95_ms": 422.3563125,
+    "max_ms": 1252.161458,
+    "G01_ms": 821.2842085,
+    "G02_ms": 1252.161458,
+    "load_ms": 798.3,
+    "first_request_ms": 2694.0,
+    "peak_footprint_mb": 888.0,
+    "compute_device": "CPU only (no Metal device), 10 threads",
+    "quantization": "Q8_0 (published GGUF)",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     79.3311245,
+     146.446146
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "voiceour-ggml",
+    "config": "q8",
+    "p50_ms": 88.082802,
+    "p95_ms": 201.2251045,
+    "max_ms": 1015.257479,
+    "G01_ms": 672.266042,
+    "G02_ms": 1015.257479,
+    "load_ms": 201.05,
+    "first_request_ms": 36.05,
+    "peak_footprint_mb": 208.7,
+    "compute_device": "MTL0 (Apple M4 Pro): weights, F16 KV cache (2048 cells) and every supported graph op",
+    "quantization": "Q8_0",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     83.1703125,
+     93.0285205
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "voiceour-ggml",
+    "config": "q8-ngram",
+    "p50_ms": 59.6439165,
+    "p95_ms": 163.2372085,
+    "max_ms": 502.812104,
+    "G01_ms": 320.787625,
+    "G02_ms": 502.812104,
+    "load_ms": 196.5,
+    "first_request_ms": 37.85,
+    "peak_footprint_mb": 213.3,
+    "compute_device": "MTL0 (Apple M4 Pro): weights, F16 KV cache (2048 cells) and every supported graph op",
+    "quantization": "Q8_0",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     58.8208125,
+     60.480083
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "voiceour-ggml",
+    "config": "q8-ngram-n2-m4",
+    "p50_ms": 58.759448000000006,
+    "p95_ms": 147.533604,
+    "max_ms": 554.790333,
+    "G01_ms": 344.799104,
+    "G02_ms": 554.790333,
+    "load_ms": 188.35,
+    "first_request_ms": 34.1,
+    "peak_footprint_mb": 211.5,
+    "compute_device": "MTL0 (Apple M4 Pro): weights, F16 KV cache (2048 cells) and every supported graph op",
+    "quantization": "Q8_0",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     57.5518125,
+     59.5604375
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "voiceour-ggml",
+    "config": "q8-ngram-n1-m4",
+    "p50_ms": 56.9669375,
+    "p95_ms": 159.5378955,
+    "max_ms": 710.604834,
+    "G01_ms": 361.3420835,
+    "G02_ms": 710.604834,
+    "load_ms": 205.10000000000002,
+    "first_request_ms": 36.8,
+    "peak_footprint_mb": 210.8,
+    "compute_device": "MTL0 (Apple M4 Pro): weights, F16 KV cache (2048 cells) and every supported graph op",
+    "quantization": "Q8_0",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     56.898874500000005,
+     57.121625
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 32,
+    "differs_from_reference": [
+     "A01",
+     "A09",
+     "A12"
+    ]
+   },
+   {
+    "runtime": "mlx",
+    "config": "q8",
+    "p50_ms": 77.78895850013942,
+    "p95_ms": 168.38939549960196,
+    "max_ms": 831.5092295017093,
+    "G01_ms": 509.6612285003066,
+    "G02_ms": 831.5092295017093,
+    "load_ms": 1384.3,
+    "first_request_ms": 76.65,
+    "peak_footprint_mb": 1411.7,
+    "compute_device": "Metal GPU (mx.default_device() = Device(gpu, 0))",
+    "quantization": "8-bit affine, group size 64 (mlx_lm.convert)",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     73.95556249842048,
+     81.56962500140071
+    ],
+    "checks_pass": 23,
+    "verifier_accepted": 34,
+    "differs_from_reference": [
+     "G01"
+    ]
+   },
+   {
+    "runtime": "mlx",
+    "config": "q8-lookup",
+    "p50_ms": 43.107417000457644,
+    "p95_ms": 144.451520498842,
+    "max_ms": 311.18850050121546,
+    "G01_ms": 179.03518749959767,
+    "G02_ms": 311.18850050121546,
+    "load_ms": 1309.65,
+    "first_request_ms": 311.65000000000003,
+    "peak_footprint_mb": 1703.9,
+    "compute_device": "Metal GPU (mx.default_device() = Device(gpu, 0))",
+    "quantization": "8-bit affine, group size 64 (mlx_lm.convert)",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     41.41158349998295,
+     44.803250500932336
+    ],
+    "checks_pass": 23,
+    "verifier_accepted": 34,
+    "differs_from_reference": [
+     "G01"
+    ]
+   },
+   {
+    "runtime": "coreml-ane",
+    "config": "coreml-ane",
+    "p50_ms": 51.974802249111235,
+    "p95_ms": 173.94529199786484,
+    "max_ms": 384.9804579988122,
+    "G01_ms": 244.0783744994551,
+    "G02_ms": 384.9804579988122,
+    "load_ms": 684.25,
+    "first_request_ms": 54.05,
+    "peak_footprint_mb": 178.1,
+    "compute_device": "Neural Engine (MLComputeUnits.cpuAndNeuralEngine)",
+    "quantization": "8-bit layer weights (int8 linear per output channel, constexpr_blockwise_shift_scale), Float16 token table/LM head and Float16 compute",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     51.85862500034273,
+     52.104624999687076
+    ],
+    "checks_pass": 22,
+    "verifier_accepted": 33,
+    "differs_from_reference": [
+     "A05"
+    ]
+   },
+   {
+    "runtime": "coreml-ane",
+    "config": "coreml-cpu",
+    "p50_ms": 107.29051050078124,
+    "p95_ms": 349.51618749834597,
+    "max_ms": 776.6373744998127,
+    "G01_ms": 493.1448125001043,
+    "G02_ms": 776.6373744998127,
+    "load_ms": 112.65,
+    "first_request_ms": 2487.8,
+    "peak_footprint_mb": 128.3,
+    "compute_device": "CPU (MLComputeUnits.cpuOnly)",
+    "quantization": "8-bit layer weights (int8 linear per output channel, constexpr_blockwise_shift_scale), Float16 token table/LM head and Float16 compute",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     99.29158350080252,
+     114.98822900094092
+    ],
+    "checks_pass": 22,
+    "verifier_accepted": 33,
+    "differs_from_reference": [
+     "A05"
+    ]
+   },
+   {
+    "runtime": "coreai",
+    "config": "coreai-4bit",
+    "p50_ms": 56.2465,
+    "p95_ms": 103.3835,
+    "max_ms": 606.028,
+    "G01_ms": 367.6025,
+    "G02_ms": 606.028,
+    "load_ms": 1072.478,
+    "first_request_ms": 30.0835,
+    "peak_footprint_mb": 570.329,
+    "compute_device": "unverified",
+    "quantization": "4bit: INT4 weight-only, per-block 32, all linear layers incl. tied embedding/lm_head; float16 compute",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     55.411500000000004,
+     57.0815
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 33,
+    "differs_from_reference": [
+     "A04",
+     "A05",
+     "A06",
+     "A09",
+     "A10",
+     "E06",
+     "G01",
+     "G02"
+    ]
+   },
+   {
+    "runtime": "coreai",
+    "config": "coreai-ios",
+    "p50_ms": 103.60575,
+    "p95_ms": 234.572,
+    "max_ms": 1274.2815,
+    "G01_ms": 800.995,
+    "G02_ms": 1274.2815,
+    "load_ms": 2095.8050000000003,
+    "first_request_ms": 29.9285,
+    "peak_footprint_mb": 858.424,
+    "compute_device": "unverified",
+    "quantization": "models/qwen3/qwen3_0_6b_mixed_4bit_8bit.yaml (the qwen3-0.6b iOS preset): 4-bit k-means palettized linears (group 8), 8-bit per-tensor in layers 0,2,4,7,15,16; embedding int8 per-tensor; float16 compute",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     102.73849999999999,
+     104.4725
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 34,
+    "differs_from_reference": [
+     "A02",
+     "A06",
+     "A07",
+     "A09",
+     "E06",
+     "G01"
+    ]
+   },
+   {
+    "runtime": "coreai",
+    "config": "coreai-ios-lookup",
+    "p50_ms": 65.12525,
+    "p95_ms": 159.1885,
+    "max_ms": 513.9795,
+    "G01_ms": 312.60699999999997,
+    "G02_ms": 513.9795,
+    "load_ms": 2107.874,
+    "first_request_ms": 41.855999999999995,
+    "peak_footprint_mb": 857.408,
+    "compute_device": "unverified",
+    "quantization": "models/qwen3/qwen3_0_6b_mixed_4bit_8bit.yaml (the qwen3-0.6b iOS preset): 4-bit k-means palettized linears (group 8), 8-bit per-tensor in layers 0,2,4,7,15,16; embedding int8 per-tensor; float16 compute",
+    "outputs_stable_across_passes": true,
+    "pass_p50_ms": [
+     64.64,
+     65.5685
+    ],
+    "checks_pass": 21,
+    "verifier_accepted": 34,
+    "differs_from_reference": [
+     "A02",
+     "A06",
+     "A07",
+     "A09",
+     "E06",
+     "G01"
+    ]
+   }
+  ]
+ },
+ "energy": {
+  "status": "not measured",
+  "reason": "without root, IOReport's Energy Model CPU, ANE and DRAM channels read 0 on macOS 27.3; the battery controller's PowerTelemetryData accumulators update too rarely for 10-20 s windows (idle 0 W and negative energies), so those rows were discarded",
+  "gpu_rail_watts": {
+   "coreml_on_neural_engine": 0.56,
+   "coreml_on_gpu": 11.8
+  }
+ },
+ "model_v1": {
+  "model": "voiceour-polish v1 (LoRA r32 on Qwen/Qwen3-0.6B-Base da87bfb608c14b7cf20ba1ce41287e8de496c0cd, merged fp16)",
+  "weights_q8_0_sha256": "0d1bbb0d4958d0a3cc744aadd5db3c721f1efe715321ef44352dfbba3e90e850",
+  "merged_safetensors_sha256": "27cb24443f786c110fecdd101c369953a9ea827a3e235da06c3570414fd1600f",
+  "runtime": "llama.cpp b12606 in-process, Metal, Q8_0, ngram-simple n2-m8, greedy; Apple M4 Pro, macOS 27.3, AC power",
+  "agent36": {
+   "checks_pass": 35,
+   "verifier_accepted": 35,
+   "p50_ms": 46.713792,
+   "p95_ms": 138.375709,
+   "G01_ms": 196.452,
+   "G02_ms": 325.997166
+  },
+  "test_split": {
+   "ours_v1": {
+    "rows": 1000,
+    "clean_rows": 350,
+    "needs_change_rows": 650,
+    "restraint_pct": 99.1,
+    "edit_accuracy_pct": 96.9,
+    "overall_pct": 98.0,
+    "verifier_accepted_pct": 96.3,
+    "damage_pct": 0.3,
+    "edit_level_exact": 942
+   },
+   "spokenly_cleanup_1": {
+    "rows": 1000,
+    "clean_rows": 350,
+    "needs_change_rows": 650,
+    "restraint_pct": 69.7,
+    "edit_accuracy_pct": 46.3,
+    "overall_pct": 58.0,
+    "verifier_accepted_pct": 92.1,
+    "damage_pct": 7.1,
+    "edit_level_exact": 548
+   }
+  },
+  "history_private_aggregate": {
+   "ours_v1": {
+    "rows": 498,
+    "model_changed": 324,
+    "whole_output_accepted": 358,
+    "edit_level_changed": 299,
+    "occurrences": {
+     "you know": {
+      "before": 288,
+      "whole_output": 177,
+      "edit_level": 37
+     },
+     "like": {
+      "before": 467,
+      "whole_output": 310,
+      "edit_level": 131
+     },
+     "kind of": {
+      "before": 115,
+      "whole_output": 86,
+      "edit_level": 53
+     },
+     "basically": {
+      "before": 65,
+      "whole_output": 37,
+      "edit_level": 2
+     },
+     "sentence_initial_so_okay_right_well": {
+      "before": 153,
+      "whole_output": 69,
+      "edit_level": 17
+     }
+    },
+    "ms_p50": 66.33945800000001
+   },
+   "spokenly_cleanup_1": {
+    "rows": 498,
+    "model_changed": 310,
+    "whole_output_accepted": 379,
+    "edit_level_changed": 290,
+    "occurrences": {
+     "you know": {
+      "before": 288,
+      "whole_output": 163,
+      "edit_level": 78
+     },
+     "like": {
+      "before": 467,
+      "whole_output": 358,
+      "edit_level": 277
+     },
+     "kind of": {
+      "before": 115,
+      "whole_output": 87,
+      "edit_level": 73
+     },
+     "basically": {
+      "before": 65,
+      "whole_output": 55,
+      "edit_level": 47
+     },
+     "sentence_initial_so_okay_right_well": {
+      "before": 153,
+      "whole_output": 131,
+      "edit_level": 118
+     }
+    },
+    "ms_p50": 68.350208
+   }
+  },
+  "training": {
+   "train_wall_s": 1374.1,
+   "steady_tok_s": 2829.5,
+   "steady_seq_s": 29.14,
+   "mean_tokens_per_seq": 97.1,
+   "pad_fraction": 0.189,
+   "peak_mem_gib": 7.167,
+   "trainable_params": 20185088,
+   "first_loss": 0.21373235970656498,
+   "last_loss": 0.0008311326599727243,
+   "batch_h2d_retries": 0,
+   "skipped_steps": 0
+  }
+ }
+}
