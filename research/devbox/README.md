@@ -4,14 +4,14 @@ Provisioned 2026-09-03 for the next ASR program (`research/next-program.md`). Th
 with access, storage, and hazards is `~/.omp/agent/docs/ubuntu-devbox.md`; this file records
 only what the research program adds and how to reproduce it.
 
-## Hardware (measured 2026-09-03)
+## Hardware (measured 2026-09-03; driver, RAM, disk and PCIe link rechecked 2026-11-21)
 
 | component | value |
 |---|---|
-| GPU | NVIDIA GeForce RTX 2070 SUPER, 8,192 MiB, compute capability 7.5 (Turing: fp16 tensor cores, no bf16, no FlashAttention-2), driver 595.84, CUDA 13.2 |
+| GPU | NVIDIA GeForce RTX 2070 SUPER, 8,192 MiB, compute capability 7.5 (Turing: fp16 tensor cores, no bf16, no FlashAttention-2), driver 595.99.02 |
 | CPU | AMD Ryzen 9 7950X, 16 cores / 32 threads, AVX-512 |
-| RAM | 30 GiB (27 available beside the v12x dev stacks), 4 GiB swap |
-| Disk | `/srv/devbox` 916 GiB NVMe (547 GiB free), `/` 449 GiB (165 GiB free) |
+| RAM | 93 GiB, 4 GiB swap |
+| Disk | `/srv/devbox` 916 GiB NVMe (296 GiB free), `/` 449 GiB |
 | Network | ~26 MB/s from Hugging Face |
 
 Consequence for training: full-parameter fine-tuning of the 0.6B model with a standard
@@ -23,8 +23,10 @@ measured envelope is recorded by the `train-feasibility` run under the student t
 ```
 /srv/devbox/research/voiceour/
     envs/<name>/          uv projects (pyproject.toml + uv.lock); pythons/ holds uv-managed CPython
-    data/                 shipped frozen corpora, screen inputs, mined audio
-    runs/                 per-run artifacts, mirrored to the Mac's .build/asr-research/next/…
+    data/                 shipped frozen corpora, screen inputs, mined audio; polish-lab/ holds the polish
+                          training splits and held-out cases
+    runs/                 per-run artifacts, mirrored to the Mac's .build/asr-research/next/… (ASR) or
+                          ~/polish-lab/train/runs/ (polish)
     logs/
     mining/               corpus mining pipeline
 /srv/devbox/models/voiceour/   model weights outside the HF cache
@@ -50,32 +52,36 @@ export PATH="$HOME/.local/bin:$PATH" UV_CACHE_DIR=/srv/devbox/cache/uv \
 | `envs/screen-qwen` | Qwen3-ASR candidate | `qwen-asr 0.0.6`, transformers 4.57.6, torch 2.11.0+cu128 |
 | `envs/screen-kyutai` | Kyutai STT candidate | `moshi 0.2.12`, torch 2.9.1+cu128, sphn, sentencepiece 0.2.2 |
 | `envs/screen-score` | scorer matching the bench pins | jiwer 4.0.0, whisper-normalizer 0.1.12, rapidfuzz 3.14.5 |
+| `envs/polish-train` | LoRA fine-tuning of Qwen3 decoders for the polish pass ([polish-2026-11-21.md](../polish-2026-11-21.md)) | `envs/polish-train/` here: torch 2.11.0+cu128, transformers 5.24.0, peft 0.22.0, accelerate 1.16.0, datasets 5.2.0; Python 3.12.14 |
 
-Rebuild any env: copy its `pyproject.toml` + `uv.lock` to `/srv/devbox/research/voiceour/envs/<name>/`
+Only `envs/polish-train` is built on the host as of 2026-11-21. Rebuild any env: copy its `pyproject.toml` + `uv.lock` to `/srv/devbox/research/voiceour/envs/<name>/`
 and run `uv sync` there. Verified 2026-09-03: `nvidia/parakeet-tdt-0.6b-v3` loads on CUDA
 (34.5 s, 4.8 GiB peak) and transcribes `fixtures/audio/hello_16k_mono.wav` to the same text
 as the Mac sidecar (`Hello world testing Nvidia Parakeet NN spaceport.`; only the
 `Nvidia`/`NVIDIA` casing differs).
 
-## GPU health (measured 2026-09-03)
+## GPU health
 
-The card's PCIe link is faulty. Under load the kernel logs uncorrectable non-fatal AER
-errors (`CmpltTO`, completion timeouts) and `Xid 13` graphics exceptions — 219 events in one
-day — and `lspci` shows `LnkSta: 2.5GT/s (downgraded)` on a Gen3 x16 card in a Gen5-capable
-slot, i.e. the link never trains above Gen1. A 2-minute host↔device copy soak
-(`runs/gpu-health/stress.py`) corrupted 14 of 362 256 MB round trips with the default ASPM
-policy and 2 of 371 with `pcie_aspm` policy `performance` (set at runtime, not persisted;
-`power/control=on` on the GPU function likewise). Matmul results were bit-exact both times:
-compute is fine, transfers are not. Two independent runs saw silently wrong results — NaN
-from a device-to-host weight copy, a reloaded model emitting `⁇` from bitwise-identical
-weights. `CUDA_LAUNCH_BLOCKING=1` reduces but does not eliminate the fault.
+Measured 2026-09-03: the card's PCIe link was faulty. Under load the kernel logged
+uncorrectable non-fatal AER errors (`CmpltTO`, completion timeouts) and `Xid 13` graphics
+exceptions — 219 events in one day — and the link never trained above Gen1 (`LnkSta: 2.5GT/s
+(downgraded)` on a Gen3 x16 card). A 2-minute host↔device copy soak corrupted 14 of 362 256 MB
+round trips with the default ASPM policy and 2 of 371 with `pcie_aspm` policy `performance`.
+Matmul results were bit-exact both times: compute was fine, transfers were not. Two independent
+runs saw silently wrong results — NaN from a device-to-host weight copy, a reloaded model
+emitting `⁇` from bitwise-identical weights.
 
-Consequences: (1) every result from this GPU must be replicated or checked against a
-CPU/Mac reference before it is trusted; the replacement-screen kills were validated by exact
-reproduction of the frozen v3 baseline (19/799) and by double-decode hash identity; (2) no
-training run is credible here until the link is fixed — reseat the card/riser or force the
-slot to Gen3 in firmware, then rerun `stress.py` and expect 0 mismatches; (3) the fine-tuning
-envelope below stands regardless.
+Measured 2026-11-21 (`runs/polish-gpu-soak-20261121`): the same 120 s soak, pinned and pageable,
+found 0 corrupted round trips of 1,627, and the kernel logged no AER, Xid or NVRM event across
+nine GPU runs. Under load the link trains at 8 GT/s ×16; at idle it drops to 2.5 GT/s, which is
+ASPM power saving, not the fault. ASPM still reads `[default]`. The cause of the fix is
+[INFERENCE] the October BIOS 4.43 flash.
+
+Consequences: (1) results from this GPU are still checked against a CPU/Mac reference before they
+are trusted — the replacement-screen kills by exact reproduction of the frozen v3 baseline
+(19/799) and double-decode hash identity; the polish LoRA run by checksums of every host↔device
+copy and every saved tensor, identical greedy outputs on CUDA and CPU, and evaluation on the Mac;
+(2) the fine-tuning envelope below stands regardless.
 
 ## Fine-tuning envelope (`runs/train-feasibility`, `.build/…/technical-student-distillation/wave1/train-feasibility/` on the Mac)
 
@@ -90,9 +96,10 @@ bf16-capable GPU with ≥ 24 GB (L4/A10G/A100).
 
 ## Rules of use
 
-- One GPU job at a time; agents coordinate before a GPU step. Timing-bearing product
-  measurements never come from this host — it is for training, candidate decodes, and mining.
-  Product latency/RTFx/energy stay on Apple Silicon under `bash autoresearch.sh`.
+- One GPU job at a time; agents coordinate before a GPU step. `envs/polish-train/src/run.sh`
+  takes `/tmp/voiceour-gpu.lock` and refuses to start while any CUDA compute process exists.
+  Timing-bearing product measurements never come from this host — it is for training, candidate
+  decodes, and mining; product latency and energy are measured on Apple Silicon.
 - Every run writes `command.txt`, `manifest.json` (env lock digest, model revisions, GPU,
   driver, seeds), `metrics.jsonl`, and a verdict, and is mirrored to the Mac artifact tree.
 - No Hugging Face token is installed on either machine; gated repositories are recorded as
