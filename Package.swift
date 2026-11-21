@@ -57,6 +57,10 @@ let graniteCxxSettings: [CXXSetting] =
     graniteDefines.map { CXXSetting.define($0.0, to: $0.1) }
     + [.define("NDEBUG", .when(configuration: .release))]
 
+// CQwen3: Voiceour's adapted llama.cpp Qwen3 decoder for the bench-only polish runner (Vendor/qwen3/NOTICE.md).
+// It uses only CGgml's public headers; only voiceour-bench links it.
+let qwen3CxxSettings: [CXXSetting] = [.define("NDEBUG", .when(configuration: .release))]
+
 let package = Package(
     name: "voiceour",
     platforms: [.macOS(.v27)],
@@ -101,6 +105,16 @@ let package = Package(
                 .linkedLibrary("c++")
             ]
         ),
+        .target(
+            name: "CQwen3",
+            dependencies: ["CGgml"],
+            path: "Vendor/qwen3",
+            exclude: ["NOTICE.md", "LICENSE"],
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cxxSettings: qwen3CxxSettings,
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
         .executableTarget(
             name: "Voiceour",
             dependencies: ["VoiceCore", "VoiceMac", "VoiceOrganizer", "ASRSidecarCore"]
@@ -132,7 +146,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "VoiceourBench",
-            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore"]
+            dependencies: ["VoiceCore", "VoiceMac", "ASRSidecarCore", "CGgml", "CQwen3"]
         ),
         .testTarget(
             name: "VoiceCoreTests",

@@ -13,6 +13,10 @@ Third-party components used by the repository:
   `5700f127e38dd53c4735ea23ef743b4b538eacd4`. `Vendor/granite/` is a port, not a verbatim copy;
   `Vendor/granite/NOTICE.md` maps each file to its upstream source and `Vendor/granite/LICENSE` carries
   the full licence text.
+- llama.cpp's Qwen3 decoder path (release b12606), adapted onto that vendored ggml under `Vendor/qwen3/` for
+  `voiceour-bench polish` only; the app and the sidecar never link it — MIT License —
+  https://github.com/ggml-org/llama.cpp @ `e412c6f468b7b9e0f16f2540244236f8ad68e9ae`. `Vendor/qwen3/NOTICE.md`
+  maps each file to its upstream source and `Vendor/qwen3/LICENSE` carries the full licence text.
 
 Benchmark-only dependencies (`bench/` only; never shipped in the app):
 

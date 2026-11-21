@@ -145,6 +145,7 @@ Voiceour is a Swift package: macOS 27, Swift tools 6.4, Swift 6 language mode in
 | `VoiceourBench` | `voiceour-bench`, which runs the production path over benchmark manifests. |
 | `CGgml` | The vendored ggml C and C++ under `Vendor/ggml/`, pinned to whisper.cpp with ordered local patches. |
 | `CGranite` | Voiceour's port of transcribe.cpp's Granite Speech 5 TurboCTC inference under `Vendor/granite/`, built on `CGgml`. |
+| `CQwen3` | Bench-only: Voiceour's port of llama.cpp's Qwen3 decoder under `Vendor/qwen3/`, built on `CGgml`, for `voiceour-bench polish`. It is not in the app or the sidecar. |
 | `ASRSidecarStub` | A protocol test helper. It does not ship in the app. |
 
 `VoiceCore` and `VoiceMac` are also consumed by Syncour, a separate sibling package, so their public API is not private to this repository.

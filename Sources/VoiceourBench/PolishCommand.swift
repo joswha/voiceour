@@ -1,0 +1,579 @@
+import CGgml
+import CQwen3
+import Darwin
+import Foundation
+import IOKit.ps
+
+/// Bench-only probe of a local polish pass: a Qwen3 GGUF decoded in-process on the vendored ggml (`CQwen3`).
+///
+/// It follows the polish-lab runtime harness contract: the prompt is `"text: " + input + "\nout:"` with no BOS
+/// and no chat template, decoding is greedy and stops at the EOS, and the output is the decoded text with ASCII
+/// whitespace trimmed. One process loads the model (`load_ms` counts from process start), runs two warm-ups,
+/// then `reps` repetitions over every case, rep-major. A request's `ms` runs from the input string to the
+/// trimmed output string. Nothing here ships in the app or the sidecar.
+struct PolishCommand {
+    var input: URL
+    var output: URL
+    var model: URL
+    /// n-gram drafting (lookup length, draft length); nil decodes one token per evaluation.
+    var ngram: (n: Int32, m: Int32)?
+    var reps: Int
+    var maxNewTokens: Int32
+    var trace: Bool
+    var config: String?
+    var modelRepo: String?
+    var modelRevision: String?
+
+    static let warmups = ["Okay so, like, test.", "Send it to Sarah, no wait, to Morgan."]
+    static let contextLength: Int32 = 2048
+    static let threadCount: Int32 = 4
+
+    static func parse(_ arguments: [String]) throws -> PolishCommand {
+        var input: URL?
+        var output: URL?
+        var model: URL?
+        var ngramN: Int32?
+        var ngramM: Int32?
+        var noNgram = false
+        var reps = 3
+        var maxNewTokens: Int32 = 512
+        var trace = false
+        var config: String?
+        var modelRepo: String?
+        var modelRevision: String?
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let parsed = BenchCLI.splitOption(arguments[index])
+            switch parsed.name {
+            case "--input": input = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
+            case "--output": output = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
+            case "--model": model = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
+            case "--ngram-n": ngramN = try positive(parsed, arguments, &index)
+            case "--ngram-m": ngramM = try positive(parsed, arguments, &index)
+            case "--no-ngram": noNgram = true
+            case "--reps": reps = Int(try positive(parsed, arguments, &index))
+            case "--max-new-tokens": maxNewTokens = try positive(parsed, arguments, &index)
+            case "--trace": trace = true
+            case "--config": config = try BenchCLI.value(for: parsed, in: arguments, index: &index)
+            case "--model-repo": modelRepo = try BenchCLI.value(for: parsed, in: arguments, index: &index)
+            case "--model-revision": modelRevision = try BenchCLI.value(for: parsed, in: arguments, index: &index)
+            default: throw BenchError.usage("unknown option: \(arguments[index])")
+            }
+            index = arguments.index(after: index)
+        }
+        guard let input, let output, let model else {
+            throw BenchError.usage("polish requires --input, --output and --model")
+        }
+        if noNgram, ngramN != nil || ngramM != nil {
+            throw BenchError.usage("--no-ngram excludes --ngram-n and --ngram-m")
+        }
+        let defaults = qwen3_generate_default_params()
+        return PolishCommand(
+            input: input,
+            output: output,
+            model: model,
+            ngram: noNgram ? nil : (ngramN ?? defaults.ngram_n, ngramM ?? defaults.ngram_m),
+            reps: reps,
+            maxNewTokens: maxNewTokens,
+            trace: trace,
+            config: config,
+            modelRepo: modelRepo,
+            modelRevision: modelRevision
+        )
+    }
+
+    private static func positive(
+        _ parsed: (name: String, inlineValue: String?), _ arguments: [String], _ index: inout Int
+    ) throws -> Int32 {
+        let value = try BenchCLI.value(for: parsed, in: arguments, index: &index)
+        guard let number = Int32(value), number > 0 else {
+            throw BenchError.usage("\(parsed.name) must be a positive integer")
+        }
+        return number
+    }
+
+    func run() throws {
+        let processStart = Self.processStartTime()
+        let cases = try readCases()
+        let powerBefore = PowerSnapshot.current()
+
+        let context = try Qwen3Context(
+            modelPath: model.path, threadCount: Self.threadCount, contextLength: Self.contextLength)
+        let tokenizer = try context.makeTokenizer()
+        let loadMs = Self.milliseconds(since: processStart)
+        let runner = Runner(context: context, tokenizer: tokenizer, ngram: ngram, maxNewTokens: maxNewTokens)
+
+        var warmups: [PolishWarmup] = []
+        for text in Self.warmups {
+            let result = try runner.polish(text)
+            warmups.append(PolishWarmup(input: text, output: result.output, ms: result.ms))
+        }
+
+        var results = Array(repeating: [PolishResult](), count: cases.count)
+        for _ in 0..<reps {
+            for (index, polishCase) in cases.enumerated() {
+                results[index].append(try runner.polish(polishCase.input))
+            }
+        }
+        let peakFootprintMb = Self.peakFootprintMb()
+        let powerAfter = PowerSnapshot.current()
+
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let rows = zip(cases, results).map { polishCase, runs in PolishRow(id: polishCase.id, runs: runs) }
+        try Self.writeLines(rows, to: output.appendingPathComponent("rows.jsonl"))
+        if trace {
+            let traces = zip(cases, results).map { polishCase, runs in PolishTrace(id: polishCase.id, run: runs[0]) }
+            try Self.writeLines(traces, to: output.appendingPathComponent("trace.jsonl"))
+        }
+
+        let summary = PolishSummary(
+            config: config ?? ngram.map { "ngram-n\($0.n)-m\($0.m)" } ?? "no-ngram",
+            modelRepo: modelRepo,
+            modelRevision: modelRevision,
+            weightsFile: model.path,
+            weightsSHA256: try BenchRunner.sha256(of: model),
+            quantization: context.weightType.uppercased(),
+            computeDevice: Self.computeDevice(backend: context.backendName),
+            loadMs: Self.round1(loadMs),
+            firstRequestMs: Self.round1(warmups[0].ms),
+            rows: rows,
+            peakFootprintMb: peakFootprintMb,
+            deterministic: results.allSatisfy { runs in runs.allSatisfy { $0.output == runs[0].output } },
+            power: PolishPower(before: powerBefore, after: powerAfter),
+            versions: PolishVersions(
+                ggml: String(cString: ggml_version()),
+                ggmlCommit: String(cString: ggml_commit()),
+                macOS: ProcessInfo.processInfo.operatingSystemVersionString
+            ),
+            notes: PolishNotes(
+                cases: input.path,
+                reps: reps,
+                maxNewTokens: Int(maxNewTokens),
+                ngramN: ngram.map { Int($0.n) },
+                ngramM: ngram.map { Int($0.m) },
+                contextLength: context.contextLength,
+                threadCount: Int(Self.threadCount),
+                specStats: PolishSpecStats(firstRuns: results.map { $0[0] }),
+                warmup: warmups
+            )
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        var data = try encoder.encode(summary)
+        data.append(0x0A)
+        try data.write(to: output.appendingPathComponent("summary.json"))
+        print(
+            "polish \(summary.config): \(rows.count) cases x \(reps) reps, load \(summary.loadMs) ms, "
+                + "p50 \(summary.p50Ms) ms, p95 \(summary.p95Ms) ms, max \(summary.maxMs) ms, "
+                + "peak footprint \(peakFootprintMb.map { "\($0) MB" } ?? "unknown"), "
+                + "deterministic \(summary.deterministic) -> \(output.path)"
+        )
+    }
+
+    private func readCases() throws -> [PolishCase] {
+        let reader = try JSONLLineReader(url: input)
+        var cases: [PolishCase] = []
+        var lineNumber = 0
+        while let line = try reader.nextLine() {
+            lineNumber += 1
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            do {
+                cases.append(try JSONDecoder().decode(PolishCase.self, from: Data(line.utf8)))
+            } catch {
+                throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
+            }
+        }
+        guard !cases.isEmpty else { throw BenchError.io("no cases in \(input.path)") }
+        return cases
+    }
+
+    /// One request: prompt, greedy generation, decode, trim, timed end to end.
+    struct Runner {
+        let context: Qwen3Context
+        let tokenizer: Qwen3Tokenizer
+        let ngram: (n: Int32, m: Int32)?
+        let maxNewTokens: Int32
+
+        func polish(_ input: String) throws -> PolishResult {
+            let start = DispatchTime.now().uptimeNanoseconds
+            let prompt = tokenizer.encode("text: " + input + "\nout:")
+            let generation = try context.generate(
+                prompt: prompt, maxNewTokens: maxNewTokens, ngram: ngram, isCancelled: { false })
+            let output = String(
+                decoding: PolishCommand.trimmed(tokenizer.decodeBytes(generation.tokens)), as: UTF8.self)
+            let end = DispatchTime.now().uptimeNanoseconds
+            return PolishResult(
+                output: output,
+                ms: Double(end - start) / 1_000_000,
+                prompt: prompt,
+                generation: generation
+            )
+        }
+    }
+
+    /// The harness's trim: the six ASCII whitespace bytes `" \t\n\r\f\v"`, at both ends.
+    static func trimmed(_ bytes: [UInt8]) -> ArraySlice<UInt8> {
+        let whitespace: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D, 0x0C, 0x0B]
+        guard let first = bytes.firstIndex(where: { !whitespace.contains($0) }),
+            let last = bytes.lastIndex(where: { !whitespace.contains($0) })
+        else { return [] }
+        return bytes[first...last]
+    }
+
+    // MARK: Process measurements
+
+    /// Wall-clock creation time of this process, from the kernel.
+    private static func processStartTime() -> Date {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return Date() }
+        let start = info.kp_proc.p_un.__p_starttime
+        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+    }
+
+    private static func milliseconds(since date: Date) -> Double {
+        Date().timeIntervalSince(date) * 1000
+    }
+
+    /// The task's lifetime peak physical footprint (`task_info` `TASK_VM_INFO`), in MiB to 0.1.
+    private static func peakFootprintMb() -> Double? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard status == KERN_SUCCESS else { return nil }
+        return round1(Double(info.ledger_phys_footprint_peak) / 1_048_576)
+    }
+
+    private static func computeDevice(backend: String) -> String {
+        let description = ggml_backend_dev_by_name(backend).map { String(cString: ggml_backend_dev_description($0)) }
+        let device = description.map { "\(backend) (\($0))" } ?? backend
+        return "\(device): weights, F16 KV cache (\(contextLength) cells) and every supported graph op"
+    }
+
+    static func round1(_ value: Double) -> Double {
+        (value * 10).rounded() / 10
+    }
+
+    private static func writeLines<T: Encodable>(_ values: [T], to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        var data = Data()
+        for value in values {
+            data.append(try encoder.encode(value))
+            data.append(0x0A)
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            throw BenchError.io("cannot write \(url.path): \(BenchError.describe(error))")
+        }
+    }
+}
+
+struct PolishCase: Decodable {
+    var id: String
+    var input: String
+}
+
+struct PolishResult {
+    var output: String
+    var ms: Double
+    var prompt: [Int32]
+    var generation: Qwen3Generation
+}
+
+/// One `rows.jsonl` line, the lab harness's schema: the first repetition's output and token counts, and the
+/// median of each timing over the repetitions.
+struct PolishRow: Encodable {
+    var id: String
+    var output: String
+    var ms: Double
+    var msAll: [Double]
+    var promptTokens: Int
+    var outputTokens: Int
+    var prefillMs: Double
+    var decodeMs: Double
+
+    init(id: String, runs: [PolishResult]) {
+        self.id = id
+        output = runs[0].output
+        ms = PolishStatistics.median(runs.map(\.ms))
+        msAll = runs.map(\.ms)
+        promptTokens = runs[0].prompt.count
+        outputTokens = runs[0].generation.tokens.count
+        prefillMs = PolishStatistics.median(runs.map(\.generation.prefillMs))
+        decodeMs = PolishStatistics.median(runs.map(\.generation.decodeMs))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, output, ms
+        case msAll = "ms_all"
+        case promptTokens = "prompt_tokens"
+        case outputTokens = "output_tokens"
+        case prefillMs = "prefill_ms"
+        case decodeMs = "decode_ms"
+    }
+}
+
+/// One `trace.jsonl` line (`--trace`): the first repetition's prompt and output ids and every greedy choice as
+/// `[token, runner_up, logit, runner_up_logit]`.
+struct PolishTrace: Encodable {
+    var id: String
+    var promptIds: [Int32]
+    var outputIds: [Int32]
+    var decisions: [[Double]]
+
+    init(id: String, run: PolishResult) {
+        self.id = id
+        promptIds = run.prompt
+        outputIds = run.generation.tokens
+        decisions = run.generation.decisions.map {
+            [Double($0.token), Double($0.runnerUp), Double($0.logit), Double($0.runnerUpLogit)]
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, decisions
+        case promptIds = "prompt_ids"
+        case outputIds = "output_ids"
+    }
+}
+
+enum PolishStatistics {
+    /// Python's `statistics.median`: the mean of the middle pair for an even count.
+    static func median(_ values: [Double]) -> Double {
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+    }
+
+    /// polish-lab's `_percentile`: the sorted value at `round(p * (n - 1))`, rounding half to even.
+    static func percentile(_ values: [Double], _ p: Double) -> Double {
+        let sorted = values.sorted()
+        let rank = Int((p * Double(sorted.count - 1)).rounded(.toNearestOrEven))
+        return sorted[min(sorted.count - 1, rank)]
+    }
+}
+
+struct PolishWarmup: Encodable {
+    var input: String
+    var output: String
+    var ms: Double
+}
+
+struct PolishSpecStats: Encodable {
+    var decodeCalls: Int
+    var drafted: Int
+    var accepted: Int
+    var outputTokens: Int
+
+    init(firstRuns: [PolishResult]) {
+        decodeCalls = firstRuns.reduce(0) { $0 + $1.generation.evaluations }
+        drafted = firstRuns.reduce(0) { $0 + $1.generation.drafted }
+        accepted = firstRuns.reduce(0) { $0 + $1.generation.accepted }
+        outputTokens = firstRuns.reduce(0) { $0 + $1.generation.tokens.count }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case drafted, accepted
+        case decodeCalls = "decode_calls"
+        case outputTokens = "output_tokens"
+    }
+}
+
+struct PowerSnapshot: Encodable {
+    var source: String?
+    var lowPowerMode: Bool
+    var thermalState: String
+    var at: String
+
+    static func current() -> PowerSnapshot {
+        let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue()
+        let source = info.flatMap { IOPSGetProvidingPowerSourceType($0)?.takeUnretainedValue() as String? }
+        let thermal: String
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: thermal = "nominal"
+        case .fair: thermal = "fair"
+        case .serious: thermal = "serious"
+        case .critical: thermal = "critical"
+        @unknown default: thermal = "unknown"
+        }
+        return PowerSnapshot(
+            source: source,
+            lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            thermalState: thermal,
+            at: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case source, at
+        case lowPowerMode = "low_power_mode"
+        case thermalState = "thermal_state"
+    }
+}
+
+struct PolishPower: Encodable {
+    var before: PowerSnapshot
+    var after: PowerSnapshot
+}
+
+struct PolishVersions: Encodable {
+    var runtime = "Vendor/qwen3 (llama.cpp b12606 e412c6f4 qwen3 port) on Vendor/ggml"
+    var ggml: String
+    var ggmlCommit: String
+    var macOS: String
+    #if DEBUG
+        var build = "debug"
+    #else
+        var build = "release"
+    #endif
+
+    enum CodingKeys: String, CodingKey {
+        case runtime, ggml, build
+        case ggmlCommit = "ggml_commit"
+        case macOS = "macOS"
+    }
+}
+
+struct PolishNotes: Encodable {
+    var prompt = "\"text: \" + input + \"\\nout:\", no BOS, no chat template; greedy; stop at the EOS"
+    var cases: String
+    var reps: Int
+    var maxNewTokens: Int
+    var ngramN: Int?
+    var ngramM: Int?
+    var contextLength: Int
+    var ubatch = 512
+    var kvType = "f16"
+    var flashAttention = true
+    var threadCount: Int
+    var specStats: PolishSpecStats
+    var warmup: [PolishWarmup]
+
+    enum CodingKeys: String, CodingKey {
+        case prompt, cases, reps, ubatch, warmup
+        case maxNewTokens = "max_new_tokens"
+        case ngramN = "ngram_n"
+        case ngramM = "ngram_m"
+        case contextLength = "n_ctx"
+        case kvType = "kv_type"
+        case flashAttention = "flash_attn"
+        case threadCount = "n_threads"
+        case specStats = "spec_stats"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(prompt, forKey: .prompt)
+        try container.encode(cases, forKey: .cases)
+        try container.encode(reps, forKey: .reps)
+        try container.encode(maxNewTokens, forKey: .maxNewTokens)
+        try container.encode(ngramN, forKey: .ngramN)
+        try container.encode(ngramM, forKey: .ngramM)
+        try container.encode(contextLength, forKey: .contextLength)
+        try container.encode(ubatch, forKey: .ubatch)
+        try container.encode(kvType, forKey: .kvType)
+        try container.encode(flashAttention, forKey: .flashAttention)
+        try container.encode(threadCount, forKey: .threadCount)
+        try container.encode(specStats, forKey: .specStats)
+        try container.encode(warmup, forKey: .warmup)
+    }
+}
+
+/// `summary.json`, the polish-lab summary schema.
+struct PolishSummary: Encodable {
+    var runtime = "voiceour-ggml"
+    var config: String
+    var modelRepo: String?
+    var modelRevision: String?
+    var weightsFile: String
+    var weightsSHA256: String
+    var quantization: String
+    var computeDevice: String
+    var loadMs: Double
+    var firstRequestMs: Double
+    var p50Ms: Double
+    var p95Ms: Double
+    var maxMs: Double
+    var g01Ms: Double?
+    var g02Ms: Double?
+    var peakFootprintMb: Double?
+    var deterministic: Bool
+    var power: PolishPower
+    var versions: PolishVersions
+    var notes: PolishNotes
+
+    init(
+        config: String, modelRepo: String?, modelRevision: String?, weightsFile: String, weightsSHA256: String,
+        quantization: String, computeDevice: String, loadMs: Double, firstRequestMs: Double, rows: [PolishRow],
+        peakFootprintMb: Double?, deterministic: Bool, power: PolishPower, versions: PolishVersions, notes: PolishNotes
+    ) {
+        self.config = config
+        self.modelRepo = modelRepo
+        self.modelRevision = modelRevision
+        self.weightsFile = weightsFile
+        self.weightsSHA256 = weightsSHA256
+        self.quantization = quantization
+        self.computeDevice = computeDevice
+        self.loadMs = loadMs
+        self.firstRequestMs = firstRequestMs
+        let ms = rows.map(\.ms)
+        p50Ms = PolishCommand.round1(PolishStatistics.median(ms))
+        p95Ms = PolishCommand.round1(PolishStatistics.percentile(ms, 0.95))
+        maxMs = PolishCommand.round1(ms.max() ?? 0)
+        g01Ms = rows.first { $0.id == "G01" }.map { PolishCommand.round1($0.ms) }
+        g02Ms = rows.first { $0.id == "G02" }.map { PolishCommand.round1($0.ms) }
+        self.peakFootprintMb = peakFootprintMb
+        self.deterministic = deterministic
+        self.power = power
+        self.versions = versions
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case runtime, config, quantization, deterministic, power, versions, notes
+        case modelRepo = "model_repo"
+        case modelRevision = "model_revision"
+        case weightsFile = "weights_file"
+        case weightsSHA256 = "weights_sha256"
+        case computeDevice = "compute_device"
+        case loadMs = "load_ms"
+        case firstRequestMs = "first_request_ms"
+        case p50Ms = "p50_ms"
+        case p95Ms = "p95_ms"
+        case maxMs = "max_ms"
+        case g01Ms = "G01_ms"
+        case g02Ms = "G02_ms"
+        case peakFootprintMb = "peak_footprint_mb"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(runtime, forKey: .runtime)
+        try container.encode(config, forKey: .config)
+        try container.encode(modelRepo, forKey: .modelRepo)
+        try container.encode(modelRevision, forKey: .modelRevision)
+        try container.encode(weightsFile, forKey: .weightsFile)
+        try container.encode(weightsSHA256, forKey: .weightsSHA256)
+        try container.encode(quantization, forKey: .quantization)
+        try container.encode(computeDevice, forKey: .computeDevice)
+        try container.encode(loadMs, forKey: .loadMs)
+        try container.encode(firstRequestMs, forKey: .firstRequestMs)
+        try container.encode(p50Ms, forKey: .p50Ms)
+        try container.encode(p95Ms, forKey: .p95Ms)
+        try container.encode(maxMs, forKey: .maxMs)
+        try container.encode(g01Ms, forKey: .g01Ms)
+        try container.encode(g02Ms, forKey: .g02Ms)
+        try container.encode(peakFootprintMb, forKey: .peakFootprintMb)
+        try container.encode(deterministic, forKey: .deterministic)
+        try container.encode(power, forKey: .power)
+        try container.encode(versions, forKey: .versions)
+        try container.encode(notes, forKey: .notes)
+    }
+}
