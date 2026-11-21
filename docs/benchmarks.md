@@ -481,3 +481,30 @@ forward and a reverse pass under one exclusive lock; medians in ms:
 
 - **Limits.** One Mac. 36 hand-written cases with one annotator. The trained model's test split comes from the
   generator that made its training data, so its scores there are optimistic.
+
+## Polish model hill climb — 2026-11-21
+
+A benchmark-only hill climb of the polish model on teacher data from `gpt-6.2-sol`.
+[research/polish-2026-11-21.md › Hill climb](../research/polish-2026-11-21.md#hill-climb-with-gpt-62-sol-data)
+holds the record, and the [results](../benchmarks/results/20261121-polish-hill-climb.json) hold every model's
+numbers, weight hashes and training data hashes. It changed no product behavior:
+[README › What happens to the words](../README.md#what-happens-to-the-words) still holds. The agent36 run and score
+use the commands in [Local polish pass screen](#local-polish-pass-screen--2026-11-21); the owner's dictations ran
+in the lab and only counts left it.
+
+Q8_0 with llama.cpp b12606 in-process, n-gram drafts n2-m8; the 498 English History dictations split by a hash
+of their id into a dev half (248), used to choose, and a test half (250), only scored. A rejection is an output
+`verify` refuses as a whole; filler removal counts the uses the edit rules delete, after `merge_allowed`.
+
+| model | agent36 | dev rejected | test rejected | dev fillers removed | test fillers removed | p50 ms dev / test |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| v1 | 35 | 52 | 53 | 88.5% | 95.5% | 67 / 71 |
+| v5 | 35 | 13 | 19 | 94.8% | 96.2% | 61 / 66 |
+
+- **Verifier.** Every row uses the current `bench/polish/polishlab.py`. Its changes alone moved v1 from 140
+  refused outputs to 105: "essentially" became a filler, repeats may have fillers between their copies, an
+  ambiguous alignment may shift, and "like" next to look/feel/stuff/something and similar words counts as content.
+- **Raw filler count.** Counting every "kind of", noun uses the rules keep included ("a screen kind of thing"),
+  v5 removes less than v1 on the test half: 88.8% against 90.8% (dev 83.7% against 81.0%).
+- **Limits.** One speaker's 498 dictations on one Mac; 36 hand-written cases with one annotator. Most of v5's
+  training pairs come from an OpenAI model, and its weights stay unpublished until the owner decides.

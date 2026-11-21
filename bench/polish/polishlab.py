@@ -20,11 +20,17 @@ from pathlib import Path
 CASES_PATH = Path(__file__).resolve().parent / "cases" / "agent36.jsonl"
 
 # "i mean" is deliberately not a filler: deleting it alone can merge a retracted phrase into the text.
-FILLERS = {"um", "uh", "like", "you know", "kind of", "sort of", "basically", "so", "okay", "ok", "right", "well",
-           "the thing is", "here's the thing", "just", "alright", "anyway"}
+# "essentially" is the owner's own "basically": 78 times in 60 of his 498 History dictations.
+FILLERS = {"um", "uh", "like", "you know", "kind of", "sort of", "basically", "essentially", "so", "okay", "ok",
+           "right", "well", "the thing is", "here's the thing", "just", "alright", "anyway"}
 CUES = {"no", "wait", "actually", "i mean", "scratch that", "sorry", "rather", "no wait"}
 NEGATIONS = {"not", "no", "never", "don't", "doesn't", "can't", "won't", "isn't", "aren't", "didn't", "shouldn't",
              "wasn't", "weren't", "haven't", "hasn't", "couldn't", "wouldn't", "nothing", "none", "nobody"}
+# "like" after these words is a comparison or a verb, never a filler: "looks like a bug", "something like this",
+# "stuff like that", "I'd like to". A bare pronoun is not enough: the owner says "we like merge it" as a filler.
+LIKE_CONTENT_AFTER = {"look", "looks", "looked", "looking", "feel", "feels", "felt", "feeling", "sound", "sounds",
+                      "sounded", "seem", "seems", "seemed", "something", "anything", "nothing", "stuff", "things",
+                      "would", "i'd", "we'd", "you'd", "they'd", "more", "much", "exactly"}
 IRREGULAR = {("was", "were"), ("were", "was"), ("is", "are"), ("are", "is"), ("have", "has"), ("has", "have"),
              ("seen", "saw"), ("doesn't", "don't"), ("don't", "doesn't"), ("does", "do"), ("do", "does"),
              ("me", "i"), ("him", "he"), ("her", "she"), ("them", "they"), ("us", "we"), ("went", "gone"),
@@ -60,6 +66,18 @@ def is_filler_span(words):
     return True
 
 
+def like_is_content(la, k):
+    """Whether la[k] == "like" is a comparison or a verb ("I like how", "kind of like the old one") rather than a
+    filler, judged from its neighbours."""
+    if la[k] != "like":
+        return False
+    prev = la[k - 1] if k else ""
+    nxt = la[k + 1] if k + 1 < len(la) else ""
+    return prev in LIKE_CONTENT_AFTER or (
+        prev in {"i", "we", "they", "you"} and nxt in {"how", "it", "that", "this", "them", "to", "when"}) or (
+        prev == "of" and k >= 2 and la[k - 2] in {"kind", "sort"} and nxt in {"the", "a", "an", "this", "that"})
+
+
 def has_cue(words):
     joined = " ".join(words)
     return any(re.search(rf"\b{re.escape(c)}\b", joined) for c in CUES)
@@ -80,6 +98,51 @@ def inflection(a, b):
     return a[:3] == b[:3] and abs(len(a) - len(b)) <= 3 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
 
 
+def _strip_fillers(words):
+    """The words of a span with its filler phrases removed, longest phrase first."""
+    core, i = [], 0
+    while i < len(words):
+        for size in (3, 2, 1):
+            if " ".join(words[i:i + size]) in FILLERS:
+                i += size
+                break
+        else:
+            core.append(words[i])
+            i += 1
+    return core
+
+
+def _deletion_ok(la, i1, i2):
+    gone = la[i1:i2]
+    if is_filler_span(gone) and not any(like_is_content(la, k) for k in range(i1, i2)):
+        return True
+    # A stutter or repeated phrase of up to four words (the cleanup stage's own repeat limit), possibly with
+    # fillers between the two copies ("their, you know, their"); either copy may be the deleted one.
+    core = _strip_fillers(gone)
+    if 0 < len(core) <= 4 and (core == la[i2:i2 + len(core)] or (i1 >= len(core) and core == la[i1 - len(core):i1])):
+        return True
+    return has_cue(gone) and i2 < len(la) and not keeps_reparandum(gone)
+
+
+def deletion_allowed(la, i1, i2):
+    """Whether deleting la[i1:i2] is an allowed edit. difflib may place an ambiguous deletion a token off ("you
+    know you" -> "you" reads as deleting "you know" or "know you"), so every placement that deletes the same
+    words is tried."""
+    if _deletion_ok(la, i1, i2):
+        return True
+    j1, j2 = i1, i2
+    while j1 > 0 and la[j1 - 1] == la[j2 - 1]:
+        j1, j2 = j1 - 1, j2 - 1
+        if _deletion_ok(la, j1, j2):
+            return True
+    j1, j2 = i1, i2
+    while j2 < len(la) and la[j1] == la[j2]:
+        j1, j2 = j1 + 1, j2 + 1
+        if _deletion_ok(la, j1, j2):
+            return True
+    return False
+
+
 def verify(src, out, terms=()):
     """Return (accepted, reason). `terms` are Glossary spellings that must survive byte for byte."""
     if not out.strip():
@@ -95,18 +158,13 @@ def verify(src, out, terms=()):
         if op == "delete":
             if any(t in terms for t in a[i1:i2]) and not has_cue(gone):
                 return False, f"deleted protected term {a[i1:i2]}"
-            # A stutter or a repeated phrase of up to four words (the cleanup stage's own repeat limit):
-            # difflib may mark either copy as the deleted one.
-            stutter = len(gone) <= 4 and (gone == la[i2:i2 + len(gone)]
-                                          or (i1 >= len(gone) and gone == la[i1 - len(gone):i1]))
-            if is_filler_span(gone) or stutter:
-                continue  # filler or stutter
+            if deletion_allowed(la, i1, i2):
+                continue  # filler, stutter, or a correction with what it retracts
             if has_cue(gone):
                 if i2 >= len(a):
                     return False, "correction deleted the tail"
                 if keeps_reparandum(gone):
                     return False, f"correction kept its reparandum {gone}"
-                continue  # reparandum + interregnum
             return False, f"deleted content {gone}"
         if op == "insert":
             if all(re.fullmatch(r"\d+", t) for t in new):
@@ -114,7 +172,7 @@ def verify(src, out, terms=()):
             return False, f"inserted {new}"
         if all(w in LIST_WORDS for w in gone) and all(re.fullmatch(r"\d+", t) for t in new):
             continue
-        core = [w for w in gone if not is_filler_span([w])]
+        core = [w for k, w in enumerate(gone, i1) if not is_filler_span([w]) or like_is_content(la, k)]
         if len(core) == 1 and len(new) == 1 and inflection(core[0], new[0]) and \
                 core[0] not in NEGATIONS - {"doesn't", "don't", "isn't", "aren't", "wasn't", "weren't"}:
             continue
@@ -156,14 +214,12 @@ def merge_allowed(src, out, terms=()):
         if not gone and not new:
             allowed = True  # line breaks only
         elif op == "delete" or not new:
-            stutter = 0 < len(gone) <= 4 and (gone == ka[i2:i2 + len(gone)]
-                                              or (i1 >= len(gone) and gone == ka[i1 - len(gone):i1]))
-            allowed = not any(_key(t) in {x.lower() for x in terms} for t in sa) and (
-                is_filler_span(gone) or stutter or (has_cue(gone) and not keeps_reparandum(gone) and i2 < len(a)))
+            allowed = not any(_key(t) in {x.lower() for x in terms} for t in sa) and deletion_allowed(ka, i1, i2)
         elif op == "insert" or not gone:
             allowed = all(re.fullmatch(r"\d+", t) for t in new)
         else:
-            core = [w for w in gone if not is_filler_span([w])]
+            core = [ka[k] for k in range(i1, i2)
+                    if ka[k] != "\n" and (not is_filler_span([ka[k]]) or like_is_content(ka, k))]
             allowed = (all(w in LIST_WORDS for w in gone) and all(re.fullmatch(r"\d+", t) for t in new)) or (
                 len(core) == 1 and len(new) == 1 and inflection(core[0], new[0])
                 and core[0] not in NEGATIONS - {"doesn't", "don't", "isn't", "aren't", "wasn't", "weren't"}) or (

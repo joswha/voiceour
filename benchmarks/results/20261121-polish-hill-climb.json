@@ -1,0 +1,451 @@
+{
+ "record": "research/polish-2026-11-21.md",
+ "machine": {
+  "chip": "Apple M4 Pro",
+  "os": "27.3",
+  "memory_gb": 24,
+  "power": "AC"
+ },
+ "runtime": "llama.cpp b12606 in-process, Metal, Q8_0, ngram-simple n2-m8, greedy, 1 repetition",
+ "training": "LoRA r32 alpha 64 dropout 0.05 on all projections of Qwen/Qwen3-0.6B-Base, prompt 'text: ' + input + '\\nout:', 2 epochs, lr 2e-4 cosine, 32 sequences per step, fp16 autocast, RTX 2070 SUPER",
+ "teacher": {
+  "model": "gpt-6.2-sol",
+  "route": "OpenAI Responses API through V12's dev CLIProxyAPI",
+  "reasoning_effort": "low",
+  "licence": "OpenAI's terms of use forbid using output to develop models that compete with OpenAI; the v2-v5 weights and the Sol pairs stay unpublished"
+ },
+ "verifier": {
+  "file": "bench/polish/polishlab.py",
+  "v1_history_rejections": {
+   "as committed in eedb617": 140,
+   "with essentially, repeats across fillers and the alignment shift": 98,
+   "with the content-like rule (every score below)": 105
+  }
+ },
+ "sets": {
+  "agent36": "bench/polish/cases/agent36.jsonl, 36 held-out hand-written cases",
+  "v1-test": "1,000 synthetic pairs from v1's generator (lab)",
+  "sol-test": "874 gpt-6.2-sol pairs, seed 1001, held out from every model (lab)",
+  "history": "the owner's 498 English History dictations, private; sha256(id) first hex digit 0-7 is the dev half (248), 8-f the test half (250); dev for failure analysis and model selection, test scored only"
+ },
+ "metrics": {
+  "rejected": "outputs verify() refuses as a whole",
+  "content_deleted": "rejections whose first refused edit deletes content words",
+  "fillers_removed_pct": "you know, basically, essentially, kind of and a sentence-opening so/okay/right/well/like removed after merge_allowed, every occurrence",
+  "fillers_removed_rules_pct": "the same, counting only uses the edit rules delete: kind of as a softener, you know outside do-you-know questions",
+  "like_removed_pct": "every like removed after merge_allowed, legitimate uses included",
+  "restraint / edit_acc": "labelled sets: clean inputs returned exactly / needs-change inputs returned exactly as the target"
+ },
+ "selection": "lowest History dev rejections with agent36 >= 35 and rules-counted filler removal >= v1",
+ "selected": "v5",
+ "models": {
+  "v1": {
+   "run": "polish-lora-v1-20261121",
+   "weights_q8_0_sha256": "0d1bbb0d4958d0a3cc744aadd5db3c721f1efe715321ef44352dfbba3e90e850",
+   "training": {
+    "base": "Qwen/Qwen3-0.6B-Base@da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "train_pairs": 20001,
+    "train_by_method": {
+     "v1": 20001
+    },
+    "valid_pairs": 1000,
+    "train_sha256": "7931b94271721f22bf6c74c9f0ccc97d3e0c7deea94a1e052564678abb28f65a",
+    "argv_tail": [
+     "--epochs",
+     "2",
+     "--eval-every",
+     "125",
+     "--check-cases",
+     "/srv/devbox/research/voiceour/data/polish-lab/cases/agent36.jsonl"
+    ],
+    "steps": 1251,
+    "valid_loss_first": 0.2822,
+    "valid_loss_last": 0.0031,
+    "train_wall_s": 1374.1
+   },
+   "scores": {
+    "agent36": {
+     "pass": 35,
+     "verified": 35,
+     "p50_ms": 48.9654795
+    },
+    "v1-test": {
+     "n": 1000,
+     "restraint": 99.14285714285714,
+     "edit_acc": 96.92307692307692,
+     "rejected": 3.6,
+     "merged_exact": 94.3
+    },
+    "sol-test": {
+     "n": 874,
+     "restraint": 88.59649122807018,
+     "edit_acc": 75.85139318885449,
+     "rejected": 10.411899313501143,
+     "merged_exact": 83.75286041189932
+    },
+    "history": {
+     "dev": {
+      "n": 248,
+      "rejected": 52,
+      "content_deleted": 46,
+      "fillers_removed_pct": 80.96676737160121,
+      "fillers_removed_rules_pct": 88.54166666666666,
+      "like_removed_pct": 68.63636363636363,
+      "p50_ms": 67.02906250000001
+     },
+     "test": {
+      "n": 250,
+      "rejected": 53,
+      "content_deleted": 49,
+      "fillers_removed_pct": 90.82568807339449,
+      "fillers_removed_rules_pct": 95.46599496221663,
+      "like_removed_pct": 76.51821862348179,
+      "p50_ms": 71.0910415
+     }
+    }
+   }
+  },
+  "v2a": {
+   "run": "polish-lora-v2a-20261121",
+   "weights_q8_0_sha256": "8caadc2a411250b6223ec541c9f5d49b16fede245d7202a63adb1ba373250a3e",
+   "training": {
+    "base": "Qwen/Qwen3-0.6B-Base@da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "train_pairs": 10172,
+    "train_by_method": {
+     "sol": 2172,
+     "v1": 8000
+    },
+    "valid_pairs": 300,
+    "train_sha256": "664ab0e55f58f717b0beb389cc378416c243d3865485b615577bb286f164d60c",
+    "argv_tail": [
+     "--check-cases",
+     "/srv/devbox/research/voiceour/data/polish-lab/cases/agent36.jsonl",
+     "--epochs",
+     "2",
+     "--eval-every",
+     "125"
+    ],
+    "steps": 636,
+    "valid_loss_first": 0.2943,
+    "valid_loss_last": 0.004,
+    "train_wall_s": 729.4
+   },
+   "scores": {
+    "agent36": {
+     "pass": 35,
+     "verified": 36,
+     "p50_ms": 42.9993955
+    },
+    "v1-test": {
+     "n": 1000,
+     "restraint": 98.85714285714286,
+     "edit_acc": 94.92307692307692,
+     "rejected": 3.2,
+     "merged_exact": 93.6
+    },
+    "sol-test": {
+     "n": 874,
+     "restraint": 99.56140350877193,
+     "edit_acc": 95.51083591331269,
+     "rejected": 0.6864988558352403,
+     "merged_exact": 96.5675057208238
+    },
+    "history": {
+     "dev": {
+      "n": 248,
+      "rejected": 44,
+      "content_deleted": 36,
+      "fillers_removed_pct": 81.2688821752266,
+      "fillers_removed_rules_pct": 92.01388888888889,
+      "like_removed_pct": 69.54545454545455,
+      "p50_ms": 63.390395999999996
+     },
+     "test": {
+      "n": 250,
+      "rejected": 46,
+      "content_deleted": 41,
+      "fillers_removed_pct": 87.1559633027523,
+      "fillers_removed_rules_pct": 94.20654911838791,
+      "like_removed_pct": 73.27935222672065,
+      "p50_ms": 68.8931875
+     }
+    }
+   }
+  },
+  "v2an": {
+   "run": "polish-lora-v2an-20261121",
+   "weights_q8_0_sha256": "c72e0107ca677acde3db130a864d265bba2cabe06c9c84c23fdb0e63feb4d8a8",
+   "training": {
+    "base": "Qwen/Qwen3-0.6B-Base@da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "train_pairs": 10955,
+    "train_by_method": {
+     "sol": 2172,
+     "sol+noise": 783,
+     "v1": 8000
+    },
+    "valid_pairs": 300,
+    "train_sha256": "80e5f24dc388e5096d66b849fb4fcfbd900f95f194379f1343b10a8a05f1f84c",
+    "argv_tail": [
+     "--check-cases",
+     "/srv/devbox/research/voiceour/data/polish-lab/cases/agent36.jsonl",
+     "--epochs",
+     "2",
+     "--eval-every",
+     "125"
+    ],
+    "steps": 685,
+    "valid_loss_first": 0.2943,
+    "valid_loss_last": 0.0036,
+    "train_wall_s": 788.3
+   },
+   "scores": {
+    "agent36": {
+     "pass": 35,
+     "verified": 36,
+     "p50_ms": 49.449521000000004
+    },
+    "v1-test": {
+     "n": 1000,
+     "restraint": 98.85714285714286,
+     "edit_acc": 94.61538461538461,
+     "rejected": 3.3,
+     "merged_exact": 93.5
+    },
+    "sol-test": {
+     "n": 874,
+     "restraint": 99.56140350877193,
+     "edit_acc": 95.3560371517028,
+     "rejected": 0.2288329519450801,
+     "merged_exact": 96.45308924485126
+    },
+    "history": {
+     "dev": {
+      "n": 248,
+      "rejected": 27,
+      "content_deleted": 25,
+      "fillers_removed_pct": 81.57099697885197,
+      "fillers_removed_rules_pct": 92.36111111111111,
+      "like_removed_pct": 71.81818181818183,
+      "p50_ms": 63.0604375
+     },
+     "test": {
+      "n": 250,
+      "rejected": 27,
+      "content_deleted": 26,
+      "fillers_removed_pct": 88.9908256880734,
+      "fillers_removed_rules_pct": 95.96977329974811,
+      "like_removed_pct": 75.7085020242915,
+      "p50_ms": 68.078542
+     }
+    }
+   }
+  },
+  "v3": {
+   "run": "polish-lora-v3-20261121",
+   "weights_q8_0_sha256": "9777fb837417e6e838515a18b3ea42444cfe32669ad2a1f1b9b92147a6295be4",
+   "training": {
+    "base": "Qwen/Qwen3-0.6B-Base@da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "train_pairs": 23842,
+    "train_by_method": {
+     "sol": 10988,
+     "sol+kol": 835,
+     "sol+noise": 4019,
+     "v1": 8000
+    },
+    "valid_pairs": 600,
+    "train_sha256": "6e90605919e5bba657b75e93529508405a5b2e0c863e37791abb0253f081e2cc",
+    "argv_tail": [
+     "--check-cases",
+     "/srv/devbox/research/voiceour/data/polish-lab/cases/agent36.jsonl",
+     "--epochs",
+     "2",
+     "--eval-every",
+     "125"
+    ],
+    "steps": 1491,
+    "valid_loss_first": 0.2777,
+    "valid_loss_last": 0.002,
+    "train_wall_s": 1800.9
+   },
+   "scores": {
+    "agent36": {
+     "pass": 35,
+     "verified": 36,
+     "p50_ms": 43.3004995
+    },
+    "v1-test": {
+     "n": 1000,
+     "restraint": 98.57142857142857,
+     "edit_acc": 93.84615384615384,
+     "rejected": 3.0,
+     "merged_exact": 93.2
+    },
+    "sol-test": {
+     "n": 874,
+     "restraint": 100.0,
+     "edit_acc": 97.21362229102168,
+     "rejected": 0.11441647597254005,
+     "merged_exact": 97.94050343249428
+    },
+    "history": {
+     "dev": {
+      "n": 248,
+      "rejected": 17,
+      "content_deleted": 14,
+      "fillers_removed_pct": 82.4773413897281,
+      "fillers_removed_rules_pct": 93.40277777777779,
+      "like_removed_pct": 70.9090909090909,
+      "p50_ms": 61.6350835
+     },
+     "test": {
+      "n": 250,
+      "rejected": 27,
+      "content_deleted": 26,
+      "fillers_removed_pct": 88.53211009174312,
+      "fillers_removed_rules_pct": 96.22166246851386,
+      "like_removed_pct": 76.51821862348179,
+      "p50_ms": 66.5057705
+     }
+    }
+   }
+  },
+  "v4": {
+   "run": "polish-lora-v4-20261121",
+   "weights_q8_0_sha256": "a3cb307a59bec7b0824cc3b6094a1e887e1d5a80461156f5b6000851bef1bd10",
+   "training": {
+    "base": "Qwen/Qwen3-0.6B-Base@da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "train_pairs": 27113,
+    "train_by_method": {
+     "sol": 13306,
+     "sol+kol": 963,
+     "sol+noise": 4844,
+     "v1": 8000
+    },
+    "valid_pairs": 600,
+    "train_sha256": "eb42f52a89599a87b6e64d8b566c2bebf4b1f93f39dca70887f85010715a22e4",
+    "argv_tail": [
+     "--check-cases",
+     "/srv/devbox/research/voiceour/data/polish-lab/cases/agent36.jsonl",
+     "--epochs",
+     "2",
+     "--eval-every",
+     "125"
+    ],
+    "steps": 1695,
+    "valid_loss_first": 0.2868,
+    "valid_loss_last": 0.0026,
+    "train_wall_s": 2022.2
+   },
+   "scores": {
+    "agent36": {
+     "pass": 33,
+     "verified": 36,
+     "p50_ms": 40.899020500000006
+    },
+    "v1-test": {
+     "n": 1000,
+     "restraint": 98.57142857142857,
+     "edit_acc": 93.6923076923077,
+     "rejected": 3.1,
+     "merged_exact": 93.2
+    },
+    "sol-test": {
+     "n": 874,
+     "restraint": 99.56140350877193,
+     "edit_acc": 98.14241486068111,
+     "rejected": 0.0,
+     "merged_exact": 98.51258581235697
+    },
+    "history": {
+     "dev": {
+      "n": 248,
+      "rejected": 17,
+      "content_deleted": 15,
+      "fillers_removed_pct": 83.98791540785498,
+      "fillers_removed_rules_pct": 94.44444444444444,
+      "like_removed_pct": 72.27272727272727,
+      "p50_ms": 62.092812499999994
+     },
+     "test": {
+      "n": 250,
+      "rejected": 20,
+      "content_deleted": 19,
+      "fillers_removed_pct": 89.44954128440367,
+      "fillers_removed_rules_pct": 97.22921914357683,
+      "like_removed_pct": 78.13765182186233,
+      "p50_ms": 67.204229
+     }
+    }
+   }
+  },
+  "v5": {
+   "run": "polish-lora-v5-20261121",
+   "weights_q8_0_sha256": "92d387c16a49cf9fa1148309b3397bf9a4268beb8a9b693fc9eb08269b581af0",
+   "training": {
+    "base": "Qwen/Qwen3-0.6B-Base@da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "train_pairs": 28168,
+    "train_by_method": {
+     "sol": 14050,
+     "sol+kol": 1004,
+     "sol+noise": 5114,
+     "v1": 8000
+    },
+    "valid_pairs": 600,
+    "train_sha256": "1f0adb7a0f1370356c579fde5d9e800555de459ee3a34bf3f1293290bf992d02",
+    "argv_tail": [
+     "--check-cases",
+     "/srv/devbox/research/voiceour/data/polish-lab/cases/agent36.jsonl",
+     "--epochs",
+     "2",
+     "--eval-every",
+     "125"
+    ],
+    "steps": 1761,
+    "valid_loss_first": 0.3054,
+    "valid_loss_last": 0.0023,
+    "train_wall_s": 2118.0
+   },
+   "scores": {
+    "agent36": {
+     "pass": 35,
+     "verified": 36,
+     "p50_ms": 46.029667
+    },
+    "v1-test": {
+     "n": 1000,
+     "restraint": 98.85714285714286,
+     "edit_acc": 94.61538461538461,
+     "rejected": 2.9,
+     "merged_exact": 93.9
+    },
+    "sol-test": {
+     "n": 874,
+     "restraint": 100.0,
+     "edit_acc": 97.83281733746131,
+     "rejected": 0.2288329519450801,
+     "merged_exact": 98.39816933638444
+    },
+    "history": {
+     "dev": {
+      "n": 248,
+      "rejected": 13,
+      "content_deleted": 12,
+      "fillers_removed_pct": 83.68580060422961,
+      "fillers_removed_rules_pct": 94.79166666666666,
+      "like_removed_pct": 70.45454545454545,
+      "p50_ms": 60.5348125
+     },
+     "test": {
+      "n": 250,
+      "rejected": 19,
+      "content_deleted": 18,
+      "fillers_removed_pct": 88.76146788990825,
+      "fillers_removed_rules_pct": 96.22166246851386,
+      "like_removed_pct": 74.89878542510122,
+      "p50_ms": 66.051667
+     }
+    }
+   }
+  }
+ }
+}
