@@ -523,3 +523,23 @@ input and contains at most 128 distinct candidate strings. The runner returns on
 when one candidate is a prefix of another. It checks tokenization and length before inference. It does not judge
 whether the candidates preserve meaning. `--guided-stepwise` evaluates each token; ordinary guided mode batches
 forced tokens between choices. Neither mode uses n-gram drafts. The ordinary greedy runner remains the default.
+
+## Polish edit verifier v3 — 2026-11-22
+
+`bench/polish/polishlab.py` now checks every edit through `polish_tokens.py`, `polish_fillers.py`,
+`polish_corrections.py` and `polish_grammar.py`;
+[research/polish-2026-11-21.md › The edit verifier](../research/polish-2026-11-21.md#the-edit-verifier) lists the
+rules, and the [results](../benchmarks/results/20261122-polish-verifier3.json) hold every count.
+
+| probe set | harmful accepted, before → now | legitimate refused, before → now |
+| --- | ---: | ---: |
+| round 1: 8 red-team lenses, written against the old verifier | 485/499 → 0/499 | 111/276 → 118/276 |
+| round 2: blind pairs, written without the code | 7/30 → 0/30 | 4/30 → 17/30 |
+
+- **Restraint over yield.** The new rules keep a word wherever its neighbours allow a content reading. They accept 33
+  of 36 agent36 references and 629 of 874 Sol test references; most refused references delete "like" before a
+  number, "just" after a subject or a sentence-opening "right".
+- **Old models.** Re-scored outputs of v1 and v5: 100 and 94 refused on the History dev half, 115 and 116 on the
+  previous test half. Under the earlier verifier these were 52/53 and 13/19.
+- **Limits.** The probes are synthetic and written by models; passing them does not prove the rules safe on open
+  language. No human has judged the refusals yet.

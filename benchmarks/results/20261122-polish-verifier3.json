@@ -1,0 +1,577 @@
+{
+ "record": "research/polish-2026-11-21.md#the-edit-verifier",
+ "verifier_files_sha256": {
+  "polishlab.py": "d551779fa3c4a61590149b6f354484b5e93a54abed0254567f254e58f653d3a8",
+  "polish_tokens.py": "e7bcf76745d40f49e0ee3ededdbf849d3eacb6889b9e92555ac18cb3d39508c6",
+  "polish_fillers.py": "013de296cf4dd977aabee62b2c246cea7bf2ef7b8e84bb2aa691fdc654300238",
+  "polish_grammar.py": "8c3a29ab2efffa216e15a6e68de86250310f7990bdc3bcf55837005bb91e49d7",
+  "polish_corrections.py": "d955ce97682f4e87bf243ef320044386a1170f0556a45aa2f1a854a64fbb9fcc"
+ },
+ "previous_verifier": "bench/polish/polishlab.py at b8e346e",
+ "probes": {
+  "round1": "775 synthetic probes over 8 lenses (499 harmful, 276 legitimate), written against the previous verifier",
+  "round2": "60 blind probes (30 matched harmful/legitimate pairs) written without access to any verifier code",
+  "previous": {
+   "round1": {
+    "harmful_requested": 499,
+    "harmful_accepted": 485,
+    "valid_refused": 111,
+    "merged_fails_own_check": 14,
+    "harmful_exactly_delivered": 491,
+    "valid_requested": 276
+   },
+   "round2": {
+    "harmful_requested": 30,
+    "harmful_accepted": 7,
+    "valid_refused": 4,
+    "merged_fails_own_check": 4,
+    "harmful_exactly_delivered": 7,
+    "valid_requested": 30
+   }
+  },
+  "current": {
+   "round1": {
+    "harmful_requested": 499,
+    "harmful_accepted": 0,
+    "valid_refused": 118,
+    "merged_fails_own_check": 0,
+    "harmful_exactly_delivered": 0,
+    "valid_requested": 276
+   },
+   "round2": {
+    "harmful_requested": 30,
+    "harmful_accepted": 0,
+    "valid_refused": 17,
+    "merged_fails_own_check": 0,
+    "harmful_exactly_delivered": 0,
+    "valid_requested": 30
+   }
+  }
+ },
+ "reference_acceptance": {
+  "agent36": {
+   "n": 36,
+   "accepted": 33,
+   "refused_by": {
+    "replaced content": 2,
+    "changed sentence boundary": 1
+   }
+  },
+  "traps": {
+   "n": 414,
+   "accepted": 365,
+   "refused_by": {
+    "deleted content": 38,
+    "changed literal": 2,
+    "changed question": 9
+   }
+  },
+  "sol-test": {
+   "n": 874,
+   "accepted": 629,
+   "refused_by": {
+    "deleted content": 211,
+    "replaced content": 30,
+    "changed clause punctuation": 1,
+    "changed question": 2,
+    "inserted content": 1
+   }
+  },
+  "cf6-test": {
+   "n": 425,
+   "accepted": 306,
+   "refused_by": {
+    "deleted content": 103,
+    "changed sentence boundary": 5,
+    "replaced content": 11
+   }
+  },
+  "v1-test": {
+   "n": 1000,
+   "accepted": 732,
+   "refused_by": {
+    "deleted content": 226,
+    "replaced content": 14,
+    "changed line break": 8,
+    "changed literal": 6,
+    "changed sentence boundary": 10,
+    "changed question": 4
+   }
+  }
+ },
+ "models_rescored": {
+  "note": "frozen outputs from 2026-11-21; History counts are aggregates of the private 498 dictations; refused = verify() refuses the whole output; delivered_refused = merge_allowed() output that fails verify()",
+  "previous_verifier": {
+   "v1": {
+    "agent36": {
+     "all": {
+      "refused": 1
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 24
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 91
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 36
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 52
+     },
+     "previous_test": {
+      "refused": 53
+     }
+    }
+   },
+   "v2a": {
+    "agent36": {
+     "all": {
+      "refused": 0
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 5
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 6
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 32
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 44
+     },
+     "previous_test": {
+      "refused": 46
+     }
+    }
+   },
+   "v2an": {
+    "agent36": {
+     "all": {
+      "refused": 0
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 2
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 2
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 33
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 27
+     },
+     "previous_test": {
+      "refused": 27
+     }
+    }
+   },
+   "v3": {
+    "agent36": {
+     "all": {
+      "refused": 0
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 2
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 1
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 30
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 17
+     },
+     "previous_test": {
+      "refused": 27
+     }
+    }
+   },
+   "v4": {
+    "agent36": {
+     "all": {
+      "refused": 0
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 2
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 0
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 31
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 17
+     },
+     "previous_test": {
+      "refused": 20
+     }
+    }
+   },
+   "v5": {
+    "agent36": {
+     "all": {
+      "refused": 0
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 1
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 2
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 29
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 13
+     },
+     "previous_test": {
+      "refused": 19
+     }
+    }
+   }
+  },
+  "current_verifier": {
+   "v1": {
+    "agent36": {
+     "all": {
+      "refused": 4,
+      "delivered_refused": 0,
+      "raw_pass": 35,
+      "delivered_pass": 32,
+      "raw_exact": 32,
+      "delivered_exact": 31
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 99,
+      "delivered_refused": 0,
+      "raw_pass": 347,
+      "delivered_pass": 341,
+      "raw_exact": 339,
+      "delivered_exact": 336
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 289,
+      "delivered_refused": 0,
+      "raw_exact": 692,
+      "delivered_exact": 577
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 269,
+      "delivered_refused": 0,
+      "raw_exact": 977,
+      "delivered_exact": 719
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 100,
+      "delivered_refused": 0
+     },
+     "previous_test": {
+      "refused": 115,
+      "delivered_refused": 0
+     }
+    }
+   },
+   "v2a": {
+    "agent36": {
+     "all": {
+      "refused": 5,
+      "delivered_refused": 0,
+      "raw_pass": 35,
+      "delivered_pass": 31,
+      "raw_exact": 30,
+      "delivered_exact": 29
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 73,
+      "delivered_refused": 0,
+      "raw_pass": 365,
+      "delivered_pass": 348,
+      "raw_exact": 362,
+      "delivered_exact": 345
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 242,
+      "delivered_refused": 0,
+      "raw_exact": 844,
+      "delivered_exact": 622
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 268,
+      "delivered_refused": 0,
+      "raw_exact": 963,
+      "delivered_exact": 718
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 100,
+      "delivered_refused": 0
+     },
+     "previous_test": {
+      "refused": 112,
+      "delivered_refused": 0
+     }
+    }
+   },
+   "v2an": {
+    "agent36": {
+     "all": {
+      "refused": 4,
+      "delivered_refused": 0,
+      "raw_pass": 35,
+      "delivered_pass": 32,
+      "raw_exact": 32,
+      "delivered_exact": 31
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 70,
+      "delivered_refused": 0,
+      "raw_pass": 364,
+      "delivered_pass": 348,
+      "raw_exact": 361,
+      "delivered_exact": 345
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 236,
+      "delivered_refused": 0,
+      "raw_exact": 843,
+      "delivered_exact": 623
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 266,
+      "delivered_refused": 0,
+      "raw_exact": 961,
+      "delivered_exact": 719
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 91,
+      "delivered_refused": 0
+     },
+     "previous_test": {
+      "refused": 113,
+      "delivered_refused": 0
+     }
+    }
+   },
+   "v3": {
+    "agent36": {
+     "all": {
+      "refused": 5,
+      "delivered_refused": 0,
+      "raw_pass": 35,
+      "delivered_pass": 31,
+      "raw_exact": 30,
+      "delivered_exact": 29
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 73,
+      "delivered_refused": 0,
+      "raw_pass": 360,
+      "delivered_pass": 344,
+      "raw_exact": 355,
+      "delivered_exact": 339
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 240,
+      "delivered_refused": 0,
+      "raw_exact": 856,
+      "delivered_exact": 624
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 265,
+      "delivered_refused": 0,
+      "raw_exact": 955,
+      "delivered_exact": 720
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 93,
+      "delivered_refused": 0
+     },
+     "previous_test": {
+      "refused": 116,
+      "delivered_refused": 0
+     }
+    }
+   },
+   "v4": {
+    "agent36": {
+     "all": {
+      "refused": 4,
+      "delivered_refused": 0,
+      "raw_pass": 33,
+      "delivered_pass": 31,
+      "raw_exact": 30,
+      "delivered_exact": 30
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 70,
+      "delivered_refused": 0,
+      "raw_pass": 366,
+      "delivered_pass": 352,
+      "raw_exact": 363,
+      "delivered_exact": 349
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 244,
+      "delivered_refused": 0,
+      "raw_exact": 861,
+      "delivered_exact": 627
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 268,
+      "delivered_refused": 0,
+      "raw_exact": 954,
+      "delivered_exact": 719
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 96,
+      "delivered_refused": 0
+     },
+     "previous_test": {
+      "refused": 116,
+      "delivered_refused": 0
+     }
+    }
+   },
+   "v5": {
+    "agent36": {
+     "all": {
+      "refused": 5,
+      "delivered_refused": 0,
+      "raw_pass": 35,
+      "delivered_pass": 31,
+      "raw_exact": 31,
+      "delivered_exact": 30
+     }
+    },
+    "traps": {
+     "all": {
+      "refused": 73,
+      "delivered_refused": 0,
+      "raw_pass": 369,
+      "delivered_pass": 347,
+      "raw_exact": 365,
+      "delivered_exact": 344
+     }
+    },
+    "sol-test": {
+     "all": {
+      "refused": 242,
+      "delivered_refused": 0,
+      "raw_exact": 860,
+      "delivered_exact": 626
+     }
+    },
+    "v1-test": {
+     "all": {
+      "refused": 267,
+      "delivered_refused": 0,
+      "raw_exact": 961,
+      "delivered_exact": 721
+     }
+    },
+    "history": {
+     "dev": {
+      "refused": 94,
+      "delivered_refused": 0
+     },
+     "previous_test": {
+      "refused": 116,
+      "delivered_refused": 0
+     }
+    }
+   }
+  }
+ }
+}

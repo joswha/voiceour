@@ -4,10 +4,11 @@
     python3 bench/polish/polishlab.py score <rows.jsonl> [<rows.jsonl> ...]        # {"id","output","ms"}
     python3 bench/polish/polishlab.py verify-pairs <pairs.jsonl> [--keep out.jsonl]  # {"input","target"}
 
-`verify(src, out)` accepts a cleaned text only when every change from the source is one of: a filler
-deletion, a self-correction deletion (a span holding a cue word and the words it retracts), a stutter, a
-one-word inflection, a spoken list marker turned into a numeral, or punctuation/case outside protected
-tokens. `merge_allowed(src, out)` keeps each such change and restores the source everywhere else.
+`verify(src, out)` accepts a cleaned text only when every change from the source is one of: a filler deletion
+(polish_fillers), a stutter, a cue-marked self-correction (polish_corrections), a one-word grammar fix or a spoken
+list turned into a numbered list (polish_grammar), or punctuation and case these edits need. Literals (code, paths,
+flags, numbers, quoted text, Glossary terms; polish_tokens) never change. `merge_allowed(src, out)` keeps the
+approved edits, restores the source elsewhere and returns the whole source when the composition fails `verify`.
 research/polish-2026-11-21.md records why each rule exists.
 """
 import difflib
@@ -17,47 +18,31 @@ import statistics
 import sys
 from pathlib import Path
 
-CASES_PATH = Path(__file__).resolve().parent / "cases" / "agent36.jsonl"
+from polish_corrections import CUES, correction
+from polish_fillers import FILLERS, filler_end, stutter_twin
+from polish_grammar import grammar_edit, inflection, list_edit
+from polish_tokens import protected, scan
 
-# "i mean" is deliberately not a filler: deleting it alone can merge a retracted phrase into the text.
-# "essentially" is the owner's own "basically": 78 times in 60 of his 498 History dictations.
-FILLERS = {"um", "uh", "like", "you know", "kind of", "sort of", "basically", "essentially", "so", "okay", "ok",
-           "right", "well", "the thing is", "here's the thing", "just", "alright", "anyway"}
-CUES = {"no", "wait", "actually", "i mean", "scratch that", "sorry", "rather", "no wait"}
-NEGATIONS = {"not", "no", "never", "don't", "doesn't", "can't", "won't", "isn't", "aren't", "didn't", "shouldn't",
-             "wasn't", "weren't", "haven't", "hasn't", "couldn't", "wouldn't", "nothing", "none", "nobody"}
-# "like" after these words is a comparison or a verb, never a filler: "looks like a bug", "something like this",
-# "stuff like that", "I'd like to". A bare pronoun is not enough: the owner says "we like merge it" as a filler.
-LIKE_CONTENT_AFTER = {"look", "looks", "looked", "looking", "feel", "feels", "felt", "feeling", "sound", "sounds",
-                      "sounded", "seem", "seems", "seemed", "something", "anything", "nothing", "stuff", "things",
-                      "would", "i'd", "we'd", "you'd", "they'd", "more", "much", "exactly"}
-IRREGULAR = {("was", "were"), ("were", "was"), ("is", "are"), ("are", "is"), ("have", "has"), ("has", "have"),
-             ("seen", "saw"), ("doesn't", "don't"), ("don't", "doesn't"), ("does", "do"), ("do", "does"),
-             ("me", "i"), ("him", "he"), ("her", "she"), ("them", "they"), ("us", "we"), ("went", "gone"),
-             ("gone", "went"), ("done", "did"), ("did", "done"), ("isn't", "aren't"), ("aren't", "isn't"),
-             ("wasn't", "weren't"), ("weren't", "wasn't"), ("a", "an"), ("an", "a")}
-LIST_WORDS = {"first", "second", "third", "fourth", "fifth", "number", "one", "two", "three", "four", "five",
-              "firstly", "secondly", "thirdly", "then", "next", "finally", "lastly"}
-TOKEN = re.compile(r"[\w'~/.$,:-]*\w[\w'~/.$-]*|\S")
+__all__ = ["CUES", "FILLERS", "has_cue", "inflection", "is_filler_span", "merge_allowed", "protected",
+           "tokens", "verify"]
+
+CASES_PATH = Path(__file__).resolve().parent / "cases" / "agent36.jsonl"
 
 
 def tokens(text):
-    out = []
-    for t in TOKEN.findall(text):
-        t = t.strip(",.:;!?")  # trailing punctuation is free to change
-        if t:
-            out.append(t)
-    return out
+    return [w.body for w in scan(text)]
 
 
-def protected(tok, terms=()):
-    return tok in terms or bool(re.search(r"\d|[/_~$]|--|[a-z][A-Z]|^[A-Z]{2,}$|\.\w", tok))
+def has_cue(words):
+    """Lexical statistic for pair generation, not permission to retract a clause."""
+    return any(w in CUES or " ".join(words[i:i + 2]) in CUES for i, w in enumerate(words))
 
 
 def is_filler_span(words):
-    i, n = 0, len(words)
-    while i < n:
-        for size in (3, 2, 1):
+    """Lexical classification for training statistics only, never permission to delete."""
+    i = 0
+    while i < len(words):
+        for size in range(min(3, len(words) - i), 0, -1):
             if " ".join(words[i:i + size]) in FILLERS:
                 i += size
                 break
@@ -66,172 +51,177 @@ def is_filler_span(words):
     return True
 
 
-def like_is_content(la, k):
-    """Whether la[k] == "like" is a comparison or a verb ("I like how", "kind of like the old one") rather than a
-    filler, judged from its neighbours."""
-    if la[k] != "like":
+def _fillers(a, i, end):
+    while i < end:
+        stop = filler_end(a, i, end)
+        if stop <= i:
+            break
+        i = stop
+    return i
+
+
+def _deletion(a, i, j, kept):
+    """`kept` holds the source positions the alignment leaves unchanged."""
+    if i == j:
         return False
-    prev = la[k - 1] if k else ""
-    nxt = la[k + 1] if k + 1 < len(la) else ""
-    return prev in LIKE_CONTENT_AFTER or (
-        prev in {"i", "we", "they", "you"} and nxt in {"how", "it", "that", "this", "them", "to", "when"}) or (
-        prev == "of" and k >= 2 and la[k - 2] in {"kind", "sort"} and nxt in {"the", "a", "an", "this", "that"})
+    if correction(a, i, j):
+        return True
 
+    def removable(lo, hi):
+        if any(w.literal for w in a[lo:hi]):
+            return False
+        k = _fillers(a, lo, hi)
+        if k == hi:
+            return True
+        # A slid cut deletes the same words, so the copies at i..j survive in place of lo..hi.
+        survivors = (kept | set(range(i, j))) - set(range(lo, hi))
+        twin = stutter_twin(a, k, hi)
+        return twin is not None and survivors.issuperset(twin)
 
-def has_cue(words):
-    joined = " ".join(words)
-    return any(re.search(rf"\b{re.escape(c)}\b", joined) for c in CUES)
-
-
-def keeps_reparandum(words):
-    """True when a correction deletion holds only the cue (or fillers then the cue): the retracted words
-    before it would survive, so deleting the cue alone would turn "X, scratch that, Y" into "X Y"."""
-    for k in range(len(words)):
-        if words[k] in CUES or " ".join(words[k:k + 2]) in CUES:
-            return k == 0 or is_filler_span(words[:k])
+    if removable(i, j):
+        return True
+    # Only shift lexically identical copies. Do not slide a correction or a sentence boundary.
+    lo, hi = i, j
+    while lo and a[lo - 1].raw == a[hi - 1].raw and not a[lo - 1].punct:
+        lo, hi = lo - 1, hi - 1
+        if removable(lo, hi):
+            return True
+    while j < len(a) and a[i].raw == a[j].raw and not a[i].punct:
+        i, j = i + 1, j + 1
+        if removable(i, j):
+            return True
     return False
 
 
-def inflection(a, b):
-    if (a, b) in IRREGULAR:
-        return True
-    return a[:3] == b[:3] and abs(len(a) - len(b)) <= 3 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
-
-
-def _strip_fillers(words):
-    """The words of a span with its filler phrases removed, longest phrase first."""
-    core, i = [], 0
-    while i < len(words):
-        for size in (3, 2, 1):
-            if " ".join(words[i:i + size]) in FILLERS:
-                i += size
-                break
+def _replacement(a, i, j, b, k, m):
+    core = []
+    pos = i
+    while pos < j:
+        end = filler_end(a, pos, j)
+        if end > pos:
+            pos = end
         else:
-            core.append(words[i])
-            i += 1
-    return core
+            core.append(pos)
+            pos += 1
+    return len(core) == m - k and all(not (a[p].literal or b[q].literal)
+                                      and grammar_edit(a, p, b[q].key) and not _punctuation(a, p, b, q)
+                                      for q, p in enumerate(core, k))
 
 
-def _deletion_ok(la, i1, i2):
-    gone = la[i1:i2]
-    if is_filler_span(gone) and not any(like_is_content(la, k) for k in range(i1, i2)):
+def _sentence_start(words, i):
+    return not i or bool(set(words[i - 1].punct) & {".", "?", "!"})
+
+
+def _equal_word(a, i, b, j, removed=frozenset()):
+    x, y = a[i], b[j]
+    if x.literal or y.literal:
+        if x.raw != y.raw or (i and j and x.gap != y.gap):
+            return "changed literal"
+    elif x.body != y.body and x.body.replace("’", "'") != y.body.replace("’", "'"):
+        if y.body != "I" and not (_sentence_start(b, j) and x.body[:1].upper() + x.body[1:] == y.body):
+            return "changed case"
+    return _punctuation(a, i, b, j, removed)
+
+
+def _comma_of_removed(a, i, removed):
+    """Whether the comma on a[i] belonged to an approved deletion: it opened the removed words right after a[i]
+    ("not, you know, float"), or closed a removed span earlier in its clause ("the debug build, I mean the release
+    build, for")."""
+    if i + 1 in removed:
         return True
-    # A stutter or repeated phrase of up to four words (the cleanup stage's own repeat limit), possibly with
-    # fillers between the two copies ("their, you know, their"); either copy may be the deleted one.
-    core = _strip_fillers(gone)
-    if 0 < len(core) <= 4 and (core == la[i2:i2 + len(core)] or (i1 >= len(core) and core == la[i1 - len(core):i1])):
-        return True
-    return has_cue(gone) and i2 < len(la) and not keeps_reparandum(gone)
-
-
-def deletion_allowed(la, i1, i2):
-    """Whether deleting la[i1:i2] is an allowed edit. difflib may place an ambiguous deletion a token off ("you
-    know you" -> "you" reads as deleting "you know" or "know you"), so every placement that deletes the same
-    words is tried."""
-    if _deletion_ok(la, i1, i2):
-        return True
-    j1, j2 = i1, i2
-    while j1 > 0 and la[j1 - 1] == la[j2 - 1]:
-        j1, j2 = j1 - 1, j2 - 1
-        if _deletion_ok(la, j1, j2):
+    p = i - 1
+    while p >= 0 and not any(c in ".!?;:" for c in a[p].punct) and "\n" not in a[p + 1].gap:
+        if p in removed and "," in a[p].punct:
             return True
-    j1, j2 = i1, i2
-    while j2 < len(la) and la[j1] == la[j2]:
-        j1, j2 = j1 + 1, j2 + 1
-        if _deletion_ok(la, j1, j2):
-            return True
+        p -= 1
     return False
+
+
+def _punctuation(a, i, b, j, removed=frozenset()):
+    x, y = a[i], b[j]
+    if ("?" in x.punct) != ("?" in y.punct):
+        return "changed question"
+    if i and j and ("\n" in x.gap) != ("\n" in y.gap):
+        return "changed line break"
+    if x.punct == y.punct:
+        return ""
+    if i + 1 < len(a) and j + 1 < len(b):
+        # Formatting a spoken list is the only reason to change an internal sentence boundary.
+        if not (b[j + 1].body.isdecimal() and b[j + 1].punct == "." and "\n" in b[j + 1].gap):
+            if any(c in ".!:;" for c in x.punct + y.punct):
+                return "changed sentence boundary"
+    comma_only = set(x.punct + y.punct) <= {","}
+    if comma_only and _comma_of_removed(a, i, removed):
+        return ""
+    if "," in x.punct or "," in y.punct:
+        # Preserve commas between unchanged words. They can delimit a condition or a vocative.
+        if i + 1 < len(a) and j + 1 < len(b) and a[i + 1].key == b[j + 1].key \
+                and not (comma_only and a[i + 1].key in {"and", "but", "or", "so", "then"}):
+            return "changed clause punctuation"
+    if x.key in {"no", "not", "never", "don't", "only", "unless"} or x.key.endswith("n't"):
+        return "changed scope punctuation"
+    return ""
+
+
+def _edits(a, b):
+    keys = [w.key for w in a]
+    ops = difflib.SequenceMatcher(None, keys, [w.key for w in b], autojunk=False).get_opcodes()
+    kept = {p for op, i, j, _, _ in ops if op == "equal" for p in range(i, j)}
+    verdicts = {}
+    for op, i, j, k, m in ops:
+        if op == "delete":
+            verdicts[i, j] = "" if _deletion(a, i, j, kept) else "deleted content"
+        elif op == "replace":
+            ok = list_edit(a, i, j, b, k, m) or _replacement(a, i, j, b, k, m)
+            verdicts[i, j] = "" if ok else "replaced content"
+        elif op == "insert":
+            verdicts[i, j] = "" if list_edit(a, i, j, b, k, m) else "inserted content"
+    removed = frozenset(p for (i, j), why in verdicts.items() if not why for p in range(i, j))
+    for op, i, j, k, m in ops:
+        if op == "equal":
+            for p in range(j - i):
+                yield i + p, i + p + 1, k + p, k + p + 1, _equal_word(a, i + p, b, k + p, removed)
+        else:
+            yield i, j, k, m, verdicts[i, j]
+
+
+def _global_change(a, b):
+    if a and not b:
+        return "empty output"
+    # A question cannot silently vanish with a deleted tag or a deleted correction span.
+    if sum(w.punct.count("?") for w in a) != sum(w.punct.count("?") for w in b):
+        return "changed question"
+    return ""
 
 
 def verify(src, out, terms=()):
-    """Return (accepted, reason). `terms` are Glossary spellings that must survive byte for byte."""
-    if not out.strip():
-        return (not src.strip()), "empty output"
-    a, b = tokens(src), tokens(out)
-    la, lb = [t.lower() for t in a], [t.lower() for t in b]
-    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, la, lb, autojunk=False).get_opcodes():
-        if op == "equal":
-            if any(x != y and protected(x, terms) for x, y in zip(a[i1:i2], b[j1:j2], strict=True)):
-                return False, f"recased protected token {a[i1:i2]}"
-            continue
-        gone, new = la[i1:i2], lb[j1:j2]
-        if op == "delete":
-            if any(t in terms for t in a[i1:i2]) and not has_cue(gone):
-                return False, f"deleted protected term {a[i1:i2]}"
-            if deletion_allowed(la, i1, i2):
-                continue  # filler, stutter, or a correction with what it retracts
-            if has_cue(gone):
-                if i2 >= len(a):
-                    return False, "correction deleted the tail"
-                if keeps_reparandum(gone):
-                    return False, f"correction kept its reparandum {gone}"
-            return False, f"deleted content {gone}"
-        if op == "insert":
-            if all(re.fullmatch(r"\d+", t) for t in new):
-                continue  # list markers
-            return False, f"inserted {new}"
-        if all(w in LIST_WORDS for w in gone) and all(re.fullmatch(r"\d+", t) for t in new):
-            continue
-        core = [w for k, w in enumerate(gone, i1) if not is_filler_span([w]) or like_is_content(la, k)]
-        if len(core) == 1 and len(new) == 1 and inflection(core[0], new[0]) and \
-                core[0] not in NEGATIONS - {"doesn't", "don't", "isn't", "aren't", "wasn't", "weren't"}:
-            continue
-        if len(gone) == len(new) and all(inflection(x, y) for x, y in zip(gone, new, strict=True)):
-            continue
-        if has_cue(gone) and not keeps_reparandum(gone) and new and new == la[i2:i2 + len(new)]:
-            continue
-        return False, f"replaced {gone} -> {new}"
-    return True, "ok"
-
-
-WORD = re.compile(r"\n|[^\s]+")
-
-
-def _key(word):
-    if word == "\n":
-        return word
-    return _bare(word).lower() or word
-
-
-def _bare(word):
-    return word.strip(",.:;!?()\"'")
+    """Check a complete candidate against the bench edit policy, not against human judgment."""
+    if src == out:
+        return True, "ok"
+    a, b = scan(src, terms), scan(out, terms)
+    reason = _global_change(a, b) or next((r for *_, r in _edits(a, b) if r), "")
+    return not reason, reason or "ok"
 
 
 def merge_allowed(src, out, terms=()):
-    """Edit-level acceptance: keep each change of `out` that `verify` would allow on its own and restore the
-    source words everywhere else, so one disallowed edit no longer discards the whole cleanup."""
-    a, b = WORD.findall(src), WORD.findall(out)
-    ka, kb = [_key(w) for w in a], [_key(w) for w in b]
-    merged = []
-    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ka, kb, autojunk=False).get_opcodes():
-        sa, sb = a[i1:i2], b[j1:j2]
-        gone, new = [k for k in ka[i1:i2] if k != "\n"], [k for k in kb[j1:j2] if k != "\n"]
-        if op == "equal":
-            merged += [x if protected(_bare(x), terms) and _bare(x) != _bare(y) else y
-                       for x, y in zip(sa, sb, strict=True)]
-            continue
-        allowed = False
-        if not gone and not new:
-            allowed = True  # line breaks only
-        elif op == "delete" or not new:
-            allowed = not any(_key(t) in {x.lower() for x in terms} for t in sa) and deletion_allowed(ka, i1, i2)
-        elif op == "insert" or not gone:
-            allowed = all(re.fullmatch(r"\d+", t) for t in new)
-        else:
-            core = [ka[k] for k in range(i1, i2)
-                    if ka[k] != "\n" and (not is_filler_span([ka[k]]) or like_is_content(ka, k))]
-            allowed = (all(w in LIST_WORDS for w in gone) and all(re.fullmatch(r"\d+", t) for t in new)) or (
-                len(core) == 1 and len(new) == 1 and inflection(core[0], new[0])
-                and core[0] not in NEGATIONS - {"doesn't", "don't", "isn't", "aren't", "wasn't", "weren't"}) or (
-                len(gone) == len(new) and all(inflection(x, y) for x, y in zip(gone, new, strict=True)))
-        merged += sb if allowed else sa
-    text = ""
-    for w in merged:
-        if w == "\n":
-            text = text.rstrip(" ") + "\n"
-        else:
-            text += ("" if not text or text.endswith("\n") else " ") + w
-    return text.strip()
+    """Deliver approved edits only. Recheck the composed result before returning it."""
+    if src == out:
+        return src
+    a, b = scan(src, terms), scan(out, terms)
+    if _global_change(a, b):
+        return src
+    edits = list(_edits(a, b))
+    if all(not r for *_, r in edits):
+        return out
+    # Never splice fragments from opposite sides of a self-correction together.
+    if any(w.key in {"scratch", "mean", "no", "wait", "actually", "rather", "sorry"} for w in a):
+        return src
+    pieces = []
+    for i, j, k, m, reason in edits:
+        for w in (a[i:j] if reason else b[k:m]):
+            pieces.append((w.gap or " " if pieces else "") + w.raw)
+    merged = "".join(pieces)
+    return merged if verify(src, merged, terms)[0] else src
 
 
 def load_cases(path=CASES_PATH):
