@@ -1,0 +1,599 @@
+{
+ "record": "research/polish-2026-11-21.md#model-selection-under-the-stricter-verifier",
+ "research_candidate": "v6b",
+ "release": false,
+ "protocol": {
+  "verifier_revision": "586b288ff095dde4c992a431eb81c09e934809c2",
+  "verifier_sha256": {
+   "polishlab.py": "09689ee0d7dec6f44d4254587f3ba55c8ec23c15a4b9d12aef931443c5047762",
+   "polish_corrections.py": "d955ce97682f4e87bf243ef320044386a1170f0556a45aa2f1a854a64fbb9fcc",
+   "polish_fillers.py": "013de296cf4dd977aabee62b2c246cea7bf2ef7b8e84bb2aa691fdc654300238",
+   "polish_grammar.py": "ac5d44706e2c51d66c97b076edbda9037d55f428e7370460891657f0db0a196a",
+   "polish_tokens.py": "e7bcf76745d40f49e0ee3ededdbf849d3eacb6889b9e92555ac18cb3d39508c6"
+  },
+  "scores": "Same accepted edit rules for all frozen rows. Q8_0, llama.cpp b12606/Metal, greedy n2-m8, one repetition. Raw is the direct output; delivered means after merge_allowed. No human ratings.",
+  "gate": "Require at least 35/36 raw agent36 passes and no reduction in delivered synthetic trap passes against v5 under the same judge. Report the matched gains and losses, synthetic exact-match and filler-occurrence tradeoffs separately. An inconclusive or worse experiment is not a new winner.",
+  "historical_history": "One speaker; both old halves were monitored. These refusal comparisons are descriptive, not held-out semantic accuracy.",
+  "data_sha256": {
+   "agent36": "d737d01accb962fa00fbfd927f81ce54166438686df4aebf36607cf9387bae17",
+   "traps": "e704b172399a72119d70bf13e16426d6a7ece256cf32a026a2e9806dc7bd436a",
+   "sol-test": "6d9edbb09ce78bd9900f706a8f1c8d1a3da4e790bc63226d4b8c3786498f7f55",
+   "v1-test": "5b12b0c30fb7364bce25a36c9764257f0f67067ba3f9620b3187164382309aa1",
+   "cf6": "9a94704e8c59b7739709f64128e833469a6625429788c2e3e349542b2d8d2481"
+  },
+  "counterfactual_split": "Train/test source families and exact inputs screened. New focus 6-grams are disjoint; generic context shares phrases. All 425 reference rows are scored.",
+  "timing": "Mac M4 Pro, main runner n2-m24, 36 cases, 3 repetitions forward and reverse under one process lock. Per-row medians of 6 warm times; load reported separately. Quality runs above used the lab runner."
+ },
+ "training_v6b": {
+  "train_pairs": 22944,
+  "valid_pairs": 598,
+  "source_counts": {
+   "cf6": 3191,
+   "teacher": 1905,
+   "sol": 10109,
+   "sol+noise": 3724,
+   "rules": 1396,
+   "identity": 2619
+  },
+  "cross_split_checks": {
+   "train-valid exact": 0,
+   "train-agent36 exact": 0,
+   "valid-agent36 exact": 0,
+   "train-traps exact": 0,
+   "valid-traps exact": 0,
+   "train-sol-test exact": 0,
+   "valid-sol-test exact": 0,
+   "train-v1-test exact": 0,
+   "valid-v1-test exact": 0,
+   "train-v1-valid exact": 0,
+   "valid-v1-valid exact": 0,
+   "train-v5-valid exact": 0,
+   "train-probes exact": 0,
+   "valid-probes exact": 0,
+   "train-cf6-test exact": 0,
+   "train-valid families": 0,
+   "train-cf6_test families": 0
+  },
+  "retry": "First run stopped on CUDA OOM after step 752; fresh run on identical data with micro_tokens 768 instead of 1024, effective batch 32. No weights used from the failed run."
+ },
+ "models": {
+  "v5": {
+   "run": "polish-lora-v5-20261121",
+   "q8_0_sha256": "92d387c16a49cf9fa1148309b3397bf9a4268beb8a9b693fc9eb08269b581af0",
+   "gguf_bytes": 639446720,
+   "base_revision": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+   "training": {
+    "train_sha256": "1f0adb7a0f1370356c579fde5d9e800555de459ee3a34bf3f1293290bf992d02",
+    "valid_sha256": "6cb4ef396965d775a87c8574d9e887d18243a2cbe8f67e6299f9295e10b5fff7",
+    "steps": 1761,
+    "train_wall_s": 2118.0,
+    "peak_gpu_gib": 7.086,
+    "effective_batch": 32,
+    "micro_tokens": 1024
+   },
+   "agent36": {
+    "n": 36,
+    "identity_exact": 13,
+    "raw_exact": 31,
+    "delivered_exact": 30,
+    "raw_pass": 35,
+    "delivered_pass": 32,
+    "identity_pass": 13
+   },
+   "traps": {
+    "n": 414,
+    "identity_exact": 102,
+    "raw_exact": 365,
+    "delivered_exact": 344,
+    "raw_pass": 369,
+    "delivered_pass": 347,
+    "identity_pass": 102
+   },
+   "sol-test": {
+    "n": 874,
+    "identity_exact": 228,
+    "raw_exact": 860,
+    "delivered_exact": 635,
+    "grammar_subset": {
+     "n": 54,
+     "raw_exact": 52
+    }
+   },
+   "v1-test": {
+    "n": 1000,
+    "identity_exact": 350,
+    "raw_exact": 961,
+    "delivered_exact": 724
+   },
+   "history": {
+    "dev": {
+     "n": 248,
+     "refused": 94,
+     "raw_changed": 153,
+     "delivered_changed": 102,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 288,
+      "delivered": 140
+     }
+    },
+    "previous_test": {
+     "n": 250,
+     "refused": 116,
+     "raw_changed": 171,
+     "delivered_changed": 110,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 397,
+      "delivered": 210
+     }
+    }
+   },
+   "cf6": {
+    "n": 425,
+    "identity_exact": 101,
+    "raw_exact": 368,
+    "delivered_exact": 299
+   }
+  },
+  "v6": {
+   "run": "polish-lora-v6-20261122",
+   "q8_0_sha256": "7129c408eb9753c58ccbafdbbfe20ea85e18fa69e076211bbcfcbac693a74baf",
+   "gguf_bytes": 639446720,
+   "base_revision": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+   "training": {
+    "train_sha256": "c69e006d4798590bbba75e6de249907879b46a54f706ca95317509f71c45794c",
+    "valid_sha256": "778062d11a8354cdb38034aa777e24e6143445f58e237e6d8dab46d3bd0153f2",
+    "steps": 1402,
+    "train_wall_s": 1529.4,
+    "peak_gpu_gib": 7.086,
+    "effective_batch": 32,
+    "micro_tokens": 1024
+   },
+   "agent36": {
+    "n": 36,
+    "identity_exact": 13,
+    "raw_exact": 32,
+    "delivered_exact": 31,
+    "raw_pass": 34,
+    "delivered_pass": 32,
+    "identity_pass": 13
+   },
+   "traps": {
+    "n": 414,
+    "identity_exact": 102,
+    "raw_exact": 370,
+    "delivered_exact": 346,
+    "raw_pass": 372,
+    "delivered_pass": 348,
+    "identity_pass": 102
+   },
+   "sol-test": {
+    "n": 874,
+    "identity_exact": 228,
+    "raw_exact": 813,
+    "delivered_exact": 625,
+    "grammar_subset": {
+     "n": 54,
+     "raw_exact": 33
+    }
+   },
+   "v1-test": {
+    "n": 1000,
+    "identity_exact": 350,
+    "raw_exact": 903,
+    "delivered_exact": 719
+   },
+   "history": {
+    "dev": {
+     "n": 248,
+     "refused": 79,
+     "raw_changed": 146,
+     "delivered_changed": 106,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 288,
+      "delivered": 137
+     }
+    },
+    "previous_test": {
+     "n": 250,
+     "refused": 97,
+     "raw_changed": 167,
+     "delivered_changed": 112,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 397,
+      "delivered": 204
+     }
+    }
+   },
+   "cf6": {
+    "n": 425,
+    "identity_exact": 101,
+    "raw_exact": 376,
+    "delivered_exact": 306
+   }
+  },
+  "v6b": {
+   "run": "polish-lora-v6b2-20261122",
+   "q8_0_sha256": "1681c84bcaa8964ac43b6ebbd1c445fbdde1f56248987ccb3ba47eb79fc7bb64",
+   "gguf_bytes": 639446720,
+   "base_revision": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+   "training": {
+    "train_sha256": "6afe29f72f9151bcdaf317561209e6a134e68785d14b238d9cca14bc9b017442",
+    "valid_sha256": "778062d11a8354cdb38034aa777e24e6143445f58e237e6d8dab46d3bd0153f2",
+    "steps": 1434,
+    "train_wall_s": 1544.3,
+    "peak_gpu_gib": 7.086,
+    "effective_batch": 32,
+    "micro_tokens": 768
+   },
+   "agent36": {
+    "n": 36,
+    "identity_exact": 13,
+    "raw_exact": 32,
+    "delivered_exact": 31,
+    "raw_pass": 35,
+    "delivered_pass": 33,
+    "identity_pass": 13
+   },
+   "traps": {
+    "n": 414,
+    "identity_exact": 102,
+    "raw_exact": 365,
+    "delivered_exact": 344,
+    "raw_pass": 369,
+    "delivered_pass": 347,
+    "identity_pass": 102
+   },
+   "sol-test": {
+    "n": 874,
+    "identity_exact": 228,
+    "raw_exact": 813,
+    "delivered_exact": 634,
+    "grammar_subset": {
+     "n": 54,
+     "raw_exact": 46
+    }
+   },
+   "v1-test": {
+    "n": 1000,
+    "identity_exact": 350,
+    "raw_exact": 904,
+    "delivered_exact": 719
+   },
+   "history": {
+    "dev": {
+     "n": 248,
+     "refused": 77,
+     "raw_changed": 145,
+     "delivered_changed": 107,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 288,
+      "delivered": 134
+     }
+    },
+    "previous_test": {
+     "n": 250,
+     "refused": 92,
+     "raw_changed": 163,
+     "delivered_changed": 110,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 397,
+      "delivered": 201
+     }
+    }
+   },
+   "cf6": {
+    "n": 425,
+    "identity_exact": 101,
+    "raw_exact": 382,
+    "delivered_exact": 307
+   }
+  },
+  "v5-1.7B": {
+   "run": "polish-lora-v5-1.7b-20261122",
+   "q8_0_sha256": "0a55b97c4858899dc5616bd1c44d09e82cc2aa9045fa5a88a7bca2672f142b66",
+   "gguf_bytes": 1834426048,
+   "base_revision": "ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
+   "training": {
+    "train_sha256": "1f0adb7a0f1370356c579fde5d9e800555de459ee3a34bf3f1293290bf992d02",
+    "valid_sha256": "6cb4ef396965d775a87c8574d9e887d18243a2cbe8f67e6299f9295e10b5fff7",
+    "steps": 1761,
+    "train_wall_s": 5111.3,
+    "peak_gpu_gib": 5.964,
+    "effective_batch": 32,
+    "micro_tokens": 1024
+   },
+   "agent36": {
+    "n": 36,
+    "identity_exact": 13,
+    "raw_exact": 32,
+    "delivered_exact": 31,
+    "raw_pass": 35,
+    "delivered_pass": 33,
+    "identity_pass": 13
+   },
+   "traps": {
+    "n": 414,
+    "identity_exact": 102,
+    "raw_exact": 374,
+    "delivered_exact": 348,
+    "raw_pass": 381,
+    "delivered_pass": 353,
+    "identity_pass": 102
+   },
+   "sol-test": {
+    "n": 874,
+    "identity_exact": 228,
+    "raw_exact": 864,
+    "delivered_exact": 636,
+    "grammar_subset": {
+     "n": 54,
+     "raw_exact": 52
+    }
+   },
+   "v1-test": {
+    "n": 1000,
+    "identity_exact": 350,
+    "raw_exact": 950,
+    "delivered_exact": 717
+   },
+   "history": {
+    "dev": {
+     "n": 248,
+     "refused": 91,
+     "raw_changed": 154,
+     "delivered_changed": 105,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 288,
+      "delivered": 139
+     }
+    },
+    "previous_test": {
+     "n": 250,
+     "refused": 114,
+     "raw_changed": 170,
+     "delivered_changed": 109,
+     "delivered_refused": 0,
+     "filtered_occurrences": {
+      "before": 397,
+      "delivered": 211
+     }
+    }
+   },
+   "cf6": {
+    "n": 425,
+    "identity_exact": 101,
+    "raw_exact": 375,
+    "delivered_exact": 299
+   }
+  }
+ },
+ "paired_v5_v6b": {
+  "traps_raw_pass": {
+   "n": 414,
+   "both": 350,
+   "v5_only": 19,
+   "v6b_only": 19,
+   "neither": 26,
+   "p_exact_descriptive": 1.0
+  },
+  "traps_delivered_pass": {
+   "n": 414,
+   "both": 341,
+   "v5_only": 6,
+   "v6b_only": 6,
+   "neither": 61,
+   "p_exact_descriptive": 1.0
+  },
+  "sol-test_raw_exact": {
+   "n": 874,
+   "both": 811,
+   "v5_only": 49,
+   "v6b_only": 2,
+   "neither": 12,
+   "p_exact_descriptive": 1.18e-12
+  },
+  "v1-test_raw_exact": {
+   "n": 1000,
+   "both": 894,
+   "v5_only": 67,
+   "v6b_only": 10,
+   "neither": 29,
+   "p_exact_descriptive": 1.697e-11
+  },
+  "history_accepted_dev": {
+   "n": 248,
+   "both": 152,
+   "v5_only": 2,
+   "v6b_only": 19,
+   "neither": 75,
+   "p_exact_descriptive": 0.00022125244141
+  },
+  "history_accepted_previous_test": {
+   "n": 250,
+   "both": 134,
+   "v5_only": 0,
+   "v6b_only": 24,
+   "neither": 92,
+   "p_exact_descriptive": 1.1920929e-07
+  },
+  "cf6_raw_exact": {
+   "n": 425,
+   "both": 340,
+   "v5_only": 28,
+   "v6b_only": 42,
+   "neither": 15,
+   "p_exact_descriptive": 0.11960933562988
+  }
+ },
+ "latency_current_runner": {
+  "v5": {
+   "p50_ms": 53.28,
+   "p95_ms": 169.57,
+   "G02_ms": 308.98,
+   "max_ms": 308.98,
+   "load_ms_by_pass": [
+    188.1,
+    187.7
+   ],
+   "agent36_raw_pass": 35
+  },
+  "v6b": {
+   "p50_ms": 53.74,
+   "p95_ms": 171.77,
+   "G02_ms": 314.51,
+   "max_ms": 314.51,
+   "load_ms_by_pass": [
+    197.9,
+    195.8
+   ],
+   "agent36_raw_pass": 35
+  }
+ },
+ "guided_v5": {
+  "agent36": {
+   "count": 36,
+   "oracle_exact": 30,
+   "median_candidates": 2.0,
+   "median_compile_ms": 0.5834165,
+   "identity_only": 13,
+   "oracle_pass": 34,
+   "greedy": {
+    "raw_exact": 31,
+    "delivered_exact": 30,
+    "rejected": 4,
+    "changed": 23,
+    "raw_pass": 35,
+    "delivered_pass": 32,
+    "p50_model_ms": 51.8,
+    "p95_model_ms": 169.8,
+    "p50_incl_compile_ms": 51.84,
+    "p95_incl_compile_ms": 169.76,
+    "G02_model_ms": 312.6
+   },
+   "guided": {
+    "raw_exact": 30,
+    "delivered_exact": 30,
+    "rejected": 0,
+    "changed": 23,
+    "raw_pass": 34,
+    "delivered_pass": 34,
+    "p50_model_ms": 19.5,
+    "p95_model_ms": 42.7,
+    "p50_incl_compile_ms": 19.99,
+    "p95_incl_compile_ms": 44.48,
+    "G02_model_ms": 77.3
+   },
+   "stepwise": {
+    "raw_exact": 30,
+    "delivered_exact": 30,
+    "rejected": 0,
+    "changed": 23,
+    "raw_pass": 34,
+    "delivered_pass": 34,
+    "p50_model_ms": 80.9,
+    "p95_model_ms": 154.5,
+    "p50_incl_compile_ms": 81.67,
+    "p95_incl_compile_ms": 157.53,
+    "G02_model_ms": 800.6
+   }
+  },
+  "traps": {
+   "count": 414,
+   "oracle_exact": 304,
+   "median_candidates": 2.0,
+   "median_compile_ms": 1.130479,
+   "identity_only": 127,
+   "oracle_pass": 358,
+   "greedy": {
+    "raw_exact": 365,
+    "delivered_exact": 344,
+    "rejected": 73,
+    "changed": 314,
+    "raw_pass": 369,
+    "delivered_pass": 347,
+    "p50_model_ms": 56,
+    "p95_model_ms": 113,
+    "p50_incl_compile_ms": 55.98,
+    "p95_incl_compile_ms": 113.05,
+    "G02_model_ms": null
+   },
+   "guided": {
+    "raw_exact": 297,
+    "delivered_exact": 297,
+    "rejected": 0,
+    "changed": 260,
+    "raw_pass": 314,
+    "delivered_pass": 314,
+    "p50_model_ms": 20,
+    "p95_model_ms": 46.9,
+    "p50_incl_compile_ms": 20.7,
+    "p95_incl_compile_ms": 50.73,
+    "G02_model_ms": null
+   }
+  },
+  "sol-test": {
+   "count": 874,
+   "oracle_exact": 605,
+   "median_candidates": 2.0,
+   "median_compile_ms": 1.5123125000000002,
+   "identity_only": 252,
+   "greedy": {
+    "raw_exact": 860,
+    "delivered_exact": 635,
+    "rejected": 233,
+    "changed": 645,
+    "p50_model_ms": 67.4,
+    "p95_model_ms": 181.7,
+    "p50_incl_compile_ms": 67.43,
+    "p95_incl_compile_ms": 181.67,
+    "G02_model_ms": null
+   },
+   "guided": {
+    "raw_exact": 603,
+    "delivered_exact": 603,
+    "rejected": 0,
+    "changed": 584,
+    "p50_model_ms": 21.5,
+    "p95_model_ms": 56.7,
+    "p50_incl_compile_ms": 23.71,
+    "p95_incl_compile_ms": 63.43,
+    "G02_model_ms": null
+   }
+  }
+ },
+ "tagger": {
+  "model_sha256": "252cb4d17adc296c60906f82c29098b99d810ed00ea3668ad5266cca58e3554f",
+  "bytes": 34457112,
+  "raw_metrics": {
+   "agent36": {
+    "n": 36,
+    "raw_exact": 25,
+    "raw_pass": 31
+   },
+   "traps": {
+    "n": 414,
+    "raw_exact": 272,
+    "raw_pass": 322
+   },
+   "sol-test": {
+    "n": 874,
+    "raw_exact": 766
+   }
+  },
+  "sol_latency_ms": {
+   "p50_ms": 0.502,
+   "p95_ms": 1.856,
+   "max_ms": 3.676,
+   "mean_ms": 0.679
+  },
+  "latency_method": "Warm numpy CPU scoring incl feature extraction and rendering; no verifier time included."
+ },
+ "fresh_human_comparison": "Not measured. No History transcripts, saved row identifiers or trained weights are part of this record."
+}

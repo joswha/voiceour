@@ -493,15 +493,15 @@ use the commands in [Local polish pass screen](#local-polish-pass-screen--2026-1
 in the lab and only counts left it.
 
 Q8_0 with llama.cpp b12606 in-process, n-gram drafts n2-m8; the 498 English History dictations split by a hash
-of their id into a dev half (248), used to choose, and a test half (250), only scored. A rejection is an output
-`verify` refuses as a whole; filler removal counts the uses the edit rules delete, after `merge_allowed`.
+of their id into a dev half (248) and a test half (250). Both now count as development evidence: test scores
+influenced stopping. A rejection is a refusal of the whole output; filler removal is measured after `merge_allowed`.
 
 | model | agent36 | dev rejected | test rejected | dev fillers removed | test fillers removed | p50 ms dev / test |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | v1 | 35 | 52 | 53 | 88.5% | 95.5% | 67 / 71 |
 | v5 | 35 | 13 | 19 | 94.8% | 96.2% | 61 / 66 |
 
-- **Verifier.** Every row uses the current `bench/polish/polishlab.py`. Its changes alone moved v1 from 140
+- **Verifier.** Every row in this dated table uses `bench/polish/polishlab.py` at `4c6cbdc`. Its changes moved v1 from 140
   refused outputs to 105: "essentially" became a filler, repeats may have fillers between their copies, an
   ambiguous alignment may shift, and "like" next to look/feel/stuff/something and similar words counts as content.
 - **Raw filler count.** Counting every "kind of", noun uses the rules keep included ("a screen kind of thing"),
@@ -562,3 +562,13 @@ pass under one lock, medians in ms. Every setting's outputs were byte-identical 
   n2-m24 without the gate.
 - **Headroom.** At the same drafted and accepted counts, llama.cpp b12606 decodes faster than this runner on
   ggml 0.19.0 (agent36 p50 41.0 against 54.4 at n1-m12); the multi-token evaluation is the gap.
+
+## Polish candidate comparison — 2026-11-22
+
+v6b is the candidate for local review, not a change to the app. With the same verifier (`586b288`), v6b and v5
+each passed 35/36 raw hand cases and 347/414 trap cases after the merge. Refusals on the 498 historical dictations
+fell from 210 to 169. Raw exact matches on the synthetic Sol test fell from 860/874 to 813/874. The
+[research record](../research/polish-2026-11-21.md#model-selection-under-the-stricter-verifier) and
+[counts](../benchmarks/results/20261122-polish-model-selection.json) include paired wins and losses, the 1.7B,
+tagger and guided alternatives, and timing on the same runner. No public product comparison or blind human
+evaluation has been run. [README › What happens to the words](../README.md#what-happens-to-the-words) still applies.
