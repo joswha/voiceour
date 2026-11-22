@@ -590,3 +590,22 @@ fell from 210 to 169. Raw exact matches on the synthetic Sol test fell from 860/
 [counts](../benchmarks/results/20261122-polish-model-selection.json) include paired wins and losses, the 1.7B,
 tagger and guided alternatives, and timing on the same runner. No public product comparison or blind human
 evaluation has been run. [README › What happens to the words](../README.md#what-happens-to-the-words) still applies.
+
+## Polish token selection on arm64 — 2026-11-22
+
+For `voiceour-bench polish`, CQwen3 still reads the entire F32 logit row. The arm64 selector checks 16 scores at
+once. It skips the scalar scan of a block only when its maximum cannot beat the current runner-up. It keeps the
+original token-id order for ties. Neither the model nor the number of graph evaluations changed.
+
+| v6b Q8_0, n2-m24 | Scalar p50 / p95 (ms) | NEON p50 / p95 (ms) |
+| --- | ---: | ---: |
+| 200 Sol dictations | 65.2 / 160.1 | 61.0 / 144.4 |
+| 43 of those with at least 60 words | 131.5 / 211.6 | 115.2 / 184.2 |
+| 36 hand cases | 55.7 / 179.6 | 54.8 / 178.5 |
+
+Matched forward/reverse runs on the M4 Pro on AC used three warm repetitions per arm and input. Each timing is a
+percentile over per-case medians of six runs. All 236 raw outputs and all 9,771 recorded first-repetition choices,
+runner-ups and logits matched. All 43 long Sol rows improved. On the hand cases only the long case had a clear
+gain; the median difference was within pass-order variation. Cold loading was not faster. `make test-polish-selector`
+compares both chosen ids and their score bits against scalar selection, including ties and non-finite values.
+This change is bench-only; [the product contract](../README.md#what-happens-to-the-words) is unchanged.

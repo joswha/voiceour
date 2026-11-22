@@ -10,6 +10,7 @@
 // Vendor/granite's sink. Guided generation (the candidate trie and its constrained greedy loop) is Voiceour's
 // own and has no upstream counterpart. See Vendor/qwen3/LICENSE and Vendor/qwen3/NOTICE.md.
 #include "qwen3-impl.h"
+#include "qwen3-top-two.h"
 
 #include "ggml-alloc.h"
 #include "gguf.h"
@@ -665,27 +666,11 @@ qwen3_status eval(qwen3_context * ctx, int32_t n_past, int32_t n_outputs, qwen3_
 // Greedy choice over output row `row` of the last evaluation: the first maximum, as the harness's argmax, and
 // the best other token.
 qwen3_decision decide(qwen3_context * ctx, int32_t row) {
-    const size_t n_vocab = static_cast<size_t>(ctx->hp.n_vocab);
+    const int32_t n_vocab = ctx->hp.n_vocab;
     ctx->logits.resize(n_vocab);
     ggml_backend_tensor_get(ctx->graph.logits, ctx->logits.data(), static_cast<size_t>(row) * n_vocab * sizeof(float),
                             n_vocab * sizeof(float));
-    const float * l      = ctx->logits.data();
-    int32_t       best   = 0;
-    int32_t       second = -1;
-    for (size_t t = 1; t < n_vocab; ++t) {
-        if (l[t] > l[best]) {
-            second = best;
-            best   = static_cast<int32_t>(t);
-        } else if (second < 0 || l[t] > l[second]) {
-            second = static_cast<int32_t>(t);
-        }
-    }
-    qwen3_decision d;
-    d.token           = best;
-    d.logit           = l[best];
-    d.runner_up       = second;
-    d.runner_up_logit = second >= 0 ? l[second] : -std::numeric_limits<float>::infinity();
-    return d;
+    return qwen3::top_two(ctx->logits.data(), n_vocab);
 }
 
 // common_ngram_simple_draft: the pattern is the last size_ngram - 1 tokens of `tokens` plus `sampled`; the

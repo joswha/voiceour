@@ -22,6 +22,7 @@ Upstream paths are relative to the llama.cpp root at the commit above; line rang
 | `src/qwen3-gguf.cpp` | `src/models/qwen3.cpp:3-55` (qwen3 hyperparameters and tensor catalog, tied output); `src/llama-model.cpp` generic `load_hparams` keys and defaults (head_count_kv, key/value length, rope dimension, freq_base); `src/llama-model.cpp:4129-4166` (`create_tensor_qkv`, separate Q/K/V path only); `src/llama-vocab.cpp:3266-3305` (end-of-generation texts raised to CONTROL) and `:3395-3415` (the `</s>` exception) |
 | `src/qwen3-graph.cpp` | `src/models/qwen3.cpp:57-159` (head and backbone); `src/llama-graph.cpp:1778-1799` (`build_rope_impl`), `:1936-1969` (`build_norm`), `:1986-2098` (`build_qkv`), `:2101-2324` (`build_ffn`, SILU with parallel gate), `:2806-2974` (`build_inp_embd`), `:3023-3043` (`build_inp_out_ids`), `:3174-3318` (`build_attn_mha`, flash-attention branch), `:3475-3563` (`build_attn`, expand order and K/V store); `src/llama-kv-cache.cpp:1406-1456` (`get_k`, `get_v`), `:1482-1571` (`cpy_k`, `cpy_v`, non-transposed V) |
 | `src/qwen3.cpp` | `src/llama-model.cpp:2060-2140` and `src/llama-model-loader.cpp:1790-1835` (read-only mapping wrapped with `buffer_from_host_ptr`, per-tensor `ggml_backend_tensor_alloc`, upload otherwise); `src/llama-kv-cache.cpp:1297-1311` (`get_n_kv`, 256-cell padding), `:1617-1631` (cell indices), `:1702-1866` (causal F16 mask); `src/llama-context.cpp` (graph reuse when the ubatch shape is unchanged, ubatch split at `n_ubatch = 512`, per-row logits); `common/ngram-map.cpp:49-112` (`common_ngram_simple_draft`); the decode and verification loop of the polish-lab harness over libllama (`llama_memory_seq_rm` rollback); `src/llama-vocab.cpp:4077-4160` (token types as `token_to_piece` renders them). The logging sink mirrors `Vendor/granite`'s `granite_log_set`. |
+| `src/qwen3-top-two.h` | Voiceour's exact top-two selector for an F32 logit row |
 
 The Swift side (`Sources/VoiceourBench/Qwen3Tokenizer.swift`) ports `src/llama-vocab.cpp:392-399` (the qwen2
 pre-tokenizer regex), `src/unicode.cpp:648-782` (`unicode_regex_split_custom_qwen2`) and
@@ -67,6 +68,8 @@ Behaviour of the generation loop (`qwen3_generate`), from the polish-lab harness
   the argmax before it, so the output equals undrafted greedy decoding. The default draft length is 24 tokens.
 - Voiceour additions: each greedy choice records the runner-up token and both logits (`qwen3_get_decision`), and
   per-call timings count prefill, decode, evaluations, drafted and accepted tokens.
+- On arm64, the selector uses NEON maxima to skip blocks that cannot improve the runner-up. It reads the
+  same F32 rows, with the same scalar comparisons in token-id order for blocks that may change the result.
 - Voiceour's separate `qwen3_generate_guided` API restricts greedy choices to a trie of caller-supplied token
   sequences. EOS is available only at candidate ends. This is a Voiceour experiment, not a llama.cpp guarantee
   about the meaning of candidates. Stepwise and batched execution both stay in the trie. The latter feeds

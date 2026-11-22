@@ -140,7 +140,7 @@ clean:
 	rm -rf .build
 
 #> Verify
-.PHONY: check test self-test format format-check check-docs lint-python test-python
+.PHONY: check test test-polish-selector self-test format format-check check-docs lint-python test-python
 
 ## check: the whole portable gate, in order
 check: build format-check check-docs lint-python test ui-flow ui-mercury-bench test-python self-test bench-smoke
@@ -148,9 +148,15 @@ check: build format-check check-docs lint-python test ui-flow ui-mercury-bench t
 
 # The UI harness test suites are compiled out unless UI_HARNESS is defined, so
 # `swift test` on its own will not find them.
-## test: the Swift suites, harness suites included
-test:
+## test: the native polish selector and Swift suites, harness suites included
+test: test-polish-selector
 	swift test $(SWIFT_FLAGS) -Xswiftc -DUI_HARNESS
+
+## test-polish-selector: compare both selected token ids and both float scores with scalar selection
+test-polish-selector:
+	@set -eu; dir=$$(mktemp -d); trap 'rm -rf "$$dir"' EXIT; \
+	  $(CXX) -std=gnu++17 -O2 -Wall -Wextra -Werror -IVendor/qwen3/include -IVendor/qwen3/src \
+	    scripts/tests/qwen3_top_two.cpp -o "$$dir/test"; "$$dir/test"
 
 ## self-test: launch-path check on the fake backend; no model, no permission, no window
 self-test: build
