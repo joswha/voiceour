@@ -508,3 +508,12 @@ of their id into a dev half (248), used to choose, and a test half (250), only s
   v5 removes less than v1 on the test half: 88.8% against 90.8% (dev 83.7% against 81.0%).
 - **Limits.** One speaker's 498 dictations on one Mac; 36 hand-written cases with one annotator. Most of v5's
   training pairs come from an OpenAI model, and its weights stay unpublished until the owner decides.
+
+## Prospective polish evaluation — 2026-11-22
+
+The previous History test score influenced the decision to continue training. Both of its halves now count as
+development evidence. For a separate evaluation, `bench/polish/prospective.py freeze` records the UTC cutoff and
+all existing History ids, without their text. Explicit `collect` runs save only newer English-script dictations
+with unseen ids. `seal` ends collection; `status` checks the seal. The cohort stays private, outside Git. A collection
+gap is possible if History's 500 entries turn over between runs. This is a bench protocol, not an app feature.
+[README › What happens to the words](../README.md#what-happens-to-the-words) still applies.
