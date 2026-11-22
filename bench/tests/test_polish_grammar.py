@@ -199,3 +199,21 @@ def test_merge_drops_unspoken_list_numbers():
     merged = merge_allowed(src, "1. Copy the config.\n2. Restart the proxy.")
     assert not any(c.isdigit() for c in merged)
     assert verify(src, merged)[0]
+
+
+@pytest.mark.parametrize(("src", "out", "ok"), [
+    ("Me and Nina tried the build yesterday.", "I and Nina tried the build yesterday.", True),
+    ("Me and him was looking at the logs.", "I and he were looking at the logs.", True),
+    ("Yeah her and me has tried it.", "Yeah she and I have tried it.", True),
+    ("Me will follow up tomorrow.", "I will follow up tomorrow.", True),
+    ("Check if her has restarted.", "Check if she has restarted.", True),
+    ("The logs failed and I seen the button.", "The logs failed and I saw the button.", True),
+    ("Maybe the exports was missing.", "Maybe the exports were missing.", True),
+    ("Send it to Sam and me.", "Send it to Sam and I.", False),
+    ("Give me and Nina the keys.", "Give I and Nina the keys.", False),
+    ("Check if her laptop restarted.", "Check if she laptop restarted.", False),
+    ("Me and Nina's laptop broke.", "I and Nina's laptop broke.", False),
+    ("Me too.", "I too.", False),
+])
+def test_subject_pronoun_case(src, out, ok):
+    assert verify(src, out)[0] is ok

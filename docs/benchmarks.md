@@ -537,7 +537,7 @@ rules, and the [results](../benchmarks/results/20261122-polish-verifier3.json) h
 | round 2: blind pairs, written without the code | 7/30 → 0/30 | 4/30 → 17/30 |
 
 - **Restraint over yield.** The new rules keep a word wherever its neighbours allow a content reading. They accept 33
-  of 36 agent36 references and 629 of 874 Sol test references; most refused references delete "like" before a
+  of 36 agent36 references and 638 of 874 Sol test references; most refused references delete "like" before a
   number, "just" after a subject or a sentence-opening "right".
 - **Old models.** Re-scored outputs of v1 and v5: 100 and 94 refused on the History dev half, 115 and 116 on the
   previous test half. Under the earlier verifier these were 52/53 and 13/19.

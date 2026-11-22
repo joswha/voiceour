@@ -38,9 +38,11 @@ _AUX = _MODALS | _words("do does did don't doesn't didn't am is are was were isn
                         "had haven't hasn't hadn't")
 _HAVE = _words("have has had having haven't hasn't hadn't i've we've you've they've could've should've would've "
                "must've might've")
+# Words after which a new clause (and its subject) can start: "and the rows was" -> "were".
 _OPENERS = _HESITATIONS | _words("but so because cause since when whenever if that though although while after "
                                  "before until once where then okay ok alright well yeah yes now also plus "
-                                 "yesterday today")
+                                 "yesterday today and or maybe basically essentially actually anyway probably "
+                                 "think guess")
 _PREPOSITIONS = _words("to with for from about between at by of without behind among against toward towards into "
                        "onto via per than like")
 _NUMBERS = _words(
@@ -122,7 +124,9 @@ _AGREES = MappingProxyType({"base": frozenset({"1s", "pl"}), "3s": frozenset({"3
                             "pl": frozenset({"pl"}), "psg": frozenset({"1s", "3s"}), "ppl": frozenset({"pl"})})
 # Fixed one-way slips, each with its own context rule below. Word choices and homophones (then/than, its/it's,
 # less/fewer) are not speech slips and stay out.
-_CONFUSABLE = MappingProxyType({"a": ("an",), "an": ("a",), "i": ("me",), "of": ("have",)})
+_CONFUSABLE = MappingProxyType({"a": ("an",), "an": ("a",), "i": ("me",), "me": ("i",), "him": ("he",),
+                                "her": ("she",), "us": ("we",), "them": ("they",), "of": ("have",)})
+_SUBJECT_CASE = MappingProxyType({"me": "i", "him": "he", "her": "she", "us": "we", "them": "they"})
 _OF_MODALS = _words("could should would must might")
 # Auxiliaries that take a bare verb: "could you checks" -> "check", "did they sent" -> "send".
 _BARE_AUX = _words("can could will would shall should may might must can't couldn't won't wouldn't shouldn't "
@@ -295,9 +299,14 @@ def _subject(a, i):
         return None
     key = a[p].key
     prev = a[p - 1].key if p and not a[p - 1].punct else ""
+    # Two people joined by "and" at a clause start: "Me and him was" -> "were", "Sam and I is" -> "are".
+    if prev == "and" and p >= 2 and _conjunct(a[p]) and _conjunct(a[p - 2]) and _item_start(a, p - 2):
+        return "pl", "pronoun", False
     if key in _NOMINATIVE:
         cls = _NOMINATIVE[key]
-        if prev in _AUX or (cls != "pl" and prev in ("and", "or", "nor")):
+        # "Sam and I is" coordinates; "the logs failed and I seen why" starts a new clause with "I".
+        coordinated = prev in ("and", "or", "nor") and p >= 2 and _conjunct(a[p - 2])
+        if prev in _AUX or (cls != "pl" and coordinated):
             return None
         return cls, "pronoun", False
     if key in ("it", "you"):
@@ -450,6 +459,54 @@ def _object_case(a, i, x, y):
     return bool(a[i].punct) or i + 1 == len(a) or a[i + 1].key in _AFTER_OBJECT
 
 
+def _conjunct(w):
+    """A plain pronoun or a capitalised first name, the parts of a coordinated subject: "Me and Nina"."""
+    if w.literal or w.punct or w.key.endswith("'s"):
+        return False
+    body = w.body
+    return w.key in _OBJECTS - {"it", "you"} or w.key in _NOMINATIVE or (
+        body.isalpha() and body[:1].isupper() and body[1:].islower())
+
+
+def _subject_case(a, i, x, y):
+    """ "Me and Nina tried" -> "I", "Nina and him went" -> "he": an object pronoun in a coordinated subject at a
+    clause start, followed by a finite verb. "her" also opens a possessive ("Sam and her laptop"), so as the second
+    conjunct it needs an auxiliary or an -ed verb after it."""
+    if _SUBJECT_CASE.get(x) != y:
+        return False
+    n = len(a)
+    if i + 2 < n and a[i + 1].key in ("and", "or") and not a[i].punct and not a[i + 1].punct:
+        # First conjunct: "Me and Nina tried".
+        if not _item_start(a, i) or not _conjunct(a[i + 2]):
+            return False
+        verb = i + 3
+    elif i >= 2 and a[i - 1].key in ("and", "or") and not a[i - 1].punct and _conjunct(a[i - 2]):
+        # Second conjunct: "Nina and him went".
+        if not _item_start(a, i - 2) or a[i].punct:
+            return False
+        verb = i + 1
+        if x == "her" and verb < n and not (a[verb].key in _AUX or a[verb].key.endswith("ed")):
+            return False
+    elif _clause_start(a, i) and not a[i].punct and i + 1 < n:
+        # A lone subject: "Me will follow up", "if her has restarted". "her" may also be a possessive.
+        verb = i + 1
+        if x == "her" and not (a[verb].key in _AUX or a[verb].key.endswith("ed")):
+            return False
+        if x != "her" and a[verb].key not in _AUX and not a[verb].key.endswith("ed") \
+                and a[verb].key not in _PAST_FORMS:
+            return False  # "Me too", "them all": no finite verb, no subject
+    else:
+        return False
+    if verb >= n or a[verb].literal or a[verb - 1].punct:
+        return False
+    v = a[verb].key
+    return v in _AUX or v.endswith(("ed", "s")) or v in _PAST_FORMS
+
+
+# Irregular past tenses from the closed verb table: "Me and Nina went", "Sam and him saw".
+_PAST_FORMS = frozenset(f for _, fs in _PARADIGMS for t, f in fs if t == "past")
+
+
 def _modal_have(a, i, x, y):
     """ "should of" -> "have": "of" is never English right after these modals."""
     return (x, y) == ("of", "have") and 0 < i < len(a) - 1 and not a[i].punct and not a[i - 1].punct \
@@ -487,7 +544,7 @@ def _after_auxiliary(a, i, x, y):
     return False
 
 
-_RULES = (_agreement, _tense, _participle, _article, _object_case, _modal_have, _after_auxiliary)
+_RULES = (_agreement, _tense, _participle, _article, _object_case, _subject_case, _modal_have, _after_auxiliary)
 
 
 def grammar_edit(a, i, new_key):
@@ -530,7 +587,7 @@ def _build_phrases():
 
 
 _PHRASES = _build_phrases()
-_LEAD = _HESITATIONS | _words("okay ok so alright well right now and also")
+_LEAD = _HESITATIONS | _words("okay ok so alright well right now and also yeah yes maybe basically essentially")
 _THEN_BLOCK = _words("since until till by back even only just right but from if when")
 _BLOCK_AFTER = _NUMBERS | _words("of and or to than time times place thing things half ones step steps priority")
 _CONDITIONS = _words("if when whenever once unless until till while after before otherwise whether")
