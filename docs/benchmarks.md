@@ -518,6 +518,24 @@ with unseen ids. `seal` ends collection; `status` checks the seal. The cohort st
 gap is possible if History's 500 entries turn over between runs. This is a bench protocol, not an app feature.
 [README › What happens to the words](../README.md#what-happens-to-the-words) still applies.
 
+For a local blind comparison, prepare one JSONL file of model outputs per system, with the same ids as the source.
+`blind_review.py` includes the unchanged source, each raw output and each output after the edit merge. It samples
+rows uniformly, randomizes the order for each row, and shows identical alternatives once. The reader sees the source
+as context but not the model names, verifier verdicts or the separate assignment key. No page opens automatically.
+
+For example, with `cases.jsonl` and `rows.jsonl` prepared locally and the exported answer file named `ratings.json`:
+
+```sh
+study="$HOME/polish-lab/private/blind-study"
+python3 bench/polish/blind_review.py prepare --source cases.jsonl --model base=rows.jsonl --out-dir "$study"
+python3 bench/polish/blind_review.py score --out-dir "$study" --answers ratings.json
+```
+
+The output directory is new, owner-only and outside Git. Open its `review.html` locally. Rate meaning and cleanup
+separately, then export. The export holds ratings, not dictation text. Scoring uses the local `key.json` and withholds
+per-system results until every version is rated. Uncertain judgments remain visible and are excluded from paired
+usable-output comparisons. This review does not supply a lab model to the app.
+
 `voiceour-bench polish --guided` accepts an `allowed_outputs` array on every case. The array includes the original
 input and contains at most 128 distinct candidate strings. The runner returns one candidate byte for byte, including
 when one candidate is a prefix of another. It checks tokenization and length before inference. It does not judge
