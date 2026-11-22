@@ -623,3 +623,51 @@ runner-ups and logits matched. All 43 long Sol rows improved. On the hand cases 
 gain; the median difference was within pass-order variation. Cold loading was not faster. `make test-polish-selector`
 compares both chosen ids and their score bits against scalar selection, including ties and non-finite values.
 This change is bench-only; [the product contract](../README.md#what-happens-to-the-words) is unchanged.
+
+## Verified polish requests on the M4 Pro
+
+**A warm source-only tagger can reduce request time without deciding the output.** It proposes plain text. The
+bench tokenizer encodes the proposal, and v6b Q8_0 verifies up to 24 proposed tokens at a time against its full
+vocabulary. A mismatch discards the remaining proposal tokens and keeps the model's choice. Both arms below use the
+exact arm64 selector, n2-m24 fallback and the unchanged edit merge. The app uses neither arm.
+
+| Warm end-to-end time (ms) | No external proposal | Verified tagger proposal |
+| --- | ---: | ---: |
+| 200 Sol inputs, p50 / p95 | 59.8 / 142.0 | 45.0 / 115.6 |
+| 43 of those with at least 60 words, p50 | 113.2 | 82.0 |
+| 36 hand cases, p50 / p95 | 50.9 / 168.2 | 29.9 / 52.7 |
+| 155-word hand case, median | 288.8 | 169.1 |
+
+Time starts with the source in the local client and stops after the edit merge. It includes tagger inference
+where enabled, tokenization, JSON and pipe transfer in both directions, model inference and decoding. Each arm
+used its own `--stdio` process per pass. Each percentile is over case medians from three warm repetitions in each
+of two opposite arm orders, under `gpulock` on AC. Sol median and p95 fell **24.6% and 18.6%**. The hint arm's
+slower pass beat the control's faster pass for both metrics. Not every input was faster: 189/200 Sol inputs and
+36/36 hand cases had a lower median. These are measured single-request times, not sums of component medians.
+
+Cold startup is a different result. For one short synthetic input, three fresh client and server processes per
+arm gave median time to the first **delivered** answer of 257.6 ms without hints and 282.2 ms with hints. File
+caches were not flushed. Startup, tagger import/load where needed, IPC and merge are included; the external lock
+queue and process teardown are not. This measures text cleanup, not recording or ASR latency.
+
+Across six confirmation sets (2,835 rows), the hinted v6b output and delivery matched the frozen stock control.
+On 236 traced inputs, all 9,771 chosen token ids, including termination decisions, matched undrafted greedy.
+Different batch shapes changed some logits and ten runner-up ids; no universal bit-parity claim follows.
+A separate control on Sol measured 59.0 ms median without a proposal, 53.0 ms with the input itself as the
+proposal, and 44.7 ms with a tagger proposal. A faster bypass-plus-hint arm (36.0 ms median in the four-arm
+screen) changed delivered text. It is not full-model verification. The [research decision](../research/polish-2026-11-21.md#fixed-verifier-search-on-the-m4-pro)
+and [aggregate results](../benchmarks/results/20261122-polish-frontier.json) include its losses, both pass orders,
+the cold samples, native timings and the earlier component estimates.
+
+On the measured Mac, run the local bench client with the frozen weights. Enter one synthetic line per request
+and send EOF to stop. It keeps both models loaded and applies `merge_allowed` to each response:
+
+```sh
+L="$HOME/polish-lab"
+"$L/tools/gpulock" "$L/tagger/.venv/bin/python" "$L/frontier/live.py" try --mode hint
+```
+
+For the owner, `~/polish-lab/private/frontier-diagnostic-v1/review.html` is a **retrospective** blind pilot, not a
+fresh evaluation. `python3 ~/polish-lab/tools/frontier_review.py new --collect` explicitly collects eligible new
+dictations and prepares a separate prospective review once 60 are available. Private inputs, pages, keys and
+ratings stay on the Mac. [The product contract](../README.md#what-happens-to-the-words) does not change.
