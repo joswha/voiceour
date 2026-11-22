@@ -728,8 +728,38 @@ qwen3_status feed(qwen3_context * ctx, const int32_t * tokens, int32_t n, int32_
     return QWEN3_OK;
 }
 
+// The current argmax anchors the next hint batch. At a mismatch, the two-token suffix of the actual output
+// may match a prefix of a later hint span. Look at most 16 tokens ahead of the cursor, and never go back.
+// The cursor never selects, emits or suppresses a token; it only decides what to propose.
+struct Hint {
+    const int32_t * tokens = nullptr;
+    size_t count = 0;
+    size_t batch = 0;
+    size_t cursor = 0;
+    qwen3_hint_stats stats = {};
+
+    bool propose(int32_t anchor, int32_t previous, size_t room, std::vector<int32_t> & draft) {
+        if (cursor + 1 >= count) {
+            return false;
+        }
+        size_t end = cursor;
+        if (tokens[end] != anchor) {
+            const size_t limit = std::min(count - 2, cursor + 16);
+            do {
+                if (++end > limit) {
+                    return false;
+                }
+            } while (tokens[end] != anchor || tokens[end - 1] != previous);
+        }
+        cursor = end + 1;
+        const size_t length = std::min({batch, room, count - cursor});
+        draft.assign(tokens + cursor, tokens + cursor + length);
+        return true;
+    }
+};
+
 qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt, qwen3_generate_params params,
-                      qwen3_abort_callback abort_callback, void * abort_user_data) {
+                      Hint * hint, qwen3_abort_callback abort_callback, void * abort_user_data) {
     const auto t0 = Clock::now();
     ctx->history.assign(prompt, prompt + n_prompt);
     const int32_t eos = ctx->vocab.eos_id;
@@ -753,10 +783,12 @@ qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_pro
             break;
         }
         ctx->draft.clear();
-        if (drafting) {
+        const size_t room = static_cast<size_t>(max_new - static_cast<int32_t>(ctx->output.size()));
+        const bool from_hint = hint != nullptr &&
+            hint->propose(tok, n_past == n_prompt ? -1 : ctx->history.back(), room, ctx->draft);
+        if (!from_hint && drafting) {
             ngram_simple_draft(ctx->history, tok, static_cast<size_t>(params.ngram_n),
                                static_cast<size_t>(params.ngram_m), ctx->draft);
-            const size_t room = static_cast<size_t>(max_new - static_cast<int32_t>(ctx->output.size()));
             if (ctx->draft.size() > room) {
                 ctx->draft.resize(room);
             }
@@ -771,6 +803,9 @@ qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_pro
         }
         ctx->timings.n_evals++;
         ctx->timings.n_drafted += static_cast<int32_t>(ctx->draft.size());
+        if (from_hint) {
+            hint->stats.fed += static_cast<int32_t>(ctx->draft.size());
+        }
         ctx->history.push_back(tok);
         n_past++;
 
@@ -788,6 +823,11 @@ qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_pro
             ctx->history.push_back(next);
             n_past++;
             ctx->timings.n_accepted++;
+            if (from_hint) {
+                ++hint->cursor;
+                ++hint->stats.verified;
+                ++hint->stats.accepted;
+            }
             if (static_cast<int32_t>(ctx->output.size()) >= max_new) {
                 done = true;
                 break;
@@ -795,6 +835,9 @@ qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_pro
             ++i;
             d    = decide(ctx, static_cast<int32_t>(i));
             next = d.token;
+        }
+        if (from_hint && !done && i < ctx->draft.size()) {
+            ++hint->stats.verified;  // first mismatch; the remaining speculative rows are not compared
         }
         // Cells from n_past on hold rejected drafts: the next evaluation overwrites them and the causal mask
         // hides them until then (llama_memory_seq_rm upstream).
@@ -1116,6 +1159,17 @@ qwen3_generate_params qwen3_generate_default_params(void) {
 qwen3_status qwen3_generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt,
                             qwen3_generate_params params, qwen3_abort_callback abort_callback,
                             void * abort_user_data) {
+    return qwen3_generate_with_hint(ctx, prompt, n_prompt, params, nullptr, 0, 1, nullptr, abort_callback,
+                                    abort_user_data);
+}
+
+qwen3_status qwen3_generate_with_hint(qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt,
+                                      qwen3_generate_params params, const int32_t * hint_tokens,
+                                      int32_t n_hint_tokens, int32_t max_hint_batch, qwen3_hint_stats * stats,
+                                      qwen3_abort_callback abort_callback, void * abort_user_data) {
+    if (stats != nullptr) {
+        *stats = {};
+    }
     if (ctx == nullptr) {
         return QWEN3_ERR_INVALID_ARGUMENT;
     }
@@ -1124,12 +1178,27 @@ qwen3_status qwen3_generate(qwen3_context * ctx, const int32_t * prompt, int32_t
         log(QWEN3_LOG_ERROR, "invalid n-gram drafting (ngram %d/%d)", params.ngram_n, params.ngram_m);
         return QWEN3_ERR_INVALID_ARGUMENT;
     }
+    if (max_hint_batch < 1 || max_hint_batch > QWEN3_MAX_HINT_BATCH) {
+        return QWEN3_ERR_INVALID_ARGUMENT;
+    }
     if (!valid_prompt(ctx, prompt, n_prompt, params.max_new_tokens)) {
         return QWEN3_ERR_INVALID_ARGUMENT;
     }
+    Hint hint;
+    if (hint_tokens != nullptr && n_hint_tokens >= 2 && n_hint_tokens <= QWEN3_MAX_HINT_TOKENS &&
+        std::all_of(hint_tokens, hint_tokens + n_hint_tokens, [ctx](int32_t token) {
+            return token >= 0 && token < ctx->hp.n_vocab && token != ctx->vocab.eos_id &&
+                static_cast<size_t>(token) < ctx->vocab.types.size() &&
+                ctx->vocab.types[static_cast<size_t>(token)] == QWEN3_TOKEN_NORMAL;
+        })) {
+        hint.tokens = hint_tokens;
+        hint.count = static_cast<size_t>(n_hint_tokens);
+        hint.batch = static_cast<size_t>(max_hint_batch);
+    }
     qwen3_status status = QWEN3_ERR_BACKEND;
     try {
-        status = generate(ctx, prompt, n_prompt, params, abort_callback, abort_user_data);
+        status = generate(ctx, prompt, n_prompt, params, hint.tokens != nullptr ? &hint : nullptr, abort_callback,
+                          abort_user_data);
     } catch (const std::bad_alloc &) {
         log(QWEN3_LOG_ERROR, "out of memory while generating");
     } catch (...) {
@@ -1137,6 +1206,8 @@ qwen3_status qwen3_generate(qwen3_context * ctx, const int32_t * prompt, int32_t
     }
     if (status != QWEN3_OK) {
         clear_results(ctx);
+    } else if (stats != nullptr) {
+        *stats = hint.stats;
     }
     return status;
 }

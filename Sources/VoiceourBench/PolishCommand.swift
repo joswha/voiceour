@@ -15,14 +15,22 @@ import IOKit.ps
 /// With `--guided`, every case also lists `allowed_outputs` and decoding is greedy over those candidates only, as
 /// `PolishGuide` and `qwen3_generate_guided` describe: each output is one of them byte for byte, n-gram drafting
 /// is off, and a request's `ms` also covers encoding and checking the candidates.
+/// `--draft-text-m` instead takes optional, untrusted `draft_text` proposals and keeps full-vocabulary greedy.
 struct PolishCommand {
-    var input: URL
-    var output: URL
+    /// Batch measurement writes files; standard I/O returns one reply per request from a single loaded model.
+    enum IO {
+        case files(input: URL, output: URL)
+        case standard
+    }
+
+    var io: IO
     var model: URL
     /// n-gram drafting (lookup length, draft length); nil decodes one token per evaluation.
     var ngram: (n: Int32, m: Int32)?
     /// Guided decoding over each case's `allowed_outputs`; nil decodes unguided.
     var guided: PolishGuidedMode?
+    /// Maximum number of proposed draft-text tokens per verification batch; nil ignores draft text entirely.
+    var draftTextBatch: Int32?
     var reps: Int
     var maxNewTokens: Int32
     var trace: Bool
@@ -37,13 +45,15 @@ struct PolishCommand {
     static func parse(_ arguments: [String]) throws -> PolishCommand {
         var input: URL?
         var output: URL?
+        var standardIO = false
         var model: URL?
         var ngramN: Int32?
         var ngramM: Int32?
         var noNgram = false
         var guided = false
+        var draftTextBatch: Int32?
         var stepwise = false
-        var reps = 3
+        var reps: Int?
         var maxNewTokens: Int32 = 512
         var trace = false
         var config: String?
@@ -56,11 +66,13 @@ struct PolishCommand {
             case "--input": input = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
             case "--output": output = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
             case "--model": model = BenchCLI.fileURL(try BenchCLI.value(for: parsed, in: arguments, index: &index))
+            case "--stdio": standardIO = true
             case "--ngram-n": ngramN = try positive(parsed, arguments, &index)
             case "--ngram-m": ngramM = try positive(parsed, arguments, &index)
             case "--no-ngram": noNgram = true
             case "--guided": guided = true
             case "--guided-stepwise": stepwise = true
+            case "--draft-text-m": draftTextBatch = try positive(parsed, arguments, &index)
             case "--reps": reps = Int(try positive(parsed, arguments, &index))
             case "--max-new-tokens": maxNewTokens = try positive(parsed, arguments, &index)
             case "--trace": trace = true
@@ -71,8 +83,20 @@ struct PolishCommand {
             }
             index = arguments.index(after: index)
         }
-        guard let input, let output, let model else {
-            throw BenchError.usage("polish requires --input, --output and --model")
+        guard let model else { throw BenchError.usage("polish requires --model") }
+        let io: IO
+        if standardIO {
+            guard input == nil, output == nil, reps == nil, !trace, !guided, config == nil,
+                modelRepo == nil, modelRevision == nil
+            else {
+                throw BenchError.usage("--stdio excludes file, repetition, trace, guided and report options")
+            }
+            io = .standard
+        } else {
+            guard let input, let output else {
+                throw BenchError.usage("polish requires --input and --output or --stdio")
+            }
+            io = .files(input: input, output: output)
         }
         if noNgram, ngramN != nil || ngramM != nil {
             throw BenchError.usage("--no-ngram excludes --ngram-n and --ngram-m")
@@ -83,14 +107,20 @@ struct PolishCommand {
         if guided, ngramN != nil || ngramM != nil {
             throw BenchError.usage("--guided decodes without n-gram drafts; it excludes --ngram-n and --ngram-m")
         }
+        if let draftTextBatch {
+            guard !guided else { throw BenchError.usage("--draft-text-m excludes --guided") }
+            guard draftTextBatch <= QWEN3_MAX_HINT_BATCH else {
+                throw BenchError.usage("--draft-text-m must be at most \(QWEN3_MAX_HINT_BATCH)")
+            }
+        }
         let defaults = qwen3_generate_default_params()
         return PolishCommand(
-            input: input,
-            output: output,
+            io: io,
             model: model,
             ngram: noNgram || guided ? nil : (ngramN ?? defaults.ngram_n, ngramM ?? defaults.ngram_m),
             guided: guided ? (stepwise ? .stepwise : .batched) : nil,
-            reps: reps,
+            draftTextBatch: draftTextBatch,
+            reps: reps ?? 3,
             maxNewTokens: maxNewTokens,
             trace: trace,
             config: config,
@@ -110,23 +140,38 @@ struct PolishCommand {
     }
 
     func run() throws {
-        let processStart = Self.processStartTime()
-        let cases = try readCases()
-        let powerBefore = PowerSnapshot.current()
+        switch io {
+        case .files(let input, let output):
+            try runBenchmark(input: input, output: output)
+        case .standard:
+            let runner = try makeRunner()
+            try PolishPipe.serve(readsDraft: draftTextBatch != nil, process: runner.polish)
+        }
+    }
 
+    private func makeRunner() throws -> Runner {
         let context = try Qwen3Context(
             modelPath: model.path, threadCount: Self.threadCount, contextLength: Self.contextLength)
-        let tokenizer = try context.makeTokenizer()
+        return try Runner(
+            context: context, tokenizer: context.makeTokenizer(), ngram: ngram, maxNewTokens: maxNewTokens,
+            guided: guided, draftTextBatch: draftTextBatch)
+    }
+
+    private func runBenchmark(input: URL, output: URL) throws {
+        let processStart = Self.processStartTime()
+        let cases = try readCases(from: input)
+        let powerBefore = PowerSnapshot.current()
+
+        let runner = try makeRunner()
+        let context = runner.context
         let loadMs = Self.milliseconds(since: processStart)
-        let runner = Runner(
-            context: context, tokenizer: tokenizer, ngram: ngram, maxNewTokens: maxNewTokens, guided: guided)
         if guided != nil {
             // Every case's candidates are checked before the first timed request.
             for polishCase in cases {
                 do {
                     _ = try PolishGuide.completions(
                         input: polishCase.input, allowedOutputs: polishCase.allowedOutputs ?? [],
-                        tokenizer: tokenizer, maxNewTokens: maxNewTokens)
+                        tokenizer: runner.tokenizer, maxNewTokens: maxNewTokens)
                 } catch {
                     throw BenchError.io("guided case \(polishCase.id): \(error)")
                 }
@@ -164,7 +209,8 @@ struct PolishCommand {
         }
 
         let summary = PolishSummary(
-            config: config ?? guided?.config ?? ngram.map { "ngram-n\($0.n)-m\($0.m)" } ?? "no-ngram",
+            config: config ?? guided?.config ?? draftTextBatch.map { "draft-text-m\($0)" }
+                ?? ngram.map { "ngram-n\($0.n)-m\($0.m)" } ?? "no-ngram",
             modelRepo: modelRepo,
             modelRevision: modelRevision,
             weightsFile: model.path,
@@ -175,7 +221,13 @@ struct PolishCommand {
             firstRequestMs: Self.round1(warmups[0].ms),
             rows: rows,
             peakFootprintMb: peakFootprintMb,
-            deterministic: results.allSatisfy { runs in runs.allSatisfy { $0.output == runs[0].output } },
+            deterministic: results.allSatisfy { runs in
+                runs.allSatisfy {
+                    $0.output.utf8.elementsEqual(runs[0].output.utf8)
+                        && $0.generation.tokens == runs[0].generation.tokens
+                        && $0.generation.decisions.elementsEqual(runs[0].generation.decisions) { $0.token == $1.token }
+                }
+            },
             power: PolishPower(before: powerBefore, after: powerAfter),
             versions: PolishVersions(
                 ggml: String(cString: ggml_version()),
@@ -194,7 +246,8 @@ struct PolishCommand {
                 warmup: warmups,
                 guided: guided.map { mode in
                     PolishGuidedNotes(mode: mode, firstRuns: results.compactMap { $0[0].guided })
-                }
+                },
+                draftTextBatch: draftTextBatch
             )
         )
         let encoder = JSONEncoder()
@@ -210,8 +263,10 @@ struct PolishCommand {
         )
     }
 
-    private func readCases() throws -> [PolishCase] {
+    private func readCases(from input: URL) throws -> [PolishCase] {
         let reader = try JSONLLineReader(url: input)
+        let decoder = JSONDecoder()
+        decoder.userInfo[PolishCase.readDraftText] = draftTextBatch != nil
         var cases: [PolishCase] = []
         var lineNumber = 0
         while let line = try reader.nextLine() {
@@ -219,7 +274,7 @@ struct PolishCommand {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             let polishCase: PolishCase
             do {
-                polishCase = try JSONDecoder().decode(PolishCase.self, from: Data(line.utf8))
+                polishCase = try decoder.decode(PolishCase.self, from: Data(line.utf8))
             } catch {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
@@ -239,18 +294,27 @@ struct PolishCommand {
         let ngram: (n: Int32, m: Int32)?
         let maxNewTokens: Int32
         let guided: PolishGuidedMode?
+        let draftTextBatch: Int32?
 
         /// One request for `polishCase`: guided over its `allowed_outputs` when the runner is guided.
         func polish(_ polishCase: PolishCase) throws -> PolishResult {
-            guard let guided else { return try polish(polishCase.input) }
+            guard let guided else { return try polish(polishCase.input, draftText: polishCase.draftText) }
             return try polishGuided(polishCase.input, allowedOutputs: polishCase.allowedOutputs ?? [], mode: guided)
         }
 
-        func polish(_ input: String) throws -> PolishResult {
+        func polish(_ input: String, draftText: String? = nil) throws -> PolishResult {
             let start = DispatchTime.now().uptimeNanoseconds
             let prompt = tokenizer.encode("text: " + input + "\nout:")
+            var hint: (tokens: [Int32], batch: Int32)?
+            var encodingMs: Double?
+            if let draftTextBatch {
+                let encodeStart = DispatchTime.now().uptimeNanoseconds
+                let ids = draftText.map { tokenizer.encode(" " + $0) } ?? []
+                hint = (ids.count <= QWEN3_MAX_HINT_TOKENS ? ids : [], draftTextBatch)
+                encodingMs = Double(DispatchTime.now().uptimeNanoseconds - encodeStart) / 1_000_000
+            }
             let generation = try context.generate(
-                prompt: prompt, maxNewTokens: maxNewTokens, ngram: ngram, isCancelled: { false })
+                prompt: prompt, maxNewTokens: maxNewTokens, ngram: ngram, hint: hint, isCancelled: { false })
             let output = String(
                 decoding: PolishCommand.trimmed(tokenizer.decodeBytes(generation.tokens)), as: UTF8.self)
             let end = DispatchTime.now().uptimeNanoseconds
@@ -258,7 +322,8 @@ struct PolishCommand {
                 output: output,
                 ms: Double(end - start) / 1_000_000,
                 prompt: prompt,
-                generation: generation
+                generation: generation,
+                hintEncodingMs: encodingMs
             )
         }
 
@@ -364,10 +429,30 @@ struct PolishCase: Decodable {
     var input: String
     /// `--guided` only, and ignored without it: the outputs decoding may produce, the input itself among them.
     var allowedOutputs: [String]?
+    /// `--draft-text-m` only: an optional untrusted proposal, not a candidate constraint.
+    var draftText: String?
+
+    static let readDraftText = CodingUserInfoKey(rawValue: "polishReadDraftText")!
+    static let maxDraftBytes = 4096
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        input = try container.decode(String.self, forKey: .input)
+        allowedOutputs = try container.decodeIfPresent([String].self, forKey: .allowedOutputs)
+        if decoder.userInfo[Self.readDraftText] as? Bool == true,
+            let text = try? container.decode(String.self, forKey: .draftText), !text.isEmpty,
+            text.utf8.prefix(Self.maxDraftBytes + 1).count <= Self.maxDraftBytes,
+            !text.utf8.contains(0)
+        {
+            draftText = text
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, input
         case allowedOutputs = "allowed_outputs"
+        case draftText = "draft_text"
     }
 }
 
@@ -377,6 +462,7 @@ struct PolishResult {
     var prompt: [Int32]
     var generation: Qwen3Generation
     var guided: PolishGuidedRun? = nil
+    var hintEncodingMs: Double? = nil
 }
 
 /// One `rows.jsonl` line, the lab harness's schema: the first repetition's output and token counts, and the
@@ -397,6 +483,7 @@ struct PolishRow: Encodable {
     var guidedSteps: Int?
     var overriddenSteps: Int?
     var minMargin: Double?
+    var hint: PolishHintRow?
 
     init(id: String, runs: [PolishResult]) {
         self.id = id
@@ -407,6 +494,11 @@ struct PolishRow: Encodable {
         outputTokens = runs[0].generation.tokens.count
         prefillMs = PolishStatistics.median(runs.map(\.generation.prefillMs))
         decodeMs = PolishStatistics.median(runs.map(\.generation.decodeMs))
+        if let stats = runs[0].generation.hintStats {
+            hint = PolishHintRow(
+                fed: Int(stats.fed), verified: Int(stats.verified), accepted: Int(stats.accepted),
+                encodingMsAll: runs.compactMap(\.hintEncodingMs))
+        }
         if let guided = runs[0].guided {
             candidate = guided.candidate
             candidates = guided.completions.count
@@ -417,7 +509,7 @@ struct PolishRow: Encodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, output, ms, candidate, candidates
+        case id, output, ms, candidate, candidates, hint
         case msAll = "ms_all"
         case promptTokens = "prompt_tokens"
         case outputTokens = "output_tokens"
@@ -426,6 +518,19 @@ struct PolishRow: Encodable {
         case guidedSteps = "guided_steps"
         case overriddenSteps = "overridden_steps"
         case minMargin = "min_margin"
+    }
+}
+
+/// External-only counts (the general speculation counters also include n-gram fallback).
+struct PolishHintRow: Encodable {
+    var fed: Int
+    var verified: Int
+    var accepted: Int
+    var encodingMsAll: [Double]
+
+    enum CodingKeys: String, CodingKey {
+        case fed, verified, accepted
+        case encodingMsAll = "encoding_ms_all"
     }
 }
 
@@ -575,9 +680,11 @@ struct PolishNotes: Encodable {
     var warmup: [PolishWarmup]
     /// `--guided` only; absent from unguided summaries.
     var guided: PolishGuidedNotes? = nil
+    var draftTextBatch: Int32? = nil
 
     enum CodingKeys: String, CodingKey {
         case prompt, cases, reps, ubatch, warmup, guided
+        case draftTextBatch = "draft_text_m"
         case maxNewTokens = "max_new_tokens"
         case ngramN = "ngram_n"
         case ngramM = "ngram_m"
@@ -604,6 +711,7 @@ struct PolishNotes: Encodable {
         try container.encode(specStats, forKey: .specStats)
         try container.encode(warmup, forKey: .warmup)
         try container.encodeIfPresent(guided, forKey: .guided)
+        try container.encodeIfPresent(draftTextBatch, forKey: .draftTextBatch)
     }
 }
 

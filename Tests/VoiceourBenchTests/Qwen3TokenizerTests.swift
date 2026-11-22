@@ -159,6 +159,39 @@ struct PolishCommandTests {
         #expect(command.maxNewTokens == 512)
     }
 
+    @Test func draftTextIsOptInAndKeepsNgramFallback() throws {
+        let required = ["--input", "cases.jsonl", "--output", "out", "--model", "model.gguf"]
+        #expect(try PolishCommand.parse(required).draftTextBatch == nil)
+        let command = try PolishCommand.parse(required + ["--draft-text-m", "24"])
+        #expect(command.draftTextBatch == 24)
+        #expect(command.ngram?.m == 24)
+        #expect(command.guided == nil)
+        #expect(throws: BenchError.self) {
+            try PolishCommand.parse(required + ["--draft-text-m", "25"])
+        }
+        #expect(throws: BenchError.self) {
+            try PolishCommand.parse(required + ["--draft-text-m", "24", "--guided"])
+        }
+    }
+
+    @Test func draftTextIgnoresAbsentMalformedAndOutOfBoundsValues() throws {
+        let decoder = JSONDecoder()
+        func load(_ field: String) throws -> String? {
+            try decoder.decode(PolishCase.self, from: Data("{\"id\":\"x\",\"input\":\"source\"\(field)}".utf8))
+                .draftText
+        }
+        #expect(try load(",\"draft_text\":\"text\"") == nil)
+        decoder.userInfo[PolishCase.readDraftText] = true
+        #expect(try load(",\"draft_text\":\"text\"") == "text")
+        #expect(try load("") == nil)
+        #expect(try load(",\"draft_text\":null") == nil)
+        #expect(try load(",\"draft_text\":[1,2]") == nil)
+        #expect(try load(",\"draft_text\":\"\\u0000\"") == nil)
+        let max = String(repeating: "é", count: PolishCase.maxDraftBytes / 2)
+        #expect(try load(",\"draft_text\":\"\(max)\"") == max)
+        #expect(try load(",\"draft_text\":\"\(max)x\"") == nil)
+    }
+
     @Test func noNgramDisablesDraftingAndExcludesNgramSizes() throws {
         let plain = try PolishCommand.parse([
             "--input", "/tmp/cases.jsonl", "--output", "/tmp/out", "--model", "/tmp/model.gguf", "--no-ngram",

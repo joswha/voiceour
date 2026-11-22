@@ -74,6 +74,10 @@ Behaviour of the generation loop (`qwen3_generate`), from the polish-lab harness
   sequences. EOS is available only at candidate ends. This is a Voiceour experiment, not a llama.cpp guarantee
   about the meaning of candidates. Stepwise and batched execution both stay in the trie. The latter feeds
   forced tokens together, so logits at later branches can differ slightly with evaluation batch size.
+- Voiceour's separate `qwen3_generate_with_hint` API borrows one bounded, plain-text draft and proposes
+  continuations when it matches the current greedy token or re-aligns with the last two output tokens.
+  It uses the same causal batch evaluation and full-vocabulary verification as `qwen3_generate`, with
+  n-gram/greedy fallback, and reports external draft tokens fed, compared, and accepted.
 
 Removed upstream features (not reachable from this API): batching several sequences, sampling, LoRA, fused
 QKV and bias tensors, rerank/embedding heads, RoPE scaling (YaRN, linear factor != 1), quantized KV types,

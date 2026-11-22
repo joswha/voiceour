@@ -43,6 +43,7 @@ struct Qwen3Generation {
     var evaluations: Int
     var drafted: Int
     var accepted: Int
+    var hintStats: qwen3_hint_stats? = nil
 }
 
 /// One choice of a guided generation read from logits (`qwen3_guided_step`).
@@ -131,10 +132,11 @@ final class Qwen3Context {
         return try Qwen3Tokenizer(tokens: tokens, merges: merges)
     }
 
-    /// Greedy generation for `prompt`, with n-gram drafting when `ngram` is given. Cancellation is polled before
-    /// every graph evaluation, never inside one.
+    /// Greedy generation for `prompt`. An optional untrusted hint proposes tokens before n-gram fallback.
+    /// Cancellation is polled before every graph evaluation, never inside one.
     func generate(
-        prompt: [Int32], maxNewTokens: Int32, ngram: (n: Int32, m: Int32)?, isCancelled: @escaping () -> Bool
+        prompt: [Int32], maxNewTokens: Int32, ngram: (n: Int32, m: Int32)?,
+        hint: (tokens: [Int32], batch: Int32)? = nil, isCancelled: @escaping () -> Bool
     ) throws -> Qwen3Generation {
         guard let promptCount = Int32(exactly: prompt.count) else {
             throw Qwen3ContextError.invalidArgument("\(prompt.count) prompt tokens exceed one native call")
@@ -144,23 +146,27 @@ final class Qwen3Context {
         params.ngram_n = ngram?.n ?? 0
         params.ngram_m = ngram?.m ?? 0
         var cancellation = Qwen3CancellationBridge(isCancelled: isCancelled)
+        var hintStats = qwen3_hint_stats()
+        let callback: qwen3_abort_callback = { userData in
+            guard let userData else { return false }
+            return userData.assumingMemoryBound(to: Qwen3CancellationBridge.self).pointee.isCancelled()
+        }
         let status = withUnsafeMutablePointer(to: &cancellation) { bridge in
             prompt.withUnsafeBufferPointer { buffer in
-                qwen3_generate(
-                    context,
-                    buffer.baseAddress,
-                    promptCount,
-                    params,
-                    { userData in
-                        guard let userData else { return false }
-                        return userData.assumingMemoryBound(to: Qwen3CancellationBridge.self).pointee.isCancelled()
-                    },
-                    UnsafeMutableRawPointer(bridge)
-                )
+                if let hint {
+                    return hint.tokens.withUnsafeBufferPointer { draft in
+                        qwen3_generate_with_hint(
+                            context, buffer.baseAddress, promptCount, params, draft.baseAddress,
+                            Int32(draft.count), hint.batch, &hintStats, callback, UnsafeMutableRawPointer(bridge))
+                    }
+                }
+                return qwen3_generate(context, buffer.baseAddress, promptCount, params, callback, bridge)
             }
         }
         try check(status) { "\(prompt.count) prompt tokens, max \(maxNewTokens) new" }
-        return collectGeneration()
+        var generation = collectGeneration()
+        generation.hintStats = hint == nil ? nil : hintStats
+        return generation
     }
 
     /// Greedy generation for `prompt` restricted to `candidates`, each a nonempty token sequence, as

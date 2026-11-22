@@ -542,6 +542,20 @@ when one candidate is a prefix of another. It checks tokenization and length bef
 whether the candidates preserve meaning. `--guided-stepwise` evaluates each token; ordinary guided mode batches
 forced tokens between choices. Neither mode uses n-gram drafts. The ordinary greedy runner remains the default.
 
+`voiceour-bench polish --draft-text-m <1...24>` is a separate, unconstrained experiment. It takes an optional
+`draft_text` string per case (up to 4,096 UTF-8 bytes and 512 normal tokens) and verifies proposals with
+the same full-model greedy decoder. It ignores invalid drafts, does not propose an EOS, and falls back to
+the configured n-gram/greedy path when a draft does not align. `rows.jsonl` reports the external draft's
+fed, verified and accepted counts and per-repetition encoding time. Generating the draft is external to the CLI
+and is not part of its native `ms`; include that cost when comparing systems.
+
+`voiceour-bench polish --stdio --model <qwen3.gguf> [--draft-text-m 24]` keeps the model loaded for a local
+benchmark client. It opens no socket or window and writes no output files. It sends a `ready` JSON line (version 1)
+after loading. Each UTF-8 input line holds `id`, `input` and, optionally, `draft_text`. The reply holds `id`, `output`,
+native `ms` and draft counts. The client can time proposal generation, IPC and the edit merge around this exchange.
+Requests are serial, the line limit is 64 KiB, EOF closes the session, and a malformed frame ends the run. This is
+not an ASR sidecar protocol or a live dictation feature.
+
 ## Polish edit verifier v3 — 2026-11-22
 
 `bench/polish/polishlab.py` now checks every edit through `polish_tokens.py`, `polish_fillers.py`,

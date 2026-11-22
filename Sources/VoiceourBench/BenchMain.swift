@@ -135,7 +135,9 @@ enum BenchCLI {
           voiceour-bench detect-language --input <texts.jsonl> --output <languages.jsonl>
           voiceour-bench polish --input <cases.jsonl> --output <out_dir> --model <qwen3.gguf>
               [--ngram-n 2 --ngram-m 24 | --no-ngram | --guided [--guided-stepwise]] [--reps 3] [--max-new-tokens 512]
+              [--draft-text-m 1...24 (unguided only)]
               [--trace] [--config <name>] [--model-repo <repo>] [--model-revision <sha>]
+          voiceour-bench polish --stdio --model <qwen3.gguf> [--draft-text-m 24] [--max-new-tokens 512]
         """
 
     private static let backendChoices = ASRBackendRegistry.builtIn.descriptors.map(\.id).joined(separator: "|")
@@ -751,60 +753,6 @@ struct BenchClock {
         let end = DispatchTime.now().uptimeNanoseconds
         guard end >= start else { return 0 }
         return Int((end - start) / 1_000_000)
-    }
-}
-
-final class JSONLLineReader {
-    private let handle: FileHandle
-    private var buffer = Data()
-    private var reachedEOF = false
-
-    init(url: URL) throws {
-        do {
-            self.handle = try FileHandle(forReadingFrom: url)
-        } catch {
-            throw BenchError.io("cannot open input \(url.path): \(BenchError.describe(error))")
-        }
-    }
-
-    deinit {
-        try? handle.close()
-    }
-
-    func nextLine() throws -> String? {
-        while true {
-            if let newline = buffer.firstIndex(of: 0x0A) {
-                let lineData = buffer[..<newline]
-                buffer.removeSubrange(buffer.startIndex...newline)
-                return try decodeLine(Data(lineData))
-            }
-            if reachedEOF {
-                guard !buffer.isEmpty else { return nil }
-                let lineData = buffer
-                buffer.removeAll(keepingCapacity: true)
-                return try decodeLine(lineData)
-            }
-            do {
-                if let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
-                    buffer.append(chunk)
-                } else {
-                    reachedEOF = true
-                }
-            } catch {
-                throw BenchError.io("cannot read input: \(BenchError.describe(error))")
-            }
-        }
-    }
-
-    private func decodeLine(_ data: Data) throws -> String {
-        var line = data
-        if line.last == 0x0D {
-            line.removeLast()
-        }
-        guard let string = String(data: line, encoding: .utf8) else {
-            throw BenchError.io("input is not valid UTF-8")
-        }
-        return string
     }
 }
 

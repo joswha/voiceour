@@ -127,6 +127,30 @@ enum qwen3_status qwen3_generate(struct qwen3_context * ctx,
                                  qwen3_abort_callback abort_callback,
                                  void * abort_user_data);
 
+// Bounds for the optional draft API; the draft is never part of the prompt or an output restriction.
+enum { QWEN3_MAX_HINT_TOKENS = 512, QWEN3_MAX_HINT_BATCH = 24 };
+
+struct qwen3_hint_stats {
+    int32_t fed;       // external draft tokens fed, including suffixes discarded without comparison
+    int32_t verified;  // external draft tokens compared to the full-model argmax (including the first mismatch)
+    int32_t accepted;  // equal tokens kept; the already-greedy anchor is not counted
+};
+
+// As qwen3_generate, optionally proposing continuations from a borrowed plain-text token sequence. An absent,
+// oversized or non-normal draft (including EOS) is ignored. max_hint_batch must be 1..QWEN3_MAX_HINT_BATCH.
+// Every choice, including the first token and EOS, is still made by the same full-vocabulary argmax. Numerical
+// differences between batch sizes are possible, as in n-gram drafting. Optional stats are zeroed on failure.
+enum qwen3_status qwen3_generate_with_hint(struct qwen3_context * ctx,
+                                          const int32_t * prompt,
+                                          int32_t n_prompt,
+                                          struct qwen3_generate_params params,
+                                          const int32_t * hint_tokens,
+                                          int32_t n_hint_tokens,
+                                          int32_t max_hint_batch,
+                                          struct qwen3_hint_stats * stats,
+                                          qwen3_abort_callback abort_callback,
+                                          void * abort_user_data);
+
 // Output tokens of the last call, EOS excluded: the greedy output, or the chosen candidate's tokens after
 // qwen3_generate_guided. Valid until the next generate or free; NULL when empty.
 int32_t qwen3_n_output(const struct qwen3_context * ctx);
