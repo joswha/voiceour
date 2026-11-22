@@ -103,7 +103,7 @@ struct qwen3_generate_params {
     int32_t ngram_m;         // n-gram drafting: up to ngram_m following tokens are drafted (>= 1 when drafting)
 };
 
-// max_new_tokens = 512, ngram_n = 2, ngram_m = 8.
+// max_new_tokens = 512, ngram_n = 2, ngram_m = 24.
 struct qwen3_generate_params qwen3_generate_default_params(void);
 
 // Polled before every graph evaluation: the prompt's evaluations, then each decode step. Never polled inside a

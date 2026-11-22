@@ -459,10 +459,10 @@ python3 bench/polish/polishlab.py score <out_dir>/rows.jsonl
 
 - `polish` loads the GGUF, runs two warm-ups and then `--reps` (default 3) repetitions over all input rows, all
   rows each time, and times each request from input string to output string. The prompt is `"text: " + input +
-  "\nout:"`, decoding is greedy to `<|endoftext|>`, and `--ngram-n`/`--ngram-m` (default 2/8) or `--no-ngram`
-  set the drafting. It writes `rows.jsonl` (`id`, `output`, median `ms`, `ms_all`, token counts, prefill and
-  decode ms) and `summary.json` (load, first request, p50, p95, the long cases G01 and G02, peak footprint,
-  device).
+  "\nout:"`, decoding is greedy to `<|endoftext|>`, and `--ngram-n`/`--ngram-m` (default 2/24 since 2026-11-22,
+  2/8 before) or `--no-ngram` set the drafting. It writes `rows.jsonl` (`id`, `output`, median `ms`, `ms_all`,
+  token counts, prefill and decode ms) and `summary.json` (load, first request, p50, p95, the long cases G01 and
+  G02, peak footprint, device).
 - `bench/polish/cases/agent36.jsonl` holds 36 held-out cases — fillers, self-corrections, grammar slips, spoken
   lists, safety traps, clean text and two long dictations — with the tokens each output must keep or drop. No
   training data may contain them. `polishlab.py` scores them and holds `verify` and `merge_allowed`, the
@@ -543,3 +543,22 @@ rules, and the [results](../benchmarks/results/20261122-polish-verifier3.json) h
   previous test half. Under the earlier verifier these were 52/53 and 13/19.
 - **Limits.** The probes are synthetic and written by models; passing them does not prove the rules safe on open
   language. No human has judged the refusals yet.
+
+## Polish runner drafting sweep — 2026-11-22
+
+`voiceour-bench polish` with v5 Q8_0 on agent36 and a seed-7 sample of 200 Sol test pairs: n-gram lookup
+n ∈ {1..4} × draft length m ∈ {4, 8, 12, 16, 24, 32} and `--no-ngram`, 3 repetitions, a forward and a reverse
+pass under one lock, medians in ms. Every setting's outputs were byte-identical to `--no-ngram`.
+
+| setting | agent36 p50 | agent36 G02 | sol200 p50 | sol200 p95 | sol200 max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `--no-ngram` | 77.4 | 817.9 | 146.1 | 547.5 | 1234.5 |
+| n2-m8 (previous default) | 63.0 | 475.2 | 86.0 | 262.2 | 508.2 |
+| n2-m24 | 61.2 | 307.2 | 65.9 | 155.3 | 248.3 |
+
+- **Draft gate.** llama.cpp's drafter waits until the history holds n + m + 2 tokens, so at m = 24 it never drafts
+  22 of the 36 agent36 prompts. Drafting from n + 2 tokens, measured A/B at n2-m24: agent36 p50 61.8 → 53.3,
+  sol200 p50 66.8 → 63.9 (within the arm's 2.6 ms pass spread). Outputs stayed byte-identical. The default is now
+  n2-m24 without the gate.
+- **Headroom.** At the same drafted and accepted counts, llama.cpp b12606 decodes faster than this runner on
+  ggml 0.19.0 (agent36 p50 41.0 against 54.4 at n1-m12); the multi-token evaluation is the gap.

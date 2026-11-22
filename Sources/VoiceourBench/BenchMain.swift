@@ -134,7 +134,7 @@ enum BenchCLI {
           voiceour-bench granite-tokenize --input <texts.jsonl> --output <ids.jsonl> [--model <granite.gguf>]
           voiceour-bench detect-language --input <texts.jsonl> --output <languages.jsonl>
           voiceour-bench polish --input <cases.jsonl> --output <out_dir> --model <qwen3.gguf>
-              [--ngram-n 2 --ngram-m 8 | --no-ngram | --guided [--guided-stepwise]] [--reps 3] [--max-new-tokens 512]
+              [--ngram-n 2 --ngram-m 24 | --no-ngram | --guided [--guided-stepwise]] [--reps 3] [--max-new-tokens 512]
               [--trace] [--config <name>] [--model-repo <repo>] [--model-revision <sha>]
         """
 

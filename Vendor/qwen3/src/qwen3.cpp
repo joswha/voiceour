@@ -690,12 +690,14 @@ qwen3_decision decide(qwen3_context * ctx, int32_t row) {
 
 // common_ngram_simple_draft: the pattern is the last size_ngram - 1 tokens of `tokens` plus `sampled`; the
 // latest earlier occurrence (position 0 excluded, the current one skipped) drafts the tokens after it, at most
-// size_mgram and only when at least size_ngram are available.
+// size_mgram and only when at least size_ngram are available. Upstream also refuses to draft while the history
+// holds at most n + m + 1 tokens; that gate left short prompts undrafted at large m. Only the backward search's
+// first candidate (j = cur_len - n - 1 >= 1) is required, and verification keeps the output unchanged.
 void ngram_simple_draft(const std::vector<int32_t> & tokens, int32_t sampled, size_t n, size_t m,
                         std::vector<int32_t> & draft) {
     draft.clear();
     const size_t cur_len = tokens.size();
-    if (cur_len <= n + m + 1) {
+    if (cur_len < n + 2) {
         return;
     }
     size_t match_pos = 0;
@@ -1122,7 +1124,7 @@ qwen3_generate_params qwen3_generate_default_params(void) {
     qwen3_generate_params params;
     params.max_new_tokens = 512;
     params.ngram_n        = 2;
-    params.ngram_m        = 8;
+    params.ngram_m        = 24;
     return params;
 }
 

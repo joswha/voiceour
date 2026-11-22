@@ -149,12 +149,12 @@ struct Qwen3TokenizerTests {
 
 @Suite("Polish command")
 struct PolishCommandTests {
-    @Test func defaultsToNgramDraftingTwoEight() throws {
+    @Test func defaultsToNgramDraftingTwoTwentyFour() throws {
         let command = try PolishCommand.parse([
             "--input", "/tmp/cases.jsonl", "--output", "/tmp/out", "--model", "/tmp/model.gguf",
         ])
         #expect(command.ngram?.n == 2)
-        #expect(command.ngram?.m == 8)
+        #expect(command.ngram?.m == 24)
         #expect(command.reps == 3)
         #expect(command.maxNewTokens == 512)
     }

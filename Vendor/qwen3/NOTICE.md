@@ -61,8 +61,10 @@ Behaviour of the generation loop (`qwen3_generate`), from the polish-lab harness
 
 - Greedy argmax (first maximum) over the whole vocabulary; stop when the EOS (`tokenizer.ggml.eos_token_id`) is
   chosen or `max_new_tokens` are out. Drafting is `common_ngram_simple_draft` with the same pattern, match
-  search, minimum and maximum draft length; the draft is trimmed to the remaining output budget, verified with
-  the fed token in one evaluation, and accepted while each draft equals the argmax before it.
+  search, minimum and maximum draft length, except that it drafts as soon as the history holds n + 2 tokens:
+  upstream waits for n + m + 2, which left short prompts undrafted at large m. The draft is trimmed to the
+  remaining output budget, verified with the fed token in one evaluation, and accepted while each draft equals
+  the argmax before it, so the output equals undrafted greedy decoding. The default draft length is 24 tokens.
 - Voiceour additions: each greedy choice records the runner-up token and both logits (`qwen3_get_decision`), and
   per-call timings count prefill, decode, evaluations, drafted and accepted tokens.
 - Voiceour's separate `qwen3_generate_guided` API restricts greedy choices to a trie of caller-supplied token
