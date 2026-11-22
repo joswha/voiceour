@@ -11,12 +11,18 @@ import IOKit.ps
 /// whitespace trimmed. One process loads the model (`load_ms` counts from process start), runs two warm-ups,
 /// then `reps` repetitions over every case, rep-major. A request's `ms` runs from the input string to the
 /// trimmed output string. Nothing here ships in the app or the sidecar.
+///
+/// With `--guided`, every case also lists `allowed_outputs` and decoding is greedy over those candidates only, as
+/// `PolishGuide` and `qwen3_generate_guided` describe: each output is one of them byte for byte, n-gram drafting
+/// is off, and a request's `ms` also covers encoding and checking the candidates.
 struct PolishCommand {
     var input: URL
     var output: URL
     var model: URL
     /// n-gram drafting (lookup length, draft length); nil decodes one token per evaluation.
     var ngram: (n: Int32, m: Int32)?
+    /// Guided decoding over each case's `allowed_outputs`; nil decodes unguided.
+    var guided: PolishGuidedMode?
     var reps: Int
     var maxNewTokens: Int32
     var trace: Bool
@@ -35,6 +41,8 @@ struct PolishCommand {
         var ngramN: Int32?
         var ngramM: Int32?
         var noNgram = false
+        var guided = false
+        var stepwise = false
         var reps = 3
         var maxNewTokens: Int32 = 512
         var trace = false
@@ -51,6 +59,8 @@ struct PolishCommand {
             case "--ngram-n": ngramN = try positive(parsed, arguments, &index)
             case "--ngram-m": ngramM = try positive(parsed, arguments, &index)
             case "--no-ngram": noNgram = true
+            case "--guided": guided = true
+            case "--guided-stepwise": stepwise = true
             case "--reps": reps = Int(try positive(parsed, arguments, &index))
             case "--max-new-tokens": maxNewTokens = try positive(parsed, arguments, &index)
             case "--trace": trace = true
@@ -67,12 +77,19 @@ struct PolishCommand {
         if noNgram, ngramN != nil || ngramM != nil {
             throw BenchError.usage("--no-ngram excludes --ngram-n and --ngram-m")
         }
+        if stepwise, !guided {
+            throw BenchError.usage("--guided-stepwise requires --guided")
+        }
+        if guided, ngramN != nil || ngramM != nil {
+            throw BenchError.usage("--guided decodes without n-gram drafts; it excludes --ngram-n and --ngram-m")
+        }
         let defaults = qwen3_generate_default_params()
         return PolishCommand(
             input: input,
             output: output,
             model: model,
-            ngram: noNgram ? nil : (ngramN ?? defaults.ngram_n, ngramM ?? defaults.ngram_m),
+            ngram: noNgram || guided ? nil : (ngramN ?? defaults.ngram_n, ngramM ?? defaults.ngram_m),
+            guided: guided ? (stepwise ? .stepwise : .batched) : nil,
             reps: reps,
             maxNewTokens: maxNewTokens,
             trace: trace,
@@ -101,18 +118,38 @@ struct PolishCommand {
             modelPath: model.path, threadCount: Self.threadCount, contextLength: Self.contextLength)
         let tokenizer = try context.makeTokenizer()
         let loadMs = Self.milliseconds(since: processStart)
-        let runner = Runner(context: context, tokenizer: tokenizer, ngram: ngram, maxNewTokens: maxNewTokens)
+        let runner = Runner(
+            context: context, tokenizer: tokenizer, ngram: ngram, maxNewTokens: maxNewTokens, guided: guided)
+        if guided != nil {
+            // Every case's candidates are checked before the first timed request.
+            for polishCase in cases {
+                do {
+                    _ = try PolishGuide.completions(
+                        input: polishCase.input, allowedOutputs: polishCase.allowedOutputs ?? [],
+                        tokenizer: tokenizer, maxNewTokens: maxNewTokens)
+                } catch {
+                    throw BenchError.io("guided case \(polishCase.id): \(error)")
+                }
+            }
+        }
 
         var warmups: [PolishWarmup] = []
         for text in Self.warmups {
-            let result = try runner.polish(text)
+            // A guided warm-up allows only the text itself and runs stepwise, so the single-token graphs a guided
+            // run needs have run once too, not only the prompt-sized ones.
+            let result: PolishResult
+            if guided == nil {
+                result = try runner.polish(text)
+            } else {
+                result = try runner.polishGuided(text, allowedOutputs: [text], mode: .stepwise)
+            }
             warmups.append(PolishWarmup(input: text, output: result.output, ms: result.ms))
         }
 
         var results = Array(repeating: [PolishResult](), count: cases.count)
         for _ in 0..<reps {
             for (index, polishCase) in cases.enumerated() {
-                results[index].append(try runner.polish(polishCase.input))
+                results[index].append(try runner.polish(polishCase))
             }
         }
         let peakFootprintMb = Self.peakFootprintMb()
@@ -127,7 +164,7 @@ struct PolishCommand {
         }
 
         let summary = PolishSummary(
-            config: config ?? ngram.map { "ngram-n\($0.n)-m\($0.m)" } ?? "no-ngram",
+            config: config ?? guided?.config ?? ngram.map { "ngram-n\($0.n)-m\($0.m)" } ?? "no-ngram",
             modelRepo: modelRepo,
             modelRevision: modelRevision,
             weightsFile: model.path,
@@ -154,7 +191,10 @@ struct PolishCommand {
                 contextLength: context.contextLength,
                 threadCount: Int(Self.threadCount),
                 specStats: PolishSpecStats(firstRuns: results.map { $0[0] }),
-                warmup: warmups
+                warmup: warmups,
+                guided: guided.map { mode in
+                    PolishGuidedNotes(mode: mode, firstRuns: results.compactMap { $0[0].guided })
+                }
             )
         )
         let encoder = JSONEncoder()
@@ -177,11 +217,16 @@ struct PolishCommand {
         while let line = try reader.nextLine() {
             lineNumber += 1
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            let polishCase: PolishCase
             do {
-                cases.append(try JSONDecoder().decode(PolishCase.self, from: Data(line.utf8)))
+                polishCase = try JSONDecoder().decode(PolishCase.self, from: Data(line.utf8))
             } catch {
                 throw BenchError.malformedInput(line: lineNumber, detail: BenchError.describe(error))
             }
+            if guided != nil, polishCase.allowedOutputs == nil {
+                throw BenchError.malformedInput(line: lineNumber, detail: "--guided needs allowed_outputs")
+            }
+            cases.append(polishCase)
         }
         guard !cases.isEmpty else { throw BenchError.io("no cases in \(input.path)") }
         return cases
@@ -193,6 +238,13 @@ struct PolishCommand {
         let tokenizer: Qwen3Tokenizer
         let ngram: (n: Int32, m: Int32)?
         let maxNewTokens: Int32
+        let guided: PolishGuidedMode?
+
+        /// One request for `polishCase`: guided over its `allowed_outputs` when the runner is guided.
+        func polish(_ polishCase: PolishCase) throws -> PolishResult {
+            guard let guided else { return try polish(polishCase.input) }
+            return try polishGuided(polishCase.input, allowedOutputs: polishCase.allowedOutputs ?? [], mode: guided)
+        }
 
         func polish(_ input: String) throws -> PolishResult {
             let start = DispatchTime.now().uptimeNanoseconds
@@ -207,6 +259,38 @@ struct PolishCommand {
                 ms: Double(end - start) / 1_000_000,
                 prompt: prompt,
                 generation: generation
+            )
+        }
+
+        /// One guided request: prompt and candidate encoding and checks, constrained greedy generation, and the
+        /// output checked against the chosen candidate byte for byte, timed end to end.
+        func polishGuided(_ input: String, allowedOutputs: [String], mode: PolishGuidedMode) throws -> PolishResult {
+            let start = DispatchTime.now().uptimeNanoseconds
+            let prompt = tokenizer.encode("text: " + input + "\nout:")
+            let completions = try PolishGuide.completions(
+                input: input, allowedOutputs: allowedOutputs, tokenizer: tokenizer, maxNewTokens: maxNewTokens)
+            let generation = try context.generateGuided(
+                prompt: prompt, candidates: completions, maxNewTokens: maxNewTokens,
+                batchesForcedTokens: mode == .batched, isCancelled: { false })
+            let output = try PolishGuide.output(
+                tokens: generation.tokens, candidate: generation.candidate, completions: completions,
+                allowedOutputs: allowedOutputs, tokenizer: tokenizer)
+            let end = DispatchTime.now().uptimeNanoseconds
+            return PolishResult(
+                output: output,
+                ms: Double(end - start) / 1_000_000,
+                prompt: prompt,
+                generation: Qwen3Generation(
+                    tokens: generation.tokens,
+                    decisions: [],
+                    prefillMs: generation.prefillMs,
+                    decodeMs: generation.decodeMs,
+                    evaluations: generation.evaluations,
+                    drafted: 0,
+                    accepted: 0
+                ),
+                guided: PolishGuidedRun(
+                    candidate: generation.candidate, completions: completions, steps: generation.steps)
             )
         }
     }
@@ -278,6 +362,13 @@ struct PolishCommand {
 struct PolishCase: Decodable {
     var id: String
     var input: String
+    /// `--guided` only, and ignored without it: the outputs decoding may produce, the input itself among them.
+    var allowedOutputs: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, input
+        case allowedOutputs = "allowed_outputs"
+    }
 }
 
 struct PolishResult {
@@ -285,10 +376,13 @@ struct PolishResult {
     var ms: Double
     var prompt: [Int32]
     var generation: Qwen3Generation
+    var guided: PolishGuidedRun? = nil
 }
 
 /// One `rows.jsonl` line, the lab harness's schema: the first repetition's output and token counts, and the
-/// median of each timing over the repetitions.
+/// median of each timing over the repetitions. Guided rows add the first repetition's chosen candidate (its index
+/// in `allowed_outputs`), the candidate count, the choices read from logits, how many of those the constraint
+/// overrode, and the smallest logit margin of a real choice (absent when no step had one).
 struct PolishRow: Encodable {
     var id: String
     var output: String
@@ -298,6 +392,11 @@ struct PolishRow: Encodable {
     var outputTokens: Int
     var prefillMs: Double
     var decodeMs: Double
+    var candidate: Int?
+    var candidates: Int?
+    var guidedSteps: Int?
+    var overriddenSteps: Int?
+    var minMargin: Double?
 
     init(id: String, runs: [PolishResult]) {
         self.id = id
@@ -308,25 +407,38 @@ struct PolishRow: Encodable {
         outputTokens = runs[0].generation.tokens.count
         prefillMs = PolishStatistics.median(runs.map(\.generation.prefillMs))
         decodeMs = PolishStatistics.median(runs.map(\.generation.decodeMs))
+        if let guided = runs[0].guided {
+            candidate = guided.candidate
+            candidates = guided.completions.count
+            guidedSteps = guided.steps.count
+            overriddenSteps = guided.overriddenSteps
+            minMargin = guided.minimumMargin
+        }
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, output, ms
+        case id, output, ms, candidate, candidates
         case msAll = "ms_all"
         case promptTokens = "prompt_tokens"
         case outputTokens = "output_tokens"
         case prefillMs = "prefill_ms"
         case decodeMs = "decode_ms"
+        case guidedSteps = "guided_steps"
+        case overriddenSteps = "overridden_steps"
+        case minMargin = "min_margin"
     }
 }
 
 /// One `trace.jsonl` line (`--trace`): the first repetition's prompt and output ids and every greedy choice as
-/// `[token, runner_up, logit, runner_up_logit]`.
+/// `[token, runner_up, logit, runner_up_logit]`. Guided lines have no greedy choices; they add every candidate's
+/// completion ids and the guided steps.
 struct PolishTrace: Encodable {
     var id: String
     var promptIds: [Int32]
     var outputIds: [Int32]
     var decisions: [[Double]]
+    var candidateIds: [[Int32]]?
+    var guidedSteps: [PolishTraceStep]?
 
     init(id: String, run: PolishResult) {
         self.id = id
@@ -335,12 +447,18 @@ struct PolishTrace: Encodable {
         decisions = run.generation.decisions.map {
             [Double($0.token), Double($0.runnerUp), Double($0.logit), Double($0.runnerUpLogit)]
         }
+        if let guided = run.guided {
+            candidateIds = guided.completions
+            guidedSteps = guided.steps.map(PolishTraceStep.init)
+        }
     }
 
     enum CodingKeys: String, CodingKey {
         case id, decisions
         case promptIds = "prompt_ids"
         case outputIds = "output_ids"
+        case candidateIds = "candidate_ids"
+        case guidedSteps = "guided_steps"
     }
 }
 
@@ -455,9 +573,11 @@ struct PolishNotes: Encodable {
     var threadCount: Int
     var specStats: PolishSpecStats
     var warmup: [PolishWarmup]
+    /// `--guided` only; absent from unguided summaries.
+    var guided: PolishGuidedNotes? = nil
 
     enum CodingKeys: String, CodingKey {
-        case prompt, cases, reps, ubatch, warmup
+        case prompt, cases, reps, ubatch, warmup, guided
         case maxNewTokens = "max_new_tokens"
         case ngramN = "ngram_n"
         case ngramM = "ngram_m"
@@ -483,6 +603,7 @@ struct PolishNotes: Encodable {
         try container.encode(threadCount, forKey: .threadCount)
         try container.encode(specStats, forKey: .specStats)
         try container.encode(warmup, forKey: .warmup)
+        try container.encodeIfPresent(guided, forKey: .guided)
     }
 }
 

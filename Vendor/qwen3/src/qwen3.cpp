@@ -1,5 +1,5 @@
-// qwen3.cpp — public C API: model lifetime, backends, weight mapping, the KV cache and greedy generation with
-// n-gram self-drafting.
+// qwen3.cpp — public C API: model lifetime, backends, weight mapping, the KV cache, greedy generation with
+// n-gram self-drafting and guided generation over a candidate trie.
 //
 // Adapted from llama.cpp (MIT, Copyright (c) 2023-2026 The ggml authors) b12606 at
 // e412c6f468b7b9e0f16f2540244236f8ad68e9ae: src/llama-model.cpp and src/llama-model-loader.cpp (backend
@@ -7,7 +7,8 @@
 // src/llama-kv-cache.cpp (F16 cache allocation and clearing, n_kv padding, causal mask, seq_rm rollback),
 // src/llama-context.cpp (graph reuse, ubatch split, logits readout), common/ngram-map.cpp
 // (common_ngram_simple_draft) and the polish-lab harness's decode loop over libllama. Logging mirrors
-// Vendor/granite's sink. See Vendor/qwen3/LICENSE and Vendor/qwen3/NOTICE.md.
+// Vendor/granite's sink. Guided generation (the candidate trie and its constrained greedy loop) is Voiceour's
+// own and has no upstream counterpart. See Vendor/qwen3/LICENSE and Vendor/qwen3/NOTICE.md.
 #include "qwen3-impl.h"
 
 #include "ggml-alloc.h"
@@ -90,6 +91,19 @@ double ms_between(Clock::time_point a, Clock::time_point b) {
 
 }  // namespace
 
+namespace qwen3 {
+
+// A node of the guided-generation trie: the token that leads to it, its children as a sibling list sorted by
+// token id, and the candidate that ends at it (-1 when none does). Node 0 is the root.
+struct GuideNode {
+    int32_t token        = -1;
+    int32_t first_child  = -1;
+    int32_t next_sibling = -1;
+    int32_t candidate    = -1;
+};
+
+}  // namespace qwen3
+
 struct qwen3_context {
     qwen3::HParams hp;
     qwen3::Weights weights;
@@ -131,6 +145,12 @@ struct qwen3_context {
     std::vector<int32_t>        output;
     std::vector<qwen3_decision> decisions;
     qwen3_timings               timings = {};
+
+    // Guided generation: the candidate trie, the tokens appended since the last evaluation, and the results.
+    std::vector<qwen3::GuideNode>  guide;
+    std::vector<int32_t>           pending;
+    std::vector<qwen3_guided_step> guided_steps;
+    int32_t                        guided_candidate = -1;
 };
 
 namespace {
@@ -705,6 +725,22 @@ void ngram_simple_draft(const std::vector<int32_t> & tokens, int32_t sampled, si
     }
 }
 
+// Feeds tokens[0, n) at positions n_past.. in batches of at most kUbatch tokens; only the last batch produces
+// logits, for its last token.
+qwen3_status feed(qwen3_context * ctx, const int32_t * tokens, int32_t n, int32_t n_past,
+                  qwen3_abort_callback abort_callback, void * abort_user_data) {
+    for (int32_t start = 0; start < n; start += kUbatch) {
+        const int32_t count = std::min(kUbatch, n - start);
+        const bool    last  = start + count == n;
+        ctx->batch.assign(tokens + start, tokens + start + count);
+        const qwen3_status status = eval(ctx, n_past + start, last ? 1 : 0, abort_callback, abort_user_data);
+        if (status != QWEN3_OK) {
+            return status;
+        }
+    }
+    return QWEN3_OK;
+}
+
 qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt, qwen3_generate_params params,
                       qwen3_abort_callback abort_callback, void * abort_user_data) {
     const auto t0 = Clock::now();
@@ -712,14 +748,9 @@ qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_pro
     const int32_t eos = ctx->vocab.eos_id;
 
     // Prefill in ubatches; only the last one produces logits, for its last token.
-    for (int32_t start = 0; start < n_prompt; start += kUbatch) {
-        const int32_t n    = std::min(kUbatch, n_prompt - start);
-        const bool    last = start + n == n_prompt;
-        ctx->batch.assign(prompt + start, prompt + start + n);
-        const qwen3_status status = eval(ctx, start, last ? 1 : 0, abort_callback, abort_user_data);
-        if (status != QWEN3_OK) {
-            return status;
-        }
+    const qwen3_status prefilled = feed(ctx, prompt, n_prompt, 0, abort_callback, abort_user_data);
+    if (prefilled != QWEN3_OK) {
+        return prefilled;
     }
     qwen3_decision d = decide(ctx, 0);
     ctx->decisions.push_back(d);
@@ -795,10 +826,209 @@ qwen3_status generate(qwen3_context * ctx, const int32_t * prompt, int32_t n_pro
     return QWEN3_OK;
 }
 
+// Builds ctx->guide, the trie of the candidates' token sequences, each child list sorted by token id. Returns
+// false, logged, when two candidates are equal.
+bool build_guide(qwen3_context * ctx, const int32_t * tokens, const int32_t * lengths, int32_t n_candidates) {
+    std::vector<qwen3::GuideNode> & g = ctx->guide;
+    g.clear();
+    g.emplace_back();
+    const int32_t * candidate = tokens;
+    for (int32_t c = 0; c < n_candidates; ++c) {
+        int32_t node = 0;
+        for (int32_t k = 0; k < lengths[c]; ++k) {
+            const int32_t token = candidate[k];
+            int32_t       prev  = -1;
+            int32_t       child = g[static_cast<size_t>(node)].first_child;
+            while (child >= 0 && g[static_cast<size_t>(child)].token < token) {
+                prev  = child;
+                child = g[static_cast<size_t>(child)].next_sibling;
+            }
+            if (child < 0 || g[static_cast<size_t>(child)].token != token) {
+                qwen3::GuideNode added;
+                added.token        = token;
+                added.next_sibling = child;
+                const int32_t id   = static_cast<int32_t>(g.size());
+                g.push_back(added);
+                if (prev < 0) {
+                    g[static_cast<size_t>(node)].first_child = id;
+                } else {
+                    g[static_cast<size_t>(prev)].next_sibling = id;
+                }
+                child = id;
+            }
+            node = child;
+        }
+        candidate += lengths[c];
+        if (g[static_cast<size_t>(node)].candidate >= 0) {
+            log(QWEN3_LOG_ERROR, "guided candidate %d repeats candidate %d", c, g[static_cast<size_t>(node)].candidate);
+            return false;
+        }
+        g[static_cast<size_t>(node)].candidate = c;
+    }
+    return true;
+}
+
+// The child of trie node `node` reached by `token`, or -1.
+int32_t guide_child(const qwen3_context * ctx, int32_t node, int32_t token) {
+    const std::vector<qwen3::GuideNode> & g = ctx->guide;
+    for (int32_t c = g[static_cast<size_t>(node)].first_child; c >= 0; c = g[static_cast<size_t>(c)].next_sibling) {
+        if (g[static_cast<size_t>(c)].token >= token) {
+            return g[static_cast<size_t>(c)].token == token ? c : -1;
+        }
+    }
+    return -1;
+}
+
+// The guided choice at trie node `node` from output row `row` of the last evaluation: the allowed option (the
+// node's children, and the EOS where a candidate ends) with the highest logit, the lowest id among equal
+// logits; the best other allowed option; and the unconstrained argmax beside them.
+qwen3_guided_step guided_step(qwen3_context * ctx, int32_t node, int32_t row, int32_t position) {
+    const qwen3_decision unconstrained = decide(ctx, row);  // reads the row into ctx->logits
+    const float *        l             = ctx->logits.data();
+    qwen3_guided_step    s;
+    s.position            = position;
+    s.n_options           = 0;
+    s.token               = -1;
+    s.runner_up           = -1;
+    s.unconstrained_token = unconstrained.token;
+    s.logit               = -std::numeric_limits<float>::infinity();
+    s.runner_up_logit     = -std::numeric_limits<float>::infinity();
+    s.unconstrained_logit = unconstrained.logit;
+    const auto consider   = [&s, l](int32_t t) {
+        const float v = l[t];
+        ++s.n_options;
+        if (s.token < 0 || v > s.logit || (v == s.logit && t < s.token)) {
+            s.runner_up       = s.token;
+            s.runner_up_logit = s.logit;
+            s.token           = t;
+            s.logit           = v;
+        } else if (s.runner_up < 0 || v > s.runner_up_logit || (v == s.runner_up_logit && t < s.runner_up)) {
+            s.runner_up       = t;
+            s.runner_up_logit = v;
+        }
+    };
+    const std::vector<qwen3::GuideNode> & g = ctx->guide;
+    for (int32_t c = g[static_cast<size_t>(node)].first_child; c >= 0; c = g[static_cast<size_t>(c)].next_sibling) {
+        consider(g[static_cast<size_t>(c)].token);
+    }
+    if (g[static_cast<size_t>(node)].candidate >= 0) {
+        consider(ctx->vocab.eos_id);
+    }
+    return s;
+}
+
+// Greedy generation over ctx->guide. Every step's choice is an allowed option, so the walk descends one trie level
+// per output token and ends at a candidate's end: the depth bound (max_new_tokens) and the context bound
+// (n_prompt + max_new_tokens <= n_ctx) checked by the caller hold throughout.
+qwen3_status generate_guided(qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt, bool batch_forced,
+                             qwen3_abort_callback abort_callback, void * abort_user_data) {
+    const auto                            t0  = Clock::now();
+    const int32_t                         eos = ctx->vocab.eos_id;
+    const std::vector<qwen3::GuideNode> & g   = ctx->guide;
+
+    const qwen3_status prefilled = feed(ctx, prompt, n_prompt, 0, abort_callback, abort_user_data);
+    if (prefilled != QWEN3_OK) {
+        return prefilled;
+    }
+    int32_t node = 0;
+    ctx->guided_steps.push_back(guided_step(ctx, node, 0, 0));
+    const auto t_prefill = Clock::now();
+
+    int32_t n_past = n_prompt;
+    while (ctx->guided_steps.back().token != eos) {
+        // Append the chosen token; with batch_forced, also every following token that is its node's only option.
+        ctx->pending.clear();
+        int32_t tok = ctx->guided_steps.back().token;
+        for (;;) {
+            node = guide_child(ctx, node, tok);
+            ctx->output.push_back(tok);
+            ctx->pending.push_back(tok);
+            const qwen3::GuideNode & n = g[static_cast<size_t>(node)];
+            const bool only_child =
+                n.candidate < 0 && n.first_child >= 0 && g[static_cast<size_t>(n.first_child)].next_sibling < 0;
+            if (!batch_forced || !only_child) {
+                break;
+            }
+            tok = g[static_cast<size_t>(n.first_child)].token;
+        }
+        if (batch_forced && g[static_cast<size_t>(node)].first_child < 0) {
+            break;  // a candidate's end with no longer candidate through it: the EOS is the only option
+        }
+        const int32_t      n_fed  = static_cast<int32_t>(ctx->pending.size());
+        const qwen3_status status = feed(ctx, ctx->pending.data(), n_fed, n_past, abort_callback, abort_user_data);
+        if (status != QWEN3_OK) {
+            return status;
+        }
+        ctx->timings.n_evals += (n_fed + kUbatch - 1) / kUbatch;
+        n_past += n_fed;
+        ctx->guided_steps.push_back(guided_step(ctx, node, 0, static_cast<int32_t>(ctx->output.size())));
+    }
+    const auto t_end = Clock::now();
+
+    ctx->guided_candidate   = g[static_cast<size_t>(node)].candidate;
+    ctx->timings.prefill_ms = ms_between(t0, t_prefill);
+    ctx->timings.decode_ms  = ms_between(t_prefill, t_end);
+    ctx->timings.n_prompt   = n_prompt;
+    ctx->timings.n_output   = static_cast<int32_t>(ctx->output.size());
+    return QWEN3_OK;
+}
+
 void clear_results(qwen3_context * ctx) {
     ctx->output.clear();
     ctx->decisions.clear();
-    ctx->timings = {};
+    ctx->guided_steps.clear();
+    ctx->guided_candidate = -1;
+    ctx->timings          = {};
+}
+
+// Checks the request fields qwen3_generate and qwen3_generate_guided share; logs the first violation.
+bool valid_prompt(const qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt, int32_t max_new_tokens) {
+    if (prompt == nullptr || n_prompt < 1 || max_new_tokens < 1 ||
+        static_cast<int64_t>(n_prompt) + max_new_tokens > ctx->kv.n_ctx) {
+        log(QWEN3_LOG_ERROR, "invalid generation request (n_prompt=%d, max_new_tokens=%d, n_ctx=%d)", n_prompt,
+            max_new_tokens, ctx->kv.n_ctx);
+        return false;
+    }
+    for (int32_t i = 0; i < n_prompt; ++i) {
+        if (prompt[i] < 0 || prompt[i] >= ctx->hp.n_vocab) {
+            log(QWEN3_LOG_ERROR, "prompt token %d is outside the vocabulary", prompt[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+// Checks the guided candidate arrays against qwen3_generate_guided's rules, except uniqueness, which
+// build_guide checks; logs the first violation.
+bool valid_candidates(const qwen3_context * ctx, const int32_t * tokens, const int32_t * lengths,
+                      int32_t n_candidates, int32_t max_new_tokens) {
+    if (tokens == nullptr || lengths == nullptr || n_candidates < 1) {
+        log(QWEN3_LOG_ERROR, "guided generation needs at least one candidate (n_candidates=%d)", n_candidates);
+        return false;
+    }
+    int64_t total = 0;
+    for (int32_t c = 0; c < n_candidates; ++c) {
+        if (lengths[c] < 1 || lengths[c] > max_new_tokens) {
+            log(QWEN3_LOG_ERROR, "guided candidate %d has %d tokens; each needs 1 to max_new_tokens (%d)", c,
+                lengths[c], max_new_tokens);
+            return false;
+        }
+        total += lengths[c];
+    }
+    if (total >= std::numeric_limits<int32_t>::max()) {
+        log(QWEN3_LOG_ERROR, "guided candidates hold too many tokens (%lld)", static_cast<long long>(total));
+        return false;
+    }
+    for (int64_t i = 0; i < total; ++i) {
+        const int32_t t = tokens[i];
+        if (t < 0 || t >= ctx->hp.n_vocab || t == ctx->vocab.eos_id ||
+            static_cast<size_t>(t) >= ctx->vocab.types.size() ||
+            ctx->vocab.types[static_cast<size_t>(t)] != QWEN3_TOKEN_NORMAL) {
+            log(QWEN3_LOG_ERROR, "guided candidate token %d is not a normal vocabulary token", t);
+            return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace
@@ -903,18 +1133,12 @@ qwen3_status qwen3_generate(qwen3_context * ctx, const int32_t * prompt, int32_t
         return QWEN3_ERR_INVALID_ARGUMENT;
     }
     clear_results(ctx);
-    if (prompt == nullptr || n_prompt < 1 || params.max_new_tokens < 1 || params.ngram_n < 0 ||
-        (params.ngram_n > 0 && params.ngram_m < 1) ||
-        static_cast<int64_t>(n_prompt) + params.max_new_tokens > ctx->kv.n_ctx) {
-        log(QWEN3_LOG_ERROR, "invalid generation request (n_prompt=%d, max_new_tokens=%d, ngram %d/%d, n_ctx=%d)",
-            n_prompt, params.max_new_tokens, params.ngram_n, params.ngram_m, ctx->kv.n_ctx);
+    if (params.ngram_n < 0 || (params.ngram_n > 0 && params.ngram_m < 1)) {
+        log(QWEN3_LOG_ERROR, "invalid n-gram drafting (ngram %d/%d)", params.ngram_n, params.ngram_m);
         return QWEN3_ERR_INVALID_ARGUMENT;
     }
-    for (int32_t i = 0; i < n_prompt; ++i) {
-        if (prompt[i] < 0 || prompt[i] >= ctx->hp.n_vocab) {
-            log(QWEN3_LOG_ERROR, "prompt token %d is outside the vocabulary", prompt[i]);
-            return QWEN3_ERR_INVALID_ARGUMENT;
-        }
+    if (!valid_prompt(ctx, prompt, n_prompt, params.max_new_tokens)) {
+        return QWEN3_ERR_INVALID_ARGUMENT;
     }
     qwen3_status status = QWEN3_ERR_BACKEND;
     try {
@@ -928,6 +1152,62 @@ qwen3_status qwen3_generate(qwen3_context * ctx, const int32_t * prompt, int32_t
         clear_results(ctx);
     }
     return status;
+}
+
+qwen3_guided_params qwen3_guided_default_params(void) {
+    qwen3_guided_params params;
+    params.max_new_tokens = 512;
+    params.batch_forced   = true;
+    return params;
+}
+
+qwen3_status qwen3_generate_guided(qwen3_context * ctx, const int32_t * prompt, int32_t n_prompt,
+                                   const int32_t * candidate_tokens, const int32_t * candidate_lengths,
+                                   int32_t n_candidates, qwen3_guided_params params,
+                                   qwen3_abort_callback abort_callback, void * abort_user_data) {
+    if (ctx == nullptr) {
+        return QWEN3_ERR_INVALID_ARGUMENT;
+    }
+    clear_results(ctx);
+    if (!valid_prompt(ctx, prompt, n_prompt, params.max_new_tokens) ||
+        !valid_candidates(ctx, candidate_tokens, candidate_lengths, n_candidates, params.max_new_tokens)) {
+        return QWEN3_ERR_INVALID_ARGUMENT;
+    }
+    qwen3_status status = QWEN3_ERR_BACKEND;
+    try {
+        if (!build_guide(ctx, candidate_tokens, candidate_lengths, n_candidates)) {
+            status = QWEN3_ERR_INVALID_ARGUMENT;
+        } else {
+            status = generate_guided(ctx, prompt, n_prompt, params.batch_forced, abort_callback, abort_user_data);
+        }
+    } catch (const std::bad_alloc &) {
+        log(QWEN3_LOG_ERROR, "out of memory while generating");
+    } catch (...) {
+        log(QWEN3_LOG_ERROR, "unexpected exception while generating");
+    }
+    if (status != QWEN3_OK) {
+        clear_results(ctx);
+    }
+    return status;
+}
+
+int32_t qwen3_guided_candidate(const qwen3_context * ctx) {
+    return ctx != nullptr ? ctx->guided_candidate : -1;
+}
+
+int32_t qwen3_n_guided_steps(const qwen3_context * ctx) {
+    return ctx != nullptr ? static_cast<int32_t>(ctx->guided_steps.size()) : 0;
+}
+
+qwen3_guided_step qwen3_get_guided_step(const qwen3_context * ctx, int32_t i) {
+    if (ctx == nullptr || i < 0 || static_cast<size_t>(i) >= ctx->guided_steps.size()) {
+        qwen3_guided_step none   = {};
+        none.token               = -1;
+        none.runner_up           = -1;
+        none.unconstrained_token = -1;
+        return none;
+    }
+    return ctx->guided_steps[static_cast<size_t>(i)];
 }
 
 int32_t qwen3_n_output(const qwen3_context * ctx) {

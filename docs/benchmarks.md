@@ -517,3 +517,9 @@ all existing History ids, without their text. Explicit `collect` runs save only 
 with unseen ids. `seal` ends collection; `status` checks the seal. The cohort stays private, outside Git. A collection
 gap is possible if History's 500 entries turn over between runs. This is a bench protocol, not an app feature.
 [README › What happens to the words](../README.md#what-happens-to-the-words) still applies.
+
+`voiceour-bench polish --guided` accepts an `allowed_outputs` array on every case. The array includes the original
+input and contains at most 128 distinct candidate strings. The runner returns one candidate byte for byte, including
+when one candidate is a prefix of another. It checks tokenization and length before inference. It does not judge
+whether the candidates preserve meaning. `--guided-stepwise` evaluates each token; ordinary guided mode batches
+forced tokens between choices. Neither mode uses n-gram drafts. The ordinary greedy runner remains the default.

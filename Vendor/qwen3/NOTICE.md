@@ -65,6 +65,10 @@ Behaviour of the generation loop (`qwen3_generate`), from the polish-lab harness
   the fed token in one evaluation, and accepted while each draft equals the argmax before it.
 - Voiceour additions: each greedy choice records the runner-up token and both logits (`qwen3_get_decision`), and
   per-call timings count prefill, decode, evaluations, drafted and accepted tokens.
+- Voiceour's separate `qwen3_generate_guided` API restricts greedy choices to a trie of caller-supplied token
+  sequences. EOS is available only at candidate ends. This is a Voiceour experiment, not a llama.cpp guarantee
+  about the meaning of candidates. Stepwise and batched execution both stay in the trie. The latter feeds
+  forced tokens together, so logits at later branches can differ slightly with evaluation batch size.
 
 Removed upstream features (not reachable from this API): batching several sequences, sampling, LoRA, fused
 QKV and bias tensors, rerank/embedding heads, RoPE scaling (YaRN, linear factor != 1), quantized KV types,

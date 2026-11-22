@@ -1,5 +1,6 @@
 // qwen3.h — Voiceour's native Qwen3 decoder for the bench-only polish runner: greedy generation with
-// optional n-gram self-drafting, one request per call.
+// optional n-gram self-drafting, or greedy generation restricted to a finite set of candidate completions, one
+// request per call.
 //
 // Adapted from llama.cpp (MIT) b12606 at e412c6f468b7b9e0f16f2540244236f8ad68e9ae, built against the ggml
 // vendored in Vendor/ggml (0.19.0). See Vendor/qwen3/NOTICE.md. Nothing in the app or the sidecar links it.
@@ -19,7 +20,8 @@ struct qwen3_context;
 enum qwen3_status {
     QWEN3_OK = 0,
     // Null context, an empty prompt, a token id outside the vocabulary, a prompt plus max_new_tokens that
-    // does not fit the context, or out-of-range generation parameters.
+    // does not fit the context, out-of-range generation parameters, or a guided candidate set that breaks
+    // qwen3_generate_guided's rules.
     QWEN3_ERR_INVALID_ARGUMENT = 1,
     // The abort callback returned true before a graph evaluation.
     QWEN3_ERR_CANCELLED = 2,
@@ -125,7 +127,8 @@ enum qwen3_status qwen3_generate(struct qwen3_context * ctx,
                                  qwen3_abort_callback abort_callback,
                                  void * abort_user_data);
 
-// Output tokens of the last call, EOS excluded. Valid until the next generate or free; NULL when empty.
+// Output tokens of the last call, EOS excluded: the greedy output, or the chosen candidate's tokens after
+// qwen3_generate_guided. Valid until the next generate or free; NULL when empty.
 int32_t qwen3_n_output(const struct qwen3_context * ctx);
 const int32_t * qwen3_output(const struct qwen3_context * ctx);
 
@@ -138,7 +141,8 @@ struct qwen3_decision {
     float runner_up_logit;
 };
 
-// Decisions of the last call: qwen3_n_output, plus one when it stopped at the EOS token.
+// Decisions of the last qwen3_generate call: qwen3_n_output, plus one when it stopped at the EOS token. 0 after
+// qwen3_generate_guided, which records steps instead.
 int32_t qwen3_n_decisions(const struct qwen3_context * ctx);
 
 // i in [0, qwen3_n_decisions). Returns a zeroed decision (token -1) when out of range.
@@ -150,12 +154,74 @@ struct qwen3_timings {
     int32_t n_prompt;    // prompt tokens
     int32_t n_output;    // output tokens
     int32_t n_evals;     // decode-loop graph evaluations
-    int32_t n_drafted;   // drafted tokens fed for verification
-    int32_t n_accepted;  // drafted tokens kept
+    int32_t n_drafted;   // drafted tokens fed for verification (0 after qwen3_generate_guided)
+    int32_t n_accepted;  // drafted tokens kept (0 after qwen3_generate_guided)
 };
 
 // Timings of the last call; zeroed for NULL or before any call.
 struct qwen3_timings qwen3_get_timings(const struct qwen3_context * ctx);
+
+// ---------------------------------------------------------------------------------------------------------
+// Guided generation: greedy decoding restricted to a finite set of candidate completions.
+
+struct qwen3_guided_params {
+    int32_t max_new_tokens;  // >= 1 and >= every candidate's length: guided generation never truncates
+    bool    batch_forced;    // feed each run of tokens that are their trie node's only option in one evaluation
+};
+
+// max_new_tokens = 512, batch_forced = true.
+struct qwen3_guided_params qwen3_guided_default_params(void);
+
+// Greedy generation for one prompt, fed as qwen3_generate feeds it, over the token trie of n_candidates
+// completions built for this call. Candidate i is candidate_lengths[i] token ids, stored back to back in
+// candidate_tokens. Every candidate needs 1..max_new_tokens tokens, each a NORMAL vocabulary token (never the
+// EOS, a control, user-defined, unknown, unused or byte token), and no two candidates may be equal. Validity is
+// token-level only: the call knows nothing about whether a candidate is a good output.
+//
+// At every trie node the allowed options are the node's child tokens plus the EOS when a candidate ends there.
+// The choice is the allowed option with the highest logit, the lowest id among equal logits, so the output is
+// always one whole candidate followed by the EOS: never truncated, never a prefix, never anything else. No
+// n-gram draft is fed. With batch_forced, a token that is its node's only option is appended without reading
+// logits and fed in one evaluation with the tokens before it (prompt-sized ubatches), and a candidate end where
+// nothing but the EOS is allowed ends the call without another evaluation; batches of different sizes can differ
+// numerically, as drafting can. Without it, every output token and the EOS are chosen from the logits of the
+// evaluation that fed the token before them, one token per evaluation, as qwen3_generate without drafting.
+//
+// Requires n_prompt >= 1 and n_prompt + max_new_tokens <= n_ctx. Results replace the previous call's, including
+// on failure, which leaves no outputs, steps or candidate. After success the outputs are the chosen candidate's
+// tokens, qwen3_guided_candidate is its index, there is one step per choice read from logits, and the timings
+// count prefill, decode and decode-loop evaluations.
+enum qwen3_status qwen3_generate_guided(struct qwen3_context * ctx,
+                                        const int32_t * prompt,
+                                        int32_t n_prompt,
+                                        const int32_t * candidate_tokens,
+                                        const int32_t * candidate_lengths,
+                                        int32_t n_candidates,
+                                        struct qwen3_guided_params params,
+                                        qwen3_abort_callback abort_callback,
+                                        void * abort_user_data);
+
+// Index of the candidate the last call produced: -1 after qwen3_generate, a failure or for NULL.
+int32_t qwen3_guided_candidate(const struct qwen3_context * ctx);
+
+// One guided choice read from logits. Output positions without a step were their node's only option and were
+// appended under batch_forced; so was the EOS when no step has position == qwen3_n_output.
+struct qwen3_guided_step {
+    int32_t position;             // output index the step chose; qwen3_n_output for the EOS
+    int32_t n_options;            // allowed options at the step's node, the EOS included where a candidate ends
+    int32_t token;                // the chosen option
+    int32_t runner_up;            // the best other allowed option; -1 when n_options == 1
+    int32_t unconstrained_token;  // the argmax over the whole vocabulary, qwen3_generate's choice from these logits
+    float   logit;
+    float   runner_up_logit;      // -INFINITY when runner_up == -1
+    float   unconstrained_logit;
+};
+
+// Steps of the last call; 0 after qwen3_generate.
+int32_t qwen3_n_guided_steps(const struct qwen3_context * ctx);
+
+// i in [0, qwen3_n_guided_steps). Returns a zeroed step (tokens -1) when out of range.
+struct qwen3_guided_step qwen3_get_guided_step(const struct qwen3_context * ctx, int32_t i);
 
 #ifdef __cplusplus
 }

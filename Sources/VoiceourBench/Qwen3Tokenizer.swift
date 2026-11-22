@@ -179,6 +179,12 @@ struct Qwen3Tokenizer: Sendable {
         String(decoding: decodeBytes(ids), as: UTF8.self)
     }
 
+    /// Whether `id` is a normal vocabulary piece, plain text: never a control, user-defined, unknown, unused or
+    /// byte token.
+    func isNormalToken(_ id: Int32) -> Bool {
+        decoded[id] != nil && !userTokens.contains { $0.id == id }
+    }
+
     // MARK: Qwen2 pre-tokenizer
 
     /// Splits `scalars` into the pre-tokens of the Qwen2 regex

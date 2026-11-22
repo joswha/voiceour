@@ -45,6 +45,37 @@ struct Qwen3Generation {
     var accepted: Int
 }
 
+/// One choice of a guided generation read from logits (`qwen3_guided_step`).
+struct Qwen3GuidedStep: Equatable {
+    /// Output index the step chose; the output length for the EOS.
+    var position: Int
+    /// Allowed options at the step's trie node, the EOS included where a candidate ends.
+    var optionCount: Int
+    var token: Int32
+    /// The best other allowed option; -1 when `optionCount == 1`.
+    var runnerUp: Int32
+    /// The argmax over the whole vocabulary: what unconstrained greedy decoding picks from the same logits.
+    var unconstrainedToken: Int32
+    var logit: Float
+    /// `-infinity` when `runnerUp == -1`.
+    var runnerUpLogit: Float
+    var unconstrainedLogit: Float
+}
+
+/// One `qwen3_generate_guided` call's results, copied out of the context.
+struct Qwen3GuidedGeneration {
+    /// The chosen candidate's tokens, the EOS excluded.
+    var tokens: [Int32]
+    /// Index of the chosen candidate.
+    var candidate: Int
+    /// Every choice read from logits; tokens without a step were their node's only option.
+    var steps: [Qwen3GuidedStep]
+    var prefillMs: Double
+    var decodeMs: Double
+    /// Decode-loop graph evaluations.
+    var evaluations: Int
+}
+
 /// Owns one `qwen3_context`: a Qwen3 decoder on the vendored ggml, for the bench-only polish runner.
 ///
 /// `qwen3_generate` replaces the context's previous results, so a context serves one generation at a time; the
@@ -128,22 +159,108 @@ final class Qwen3Context {
                 )
             }
         }
+        try check(status) { "\(prompt.count) prompt tokens, max \(maxNewTokens) new" }
+        return collectGeneration()
+    }
+
+    /// Greedy generation for `prompt` restricted to `candidates`, each a nonempty token sequence, as
+    /// `qwen3_generate_guided` describes. With `batchesForcedTokens`, tokens that are their trie node's only option
+    /// are fed together without reading their logits; without it every token is chosen from its own evaluation.
+    /// Cancellation is polled before every graph evaluation, never inside one.
+    func generateGuided(
+        prompt: [Int32], candidates: [[Int32]], maxNewTokens: Int32, batchesForcedTokens: Bool,
+        isCancelled: @escaping () -> Bool
+    ) throws -> Qwen3GuidedGeneration {
+        guard let promptCount = Int32(exactly: prompt.count) else {
+            throw Qwen3ContextError.invalidArgument("\(prompt.count) prompt tokens exceed one native call")
+        }
+        guard let candidateCount = Int32(exactly: candidates.count) else {
+            throw Qwen3ContextError.invalidArgument("\(candidates.count) guided candidates exceed one native call")
+        }
+        var lengths: [Int32] = []
+        lengths.reserveCapacity(candidates.count)
+        var tokens: [Int32] = []
+        tokens.reserveCapacity(candidates.reduce(0) { $0 + $1.count })
+        for candidate in candidates {
+            guard let length = Int32(exactly: candidate.count) else {
+                throw Qwen3ContextError.invalidArgument("a \(candidate.count)-token candidate exceeds one native call")
+            }
+            lengths.append(length)
+            tokens.append(contentsOf: candidate)
+        }
+        var params = qwen3_guided_default_params()
+        params.max_new_tokens = maxNewTokens
+        params.batch_forced = batchesForcedTokens
+        var cancellation = Qwen3CancellationBridge(isCancelled: isCancelled)
+        let status = withUnsafeMutablePointer(to: &cancellation) { bridge in
+            prompt.withUnsafeBufferPointer { promptBuffer in
+                tokens.withUnsafeBufferPointer { tokenBuffer in
+                    lengths.withUnsafeBufferPointer { lengthBuffer in
+                        qwen3_generate_guided(
+                            context,
+                            promptBuffer.baseAddress,
+                            promptCount,
+                            tokenBuffer.baseAddress,
+                            lengthBuffer.baseAddress,
+                            candidateCount,
+                            params,
+                            { userData in
+                                guard let userData else { return false }
+                                let holder = userData.assumingMemoryBound(to: Qwen3CancellationBridge.self)
+                                return holder.pointee.isCancelled()
+                            },
+                            UnsafeMutableRawPointer(bridge)
+                        )
+                    }
+                }
+            }
+        }
+        try check(status) {
+            "\(prompt.count) prompt tokens, \(candidates.count) guided candidates, max \(maxNewTokens) new"
+        }
+        let steps = (0..<qwen3_n_guided_steps(context)).map { index in
+            let step = qwen3_get_guided_step(context, index)
+            return Qwen3GuidedStep(
+                position: Int(step.position),
+                optionCount: Int(step.n_options),
+                token: step.token,
+                runnerUp: step.runner_up,
+                unconstrainedToken: step.unconstrained_token,
+                logit: step.logit,
+                runnerUpLogit: step.runner_up_logit,
+                unconstrainedLogit: step.unconstrained_logit
+            )
+        }
+        let timings = qwen3_get_timings(context)
+        return Qwen3GuidedGeneration(
+            tokens: outputTokens(),
+            candidate: Int(qwen3_guided_candidate(context)),
+            steps: steps,
+            prefillMs: timings.prefill_ms,
+            decodeMs: timings.decode_ms,
+            evaluations: Int(timings.n_evals)
+        )
+    }
+
+    /// Maps a native status to success or the matching error; `detail` describes an invalid-argument request.
+    private func check(_ status: qwen3_status, invalidArgument detail: () -> String) throws {
         switch status {
-        case QWEN3_OK: return collectGeneration()
-        case QWEN3_ERR_INVALID_ARGUMENT:
-            throw Qwen3ContextError.invalidArgument("\(prompt.count) prompt tokens, max \(maxNewTokens) new")
+        case QWEN3_OK: return
+        case QWEN3_ERR_INVALID_ARGUMENT: throw Qwen3ContextError.invalidArgument(detail())
         case QWEN3_ERR_CANCELLED: throw Qwen3ContextError.cancelled
         case QWEN3_ERR_BACKEND: throw Qwen3ContextError.backendFailed
         default: throw Qwen3ContextError.unexpectedStatus(status.rawValue)
         }
     }
 
-    private func collectGeneration() -> Qwen3Generation {
+    /// The last call's output tokens, the EOS excluded.
+    private func outputTokens() -> [Int32] {
         let count = Int(qwen3_n_output(context))
-        var tokens: [Int32] = []
-        if count > 0, let pointer = qwen3_output(context) {
-            tokens = Array(UnsafeBufferPointer(start: pointer, count: count))
-        }
+        guard count > 0, let pointer = qwen3_output(context) else { return [] }
+        return Array(UnsafeBufferPointer(start: pointer, count: count))
+    }
+
+    private func collectGeneration() -> Qwen3Generation {
         let decisions = (0..<qwen3_n_decisions(context)).map { index in
             let decision = qwen3_get_decision(context, index)
             return Qwen3Decision(
@@ -155,7 +272,7 @@ final class Qwen3Context {
         }
         let timings = qwen3_get_timings(context)
         return Qwen3Generation(
-            tokens: tokens,
+            tokens: outputTokens(),
             decisions: decisions,
             prefillMs: timings.prefill_ms,
             decodeMs: timings.decode_ms,

@@ -101,6 +101,11 @@ struct Qwen3TokenizerTests {
         return (try Qwen3Tokenizer(tokens: tokens, merges: merges), fixture.cases)
     }
 
+    /// The fixture's tokenizer, for suites that need real Qwen3 pieces without a model.
+    static func fixtureTokenizer() throws -> Qwen3Tokenizer {
+        try load().tokenizer
+    }
+
     @Test func encodesEveryFixtureTextAsTheReferenceTokenizer() throws {
         let (tokenizer, cases) = try Self.load()
         #expect(cases.count >= 20)
