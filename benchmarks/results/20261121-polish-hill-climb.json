@@ -25,8 +25,8 @@
  "sets": {
   "agent36": "bench/polish/cases/agent36.jsonl, 36 held-out hand-written cases",
   "v1-test": "1,000 synthetic pairs from v1's generator (lab)",
-  "sol-test": "874 gpt-6.2-sol pairs, seed 1001, held out from every model (lab)",
-  "history": "the owner's 498 English History dictations, private; sha256(id) first hex digit 0-7 is the dev half (248), 8-f the test half (250); dev for failure analysis and model selection, test scored only"
+  "sol-test": "874 gpt-6.2-sol pairs, seed 1001, separately generated. A later normalized overlap screen found 7 entire pairs in v5 training; 852 test cases had no input or target match on either side of training.",
+  "history": "the owner's 498 English History dictations, private; sha256(id) first hex digit 0-7 is the dev half (248), 8-f the previous test half (250). Test aggregate scores influenced stopping, so neither half is a fresh confirmation set."
  },
  "metrics": {
   "rejected": "outputs verify() refuses as a whole",
